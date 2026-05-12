@@ -17,4 +17,4 @@ RUN mkdir -p /app/storage/barcodes
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && python -m app.db.seed && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "if [ -f /app/backend/alembic.ini ]; then cd /app/backend; fi; alembic upgrade head && python -m app.db.seed && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
