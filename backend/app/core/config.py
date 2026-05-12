@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -12,6 +13,19 @@ class Settings(BaseSettings):
     JWT_EXPIRES_MINUTES: int = 1440
     CORS_ORIGINS: str = "http://localhost:3000"
     BARCODE_STORAGE_DIR: str = "/app/storage/barcodes"
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_bool(cls, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "t", "yes", "y", "on"}:
+                return True
+            if normalized in {"0", "false", "f", "no", "n", "off", "falce", "fasle", "flase"}:
+                return False
+        return value
 
     @property
     def cors_origins_list(self) -> list[str]:
