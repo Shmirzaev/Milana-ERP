@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { height: 100%; }
+body { @apply bg-slate-50 text-slate-800 antialiased; }
+
+.btn { @apply inline-flex items-center px-3 py-2 rounded-md text-sm font-medium border border-slate-300 bg-white hover:bg-slate-100; }
+.btn-primary { @apply bg-brand-500 text-white border-brand-500 hover:bg-brand-600; }
+.btn-danger { @apply bg-red-600 text-white border-red-600 hover:bg-red-700; }
+.card { @apply bg-white rounded-lg border border-slate-200 shadow-sm; }
+.input { @apply w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500; }
+.label { @apply block text-xs font-medium text-slate-600 mb-1; }
+.badge { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700; }
+.badge-green { @apply bg-green-100 text-green-800; }
+.badge-yellow { @apply bg-yellow-100 text-yellow-800; }
+.badge-blue { @apply bg-blue-100 text-blue-800; }
+.badge-red { @apply bg-red-100 text-red-800; }
+.table { @apply w-full text-sm text-left; }
+.table thead th { @apply px-3 py-2 text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200; }
+.table tbody td { @apply px-3 py-2 border-b border-slate-100; }

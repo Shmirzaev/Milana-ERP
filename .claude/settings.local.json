@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pip install --quiet reportlab)",
+      "Bash(python -c \"import reportlab; print\\('OK', reportlab.__version__\\)\")",
+      "Bash(python docs/generate_training_guide.py)",
+      "Bash(python -m pip install --quiet pypdf)",
+      "Bash(python -c \"from pypdf import PdfReader; r = PdfReader\\(r'C:\\\\ERP\\\\docs\\\\Textile_ERP_Training_Guide.pdf'\\); print\\('Pages:', len\\(r.pages\\)\\); print\\('Title:', r.metadata.title\\); print\\('Author:', r.metadata.author\\); print\\('---First-page sample---'\\); print\\(r.pages[0].extract_text\\(\\)[:300]\\)\")"
+    ]
+  }
+}

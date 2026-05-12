@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: erp
+      POSTGRES_PASSWORD: erp
+      POSTGRES_DB: erp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp -d erp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://erp:erp@db:5432/erp
+      JWT_SECRET: change-me-in-production-please
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRES_MINUTES: 1440
+      APP_NAME: "Milana ERP"
+      DEBUG: "true"
+      CORS_ORIGINS: "http://localhost:3000"
+      BARCODE_STORAGE_DIR: "/app/storage/barcodes"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - barcode_storage:/app/storage/barcodes
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: "http://backend:8000"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  pgdata:
+  barcode_storage:
