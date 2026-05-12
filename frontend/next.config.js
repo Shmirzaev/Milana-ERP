@@ -1,15 +1,19 @@
 /** @type {import('next').NextConfig} */
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const withScheme = /^https?:\/\//i.test(rawApiUrl) ? rawApiUrl : `http://${rawApiUrl}`;
+const apiBaseUrl = withScheme.replace(/\/+$/, "");
+
 const nextConfig = {
   reactStrictMode: true,
   async rewrites() {
     return [
       {
         source: "/api/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/:path*`,
+        destination: `${apiBaseUrl}/api/:path*`,
       },
       {
         source: "/storage/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/storage/:path*`,
+        destination: `${apiBaseUrl}/storage/:path*`,
       },
     ];
   },

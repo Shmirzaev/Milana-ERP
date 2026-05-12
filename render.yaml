@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: milana-erp-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    preDeployCommand: alembic upgrade head && python -m app.db.seed
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: milana-erp-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_EXPIRES_MINUTES
+        value: "1440"
+      - key: APP_NAME
+        value: Milana ERP
+      - key: DEBUG
+        value: "false"
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: BARCODE_STORAGE_DIR
+        value: /opt/render/project/src/backend/storage/barcodes
+
+  - type: web
+    name: milana-erp-frontend
+    runtime: node
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci --legacy-peer-deps && npm run build
+    startCommand: npm run start -- -p $PORT
+    healthCheckPath: /login
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: milana-erp-backend
+          property: hostport
+      - key: NODE_ENV
+        value: production
+
+databases:
+  - name: milana-erp-db
+    plan: free
