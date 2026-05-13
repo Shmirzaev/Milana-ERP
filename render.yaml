@@ -41,7 +41,7 @@ services:
         fromService:
           type: web
           name: milana-erp-backend
-          property: hostport
+          envVarKey: RENDER_EXTERNAL_URL
       - key: NODE_ENV
         value: production
 
