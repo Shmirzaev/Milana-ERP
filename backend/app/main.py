@@ -1,12 +1,52 @@
 import os
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.api.router import api_router
+from app.db.session import engine
+from app.db.base import Base
+from app.db import schema_hotfix
+import app.models  # noqa: F401 — register models with metadata
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("startup")
 
 app = FastAPI(title=settings.APP_NAME, version="0.1.0")
+
+
+@app.on_event("startup")
+def _on_startup() -> None:
+    """Bring the DB schema up to date with the codebase.
+
+    Runs in this order:
+      1. `create_all` — adds any brand-new TABLE that doesn't exist yet.
+      2. `schema_hotfix.run` — adds any new COLUMN to existing tables via
+         idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+
+    This makes the backend self-migrating on Render's free tier where we have
+    no Shell access. Safe to run on every boot.
+    """
+    try:
+        Base.metadata.create_all(bind=engine)
+        log.info("startup: create_all complete")
+    except Exception as e:
+        log.exception("startup: create_all failed: %s", e)
+    try:
+        schema_hotfix.run(engine)
+    except Exception as e:
+        log.exception("startup: schema_hotfix failed: %s", e)
+    # Best-effort: run the seed so new roles/permissions/sewing-flows propagate
+    # on every restart. The seed is idempotent (insert-if-missing) and
+    # permission-refreshing.
+    if os.environ.get("RUN_SEED_ON_STARTUP", "true").lower() != "false":
+        try:
+            from app.db.seed import seed as _seed
+            _seed()
+        except Exception as e:
+            log.exception("startup: seed failed: %s", e)
 
 cors_origins = settings.cors_origins_list
 allow_all_cors = "*" in cors_origins

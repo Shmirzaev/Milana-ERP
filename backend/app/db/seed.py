@@ -56,6 +56,13 @@ SEWING_FLOWS = [
 
 def seed():
     Base.metadata.create_all(bind=engine)
+    # Apply column-level patches to existing tables (Render free tier has no
+    # Shell, so we can't run ALTER TABLE by hand).
+    try:
+        from app.db import schema_hotfix
+        schema_hotfix.run(engine)
+    except Exception as e:
+        print(f"seed: schema_hotfix skipped — {e}")
     db: Session = SessionLocal()
     try:
         # ----- Departments -----
