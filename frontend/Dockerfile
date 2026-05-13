@@ -9,6 +9,8 @@ RUN if [ -f /app/frontend/package.json ]; then cp -R /app/frontend/. /app/; fi \
  && npm ci --legacy-peer-deps \
  && npm run build
 
+RUN chmod +x /app/docker-entrypoint.sh
+
 EXPOSE 3000
 
-CMD ["sh", "-c", "npm run start -- -p ${PORT:-3000}"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
