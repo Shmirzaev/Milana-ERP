@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -8,10 +9,21 @@ import { useT } from "@/lib/i18n";
 
 export default function WorkOrdersPage() {
   const { t } = useT();
+  const searchParams = useSearchParams();
+  // Allow ?dept=CUT|PRT|SEW|PKG|FGS to pre-filter from the sidebar.
+  const deptCode = searchParams?.get("dept") ?? "";
+  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const [dept, setDept] = useState<string>("");
+
+  // Once departments arrive, translate code → id (only if URL had a code).
+  useEffect(() => {
+    if (!deptCode || !depts) return;
+    const match = depts.find((d) => d.code === deptCode);
+    if (match) setDept(String(match.id));
+  }, [deptCode, depts]);
+
   const url = dept ? `/api/work-orders?department_id=${dept}` : "/api/work-orders";
   const { data } = useSWR<any[]>(url, fetcher);
-  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
 
   function opLabel(op: string) {
     if (op === "cutting") return t("dash.cutting");
@@ -42,6 +54,8 @@ export default function WorkOrdersPage() {
               <th>{t("field.output")}</th>
               <th>{t("field.passed")}</th>
               <th>{t("field.failed")}</th>
+              <th>{t("field.deadline")}</th>
+              <th>{t("field.line")}</th>
               <th>{t("field.actions")}</th>
             </tr>
           </thead>
@@ -55,6 +69,8 @@ export default function WorkOrdersPage() {
                 <td>{w.actual_output_qty}</td>
                 <td>{w.passed_qty}</td>
                 <td>{w.failed_qty}</td>
+                <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "—"}</td>
+                <td>{w.sewing_flow_id ?? "—"}</td>
                 <td>
                   {w.operation === "cutting" && <Link href={`/work-orders/${w.id}/cutting`} className="text-brand-600 hover:underline">{t("dash.cutting")}</Link>}
                   {w.operation === "printing" && <Link href={`/work-orders/${w.id}/printing`} className="text-brand-600 hover:underline">{t("dash.printing")}</Link>}

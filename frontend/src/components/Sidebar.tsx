@@ -12,6 +12,7 @@ const SECTIONS: Section[] = [
     titleKey: "section.overview",
     items: [
       { href: "/", labelKey: "nav.dashboard" },
+      { href: "/processes", labelKey: "nav.processes", perms: ["processes.view", "*"] },
     ],
   },
   {
@@ -44,14 +45,36 @@ const SECTIONS: Section[] = [
       { href: "/inventory/batches", labelKey: "nav.batches", perms: ["storage.items"] },
     ],
   },
+  // Per-department production sections — each replaces the old "Production" bucket.
   {
-    titleKey: "section.production",
+    titleKey: "section.cutting",
     items: [
-      { href: "/work-orders", labelKey: "nav.workOrders" },
-      { href: "/bundles", labelKey: "nav.bundles" },
-      { href: "/bundles/scan", labelKey: "nav.scanBundle" },
-      { href: "/packages", labelKey: "nav.packages" },
-      { href: "/packages/scan", labelKey: "nav.scanPackage" },
+      { href: "/work-orders?dept=CUT", labelKey: "nav.cuttingFloor", perms: ["cutting.records", "cutting.bundles", "planning.production"] },
+      { href: "/bundles", labelKey: "nav.bundles", perms: ["cutting.bundles", "cutting.records", "planning.production"] },
+      { href: "/bundles/scan", labelKey: "nav.scanBundle", perms: ["cutting.bundles", "cutting.records"] },
+    ],
+  },
+  {
+    titleKey: "section.printing",
+    items: [
+      { href: "/work-orders?dept=PRT", labelKey: "nav.printingFloor", perms: ["printing.records", "printing.bundles", "planning.production"] },
+      { href: "/bundles/scan", labelKey: "nav.scanBundle", perms: ["printing.bundles", "printing.records"] },
+    ],
+  },
+  {
+    titleKey: "section.sewing",
+    items: [
+      { href: "/sewing/flows", labelKey: "nav.sewingFlows", perms: ["sewing.records", "sewing.bundles", "planning.production", "sewing.flows"] },
+      { href: "/work-orders?dept=SEW", labelKey: "nav.sewingFloor", perms: ["sewing.records", "sewing.bundles", "planning.production"] },
+      { href: "/bundles/scan", labelKey: "nav.scanBundle", perms: ["sewing.bundles", "sewing.records"] },
+    ],
+  },
+  {
+    titleKey: "section.packaging",
+    items: [
+      { href: "/work-orders?dept=PKG", labelKey: "nav.packagingFloor", perms: ["packaging.records", "packaging.packages", "planning.production"] },
+      { href: "/packages", labelKey: "nav.packages", perms: ["packaging.packages", "packaging.records"] },
+      { href: "/packages/scan", labelKey: "nav.scanPackage", perms: ["packaging.packages", "packaging.records"] },
     ],
   },
   {
@@ -99,9 +122,10 @@ export default function Sidebar() {
             <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-2">{t(sec.titleKey)}</div>
             <ul className="space-y-1">
               {visible.map((it) => {
-                const active = pathname === it.href || (it.href !== "/" && pathname?.startsWith(it.href));
+                const basePath = it.href.split("?")[0];
+                const active = pathname === basePath || (basePath !== "/" && pathname?.startsWith(basePath));
                 return (
-                  <li key={it.href}>
+                  <li key={`${sec.titleKey}-${it.href}`}>
                     <Link
                       href={it.href}
                       className={`block px-3 py-1.5 rounded text-sm ${active ? "bg-brand-600 text-white" : "hover:bg-slate-800"}`}

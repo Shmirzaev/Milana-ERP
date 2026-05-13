@@ -51,7 +51,9 @@ class WorkOrder(Base, PkMixin, TimestampMixin):
     rework_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     assigned_to: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    sewing_flow_id: Mapped[int | None] = mapped_column(ForeignKey("sewing_flows.id"))
     notes: Mapped[str | None] = mapped_column(Text)
 
     production_order: Mapped["ProductionOrder"] = relationship("ProductionOrder", back_populates="work_orders")

@@ -21,6 +21,7 @@ from app.models.tracking import (
 )
 from app.models.waste import WasteRecord, WasteSale, WasteDisposalRequest
 from app.models.tasks import Task
+from app.models.sewing_flow import SewingFlow
 
 __all__ = [
     "Role", "Department", "User", "Employee", "AuditLog", "Notification",
@@ -34,4 +35,5 @@ __all__ = [
     "FinishedGoodsStock", "StockReservation",
     "WasteRecord", "WasteSale", "WasteDisposalRequest",
     "Task",
+    "SewingFlow",
 ]

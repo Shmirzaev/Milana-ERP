@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     auth, admin, partners, catalog, inventory, sales, planning, production,
     bundles, packages, finished_goods, shipments, waste, finance, dashboards, hr, barcode,
-    tasks, notifications,
+    tasks, notifications, sewing_flows, process_tracking,
 )
 
 api_router = APIRouter(prefix="/api")
@@ -26,3 +26,5 @@ api_router.include_router(hr.router)
 api_router.include_router(barcode.router)
 api_router.include_router(tasks.router)
 api_router.include_router(notifications.router)
+api_router.include_router(sewing_flows.router)
+api_router.include_router(process_tracking.router)

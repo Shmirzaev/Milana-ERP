@@ -64,7 +64,9 @@ class WorkOrderOut(ORMModel):
     rework_qty: int
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+    deadline: Optional[datetime] = None
     assigned_to: Optional[int] = None
+    sewing_flow_id: Optional[int] = None
     notes: Optional[str] = None
 
 
@@ -76,6 +78,8 @@ class ProductionOrderDetail(ProductionOrderOut):
 class WorkOrderUpdate(BaseModel):
     status: Optional[str] = None
     assigned_to: Optional[int] = None
+    sewing_flow_id: Optional[int] = None
+    deadline: Optional[datetime] = None
     notes: Optional[str] = None
     actual_input_qty: Optional[int] = None
     actual_output_qty: Optional[int] = None

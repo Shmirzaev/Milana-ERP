@@ -10,7 +10,7 @@ import app.models  # noqa
 from app.models import (
     Role, Department, User, Customer, Supplier, Warehouse, Item,
     Brand, Collection, Model, ModelSize, ModelColor, ModelBOM,
-    SalesOrder, SalesOrderItem, StockBatch,
+    SalesOrder, SalesOrderItem, StockBatch, SewingFlow,
 )
 
 
@@ -27,10 +27,13 @@ ROLES = {
     "Admin": ["*"],
     "Management": [
         "management.view", "management.approve", "finance.view", "admin.audit",
-        "tasks.manage",
+        "tasks.manage", "processes.view", "sewing.flows",
     ],
-    "Sales": ["sales.orders", "sales.customers"],
-    "Planning": ["planning.requirements", "planning.production", "planning.view"],
+    "Sales": ["sales.orders", "sales.customers", "processes.view"],
+    "Planning": [
+        "planning.requirements", "planning.production", "planning.view",
+        "processes.view", "sewing.flows",
+    ],
     "Modeling": ["modeling.models", "modeling.bom", "modeling.brands", "modeling.collections", "modeling.approve"],
     "Storage": ["storage.receive", "storage.transfer", "storage.items", "storage.suppliers", "storage.packages", "storage.shipment"],
     "Cutting": ["cutting.records", "cutting.bundles"],
@@ -42,6 +45,12 @@ ROLES = {
     "Finance": ["finance.view", "finance.invoice", "finance.payment"],
     "HR": ["hr.employees"],
 }
+
+
+SEWING_FLOWS = [
+    # 30 production lines. Naming: Line 01 .. Line 30
+    (f"Line {i:02d}", f"SEW-{i:02d}") for i in range(1, 31)
+]
 
 
 def seed():
@@ -200,6 +209,16 @@ def seed():
                             quantity_per_piece=0.02, unit="roll", waste_percent=5.0))
             db.add(ModelBOM(model_id=model.id, item_id=item_map["PKG-BAG-001"].id,
                             quantity_per_piece=1, unit="pcs", waste_percent=0.0))
+
+        # ----- 30 Sewing Flows -----
+        for name, code in SEWING_FLOWS:
+            if not db.query(SewingFlow).filter(SewingFlow.code == code).first():
+                db.add(SewingFlow(
+                    name=name, code=code,
+                    description=f"Sewing flow {name}",
+                    capacity_per_day=200,
+                    is_active=True,
+                ))
 
         # ----- Sample Sales Order -----
         if not db.query(SalesOrder).first():
