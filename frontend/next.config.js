@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
-const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const defaultApiUrl =
+  process.env.RENDER === "true"
+    ? "https://milana-erp.onrender.com"
+    : "http://localhost:8000";
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || defaultApiUrl;
 const withScheme = /^https?:\/\//i.test(rawApiUrl) ? rawApiUrl : `http://${rawApiUrl}`;
 const apiBaseUrl = withScheme.replace(/\/+$/, "");
 
