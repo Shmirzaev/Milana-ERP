@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -8,8 +9,13 @@ from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
 from app.services.audit import log_action
+from app.db.reset_demo import reset_to_seed
 
 router = APIRouter(tags=["admin"])
+
+
+class ResetDemoIn(BaseModel):
+    confirm: str
 
 
 # ===== Users =====
@@ -125,3 +131,13 @@ def list_audit_logs(db: DbSession, _: User = Depends(require_permissions("admin.
         }
         for r in rows
     ]
+
+
+@router.post("/admin/reset-test-data")
+def reset_test_data(payload: ResetDemoIn, _: User = Depends(require_permissions("*"))):
+    expected = "RESET MILANA ERP"
+    if payload.confirm.strip().upper() != expected:
+        raise HTTPException(400, f'Invalid confirmation. Send "{expected}" in confirm.')
+
+    summary = reset_to_seed()
+    return {"message": "System reset complete", **summary}
