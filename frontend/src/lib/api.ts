@@ -1,12 +1,6 @@
-const defaultApiBase =
-  process.env.NODE_ENV === "production" ? "https://milana-erp.onrender.com" : "";
-const API_BASE = String(process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || defaultApiBase || "")
-  .trim()
-  .replace(/\/+$/, "");
-
 function resolveUrl(path: string): string {
   if (path.startsWith("http")) return path;
-  if (API_BASE && path.startsWith("/")) return `${API_BASE}${path}`;
+  // Always use same-origin `/api` proxy routes in the browser to avoid CORS.
   return path;
 }
 
