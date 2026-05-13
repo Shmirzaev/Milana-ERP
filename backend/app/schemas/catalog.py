@@ -167,6 +167,7 @@ class ModelIn(BaseModel):
     category: Optional[str] = None
     description: Optional[str] = None
     status: str = "draft"
+    sam_minutes: float = 0
 
 
 class ModelOut(ORMModel):
@@ -176,6 +177,7 @@ class ModelOut(ORMModel):
     category: Optional[str] = None
     description: Optional[str] = None
     status: str
+    sam_minutes: float = 0
     created_by: Optional[int] = None
     approved_by: Optional[int] = None
     approved_at: Optional[datetime] = None

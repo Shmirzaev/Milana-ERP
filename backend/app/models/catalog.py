@@ -36,6 +36,9 @@ class Model(Base, PkMixin, TimestampMixin):
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Standard Allowed Minutes per piece. Used by planning to estimate sewing
+    # duration accurately instead of the static 45% share.
+    sam_minutes: Mapped[float] = mapped_column(Numeric(8, 2), default=0, nullable=False)
 
     images: Mapped[list["ModelImage"]] = relationship("ModelImage", back_populates="model", cascade="all, delete-orphan")
     sizes: Mapped[list["ModelSize"]] = relationship("ModelSize", back_populates="model", cascade="all, delete-orphan")

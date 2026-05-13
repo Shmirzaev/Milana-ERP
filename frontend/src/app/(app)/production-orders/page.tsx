@@ -24,6 +24,8 @@ export default function ProductionOrdersPage() {
   const { t } = useT();
   const isAdmin = can(me, "*");
   const { data, mutate } = useSWR<PO[]>("/api/production-orders", fetcher);
+  const { data: models } = useSWR<any[]>("/api/models", fetcher);
+  const modelMap = new Map((models ?? []).map((m) => [m.id, m]));
 
   const [editing, setEditing] = useState<PO | null>(null);
   const [edit, setEdit] = useState({ status: "new", planned_quantity: 0, deadline: "" });
@@ -66,7 +68,10 @@ export default function ProductionOrdersPage() {
               <tr key={p.id}>
                 <td className="font-medium">{p.production_no}</td>
                 <td><span className="badge badge-blue">{p.production_type}</span></td>
-                <td>{p.model_id}</td>
+                <td>
+                  <div className="font-medium text-sm">{modelMap.get(p.model_id)?.code ?? p.model_id}</div>
+                  <div className="text-xs text-slate-500">{modelMap.get(p.model_id)?.name ?? ""}</div>
+                </td>
                 <td>{p.planned_quantity}</td>
                 <td><span className="badge">{p.status}</span></td>
                 <td>{p.deadline ? new Date(p.deadline).toLocaleDateString() : "—"}</td>

@@ -67,6 +67,8 @@ class WorkOrderOut(ORMModel):
     deadline: Optional[datetime] = None
     assigned_to: Optional[int] = None
     sewing_flow_id: Optional[int] = None
+    is_blocked: bool = False
+    block_reason: Optional[str] = None
     notes: Optional[str] = None
 
 

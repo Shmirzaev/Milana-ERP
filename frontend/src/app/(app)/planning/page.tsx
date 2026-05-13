@@ -10,7 +10,7 @@ export default function PlanningDashboard() {
   const { data: dash } = useSWR<any>("/api/dashboard/planning", fetcher);
   const { data: orders } = useSWR<any[]>("/api/sales-orders?status=confirmed", fetcher);
   const { data: models } = useSWR<any[]>("/api/models?status=approved", fetcher);
-  const [brandedForm, setBrandedForm] = useState({ model_id: 0, planned_quantity: 100, size: "M", color: "white" });
+  const [brandedForm, setBrandedForm] = useState({ model_id: 0, planned_quantity: 100, size: "M", color: "white", deadline: "" });
 
   async function createPOForSO(soId: number) {
     const so = await api.get(`/api/sales-orders/${soId}`);
@@ -39,9 +39,13 @@ export default function PlanningDashboard() {
       production_type: "branded_stock",
       model_id: brandedForm.model_id,
       planned_quantity: brandedForm.planned_quantity,
+      deadline: brandedForm.deadline || null,
       items: [{ model_id: brandedForm.model_id, color: brandedForm.color, size: brandedForm.size, planned_quantity: brandedForm.planned_quantity }],
     });
     await api.post(`/api/production-orders/${po.id}/create-work-orders?include_printing=false`);
+    if (brandedForm.deadline) {
+      try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
+    }
     window.location.href = `/production-orders/${po.id}`;
   }
 
@@ -73,7 +77,7 @@ export default function PlanningDashboard() {
 
       <div className="card p-4">
         <h2 className="font-medium mb-3">{t("page.planning.brandedSection")}</h2>
-        <form onSubmit={createBranded} className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <form onSubmit={createBranded} className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <select className="input" value={brandedForm.model_id} onChange={(e) => setBrandedForm({ ...brandedForm, model_id: Number(e.target.value) })} required>
             <option value={0}>{t("ph.approvedModel")}</option>
             {models?.map((m) => <option key={m.id} value={m.id}>{m.code} — {m.name}</option>)}
@@ -81,6 +85,7 @@ export default function PlanningDashboard() {
           <input className="input" placeholder={t("field.color")} value={brandedForm.color} onChange={(e) => setBrandedForm({ ...brandedForm, color: e.target.value })} />
           <input className="input" placeholder={t("field.size")} value={brandedForm.size} onChange={(e) => setBrandedForm({ ...brandedForm, size: e.target.value })} />
           <input className="input" type="number" value={brandedForm.planned_quantity} onChange={(e) => setBrandedForm({ ...brandedForm, planned_quantity: Number(e.target.value) })} />
+          <input className="input" type="date" value={brandedForm.deadline} onChange={(e) => setBrandedForm({ ...brandedForm, deadline: e.target.value })} title={t("field.deadline")} />
           <button className="btn btn-primary">{t("btn.createBrandedPlan")}</button>
         </form>
       </div>

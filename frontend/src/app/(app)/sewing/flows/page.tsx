@@ -37,7 +37,9 @@ export default function SewingFlowsPage() {
     <div>
       <PageHeader title={t("page.sewingFlows.title")} subtitle={t("page.sewingFlows.subtitle")} />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {flows?.map((f) => (
+        {flows?.map((f) => {
+          const pctDone = f.planned_units > 0 ? Math.min(100, Math.round(100 * f.completed_units / f.planned_units)) : 0;
+          return (
           <div key={f.id} className="card p-4">
             <div className="flex items-start justify-between mb-2">
               <div>
@@ -66,6 +68,11 @@ export default function SewingFlowsPage() {
                 <dd>{f.capacity_per_day}</dd>
               </div>
             </dl>
+            {/* Progress: done / planned */}
+            <div className="w-full h-2 bg-slate-100 rounded overflow-hidden mb-2" title={`${pctDone}% done`}>
+              <div className="h-full bg-brand-500" style={{ width: `${pctDone}%` }} />
+            </div>
+            <FlowUtilization flowId={f.id} />
             <button
               type="button"
               className="btn w-full justify-center"
@@ -75,7 +82,30 @@ export default function SewingFlowsPage() {
             </button>
             {expanded === f.id && <FlowDetail flowId={f.id} />}
           </div>
-        ))}
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function FlowUtilization({ flowId }: { flowId: number }) {
+  const { data } = useSWR<{ committed_today: number; capacity_per_day: number; utilization_pct: number }>(
+    `/api/sewing-flows/${flowId}/utilization`,
+    fetcher,
+    { refreshInterval: 60_000 },
+  );
+  if (!data) return null;
+  const pct = Math.min(100, data.utilization_pct);
+  const color = pct < 70 ? "bg-green-500" : pct < 100 ? "bg-amber-500" : "bg-red-600";
+  return (
+    <div className="mb-2">
+      <div className="flex justify-between text-[10px] text-slate-500 mb-0.5">
+        <span>Utilization today</span>
+        <span>{data.committed_today}/{data.capacity_per_day} ({data.utilization_pct}%)</span>
+      </div>
+      <div className="w-full h-1.5 bg-slate-100 rounded overflow-hidden">
+        <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );

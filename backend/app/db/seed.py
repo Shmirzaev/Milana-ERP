@@ -28,6 +28,7 @@ ROLES = {
     "Management": [
         "management.view", "management.approve", "finance.view", "admin.audit",
         "tasks.manage", "processes.view", "sewing.flows",
+        "production.override_deadline",
     ],
     "Sales": ["sales.orders", "sales.customers", "processes.view"],
     "Planning": [

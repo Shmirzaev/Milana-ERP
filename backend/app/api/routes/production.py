@@ -21,6 +21,26 @@ from app.services.packages import create_package
 router = APIRouter(tags=["production"])
 
 
+def _gate_record_submission(wo: WorkOrder, user) -> None:
+    """Reject record submission when the WO is blocked or past deadline.
+
+    Users with `production.override_deadline` (e.g. Management / Admin) bypass
+    the deadline check. Blocked WOs always require an explicit unblock first.
+    """
+    from app.core.deps import is_admin, user_permissions
+    if wo.is_blocked:
+        raise HTTPException(409, f"Work order is blocked: {wo.block_reason or 'no reason given'}")
+    if wo.deadline and wo.status not in ("completed", "rejected", "cancelled"):
+        if wo.deadline < datetime.now(timezone.utc):
+            perms = user_permissions(user)
+            if not (is_admin(user) or "production.override_deadline" in perms):
+                raise HTTPException(
+                    409,
+                    f"Work order is past its deadline ({wo.deadline.isoformat()}). "
+                    "Management override required.",
+                )
+
+
 # ===== Production Orders =====
 @router.get("/production-orders", response_model=list[ProductionOrderOut])
 def list_pos(db: DbSession, _: CurrentUser, status: str | None = None, production_type: str | None = None, page: int = 1, page_size: int = 50):
@@ -93,10 +113,11 @@ _OP_DURATION_SHARE = {
 def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     """Distribute the PO deadline backwards across each work order's deadline.
 
-    Algorithm: anchor on the PO deadline as the *final* due date. Walk the
-    operation sequence backwards, subtracting each stage's share of the total
-    horizon (PO.start_date or 30 days back from deadline if not set).
+    If the model has a non-zero `sam_minutes`, sewing duration is computed from
+    SAM × quantity. Other stages fill the remaining horizon proportionally.
+    Otherwise the static 20/10/45/15/10 share is used.
     """
+    from app.models import Model as ModelEntity  # local import to avoid cycles
     po = db.get(ProductionOrder, pid)
     if not po: raise HTTPException(404, "Production order not found")
     if not po.deadline:
@@ -106,29 +127,43 @@ def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_p
     start = po.start_date or (end - timedelta(days=30))
     if start >= end:
         raise HTTPException(400, "start_date must be before deadline")
-    total_days = (end - start).total_seconds() / 86400.0
+    total_seconds = (end - start).total_seconds()
 
-    # Map operation -> WorkOrder for the present POs we already have
+    model_obj = db.get(ModelEntity, po.model_id)
+    sam = float(model_obj.sam_minutes) if model_obj else 0.0
+    qty = int(po.planned_quantity or 0)
+
+    if sam > 0 and qty > 0:
+        # Sewing: SAM × qty minutes, capped at 70% of total horizon.
+        sew_seconds = min(total_seconds * 0.7, sam * qty * 60.0)
+        other_seconds = max(0.0, total_seconds - sew_seconds)
+        others = {op: s for op, s in _OP_DURATION_SHARE.items() if op != "sewing"}
+        s_sum = sum(others.values()) or 1.0
+        per_op = {op: other_seconds * (s / s_sum) for op, s in others.items()}
+        per_op["sewing"] = sew_seconds
+    else:
+        per_op = {op: total_seconds * _OP_DURATION_SHARE.get(op, 0.2) for op in _OP_SEQUENCE}
+
     wos_by_op: dict[str, WorkOrder] = {}
     for w in db.query(WorkOrder).filter(WorkOrder.production_order_id == pid).all():
         wos_by_op[w.operation] = w
 
-    # Walk in sequence; each WO ends when its share has elapsed.
     cursor = start
     updates: list[dict] = []
     for op in _OP_SEQUENCE:
         wo = wos_by_op.get(op)
         if not wo:
             continue
-        share = _OP_DURATION_SHARE.get(op, 0.2)
-        cursor = cursor + timedelta(days=total_days * share)
+        cursor = cursor + timedelta(seconds=per_op.get(op, 0))
         deadline = min(cursor, end)
         wo.deadline = deadline
         updates.append({"work_order_id": wo.id, "operation": op, "deadline": deadline.isoformat()})
 
-    log_action(db, current, "cascade_deadlines", "ProductionOrder", pid, new_value={"updates": updates})
+    log_action(db, current, "cascade_deadlines", "ProductionOrder", pid, new_value={
+        "updates": updates, "sam_minutes": sam, "qty": qty,
+    })
     db.commit()
-    return {"updates": updates}
+    return {"updates": updates, "sam_minutes": sam}
 
 
 # ===== Work Orders =====
@@ -197,6 +232,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     wo = db.get(WorkOrder, payload.work_order_id)
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "cutting": raise HTTPException(400, "Work order is not a cutting operation")
+    _gate_record_submission(wo, current)
 
     rec = CuttingRecord(
         work_order_id=payload.work_order_id,
@@ -266,6 +302,7 @@ def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depe
     wo = db.get(WorkOrder, payload.work_order_id)
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "printing": raise HTTPException(400, "Work order is not a printing operation")
+    _gate_record_submission(wo, current)
     rec = PrintingRecord(**payload.model_dump(), )
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
@@ -297,6 +334,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     wo = db.get(WorkOrder, payload.work_order_id)
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "sewing": raise HTTPException(400, "Work order is not a sewing operation")
+    _gate_record_submission(wo, current)
 
     # Rule: sewing cannot receive more than cutting/printing passed
     po_id = wo.production_order_id
@@ -344,6 +382,7 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
     wo = db.get(WorkOrder, payload.work_order_id)
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "packaging": raise HTTPException(400, "Work order is not a packaging operation")
+    _gate_record_submission(wo, current)
 
     sew_wo = db.query(WorkOrder).filter(WorkOrder.production_order_id == wo.production_order_id, WorkOrder.operation == "sewing").first()
     if sew_wo and wo.actual_input_qty + payload.input_qty > sew_wo.passed_qty:

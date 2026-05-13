@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import String, Integer, ForeignKey, DateTime, Text, Numeric
+from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -54,9 +54,15 @@ class WorkOrder(Base, PkMixin, TimestampMixin):
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     assigned_to: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     sewing_flow_id: Mapped[int | None] = mapped_column(ForeignKey("sewing_flows.id"))
+    # Block / pause flag so supervisors can flag a stuck job up the chain.
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    block_reason: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
 
     production_order: Mapped["ProductionOrder"] = relationship("ProductionOrder", back_populates="work_orders")
+    sewing_assignments: Mapped[list["SewingAssignment"]] = relationship(
+        "SewingAssignment", back_populates="work_order", cascade="all, delete-orphan",
+    )
 
 
 class CuttingRecord(Base, PkMixin, TimestampMixin):

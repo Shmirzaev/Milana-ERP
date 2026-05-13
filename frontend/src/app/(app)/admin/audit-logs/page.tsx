@@ -1,4 +1,6 @@
 "use client";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -6,11 +8,33 @@ import { useT } from "@/lib/i18n";
 
 export default function AuditLogsPage() {
   const { t } = useT();
+  const params = useSearchParams();
+  const initialEntity = params?.get("entity") ?? "";
+  const initialId = params?.get("id") ?? "";
+  const [entityFilter, setEntityFilter] = useState(initialEntity);
+  const [idFilter, setIdFilter] = useState(initialId);
   const { data } = useSWR<any[]>("/api/audit-logs", fetcher);
+
+  const rows = useMemo(() => {
+    if (!data) return [];
+    return data.filter((r) => {
+      if (entityFilter && r.entity_type !== entityFilter) return false;
+      if (idFilter && String(r.entity_id) !== idFilter) return false;
+      return true;
+    });
+  }, [data, entityFilter, idFilter]);
 
   return (
     <div>
       <PageHeader title={t("page.admin.audit.title")} subtitle={t("page.admin.audit.subtitle")} />
+      <div className="card p-3 mb-4 flex flex-wrap gap-3">
+        <input className="input max-w-xs" placeholder="Filter by entity_type (e.g. ProductionOrder)" value={entityFilter} onChange={(e) => setEntityFilter(e.target.value)} />
+        <input className="input max-w-xs" placeholder="Filter by entity_id" value={idFilter} onChange={(e) => setIdFilter(e.target.value)} />
+        {(entityFilter || idFilter) && (
+          <button className="btn" onClick={() => { setEntityFilter(""); setIdFilter(""); }}>Clear</button>
+        )}
+        <div className="text-xs text-slate-500 self-center">{rows.length} matches</div>
+      </div>
       <div className="card overflow-x-auto">
         <table className="table">
           <thead>
@@ -24,7 +48,7 @@ export default function AuditLogsPage() {
             </tr>
           </thead>
           <tbody>
-            {data?.map((r) => (
+            {rows.map((r) => (
               <tr key={r.id}>
                 <td>{new Date(r.created_at).toLocaleString()}</td>
                 <td>{r.user_id || "-"}</td>

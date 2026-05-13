@@ -75,11 +75,16 @@ def list_processes(
                 "sewing_flow_id": wo.sewing_flow_id,
                 "sewing_flow_code": flow.code if flow else None,
                 "sewing_flow_name": flow.name if flow else None,
+                "is_blocked": bool(wo.is_blocked),
+                "block_reason": wo.block_reason,
                 "deadline": deadline_dt,
                 "overdue": overdue,
                 "start_time": wo.start_time,
                 "end_time": wo.end_time,
             })
+
+        # "Blocked-by": find the first blocked stage if any.
+        blocked = next((s for s in stages if s["is_blocked"]), None)
 
         # Determine the current active stage = first non-completed WO.
         # If no stages exist yet (work orders haven't been generated), the PO is
@@ -114,6 +119,11 @@ def list_processes(
             "current_stage": current_stage_label,
             "current_stage_status": current_stage_status,
             "current_sewing_flow": current["sewing_flow_code"] if current else None,
+            "is_blocked": blocked is not None,
+            "blocked_by": {
+                "work_order_id": blocked["work_order_id"], "operation": blocked["operation"],
+                "reason": blocked["block_reason"],
+            } if blocked else None,
             "stages": stages,
         })
     return out

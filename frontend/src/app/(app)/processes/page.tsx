@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
-import { fetcher } from "@/lib/api";
+import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 
@@ -36,6 +36,8 @@ type Process = {
   customer_name: string | null;
   model_code: string | null;
   model_name: string | null;
+  is_blocked?: boolean;
+  blocked_by?: { work_order_id: number; operation: string; reason: string | null } | null;
   current_stage: string;
   current_stage_status: string | null;
   current_sewing_flow: string | null;
@@ -57,8 +59,12 @@ export default function ProcessTrackingPage() {
   const { data, error, isLoading, mutate } = useSWR<Process[]>(
     "/api/process-tracking",
     fetcher,
-    { refreshInterval: 30_000 },
+    { refreshInterval: 10_000 },
   );
+
+  function openPdf() {
+    api.openLabel("/api/process-tracking/export");
+  }
   const [filter, setFilter] = useState<string>("");
   const [expanded, setExpanded] = useState<number | null>(null);
 
@@ -82,7 +88,12 @@ export default function ProcessTrackingPage() {
       <PageHeader
         title={t("page.processes.title")}
         subtitle={t("page.processes.subtitle")}
-        actions={<button className="btn" onClick={() => mutate()}>↻</button>}
+        actions={
+          <div className="flex gap-2">
+            <button className="btn" onClick={() => mutate()} title="Refresh">↻</button>
+            <button className="btn" onClick={openPdf}>PDF</button>
+          </div>
+        }
       />
 
       {error && (
@@ -162,18 +173,29 @@ export default function ProcessTrackingPage() {
                     {p.current_stage_status && (
                       <div className="text-xs text-slate-500 mt-1">{p.current_stage_status}</div>
                     )}
+                    {p.is_blocked && p.blocked_by && (
+                      <div className="text-xs text-red-700 mt-1" title={p.blocked_by.reason ?? ""}>
+                        ⛔ blocked on {p.blocked_by.operation}
+                      </div>
+                    )}
                   </td>
                   <td>{p.current_sewing_flow || "—"}</td>
                   <td className={p.po_overdue ? "text-red-600 font-medium" : ""}>
                     {p.po_deadline ? new Date(p.po_deadline).toLocaleDateString() : "—"}
                   </td>
-                  <td>
+                  <td className="flex flex-col gap-1">
                     <button
                       onClick={() => setExpanded(expanded === p.production_order_id ? null : p.production_order_id)}
-                      className="text-brand-600 hover:underline"
+                      className="text-brand-600 hover:underline text-left"
                     >
                       {expanded === p.production_order_id ? t("btn.cancel") : t("btn.view")}
                     </button>
+                    <Link
+                      href={`/admin/audit-logs?entity=ProductionOrder&id=${p.production_order_id}`}
+                      className="text-xs text-slate-500 hover:underline"
+                    >
+                      audit
+                    </Link>
                   </td>
                 </tr>
                 {expanded === p.production_order_id && (
