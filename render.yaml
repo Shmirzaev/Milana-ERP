@@ -41,7 +41,3 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: NODE_ENV
         value: production
-
-databases:
-  - name: milana-erp-db
-    plan: free
