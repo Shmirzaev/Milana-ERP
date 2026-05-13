@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const defaultApiUrl =
-  process.env.RENDER === "true"
+  process.env.NODE_ENV === "production"
     ? "https://milana-erp.onrender.com"
     : "http://localhost:8000";
 const envApiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || "";

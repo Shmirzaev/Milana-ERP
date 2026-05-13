@@ -1,4 +1,14 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+const defaultApiBase =
+  process.env.NODE_ENV === "production" ? "https://milana-erp.onrender.com" : "";
+const API_BASE = String(process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || defaultApiBase || "")
+  .trim()
+  .replace(/\/+$/, "");
+
+function resolveUrl(path: string): string {
+  if (path.startsWith("http")) return path;
+  if (API_BASE && path.startsWith("/")) return `${API_BASE}${path}`;
+  return path;
+}
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -26,7 +36,7 @@ async function request<T = any>(path: string, init: RequestInit = {}): Promise<T
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
   // Use Next.js rewrite proxy: paths starting with /api or /storage are proxied
-  const url = path.startsWith("http") ? path : path;
+  const url = resolveUrl(path);
   const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
     let detail = res.statusText;
@@ -52,7 +62,7 @@ export const api = {
     const form = new URLSearchParams();
     form.set("username", email);
     form.set("password", password);
-    const res = await fetch("/api/auth/login", {
+    const res = await fetch(resolveUrl("/api/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: form.toString(),
@@ -82,7 +92,7 @@ export const api = {
    */
   async openLabel(path: string): Promise<void> {
     const token = getToken();
-    const res = await fetch(path, {
+    const res = await fetch(resolveUrl(path), {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {
