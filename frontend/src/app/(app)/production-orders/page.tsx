@@ -57,7 +57,7 @@ export default function ProductionOrdersPage() {
           <thead>
             <tr>
               <th>{t("field.productionNo")}</th><th>{t("field.type")}</th><th>{t("field.model")}</th>
-              <th>{t("poDetail.planned") || t("page.poDetail.planned")}</th><th>{t("field.status")}</th>
+              <th>{t("page.poDetail.planned")}</th><th>{t("field.status")}</th>
               <th>{t("field.deadline")}</th><th>{t("field.actions")}</th>
             </tr>
           </thead>

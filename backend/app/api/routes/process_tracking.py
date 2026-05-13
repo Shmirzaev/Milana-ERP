@@ -6,7 +6,7 @@ done vs planned, deadlines, and overdue flags.
 """
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
@@ -35,9 +35,10 @@ def list_processes(
     if not _can_view(current):
         raise HTTPException(403, "Not allowed to view process tracking")
 
+    # Use selectinload — joinedload on two collections produces a Cartesian product.
     qry = db.query(ProductionOrder).options(
-        joinedload(ProductionOrder.work_orders),
-        joinedload(ProductionOrder.items),
+        selectinload(ProductionOrder.work_orders),
+        selectinload(ProductionOrder.items),
     )
     if status:
         qry = qry.filter(ProductionOrder.status == status)
@@ -80,8 +81,19 @@ def list_processes(
                 "end_time": wo.end_time,
             })
 
-        # Determine the current active stage = first non-completed WO
-        current_stage = next((s for s in stages if s["status"] not in ("completed", "rejected", "cancelled")), None)
+        # Determine the current active stage = first non-completed WO.
+        # If no stages exist yet (work orders haven't been generated), the PO is
+        # "planning_required" — Planning still needs to break it into work orders.
+        current = next((s for s in stages if s["status"] not in ("completed", "rejected", "cancelled")), None)
+        if not stages:
+            current_stage_label = "planning_required"
+            current_stage_status = po.status
+        elif current is None:
+            current_stage_label = "completed"
+            current_stage_status = None
+        else:
+            current_stage_label = current["operation"]
+            current_stage_status = current["status"]
         po_overdue = bool(po.deadline and po.status not in ("delivered", "closed", "cancelled") and po.deadline < now)
 
         out.append({
@@ -99,9 +111,9 @@ def list_processes(
             "model_id": po.model_id,
             "model_code": model.code if model else None,
             "model_name": model.name if model else None,
-            "current_stage": current_stage["operation"] if current_stage else "completed",
-            "current_stage_status": current_stage["status"] if current_stage else None,
-            "current_sewing_flow": current_stage["sewing_flow_code"] if current_stage else None,
+            "current_stage": current_stage_label,
+            "current_stage_status": current_stage_status,
+            "current_sewing_flow": current["sewing_flow_code"] if current else None,
             "stages": stages,
         })
     return out

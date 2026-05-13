@@ -48,12 +48,17 @@ const STAGE_COLORS: Record<string, string> = {
   sewing: "bg-orange-100 text-orange-800",
   packaging: "bg-emerald-100 text-emerald-800",
   storage_transfer: "bg-cyan-100 text-cyan-800",
+  planning_required: "bg-amber-100 text-amber-800",
   completed: "bg-slate-200 text-slate-700",
 };
 
 export default function ProcessTrackingPage() {
   const { t } = useT();
-  const { data, isLoading } = useSWR<Process[]>("/api/process-tracking", fetcher, { refreshInterval: 30_000 });
+  const { data, error, isLoading, mutate } = useSWR<Process[]>(
+    "/api/process-tracking",
+    fetcher,
+    { refreshInterval: 30_000 },
+  );
   const [filter, setFilter] = useState<string>("");
   const [expanded, setExpanded] = useState<number | null>(null);
 
@@ -74,7 +79,17 @@ export default function ProcessTrackingPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.processes.title")} subtitle={t("page.processes.subtitle")} />
+      <PageHeader
+        title={t("page.processes.title")}
+        subtitle={t("page.processes.subtitle")}
+        actions={<button className="btn" onClick={() => mutate()}>↻</button>}
+      />
+
+      {error && (
+        <div className="card p-3 mb-4 text-sm text-red-700 bg-red-50 border-red-200">
+          {String((error as any).message ?? error)}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="card p-4">

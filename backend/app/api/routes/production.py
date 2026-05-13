@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import joinedload
 
@@ -78,6 +78,57 @@ def create_wos(pid: int, db: DbSession, current: User = Depends(require_permissi
     log_action(db, current, "create_work_orders", "ProductionOrder", pid, new_value={"count": len(wos)})
     db.commit()
     return {"created": [{"id": w.id, "operation": w.operation} for w in wos]}
+
+
+# Operation order matters for deadline backfill — earlier ops finish earlier.
+_OP_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
+# Default share of total duration consumed by each stage (rough industry mix).
+_OP_DURATION_SHARE = {
+    "cutting": 0.20, "printing": 0.10, "sewing": 0.45,
+    "packaging": 0.15, "storage_transfer": 0.10,
+}
+
+
+@router.post("/production-orders/{pid}/cascade-deadlines")
+def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
+    """Distribute the PO deadline backwards across each work order's deadline.
+
+    Algorithm: anchor on the PO deadline as the *final* due date. Walk the
+    operation sequence backwards, subtracting each stage's share of the total
+    horizon (PO.start_date or 30 days back from deadline if not set).
+    """
+    po = db.get(ProductionOrder, pid)
+    if not po: raise HTTPException(404, "Production order not found")
+    if not po.deadline:
+        raise HTTPException(400, "Set a Production-Order deadline first")
+
+    end = po.deadline
+    start = po.start_date or (end - timedelta(days=30))
+    if start >= end:
+        raise HTTPException(400, "start_date must be before deadline")
+    total_days = (end - start).total_seconds() / 86400.0
+
+    # Map operation -> WorkOrder for the present POs we already have
+    wos_by_op: dict[str, WorkOrder] = {}
+    for w in db.query(WorkOrder).filter(WorkOrder.production_order_id == pid).all():
+        wos_by_op[w.operation] = w
+
+    # Walk in sequence; each WO ends when its share has elapsed.
+    cursor = start
+    updates: list[dict] = []
+    for op in _OP_SEQUENCE:
+        wo = wos_by_op.get(op)
+        if not wo:
+            continue
+        share = _OP_DURATION_SHARE.get(op, 0.2)
+        cursor = cursor + timedelta(days=total_days * share)
+        deadline = min(cursor, end)
+        wo.deadline = deadline
+        updates.append({"work_order_id": wo.id, "operation": op, "deadline": deadline.isoformat()})
+
+    log_action(db, current, "cascade_deadlines", "ProductionOrder", pid, new_value={"updates": updates})
+    db.commit()
+    return {"updates": updates}
 
 
 # ===== Work Orders =====

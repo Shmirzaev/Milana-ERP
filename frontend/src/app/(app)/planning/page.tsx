@@ -20,9 +20,16 @@ export default function PlanningDashboard() {
       sales_order_id: soId,
       model_id: so.items?.[0]?.model_id,
       planned_quantity: items.reduce((s: number, i: any) => s + i.planned_quantity, 0),
+      // Carry the customer deadline through to the production order so the
+      // process tracker shows a meaningful "due by" value.
+      deadline: so.deadline ?? null,
       items,
     });
     await api.post(`/api/production-orders/${po.id}/create-work-orders?include_printing=false`);
+    // Cascade the deadline into each work-order (cutting/printing/sewing/packaging).
+    if (so.deadline) {
+      try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
+    }
     window.location.href = `/production-orders/${po.id}`;
   }
 
