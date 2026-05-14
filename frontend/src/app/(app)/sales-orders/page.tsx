@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Download, Filter, MoreHorizontal, Plus, Search, X } from "lucide-react";
-import { fetcher } from "@/lib/api";
+import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 
@@ -54,7 +54,7 @@ export default function SalesOrdersPage() {
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q") || "";
 
-  const { data = [], isLoading } = useSWR<SO[]>("/api/sales-orders", fetcher);
+  const { data = [], isLoading, mutate } = useSWR<SO[]>("/api/sales-orders", fetcher);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -118,6 +118,17 @@ export default function SalesOrdersPage() {
     a.download = `sales-orders-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function removeSalesOrder(id: number, orderNo: string) {
+    if (!confirm(`${t("common.delete")} ${orderNo}?`)) return;
+    try {
+      await api.del(`/api/sales-orders/${id}`);
+      if (selectedId === id) setSelectedId(null);
+      mutate();
+    } catch (e: any) {
+      alert(e.message);
+    }
   }
 
   return (
@@ -230,6 +241,13 @@ export default function SalesOrdersPage() {
                 <div className="flex items-center gap-3">
                   <span className={`badge ${statusClass(selected.status)}`}>{selected.status}</span>
                   <button className="icon-btn"><MoreHorizontal /></button>
+                  <button
+                    type="button"
+                    className="text-xs text-red-600 hover:underline"
+                    onClick={() => removeSalesOrder(selected.id, selected.order_no)}
+                  >
+                    {t("common.delete")}
+                  </button>
                 </div>
               </div>
               <div className="space-y-6 p-4">

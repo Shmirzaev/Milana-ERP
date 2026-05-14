@@ -54,6 +54,17 @@ export default function ModelsPage() {
     catch (e: any) { setEditMsg(e.message); }
   }
 
+  async function removeModel(m: Model) {
+    if (!confirm(`${t("common.delete")} ${m.code} - ${m.name}?`)) return;
+    try {
+      await api.del(`/api/models/${m.id}`);
+      if (editing?.id === m.id) setEditing(null);
+      mutate();
+    } catch (e: any) {
+      alert(e.message);
+    }
+  }
+
   return (
     <div>
       <PageHeader title={t("page.models.title")} subtitle={t("page.models.subtitle")} />
@@ -87,7 +98,10 @@ export default function ModelsPage() {
                     <button className="text-green-700 hover:underline" onClick={() => approve(m.id)}>{t("btn.approve")}</button>
                   )}
                   {isAdmin && (
-                    <button className="text-slate-700 hover:underline" onClick={() => openEdit(m)}>{t("btn.edit")}</button>
+                    <>
+                      <button type="button" className="text-slate-700 hover:underline" onClick={() => openEdit(m)}>{t("btn.edit")}</button>
+                      <button type="button" className="text-red-600 hover:underline" onClick={() => removeModel(m)}>{t("common.delete")}</button>
+                    </>
                   )}
                 </td>
               </tr>

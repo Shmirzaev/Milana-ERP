@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import (
     Brand, Collection, CollectionModel, Model, ModelImage, ModelSize, ModelColor, ModelBOM, User,
+    SalesOrderItem, ProductionOrder, ProductionOrderItem, Bundle, Package, PackageItem, FinishedGoodsStock,
 )
 from app.schemas.catalog import (
     BrandIn, BrandOut, CollectionIn, CollectionOut,
@@ -176,3 +177,33 @@ def add_bom(mid: int, payload: ModelBOMIn, db: DbSession, current: User = Depend
     log_action(db, current, "create", "ModelBOM", b.id, new_value={"model_id": mid})
     db.commit(); db.refresh(b)
     return {"id": b.id}
+
+
+@router.delete("/models/{mid}", status_code=204)
+def delete_model(mid: int, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
+    m = db.get(Model, mid)
+    if not m:
+        raise HTTPException(404, "Model not found")
+
+    blockers: list[str] = []
+    if db.query(SalesOrderItem).filter(SalesOrderItem.model_id == mid).first():
+        blockers.append("sales orders")
+    if db.query(ProductionOrder).filter(ProductionOrder.model_id == mid).first():
+        blockers.append("production orders")
+    if db.query(ProductionOrderItem).filter(ProductionOrderItem.model_id == mid).first():
+        blockers.append("production order items")
+    if db.query(Bundle).filter(Bundle.model_id == mid).first():
+        blockers.append("bundles")
+    if db.query(Package).filter(Package.model_id == mid).first():
+        blockers.append("packages")
+    if db.query(PackageItem).filter(PackageItem.model_id == mid).first():
+        blockers.append("package items")
+    if db.query(FinishedGoodsStock).filter(FinishedGoodsStock.model_id == mid).first():
+        blockers.append("finished goods stock")
+    if blockers:
+        raise HTTPException(409, f"Model is in use by: {', '.join(blockers)}")
+
+    db.query(CollectionModel).filter(CollectionModel.model_id == mid).delete(synchronize_session=False)
+    db.delete(m)
+    log_action(db, current, "delete", "Model", mid, new_value={"code": m.code, "name": m.name})
+    db.commit()

@@ -4,7 +4,7 @@ from sqlalchemy.orm import joinedload
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import (
     SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation,
-    Customer, Model, User,
+    Customer, Model, User, ProductionOrder, Shipment,
 )
 from app.schemas.sales import (
     SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
@@ -131,3 +131,23 @@ def reserve_stock(sid: int, db: DbSession, current: User = Depends(require_permi
     log_action(db, current, "reserve_stock", "SalesOrder", so.id, new_value={"reservations": reservations, "shortages": shortages})
     db.commit()
     return {"reservations": reservations, "shortages": shortages}
+
+
+@router.delete("/{sid}", status_code=204)
+def delete_sales_order(sid: int, db: DbSession, current: User = Depends(require_permissions("sales.orders", "*"))):
+    so = db.get(SalesOrder, sid)
+    if not so:
+        raise HTTPException(404, "Sales order not found")
+
+    if so.status not in ("draft", "cancelled"):
+        raise HTTPException(409, "Only draft or cancelled sales orders can be deleted")
+    if db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == sid).first():
+        raise HTTPException(409, "Sales order already has linked production orders")
+    if db.query(Shipment).filter(Shipment.sales_order_id == sid).first():
+        raise HTTPException(409, "Sales order already has linked shipments")
+    if db.query(StockReservation).filter(StockReservation.sales_order_id == sid).first():
+        raise HTTPException(409, "Sales order already has stock reservations")
+
+    db.delete(so)
+    log_action(db, current, "delete", "SalesOrder", sid, new_value={"order_no": so.order_no})
+    db.commit()
