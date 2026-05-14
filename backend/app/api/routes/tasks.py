@@ -42,9 +42,57 @@ def list_tasks(
 
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
+    is_manager = _can_manage(current)
+    requested_assignee = payload.assigned_to
+
+    # Special manager-only broadcast mode: assigned_to == -1 means "everyone".
+    if requested_assignee == -1:
+        if not is_manager:
+            raise HTTPException(403, "Only managers can assign tasks to everyone")
+        targets = db.query(User).filter(User.is_active.is_(True)).order_by(User.id).all()
+        if not targets:
+            raise HTTPException(404, "No active users found")
+
+        created: list[Task] = []
+        for user in targets:
+            t = Task(
+                title=payload.title,
+                description=payload.description,
+                assigned_to=user.id,
+                created_by=current.id,
+                status=payload.status,
+                priority=payload.priority,
+                due_date=payload.due_date,
+            )
+            db.add(t)
+            db.flush()
+            created.append(t)
+            notify(
+                db, user_id=user.id,
+                title=f"New task: {t.title}",
+                message=(t.description or "")[:280],
+            )
+
+        first_task = created[0]
+        log_action(
+            db,
+            current,
+            "create",
+            "Task",
+            first_task.id,
+            new_value={
+                "title": payload.title,
+                "assigned_to": "everyone",
+                "created_count": len(created),
+            },
+        )
+        db.commit()
+        db.refresh(first_task)
+        return first_task
+
     # Non-managers can only assign tasks to themselves.
-    assigned = payload.assigned_to or current.id
-    if assigned != current.id and not _can_manage(current):
+    assigned = requested_assignee or current.id
+    if assigned != current.id and not is_manager:
         raise HTTPException(403, "Only managers can assign tasks to other users")
     if not db.get(User, assigned):
         raise HTTPException(404, "Assigned user not found")
@@ -58,7 +106,8 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
         priority=payload.priority,
         due_date=payload.due_date,
     )
-    db.add(t); db.flush()
+    db.add(t)
+    db.flush()
 
     # Notify the assignee unless they assigned to themselves.
     if assigned != current.id:
@@ -69,7 +118,8 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
         )
 
     log_action(db, current, "create", "Task", t.id, new_value={"title": t.title, "assigned_to": assigned})
-    db.commit(); db.refresh(t)
+    db.commit()
+    db.refresh(t)
     return t
 
 

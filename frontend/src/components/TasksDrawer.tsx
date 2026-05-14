@@ -61,7 +61,7 @@ export default function TasksDrawer() {
       await api.post("/api/tasks", {
         title: draft.title,
         description: draft.description || null,
-        assigned_to: draft.assigned_to || null,
+        assigned_to: draft.assigned_to === 0 ? null : draft.assigned_to,
         priority: draft.priority,
         due_date: draft.due_date || null,
       });
@@ -226,6 +226,7 @@ export default function TasksDrawer() {
                 <label className="label">{t("tasks.assignTo")}</label>
                 <select className="input" value={draft.assigned_to} onChange={(e) => setDraft({ ...draft, assigned_to: Number(e.target.value) })}>
                   <option value={0}>{t("tasks.myself")}</option>
+                  <option value={-1}>{t("tasks.everyone")}</option>
                   {users?.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
                 </select>
               </div>
