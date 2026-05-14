@@ -1,8 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import useSWR from "swr";
-import { Globe2, LogOut, Search, Server, Settings, WifiOff } from "lucide-react";
+import { Globe2, LogOut, Search, Settings } from "lucide-react";
 import { useMe, logout } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import LangSwitcher from "@/components/LangSwitcher";
@@ -13,15 +12,6 @@ export default function Topbar() {
   const { me } = useMe();
   const { t } = useT();
   const [search, setSearch] = useState("");
-  const { data: health, error } = useSWR<{ status: string; app: string }>(
-    "/health",
-    (url: string) => fetch(url).then((r) => {
-      if (!r.ok) throw new Error(r.statusText);
-      return r.json();
-    }),
-    { refreshInterval: 30_000, revalidateOnFocus: false },
-  );
-  const connected = health?.status === "ok" && !error;
 
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -48,15 +38,6 @@ export default function Topbar() {
           />
           <button type="submit" className="rounded border border-[#ded9ca] bg-[#fdfcf8] px-1.5 py-0.5 text-[11px]">Enter</button>
         </form>
-        <div
-          className={`hidden items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium md:flex ${
-            connected ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-          }`}
-          title={connected ? health?.app : "Backend health check failed"}
-        >
-          {connected ? <Server className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-          {connected ? "Backend ready" : "Backend offline"}
-        </div>
         <button className="icon-btn" title="Language"><Globe2 /></button>
         <LangSwitcher />
         <div className="relative">

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { CalendarDays, Download, Factory, Plus, TrendingDown, TrendingUp } from "lucide-react";
@@ -7,6 +7,57 @@ import PageHeader from "@/components/PageHeader";
 import { useMe, can } from "@/lib/auth";
 
 type FilterKind = "all" | "client_order" | "branded_stock_sale";
+type DatePreset = "all" | "today" | "yesterday" | "tomorrow" | "this_week" | "this_month" | "current_year" | "custom";
+
+function startOfDay(d: Date): Date {
+  const r = new Date(d);
+  r.setHours(0, 0, 0, 0);
+  return r;
+}
+
+function endOfDay(d: Date): Date {
+  const r = new Date(d);
+  r.setHours(23, 59, 59, 999);
+  return r;
+}
+
+function firstDayOfWeek(d: Date): Date {
+  const r = startOfDay(d);
+  const day = (r.getDay() + 6) % 7;
+  r.setDate(r.getDate() - day);
+  return r;
+}
+
+function firstDayOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function lastDayOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
+function firstDayOfYear(d: Date): Date {
+  return new Date(d.getFullYear(), 0, 1, 0, 0, 0, 0);
+}
+
+function lastDayOfYear(d: Date): Date {
+  return new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
+}
+
+function formatDateInput(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function formatRangeLabel(preset: DatePreset): string {
+  if (preset === "today") return "Today";
+  if (preset === "yesterday") return "Yesterday";
+  if (preset === "tomorrow") return "Tomorrow";
+  if (preset === "this_week") return "This week";
+  if (preset === "this_month") return "This month";
+  if (preset === "current_year") return "Current year";
+  if (preset === "custom") return "Custom dates";
+  return "All dates";
+}
 
 function MiniBars({ hot = false }: { hot?: boolean }) {
   const bars = [22, 35, 48, 54, 62, 70, 58, 78, 83, 92, 88];
@@ -55,17 +106,6 @@ function Money({ value }: { value: number }) {
   return <span className="mono">${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>;
 }
 
-function isDateInCurrentWeek(date: Date): boolean {
-  const now = new Date();
-  const start = new Date(now);
-  const day = (now.getDay() + 6) % 7; // monday=0 ... sunday=6
-  start.setDate(now.getDate() - day);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 7);
-  return date >= start && date < end;
-}
-
 function toCsvCell(v: unknown): string {
   const s = String(v ?? "");
   if (s.includes(",") || s.includes("\"") || s.includes("\n")) return `"${s.replace(/"/g, "\"\"")}"`;
@@ -80,22 +120,59 @@ export default function HomePage() {
   const { data: orders = [] } = useSWR<any[]>("/api/sales-orders", fetcher);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
 
-  const [weekOnly, setWeekOnly] = useState(false);
   const [kind, setKind] = useState<FilterKind>("all");
+  const [datePreset, setDatePreset] = useState<DatePreset>("this_week");
+  const [showDateMenu, setShowDateMenu] = useState(false);
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
+
+  const dateRange = useMemo(() => {
+    const now = new Date();
+    if (datePreset === "all") return { start: null as Date | null, end: null as Date | null };
+    if (datePreset === "today") return { start: startOfDay(now), end: endOfDay(now) };
+    if (datePreset === "yesterday") {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 1);
+      return { start: startOfDay(d), end: endOfDay(d) };
+    }
+    if (datePreset === "tomorrow") {
+      const d = new Date(now);
+      d.setDate(d.getDate() + 1);
+      return { start: startOfDay(d), end: endOfDay(d) };
+    }
+    if (datePreset === "this_week") {
+      const start = firstDayOfWeek(now);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      return { start, end: endOfDay(end) };
+    }
+    if (datePreset === "this_month") return { start: firstDayOfMonth(now), end: lastDayOfMonth(now) };
+    if (datePreset === "current_year") return { start: firstDayOfYear(now), end: lastDayOfYear(now) };
+    if (datePreset === "custom") {
+      if (!customFrom && !customTo) return { start: null as Date | null, end: null as Date | null };
+      const start = customFrom ? startOfDay(new Date(customFrom)) : null;
+      const end = customTo ? endOfDay(new Date(customTo)) : null;
+      return { start, end };
+    }
+    return { start: null as Date | null, end: null as Date | null };
+  }, [datePreset, customFrom, customTo]);
 
   const activeOrders = useMemo(() => {
     const base = orders
       .filter((o) => !["closed", "cancelled", "delivered"].includes(String(o.status)))
       .filter((o) => kind === "all" || o.order_type === kind)
       .filter((o) => {
-        if (!weekOnly) return true;
+        if (!dateRange.start && !dateRange.end) return true;
         if (!o.deadline) return false;
-        return isDateInCurrentWeek(new Date(o.deadline));
+        const d = new Date(o.deadline);
+        if (dateRange.start && d < dateRange.start) return false;
+        if (dateRange.end && d > dateRange.end) return false;
+        return true;
       });
     return base.slice(0, 6);
-  }, [orders, kind, weekOnly]);
+  }, [orders, kind, dateRange]);
 
   const totalValue = activeOrders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
 
@@ -120,17 +197,60 @@ export default function HomePage() {
     URL.revokeObjectURL(url);
   }
 
+  function applyPreset(p: DatePreset) {
+    setDatePreset(p);
+    if (p !== "custom") setShowDateMenu(false);
+  }
+
+  function applyCustomRange() {
+    setDatePreset("custom");
+    setShowDateMenu(false);
+  }
+
   return (
     <div>
       <PageHeader
         eyebrow="Home"
         title={`Good morning, ${me?.name?.split(" ")[0] || "Aziza"}`}
-        subtitle={`Pulse across all departments · ${weekOnly ? "This week" : "All deadlines"}`}
+        subtitle={`Pulse across all departments - ${formatRangeLabel(datePreset)}`}
         actions={(
           <>
-            <button className={`btn ${weekOnly ? "btn-primary" : ""}`} onClick={() => setWeekOnly((v) => !v)}>
-              <CalendarDays />This week
-            </button>
+            <div className="relative">
+              <button className="btn" onClick={() => setShowDateMenu((v) => !v)}>
+                <CalendarDays />{formatRangeLabel(datePreset)}
+              </button>
+              {showDateMenu ? (
+                <div className="absolute right-0 top-10 z-20 w-64 rounded-lg border border-[#ded9ca] bg-[#fdfcf8] p-3 shadow-lg">
+                  <div className="space-y-1">
+                    <button className="btn w-full justify-start" onClick={() => applyPreset("today")}>Today</button>
+                    <button className="btn w-full justify-start" onClick={() => applyPreset("yesterday")}>Yesterday</button>
+                    <button className="btn w-full justify-start" onClick={() => applyPreset("tomorrow")}>Tomorrow</button>
+                    <button className="btn w-full justify-start" onClick={() => applyPreset("this_week")}>This week</button>
+                    <button className="btn w-full justify-start" onClick={() => applyPreset("this_month")}>This month</button>
+                    <button className="btn w-full justify-start" onClick={() => applyPreset("current_year")}>Current year</button>
+                    <button className="btn w-full justify-start" onClick={() => applyPreset("all")}>All dates</button>
+                  </div>
+                  <div className="mt-3 border-t border-[#ecebe3] pt-3">
+                    <div className="label">Custom dates</div>
+                    <div className="grid grid-cols-1 gap-2">
+                      <input
+                        type="date"
+                        className="input"
+                        value={customFrom}
+                        onChange={(e) => setCustomFrom(e.target.value)}
+                      />
+                      <input
+                        type="date"
+                        className="input"
+                        value={customTo}
+                        onChange={(e) => setCustomTo(e.target.value)}
+                      />
+                      <button className="btn btn-primary" onClick={applyCustomRange}>Apply custom range</button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
             <button className="btn" onClick={exportOrders} disabled={!activeOrders.length}>
               <Download />Export
             </button>
@@ -140,9 +260,9 @@ export default function HomePage() {
       />
 
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="In production" value={mgmt?.active_orders ?? activeOrders.length} sub="+2 · orders" tone="good" visual={<MiniBars />} />
-        <Kpi label="Output today" value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} sub="+11.4% · pcs across 4 stations" tone="good" visual={<Spark accent />} />
-        <Kpi label="On-time rate" value="92%" sub="-1.2 pp · last 14 days" tone="bad" visual={<Spark />} />
+        <Kpi label="In production" value={mgmt?.active_orders ?? activeOrders.length} sub="+2 - orders" tone="good" visual={<MiniBars />} />
+        <Kpi label="Output today" value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} sub="+11.4% - pcs across 4 stations" tone="good" visual={<Spark accent />} />
+        <Kpi label="On-time rate" value="92%" sub="-1.2 pp - last 14 days" tone="bad" visual={<Spark />} />
         <Kpi label="Late orders" value={mgmt?.late_orders ?? 0} sub={`$${Math.round(totalValue).toLocaleString()} exposed`} tone="bad" visual={<MiniBars hot />} />
       </div>
 
@@ -150,13 +270,13 @@ export default function HomePage() {
         <div className="card">
           <div className="flex items-center gap-3 border-b border-[#ecebe3] px-4 py-3">
             <h2 className="app-card-title">Active production</h2>
-            <span className="text-xs text-[#8a8472]">{activeOrders.length} orders · {Math.round(totalValue).toLocaleString()} in flight</span>
+            <span className="text-xs text-[#8a8472]">{activeOrders.length} orders - {Math.round(totalValue).toLocaleString()} in flight</span>
             <div className="ml-auto rounded-md border border-[#ded9ca] bg-[#f1efe8] p-0.5 text-xs">
               <button className={`px-3 py-1 ${kind === "all" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("all")}>All</button>
               <button className={`px-3 py-1 ${kind === "client_order" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("client_order")}>Client</button>
               <button className={`px-3 py-1 ${kind === "branded_stock_sale" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("branded_stock_sale")}>Branded</button>
             </div>
-            <a href="/sales-orders" className="btn btn-ghost">View all →</a>
+            <a href="/sales-orders" className="btn btn-ghost">View all -&gt;</a>
           </div>
           <div className="overflow-x-auto">
             <table className="table">
@@ -194,7 +314,7 @@ export default function HomePage() {
 
         <div className="card">
           <div className="border-b border-[#ecebe3] px-4 py-3">
-            <h2 className="app-card-title">Stations · today</h2>
+            <h2 className="app-card-title">Stations - today</h2>
             <div className="text-xs text-[#8a8472]">pieces processed</div>
           </div>
           <div className="space-y-5 p-4">
