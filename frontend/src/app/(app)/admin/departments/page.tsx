@@ -24,7 +24,7 @@ export default function DepartmentsPage() {
       setF({ name: "", code: "" });
       mutate();
     } catch (e: any) {
-      setMsg(e.message || "Failed to add department");
+      setMsg(e.message || t("departments.addFailed"));
     }
   }
 
@@ -44,25 +44,25 @@ export default function DepartmentsPage() {
       setEditingId(null);
       mutate();
     } catch (e: any) {
-      setMsg(e.message || "Failed to update department");
+      setMsg(e.message || t("departments.updateFailed"));
     }
   }
 
   async function removeDepartment(d: Department) {
-    if (!confirm(`Delete department ${d.code} (${d.name})?`)) return;
+    if (!confirm(t("departments.deleteConfirm", { code: d.code, name: d.name }))) return;
     setMsg("");
     try {
       await api.del(`/api/departments/${d.id}`);
       if (editingId === d.id) setEditingId(null);
       mutate();
     } catch (e: any) {
-      setMsg(e.message || "Failed to delete department");
+      setMsg(e.message || t("departments.deleteFailed"));
     }
   }
 
   return (
     <div>
-      <PageHeader title={t("page.admin.depts")} subtitle="Create, update, or remove department records." />
+      <PageHeader title={t("page.admin.depts")} subtitle={t("departments.subtitle")} />
       <form onSubmit={submit} className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-3">
         <input
           className="input"
@@ -87,7 +87,7 @@ export default function DepartmentsPage() {
             <tr>
               <th>{t("common.code")}</th>
               <th>{t("common.name")}</th>
-              <th>Actions</th>
+              <th>{t("common.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -117,13 +117,13 @@ export default function DepartmentsPage() {
                     <div className="flex items-center gap-2">
                       {editing ? (
                         <>
-                          <button type="button" className="btn" onClick={() => saveEdit(d.id)}><Check />Save</button>
-                          <button type="button" className="btn" onClick={() => setEditingId(null)}><X />Cancel</button>
+                          <button type="button" className="btn" onClick={() => saveEdit(d.id)}><Check />{t("common.save")}</button>
+                          <button type="button" className="btn" onClick={() => setEditingId(null)}><X />{t("common.cancel")}</button>
                         </>
                       ) : (
                         <>
-                          <button type="button" className="btn" onClick={() => startEdit(d)}><Pencil />Edit</button>
-                          <button type="button" className="btn btn-danger" onClick={() => removeDepartment(d)}><Trash2 />Delete</button>
+                          <button type="button" className="btn" onClick={() => startEdit(d)}><Pencil />{t("common.edit")}</button>
+                          <button type="button" className="btn btn-danger" onClick={() => removeDepartment(d)}><Trash2 />{t("common.delete")}</button>
                         </>
                       )}
                     </div>

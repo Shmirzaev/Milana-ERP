@@ -5,6 +5,7 @@ import { CalendarDays, Download, Factory, Plus, TrendingDown, TrendingUp } from 
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useMe, can } from "@/lib/auth";
+import { useT } from "@/lib/i18n";
 
 type FilterKind = "all" | "client_order" | "branded_stock_sale";
 type DatePreset = "all" | "today" | "yesterday" | "tomorrow" | "this_week" | "this_month" | "current_year" | "custom";
@@ -45,14 +46,14 @@ function lastDayOfYear(d: Date): Date {
 }
 
 function formatRangeLabel(preset: DatePreset): string {
-  if (preset === "today") return "Today";
-  if (preset === "yesterday") return "Yesterday";
-  if (preset === "tomorrow") return "Tomorrow";
-  if (preset === "this_week") return "This week";
-  if (preset === "this_month") return "This month";
-  if (preset === "current_year") return "Current year";
-  if (preset === "custom") return "Custom dates";
-  return "All dates";
+  if (preset === "today") return "home.range.today";
+  if (preset === "yesterday") return "home.range.yesterday";
+  if (preset === "tomorrow") return "home.range.tomorrow";
+  if (preset === "this_week") return "home.range.thisWeek";
+  if (preset === "this_month") return "home.range.thisMonth";
+  if (preset === "current_year") return "home.range.currentYear";
+  if (preset === "custom") return "home.range.custom";
+  return "home.range.all";
 }
 
 function MiniBars({ hot = false }: { hot?: boolean }) {
@@ -110,6 +111,7 @@ function toCsvCell(v: unknown): string {
 
 export default function HomePage() {
   const { me } = useMe();
+  const { t } = useT();
   const { data: mgmt } = useSWR<any>("/api/dashboard/management", fetcher);
   const { data: prod } = useSWR<any>("/api/dashboard/production", fetcher);
   const { data: fin } = useSWR<any>(can(me, "finance.view", "*") ? "/api/dashboard/finance" : null, fetcher);
@@ -201,19 +203,19 @@ export default function HomePage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Home"
-        title={`Good morning, ${me?.name?.split(" ")[0] || "Aziza"}`}
-        subtitle={`Pulse across all departments - ${formatRangeLabel(datePreset)}`}
+        eyebrow={t("nav.dashboard")}
+        title={t("home.greeting", { name: me?.name?.split(" ")[0] || "Aziza" })}
+        subtitle={t("home.subtitle", { range: t(formatRangeLabel(datePreset)) })}
         actions={(
           <>
             <div className="relative">
               <button className="btn" onClick={() => setShowDateMenu((v) => !v)}>
-                <CalendarDays />{formatRangeLabel(datePreset)}
+                <CalendarDays />{t(formatRangeLabel(datePreset))}
               </button>
               {showDateMenu ? (
                 <div className="absolute right-0 top-10 z-20 w-64 rounded-lg border border-[#ded9ca] bg-[#fdfcf8] p-3 shadow-lg">
                   <div>
-                    <div className="label">Date preset</div>
+                    <div className="label">{t("home.datePreset")}</div>
                     <select
                       className="input"
                       value={datePreset}
@@ -223,18 +225,18 @@ export default function HomePage() {
                         if (next !== "custom") setShowDateMenu(false);
                       }}
                     >
-                      <option value="today">Today</option>
-                      <option value="yesterday">Yesterday</option>
-                      <option value="tomorrow">Tomorrow</option>
-                      <option value="this_week">This week</option>
-                      <option value="this_month">This month</option>
-                      <option value="current_year">Current year</option>
-                      <option value="all">All dates</option>
-                      <option value="custom">Custom dates</option>
+                      <option value="today">{t("home.range.today")}</option>
+                      <option value="yesterday">{t("home.range.yesterday")}</option>
+                      <option value="tomorrow">{t("home.range.tomorrow")}</option>
+                      <option value="this_week">{t("home.range.thisWeek")}</option>
+                      <option value="this_month">{t("home.range.thisMonth")}</option>
+                      <option value="current_year">{t("home.range.currentYear")}</option>
+                      <option value="all">{t("home.range.all")}</option>
+                      <option value="custom">{t("home.range.custom")}</option>
                     </select>
                   </div>
                   <div className="mt-3 border-t border-[#ecebe3] pt-3">
-                    <div className="label">Custom dates</div>
+                    <div className="label">{t("home.customDates")}</div>
                     <div className="grid grid-cols-1 gap-2">
                       <input
                         type="date"
@@ -248,55 +250,55 @@ export default function HomePage() {
                         value={customTo}
                         onChange={(e) => setCustomTo(e.target.value)}
                       />
-                      <button className="btn btn-primary" onClick={applyCustomRange}>Apply custom range</button>
+                      <button className="btn btn-primary" onClick={applyCustomRange}>{t("home.applyCustomRange")}</button>
                     </div>
                   </div>
                 </div>
               ) : null}
             </div>
             <button className="btn" onClick={exportOrders} disabled={!activeOrders.length}>
-              <Download />Export
+              <Download />{t("sales.export")}
             </button>
-            <a href="/sales-orders/new" className="btn btn-primary"><Plus />New order</a>
+            <a href="/sales-orders/new" className="btn btn-primary"><Plus />{t("btn.newOrder").replace("+ ", "")}</a>
           </>
         )}
       />
 
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="In production" value={mgmt?.active_orders ?? activeOrders.length} sub="+2 - orders" tone="good" visual={<MiniBars />} />
-        <Kpi label="Output today" value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} sub="+11.4% - pcs across 4 stations" tone="good" visual={<Spark accent />} />
-        <Kpi label="On-time rate" value="92%" sub="-1.2 pp - last 14 days" tone="bad" visual={<Spark />} />
-        <Kpi label="Late orders" value={mgmt?.late_orders ?? 0} sub={`$${Math.round(totalValue).toLocaleString()} exposed`} tone="bad" visual={<MiniBars hot />} />
+        <Kpi label={t("dash.activeOrders")} value={mgmt?.active_orders ?? activeOrders.length} sub={t("home.plusOrders")} tone="good" visual={<MiniBars />} />
+        <Kpi label={t("dash.production")} value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} sub={t("home.outputSub")} tone="good" visual={<Spark accent />} />
+        <Kpi label={t("home.onTimeRate")} value="92%" sub={t("home.onTimeRateSub")} tone="bad" visual={<Spark />} />
+        <Kpi label={t("dash.lateOrders")} value={mgmt?.late_orders ?? 0} sub={t("home.exposed", { value: `$${Math.round(totalValue).toLocaleString()}` })} tone="bad" visual={<MiniBars hot />} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.55fr_1fr]">
         <div className="card">
           <div className="flex items-center gap-3 border-b border-[#ecebe3] px-4 py-3">
-            <h2 className="app-card-title">Active production</h2>
-            <span className="text-xs text-[#8a8472]">{activeOrders.length} orders - {Math.round(totalValue).toLocaleString()} in flight</span>
+            <h2 className="app-card-title">{t("home.activeProduction")}</h2>
+            <span className="text-xs text-[#8a8472]">{t("home.ordersInFlight", { count: activeOrders.length, value: Math.round(totalValue).toLocaleString() })}</span>
             <div className="ml-auto rounded-md border border-[#ded9ca] bg-[#f1efe8] p-0.5 text-xs">
-              <button className={`px-3 py-1 ${kind === "all" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("all")}>All</button>
-              <button className={`px-3 py-1 ${kind === "client_order" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("client_order")}>Client</button>
-              <button className={`px-3 py-1 ${kind === "branded_stock_sale" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("branded_stock_sale")}>Branded</button>
+              <button className={`px-3 py-1 ${kind === "all" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("all")}>{t("sales.tab.all")}</button>
+              <button className={`px-3 py-1 ${kind === "client_order" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("client_order")}>{t("orderType.client")}</button>
+              <button className={`px-3 py-1 ${kind === "branded_stock_sale" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("branded_stock_sale")}>{t("orderType.branded")}</button>
             </div>
-            <a href="/sales-orders" className="btn btn-ghost">View all -&gt;</a>
+            <a href="/sales-orders" className="btn btn-ghost">{t("home.viewAll")} -&gt;</a>
           </div>
           <div className="overflow-x-auto">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Order</th><th>Customer</th><th>Qty</th><th>Progress</th><th>Stage</th><th>Due</th><th className="text-right">Value</th>
+                  <th>{t("field.orderNo")}</th><th>{t("field.customer")}</th><th>{t("field.qty")}</th><th>{t("page.processes.progress")}</th><th>{t("common.status")}</th><th>{t("field.deadline")}</th><th className="text-right">{t("field.value")}</th>
                 </tr>
               </thead>
               <tbody>
                 {!activeOrders.length ? (
-                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">No orders match selected filters.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("home.noOrdersForFilter")}</td></tr>
                 ) : activeOrders.map((o, i) => {
                   const pct = [62, 18, 81, 47, 4, 0][i] ?? 30;
                   return (
                     <tr key={o.id}>
                       <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
-                      <td>{customerMap.get(o.customer_id) || `Customer #${o.customer_id ?? "-"}`}</td>
+                      <td>{customerMap.get(o.customer_id) || t("sales.unknownCustomer")}</td>
                       <td className="mono">{[4800, 12000, 3200, 9600, 2100, 1500][i] ?? 1000}</td>
                       <td className="min-w-36">
                         <div className="flex items-center gap-2">
@@ -317,19 +319,19 @@ export default function HomePage() {
 
         <div className="card">
           <div className="border-b border-[#ecebe3] px-4 py-3">
-            <h2 className="app-card-title">Stations - today</h2>
-            <div className="text-xs text-[#8a8472]">pieces processed</div>
+            <h2 className="app-card-title">{t("home.stationsToday")}</h2>
+            <div className="text-xs text-[#8a8472]">{t("home.piecesProcessed")}</div>
           </div>
           <div className="space-y-5 p-4">
             {[
-              ["Cutting", prod?.cutting_output ?? 1240, 1600],
-              ["Printing", prod?.printing_output ?? 920, 1200],
-              ["Sewing", prod?.sewing_output ?? 820, 1100],
-              ["Packaging", prod?.packaging_output ?? 640, 900],
+              [t("dash.cutting"), prod?.cutting_output ?? 1240, 1600],
+              [t("dash.printing"), prod?.printing_output ?? 920, 1200],
+              [t("dash.sewing"), prod?.sewing_output ?? 820, 1100],
+              [t("dash.packaging"), prod?.packaging_output ?? 640, 900],
             ].map(([name, value, cap], i) => (
               <div key={String(name)}>
                 <div className="mb-2 flex items-center justify-between text-sm">
-                  <div className="font-medium">{name} {i === 2 && <span className="badge bg-[#fbe9dd] text-[#c2410c]">live</span>}</div>
+                  <div className="font-medium">{name} {i === 2 && <span className="badge bg-[#fbe9dd] text-[#c2410c]">{t("home.live")}</span>}</div>
                   <div className="mono"><b>{Number(value).toLocaleString()}</b> <span className="text-[#8a8472]">/ {Number(cap).toLocaleString()}</span></div>
                 </div>
                 <div className="grid grid-cols-[1fr_90px] items-center gap-3">
@@ -345,7 +347,7 @@ export default function HomePage() {
       {fin && (
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="card p-4">
-            <h3 className="app-card-title">Finance snapshot</h3>
+            <h3 className="app-card-title">{t("dash.finance")}</h3>
             <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <div><div className="label">Revenue</div><div className="text-xl"><Money value={fin.revenue_total || 0} /></div></div>
               <div><div className="label">Payments</div><div className="text-xl"><Money value={fin.payments_received || 0} /></div></div>
@@ -353,13 +355,13 @@ export default function HomePage() {
           </div>
           <a href="/processes" className="card p-4 transition hover:border-[#c2410c]">
             <Factory className="mb-3 h-5 w-5 text-[#c2410c]" />
-            <h3 className="app-card-title">Live process tracker</h3>
-            <p className="mt-1 text-sm text-[#8a8472]">Follow every order across cutting, sewing and packaging.</p>
+            <h3 className="app-card-title">{t("page.processes.title")}</h3>
+            <p className="mt-1 text-sm text-[#8a8472]">{t("home.liveProcessTrackerDesc")}</p>
           </a>
           <a href="/sewing/flows" className="card p-4 transition hover:border-[#c2410c]">
             <Factory className="mb-3 h-5 w-5 text-[#1f7a4d]" />
-            <h3 className="app-card-title">Sewing floor</h3>
-            <p className="mt-1 text-sm text-[#8a8472]">Inspect line load, operators and active bundles.</p>
+            <h3 className="app-card-title">{t("nav.sewingFloor")}</h3>
+            <p className="mt-1 text-sm text-[#8a8472]">{t("home.sewingFloorDesc")}</p>
           </a>
         </div>
       )}

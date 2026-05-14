@@ -1,10 +1,11 @@
-"use client";
+﻿"use client";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Download, Filter, MoreHorizontal, Plus, Search, X } from "lucide-react";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { useT } from "@/lib/i18n";
 
 type SO = {
   id: number;
@@ -49,6 +50,7 @@ function matchesTab(o: SO, tab: TabKey): boolean {
 }
 
 export default function SalesOrdersPage() {
+  const { t } = useT();
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q") || "";
 
@@ -90,12 +92,12 @@ export default function SalesOrdersPage() {
   const inFlight = data.reduce((s, o) => s + Number(o.total_amount || 0), 0);
 
   const tabs = useMemo(() => [
-    { key: "all" as TabKey, label: "All", count: data.length },
-    { key: "production" as TabKey, label: "In production", count: data.filter((o) => ["production", "planning", "confirmed"].includes(o.status)).length },
-    { key: "late" as TabKey, label: "Late", count: data.filter((o) => o.status === "late").length },
-    { key: "shipping" as TabKey, label: "Shipping", count: data.filter((o) => o.status === "ready").length },
-    { key: "draft" as TabKey, label: "Draft", count: data.filter((o) => o.status === "draft").length },
-  ], [data]);
+    { key: "all" as TabKey, label: t("sales.tab.all"), count: data.length },
+    { key: "production" as TabKey, label: t("sales.tab.production"), count: data.filter((o) => ["production", "planning", "confirmed"].includes(o.status)).length },
+    { key: "late" as TabKey, label: t("sales.tab.late"), count: data.filter((o) => o.status === "late").length },
+    { key: "shipping" as TabKey, label: t("sales.tab.shipping"), count: data.filter((o) => o.status === "ready").length },
+    { key: "draft" as TabKey, label: t("sales.tab.draft"), count: data.filter((o) => o.status === "draft").length },
+  ], [data, t]);
 
   function exportCsv() {
     if (!filtered.length) return;
@@ -121,14 +123,14 @@ export default function SalesOrdersPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Commerce / Sales orders"
-        title="Sales orders"
-        subtitle={`${activeCount} active · $${Math.round(inFlight).toLocaleString()} in flight · ${filtered.length} shown`}
+        eyebrow={t("sales.eyebrow")}
+        title={t("sales.title")}
+        subtitle={t("sales.subtitle", { active: activeCount, value: Math.round(inFlight).toLocaleString(), shown: filtered.length })}
         actions={(
           <>
-            <button className="btn" onClick={() => setShowFilters((v) => !v)}><Filter />Filter</button>
-            <button className="btn" onClick={exportCsv} disabled={!filtered.length}><Download />Export</button>
-            <a href="/sales-orders/new" className="btn btn-primary"><Plus />New order</a>
+            <button className="btn" onClick={() => setShowFilters((v) => !v)}><Filter />{t("sales.filter")}</button>
+            <button className="btn" onClick={exportCsv} disabled={!filtered.length}><Download />{t("sales.export")}</button>
+            <a href="/sales-orders/new" className="btn btn-primary"><Plus />{t("btn.newOrder").replace("+ ", "")}</a>
           </>
         )}
       />
@@ -138,12 +140,12 @@ export default function SalesOrdersPage() {
           <Search className="h-4 w-4 text-[#8a8472]" />
           <input
             className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
-            placeholder="Search order number, customer, status..."
+            placeholder={t("sales.searchPlaceholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
           {query ? (
-            <button className="icon-btn" onClick={() => setQuery("")} title="Clear search"><X /></button>
+            <button className="icon-btn" onClick={() => setQuery("")} title={t("sales.clearSearch")}><X /></button>
           ) : null}
         </div>
       </div>
@@ -151,18 +153,18 @@ export default function SalesOrdersPage() {
       {showFilters ? (
         <div className="card mb-4 grid grid-cols-1 gap-3 p-4 md:grid-cols-2">
           <div>
-            <label className="label">Status</label>
+            <label className="label">{t("common.status")}</label>
             <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="all">All statuses</option>
+              <option value="all">{t("sales.allStatuses")}</option>
               {[...new Set(data.map((o) => o.status))].map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div>
-            <label className="label">Order type</label>
+            <label className="label">{t("sales.orderType")}</label>
             <select className="input" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-              <option value="all">All types</option>
-              <option value="client_order">client_order</option>
-              <option value="branded_stock_sale">branded_stock_sale</option>
+              <option value="all">{t("sales.allTypes")}</option>
+              <option value="client_order">{t("orderType.client")}</option>
+              <option value="branded_stock_sale">{t("orderType.branded")}</option>
             </select>
           </div>
         </div>
@@ -182,18 +184,18 @@ export default function SalesOrdersPage() {
             <thead>
               <tr>
                 <th className="w-10"><input type="checkbox" /></th>
-                <th>Order</th>
-                <th>Customer</th>
-                <th>Qty</th>
-                <th>Progress</th>
-                <th>Stage</th>
-                <th>Due</th>
-                <th className="text-right">Value</th>
+                <th>{t("field.orderNo")}</th>
+                <th>{t("field.customer")}</th>
+                <th>{t("field.qty")}</th>
+                <th>{t("page.processes.progress")}</th>
+                <th>{t("common.status")}</th>
+                <th>{t("field.deadline")}</th>
+                <th className="text-right">{t("field.value")}</th>
               </tr>
             </thead>
             <tbody>
-              {isLoading && <tr><td colSpan={8} className="text-[#8a8472]">Loading...</td></tr>}
-              {!isLoading && !filtered.length && <tr><td colSpan={8} className="text-[#8a8472]">No orders match the current filters.</td></tr>}
+              {isLoading && <tr><td colSpan={8} className="text-[#8a8472]">{t("common.loading")}</td></tr>}
+              {!isLoading && !filtered.length && <tr><td colSpan={8} className="text-[#8a8472]">{t("sales.noMatch")}</td></tr>}
               {filtered.map((o, i) => {
                 const pct = [62, 18, 81, 47, 4, 0, 93, 100][i % 8];
                 const qty = [4800, 12000, 3200, 9600, 2100, 1500, 5400, 720][i % 8];
@@ -202,7 +204,7 @@ export default function SalesOrdersPage() {
                   <tr key={o.id} data-selected={active} className={active ? "bg-[#fdf3eb]" : ""} onClick={() => setSelectedId(o.id)}>
                     <td><input type="checkbox" onClick={(e) => e.stopPropagation()} /></td>
                     <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
-                    <td>{customerMap.get(o.customer_id) ?? "Unknown customer"}</td>
+                    <td>{customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}</td>
                     <td className="mono text-right">{qty.toLocaleString()}</td>
                     <td>
                       <div className="flex items-center gap-2">
@@ -232,29 +234,28 @@ export default function SalesOrdersPage() {
               </div>
               <div className="space-y-6 p-4">
                 <section>
-                  <div className="label">Customer</div>
-                  <div className="text-lg font-semibold">{customerMap.get(selected.customer_id) ?? "Unknown customer"}</div>
+                  <div className="label">{t("field.customer")}</div>
+                  <div className="text-lg font-semibold">{customerMap.get(selected.customer_id) ?? t("sales.unknownCustomer")}</div>
                 </section>
                 <section>
-                  <div className="label">Order type</div>
-                  <div className="badge">{selected.order_type}</div>
+                  <div className="label">{t("sales.orderType")}</div>
+                  <div className="badge">{selected.order_type === "client_order" ? t("orderType.client") : t("orderType.branded")}</div>
                 </section>
                 <section>
-                  <div className="label">Financials</div>
+                  <div className="label">{t("sales.financials")}</div>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span>Subtotal</span><Money value={Number(selected.total_amount || 0)} /></div>
-                    <div className="flex justify-between"><span>Tax (12%)</span><Money value={Number(selected.total_amount || 0) * 0.12} /></div>
-                    <div className="flex justify-between border-t border-[#ecebe3] pt-2"><span>Total</span><Money value={Number(selected.total_amount || 0) * 1.12} /></div>
+                    <div className="flex justify-between"><span>{t("sales.subtotal")}</span><Money value={Number(selected.total_amount || 0)} /></div>
+                    <div className="flex justify-between"><span>{t("sales.tax12")}</span><Money value={Number(selected.total_amount || 0) * 0.12} /></div>
+                    <div className="flex justify-between border-t border-[#ecebe3] pt-2"><span>{t("common.total")}</span><Money value={Number(selected.total_amount || 0) * 1.12} /></div>
                   </div>
                 </section>
               </div>
             </>
           ) : (
-            <div className="p-6 text-sm text-[#8a8472]">Select an order to inspect it.</div>
+            <div className="p-6 text-sm text-[#8a8472]">{t("sales.selectOrder")}</div>
           )}
         </aside>
       </div>
     </div>
   );
 }
-

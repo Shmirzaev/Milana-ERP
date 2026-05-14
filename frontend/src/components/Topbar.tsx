@@ -32,18 +32,18 @@ export default function Topbar() {
           <Search className="h-4 w-4" />
           <input
             className="w-full bg-transparent text-sm text-[#2c2920] placeholder:text-[#8a8472] focus:outline-none"
-            placeholder="Search orders, bundles, models..."
+            placeholder={t("top.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <button type="submit" className="rounded border border-[#ded9ca] bg-[#fdfcf8] px-1.5 py-0.5 text-[11px]">Enter</button>
+          <button type="submit" className="rounded border border-[#ded9ca] bg-[#fdfcf8] px-1.5 py-0.5 text-[11px]">{t("top.searchSubmit")}</button>
         </form>
-        <button className="icon-btn" title="Language"><Globe2 /></button>
+        <button className="icon-btn" title={t("top.language")}><Globe2 /></button>
         <LangSwitcher />
         <div className="relative">
           <NotificationBell />
         </div>
-        <button className="icon-btn" title="Settings"><Settings /></button>
+        <button className="icon-btn" title={t("common.actions")}><Settings /></button>
         <div className="hidden text-right text-sm sm:block">
           <div className="font-medium text-[#14110b]">{me?.name || "-"}</div>
           <div className="text-xs text-[#8a8472]">{me?.role || ""}</div>

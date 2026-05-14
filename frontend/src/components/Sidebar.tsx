@@ -137,7 +137,7 @@ export default function Sidebar() {
         <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#14110b] text-sm font-bold text-[#fdfcf8] shadow-sm ring-2 ring-[#ded9ca]">M</div>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-[#14110b]">Milana <span className="font-normal text-[#56503f]">ERP</span></div>
-          <div className="text-xs leading-tight text-[#8a8472]">Garment manufacturing · Tashkent</div>
+          <div className="text-xs leading-tight text-[#8a8472]">{t("sidebar.tagline")}</div>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-4">
