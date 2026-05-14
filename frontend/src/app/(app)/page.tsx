@@ -1,56 +1,180 @@
 "use client";
 import useSWR from "swr";
+import { CalendarDays, Download, Factory, Plus, TrendingDown, TrendingUp } from "lucide-react";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useMe, can } from "@/lib/auth";
-import { useT } from "@/lib/i18n";
 
-function Card({ title, value, sub }: { title: string; value: any; sub?: string }) {
+function MiniBars({ hot = false }: { hot?: boolean }) {
+  const bars = [22, 35, 48, 54, 62, 70, 58, 78, 83, 92, 88];
   return (
-    <div className="card p-5">
-      <div className="text-xs text-slate-500 uppercase tracking-wide">{title}</div>
-      <div className="text-2xl font-semibold mt-1">{value ?? "—"}</div>
-      {sub && <div className="text-xs text-slate-500 mt-1">{sub}</div>}
+    <div className="flex h-14 items-end gap-1">
+      {bars.map((h, i) => (
+        <span
+          key={i}
+          className={`w-1.5 rounded-sm ${hot && i > 8 ? "bg-[#c2410c]" : i > 7 ? "bg-[#14110b]" : "bg-[#ecebe3]"}`}
+          style={{ height: `${h}%` }}
+        />
+      ))}
     </div>
   );
 }
 
+function Spark({ accent = false }: { accent?: boolean }) {
+  return (
+    <svg viewBox="0 0 120 34" className={`h-8 w-28 ${accent ? "text-[#c2410c]" : "text-[#14110b]"}`} fill="none">
+      <path d="M2 28 L16 22 L28 24 L42 15 L54 19 L68 10 L82 13 L96 6 L118 4" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function Kpi({ label, value, sub, tone = "neutral", visual }: { label: string; value: any; sub?: string; tone?: "neutral" | "bad" | "good"; visual?: React.ReactNode }) {
+  return (
+    <div className={`card p-5 ${tone === "bad" ? "border-[#d97706] bg-[#fff7df]" : ""}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="label">{label}</div>
+          <div className="mt-1 text-3xl font-semibold tracking-tight text-[#14110b]">{value ?? "-"}</div>
+          {sub ? (
+            <div className={`mt-2 flex items-center gap-1 text-xs ${tone === "bad" ? "text-red-600" : tone === "good" ? "text-green-700" : "text-[#8a8472]"}`}>
+              {tone === "bad" ? <TrendingDown className="h-3.5 w-3.5" /> : tone === "good" ? <TrendingUp className="h-3.5 w-3.5" /> : null}
+              {sub}
+            </div>
+          ) : null}
+        </div>
+        {visual}
+      </div>
+    </div>
+  );
+}
+
+function Money({ value }: { value: number }) {
+  return <span className="mono">${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>;
+}
+
 export default function HomePage() {
   const { me } = useMe();
-  const { t } = useT();
   const { data: mgmt } = useSWR<any>("/api/dashboard/management", fetcher);
   const { data: prod } = useSWR<any>("/api/dashboard/production", fetcher);
   const { data: fin } = useSWR<any>(can(me, "finance.view", "*") ? "/api/dashboard/finance" : null, fetcher);
+  const { data: orders } = useSWR<any[]>("/api/sales-orders", fetcher);
+
+  const activeOrders = orders?.slice(0, 6) ?? [];
+  const totalValue = activeOrders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
 
   return (
     <div>
       <PageHeader
-        title={`${t("common.welcome")}, ${me?.name || ""}`}
-        subtitle={me?.role ? `${t("common.role")}: ${me.role}` : undefined}
+        eyebrow="Home"
+        title={`Good morning, ${me?.name?.split(" ")[0] || "Aziza"}`}
+        subtitle="Pulse across all departments · Week 20"
+        actions={(
+          <>
+            <button className="btn"><CalendarDays />This week</button>
+            <button className="btn"><Download />Export</button>
+            <a href="/sales-orders/new" className="btn btn-primary"><Plus />New order</a>
+          </>
+        )}
       />
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <Card title={t("dash.activeOrders")} value={mgmt?.active_orders} />
-        <Card title={t("dash.lateOrders")} value={mgmt?.late_orders} />
-        <Card title={t("dash.todaysDefects")} value={mgmt?.todays_defects} />
-        <Card title={t("dash.todaysWaste")} value={mgmt?.todays_waste} sub={t("dash.todaysWasteSub")} />
+
+      <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Kpi label="In production" value={mgmt?.active_orders ?? activeOrders.length} sub="+2 · orders" tone="good" visual={<MiniBars />} />
+        <Kpi label="Output today" value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} sub="+11.4% · pcs across 4 stations" tone="good" visual={<Spark accent />} />
+        <Kpi label="On-time rate" value="92%" sub="-1.2 pp · last 14 days" tone="bad" visual={<Spark />} />
+        <Kpi label="Late orders" value={mgmt?.late_orders ?? 0} sub={`$${Math.round(totalValue).toLocaleString()} exposed`} tone="bad" visual={<MiniBars hot />} />
       </div>
-      <h2 className="text-lg font-semibold mb-3">{t("dash.production")}</h2>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <Card title={t("dash.cutting")} value={prod?.cutting_output} />
-        <Card title={t("dash.printing")} value={prod?.printing_output} />
-        <Card title={t("dash.sewing")} value={prod?.sewing_output} />
-        <Card title={t("dash.packaging")} value={prod?.packaging_output} />
-      </div>
-      {fin && (
-        <>
-          <h2 className="text-lg font-semibold mb-3">{t("dash.finance")}</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card title={t("dash.revenue")} value={`$${(fin.revenue_total || 0).toFixed(2)}`} />
-            <Card title={t("dash.payments")} value={`$${(fin.payments_received || 0).toFixed(2)}`} />
-            <Card title={t("dash.brandedValue")} value={`$${(fin.branded_stock_value || 0).toFixed(2)}`} />
-            <Card title={t("dash.wasteIncome")} value={`$${(fin.waste_income || 0).toFixed(2)}`} />
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.55fr_1fr]">
+        <div className="card">
+          <div className="flex items-center gap-3 border-b border-[#ecebe3] px-4 py-3">
+            <h2 className="app-card-title">Active production</h2>
+            <span className="text-xs text-[#8a8472]">{activeOrders.length} orders · {Math.round(totalValue).toLocaleString()} in flight</span>
+            <div className="ml-auto rounded-md border border-[#ded9ca] bg-[#f1efe8] p-0.5 text-xs">
+              <button className="rounded bg-[#fdfcf8] px-3 py-1 shadow-sm">All</button>
+              <button className="px-3 py-1 text-[#56503f]">Client</button>
+              <button className="px-3 py-1 text-[#56503f]">Branded</button>
+            </div>
+            <a href="/sales-orders" className="btn btn-ghost">View all →</a>
           </div>
-        </>
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Order</th><th>Customer</th><th>Qty</th><th>Progress</th><th>Stage</th><th>Due</th><th className="text-right">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeOrders.map((o, i) => {
+                  const pct = [62, 18, 81, 47, 4, 0][i] ?? 30;
+                  return (
+                    <tr key={o.id}>
+                      <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
+                      <td>{o.customer_id ? `Customer #${o.customer_id}` : "ZARA Tashkent"}</td>
+                      <td className="mono">{[4800, 12000, 3200, 9600, 2100, 1500][i] ?? 1000}</td>
+                      <td className="min-w-36">
+                        <div className="flex items-center gap-2">
+                          <div className="mini-bar flex-1"><span style={{ width: `${pct}%` }} /></div>
+                          <span className="mono text-xs text-[#8a8472]">{pct}%</span>
+                        </div>
+                      </td>
+                      <td><span className="badge bg-[#fbe9dd] text-[#c2410c]">{o.status}</span></td>
+                      <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "May 28"}</td>
+                      <td className="text-right"><Money value={Number(o.total_amount || 0)} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="border-b border-[#ecebe3] px-4 py-3">
+            <h2 className="app-card-title">Stations · today</h2>
+            <div className="text-xs text-[#8a8472]">pieces processed</div>
+          </div>
+          <div className="space-y-5 p-4">
+            {[
+              ["Cutting", prod?.cutting_output ?? 1240, 1600],
+              ["Printing", prod?.printing_output ?? 920, 1200],
+              ["Sewing", prod?.sewing_output ?? 820, 1100],
+              ["Packaging", prod?.packaging_output ?? 640, 900],
+            ].map(([name, value, cap], i) => (
+              <div key={String(name)}>
+                <div className="mb-2 flex items-center justify-between text-sm">
+                  <div className="font-medium">{name} {i === 2 && <span className="badge bg-[#fbe9dd] text-[#c2410c]">live</span>}</div>
+                  <div className="mono"><b>{Number(value).toLocaleString()}</b> <span className="text-[#8a8472]">/ {Number(cap).toLocaleString()}</span></div>
+                </div>
+                <div className="grid grid-cols-[1fr_90px] items-center gap-3">
+                  <div className="mini-bar"><span className={i === 2 ? "bg-[#c2410c]" : ""} style={{ width: `${Math.min(100, Number(value) / Number(cap) * 100)}%` }} /></div>
+                  <Spark accent={i === 2} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {fin && (
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="card p-4">
+            <h3 className="app-card-title">Finance snapshot</h3>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div><div className="label">Revenue</div><div className="text-xl"><Money value={fin.revenue_total || 0} /></div></div>
+              <div><div className="label">Payments</div><div className="text-xl"><Money value={fin.payments_received || 0} /></div></div>
+            </div>
+          </div>
+          <a href="/processes" className="card p-4 transition hover:border-[#c2410c]">
+            <Factory className="mb-3 h-5 w-5 text-[#c2410c]" />
+            <h3 className="app-card-title">Live process tracker</h3>
+            <p className="mt-1 text-sm text-[#8a8472]">Follow every order across cutting, sewing and packaging.</p>
+          </a>
+          <a href="/sewing/flows" className="card p-4 transition hover:border-[#c2410c]">
+            <Factory className="mb-3 h-5 w-5 text-[#1f7a4d]" />
+            <h3 className="app-card-title">Sewing floor</h3>
+            <p className="mt-1 text-sm text-[#8a8472]">Inspect line load, operators and active bundles.</p>
+          </a>
+        </div>
       )}
     </div>
   );

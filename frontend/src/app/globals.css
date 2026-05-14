@@ -3,19 +3,56 @@
 @tailwind utilities;
 
 html, body { height: 100%; }
-body { @apply bg-slate-50 text-slate-800 antialiased; }
+body {
+  @apply bg-[#f7f6f1] text-[#14110b] antialiased;
+  font-feature-settings: "cv11", "ss01", "ss03";
+}
 
-.btn { @apply inline-flex items-center px-3 py-2 rounded-md text-sm font-medium border border-slate-300 bg-white hover:bg-slate-100; }
-.btn-primary { @apply bg-brand-500 text-white border-brand-500 hover:bg-brand-600; }
-.btn-danger { @apply bg-red-600 text-white border-red-600 hover:bg-red-700; }
-.card { @apply bg-white rounded-lg border border-slate-200 shadow-sm; }
-.input { @apply w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500; }
-.label { @apply block text-xs font-medium text-slate-600 mb-1; }
-.badge { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700; }
+::selection { @apply bg-[#fbe9dd] text-[#14110b]; }
+
+.btn {
+  @apply inline-flex h-8 items-center justify-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 text-[12.5px] font-medium text-[#2c2920] shadow-sm transition hover:border-[#d1caba] hover:bg-[#f1efe8] disabled:cursor-not-allowed disabled:opacity-60;
+}
+.btn svg { @apply h-4 w-4 shrink-0; }
+.btn-primary { @apply border-[#14110b] bg-[#14110b] text-white hover:border-[#2c2920] hover:bg-[#2c2920]; }
+.btn-danger { @apply border-red-600 bg-red-600 text-white hover:border-red-700 hover:bg-red-700; }
+.btn-accent { @apply border-[#c2410c] bg-[#c2410c] text-white hover:border-[#9a3308] hover:bg-[#9a3308]; }
+.btn-ghost { @apply border-transparent bg-transparent shadow-none hover:border-[#e3dfd3] hover:bg-[#f1efe8]; }
+.icon-btn {
+  @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-[#56503f] transition hover:bg-[#f1efe8] hover:text-[#14110b];
+}
+.icon-btn svg { @apply h-4 w-4; }
+.card { @apply overflow-hidden rounded-xl border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm; }
+.panel { @apply rounded-xl border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm; }
+.input {
+  @apply w-full rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 py-2 text-sm text-[#14110b] shadow-sm transition placeholder:text-[#8a8472] focus:border-[#c2410c] focus:outline-none focus:ring-2 focus:ring-[#c2410c]/20;
+}
+.label { @apply mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]; }
+.badge { @apply inline-flex items-center gap-1 rounded-full bg-[#f1efe8] px-2 py-0.5 text-[11px] font-medium text-[#56503f]; }
 .badge-green { @apply bg-green-100 text-green-800; }
-.badge-yellow { @apply bg-yellow-100 text-yellow-800; }
+.badge-yellow { @apply bg-amber-100 text-amber-800; }
 .badge-blue { @apply bg-blue-100 text-blue-800; }
 .badge-red { @apply bg-red-100 text-red-800; }
-.table { @apply w-full text-sm text-left; }
-.table thead th { @apply px-3 py-2 text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200; }
-.table tbody td { @apply px-3 py-2 border-b border-slate-100; }
+.table { @apply w-full text-left text-sm; }
+.table thead th { @apply border-b border-[#e3dfd3] bg-[#f1efe8] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]; }
+.table tbody td { @apply border-b border-[#ecebe3] px-4 py-3 align-middle; }
+.table tbody tr { @apply transition hover:bg-[#fdf3eb]; }
+.table code { @apply rounded bg-[#f1efe8] px-1.5 py-0.5 text-xs text-[#56503f]; }
+
+.kpi-card {
+  @apply relative overflow-hidden rounded-xl border border-[#e3dfd3] bg-[#fdfcf8] p-5 shadow-sm;
+}
+.kpi-card::after {
+  content: "";
+  @apply absolute bottom-0 left-0 h-[3px] w-full bg-gradient-to-r from-[#c2410c] via-[#1f7a4d] to-[#1e5fb3] opacity-90;
+}
+.status-dot { @apply inline-block h-2 w-2 rounded-full; }
+
+.app-card-title { @apply text-sm font-semibold tracking-tight text-[#14110b]; }
+.muted { @apply text-[#8a8472]; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+.mini-bar { @apply h-1.5 overflow-hidden rounded-full bg-[#f1efe8]; }
+.mini-bar > span { @apply block h-full rounded-full bg-[#14110b]; }
+.tab-row { @apply flex gap-5 border-b border-[#ded9ca]; }
+.tab-row a, .tab-row button { @apply -mb-px border-b-2 border-transparent px-0 py-3 text-sm text-[#8a8472]; }
+.tab-row [data-active="true"] { @apply border-[#14110b] font-medium text-[#14110b]; }
