@@ -8,11 +8,15 @@ import { useT } from "@/lib/i18n";
 
 type Line = { model_id: number; color: string; size: string; quantity: number; unit_price: number; printing_required: boolean };
 
+const SIZE_OPTIONS = ["44", "46", "48", "50", "52", "54", "56", "58", "60", "62", "64"];
+
 export default function NewSalesOrderPage() {
   const { t } = useT();
   const { data: customers } = useSWR<any[]>("/api/customers", fetcher);
   const { data: models } = useSWR<any[]>("/api/models", fetcher);
+  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
   const [customerId, setCustomerId] = useState<number | "">("");
+  const [brandId, setBrandId] = useState<number | "">("");
   const [orderType, setOrderType] = useState("client_order");
   const [deadline, setDeadline] = useState("");
   const [notes, setNotes] = useState("");
@@ -20,6 +24,9 @@ export default function NewSalesOrderPage() {
     { model_id: 0, color: "white", size: "M", quantity: 50, unit_price: 12, printing_required: false },
   ]);
   const [lineModelSearch, setLineModelSearch] = useState<string[]>([""]);
+  const [sizeFrom, setSizeFrom] = useState("46");
+  const [sizeTo, setSizeTo] = useState("56");
+  const [distributeTotalQty, setDistributeTotalQty] = useState(6000);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -63,6 +70,41 @@ export default function NewSalesOrderPage() {
     }
   }
 
+  function distributeBySizeRange() {
+    setErr("");
+    if (!lines.length) return;
+
+    const startIdx = SIZE_OPTIONS.indexOf(sizeFrom);
+    const endIdx = SIZE_OPTIONS.indexOf(sizeTo);
+    if (startIdx < 0 || endIdx < 0 || startIdx > endIdx) {
+      setErr("Choose a valid size range.");
+      return;
+    }
+    if (!Number.isFinite(distributeTotalQty) || distributeTotalQty <= 0) {
+      setErr("Total quantity must be greater than 0.");
+      return;
+    }
+
+    const selectedSizes = SIZE_OPTIONS.slice(startIdx, endIdx + 1);
+    const count = selectedSizes.length;
+    const qtyPerSize = Math.floor(distributeTotalQty / count);
+    let remainder = distributeTotalQty % count;
+
+    const base = lines[0];
+    const nextLines: Line[] = selectedSizes.map((size) => {
+      const addOne = remainder > 0 ? 1 : 0;
+      if (remainder > 0) remainder -= 1;
+      return {
+        ...base,
+        size,
+        quantity: qtyPerSize + addOne,
+      };
+    });
+
+    setLines(nextLines);
+    setLineModelSearch(nextLines.map(() => modelLabelById(base.model_id)));
+  }
+
   const subtotal = lines.reduce((s, l) => s + Number(l.quantity || 0) * Number(l.unit_price || 0), 0);
   const qty = lines.reduce((s, l) => s + Number(l.quantity || 0), 0);
 
@@ -76,7 +118,10 @@ export default function NewSalesOrderPage() {
         order_type: orderType,
         deadline: deadline || null,
         notes,
-        items: lines,
+        items: lines.map((line) => ({
+          ...line,
+          brand_id: brandId || null,
+        })),
       };
       const so = await api.post("/api/sales-orders", payload);
       window.location.href = `/sales-orders/${so.id}`;
@@ -106,7 +151,7 @@ export default function NewSalesOrderPage() {
               </div>
               <span className="badge bg-[#fbe9dd] text-[#c2410c]">{t("newso.draft")}</span>
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <div>
                 <label className="label">{t("sales.orderType")}</label>
                 <select className="input" value={orderType} onChange={(e) => setOrderType(e.target.value)}>
@@ -125,6 +170,13 @@ export default function NewSalesOrderPage() {
                 <label className="label">{t("field.deadline")}</label>
                 <input className="input" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
               </div>
+              <div>
+                <label className="label">{t("field.brand")}</label>
+                <select className="input" value={brandId} onChange={(e) => setBrandId(Number(e.target.value) || "")}>
+                  <option value="">Select brand...</option>
+                  {brands?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
             </div>
           </section>
 
@@ -135,6 +187,32 @@ export default function NewSalesOrderPage() {
                 <p className="mt-1 text-sm text-[#8a8472]">{t("newso.linesSummary", { lines: lines.length, qty: qty.toLocaleString() })}</p>
               </div>
               <button type="button" className="btn" onClick={addLine}><Plus />{t("newso.addLine")}</button>
+            </div>
+            <div className="border-b border-[#ecebe3] px-5 py-4">
+              <div className="mb-2 text-sm font-semibold text-[#14110b]">Size distribution helper</div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_140px_180px_auto]">
+                <div>
+                  <label className="label">From size</label>
+                  <select className="input" value={sizeFrom} onChange={(e) => setSizeFrom(e.target.value)}>
+                    {SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">To size</label>
+                  <select className="input" value={sizeTo} onChange={(e) => setSizeTo(e.target.value)}>
+                    {SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Total quantity</label>
+                  <input className="input" type="number" min={1} value={distributeTotalQty} onChange={(e) => setDistributeTotalQty(Number(e.target.value))} />
+                </div>
+                <div className="flex items-end">
+                  <button type="button" className="btn btn-primary" onClick={distributeBySizeRange}>
+                    Distribute equally
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="table">
