@@ -1,26 +1,69 @@
 "use client";
 import { useState } from "react";
 import useSWR from "swr";
+import { Pencil, Trash2, X, Check } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 
+type Department = { id: number; name: string; code: string };
+
 export default function DepartmentsPage() {
   const { t } = useT();
-  const { data, mutate } = useSWR<any[]>("/api/departments", fetcher);
+  const { data, mutate } = useSWR<Department[]>("/api/departments", fetcher);
   const [f, setF] = useState({ name: "", code: "" });
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [edit, setEdit] = useState({ name: "", code: "" });
+  const [msg, setMsg] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    await api.post("/api/departments", f);
-    setF({ name: "", code: "" });
-    mutate();
+    setMsg("");
+    try {
+      await api.post("/api/departments", { name: f.name.trim(), code: f.code.trim().toUpperCase() });
+      setF({ name: "", code: "" });
+      mutate();
+    } catch (e: any) {
+      setMsg(e.message || "Failed to add department");
+    }
+  }
+
+  function startEdit(d: Department) {
+    setEditingId(d.id);
+    setEdit({ name: d.name, code: d.code });
+    setMsg("");
+  }
+
+  async function saveEdit(id: number) {
+    setMsg("");
+    try {
+      await api.patch(`/api/departments/${id}`, {
+        name: edit.name.trim(),
+        code: edit.code.trim().toUpperCase(),
+      });
+      setEditingId(null);
+      mutate();
+    } catch (e: any) {
+      setMsg(e.message || "Failed to update department");
+    }
+  }
+
+  async function removeDepartment(d: Department) {
+    if (!confirm(`Delete department ${d.code} (${d.name})?`)) return;
+    setMsg("");
+    try {
+      await api.del(`/api/departments/${d.id}`);
+      if (editingId === d.id) setEditingId(null);
+      mutate();
+    } catch (e: any) {
+      setMsg(e.message || "Failed to delete department");
+    }
   }
 
   return (
     <div>
-      <PageHeader title={t("page.admin.depts")} />
-      <form onSubmit={submit} className="card mb-6 grid grid-cols-3 gap-3 p-4">
+      <PageHeader title={t("page.admin.depts")} subtitle="Create, update, or remove department records." />
+      <form onSubmit={submit} className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-3">
         <input
           className="input"
           placeholder={t("common.name")}
@@ -37,17 +80,61 @@ export default function DepartmentsPage() {
         />
         <button className="btn btn-primary">{t("btn.add")}</button>
       </form>
+      {msg ? <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{msg}</div> : null}
       <div className="card">
         <table className="table">
           <thead>
             <tr>
               <th>{t("common.code")}</th>
               <th>{t("common.name")}</th>
+              <th>Actions</th>
             </tr>
           </thead>
-          <tbody>{data?.map((d) => <tr key={d.id}><td>{d.code}</td><td>{d.name}</td></tr>)}</tbody>
+          <tbody>
+            {data?.map((d) => {
+              const editing = editingId === d.id;
+              return (
+                <tr key={d.id}>
+                  <td>
+                    {editing ? (
+                      <input
+                        className="input"
+                        value={edit.code}
+                        onChange={(e) => setEdit({ ...edit, code: e.target.value })}
+                      />
+                    ) : d.code}
+                  </td>
+                  <td>
+                    {editing ? (
+                      <input
+                        className="input"
+                        value={edit.name}
+                        onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+                      />
+                    ) : d.name}
+                  </td>
+                  <td>
+                    <div className="flex items-center gap-2">
+                      {editing ? (
+                        <>
+                          <button type="button" className="btn" onClick={() => saveEdit(d.id)}><Check />Save</button>
+                          <button type="button" className="btn" onClick={() => setEditingId(null)}><X />Cancel</button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" className="btn" onClick={() => startEdit(d)}><Pencil />Edit</button>
+                          <button type="button" className="btn btn-danger" onClick={() => removeDepartment(d)}><Trash2 />Delete</button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
         </table>
       </div>
     </div>
   );
 }
+

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from fastapi import Depends
 from app.core.security import hash_password
-from app.models import User, Role, Department, AuditLog
+from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
 from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
@@ -112,6 +112,60 @@ def create_department(payload: DepartmentIn, db: DbSession, current: User = Depe
     db.commit()
     db.refresh(d)
     return d
+
+
+@router.patch("/departments/{department_id}", response_model=DepartmentOut)
+def update_department(
+    department_id: int,
+    payload: DepartmentIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("*")),
+):
+    d = db.get(Department, department_id)
+    if not d:
+        raise HTTPException(404, "Department not found")
+
+    name = payload.name.strip()
+    code = payload.code.strip().upper()
+    if not name or not code:
+        raise HTTPException(400, "name and code are required")
+
+    name_exists = db.query(Department).filter(Department.name == name, Department.id != department_id).first()
+    if name_exists:
+        raise HTTPException(400, "Department name already exists")
+    code_exists = db.query(Department).filter(Department.code == code, Department.id != department_id).first()
+    if code_exists:
+        raise HTTPException(400, "Department code already exists")
+
+    old = {"name": d.name, "code": d.code}
+    d.name = name
+    d.code = code
+    log_action(db, current, "update", "Department", d.id, old_value=old, new_value={"name": d.name, "code": d.code})
+    db.commit()
+    db.refresh(d)
+    return d
+
+
+@router.delete("/departments/{department_id}", status_code=204)
+def delete_department(
+    department_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("*")),
+):
+    d = db.get(Department, department_id)
+    if not d:
+        raise HTTPException(404, "Department not found")
+
+    if db.query(User).filter(User.department_id == department_id).first():
+        raise HTTPException(409, "Department is assigned to users. Reassign users before delete.")
+    if db.query(Employee).filter(Employee.department_id == department_id).first():
+        raise HTTPException(409, "Department is assigned to employees. Reassign employees before delete.")
+    if db.query(WorkOrder).filter(WorkOrder.department_id == department_id).first():
+        raise HTTPException(409, "Department is used by work orders. Delete is blocked.")
+
+    db.delete(d)
+    log_action(db, current, "delete", "Department", department_id)
+    db.commit()
 
 
 # ===== Audit log =====

@@ -1,4 +1,6 @@
 "use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Globe2, LogOut, Search, Server, Settings, WifiOff } from "lucide-react";
 import { useMe, logout } from "@/lib/auth";
@@ -7,8 +9,10 @@ import LangSwitcher from "@/components/LangSwitcher";
 import NotificationBell from "@/components/NotificationBell";
 
 export default function Topbar() {
+  const router = useRouter();
   const { me } = useMe();
   const { t } = useT();
+  const [search, setSearch] = useState("");
   const { data: health, error } = useSWR<{ status: string; app: string }>(
     "/health",
     (url: string) => fetch(url).then((r) => {
@@ -19,6 +23,13 @@ export default function Topbar() {
   );
   const connected = health?.status === "ok" && !error;
 
+  function submitSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const q = search.trim();
+    if (!q) return;
+    router.push(`/sales-orders?q=${encodeURIComponent(q)}`);
+  }
+
   return (
     <header className="sticky top-0 z-10 flex min-h-[56px] items-center justify-between gap-4 border-b border-[#e3dfd3] bg-[#fdfcf8]/95 px-5 py-2 backdrop-blur">
       <div className="flex min-w-0 items-center gap-3">
@@ -27,11 +38,16 @@ export default function Topbar() {
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <div className="hidden h-8 w-[274px] items-center gap-2 rounded-md border border-[#e3dfd3] bg-[#f1efe8] px-3 text-sm text-[#8a8472] xl:flex">
+        <form onSubmit={submitSearch} className="hidden h-8 w-[274px] items-center gap-2 rounded-md border border-[#e3dfd3] bg-[#f1efe8] px-3 text-sm text-[#8a8472] xl:flex">
           <Search className="h-4 w-4" />
-          <span className="truncate">Search orders, bundles, models...</span>
-          <span className="ml-auto rounded border border-[#ded9ca] bg-[#fdfcf8] px-1.5 py-0.5 text-[11px]">⌘ K</span>
-        </div>
+          <input
+            className="w-full bg-transparent text-sm text-[#2c2920] placeholder:text-[#8a8472] focus:outline-none"
+            placeholder="Search orders, bundles, models..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <button type="submit" className="rounded border border-[#ded9ca] bg-[#fdfcf8] px-1.5 py-0.5 text-[11px]">Enter</button>
+        </form>
         <div
           className={`hidden items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium md:flex ${
             connected ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
@@ -59,3 +75,4 @@ export default function Topbar() {
     </header>
   );
 }
+
