@@ -1,5 +1,7 @@
 "use client";
 import type { ComponentType } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Boxes,
@@ -130,7 +132,7 @@ const SECTIONS: Section[] = [
 export default function Sidebar() {
   const { me } = useMe();
   const { t } = useT();
-  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
+  const pathname = usePathname() || "";
   return (
     <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col overflow-hidden border-r border-[#e3dfd3] bg-[#fdfcf8] text-[#2c2920]">
       <div className="flex h-20 items-center gap-3 border-b border-[#ecebe3] px-3">
@@ -154,7 +156,7 @@ export default function Sidebar() {
                 const ItemIcon = it.icon;
                 return (
                   <li key={`${sec.titleKey}-${it.href}`}>
-                    <a
+                    <Link
                       href={it.href}
                       className={`flex h-9 items-center gap-2 rounded-md px-2 text-[13px] transition ${
                         active
@@ -166,7 +168,7 @@ export default function Sidebar() {
                       <span className="truncate">
                       {t(it.labelKey)}
                       </span>
-                    </a>
+                    </Link>
                   </li>
                 );
               })}
