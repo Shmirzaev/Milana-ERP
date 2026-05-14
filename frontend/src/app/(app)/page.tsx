@@ -1,9 +1,12 @@
 "use client";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { CalendarDays, Download, Factory, Plus, TrendingDown, TrendingUp } from "lucide-react";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useMe, can } from "@/lib/auth";
+
+type FilterKind = "all" | "client_order" | "branded_stock_sale";
 
 function MiniBars({ hot = false }: { hot?: boolean }) {
   const bars = [22, 35, 48, 54, 62, 70, 58, 78, 83, 92, 88];
@@ -52,26 +55,85 @@ function Money({ value }: { value: number }) {
   return <span className="mono">${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>;
 }
 
+function isDateInCurrentWeek(date: Date): boolean {
+  const now = new Date();
+  const start = new Date(now);
+  const day = (now.getDay() + 6) % 7; // monday=0 ... sunday=6
+  start.setDate(now.getDate() - day);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7);
+  return date >= start && date < end;
+}
+
+function toCsvCell(v: unknown): string {
+  const s = String(v ?? "");
+  if (s.includes(",") || s.includes("\"") || s.includes("\n")) return `"${s.replace(/"/g, "\"\"")}"`;
+  return s;
+}
+
 export default function HomePage() {
   const { me } = useMe();
   const { data: mgmt } = useSWR<any>("/api/dashboard/management", fetcher);
   const { data: prod } = useSWR<any>("/api/dashboard/production", fetcher);
   const { data: fin } = useSWR<any>(can(me, "finance.view", "*") ? "/api/dashboard/finance" : null, fetcher);
-  const { data: orders } = useSWR<any[]>("/api/sales-orders", fetcher);
+  const { data: orders = [] } = useSWR<any[]>("/api/sales-orders", fetcher);
+  const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
 
-  const activeOrders = orders?.slice(0, 6) ?? [];
+  const [weekOnly, setWeekOnly] = useState(false);
+  const [kind, setKind] = useState<FilterKind>("all");
+
+  const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
+
+  const activeOrders = useMemo(() => {
+    const base = orders
+      .filter((o) => !["closed", "cancelled", "delivered"].includes(String(o.status)))
+      .filter((o) => kind === "all" || o.order_type === kind)
+      .filter((o) => {
+        if (!weekOnly) return true;
+        if (!o.deadline) return false;
+        return isDateInCurrentWeek(new Date(o.deadline));
+      });
+    return base.slice(0, 6);
+  }, [orders, kind, weekOnly]);
+
   const totalValue = activeOrders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+
+  function exportOrders() {
+    if (!activeOrders.length) return;
+    const rows = activeOrders.map((o) => [
+      o.order_no,
+      customerMap.get(o.customer_id) || `Customer #${o.customer_id ?? "-"}`,
+      o.order_type,
+      o.status,
+      o.deadline || "",
+      Number(o.total_amount || 0).toFixed(2),
+    ]);
+    const header = ["order_no", "customer", "order_type", "status", "deadline", "total_amount"];
+    const csv = [header, ...rows].map((r) => r.map(toCsvCell).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `home-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div>
       <PageHeader
         eyebrow="Home"
         title={`Good morning, ${me?.name?.split(" ")[0] || "Aziza"}`}
-        subtitle="Pulse across all departments · Week 20"
+        subtitle={`Pulse across all departments · ${weekOnly ? "This week" : "All deadlines"}`}
         actions={(
           <>
-            <button className="btn"><CalendarDays />This week</button>
-            <button className="btn"><Download />Export</button>
+            <button className={`btn ${weekOnly ? "btn-primary" : ""}`} onClick={() => setWeekOnly((v) => !v)}>
+              <CalendarDays />This week
+            </button>
+            <button className="btn" onClick={exportOrders} disabled={!activeOrders.length}>
+              <Download />Export
+            </button>
             <a href="/sales-orders/new" className="btn btn-primary"><Plus />New order</a>
           </>
         )}
@@ -90,9 +152,9 @@ export default function HomePage() {
             <h2 className="app-card-title">Active production</h2>
             <span className="text-xs text-[#8a8472]">{activeOrders.length} orders · {Math.round(totalValue).toLocaleString()} in flight</span>
             <div className="ml-auto rounded-md border border-[#ded9ca] bg-[#f1efe8] p-0.5 text-xs">
-              <button className="rounded bg-[#fdfcf8] px-3 py-1 shadow-sm">All</button>
-              <button className="px-3 py-1 text-[#56503f]">Client</button>
-              <button className="px-3 py-1 text-[#56503f]">Branded</button>
+              <button className={`px-3 py-1 ${kind === "all" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("all")}>All</button>
+              <button className={`px-3 py-1 ${kind === "client_order" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("client_order")}>Client</button>
+              <button className={`px-3 py-1 ${kind === "branded_stock_sale" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("branded_stock_sale")}>Branded</button>
             </div>
             <a href="/sales-orders" className="btn btn-ghost">View all →</a>
           </div>
@@ -104,12 +166,14 @@ export default function HomePage() {
                 </tr>
               </thead>
               <tbody>
-                {activeOrders.map((o, i) => {
+                {!activeOrders.length ? (
+                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">No orders match selected filters.</td></tr>
+                ) : activeOrders.map((o, i) => {
                   const pct = [62, 18, 81, 47, 4, 0][i] ?? 30;
                   return (
                     <tr key={o.id}>
                       <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
-                      <td>{o.customer_id ? `Customer #${o.customer_id}` : "ZARA Tashkent"}</td>
+                      <td>{customerMap.get(o.customer_id) || `Customer #${o.customer_id ?? "-"}`}</td>
                       <td className="mono">{[4800, 12000, 3200, 9600, 2100, 1500][i] ?? 1000}</td>
                       <td className="min-w-36">
                         <div className="flex items-center gap-2">
@@ -118,7 +182,7 @@ export default function HomePage() {
                         </div>
                       </td>
                       <td><span className="badge bg-[#fbe9dd] text-[#c2410c]">{o.status}</span></td>
-                      <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "May 28"}</td>
+                      <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-"}</td>
                       <td className="text-right"><Money value={Number(o.total_amount || 0)} /></td>
                     </tr>
                   );
