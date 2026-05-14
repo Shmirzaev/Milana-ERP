@@ -5,7 +5,7 @@ databases:
 
 services:
   - type: web
-    name: milana-erp-backend
+    name: milana-erp
     runtime: docker
     plan: free
     dockerfilePath: ./backend/Dockerfile
@@ -32,7 +32,7 @@ services:
         value: /opt/render/project/src/backend/storage/barcodes
 
   - type: web
-    name: milana-erp-frontend
+    name: milanaerp-frontend
     runtime: docker
     plan: free
     dockerfilePath: ./frontend/Dockerfile
@@ -42,7 +42,7 @@ services:
       - key: NEXT_PUBLIC_API_URL
         fromService:
           type: web
-          name: milana-erp-backend
+          name: milana-erp
           envVarKey: RENDER_EXTERNAL_URL
       - key: NODE_ENV
         value: production
