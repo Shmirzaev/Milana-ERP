@@ -635,15 +635,15 @@ const dict: Record<Lang, Record<string, string>> = {
 
   ru: {
     "app.name": "Milana Ecosystem",
-    "app.tagline": "Ð’Ð¾Ð¹Ð´Ð¸Ñ‚Ðµ Ð² ÑÐ²Ð¾ÑŽ ÑƒÑ‡Ñ‘Ñ‚Ð½ÑƒÑŽ Ð·Ð°Ð¿Ð¸ÑÑŒ",
+    "app.tagline": "??????? ? ???? ??????? ??????",
 
-    "auth.email": "Ð­Ð»ÐµÐºÑ‚Ñ€Ð¾Ð½Ð½Ð°Ñ Ð¿Ð¾Ñ‡Ñ‚Ð°",
-    "auth.password": "ÐŸÐ°Ñ€Ð¾Ð»ÑŒ",
-    "auth.signIn": "Ð’Ð¾Ð¹Ñ‚Ð¸",
-    "auth.signingIn": "Ð’Ñ…Ð¾Ð´â€¦",
-    "auth.loginFailed": "ÐžÑˆÐ¸Ð±ÐºÐ° Ð²Ñ…Ð¾Ð´Ð°",
-    "auth.defaultAdmin": "ÐÐ´Ð¼Ð¸Ð½Ð¸ÑÑ‚Ñ€Ð°Ñ‚Ð¾Ñ€ Ð¿Ð¾ ÑƒÐ¼Ð¾Ð»Ñ‡Ð°Ð½Ð¸ÑŽ",
-    "auth.logout": "Ð’Ñ‹Ð¹Ñ‚Ð¸",
+    "auth.email": "??????????? ?????",
+    "auth.password": "??????",
+    "auth.signIn": "?????",
+    "auth.signingIn": "????...",
+    "auth.loginFailed": "?????? ?????",
+    "auth.defaultAdmin": "????????????? ?? ?????????",
+    "auth.logout": "?????",
     "login.atelier": "Ателье - Ташкент",
     "login.kicker": "Сегодня в цеху",
     "login.heroPrefix": "Двадцать два человека,",
