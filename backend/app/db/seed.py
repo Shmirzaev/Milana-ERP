@@ -1,5 +1,7 @@
 """Seed initial data: departments, roles, admin user, sample catalog, sample orders."""
 from datetime import datetime, timedelta, timezone
+import csv
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -10,7 +12,7 @@ import app.models  # noqa
 from app.models import (
     Role, Department, User, Customer, Supplier, Warehouse, Item,
     Brand, Collection, Model, ModelSize, ModelColor, ModelBOM,
-    SalesOrder, SalesOrderItem, StockBatch, SewingFlow,
+    CollectionModel, SalesOrder, SalesOrderItem, StockBatch, SewingFlow,
 )
 
 
@@ -29,6 +31,11 @@ ROLES = {
         "management.view", "management.approve", "finance.view", "admin.audit",
         "tasks.manage", "processes.view", "sewing.flows",
         "production.override_deadline",
+        # Management can also act on behalf of the floor in emergencies
+        # (e.g. recording output after a deadline override). They don't
+        # normally do this, but the permission unblocks the path.
+        "cutting.records", "printing.records", "sewing.records", "packaging.records",
+        "cutting.bundles", "printing.bundles", "sewing.bundles", "packaging.packages",
     ],
     "Sales": ["sales.orders", "sales.customers", "processes.view"],
     "Planning": [
@@ -52,6 +59,109 @@ SEWING_FLOWS = [
     # 30 production lines. Naming: Line 01 .. Line 30
     (f"Line {i:02d}", f"SEW-{i:02d}") for i in range(1, 31)
 ]
+
+LEGACY_MODELS_CSV = Path(__file__).resolve().parents[2] / "data" / "legacy_models.csv"
+
+
+def _clean_text(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _infer_season(name: str) -> str | None:
+    lower = name.lower()
+    if "bahor" in lower or "yoz" in lower:
+        return "Spring/Summer"
+    if "kuz" in lower or "qish" in lower:
+        return "Autumn/Winter"
+    return None
+
+
+def _import_legacy_models(db: Session, admin: User) -> tuple[int, int, int]:
+    """Import historical model rows from CSV snapshot if file is present."""
+    if not LEGACY_MODELS_CSV.exists():
+        return (0, 0, 0)
+
+    legacy_brand = db.query(Brand).filter(Brand.name == "Legacy Catalog").first()
+    if not legacy_brand:
+        legacy_brand = Brand(name="Legacy Catalog", description="Imported historical model catalog")
+        db.add(legacy_brand)
+        db.flush()
+
+    existing_models = db.query(Model.id, Model.code).all()
+    model_code_map = {code.strip().lower(): mid for (mid, code) in existing_models if code}
+    existing_sizes = {(model_id, size) for (model_id, size) in db.query(ModelSize.model_id, ModelSize.size).all() if size}
+    collection_rows = db.query(Collection.id, Collection.name).filter(Collection.brand_id == legacy_brand.id).all()
+    collection_map = {name.strip().lower(): cid for (cid, name) in collection_rows if name}
+    collection_links = {(cid, mid) for (cid, mid) in db.query(CollectionModel.collection_id, CollectionModel.model_id).all()}
+
+    created_models = 0
+    created_sizes = 0
+    created_collections = 0
+    now_utc = datetime.now(timezone.utc)
+
+    with LEGACY_MODELS_CSV.open("r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.reader(fh)
+        next(reader, None)  # header
+        for row in reader:
+            if len(row) < 7:
+                continue
+
+            legacy_code, model_code, category, product_name, size_name, unit, collection_name = [_clean_text(v) for v in row[:7]]
+            if not model_code or not product_name:
+                continue
+
+            code_norm = model_code.lower()
+            model_id = model_code_map.get(code_norm)
+            if model_id is None:
+                description = f"Legacy code: {legacy_code}"
+                if unit:
+                    description += f"; Unit: {unit}"
+                model = Model(
+                    code=model_code,
+                    name=product_name,
+                    category=category or None,
+                    description=description,
+                    status="approved",
+                    created_by=admin.id,
+                    approved_by=admin.id,
+                    approved_at=now_utc,
+                    sam_minutes=0,
+                )
+                db.add(model)
+                db.flush()
+                model_id = model.id
+                model_code_map[code_norm] = model_id
+                created_models += 1
+
+            if size_name and (model_id, size_name) not in existing_sizes:
+                db.add(ModelSize(model_id=model_id, size=size_name))
+                existing_sizes.add((model_id, size_name))
+                created_sizes += 1
+
+            if collection_name:
+                coll_key = collection_name.lower()
+                coll_id = collection_map.get(coll_key)
+                if coll_id is None:
+                    c = Collection(
+                        brand_id=legacy_brand.id,
+                        name=collection_name,
+                        season=_infer_season(collection_name),
+                        status="approved",
+                    )
+                    db.add(c)
+                    db.flush()
+                    coll_id = c.id
+                    collection_map[coll_key] = coll_id
+                    created_collections += 1
+
+                link_key = (coll_id, model_id)
+                if link_key not in collection_links:
+                    db.add(CollectionModel(collection_id=coll_id, model_id=model_id))
+                    collection_links.add(link_key)
+
+    return (created_models, created_sizes, created_collections)
 
 
 def seed():
@@ -247,6 +357,14 @@ def seed():
                 ))
                 total += qty * price
             so.total_amount = total
+
+        # ----- Legacy models import (if CSV snapshot exists) -----
+        created_models, created_sizes, created_collections = _import_legacy_models(db, admin)
+        if created_models or created_sizes or created_collections:
+            print(
+                "Legacy import: "
+                f"models={created_models}, sizes={created_sizes}, collections={created_collections}"
+            )
 
         db.commit()
         print("Seed completed.")
