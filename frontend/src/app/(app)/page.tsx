@@ -44,10 +44,6 @@ function lastDayOfYear(d: Date): Date {
   return new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
 }
 
-function formatDateInput(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 function formatRangeLabel(preset: DatePreset): string {
   if (preset === "today") return "Today";
   if (preset === "yesterday") return "Yesterday";
@@ -197,11 +193,6 @@ export default function HomePage() {
     URL.revokeObjectURL(url);
   }
 
-  function applyPreset(p: DatePreset) {
-    setDatePreset(p);
-    if (p !== "custom") setShowDateMenu(false);
-  }
-
   function applyCustomRange() {
     setDatePreset("custom");
     setShowDateMenu(false);
@@ -221,14 +212,26 @@ export default function HomePage() {
               </button>
               {showDateMenu ? (
                 <div className="absolute right-0 top-10 z-20 w-64 rounded-lg border border-[#ded9ca] bg-[#fdfcf8] p-3 shadow-lg">
-                  <div className="space-y-1">
-                    <button className="btn w-full justify-start" onClick={() => applyPreset("today")}>Today</button>
-                    <button className="btn w-full justify-start" onClick={() => applyPreset("yesterday")}>Yesterday</button>
-                    <button className="btn w-full justify-start" onClick={() => applyPreset("tomorrow")}>Tomorrow</button>
-                    <button className="btn w-full justify-start" onClick={() => applyPreset("this_week")}>This week</button>
-                    <button className="btn w-full justify-start" onClick={() => applyPreset("this_month")}>This month</button>
-                    <button className="btn w-full justify-start" onClick={() => applyPreset("current_year")}>Current year</button>
-                    <button className="btn w-full justify-start" onClick={() => applyPreset("all")}>All dates</button>
+                  <div>
+                    <div className="label">Date preset</div>
+                    <select
+                      className="input"
+                      value={datePreset}
+                      onChange={(e) => {
+                        const next = e.target.value as DatePreset;
+                        setDatePreset(next);
+                        if (next !== "custom") setShowDateMenu(false);
+                      }}
+                    >
+                      <option value="today">Today</option>
+                      <option value="yesterday">Yesterday</option>
+                      <option value="tomorrow">Tomorrow</option>
+                      <option value="this_week">This week</option>
+                      <option value="this_month">This month</option>
+                      <option value="current_year">Current year</option>
+                      <option value="all">All dates</option>
+                      <option value="custom">Custom dates</option>
+                    </select>
                   </div>
                   <div className="mt-3 border-t border-[#ecebe3] pt-3">
                     <div className="label">Custom dates</div>
