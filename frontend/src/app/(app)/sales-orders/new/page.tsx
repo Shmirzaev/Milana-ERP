@@ -19,6 +19,7 @@ export default function NewSalesOrderPage() {
   const [lines, setLines] = useState<Line[]>([
     { model_id: 0, color: "white", size: "M", quantity: 50, unit_price: 12, printing_required: false },
   ]);
+  const [lineModelSearch, setLineModelSearch] = useState<string[]>([""]);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -27,9 +28,39 @@ export default function NewSalesOrderPage() {
   }
   function addLine() {
     setLines([...lines, { model_id: 0, color: "white", size: "M", quantity: 1, unit_price: 0, printing_required: false }]);
+    setLineModelSearch([...lineModelSearch, ""]);
   }
   function removeLine(i: number) {
-    setLines(lines.length === 1 ? lines : lines.filter((_, j) => j !== i));
+    if (lines.length === 1) return;
+    setLines(lines.filter((_, j) => j !== i));
+    setLineModelSearch(lineModelSearch.filter((_, j) => j !== i));
+  }
+
+  function modelLabelById(modelId: number) {
+    const m = models?.find((row) => row.id === modelId);
+    return m ? `${m.code} - ${m.name}` : "";
+  }
+
+  function setModelSearch(i: number, rawValue: string) {
+    const next = [...lineModelSearch];
+    next[i] = rawValue;
+    setLineModelSearch(next);
+
+    const q = rawValue.trim().toLowerCase();
+    if (!q) {
+      update(i, { model_id: 0 });
+      return;
+    }
+
+    const exact = models?.find((m) => {
+      const code = String(m.code ?? "").toLowerCase();
+      const name = String(m.name ?? "").toLowerCase();
+      const full = `${code} - ${name}`;
+      return q === code || q === name || q === full;
+    });
+    if (exact) {
+      update(i, { model_id: Number(exact.id) });
+    }
   }
 
   const subtotal = lines.reduce((s, l) => s + Number(l.quantity || 0) * Number(l.unit_price || 0), 0);
@@ -116,10 +147,18 @@ export default function NewSalesOrderPage() {
                   {lines.map((l, i) => (
                     <tr key={i}>
                       <td className="min-w-72">
-                        <select className="input" value={l.model_id} onChange={(e) => update(i, { model_id: Number(e.target.value) })}>
-                          <option value={0}>{t("newso.selectModel")}</option>
-                          {models?.map((m) => <option key={m.id} value={m.id}>{m.code} - {m.name}</option>)}
-                        </select>
+                        <input
+                          className="input"
+                          list={`model-options-${i}`}
+                          placeholder={t("newso.selectModel")}
+                          value={lineModelSearch[i] ?? modelLabelById(l.model_id)}
+                          onChange={(e) => setModelSearch(i, e.target.value)}
+                        />
+                        <datalist id={`model-options-${i}`}>
+                          {models?.map((m) => (
+                            <option key={m.id} value={`${m.code} - ${m.name}`} />
+                          ))}
+                        </datalist>
                       </td>
                       <td><input className="input min-w-28" value={l.color} onChange={(e) => update(i, { color: e.target.value })} /></td>
                       <td><input className="input w-24" value={l.size} onChange={(e) => update(i, { size: e.target.value })} /></td>
