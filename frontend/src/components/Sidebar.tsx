@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import BrandMark from "@/components/BrandMark";
 
 type NavItem = { href: string; labelKey: string; perms?: string[]; icon: ComponentType<{ className?: string }> };
 type Section = { titleKey: string; items: NavItem[] };
@@ -136,9 +137,9 @@ export default function Sidebar() {
   return (
     <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col overflow-hidden border-r border-[#e3dfd3] bg-[#fdfcf8] text-[#2c2920]">
       <div className="flex h-20 items-center gap-3 border-b border-[#ecebe3] px-3">
-        <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#14110b] text-sm font-bold text-[#fdfcf8] shadow-sm ring-2 ring-[#ded9ca]">M</div>
+        <BrandMark size={36} />
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-[#14110b]">Milana <span className="font-normal text-[#56503f]">ERP</span></div>
+          <div className="truncate text-sm font-semibold text-[#14110b]">{t("app.name")}</div>
           <div className="text-xs leading-tight text-[#8a8472]">{t("sidebar.tagline")}</div>
         </div>
       </div>

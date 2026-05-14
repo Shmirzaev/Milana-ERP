@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { Lang, LANG_NAMES, useT } from "@/lib/i18n";
+import BrandMark from "@/components/BrandMark";
 
 const LANGS: Lang[] = ["en", "ru", "uz"];
 const SHORT: Record<Lang, string> = { en: "EN", ru: "RU", uz: "UZ" };
@@ -19,7 +20,6 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await api.login(email, password);
-      // Hard navigation so the (app) layout remounts and re-reads localStorage cleanly.
       window.location.href = "/";
     } catch (err: any) {
       setError(err.message || t("auth.loginFailed"));
@@ -35,9 +35,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] bg-[#f7f6f1] text-[#14110b]">
-      {/* ============ LEFT — atelier peek (hidden on small screens) ============ */}
       <aside className="relative hidden lg:flex flex-col p-10 bg-[#f1efe8] border-r border-[#e3dfd3] overflow-hidden">
-        {/* hairline paper grid */}
         <svg className="absolute inset-0 w-full h-full opacity-60 pointer-events-none" aria-hidden>
           <defs>
             <pattern id="loginGrid" width="24" height="24" patternUnits="userSpaceOnUse">
@@ -47,12 +45,9 @@ export default function LoginPage() {
           <rect width="100%" height="100%" fill="url(#loginGrid)" />
         </svg>
 
-        {/* top header */}
         <header className="relative flex items-center justify-between mb-9">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-md bg-[#14110b] grid place-items-center">
-              <span className="font-serif italic text-[18px] leading-none text-[#f7f6f1]" style={{ fontFamily: "'Instrument Serif', 'Iowan Old Style', serif" }}>M</span>
-            </div>
+            <BrandMark size={32} className="ring-0 shadow-none" />
             <div className="flex flex-col leading-tight">
               <span className="text-[13px] font-semibold text-[#14110b]">{t("app.name")}</span>
               <span className="text-[10.5px] uppercase tracking-[0.18em] text-[#8a8472]">{t("login.atelier")}</span>
@@ -61,7 +56,6 @@ export default function LoginPage() {
           <div className="text-[11px] tracking-wider text-[#8a8472]">{dateStr}</div>
         </header>
 
-        {/* headline */}
         <div className="relative mb-7 max-w-[540px]">
           <div className="text-[11px] tracking-[0.22em] uppercase text-[#c2410c] mb-3.5 flex items-center gap-2.5">
             <span className="inline-block w-7 h-px bg-[#c2410c]" />
@@ -77,14 +71,12 @@ export default function LoginPage() {
           </h1>
         </div>
 
-        {/* KPI peek row */}
         <div className="relative grid grid-cols-3 gap-3.5">
           <KpiPeek kicker={t("login.kpiOrders")} value="148" delta="+12" color="#1f7a4d" />
-          <KpiPeek kicker={t("login.kpiReceipts")} value="₸ 32.4M" delta="+8.1%" color="#c2410c" />
-          <KpiPeek kicker={t("login.kpiBackorders")} value="6" delta="−3" color="#1e5fb3" />
+          <KpiPeek kicker={t("login.kpiReceipts")} value="$ 32.4M" delta="+8.1%" color="#c2410c" />
+          <KpiPeek kicker={t("login.kpiBackorders")} value="6" delta="-3" color="#1e5fb3" />
         </div>
 
-        {/* chart + tasks row */}
         <div className="relative mt-3.5 grid grid-cols-[1.4fr_1fr] gap-3.5">
           <div className="rounded-[10px] border border-[#e3dfd3] bg-[#fdfcf8] p-4">
             <div className="flex justify-between items-baseline mb-2.5">
@@ -117,10 +109,10 @@ export default function LoginPage() {
             <div className="text-[12px] font-semibold mb-2.5">{t("login.openTasks")}</div>
             <div className="flex flex-col gap-1.5">
               {[
-                { label: "QC · roll #2241", color: "#1f7a4d" },
-                { label: "Vendor — Nodira", color: "#c2410c" },
+                { label: "QC - roll #2241", color: "#1f7a4d" },
+                { label: "Vendor - Nodira", color: "#c2410c" },
                 { label: "Pack list 0431", color: "#1e5fb3" },
-                { label: "Audit — Q2", color: "#8a8472" },
+                { label: "Audit - Q2", color: "#8a8472" },
               ].map((row) => (
                 <div key={row.label} className="flex items-center gap-2 text-[11.5px] text-[#2c2920]">
                   <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: row.color }} />
@@ -131,16 +123,13 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* fade veil so it reads as a 'peek' */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{ background: "linear-gradient(180deg, transparent 0%, transparent 50%, rgba(241,239,232,0.7) 100%)" }}
         />
       </aside>
 
-      {/* ============ RIGHT — form ============ */}
       <section className="relative flex items-center justify-center px-6 py-12 lg:p-14 bg-[#fdfcf8]">
-        {/* lang switcher, top-right */}
         <div className="absolute top-6 right-6 flex items-center gap-1">
           {LANGS.map((l, i) => (
             <span key={l} className="flex items-center gap-1">
@@ -149,9 +138,7 @@ export default function LoginPage() {
                 onClick={() => setLang(l)}
                 aria-label={LANG_NAMES[l]}
                 className={`px-1.5 py-1 text-[11.5px] uppercase tracking-[0.08em] rounded transition ${
-                  lang === l
-                    ? "text-[#14110b] font-semibold"
-                    : "text-[#8a8472] hover:text-[#14110b]"
+                  lang === l ? "text-[#14110b] font-semibold" : "text-[#8a8472] hover:text-[#14110b]"
                 }`}
               >
                 {SHORT[l]}
@@ -216,13 +203,12 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* default admin hint */}
           <div className="mt-6 px-3.5 py-3 rounded-lg bg-[#f1efe8] text-[#56503f] text-[11.5px] flex items-center gap-2.5">
             <span className="text-[10px] uppercase tracking-[0.18em] text-[#8a8472] font-semibold">{t("auth.defaultAdmin")}</span>
             <code className="font-mono text-[11.5px] text-[#2c2920] bg-transparent p-0">admin@example.com · admin12345</code>
           </div>
 
-          <div className="mt-8 text-[11px] tracking-wider text-[#8a8472]">© 2026 Milana · v4.2.1</div>
+          <div className="mt-8 text-[11px] tracking-wider text-[#8a8472]">© 2026 Milana Ecosystem · v4.2.1</div>
         </div>
       </section>
     </div>

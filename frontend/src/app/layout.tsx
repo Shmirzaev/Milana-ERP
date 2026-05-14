@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Providers from "@/components/Providers";
 
 export const metadata: Metadata = {
-  title: "Milana ERP",
+  title: "Milana Ecosystem",
   description: "Production-ready MVP ERP for textile manufacturing",
 };
 
