@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -18,10 +19,13 @@ type Model = {
 const STATUSES = ["draft", "sample", "approved", "archived"];
 
 export default function ModelsPage() {
+  const searchParams = useSearchParams();
+  const q = searchParams.get("q")?.trim() ?? "";
   const { me } = useMe();
   const { t } = useT();
   const isAdmin = can(me, "*");
-  const { data, mutate } = useSWR<Model[]>("/api/models", fetcher);
+  const modelsUrl = q ? `/api/models?q=${encodeURIComponent(q)}` : "/api/models";
+  const { data, mutate } = useSWR<Model[]>(modelsUrl, fetcher);
 
   const [form, setForm] = useState({ code: "", name: "", category: "", sam_minutes: 0 });
   const [err, setErr] = useState("");

@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Globe2, LogOut, Search, Settings } from "lucide-react";
 import { useMe, logout } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -9,15 +10,53 @@ import NotificationBell from "@/components/NotificationBell";
 
 export default function Topbar() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { me } = useMe();
   const { t } = useT();
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    setSearch(searchParams.get("q") ?? "");
+  }, [searchParams]);
+
+  function resolveSearchTarget(path: string): string {
+    const moduleRoots = [
+      "/sales-orders",
+      "/models",
+      "/customers",
+      "/brands",
+      "/collections",
+      "/inventory",
+      "/production-orders",
+      "/work-orders",
+      "/bundles",
+      "/packages",
+      "/finished-goods",
+      "/shipments",
+      "/hr/employees",
+      "/waste",
+      "/admin/users",
+      "/admin/departments",
+      "/processes",
+      "/planning",
+      "/finance",
+    ];
+    for (const root of moduleRoots) {
+      if (path === root || path.startsWith(`${root}/`)) return root;
+    }
+    return path || "/";
+  }
 
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
     const q = search.trim();
     if (!q) return;
-    router.push(`/sales-orders?q=${encodeURIComponent(q)}`);
+
+    const target = resolveSearchTarget(pathname);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("q", q);
+    router.push(`${target}?${params.toString()}`);
   }
 
   return (

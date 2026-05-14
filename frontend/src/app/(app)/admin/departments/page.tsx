@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Pencil, Trash2, X, Check } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
@@ -9,6 +10,8 @@ import { useT } from "@/lib/i18n";
 type Department = { id: number; name: string; code: string };
 
 export default function DepartmentsPage() {
+  const searchParams = useSearchParams();
+  const q = (searchParams.get("q") ?? "").trim().toLowerCase();
   const { t } = useT();
   const { data, mutate } = useSWR<Department[]>("/api/departments", fetcher);
   const [f, setF] = useState({ name: "", code: "" });
@@ -60,6 +63,12 @@ export default function DepartmentsPage() {
     }
   }
 
+  const rows = useMemo(() => {
+    if (!data) return [];
+    if (!q) return data;
+    return data.filter((d) => (d.name ?? "").toLowerCase().includes(q) || (d.code ?? "").toLowerCase().includes(q));
+  }, [data, q]);
+
   return (
     <div>
       <PageHeader title={t("page.admin.depts")} subtitle={t("departments.subtitle")} />
@@ -91,7 +100,7 @@ export default function DepartmentsPage() {
             </tr>
           </thead>
           <tbody>
-            {data?.map((d) => {
+            {rows.map((d) => {
               const editing = editingId === d.id;
               return (
                 <tr key={d.id}>

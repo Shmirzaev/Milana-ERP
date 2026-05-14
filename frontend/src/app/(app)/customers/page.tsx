@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -11,10 +12,13 @@ type Customer = { id: number; name: string; phone: string | null; email: string 
 const EMPTY = { name: "", phone: "", email: "", address: "", notes: "" };
 
 export default function CustomersPage() {
+  const searchParams = useSearchParams();
+  const q = searchParams.get("q")?.trim() ?? "";
   const { me } = useMe();
   const { t } = useT();
   const isAdmin = can(me, "*");
-  const { data, mutate } = useSWR<Customer[]>("/api/customers", fetcher);
+  const customersUrl = q ? `/api/customers?q=${encodeURIComponent(q)}` : "/api/customers";
+  const { data, mutate } = useSWR<Customer[]>(customersUrl, fetcher);
   const [form, setForm] = useState(EMPTY);
   const [err, setErr] = useState("");
 

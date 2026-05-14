@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -13,6 +14,8 @@ type Collection = {
 };
 
 export default function CollectionsPage() {
+  const searchParams = useSearchParams();
+  const q = (searchParams.get("q") ?? "").trim().toLowerCase();
   const { me } = useMe();
   const { t } = useT();
   const isAdmin = can(me, "*");
@@ -47,6 +50,21 @@ export default function CollectionsPage() {
     catch (e: any) { setEditMsg(e.message); }
   }
 
+  const rows = useMemo(() => {
+    if (!data) return [];
+    if (!q) return data;
+    return data.filter((c) => {
+      const brand = (brands?.find((b) => b.id === c.brand_id)?.name ?? "").toLowerCase();
+      return (
+        (c.name ?? "").toLowerCase().includes(q) ||
+        (c.season ?? "").toLowerCase().includes(q) ||
+        String(c.year ?? "").toLowerCase().includes(q) ||
+        (c.status ?? "").toLowerCase().includes(q) ||
+        brand.includes(q)
+      );
+    });
+  }, [data, brands, q]);
+
   return (
     <div>
       <PageHeader title={t("page.collections.title")} />
@@ -70,7 +88,7 @@ export default function CollectionsPage() {
             </tr>
           </thead>
           <tbody>
-            {data?.map((c) => (
+            {rows.map((c) => (
               <tr key={c.id}>
                 <td>{brands?.find((b) => b.id === c.brand_id)?.name ?? c.brand_id}</td>
                 <td>{c.name}</td><td>{c.season}</td><td>{c.year}</td>

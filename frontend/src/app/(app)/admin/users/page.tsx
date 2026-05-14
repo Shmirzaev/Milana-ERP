@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -18,6 +19,8 @@ type User = {
 };
 
 export default function AdminUsersPage() {
+  const searchParams = useSearchParams();
+  const q = (searchParams.get("q") ?? "").trim().toLowerCase();
   const { t } = useT();
   const { data, mutate } = useSWR<User[]>("/api/users", fetcher);
   const { data: roles } = useSWR<Role[]>("/api/roles", fetcher);
@@ -104,6 +107,21 @@ export default function AdminUsersPage() {
     }
   }
 
+  const rows = useMemo(() => {
+    if (!data) return [];
+    if (!q) return data;
+    return data.filter((u) => {
+      const roleName = (roles?.find((r) => r.id === u.role_id)?.name ?? "").toLowerCase();
+      const deptName = (depts?.find((d) => d.id === u.department_id)?.name ?? "").toLowerCase();
+      return (
+        (u.name ?? "").toLowerCase().includes(q) ||
+        (u.email ?? "").toLowerCase().includes(q) ||
+        roleName.includes(q) ||
+        deptName.includes(q)
+      );
+    });
+  }, [data, roles, depts, q]);
+
   return (
     <div>
       <PageHeader title={t("page.admin.users")} />
@@ -137,7 +155,7 @@ export default function AdminUsersPage() {
             </tr>
           </thead>
           <tbody>
-            {data?.map((u) => (
+            {rows.map((u) => (
               <tr key={u.id}>
                 <td>{u.name}</td>
                 <td>{u.email}</td>

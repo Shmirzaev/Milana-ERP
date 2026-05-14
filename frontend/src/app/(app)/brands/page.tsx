@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -10,6 +11,8 @@ import { useT } from "@/lib/i18n";
 type Brand = { id: number; name: string; description?: string | null; is_active: boolean };
 
 export default function BrandsPage() {
+  const searchParams = useSearchParams();
+  const q = (searchParams.get("q") ?? "").trim().toLowerCase();
   const { me } = useMe();
   const { t } = useT();
   const isAdmin = can(me, "*");
@@ -38,6 +41,16 @@ export default function BrandsPage() {
     catch (e: any) { setEditMsg(e.message); }
   }
 
+  const rows = useMemo(() => {
+    if (!data) return [];
+    if (!q) return data;
+    return data.filter((b) => {
+      const name = (b.name ?? "").toLowerCase();
+      const desc = (b.description ?? "").toLowerCase();
+      return name.includes(q) || desc.includes(q);
+    });
+  }, [data, q]);
+
   return (
     <div>
       <PageHeader title={t("page.brands.title")} />
@@ -55,7 +68,7 @@ export default function BrandsPage() {
             </tr>
           </thead>
           <tbody>
-            {data?.map((b) => (
+            {rows.map((b) => (
               <tr key={b.id}>
                 <td>{b.name}</td>
                 <td>{b.description}</td>
