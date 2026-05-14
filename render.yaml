@@ -1,6 +1,11 @@
+databases:
+  - name: milana-erp-db
+    databaseName: milana_erp
+    user: milana_erp
+
 services:
   - type: web
-    name: milana-erp
+    name: milana-erp-backend
     runtime: docker
     plan: free
     dockerfilePath: ./backend/Dockerfile
@@ -8,7 +13,9 @@ services:
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: milana-erp-db
+          property: connectionString
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_ALGORITHM
@@ -25,7 +32,7 @@ services:
         value: /opt/render/project/src/backend/storage/barcodes
 
   - type: web
-    name: milanaerp-frontend
+    name: milana-erp-frontend
     runtime: docker
     plan: free
     dockerfilePath: ./frontend/Dockerfile
@@ -35,7 +42,7 @@ services:
       - key: NEXT_PUBLIC_API_URL
         fromService:
           type: web
-          name: milana-erp
+          name: milana-erp-backend
           envVarKey: RENDER_EXTERNAL_URL
       - key: NODE_ENV
         value: production

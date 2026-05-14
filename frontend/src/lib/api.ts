@@ -1,5 +1,6 @@
 function resolveUrl(path: string): string {
   if (path.startsWith("http")) return path;
+  if (/^(api|storage|health)(\/|$)/.test(path)) return `/${path}`;
   // Always use same-origin `/api` proxy routes in the browser to avoid CORS.
   return path;
 }
@@ -7,6 +8,23 @@ function resolveUrl(path: string): string {
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("erp_token");
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 12_000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw new Error(
+        `Backend is not responding. Check backend server and frontend API proxy settings (NEXT_PUBLIC_API_URL/API_URL). Request: ${url}`
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function setToken(token: string) {
@@ -31,7 +49,7 @@ async function request<T = any>(path: string, init: RequestInit = {}): Promise<T
 
   // Use Next.js rewrite proxy: paths starting with /api or /storage are proxied
   const url = resolveUrl(path);
-  const res = await fetch(url, { ...init, headers });
+  const res = await fetchWithTimeout(url, { ...init, headers });
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -56,7 +74,7 @@ export const api = {
     const form = new URLSearchParams();
     form.set("username", email);
     form.set("password", password);
-    const res = await fetch(resolveUrl("/api/auth/login"), {
+    const res = await fetchWithTimeout(resolveUrl("/api/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: form.toString(),
@@ -86,7 +104,7 @@ export const api = {
    */
   async openLabel(path: string): Promise<void> {
     const token = getToken();
-    const res = await fetch(resolveUrl(path), {
+    const res = await fetchWithTimeout(resolveUrl(path), {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {
