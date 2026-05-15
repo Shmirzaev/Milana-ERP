@@ -109,6 +109,10 @@ const dict: Record<Lang, Record<string, string>> = {
     "tasks.status.in_progress": "in progress",
     "tasks.status.completed": "completed",
     "tasks.status.cancelled": "cancelled",
+    "tasks.ledgerEyebrow": "Ledger · IV",
+    "tasks.newEntry": "New entry",
+    "tasks.emptyTitle": "An empty page.",
+    "tasks.emptyHint": "No tasks yet. Add the first entry below - or enjoy the quiet start to the day.",
 
     // Notifications
     "notif.title": "Notifications",
@@ -725,6 +729,10 @@ const dict: Record<Lang, Record<string, string>> = {
     "tasks.status.in_progress": "в работе",
     "tasks.status.completed": "выполнено",
     "tasks.status.cancelled": "отменено",
+    "tasks.ledgerEyebrow": "Журнал · IV",
+    "tasks.newEntry": "Новая запись",
+    "tasks.emptyTitle": "Пустая страница.",
+    "tasks.emptyHint": "Пока задач нет. Добавьте первую запись ниже - или насладитесь тихим началом дня.",
 
     "notif.title": "Уведомления",
     "notif.empty": "Нет уведомлений",
@@ -1319,6 +1327,10 @@ const dict: Record<Lang, Record<string, string>> = {
     "tasks.status.in_progress": "jarayonda",
     "tasks.status.completed": "bajarilgan",
     "tasks.status.cancelled": "bekor qilingan",
+    "tasks.ledgerEyebrow": "Daftar · IV",
+    "tasks.newEntry": "Yangi yozuv",
+    "tasks.emptyTitle": "Bo'sh sahifa.",
+    "tasks.emptyHint": "Hozircha vazifa yo'q. Pastdagi forma orqali birinchi yozuvni qo'shing - yoki kunning sokin boshlanishidan zavqlaning.",
 
     "notif.title": "Bildirishnomalar",
     "notif.empty": "Bildirishnomalar yoʻq",

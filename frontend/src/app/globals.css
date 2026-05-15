@@ -56,3 +56,8 @@ body {
 .tab-row { @apply flex gap-5 border-b border-[#ded9ca]; }
 .tab-row a, .tab-row button { @apply -mb-px border-b-2 border-transparent px-0 py-3 text-sm text-[#8a8472]; }
 .tab-row [data-active="true"] { @apply border-[#14110b] font-medium text-[#14110b]; }
+
+@keyframes mil-ping {
+  0% { transform: scale(0.6); opacity: 0.7; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
