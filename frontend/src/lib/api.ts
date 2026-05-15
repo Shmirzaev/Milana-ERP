@@ -1,8 +1,16 @@
+const rawPublicApiBase = String(process.env.NEXT_PUBLIC_API_URL || "").trim();
+const publicApiBase = rawPublicApiBase
+  ? (/^https?:\/\//i.test(rawPublicApiBase) ? rawPublicApiBase : `https://${rawPublicApiBase}`).replace(/\/+$/, "")
+  : "";
+
 function resolveUrl(path: string): string {
   if (path.startsWith("http")) return path;
-  if (/^(api|storage|health)(\/|$)/.test(path)) return `/${path}`;
-  // Always use same-origin `/api` proxy routes in the browser to avoid CORS.
-  return path;
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  // Prefer direct backend URL in browser/runtime env to avoid flaky proxy hops.
+  if (publicApiBase && /^\/(api|storage|health)(\/|$)/.test(normalized)) {
+    return `${publicApiBase}${normalized}`;
+  }
+  return normalized;
 }
 
 function getToken(): string | null {
