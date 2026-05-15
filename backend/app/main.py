@@ -62,10 +62,19 @@ def _on_startup() -> None:
 
 cors_origins = settings.cors_origins_list
 allow_all_cors = "*" in cors_origins
+safe_default_origins = [
+    "http://localhost:3000",
+    "https://milanaerp-frontend.onrender.com",
+]
+merged_cors_origins: list[str] = []
+for origin in [*safe_default_origins, *cors_origins]:
+    o = origin.strip().rstrip("/")
+    if o and o not in merged_cors_origins:
+        merged_cors_origins.append(o)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if allow_all_cors else cors_origins,
+    allow_origins=["*"] if allow_all_cors else merged_cors_origins,
     # We use Bearer tokens, not cookies. For wildcard CORS we must disable
     # credentials, otherwise browsers reject cross-origin requests.
     allow_credentials=not allow_all_cors,
