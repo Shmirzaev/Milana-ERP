@@ -1,25 +1,6 @@
-const rawPublicApiBase = String(process.env.NEXT_PUBLIC_API_URL || "").trim();
-const publicApiBase = rawPublicApiBase
-  ? (/^https?:\/\//i.test(rawPublicApiBase) ? rawPublicApiBase : `https://${rawPublicApiBase}`).replace(/\/+$/, "")
-  : "";
-
-function runtimeApiBase(): string {
-  if (publicApiBase) return publicApiBase;
-  if (typeof window !== "undefined" && /onrender\.com$/i.test(window.location.hostname)) {
-    // Safety fallback for Render in case NEXT_PUBLIC_API_URL is missing at build time.
-    return "https://milana-erp.onrender.com";
-  }
-  return "";
-}
-
 function resolveUrl(path: string): string {
   if (path.startsWith("http")) return path;
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  // Prefer direct backend URL in browser/runtime env to avoid flaky proxy hops.
-  const apiBase = runtimeApiBase();
-  if (apiBase && /^\/(api|storage|health)(\/|$)/.test(normalized)) {
-    return `${apiBase}${normalized}`;
-  }
   return normalized;
 }
 
