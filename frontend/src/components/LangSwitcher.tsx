@@ -7,18 +7,22 @@ export default function LangSwitcher() {
   const { lang, setLang, t } = useT();
   const options: Lang[] = ["en", "ru", "uz"];
   return (
-    <div className="flex items-center gap-1" title={t("top.language")}>
+    <div
+      className="inline-flex h-8 items-center rounded-md border border-[#ded9ca] bg-[#fdfcf8] p-0.5"
+      title={t("top.language")}
+    >
       {options.map((l) => (
         <button
           key={l}
           type="button"
           onClick={() => setLang(l)}
-          className={`px-2 py-1 text-xs rounded border transition ${
+          className={`h-6 min-w-[34px] rounded-[5px] px-2 text-[11px] font-medium transition ${
             lang === l
-              ? "bg-brand-500 text-white border-brand-500"
-              : "bg-white text-slate-600 border-slate-300 hover:bg-slate-100"
+              ? "bg-[#14110b] text-[#fdfcf8]"
+              : "bg-transparent text-[#8a8472] hover:bg-[#f1efe8] hover:text-[#14110b]"
           }`}
           aria-label={LANG_NAMES[l]}
+          aria-pressed={lang === l}
         >
           {SHORT[l]}
         </button>
