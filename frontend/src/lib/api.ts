@@ -27,6 +27,23 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   }
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientNetworkError(message: string): boolean {
+  const m = (message || "").toLowerCase();
+  return (
+    m.includes("backend is not responding") ||
+    m.includes("failed to fetch") ||
+    m.includes("networkerror") ||
+    m.includes("network error") ||
+    m.includes("bad gateway") ||
+    m.includes("gateway timeout") ||
+    m.includes("service unavailable")
+  );
+}
+
 export function setToken(token: string) {
   if (typeof window !== "undefined") {
     localStorage.setItem("erp_token", token);
@@ -74,22 +91,46 @@ export const api = {
     const form = new URLSearchParams();
     form.set("username", email);
     form.set("password", password);
-    const res = await fetchWithTimeout(resolveUrl("/api/auth/login"), {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-    });
-    if (!res.ok) {
-      let msg = "Login failed";
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const b = await res.json();
-        msg = b.detail || msg;
-      } catch {}
-      throw new Error(msg);
+        const res = await fetchWithTimeout(
+          resolveUrl("/api/auth/login"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: form.toString(),
+          },
+          20_000,
+        );
+        if (res.ok) {
+          const body = await res.json();
+          setToken(body.access_token);
+          return body.access_token;
+        }
+
+        let msg = "Login failed";
+        try {
+          const b = await res.json();
+          msg = b.detail || msg;
+        } catch {}
+
+        const shouldRetry = res.status === 502 || res.status === 503 || res.status === 504;
+        if (shouldRetry && attempt < maxAttempts) {
+          await sleep(1200 * attempt);
+          continue;
+        }
+        throw new Error(msg);
+      } catch (err: any) {
+        const message = String(err?.message || "");
+        if (attempt < maxAttempts && isTransientNetworkError(message)) {
+          await sleep(1200 * attempt);
+          continue;
+        }
+        throw err;
+      }
     }
-    const body = await res.json();
-    setToken(body.access_token);
-    return body.access_token;
+    throw new Error("Login failed");
   },
 
   logout() {
