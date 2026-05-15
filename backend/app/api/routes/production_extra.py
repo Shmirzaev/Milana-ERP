@@ -1,11 +1,12 @@
 """Extra production endpoints: assignments split across flows, block/unblock,
-capacity utilization, PDF export of the process-tracking view, and a SAM-aware
-deadline cascade hint.
+capacity utilization, PDF/HTML export of the process-tracking view.
 """
 from datetime import datetime, timezone, timedelta
-from io import BytesIO
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
@@ -16,28 +17,34 @@ from app.models import (
 from app.schemas.sewing_assignment import (
     SewingAssignmentIn, SewingAssignmentUpdate, SewingAssignmentOut,
 )
+from app.core.dt import as_utc
 from app.services.audit import log_action
 from app.services.notifications import notify
 
 router = APIRouter(tags=["production_extra"])
 
 
+class BlockIn(BaseModel):
+    reason: Optional[str] = None
+
+
 # ===== Block / Unblock =====
 @router.post("/work-orders/{wid}/block")
-def block_wo(wid: int, body: dict, db: DbSession, current: CurrentUser):
+def block_wo(wid: int, payload: BlockIn, db: DbSession, current: CurrentUser):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
-    reason = (body or {}).get("reason") or "Blocked"
+    reason = (payload.reason or "Blocked").strip()
     wo.is_blocked = True
     wo.block_reason = reason
     log_action(db, current, "block", "WorkOrder", wo.id, new_value={"reason": reason})
-    # Notify everyone upstream / management of the block.
+    # Notify the PO creator (typically Planning) so they can act on the block.
     po = db.get(ProductionOrder, wo.production_order_id)
     if po and po.created_by and po.created_by != current.id:
         notify(db, user_id=po.created_by,
                title=f"Blocked: {wo.operation} WO #{wo.id}",
                message=reason)
     db.commit()
+    db.refresh(wo)
     return {"id": wo.id, "is_blocked": True, "block_reason": wo.block_reason}
 
 
@@ -149,22 +156,25 @@ def delete_assignment(
 def _capacity_warning(db, flow: SewingFlow, qty: int, start, end) -> str | None:
     """Return a human-readable warning string if `qty` would put the flow over its
     daily capacity for the assignment window. Used as a soft warning, not a hard block."""
+    start = as_utc(start)
+    end = as_utc(end)
     if not flow.capacity_per_day or not start or not end:
         return None
     days = max(1.0, (end - start).total_seconds() / 86400.0)
     daily_needed = qty / days
-    # Sum daily quantity already committed in that window.
     existing = db.query(SewingAssignment).filter(
         SewingAssignment.sewing_flow_id == flow.id,
         SewingAssignment.status.in_(["planned", "in_progress"]),
     ).all()
     committed = 0.0
     for a in existing:
-        if not a.planned_start or not a.planned_end:
+        a_start = as_utc(a.planned_start)
+        a_end = as_utc(a.planned_end)
+        if not a_start or not a_end:
             continue
-        if a.planned_end < start or a.planned_start > end:
+        if a_end < start or a_start > end:
             continue
-        a_days = max(1.0, (a.planned_end - a.planned_start).total_seconds() / 86400.0)
+        a_days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
         committed += a.quantity / a_days
     if daily_needed + committed > flow.capacity_per_day:
         return (
@@ -185,10 +195,12 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
     ).all()
     committed_today = 0
     for a in rows:
-        if not a.planned_start or not a.planned_end:
+        a_start = as_utc(a.planned_start)
+        a_end = as_utc(a.planned_end)
+        if not a_start or not a_end:
             continue
-        if a.planned_start <= now <= a.planned_end:
-            days = max(1.0, (a.planned_end - a.planned_start).total_seconds() / 86400.0)
+        if a_start <= now <= a_end:
+            days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
             committed_today += round(a.quantity / days)
     pct = (committed_today / f.capacity_per_day * 100) if f.capacity_per_day else 0
     return {

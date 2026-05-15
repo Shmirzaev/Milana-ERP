@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     JWT_EXPIRES_MINUTES: int = 1440
     CORS_ORIGINS: str = "http://localhost:3000"
     BARCODE_STORAGE_DIR: str = "/app/storage/barcodes"
+    INTEGRATION_1C_TOKEN: str = ""
 
     @field_validator("DEBUG", mode="before")
     @classmethod

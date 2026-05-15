@@ -1,10 +1,13 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
 
+from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import Invoice, Payment, SalesOrder, User
+from app.schemas.integrations import OneCSyncIn
 from app.schemas.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
 from app.services.audit import log_action
+from app.services.finance_1c import sync_from_1c
 from app.services.numbering import next_invoice_no
 from app.services.finance import (
     dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
@@ -66,3 +69,19 @@ def create_payment(payload: PaymentIn, db: DbSession, current: User = Depends(re
     log_action(db, current, "create", "Payment", p.id, new_value={"amount": float(p.amount)})
     db.commit(); db.refresh(p)
     return p
+
+
+@router.post("/integrations/1c/sync")
+def sync_1c_finance(
+    payload: OneCSyncIn,
+    db: DbSession,
+    x_1c_token: str | None = Header(default=None, alias="X-1C-Token"),
+):
+    expected = settings.INTEGRATION_1C_TOKEN.strip()
+    if not expected:
+        raise HTTPException(503, "1C integration token is not configured")
+    if x_1c_token != expected:
+        raise HTTPException(401, "Invalid 1C token")
+    result = sync_from_1c(db, payload)
+    db.commit()
+    return result

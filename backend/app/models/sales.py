@@ -63,6 +63,8 @@ class Invoice(Base, PkMixin, TimestampMixin):
     __tablename__ = "invoices"
     sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), nullable=False)
     invoice_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    external_source: Mapped[str | None] = mapped_column(String(32))
+    external_id: Mapped[str | None] = mapped_column(String(128))
     amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="unpaid", nullable=False)
     issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -72,6 +74,8 @@ class Invoice(Base, PkMixin, TimestampMixin):
 class Payment(Base, PkMixin, TimestampMixin):
     __tablename__ = "payments"
     invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), nullable=False)
+    external_source: Mapped[str | None] = mapped_column(String(32))
+    external_id: Mapped[str | None] = mapped_column(String(128))
     amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
     payment_method: Mapped[str | None] = mapped_column(String(32))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

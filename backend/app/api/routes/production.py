@@ -13,6 +13,7 @@ from app.schemas.production import (
     CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
     QualityCheckIn, QualityCheckOut,
 )
+from app.core.dt import as_utc
 from app.services.audit import log_action
 from app.services.production import create_production_order, create_work_orders
 from app.services.bundles import create_bundle
@@ -30,13 +31,14 @@ def _gate_record_submission(wo: WorkOrder, user) -> None:
     from app.core.deps import is_admin, user_permissions
     if wo.is_blocked:
         raise HTTPException(409, f"Work order is blocked: {wo.block_reason or 'no reason given'}")
-    if wo.deadline and wo.status not in ("completed", "rejected", "cancelled"):
-        if wo.deadline < datetime.now(timezone.utc):
+    deadline = as_utc(wo.deadline)
+    if deadline and wo.status not in ("completed", "rejected", "cancelled"):
+        if deadline < datetime.now(timezone.utc):
             perms = user_permissions(user)
             if not (is_admin(user) or "production.override_deadline" in perms):
                 raise HTTPException(
                     409,
-                    f"Work order is past its deadline ({wo.deadline.isoformat()}). "
+                    f"Work order is past its deadline ({deadline.isoformat()}). "
                     "Management override required.",
                 )
 
@@ -123,8 +125,8 @@ def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_p
     if not po.deadline:
         raise HTTPException(400, "Set a Production-Order deadline first")
 
-    end = po.deadline
-    start = po.start_date or (end - timedelta(days=30))
+    end = as_utc(po.deadline)
+    start = as_utc(po.start_date) or (end - timedelta(days=30))
     if start >= end:
         raise HTTPException(400, "start_date must be before deadline")
     total_seconds = (end - start).total_seconds()

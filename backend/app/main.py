@@ -1,8 +1,9 @@
 import os
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.api.router import api_router
@@ -12,9 +13,20 @@ from app.db import schema_hotfix
 import app.models  # noqa: F401 — register models with metadata
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("startup")
+log = logging.getLogger("milana")
 
 app = FastAPI(title=settings.APP_NAME, version="0.1.0")
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception(request: Request, exc: Exception):
+    """Catch-all so a programming bug returns proper JSON instead of crashing
+    the worker. HTTPException continues to be handled by FastAPI normally."""
+    log.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {type(exc).__name__}"},
+    )
 
 
 @app.on_event("startup")

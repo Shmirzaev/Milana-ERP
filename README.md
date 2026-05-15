@@ -6,6 +6,11 @@ A production-ready MVP ERP for a textile/garment manufacturing company. It imple
 
 ---
 
+## Developer documentation
+
+- Codebase walkthrough for new engineers: `docs/DEVELOPER_GUIDE.md`
+- Render deployment notes: `docs/RENDER_DEPLOY.md`
+
 ## Quick start (Docker)
 
 ```bash
@@ -77,6 +82,9 @@ pip install -r requirements.txt
 pytest -q
 ```
 Tests use SQLite + the seeded dataset and cover login, model CRUD, and the full production flow (SO → planning → PO → WO → cutting + bundles → bundle scans → sewing → packaging → package + storage receive).
+
+### 1C finance sync setup
+Set `INTEGRATION_1C_TOKEN` in `backend/.env`. 1C should send that same value in `X-1C-Token` when calling `POST /api/finance/integrations/1c/sync`.
 
 ---
 
@@ -198,6 +206,7 @@ Full Swagger UI is at **http://localhost:8000/docs** and ReDoc at **/redoc**. Ma
 * `/api/shipments`, `/api/shipments/{id}/{add-package,ship,deliver}`
 * `/api/waste` + receive/sell/request-disposal/disposal/approve/reject/mark-disposed
 * `/api/finance/{dashboard,order-profit,branded-stock-value,waste-report,invoices,payments}`
+* `/api/finance/integrations/1c/sync` (token auth via `X-1C-Token`)
 * `/api/dashboard/{management,planning,production,finance,waste,inventory}`
 * `/api/employees`, `/api/barcode/bundle/{no}`, `/api/barcode/package/{no}`
 

@@ -11,6 +11,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_tmpdir, 'test.db')}"
 os.environ["BARCODE_STORAGE_DIR"] = os.path.join(_tmpdir, "barcodes")
 os.environ["JWT_SECRET"] = "test-secret"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
+os.environ["INTEGRATION_1C_TOKEN"] = "test-1c-token"
 
 from fastapi.testclient import TestClient
 
