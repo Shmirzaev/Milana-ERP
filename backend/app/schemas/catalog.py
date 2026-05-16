@@ -166,6 +166,7 @@ class ModelIn(BaseModel):
     name: str
     category: Optional[str] = None
     description: Optional[str] = None
+    details_json: Optional[dict] = None
     status: str = "draft"
     sam_minutes: float = 0
 
@@ -176,6 +177,7 @@ class ModelOut(ORMModel):
     name: str
     category: Optional[str] = None
     description: Optional[str] = None
+    details_json: Optional[dict] = None
     status: str
     sam_minutes: float = 0
     created_by: Optional[int] = None

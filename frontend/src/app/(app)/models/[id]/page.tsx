@@ -1,77 +1,399 @@
 "use client";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
-import { useState } from "react";
-import { useT } from "@/lib/i18n";
+
+type ModelDetails = {
+  general?: {
+    full_name?: string;
+    brand?: string;
+    product_type?: string;
+    season?: string;
+    designer?: string;
+    constructor?: string;
+    note?: string;
+  };
+  sewing?: {
+    complexity_level?: string;
+    one_person_norm?: number;
+    note?: string;
+  };
+  translation?: {
+    uz?: string;
+    ru?: string;
+    en?: string;
+  };
+  costing?: {
+    labor_pct?: number;
+    electricity_pct?: number;
+    other_pct?: number;
+    target_margin_pct?: number;
+  };
+  features?: Record<string, boolean>;
+};
+
+const TABS = [
+  "Asosiy ma'lumotlar",
+  "Mato va aksesuar",
+  "Variantlar",
+  "Qolip",
+  "Boshqa",
+  "Mini posta",
+  "O'lchamlar jadvali",
+  "Tikuv ta'limoti",
+  "Model tarjimasi",
+  "Model tayyor bo'lish narxi",
+];
+
+function n(v: unknown): number {
+  const x = Number(v ?? 0);
+  return Number.isFinite(x) ? x : 0;
+}
 
 export default function ModelDetail() {
   const params = useParams<{ id: string }>();
-  const { t } = useT();
   const id = params.id;
   const { data: m, mutate } = useSWR<any>(`/api/models/${id}`, fetcher);
   const { data: items } = useSWR<any[]>("/api/inventory/items", fetcher);
-  const [bomRow, setBomRow] = useState({ item_id: 0, quantity_per_piece: 1, unit: "meter", waste_percent: 5 });
+
+  const [tab, setTab] = useState(1);
+  const [msg, setMsg] = useState("");
+
+  const [modelForm, setModelForm] = useState({
+    code: "",
+    name: "",
+    category: "",
+    description: "",
+    status: "draft",
+    sam_minutes: 0,
+  });
+  const [details, setDetails] = useState<ModelDetails>({});
+
+  const [bomRow, setBomRow] = useState({ item_id: 0, size: "", color: "", quantity_per_piece: 1, unit: "meter", waste_percent: 5 });
   const [color, setColor] = useState({ color_name: "", color_code: "" });
-  const [size, setSize] = useState({ size: "" });
-  if (!m) return <div>{t("common.loading")}</div>;
+  const [size, setSize] = useState({ size: "", measurement_json: "" });
+  const [imageForm, setImageForm] = useState({ file_url: "", is_primary: false });
+
+  useEffect(() => {
+    if (!m) return;
+    setModelForm({
+      code: m.code ?? "",
+      name: m.name ?? "",
+      category: m.category ?? "",
+      description: m.description ?? "",
+      status: m.status ?? "draft",
+      sam_minutes: n(m.sam_minutes),
+    });
+    setDetails(m.details_json || {});
+  }, [m]);
+
+  const itemMap = useMemo(() => {
+    const map = new Map<number, any>();
+    for (const i of items || []) map.set(i.id, i);
+    return map;
+  }, [items]);
+
+  const bomWithItem = useMemo(() => {
+    return (m?.bom || []).map((b: any) => {
+      const item = itemMap.get(b.item_id);
+      const unitCost = n(item?.default_cost);
+      const requiredPerPiece = n(b.quantity_per_piece) * (1 + n(b.waste_percent) / 100);
+      const costPerPiece = requiredPerPiece * unitCost;
+      return { ...b, item, unitCost, requiredPerPiece, costPerPiece };
+    });
+  }, [m?.bom, itemMap]);
+
+  const materialRows = bomWithItem.filter((r: any) => ["fabric", "semi_finished", ""].includes(String(r.item?.category || "").toLowerCase()));
+  const accessoryRows = bomWithItem.filter((r: any) => ["accessory", "packaging"].includes(String(r.item?.category || "").toLowerCase()));
+  const baseCostPerPiece = bomWithItem.reduce((s: number, r: any) => s + n(r.costPerPiece), 0);
+
+  const laborPct = n(details.costing?.labor_pct ?? 12);
+  const electricityPct = n(details.costing?.electricity_pct ?? 4);
+  const otherPct = n(details.costing?.other_pct ?? 3);
+  const marginPct = n(details.costing?.target_margin_pct ?? 20);
+  const laborCost = baseCostPerPiece * laborPct / 100;
+  const electricityCost = baseCostPerPiece * electricityPct / 100;
+  const otherCost = baseCostPerPiece * otherPct / 100;
+  const netCost = baseCostPerPiece + laborCost + electricityCost + otherCost;
+  const targetPrice = netCost * (1 + marginPct / 100);
+
+  const variants = useMemo(() => {
+    const colors = m?.colors || [];
+    const sizes = m?.sizes || [];
+    const rows: Array<{ color: string; size: string }> = [];
+    for (const c of colors) for (const s of sizes) rows.push({ color: c.color_name, size: s.size });
+    return rows;
+  }, [m?.colors, m?.sizes]);
+
+  if (!m) return <div>Loading...</div>;
+
+  async function saveModel() {
+    await api.patch(`/api/models/${id}`, {
+      ...modelForm,
+      category: modelForm.category || null,
+      description: modelForm.description || null,
+      details_json: details,
+    });
+    setMsg("Saved");
+    mutate();
+  }
 
   async function addBom(e: React.FormEvent) {
     e.preventDefault();
-    await api.post(`/api/models/${id}/bom`, bomRow);
+    await api.post(`/api/models/${id}/bom`, {
+      item_id: bomRow.item_id,
+      size: bomRow.size || null,
+      color: bomRow.color || null,
+      quantity_per_piece: n(bomRow.quantity_per_piece),
+      unit: bomRow.unit,
+      waste_percent: n(bomRow.waste_percent),
+    });
+    setBomRow({ item_id: 0, size: "", color: "", quantity_per_piece: 1, unit: "meter", waste_percent: 5 });
     mutate();
   }
+
   async function addColor(e: React.FormEvent) {
     e.preventDefault();
     await api.post(`/api/models/${id}/colors`, color);
     setColor({ color_name: "", color_code: "" });
     mutate();
   }
+
   async function addSize(e: React.FormEvent) {
     e.preventDefault();
-    await api.post(`/api/models/${id}/sizes`, size);
-    setSize({ size: "" });
+    let measurementJson: any = null;
+    if (size.measurement_json.trim()) {
+      measurementJson = JSON.parse(size.measurement_json);
+    }
+    await api.post(`/api/models/${id}/sizes`, { size: size.size, measurement_json: measurementJson });
+    setSize({ size: "", measurement_json: "" });
     mutate();
+  }
+
+  async function addImage(e: React.FormEvent) {
+    e.preventDefault();
+    await api.post(`/api/models/${id}/images`, imageForm);
+    setImageForm({ file_url: "", is_primary: false });
+    mutate();
+  }
+
+  function tabButton(index: number, label: string) {
+    const active = tab === index;
+    return (
+      <button
+        type="button"
+        key={index}
+        onClick={() => setTab(index)}
+        className={`px-3 py-1.5 text-xs border-b-2 ${active ? "border-[#14110b] text-[#14110b] font-semibold" : "border-transparent text-slate-500"}`}
+      >
+        {label} <span className="badge">{index}</span>
+      </button>
+    );
   }
 
   return (
     <div>
-      <PageHeader title={`${m.code} — ${m.name}`} subtitle={`${t("field.status")}: ${t(`modelStatus.${m.status}`)}`} />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="card p-4">
-          <h3 className="font-medium mb-2">{t("page.modelDetail.sizes")}</h3>
-          <ul className="text-sm mb-3">{m.sizes?.map((s: any) => <li key={s.id}>{s.size}</li>)}</ul>
-          <form onSubmit={addSize} className="flex gap-2">
-            <input className="input" placeholder="S, M, L…" value={size.size} onChange={(e) => setSize({ size: e.target.value })} />
-            <button className="btn btn-primary">{t("btn.add")}</button>
-          </form>
+      <PageHeader title={`Ko'rish: ${m.code}`} subtitle={`${m.name} • ${m.status}`} />
+      <div className="card p-4 space-y-4">
+        <div className="flex flex-wrap gap-1 border-b border-[#ecebe3] pb-2">
+          {TABS.map((label, i) => tabButton(i + 1, label))}
         </div>
-        <div className="card p-4">
-          <h3 className="font-medium mb-2">{t("page.modelDetail.colors")}</h3>
-          <ul className="text-sm mb-3">{m.colors?.map((c: any) => <li key={c.id} className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded" style={{ background: c.color_code || "#ccc" }} />{c.color_name}</li>)}</ul>
-          <form onSubmit={addColor} className="flex gap-2">
-            <input className="input" placeholder={t("field.color")} value={color.color_name} onChange={(e) => setColor({ ...color, color_name: e.target.value })} />
-            <input className="input w-20" placeholder="#hex" value={color.color_code} onChange={(e) => setColor({ ...color, color_code: e.target.value })} />
-            <button className="btn btn-primary">{t("btn.add")}</button>
-          </form>
-        </div>
-        <div className="card p-4 md:col-span-3">
-          <h3 className="font-medium mb-2">{t("page.modelDetail.bom")}</h3>
-          <table className="table mb-3">
-            <thead><tr><th>{t("field.item")}</th><th>{t("page.modelDetail.qtyPerPiece")}</th><th>{t("field.unit")}</th><th>{t("page.modelDetail.wastePct")}</th></tr></thead>
-            <tbody>{m.bom?.map((b: any) => <tr key={b.id}><td>{b.item_id}</td><td>{b.quantity_per_piece}</td><td>{b.unit}</td><td>{b.waste_percent}</td></tr>)}</tbody>
-          </table>
-          <form onSubmit={addBom} className="grid grid-cols-1 md:grid-cols-5 gap-2">
-            <select className="input" value={bomRow.item_id} onChange={(e) => setBomRow({ ...bomRow, item_id: Number(e.target.value) })}>
-              <option value={0}>—</option>
-              {items?.map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name}</option>)}
-            </select>
-            <input className="input" type="number" step="0.001" placeholder={t("page.modelDetail.qtyPerPiece")} value={bomRow.quantity_per_piece} onChange={(e) => setBomRow({ ...bomRow, quantity_per_piece: Number(e.target.value) })} />
-            <input className="input" placeholder={t("field.unit")} value={bomRow.unit} onChange={(e) => setBomRow({ ...bomRow, unit: e.target.value })} />
-            <input className="input" type="number" step="0.1" placeholder={t("page.modelDetail.wastePct")} value={bomRow.waste_percent} onChange={(e) => setBomRow({ ...bomRow, waste_percent: Number(e.target.value) })} />
-            <button className="btn btn-primary">{t("btn.addBomRow")}</button>
-          </form>
+
+        {tab === 1 && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div><label className="label">Model kodi</label><input className="input" value={modelForm.code} onChange={(e) => setModelForm({ ...modelForm, code: e.target.value })} /></div>
+              <div><label className="label">Nomi</label><input className="input" value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} /></div>
+              <div><label className="label">Kategoriya</label><input className="input" value={modelForm.category} onChange={(e) => setModelForm({ ...modelForm, category: e.target.value })} /></div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div><label className="label">Brand</label><input className="input" value={details.general?.brand || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, brand: e.target.value } })} /></div>
+              <div><label className="label">Turi</label><input className="input" value={details.general?.product_type || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, product_type: e.target.value } })} /></div>
+              <div><label className="label">Mavsum</label><input className="input" value={details.general?.season || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, season: e.target.value } })} /></div>
+              <div><label className="label">SAM (min/pc)</label><input className="input" type="number" step="0.1" value={modelForm.sam_minutes} onChange={(e) => setModelForm({ ...modelForm, sam_minutes: n(e.target.value) })} /></div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div><label className="label">Konstruktor</label><input className="input" value={details.general?.constructor || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, constructor: e.target.value } })} /></div>
+              <div><label className="label">Dizayner</label><input className="input" value={details.general?.designer || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, designer: e.target.value } })} /></div>
+            </div>
+            <div><label className="label">Izoh</label><textarea className="input min-h-24" value={modelForm.description} onChange={(e) => setModelForm({ ...modelForm, description: e.target.value })} /></div>
+          </div>
+        )}
+
+        {tab === 2 && (
+          <div className="space-y-5">
+            <div>
+              <h3 className="font-semibold mb-2">Matolar</h3>
+              <table className="table">
+                <thead><tr><th>Kodi</th><th>Nomi</th><th>O'lcham/Rang</th><th>Ishlatish</th><th>Unit cost</th><th>Cost/pc</th></tr></thead>
+                <tbody>
+                  {materialRows.map((r: any) => (
+                    <tr key={r.id}>
+                      <td>{r.item?.sku || r.item_id}</td>
+                      <td>{r.item?.name || "-"}</td>
+                      <td>{r.size || "Barcha"} / {r.color || "Barcha"}</td>
+                      <td>{n(r.quantity_per_piece).toFixed(4)} {r.unit} (+{n(r.waste_percent).toFixed(1)}%)</td>
+                      <td>${n(r.unitCost).toFixed(4)}</td>
+                      <td>${n(r.costPerPiece).toFixed(4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <h3 className="font-semibold mb-2">Aksessuarlar</h3>
+              <table className="table">
+                <thead><tr><th>Kodi</th><th>Nomi</th><th>O'lcham/Rang</th><th>Ishlatish</th><th>Unit cost</th><th>Cost/pc</th></tr></thead>
+                <tbody>
+                  {accessoryRows.map((r: any) => (
+                    <tr key={r.id}>
+                      <td>{r.item?.sku || r.item_id}</td>
+                      <td>{r.item?.name || "-"}</td>
+                      <td>{r.size || "Barcha"} / {r.color || "Barcha"}</td>
+                      <td>{n(r.quantity_per_piece).toFixed(4)} {r.unit} (+{n(r.waste_percent).toFixed(1)}%)</td>
+                      <td>${n(r.unitCost).toFixed(4)}</td>
+                      <td>${n(r.costPerPiece).toFixed(4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <form onSubmit={addBom} className="grid grid-cols-1 md:grid-cols-7 gap-2">
+              <select className="input" value={bomRow.item_id} onChange={(e) => setBomRow({ ...bomRow, item_id: n(e.target.value) })} required>
+                <option value={0}>Item tanlang</option>
+                {(items || []).map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name} ({i.category})</option>)}
+              </select>
+              <input className="input" placeholder="Rang (ixtiyoriy)" value={bomRow.color} onChange={(e) => setBomRow({ ...bomRow, color: e.target.value })} />
+              <input className="input" placeholder="O'lcham (ixtiyoriy)" value={bomRow.size} onChange={(e) => setBomRow({ ...bomRow, size: e.target.value })} />
+              <input className="input" type="number" step="0.0001" placeholder="Qty/pc" value={bomRow.quantity_per_piece} onChange={(e) => setBomRow({ ...bomRow, quantity_per_piece: n(e.target.value) })} required />
+              <input className="input" placeholder="Unit" value={bomRow.unit} onChange={(e) => setBomRow({ ...bomRow, unit: e.target.value })} required />
+              <input className="input" type="number" step="0.1" placeholder="Waste %" value={bomRow.waste_percent} onChange={(e) => setBomRow({ ...bomRow, waste_percent: n(e.target.value) })} />
+              <button className="btn btn-primary">Qo'shish</button>
+            </form>
+          </div>
+        )}
+
+        {tab === 3 && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <form onSubmit={addColor} className="card p-3 space-y-2">
+                <div className="font-medium">Rang qo'shish</div>
+                <div className="flex gap-2">
+                  <input className="input" placeholder="Rang nomi" value={color.color_name} onChange={(e) => setColor({ ...color, color_name: e.target.value })} required />
+                  <input className="input w-24" placeholder="#hex" value={color.color_code} onChange={(e) => setColor({ ...color, color_code: e.target.value })} />
+                  <button className="btn btn-primary">Qo'shish</button>
+                </div>
+              </form>
+              <form onSubmit={addSize} className="card p-3 space-y-2">
+                <div className="font-medium">O'lcham qo'shish</div>
+                <div className="flex gap-2">
+                  <input className="input" placeholder="S, M, L..." value={size.size} onChange={(e) => setSize({ ...size, size: e.target.value })} required />
+                  <button className="btn btn-primary">Qo'shish</button>
+                </div>
+                <textarea className="input min-h-20" placeholder='Measurement JSON (ixtiyoriy), masalan {"chest":92}' value={size.measurement_json} onChange={(e) => setSize({ ...size, measurement_json: e.target.value })} />
+              </form>
+            </div>
+            <table className="table">
+              <thead><tr><th>Variant</th><th>Rang</th><th>O'lcham</th><th>Taxminiy net cost/pc</th></tr></thead>
+              <tbody>
+                {variants.map((v, idx) => (
+                  <tr key={`${v.color}-${v.size}-${idx}`}>
+                    <td>{idx + 1}</td><td>{v.color}</td><td>{v.size}</td><td>${netCost.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === 4 && (
+          <div className="space-y-3">
+            <form onSubmit={addImage} className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <input className="input md:col-span-3" placeholder="Image URL" value={imageForm.file_url} onChange={(e) => setImageForm({ ...imageForm, file_url: e.target.value })} required />
+              <button className="btn btn-primary">Qolip rasmi qo'shish</button>
+            </form>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {(m.images || []).map((img: any) => (
+                <div key={img.id} className="card p-2">
+                  <img src={img.file_url} alt={`model-${img.id}`} className="w-full h-28 object-cover rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 5 && (
+          <div className="space-y-3">
+            <label className="label">Qo'shimcha izoh</label>
+            <textarea className="input min-h-28" value={details.general?.note || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, note: e.target.value } })} />
+          </div>
+        )}
+
+        {tab === 6 && (
+          <div className="card p-3">
+            <div className="text-sm text-slate-600">Mini posta: hozircha model variantlari va mato sarfiga asoslangan hisob-kitoblar 7- va 10-tabda ko'rsatiladi.</div>
+          </div>
+        )}
+
+        {tab === 7 && (
+          <div className="space-y-2">
+            <table className="table">
+              <thead><tr><th>O'lcham</th><th>Measurement JSON</th></tr></thead>
+              <tbody>
+                {(m.sizes || []).map((s: any) => (
+                  <tr key={s.id}>
+                    <td>{s.size}</td>
+                    <td><code>{JSON.stringify(s.measurement_json || {})}</code></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === 8 && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div><label className="label">Murakkablik darajasi</label><input className="input" value={details.sewing?.complexity_level || ""} onChange={(e) => setDetails({ ...details, sewing: { ...details.sewing, complexity_level: e.target.value } })} /></div>
+              <div><label className="label">Bir kishi normasi</label><input className="input" type="number" step="0.01" value={n(details.sewing?.one_person_norm)} onChange={(e) => setDetails({ ...details, sewing: { ...details.sewing, one_person_norm: n(e.target.value) } })} /></div>
+              <div><label className="label">SAM (min/pc)</label><input className="input" type="number" step="0.1" value={modelForm.sam_minutes} onChange={(e) => setModelForm({ ...modelForm, sam_minutes: n(e.target.value) })} /></div>
+            </div>
+            <label className="label">Tikuv izohi</label>
+            <textarea className="input min-h-24" value={details.sewing?.note || ""} onChange={(e) => setDetails({ ...details, sewing: { ...details.sewing, note: e.target.value } })} />
+          </div>
+        )}
+
+        {tab === 9 && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div><label className="label">UZ</label><input className="input" value={details.translation?.uz || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, uz: e.target.value } })} /></div>
+            <div><label className="label">RU</label><input className="input" value={details.translation?.ru || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, ru: e.target.value } })} /></div>
+            <div><label className="label">EN</label><input className="input" value={details.translation?.en || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, en: e.target.value } })} /></div>
+          </div>
+        )}
+
+        {tab === 10 && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div><label className="label">Labor %</label><input className="input" type="number" step="0.1" value={laborPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, labor_pct: n(e.target.value) } })} /></div>
+              <div><label className="label">Electricity %</label><input className="input" type="number" step="0.1" value={electricityPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, electricity_pct: n(e.target.value) } })} /></div>
+              <div><label className="label">Other %</label><input className="input" type="number" step="0.1" value={otherPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, other_pct: n(e.target.value) } })} /></div>
+              <div><label className="label">Target margin %</label><input className="input" type="number" step="0.1" value={marginPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, target_margin_pct: n(e.target.value) } })} /></div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="card p-3"><div className="text-xs text-slate-500">Mato + Aksessuar cost/pc</div><div className="text-lg font-semibold">${baseCostPerPiece.toFixed(2)}</div></div>
+              <div className="card p-3"><div className="text-xs text-slate-500">Qo'shimcha xarajatlar/pc</div><div className="text-lg font-semibold">${(laborCost + electricityCost + otherCost).toFixed(2)}</div></div>
+              <div className="card p-3"><div className="text-xs text-slate-500">Net cost/pc</div><div className="text-lg font-semibold">${netCost.toFixed(2)}</div></div>
+              <div className="card p-3"><div className="text-xs text-slate-500">Target price/pc</div><div className="text-lg font-semibold">${targetPrice.toFixed(2)}</div></div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 border-t border-[#ecebe3] pt-3">
+          {msg && <div className="text-sm text-green-700 self-center">{msg}</div>}
+          <button className="btn btn-primary" onClick={saveModel}>Saqlash</button>
         </div>
       </div>
     </div>

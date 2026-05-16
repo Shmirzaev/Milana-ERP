@@ -32,6 +32,7 @@ class Model(Base, PkMixin, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str | None] = mapped_column(String(64))
     description: Mapped[str | None] = mapped_column(Text)
+    details_json: Mapped[dict | None] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
