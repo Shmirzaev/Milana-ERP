@@ -1,6 +1,6 @@
 """add planning estimate fields to sales_orders
 
-Revision ID: 0002_sales_order_planning_estimate_fields
+Revision ID: 0002_plan_estimate_fields
 Revises: 0001_initial
 Create Date: 2026-05-16
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0002_sales_order_planning_estimate_fields"
+revision = "0002_plan_estimate_fields"
 down_revision = "0001_initial"
 branch_labels = None
 depends_on = None
