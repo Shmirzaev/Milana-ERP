@@ -180,6 +180,7 @@ class PlanningEstimateMaterial(BaseModel):
     item_id: int
     sku: str
     name: str
+    category: str | None = None
     required_quantity: float
     available_quantity: float
     shortage: float

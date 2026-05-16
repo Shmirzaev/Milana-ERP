@@ -12,6 +12,20 @@ type EstimateFormState = {
   leadHours: string;
   deadline: string;
   comment: string;
+  materials: EstimateMaterialRow[];
+};
+
+type EstimateMaterialRow = {
+  item_id: number;
+  sku: string;
+  name: string;
+  category?: string | null;
+  required_quantity: number;
+  available_quantity: number;
+  shortage: number;
+  unit: string;
+  unit_cost: number;
+  estimated_cost: number;
 };
 
 export default function PlanningDashboard() {
@@ -62,6 +76,7 @@ export default function PlanningDashboard() {
         leadHours: Number(estimate.estimated_lead_time_hours || 0).toFixed(2),
         deadline: order?.deadline ? String(order.deadline).slice(0, 10) : "",
         comment: "",
+        materials: Array.isArray(estimate.materials) ? estimate.materials : [],
       });
     } finally {
       setBusyOrderId(null);
@@ -151,7 +166,7 @@ export default function PlanningDashboard() {
 
       {estimateForm && (
         <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4">
-          <div className="card w-full max-w-xl p-5 space-y-4">
+          <div className="card w-full max-w-4xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="text-lg font-semibold">Planning Estimate for {estimateForm.orderNo}</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
@@ -177,6 +192,57 @@ export default function PlanningDashboard() {
                 />
               </div>
             </div>
+            {(() => {
+              const allRows = estimateForm.materials || [];
+              const materialRows = allRows.filter((m) => {
+                const c = String(m.category || "").toLowerCase();
+                return c === "fabric" || c === "semi_finished" || c === "";
+              });
+              const accessoryRows = allRows.filter((m) => {
+                const c = String(m.category || "").toLowerCase();
+                return c === "accessory" || c === "packaging";
+              });
+              const renderEstimateRows = (rows: EstimateMaterialRow[]) => (
+                <div className="overflow-x-auto">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Item</th>
+                        <th>Usage</th>
+                        <th>Unit Cost</th>
+                        <th>Total Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row) => (
+                        <tr key={row.item_id}>
+                          <td>
+                            <div className="font-medium">{row.name}</div>
+                            <div className="text-xs text-slate-500">{row.sku}</div>
+                          </td>
+                          <td>{Number(row.required_quantity || 0).toFixed(2)} {row.unit}</td>
+                          <td>${Number(row.unit_cost || 0).toFixed(2)}</td>
+                          <td>${Number(row.estimated_cost || 0).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+
+              return (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-sm font-semibold mb-2">Material Usage and Cost</div>
+                    {materialRows.length > 0 ? renderEstimateRows(materialRows) : <div className="text-sm text-slate-500">No material rows from model BOM.</div>}
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold mb-2">Accessories Usage and Cost</div>
+                    {accessoryRows.length > 0 ? renderEstimateRows(accessoryRows) : <div className="text-sm text-slate-500">No accessory rows from model BOM.</div>}
+                  </div>
+                </div>
+              );
+            })()}
             <div>
               <label className="label">Planning Deadline</label>
               <input

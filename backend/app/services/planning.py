@@ -97,6 +97,7 @@ def planning_estimate_for_sales_order(db: Session, sales_order_id: int) -> dict 
         enriched_materials.append(
             {
                 **row,
+                "category": getattr(item, "category", None) if item else None,
                 "unit_cost": unit_cost,
                 "estimated_cost": est_cost,
             }
