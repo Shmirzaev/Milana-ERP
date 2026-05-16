@@ -10,6 +10,7 @@ type EstimateFormState = {
   orderNo: string;
   materialCost: string;
   leadHours: string;
+  deadline: string;
   comment: string;
 };
 
@@ -59,6 +60,7 @@ export default function PlanningDashboard() {
         orderNo: order?.order_no || `#${soId}`,
         materialCost: Number(estimate.estimated_material_cost || 0).toFixed(2),
         leadHours: Number(estimate.estimated_lead_time_hours || 0).toFixed(2),
+        deadline: order?.deadline ? String(order.deadline).slice(0, 10) : "",
         comment: "",
       });
     } finally {
@@ -72,12 +74,14 @@ export default function PlanningDashboard() {
     const leadHours = Number(estimateForm.leadHours);
     if (!Number.isFinite(materialCost) || materialCost < 0) return;
     if (!Number.isFinite(leadHours) || leadHours < 0) return;
+    if (!estimateForm.deadline) return;
 
     setBusyOrderId(estimateForm.orderId);
     try {
       await api.post(`/api/planning/submit-estimate/${estimateForm.orderId}`, {
         estimated_material_cost: materialCost,
         estimated_lead_time_minutes: Math.round(leadHours * 60),
+        planned_deadline: estimateForm.deadline,
         estimate_comment: estimateForm.comment.trim() || null,
       });
       setEstimateForm(null);
@@ -174,6 +178,16 @@ export default function PlanningDashboard() {
               </div>
             </div>
             <div>
+              <label className="label">Planning Deadline</label>
+              <input
+                className="input"
+                type="date"
+                value={estimateForm.deadline}
+                onChange={(e) => setEstimateForm({ ...estimateForm, deadline: e.target.value })}
+                required
+              />
+            </div>
+            <div>
               <label className="label">Planning Comment</label>
               <textarea
                 className="input min-h-24"
@@ -184,7 +198,7 @@ export default function PlanningDashboard() {
             </div>
             <div className="flex justify-end gap-2">
               <button className="btn" onClick={() => setEstimateForm(null)} disabled={busyOrderId === estimateForm.orderId}>Cancel</button>
-              <button className="btn btn-primary" onClick={submitEstimateToSales} disabled={busyOrderId === estimateForm.orderId}>
+              <button className="btn btn-primary" onClick={submitEstimateToSales} disabled={busyOrderId === estimateForm.orderId || !estimateForm.deadline}>
                 {busyOrderId === estimateForm.orderId ? "Sending..." : "Send to Sales"}
               </button>
             </div>

@@ -203,3 +203,4 @@ class PlanningEstimateSubmitIn(BaseModel):
     estimated_material_cost: float | None = None
     estimated_lead_time_minutes: int | None = None
     estimate_comment: str | None = None
+    planned_deadline: datetime | None = None

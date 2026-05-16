@@ -90,12 +90,16 @@ def submit_planning_estimate(
     so.planning_estimate_comment = payload.estimate_comment.strip() if payload and payload.estimate_comment else None
     so.planning_estimate_submitted_at = datetime.now(timezone.utc)
     so.planning_estimate_submitted_by = current.id
+    if payload and payload.planned_deadline is not None:
+        so.deadline = payload.planned_deadline
     so.status = "pending_sales_approval"
     summary = (
         f"[Planning estimate] Material cost: {estimate['estimated_material_cost']:.2f}; "
         f"Lead time: {estimate['estimated_lead_time_hours']:.2f}h "
         f"({estimate['estimated_lead_time_minutes']} min); Qty: {estimate['total_quantity']}"
     )
+    if so.deadline:
+        summary += f"; Deadline: {so.deadline.isoformat()}"
     if so.planning_estimate_comment:
         summary += f"; Comment: {so.planning_estimate_comment}"
     so.notes = f"{so.notes}\n{summary}".strip() if so.notes else summary
