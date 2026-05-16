@@ -31,14 +31,20 @@ def _work_orders_by_op(db: Session, production_order_id: int) -> dict[str, WorkO
     return {w.operation: w for w in rows}
 
 
-def _next_operation(operation: str) -> str | None:
+def _next_existing_operation(operation: str, by_op: dict[str, WorkOrder]) -> str | None:
+    """Find the next stage that actually exists on this PO.
+
+    Some orders intentionally skip printing. In that case cutting should
+    advance directly to sewing instead of stalling on a missing printing WO.
+    """
     try:
         idx = WORKFLOW_SEQUENCE.index(operation)
     except ValueError:
         return None
-    if idx >= len(WORKFLOW_SEQUENCE) - 1:
-        return None
-    return WORKFLOW_SEQUENCE[idx + 1]
+    for candidate in WORKFLOW_SEQUENCE[idx + 1 :]:
+        if candidate in by_op:
+            return candidate
+    return None
 
 
 def _start_if_waiting(wo: WorkOrder) -> None:
@@ -84,9 +90,9 @@ def advance_workflow(
     _complete_if_done(wo)
 
     if allow_next_stage_start and trigger_output_qty > 0:
-        next_op = _next_operation(wo.operation)
+        by_op = _work_orders_by_op(db, wo.production_order_id)
+        next_op = _next_existing_operation(wo.operation, by_op)
         if next_op:
-            by_op = _work_orders_by_op(db, wo.production_order_id)
             nxt = by_op.get(next_op)
             if nxt:
                 _start_if_waiting(nxt)

@@ -25,7 +25,6 @@ export default function PlanningDashboard() {
       deadline: so.deadline ?? null,
       items,
     });
-    await api.post(`/api/production-orders/${po.id}/create-work-orders?include_printing=false`);
     // Cascade the deadline into each work-order (cutting/printing/sewing/packaging).
     if (so.deadline) {
       try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
@@ -42,7 +41,6 @@ export default function PlanningDashboard() {
       deadline: brandedForm.deadline || null,
       items: [{ model_id: brandedForm.model_id, color: brandedForm.color, size: brandedForm.size, planned_quantity: brandedForm.planned_quantity }],
     });
-    await api.post(`/api/production-orders/${po.id}/create-work-orders?include_printing=false`);
     if (brandedForm.deadline) {
       try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
     }

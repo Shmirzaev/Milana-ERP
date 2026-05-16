@@ -1,5 +1,5 @@
 """Production service: build production orders and work orders, manage flow."""
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -109,6 +109,17 @@ def create_work_orders(db: Session, production_order_id: int, include_printing: 
         db.add(wo)
         created.append(wo)
 
-    po.status = "planning"
+    # Orders should enter cutting immediately; planning only assigns sewing lines.
+    cutting_wo = next((w for w in created if w.operation == "cutting"), None)
+    if not cutting_wo:
+        cutting_wo = db.query(WorkOrder).filter(
+            WorkOrder.production_order_id == po.id,
+            WorkOrder.operation == "cutting",
+        ).first()
+    if cutting_wo and cutting_wo.status in ("new", "planning", "waiting"):
+        cutting_wo.status = "in_progress"
+        if not cutting_wo.start_time:
+            cutting_wo.start_time = datetime.now(timezone.utc)
+    po.status = "cutting" if cutting_wo else "planning"
     db.flush()
     return created

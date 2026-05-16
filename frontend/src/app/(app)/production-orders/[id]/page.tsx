@@ -53,10 +53,6 @@ export default function ProductionOrderDetail() {
   const [editMsg, setEditMsg] = useState("");
   const [openAssignments, setOpenAssignments] = useState<number | null>(null);
 
-  async function createWOs() {
-    await api.post(`/api/production-orders/${id}/create-work-orders?include_printing=false`);
-    mutate();
-  }
   async function cascade() {
     try { await api.post(`/api/production-orders/${id}/cascade-deadlines`); mutate(); }
     catch (e: any) { alert(e.message); }
@@ -106,7 +102,6 @@ export default function ProductionOrderDetail() {
         subtitle={t("page.poDetail.subtitle", { type: po.production_type, status: po.status })}
         actions={canPlan ? (
           <div className="flex gap-2">
-            <button className="btn" onClick={createWOs}>{t("btn.generateWorkOrders")}</button>
             <button className="btn" onClick={cascade} title="Distribute the PO deadline across stage deadlines using SAM × qty where available">Cascade deadlines</button>
           </div>
         ) : undefined}
