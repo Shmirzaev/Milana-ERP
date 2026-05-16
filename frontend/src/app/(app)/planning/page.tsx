@@ -9,9 +9,9 @@ type EstimateFormState = {
   orderId: number;
   orderNo: string;
   materialCost: string;
-  laborCost: string;
-  electricityCost: string;
-  otherExpenses: string;
+  laborPercent: string;
+  electricityPercent: string;
+  otherPercent: string;
   leadHours: string;
   deadline: string;
   comment: string;
@@ -30,6 +30,19 @@ type EstimateMaterialRow = {
   unit_cost: number;
   estimated_cost: number;
 };
+
+const DEFAULT_LABOR_PERCENT = 12;
+const DEFAULT_ELECTRICITY_PERCENT = 4;
+const DEFAULT_OTHER_PERCENT = 3;
+
+function num(v: string | number | null | undefined): number {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
 
 export default function PlanningDashboard() {
   const { t } = useT();
@@ -72,13 +85,20 @@ export default function PlanningDashboard() {
     try {
       const order = planningOrders.find((o) => o.id === soId);
       const estimate = await api.get(`/api/planning/estimate/${soId}`);
+      const baseMaterialCost = num(estimate.estimated_material_cost);
+      const savedLaborCost = num(estimate.estimated_labor_cost);
+      const savedElectricityCost = num(estimate.estimated_electricity_cost);
+      const savedOtherCost = num(estimate.estimated_other_expenses);
+      const laborPercent = baseMaterialCost > 0 ? (savedLaborCost / baseMaterialCost) * 100 : DEFAULT_LABOR_PERCENT;
+      const electricityPercent = baseMaterialCost > 0 ? (savedElectricityCost / baseMaterialCost) * 100 : DEFAULT_ELECTRICITY_PERCENT;
+      const otherPercent = baseMaterialCost > 0 ? (savedOtherCost / baseMaterialCost) * 100 : DEFAULT_OTHER_PERCENT;
       setEstimateForm({
         orderId: soId,
         orderNo: order?.order_no || `#${soId}`,
-        materialCost: Number(estimate.estimated_material_cost || 0).toFixed(2),
-        laborCost: Number(estimate.estimated_labor_cost || 0).toFixed(2),
-        electricityCost: Number(estimate.estimated_electricity_cost || 0).toFixed(2),
-        otherExpenses: Number(estimate.estimated_other_expenses || 0).toFixed(2),
+        materialCost: baseMaterialCost.toFixed(2),
+        laborPercent: round2(laborPercent).toFixed(2),
+        electricityPercent: round2(electricityPercent).toFixed(2),
+        otherPercent: round2(otherPercent).toFixed(2),
         leadHours: Number(estimate.estimated_lead_time_hours || 0).toFixed(2),
         deadline: order?.deadline ? String(order.deadline).slice(0, 10) : "",
         comment: "",
@@ -92,16 +112,19 @@ export default function PlanningDashboard() {
   async function submitEstimateToSales() {
     if (!estimateForm) return;
     const materialCost = Number(estimateForm.materialCost);
-    const laborCost = Number(estimateForm.laborCost);
-    const electricityCost = Number(estimateForm.electricityCost);
-    const otherExpenses = Number(estimateForm.otherExpenses);
+    const laborPercent = Number(estimateForm.laborPercent);
+    const electricityPercent = Number(estimateForm.electricityPercent);
+    const otherPercent = Number(estimateForm.otherPercent);
     const leadHours = Number(estimateForm.leadHours);
     if (!Number.isFinite(materialCost) || materialCost < 0) return;
-    if (!Number.isFinite(laborCost) || laborCost < 0) return;
-    if (!Number.isFinite(electricityCost) || electricityCost < 0) return;
-    if (!Number.isFinite(otherExpenses) || otherExpenses < 0) return;
+    if (!Number.isFinite(laborPercent) || laborPercent < 0) return;
+    if (!Number.isFinite(electricityPercent) || electricityPercent < 0) return;
+    if (!Number.isFinite(otherPercent) || otherPercent < 0) return;
     if (!Number.isFinite(leadHours) || leadHours < 0) return;
     if (!estimateForm.deadline) return;
+    const laborCost = round2(materialCost * laborPercent / 100);
+    const electricityCost = round2(materialCost * electricityPercent / 100);
+    const otherExpenses = round2(materialCost * otherPercent / 100);
 
     setBusyOrderId(estimateForm.orderId);
     try {
@@ -184,10 +207,13 @@ export default function PlanningDashboard() {
           <div className="card w-full max-w-4xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="text-lg font-semibold">Planning Estimate for {estimateForm.orderNo}</div>
             {(() => {
-              const materialCost = Number(estimateForm.materialCost || 0);
-              const laborCost = Number(estimateForm.laborCost || 0);
-              const electricityCost = Number(estimateForm.electricityCost || 0);
-              const otherExpenses = Number(estimateForm.otherExpenses || 0);
+              const materialCost = num(estimateForm.materialCost);
+              const laborPercent = num(estimateForm.laborPercent);
+              const electricityPercent = num(estimateForm.electricityPercent);
+              const otherPercent = num(estimateForm.otherPercent);
+              const laborCost = round2(materialCost * laborPercent / 100);
+              const electricityCost = round2(materialCost * electricityPercent / 100);
+              const otherExpenses = round2(materialCost * otherPercent / 100);
               const netPrice = materialCost + laborCost + electricityCost + otherExpenses;
               const price15 = netPrice * 1.15;
               const price20 = netPrice * 1.20;
@@ -218,38 +244,8 @@ export default function PlanningDashboard() {
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                      <label className="label">Labor Expense</label>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={estimateForm.laborCost}
-                        onChange={(e) => setEstimateForm({ ...estimateForm, laborCost: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className="label">Electricity Expense</label>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={estimateForm.electricityCost}
-                        onChange={(e) => setEstimateForm({ ...estimateForm, electricityCost: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className="label">Other Expenses</label>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={estimateForm.otherExpenses}
-                        onChange={(e) => setEstimateForm({ ...estimateForm, otherExpenses: e.target.value })}
-                      />
+                    <div className="text-xs text-slate-500">
+                      Overhead is calculated as approximate percentages of total material/accessory cost.
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -279,6 +275,13 @@ export default function PlanningDashboard() {
                 const c = String(m.category || "").toLowerCase();
                 return c === "accessory" || c === "packaging";
               });
+              const materialCost = num(estimateForm.materialCost);
+              const laborPercent = num(estimateForm.laborPercent);
+              const electricityPercent = num(estimateForm.electricityPercent);
+              const otherPercent = num(estimateForm.otherPercent);
+              const laborCost = round2(materialCost * laborPercent / 100);
+              const electricityCost = round2(materialCost * electricityPercent / 100);
+              const otherCost = round2(materialCost * otherPercent / 100);
               const renderEstimateRows = (rows: EstimateMaterialRow[]) => (
                 <div className="overflow-x-auto">
                   <table className="table">
@@ -316,6 +319,68 @@ export default function PlanningDashboard() {
                   <div>
                     <div className="text-sm font-semibold mb-2">Accessories Usage and Cost</div>
                     {accessoryRows.length > 0 ? renderEstimateRows(accessoryRows) : <div className="text-sm text-slate-500">No accessory rows from model BOM.</div>}
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold mb-2">Other Expenses (Approx.)</div>
+                    <div className="overflow-x-auto">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>Expense</th>
+                            <th>Approx. %</th>
+                            <th>Base Cost</th>
+                            <th>Approx. Cost</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td>Labor</td>
+                            <td>
+                              <input
+                                className="input"
+                                type="number"
+                                min={0}
+                                step="0.1"
+                                value={estimateForm.laborPercent}
+                                onChange={(e) => setEstimateForm({ ...estimateForm, laborPercent: e.target.value })}
+                              />
+                            </td>
+                            <td>${materialCost.toFixed(2)}</td>
+                            <td>${laborCost.toFixed(2)}</td>
+                          </tr>
+                          <tr>
+                            <td>Electricity</td>
+                            <td>
+                              <input
+                                className="input"
+                                type="number"
+                                min={0}
+                                step="0.1"
+                                value={estimateForm.electricityPercent}
+                                onChange={(e) => setEstimateForm({ ...estimateForm, electricityPercent: e.target.value })}
+                              />
+                            </td>
+                            <td>${materialCost.toFixed(2)}</td>
+                            <td>${electricityCost.toFixed(2)}</td>
+                          </tr>
+                          <tr>
+                            <td>Other Expenses</td>
+                            <td>
+                              <input
+                                className="input"
+                                type="number"
+                                min={0}
+                                step="0.1"
+                                value={estimateForm.otherPercent}
+                                onChange={(e) => setEstimateForm({ ...estimateForm, otherPercent: e.target.value })}
+                              />
+                            </td>
+                            <td>${materialCost.toFixed(2)}</td>
+                            <td>${otherCost.toFixed(2)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               );
