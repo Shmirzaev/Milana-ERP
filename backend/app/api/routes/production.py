@@ -5,7 +5,7 @@ from sqlalchemy.orm import joinedload
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import (
     ProductionOrder, WorkOrder, CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord,
-    SalesOrder, QualityCheck, User,
+    SalesOrder, QualityCheck, User, SewingFlow, SewingAssignment,
 )
 from app.schemas.production import (
     ProductionOrderIn, ProductionOrderOut, ProductionOrderDetail,
@@ -28,6 +28,8 @@ from app.services.workflow import (
 
 router = APIRouter(tags=["production"])
 
+_ACTIVE_WO_STATUSES = ("waiting", "ready", "in_progress", "paused", "new", "planning")
+
 
 def _gate_record_submission(wo: WorkOrder, user) -> None:
     """Reject record submission when the WO is blocked or past deadline.
@@ -48,6 +50,43 @@ def _gate_record_submission(wo: WorkOrder, user) -> None:
                     f"Work order is past its deadline ({deadline.isoformat()}). "
                     "Management override required.",
                 )
+
+
+def _flow_committed_today(db: DbSession, flow_id: int, now: datetime) -> int:
+    """Approximate today's committed load for a sewing line."""
+    committed = 0
+
+    # 1) Active split assignments contribute daily allocation.
+    assignments = db.query(SewingAssignment).filter(
+        SewingAssignment.sewing_flow_id == flow_id,
+        SewingAssignment.status.in_(["planned", "in_progress"]),
+    ).all()
+    for a in assignments:
+        a_start = as_utc(a.planned_start)
+        a_end = as_utc(a.planned_end)
+        if not a_start or not a_end:
+            continue
+        if a_start <= now <= a_end:
+            days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
+            committed += round(a.quantity / days)
+
+    # 2) Directly assigned sewing WOs (without split assignments) count fully.
+    direct_wos = db.query(WorkOrder).filter(
+        WorkOrder.sewing_flow_id == flow_id,
+        WorkOrder.operation == "sewing",
+        WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+    ).all()
+    for w in direct_wos:
+        has_split = db.query(SewingAssignment.id).filter(
+            SewingAssignment.work_order_id == w.id,
+            SewingAssignment.status.in_(["planned", "in_progress"]),
+        ).first()
+        if has_split:
+            continue
+        remaining = max(0, int(w.planned_output_qty or 0) - int(w.passed_qty or 0))
+        committed += remaining
+
+    return int(committed)
 
 
 # ===== Production Orders =====
@@ -200,6 +239,28 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: Curren
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
     changes = payload.model_dump(exclude_unset=True)
+
+    if wo.operation == "sewing" and "sewing_flow_id" in changes and changes["sewing_flow_id"]:
+        target_flow = db.get(SewingFlow, int(changes["sewing_flow_id"]))
+        if not target_flow:
+            raise HTTPException(404, "Sewing flow not found")
+        now = datetime.now(timezone.utc)
+        committed = _flow_committed_today(db, target_flow.id, now)
+        own_remaining = max(0, int(wo.planned_output_qty or 0) - int(wo.passed_qty or 0))
+        if wo.sewing_flow_id == target_flow.id:
+            has_split = db.query(SewingAssignment.id).filter(
+                SewingAssignment.work_order_id == wo.id,
+                SewingAssignment.status.in_(["planned", "in_progress"]),
+            ).first()
+            if not has_split:
+                committed = max(0, committed - own_remaining)
+        projected = committed + own_remaining
+        if int(target_flow.capacity_per_day or 0) > 0 and projected > int(target_flow.capacity_per_day):
+            raise HTTPException(
+                409,
+                f"Capacity full: {target_flow.code} daily load would be {projected} vs capacity {target_flow.capacity_per_day}",
+            )
+
     previous_assignee = wo.assigned_to
     for k, v in changes.items():
         setattr(wo, k, v)

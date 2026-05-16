@@ -22,6 +22,7 @@ from app.services.audit import log_action
 from app.services.notifications import notify
 
 router = APIRouter(tags=["production_extra"])
+_ACTIVE_WO_STATUSES = ("waiting", "ready", "in_progress", "paused", "new", "planning")
 
 
 class BlockIn(BaseModel):
@@ -93,7 +94,7 @@ def create_assignment(
 
     # Soft capacity warning — append to response, do not block.
     capacity_warning = _capacity_warning(db, flow, payload.quantity, payload.planned_start, payload.planned_end)
-    if capacity_warning and not is_admin(current):
+    if capacity_warning:
         raise HTTPException(409, capacity_warning)
 
     a = SewingAssignment(
@@ -161,7 +162,7 @@ def update_assignment(
         next_end,
         exclude_assignment_id=a.id,
     )
-    if capacity_warning and not is_admin(current):
+    if capacity_warning:
         raise HTTPException(409, capacity_warning)
 
     previous_flow = a.sewing_flow_id
@@ -275,6 +276,20 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
         if a_start <= now <= a_end:
             days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
             committed_today += round(a.quantity / days)
+    # Add directly assigned sewing WOs that are not split.
+    direct_wos = db.query(WorkOrder).filter(
+        WorkOrder.sewing_flow_id == fid,
+        WorkOrder.operation == "sewing",
+        WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+    ).all()
+    for w in direct_wos:
+        has_split = db.query(SewingAssignment.id).filter(
+            SewingAssignment.work_order_id == w.id,
+            SewingAssignment.status.in_(["planned", "in_progress"]),
+        ).first()
+        if has_split:
+            continue
+        committed_today += max(0, int(w.planned_output_qty or 0) - int(w.passed_qty or 0))
     pct = (committed_today / f.capacity_per_day * 100) if f.capacity_per_day else 0
     return {
         "flow_id": fid, "code": f.code,
@@ -303,6 +318,19 @@ def utilization_snapshot(db: DbSession, _: CurrentUser):
             if a_start <= now <= a_end:
                 days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
                 committed_today += round(a.quantity / days)
+        direct_wos = db.query(WorkOrder).filter(
+            WorkOrder.sewing_flow_id == f.id,
+            WorkOrder.operation == "sewing",
+            WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+        ).all()
+        for w in direct_wos:
+            has_split = db.query(SewingAssignment.id).filter(
+                SewingAssignment.work_order_id == w.id,
+                SewingAssignment.status.in_(["planned", "in_progress"]),
+            ).first()
+            if has_split:
+                continue
+            committed_today += max(0, int(w.planned_output_qty or 0) - int(w.passed_qty or 0))
         pct = (committed_today / f.capacity_per_day * 100) if f.capacity_per_day else 0
         out.append(
             {

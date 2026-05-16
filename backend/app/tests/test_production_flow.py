@@ -40,6 +40,16 @@ def _create_client_sales_order(client, headers) -> int:
     return so_id
 
 
+def _planning_headers(client) -> dict[str, str]:
+    r = client.post(
+        "/api/auth/login",
+        data={"username": "planning@example.com", "password": "demo12345"},
+    )
+    assert r.status_code == 200, r.text
+    token = r.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_full_flow(client, auth_headers):
     r = client.get("/api/sales-orders", headers=auth_headers)
     assert r.status_code == 200
@@ -252,3 +262,46 @@ def test_branded_production_requires_approved_model(client, auth_headers):
         headers=auth_headers,
     )
     assert r.status_code == 400
+
+
+def test_planning_assign_rejects_overloaded_sewing_line(client, auth_headers):
+    planning_headers = _planning_headers(client)
+    so_id = _create_client_sales_order(client, auth_headers)
+    _prepare_sales_order_for_po(client, auth_headers, so_id)
+
+    r = client.post(
+        "/api/planning/create-production-order",
+        json={
+            "production_type": "client_order",
+            "sales_order_id": so_id,
+            "model_id": 1,
+            "planned_quantity": 120,
+            "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 120}],
+        },
+        headers=planning_headers,
+    )
+    assert r.status_code == 201, r.text
+    po_id = r.json()["id"]
+
+    r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=planning_headers)
+    assert r.status_code == 200, r.text
+    sewing_wo = next(w for w in r.json() if w["operation"] == "sewing")
+
+    r = client.get("/api/sewing-flows", headers=planning_headers)
+    assert r.status_code == 200, r.text
+    flow_id = r.json()[0]["id"]
+
+    r = client.patch(
+        f"/api/sewing-flows/{flow_id}",
+        json={"capacity_per_day": 10},
+        headers=planning_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    # 120 pcs remaining against a line capacity of 10/day must be blocked.
+    r = client.patch(
+        f"/api/work-orders/{sewing_wo['id']}",
+        json={"sewing_flow_id": flow_id},
+        headers=planning_headers,
+    )
+    assert r.status_code == 409, r.text
