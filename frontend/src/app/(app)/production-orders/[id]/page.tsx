@@ -38,6 +38,20 @@ type Assignment = {
   notes: string | null;
 };
 
+type Flow = {
+  id: number;
+  code: string;
+  name: string;
+};
+
+type FlowUtil = {
+  flow_id: number;
+  committed_today: number;
+  capacity_per_day: number;
+  utilization_pct: number;
+  is_full: boolean;
+};
+
 export default function ProductionOrderDetail() {
   const params = useParams<{ id: string }>();
   const { t } = useT();
@@ -45,8 +59,10 @@ export default function ProductionOrderDetail() {
   const canPlan = can(me, "*", "planning.production");
   const id = params.id;
   const { data: po, mutate } = useSWR<any>(`/api/production-orders/${id}`, fetcher);
-  const { data: flows } = useSWR<any[]>("/api/sewing-flows", fetcher);
+  const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
+  const { data: flowUtil } = useSWR<FlowUtil[]>("/api/sewing-flows/utilization-snapshot", fetcher, { refreshInterval: 60_000 });
   const { data: users } = useSWR<any[]>(canPlan ? "/api/users" : null, fetcher);
+  const utilByFlow = new Map((flowUtil || []).map((u) => [u.flow_id, u]));
 
   const [editing, setEditing] = useState<WO | null>(null);
   const [edit, setEdit] = useState({ deadline: "", sewing_flow_id: 0, assigned_to: 0 });
@@ -186,7 +202,7 @@ export default function ProductionOrderDetail() {
                   {w.operation === "sewing" && openAssignments === w.id && (
                     <tr key={`${w.id}-assignments`}>
                       <td colSpan={9} className="bg-slate-50 p-3">
-                        <SewingAssignmentsPanel woId={w.id} plannedQty={w.planned_input_qty} flows={flows ?? []} />
+                        <SewingAssignmentsPanel woId={w.id} plannedQty={w.planned_input_qty} flows={flows ?? []} utilByFlow={utilByFlow} />
                       </td>
                     </tr>
                   )}
@@ -208,8 +224,19 @@ export default function ProductionOrderDetail() {
               <label className="label">{t("field.line")}</label>
               <select className="input" value={edit.sewing_flow_id} onChange={(e) => setEdit({ ...edit, sewing_flow_id: Number(e.target.value) })}>
                 <option value={0}>—</option>
-                {flows?.map((f) => <option key={f.id} value={f.id}>{f.code} — {f.name}</option>)}
+                {flows?.map((f) => {
+                  const u = utilByFlow.get(f.id);
+                  const isFull = !!u?.is_full;
+                  return (
+                    <option key={f.id} value={f.id} disabled={isFull}>
+                      {f.code} — {f.name}{isFull ? ` (FULL ${u?.utilization_pct ?? 100}%)` : ""}
+                    </option>
+                  );
+                })}
               </select>
+              {edit.sewing_flow_id > 0 && utilByFlow.get(edit.sewing_flow_id)?.is_full && (
+                <div className="mt-1 text-xs text-red-600">This line is full/overloaded right now.</div>
+              )}
             </div>
           )}
           <div>
@@ -231,7 +258,17 @@ export default function ProductionOrderDetail() {
 }
 
 
-function SewingAssignmentsPanel({ woId, plannedQty, flows }: { woId: number; plannedQty: number; flows: any[] }) {
+function SewingAssignmentsPanel({
+  woId,
+  plannedQty,
+  flows,
+  utilByFlow,
+}: {
+  woId: number;
+  plannedQty: number;
+  flows: Flow[];
+  utilByFlow: Map<number, FlowUtil>;
+}) {
   const { data, mutate } = useSWR<Assignment[]>(`/api/work-orders/${woId}/assignments`, fetcher);
   const [draft, setDraft] = useState({ sewing_flow_id: 0, quantity: 0, planned_start: "", planned_end: "" });
   const [msg, setMsg] = useState("");
@@ -241,6 +278,10 @@ function SewingAssignmentsPanel({ woId, plannedQty, flows }: { woId: number; pla
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setMsg("");
+    if (draft.sewing_flow_id > 0 && utilByFlow.get(draft.sewing_flow_id)?.is_full) {
+      setMsg("Selected line is full/overloaded. Choose another line.");
+      return;
+    }
     try {
       await api.post(`/api/work-orders/${woId}/assignments`, {
         work_order_id: woId,
@@ -285,12 +326,25 @@ function SewingAssignmentsPanel({ woId, plannedQty, flows }: { woId: number; pla
       <form onSubmit={add} className="grid grid-cols-1 md:grid-cols-6 gap-2 mt-3">
         <select className="input" value={draft.sewing_flow_id} onChange={(e) => setDraft({ ...draft, sewing_flow_id: Number(e.target.value) })} required>
           <option value={0}>Pick a line…</option>
-          {flows.map((f) => <option key={f.id} value={f.id}>{f.code} — {f.name}</option>)}
+          {flows.map((f) => {
+            const u = utilByFlow.get(f.id);
+            const isFull = !!u?.is_full;
+            return (
+              <option key={f.id} value={f.id} disabled={isFull}>
+                {f.code} — {f.name}{isFull ? ` (FULL ${u?.utilization_pct ?? 100}%)` : ""}
+              </option>
+            );
+          })}
         </select>
         <input className="input" type="number" placeholder="Qty" value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: Number(e.target.value) })} required />
         <input className="input" type="date" value={draft.planned_start} onChange={(e) => setDraft({ ...draft, planned_start: e.target.value })} />
         <input className="input" type="date" value={draft.planned_end} onChange={(e) => setDraft({ ...draft, planned_end: e.target.value })} />
-        <button className="btn btn-primary md:col-span-2">Add assignment</button>
+        <button className="btn btn-primary md:col-span-2" disabled={draft.sewing_flow_id > 0 && !!utilByFlow.get(draft.sewing_flow_id)?.is_full}>
+          Add assignment
+        </button>
+        {draft.sewing_flow_id > 0 && utilByFlow.get(draft.sewing_flow_id)?.is_full && (
+          <div className="text-sm text-red-600 md:col-span-6">Selected line is full/overloaded. Choose another line.</div>
+        )}
         {msg && <div className="text-sm text-red-600 md:col-span-6">{msg}</div>}
       </form>
     </div>

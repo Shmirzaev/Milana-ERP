@@ -93,6 +93,8 @@ def create_assignment(
 
     # Soft capacity warning — append to response, do not block.
     capacity_warning = _capacity_warning(db, flow, payload.quantity, payload.planned_start, payload.planned_end)
+    if capacity_warning and not is_admin(current):
+        raise HTTPException(409, capacity_warning)
 
     a = SewingAssignment(
         work_order_id=wid,
@@ -125,6 +127,43 @@ def update_assignment(
     a = db.get(SewingAssignment, aid)
     if not a: raise HTTPException(404, "Assignment not found")
     changes = payload.model_dump(exclude_unset=True)
+    wo = db.get(WorkOrder, a.work_order_id)
+    if not wo:
+        raise HTTPException(404, "Work order not found")
+
+    next_flow_id = changes.get("sewing_flow_id", a.sewing_flow_id)
+    next_qty = int(changes.get("quantity", a.quantity))
+    next_start = changes.get("planned_start", a.planned_start)
+    next_end = changes.get("planned_end", a.planned_end)
+    if next_qty <= 0:
+        raise HTTPException(400, "Quantity must be > 0")
+    flow = db.get(SewingFlow, next_flow_id)
+    if not flow:
+        raise HTTPException(404, "Sewing flow not found")
+
+    siblings = db.query(SewingAssignment).filter(
+        SewingAssignment.work_order_id == a.work_order_id,
+        SewingAssignment.id != a.id,
+    ).all()
+    already = sum(s.quantity for s in siblings)
+    if already + next_qty > (wo.planned_input_qty or 0) and not is_admin(current):
+        raise HTTPException(
+            400,
+            f"Total assignments ({already + next_qty}) exceeds planned WO input ({wo.planned_input_qty}). "
+            "Admin can override.",
+        )
+
+    capacity_warning = _capacity_warning(
+        db,
+        flow,
+        next_qty,
+        next_start,
+        next_end,
+        exclude_assignment_id=a.id,
+    )
+    if capacity_warning and not is_admin(current):
+        raise HTTPException(409, capacity_warning)
+
     previous_flow = a.sewing_flow_id
     for k, v in changes.items():
         setattr(a, k, v)
@@ -153,19 +192,29 @@ def delete_assignment(
 
 
 # ===== Capacity utilization per flow =====
-def _capacity_warning(db, flow: SewingFlow, qty: int, start, end) -> str | None:
-    """Return a human-readable warning string if `qty` would put the flow over its
-    daily capacity for the assignment window. Used as a soft warning, not a hard block."""
+def _project_daily_load(
+    db: DbSession,
+    flow: SewingFlow,
+    qty: int,
+    start,
+    end,
+    *,
+    exclude_assignment_id: int | None = None,
+) -> tuple[float, float] | None:
+    """Return projected daily load and capacity for the window."""
     start = as_utc(start)
     end = as_utc(end)
     if not flow.capacity_per_day or not start or not end:
         return None
     days = max(1.0, (end - start).total_seconds() / 86400.0)
     daily_needed = qty / days
-    existing = db.query(SewingAssignment).filter(
+    qry = db.query(SewingAssignment).filter(
         SewingAssignment.sewing_flow_id == flow.id,
         SewingAssignment.status.in_(["planned", "in_progress"]),
-    ).all()
+    )
+    if exclude_assignment_id:
+        qry = qry.filter(SewingAssignment.id != exclude_assignment_id)
+    existing = qry.all()
     committed = 0.0
     for a in existing:
         a_start = as_utc(a.planned_start)
@@ -176,10 +225,34 @@ def _capacity_warning(db, flow: SewingFlow, qty: int, start, end) -> str | None:
             continue
         a_days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
         committed += a.quantity / a_days
-    if daily_needed + committed > flow.capacity_per_day:
+    return daily_needed + committed, float(flow.capacity_per_day)
+
+
+def _capacity_warning(
+    db: DbSession,
+    flow: SewingFlow,
+    qty: int,
+    start,
+    end,
+    *,
+    exclude_assignment_id: int | None = None,
+) -> str | None:
+    """Return warning when assignment projection exceeds flow capacity."""
+    projection = _project_daily_load(
+        db,
+        flow,
+        qty,
+        start,
+        end,
+        exclude_assignment_id=exclude_assignment_id,
+    )
+    if not projection:
+        return None
+    projected, capacity = projection
+    if projected > capacity:
         return (
-            f"Capacity warning: {flow.code} daily load would be {round(daily_needed + committed)} "
-            f"vs capacity {flow.capacity_per_day}"
+            f"Capacity full: {flow.code} daily load would be {round(projected)} "
+            f"vs capacity {int(capacity)}"
         )
     return None
 
@@ -209,6 +282,39 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
         "committed_today": committed_today,
         "utilization_pct": round(pct, 1),
     }
+
+
+@router.get("/sewing-flows/utilization-snapshot")
+def utilization_snapshot(db: DbSession, _: CurrentUser):
+    flows = db.query(SewingFlow).filter(SewingFlow.is_active.is_(True)).order_by(SewingFlow.code).all()
+    out = []
+    for f in flows:
+        now = datetime.now(timezone.utc)
+        rows = db.query(SewingAssignment).filter(
+            SewingAssignment.sewing_flow_id == f.id,
+            SewingAssignment.status.in_(["planned", "in_progress"]),
+        ).all()
+        committed_today = 0
+        for a in rows:
+            a_start = as_utc(a.planned_start)
+            a_end = as_utc(a.planned_end)
+            if not a_start or not a_end:
+                continue
+            if a_start <= now <= a_end:
+                days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
+                committed_today += round(a.quantity / days)
+        pct = (committed_today / f.capacity_per_day * 100) if f.capacity_per_day else 0
+        out.append(
+            {
+                "flow_id": f.id,
+                "code": f.code,
+                "capacity_per_day": f.capacity_per_day,
+                "committed_today": committed_today,
+                "utilization_pct": round(pct, 1),
+                "is_full": pct >= 100.0,
+            }
+        )
+    return out
 
 
 # ===== PDF (HTML) export of process tracking =====
