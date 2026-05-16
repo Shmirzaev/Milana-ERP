@@ -283,7 +283,10 @@ export default function ModelDetail() {
         {tab === 2 && (
           <div className="space-y-5">
             <div>
-              <h3 className="font-semibold mb-2">Matolar</h3>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">Matolar</h3>
+                <button className="btn btn-primary" type="button" onClick={() => addBom(undefined, "material")}>+ Matoga qo'shish</button>
+              </div>
               <table className="table">
                 <thead><tr><th>Kodi</th><th>Nomi</th><th>O'lcham/Rang</th><th>Ishlatish</th><th>Unit cost</th><th>Cost/pc</th></tr></thead>
                 <tbody>
@@ -301,7 +304,10 @@ export default function ModelDetail() {
               </table>
             </div>
             <div>
-              <h3 className="font-semibold mb-2">Aksessuarlar</h3>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">Aksessuarlar</h3>
+                <button className="btn" type="button" onClick={() => addBom(undefined, "accessory")}>+ Aksessuarga qo'shish</button>
+              </div>
               <table className="table">
                 <thead><tr><th>Kodi</th><th>Nomi</th><th>O'lcham/Rang</th><th>Ishlatish</th><th>Unit cost</th><th>Cost/pc</th></tr></thead>
                 <tbody>
@@ -329,8 +335,6 @@ export default function ModelDetail() {
               <input className="input" type="number" step="0.0001" placeholder="Qty/pc" value={bomRow.quantity_per_piece} onChange={(e) => setBomRow({ ...bomRow, quantity_per_piece: n(e.target.value) })} required />
               <input className="input" placeholder="Unit" value={bomRow.unit} onChange={(e) => setBomRow({ ...bomRow, unit: e.target.value })} required />
               <input className="input" type="number" step="0.1" placeholder="Waste %" value={bomRow.waste_percent} onChange={(e) => setBomRow({ ...bomRow, waste_percent: n(e.target.value) })} />
-              <button className="btn" type="button" onClick={() => addBom(undefined, "material")}>Matoga qo'shish</button>
-              <button className="btn" type="button" onClick={() => addBom(undefined, "accessory")}>Aksessuarga qo'shish</button>
               <button className="btn btn-primary" type="submit">Qo'shish</button>
             </form>
           </div>
