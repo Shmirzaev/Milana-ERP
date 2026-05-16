@@ -16,7 +16,9 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 @router.get("/management")
 def management(db: DbSession, _: CurrentUser):
     now = datetime.now(timezone.utc)
-    active_orders = db.query(func.count(SalesOrder.id)).filter(SalesOrder.status.in_(["confirmed", "planning", "production", "ready"])).scalar() or 0
+    active_orders = db.query(func.count(SalesOrder.id)).filter(
+        SalesOrder.status.in_(["confirmed", "pending_sales_approval", "planning_approved", "planning", "production", "ready"])
+    ).scalar() or 0
     late_orders = db.query(func.count(SalesOrder.id)).filter(SalesOrder.deadline < now, SalesOrder.status.not_in(["delivered", "closed", "cancelled"])).scalar() or 0
     todays_defects = db.query(func.coalesce(func.sum(SewingRecord.failed_qty + SewingRecord.rejected_qty), 0)).filter(SewingRecord.created_at >= now - timedelta(days=1)).scalar() or 0
     todays_waste = db.query(func.coalesce(func.sum(WasteRecord.quantity), 0)).filter(WasteRecord.created_at >= now - timedelta(days=1)).scalar() or 0
@@ -32,7 +34,9 @@ def management(db: DbSession, _: CurrentUser):
 @router.get("/planning")
 def planning(db: DbSession, _: CurrentUser):
     return {
-        "orders_waiting_planning": db.query(func.count(SalesOrder.id)).filter(SalesOrder.status == "confirmed").scalar() or 0,
+        "orders_waiting_planning": db.query(func.count(SalesOrder.id)).filter(
+            SalesOrder.status.in_(["confirmed", "planning_approved"])
+        ).scalar() or 0,
         "active_production_orders": db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.status.in_(["new", "planning", "waiting_material", "cutting", "printing", "sewing", "packaging"])).scalar() or 0,
         "branded_plans": db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.production_type == "branded_stock").scalar() or 0,
     }

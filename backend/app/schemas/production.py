@@ -174,3 +174,26 @@ class MaterialRequirement(BaseModel):
     available_quantity: float
     shortage: float
     unit: str
+
+
+class PlanningEstimateMaterial(BaseModel):
+    item_id: int
+    sku: str
+    name: str
+    required_quantity: float
+    available_quantity: float
+    shortage: float
+    unit: str
+    unit_cost: float
+    estimated_cost: float
+
+
+class PlanningEstimateOut(BaseModel):
+    sales_order_id: int
+    status: str
+    estimated_material_cost: float
+    estimated_sales_value: float
+    estimated_lead_time_minutes: int
+    estimated_lead_time_hours: float
+    total_quantity: int
+    materials: list[PlanningEstimateMaterial]

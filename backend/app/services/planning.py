@@ -75,3 +75,49 @@ def material_requirements_for_quantity(db: Session, model_id: int, items: list[d
         row["shortage"] = max(0.0, row["required_quantity"] - avail)
 
     return list(agg.values())
+
+
+def planning_estimate_for_sales_order(db: Session, sales_order_id: int) -> dict | None:
+    """Build planning estimate for sales approval loop.
+
+    Returns material usage + cost estimate and rough lead-time estimate.
+    """
+    so = db.get(SalesOrder, sales_order_id)
+    if not so:
+        return None
+
+    material_rows = material_requirements_for_sales_order(db, sales_order_id)
+    estimated_material_cost = 0.0
+    enriched_materials: list[dict] = []
+    for row in material_rows:
+        item = db.get(Item, row["item_id"])
+        unit_cost = float(item.default_cost or 0) if item else 0.0
+        est_cost = float(row["required_quantity"] or 0) * unit_cost
+        estimated_material_cost += est_cost
+        enriched_materials.append(
+            {
+                **row,
+                "unit_cost": unit_cost,
+                "estimated_cost": est_cost,
+            }
+        )
+
+    total_qty = 0
+    estimated_minutes = 0.0
+    for line in so.items:
+        qty = int(line.quantity or 0)
+        total_qty += qty
+        model = db.get(Model, line.model_id)
+        if not model:
+            continue
+        estimated_minutes += float(model.sam_minutes or 0) * qty
+
+    return {
+        "sales_order_id": so.id,
+        "estimated_material_cost": estimated_material_cost,
+        "estimated_sales_value": float(so.total_amount or 0),
+        "estimated_lead_time_minutes": int(round(estimated_minutes)),
+        "estimated_lead_time_hours": round(estimated_minutes / 60.0, 2),
+        "total_quantity": total_qty,
+        "materials": enriched_materials,
+    }

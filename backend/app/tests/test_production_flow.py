@@ -1,22 +1,63 @@
 """Integration tests for core production flow endpoints."""
 
 
+def _prepare_sales_order_for_po(client, headers, sales_order_id: int) -> None:
+    r = client.get(f"/api/sales-orders/{sales_order_id}", headers=headers)
+    assert r.status_code == 200, r.text
+    status = r.json()["status"]
+    if status == "draft":
+        r = client.post(f"/api/sales-orders/{sales_order_id}/confirm", headers=headers)
+        assert r.status_code == 200, r.text
+        status = r.json()["status"]
+    if status == "confirmed":
+        r = client.post(f"/api/planning/submit-estimate/{sales_order_id}", headers=headers)
+        assert r.status_code == 200, r.text
+        status = r.json()["status"]
+    if status == "pending_sales_approval":
+        r = client.post(f"/api/sales-orders/{sales_order_id}/approve-planning", headers=headers)
+        assert r.status_code == 200, r.text
+        status = r.json()["status"]
+    assert status == "planning_approved"
+
+
+def _create_client_sales_order(client, headers) -> int:
+    r = client.post(
+        "/api/sales-orders",
+        json={
+            "order_type": "client_order",
+            "notes": "test order",
+            "items": [
+                {"model_id": 1, "color": "white", "size": "M", "quantity": 50, "unit_price": 12.5},
+                {"model_id": 1, "color": "white", "size": "L", "quantity": 50, "unit_price": 12.5},
+            ],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    so_id = r.json()["id"]
+    r = client.post(f"/api/sales-orders/{so_id}/confirm", headers=headers)
+    assert r.status_code == 200, r.text
+    return so_id
+
+
 def test_full_flow(client, auth_headers):
     r = client.get("/api/sales-orders", headers=auth_headers)
     assert r.status_code == 200
     sales = r.json()
     assert len(sales) >= 1
-    so = sales[0]
+    so_id = _create_client_sales_order(client, auth_headers)
 
-    r = client.get(f"/api/planning/material-requirements/{so['id']}", headers=auth_headers)
+    r = client.get(f"/api/planning/material-requirements/{so_id}", headers=auth_headers)
     assert r.status_code == 200
     assert len(r.json()) >= 1
+
+    _prepare_sales_order_for_po(client, auth_headers, so_id)
 
     r = client.post(
         "/api/planning/create-production-order",
         json={
             "production_type": "client_order",
-            "sales_order_id": so["id"],
+            "sales_order_id": so_id,
             "model_id": 1,
             "planned_quantity": 100,
             "items": [
@@ -105,7 +146,7 @@ def test_full_flow(client, auth_headers):
         "/api/packages",
         json={
             "production_order_id": po["id"],
-            "sales_order_id": so["id"],
+            "sales_order_id": so_id,
             "model_id": 1,
             "color": "white",
             "package_type": "bag",
@@ -128,11 +169,14 @@ def test_full_flow(client, auth_headers):
 
 
 def test_package_over_capacity_blocked_without_admin_override(client, auth_headers):
+    so_id = _create_client_sales_order(client, auth_headers)
+    _prepare_sales_order_for_po(client, auth_headers, so_id)
+
     r = client.post(
         "/api/planning/create-production-order",
         json={
             "production_type": "client_order",
-            "sales_order_id": 1,
+            "sales_order_id": so_id,
             "model_id": 1,
             "planned_quantity": 100,
             "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 100}],
@@ -158,11 +202,14 @@ def test_package_over_capacity_blocked_without_admin_override(client, auth_heade
 
 
 def test_package_bulk_create(client, auth_headers):
+    so_id = _create_client_sales_order(client, auth_headers)
+    _prepare_sales_order_for_po(client, auth_headers, so_id)
+
     r = client.post(
         "/api/planning/create-production-order",
         json={
             "production_type": "client_order",
-            "sales_order_id": 1,
+            "sales_order_id": so_id,
             "model_id": 1,
             "planned_quantity": 200,
             "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 200}],
@@ -177,7 +224,7 @@ def test_package_bulk_create(client, auth_headers):
         json={
             "count": 3,
             "production_order_id": po_id,
-            "sales_order_id": 1,
+            "sales_order_id": so_id,
             "model_id": 1,
             "color": "white",
             "capacity": 60,

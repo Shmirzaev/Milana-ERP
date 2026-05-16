@@ -1,11 +1,17 @@
 from fastapi import APIRouter, HTTPException, Depends
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import DbSession, require_permissions
 from app.models import User, SalesOrder
-from app.schemas.production import ProductionOrderIn, ProductionOrderOut, MaterialRequirement
-from app.services.planning import material_requirements_for_sales_order
+from app.schemas.production import (
+    MaterialRequirement,
+    PlanningEstimateOut,
+    ProductionOrderIn,
+    ProductionOrderOut,
+)
+from app.services.planning import material_requirements_for_sales_order, planning_estimate_for_sales_order
 from app.services.production import create_production_order, create_work_orders
 from app.services.audit import log_action
+from app.services.workflow import notify_department
 
 router = APIRouter(prefix="/planning", tags=["planning"])
 
@@ -16,10 +22,64 @@ def get_material_requirements(sales_order_id: int, db: DbSession, _: User = Depe
     return [MaterialRequirement(**r) for r in rows]
 
 
+@router.post("/submit-estimate/{sales_order_id}", response_model=PlanningEstimateOut)
+def submit_planning_estimate(
+    sales_order_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("planning.requirements", "planning.production", "*")),
+):
+    so = db.get(SalesOrder, sales_order_id)
+    if not so:
+        raise HTTPException(404, "Sales order not found")
+    if so.order_type != "client_order":
+        raise HTTPException(400, "Planning estimate approval flow is only for client_order")
+    if so.status not in ("confirmed", "pending_sales_approval"):
+        raise HTTPException(400, f"Cannot submit estimate for sales order in status '{so.status}'")
+
+    estimate = planning_estimate_for_sales_order(db, sales_order_id)
+    if not estimate:
+        raise HTTPException(404, "Sales order not found")
+
+    so.status = "pending_sales_approval"
+    summary = (
+        f"[Planning estimate] Material cost: {estimate['estimated_material_cost']:.2f}; "
+        f"Lead time: {estimate['estimated_lead_time_hours']:.2f}h "
+        f"({estimate['estimated_lead_time_minutes']} min); Qty: {estimate['total_quantity']}"
+    )
+    so.notes = f"{so.notes}\n{summary}".strip() if so.notes else summary
+
+    notify_department(
+        db,
+        department_code="SLS",
+        title=f"Planning estimate ready for {so.order_no}",
+        message="Review material usage, estimated cost, and estimated lead time, then approve.",
+        exclude_user_id=current.id,
+    )
+    log_action(
+        db,
+        current,
+        "submit_estimate",
+        "SalesOrder",
+        so.id,
+        new_value={
+            "estimated_material_cost": estimate["estimated_material_cost"],
+            "estimated_lead_time_minutes": estimate["estimated_lead_time_minutes"],
+            "total_quantity": estimate["total_quantity"],
+        },
+    )
+    db.commit()
+    return PlanningEstimateOut(status=so.status, **estimate)
+
+
 @router.post("/create-production-order", response_model=ProductionOrderOut, status_code=201)
 def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     if payload.production_type != "client_order":
         raise HTTPException(400, "Use /planning/create-branded-production for branded_stock")
+    so = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
+    if not so:
+        raise HTTPException(404, "Sales order not found")
+    if so.status != "planning_approved":
+        raise HTTPException(400, f"Sales order must be 'planning_approved' before creating PO (current: '{so.status}')")
     po = create_production_order(
         db,
         production_type="client_order",
@@ -32,9 +92,9 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
         items=[i.model_dump() for i in payload.items],
         created_by=current.id,
     )
-    so = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
     include_printing = any(bool(i.printing_required) for i in (so.items or [])) if so else False
     create_work_orders(db, po.id, include_printing=include_printing)
+    so.status = "planning"
     log_action(db, current, "create", "ProductionOrder", po.id, new_value={"production_no": po.production_no})
     db.commit(); db.refresh(po)
     return po
