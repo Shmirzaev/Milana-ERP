@@ -9,6 +9,9 @@ type EstimateFormState = {
   orderId: number;
   orderNo: string;
   materialCost: string;
+  laborCost: string;
+  electricityCost: string;
+  otherExpenses: string;
   leadHours: string;
   deadline: string;
   comment: string;
@@ -73,6 +76,9 @@ export default function PlanningDashboard() {
         orderId: soId,
         orderNo: order?.order_no || `#${soId}`,
         materialCost: Number(estimate.estimated_material_cost || 0).toFixed(2),
+        laborCost: Number(estimate.estimated_labor_cost || 0).toFixed(2),
+        electricityCost: Number(estimate.estimated_electricity_cost || 0).toFixed(2),
+        otherExpenses: Number(estimate.estimated_other_expenses || 0).toFixed(2),
         leadHours: Number(estimate.estimated_lead_time_hours || 0).toFixed(2),
         deadline: order?.deadline ? String(order.deadline).slice(0, 10) : "",
         comment: "",
@@ -86,8 +92,14 @@ export default function PlanningDashboard() {
   async function submitEstimateToSales() {
     if (!estimateForm) return;
     const materialCost = Number(estimateForm.materialCost);
+    const laborCost = Number(estimateForm.laborCost);
+    const electricityCost = Number(estimateForm.electricityCost);
+    const otherExpenses = Number(estimateForm.otherExpenses);
     const leadHours = Number(estimateForm.leadHours);
     if (!Number.isFinite(materialCost) || materialCost < 0) return;
+    if (!Number.isFinite(laborCost) || laborCost < 0) return;
+    if (!Number.isFinite(electricityCost) || electricityCost < 0) return;
+    if (!Number.isFinite(otherExpenses) || otherExpenses < 0) return;
     if (!Number.isFinite(leadHours) || leadHours < 0) return;
     if (!estimateForm.deadline) return;
 
@@ -95,6 +107,9 @@ export default function PlanningDashboard() {
     try {
       await api.post(`/api/planning/submit-estimate/${estimateForm.orderId}`, {
         estimated_material_cost: materialCost,
+        estimated_labor_cost: laborCost,
+        estimated_electricity_cost: electricityCost,
+        estimated_other_expenses: otherExpenses,
         estimated_lead_time_minutes: Math.round(leadHours * 60),
         planned_deadline: estimateForm.deadline,
         estimate_comment: estimateForm.comment.trim() || null,
@@ -168,30 +183,92 @@ export default function PlanningDashboard() {
         <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4">
           <div className="card w-full max-w-4xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="text-lg font-semibold">Planning Estimate for {estimateForm.orderNo}</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="label">Estimated Material Cost</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={estimateForm.materialCost}
-                  onChange={(e) => setEstimateForm({ ...estimateForm, materialCost: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="label">Estimated Lead Time (hours)</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  step="0.1"
-                  value={estimateForm.leadHours}
-                  onChange={(e) => setEstimateForm({ ...estimateForm, leadHours: e.target.value })}
-                />
-              </div>
-            </div>
+            {(() => {
+              const materialCost = Number(estimateForm.materialCost || 0);
+              const laborCost = Number(estimateForm.laborCost || 0);
+              const electricityCost = Number(estimateForm.electricityCost || 0);
+              const otherExpenses = Number(estimateForm.otherExpenses || 0);
+              const netPrice = materialCost + laborCost + electricityCost + otherExpenses;
+              const price15 = netPrice * 1.15;
+              const price20 = netPrice * 1.20;
+              return (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="label">Estimated Material Cost</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={estimateForm.materialCost}
+                        onChange={(e) => setEstimateForm({ ...estimateForm, materialCost: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Estimated Lead Time (hours)</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        value={estimateForm.leadHours}
+                        onChange={(e) => setEstimateForm({ ...estimateForm, leadHours: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="label">Labor Expense</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={estimateForm.laborCost}
+                        onChange={(e) => setEstimateForm({ ...estimateForm, laborCost: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Electricity Expense</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={estimateForm.electricityCost}
+                        onChange={(e) => setEstimateForm({ ...estimateForm, electricityCost: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Other Expenses</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={estimateForm.otherExpenses}
+                        onChange={(e) => setEstimateForm({ ...estimateForm, otherExpenses: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="card p-3">
+                      <div className="text-xs text-slate-500 uppercase tracking-wide">Net Price</div>
+                      <div className="text-lg font-semibold">${netPrice.toFixed(2)}</div>
+                    </div>
+                    <div className="card p-3">
+                      <div className="text-xs text-slate-500 uppercase tracking-wide">Price (+15% Profit)</div>
+                      <div className="text-lg font-semibold">${price15.toFixed(2)}</div>
+                    </div>
+                    <div className="card p-3">
+                      <div className="text-xs text-slate-500 uppercase tracking-wide">Price (+20% Profit)</div>
+                      <div className="text-lg font-semibold">${price20.toFixed(2)}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             {(() => {
               const allRows = estimateForm.materials || [];
               const materialRows = allRows.filter((m) => {

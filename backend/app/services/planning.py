@@ -116,6 +116,12 @@ def planning_estimate_for_sales_order(db: Session, sales_order_id: int) -> dict 
     return {
         "sales_order_id": so.id,
         "estimated_material_cost": estimated_material_cost,
+        "estimated_labor_cost": 0.0,
+        "estimated_electricity_cost": 0.0,
+        "estimated_other_expenses": 0.0,
+        "estimated_net_cost": estimated_material_cost,
+        "suggested_price_15": round(estimated_material_cost * 1.15, 2),
+        "suggested_price_20": round(estimated_material_cost * 1.20, 2),
         "estimated_sales_value": float(so.total_amount or 0),
         "estimated_lead_time_minutes": int(round(estimated_minutes)),
         "estimated_lead_time_hours": round(estimated_minutes / 60.0, 2),

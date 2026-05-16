@@ -43,6 +43,18 @@ def get_planning_estimate_preview(
 
     if so.planning_estimated_material_cost is not None:
         estimate["estimated_material_cost"] = float(so.planning_estimated_material_cost)
+    estimate["estimated_labor_cost"] = float(so.planning_estimated_labor_cost or 0)
+    estimate["estimated_electricity_cost"] = float(so.planning_estimated_electricity_cost or 0)
+    estimate["estimated_other_expenses"] = float(so.planning_estimated_other_cost or 0)
+    estimated_net_cost = (
+        estimate["estimated_material_cost"]
+        + estimate["estimated_labor_cost"]
+        + estimate["estimated_electricity_cost"]
+        + estimate["estimated_other_expenses"]
+    )
+    estimate["estimated_net_cost"] = float(so.planning_estimated_net_cost or estimated_net_cost)
+    estimate["suggested_price_15"] = float(so.planning_suggested_price_15 or round(estimate["estimated_net_cost"] * 1.15, 2))
+    estimate["suggested_price_20"] = float(so.planning_suggested_price_20 or round(estimate["estimated_net_cost"] * 1.20, 2))
     if so.planning_estimated_lead_time_minutes is not None:
         lead_minutes = int(so.planning_estimated_lead_time_minutes)
         estimate["estimated_lead_time_minutes"] = lead_minutes
@@ -74,18 +86,48 @@ def submit_planning_estimate(
         if payload and payload.estimated_material_cost is not None
         else estimate["estimated_material_cost"]
     )
+    est_labor_cost = float(
+        payload.estimated_labor_cost
+        if payload and payload.estimated_labor_cost is not None
+        else estimate["estimated_labor_cost"]
+    )
+    est_electricity_cost = float(
+        payload.estimated_electricity_cost
+        if payload and payload.estimated_electricity_cost is not None
+        else estimate["estimated_electricity_cost"]
+    )
+    est_other_expenses = float(
+        payload.estimated_other_expenses
+        if payload and payload.estimated_other_expenses is not None
+        else estimate["estimated_other_expenses"]
+    )
     est_lead_minutes = int(
         payload.estimated_lead_time_minutes
         if payload and payload.estimated_lead_time_minutes is not None
         else estimate["estimated_lead_time_minutes"]
     )
     est_lead_hours = round(est_lead_minutes / 60.0, 2)
+    est_net_cost = round(est_material_cost + est_labor_cost + est_electricity_cost + est_other_expenses, 2)
+    suggested_15 = round(est_net_cost * 1.15, 2)
+    suggested_20 = round(est_net_cost * 1.20, 2)
 
     estimate["estimated_material_cost"] = est_material_cost
+    estimate["estimated_labor_cost"] = est_labor_cost
+    estimate["estimated_electricity_cost"] = est_electricity_cost
+    estimate["estimated_other_expenses"] = est_other_expenses
+    estimate["estimated_net_cost"] = est_net_cost
+    estimate["suggested_price_15"] = suggested_15
+    estimate["suggested_price_20"] = suggested_20
     estimate["estimated_lead_time_minutes"] = est_lead_minutes
     estimate["estimated_lead_time_hours"] = est_lead_hours
 
     so.planning_estimated_material_cost = est_material_cost
+    so.planning_estimated_labor_cost = est_labor_cost
+    so.planning_estimated_electricity_cost = est_electricity_cost
+    so.planning_estimated_other_cost = est_other_expenses
+    so.planning_estimated_net_cost = est_net_cost
+    so.planning_suggested_price_15 = suggested_15
+    so.planning_suggested_price_20 = suggested_20
     so.planning_estimated_lead_time_minutes = est_lead_minutes
     so.planning_estimate_comment = payload.estimate_comment.strip() if payload and payload.estimate_comment else None
     so.planning_estimate_submitted_at = datetime.now(timezone.utc)
@@ -95,6 +137,12 @@ def submit_planning_estimate(
     so.status = "pending_sales_approval"
     summary = (
         f"[Planning estimate] Material cost: {estimate['estimated_material_cost']:.2f}; "
+        f"Labor: {estimate['estimated_labor_cost']:.2f}; "
+        f"Electricity: {estimate['estimated_electricity_cost']:.2f}; "
+        f"Other: {estimate['estimated_other_expenses']:.2f}; "
+        f"Net: {estimate['estimated_net_cost']:.2f}; "
+        f"+15%: {estimate['suggested_price_15']:.2f}; "
+        f"+20%: {estimate['suggested_price_20']:.2f}; "
         f"Lead time: {estimate['estimated_lead_time_hours']:.2f}h "
         f"({estimate['estimated_lead_time_minutes']} min); Qty: {estimate['total_quantity']}"
     )
@@ -119,6 +167,12 @@ def submit_planning_estimate(
         so.id,
         new_value={
             "estimated_material_cost": estimate["estimated_material_cost"],
+            "estimated_labor_cost": estimate["estimated_labor_cost"],
+            "estimated_electricity_cost": estimate["estimated_electricity_cost"],
+            "estimated_other_expenses": estimate["estimated_other_expenses"],
+            "estimated_net_cost": estimate["estimated_net_cost"],
+            "suggested_price_15": estimate["suggested_price_15"],
+            "suggested_price_20": estimate["suggested_price_20"],
             "estimated_lead_time_minutes": estimate["estimated_lead_time_minutes"],
             "total_quantity": estimate["total_quantity"],
         },

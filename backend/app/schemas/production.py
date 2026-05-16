@@ -193,6 +193,12 @@ class PlanningEstimateOut(BaseModel):
     sales_order_id: int
     status: str
     estimated_material_cost: float
+    estimated_labor_cost: float = 0
+    estimated_electricity_cost: float = 0
+    estimated_other_expenses: float = 0
+    estimated_net_cost: float
+    suggested_price_15: float
+    suggested_price_20: float
     estimated_sales_value: float
     estimated_lead_time_minutes: int
     estimated_lead_time_hours: float
@@ -202,6 +208,9 @@ class PlanningEstimateOut(BaseModel):
 
 class PlanningEstimateSubmitIn(BaseModel):
     estimated_material_cost: float | None = None
+    estimated_labor_cost: float | None = None
+    estimated_electricity_cost: float | None = None
+    estimated_other_expenses: float | None = None
     estimated_lead_time_minutes: int | None = None
     estimate_comment: str | None = None
     planned_deadline: datetime | None = None

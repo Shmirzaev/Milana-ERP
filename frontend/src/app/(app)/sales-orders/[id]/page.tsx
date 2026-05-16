@@ -61,6 +61,24 @@ export default function SalesOrderDetail() {
             {so.planning_estimated_material_cost !== null && so.planning_estimated_material_cost !== undefined && (
               <div className="flex justify-between"><dt className="text-slate-500">Planning material cost</dt><dd>${Number(so.planning_estimated_material_cost).toFixed(2)}</dd></div>
             )}
+            {so.planning_estimated_labor_cost !== null && so.planning_estimated_labor_cost !== undefined && (
+              <div className="flex justify-between"><dt className="text-slate-500">Planning labor expense</dt><dd>${Number(so.planning_estimated_labor_cost).toFixed(2)}</dd></div>
+            )}
+            {so.planning_estimated_electricity_cost !== null && so.planning_estimated_electricity_cost !== undefined && (
+              <div className="flex justify-between"><dt className="text-slate-500">Planning electricity expense</dt><dd>${Number(so.planning_estimated_electricity_cost).toFixed(2)}</dd></div>
+            )}
+            {so.planning_estimated_other_cost !== null && so.planning_estimated_other_cost !== undefined && (
+              <div className="flex justify-between"><dt className="text-slate-500">Planning other expenses</dt><dd>${Number(so.planning_estimated_other_cost).toFixed(2)}</dd></div>
+            )}
+            {so.planning_estimated_net_cost !== null && so.planning_estimated_net_cost !== undefined && (
+              <div className="flex justify-between"><dt className="text-slate-500">Planning net price</dt><dd>${Number(so.planning_estimated_net_cost).toFixed(2)}</dd></div>
+            )}
+            {so.planning_suggested_price_15 !== null && so.planning_suggested_price_15 !== undefined && (
+              <div className="flex justify-between"><dt className="text-slate-500">Price with 15% profit</dt><dd>${Number(so.planning_suggested_price_15).toFixed(2)}</dd></div>
+            )}
+            {so.planning_suggested_price_20 !== null && so.planning_suggested_price_20 !== undefined && (
+              <div className="flex justify-between"><dt className="text-slate-500">Price with 20% profit</dt><dd>${Number(so.planning_suggested_price_20).toFixed(2)}</dd></div>
+            )}
             {so.planning_estimated_lead_time_minutes !== null && so.planning_estimated_lead_time_minutes !== undefined && (
               <div className="flex justify-between"><dt className="text-slate-500">Planning lead time</dt><dd>{(Number(so.planning_estimated_lead_time_minutes) / 60).toFixed(2)} h</dd></div>
             )}

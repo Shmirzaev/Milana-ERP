@@ -57,6 +57,12 @@ class SalesOrderOut(ORMModel):
     deadline: Optional[datetime] = None
     total_amount: float
     planning_estimated_material_cost: Optional[float] = None
+    planning_estimated_labor_cost: Optional[float] = None
+    planning_estimated_electricity_cost: Optional[float] = None
+    planning_estimated_other_cost: Optional[float] = None
+    planning_estimated_net_cost: Optional[float] = None
+    planning_suggested_price_15: Optional[float] = None
+    planning_suggested_price_20: Optional[float] = None
     planning_estimated_lead_time_minutes: Optional[int] = None
     planning_estimate_comment: Optional[str] = None
     planning_estimate_submitted_at: Optional[datetime] = None
