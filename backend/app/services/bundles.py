@@ -4,10 +4,11 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import (
-    Bundle, BundleScanLog, ProductionOrder, Department, SalesOrder,
+    Bundle, BundleScanLog, ProductionOrder, Department, SalesOrder, WorkOrder,
 )
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
 from app.services.numbering import next_bundle_no
+from app.services.workflow import notify_department, sync_production_order_status
 
 
 DEPT_CUT = "CUT"
@@ -102,12 +103,33 @@ def send_to_printing(db: Session, bundle: Bundle, user_id: int | None = None):
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be sent to printing")
     bundle.next_department_id = _dept(db, DEPT_PRT).id if _dept(db, DEPT_PRT) else None
     _transition(db, bundle, "sent_printing", "sent_to_printing", DEPT_CUT, DEPT_PRT, user_id)
+    wo = db.query(WorkOrder).filter(
+        WorkOrder.production_order_id == bundle.production_order_id,
+        WorkOrder.operation == "printing",
+    ).first()
+    if wo and wo.status in ("new", "planning", "waiting"):
+        wo.status = "in_progress"
+    notify_department(
+        db,
+        department_code=DEPT_PRT,
+        title="Bundle sent to printing",
+        message=f"{bundle.bundle_no} is on the way to printing.",
+        exclude_user_id=user_id,
+    )
+    sync_production_order_status(db, bundle.production_order_id)
 
 
 def receive_at_printing(db: Session, bundle: Bundle, user_id: int | None = None):
     if bundle.status != "sent_to_printing":
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be received at printing")
     _transition(db, bundle, "received_printing", "received_printing", DEPT_CUT, DEPT_PRT, user_id)
+    wo = db.query(WorkOrder).filter(
+        WorkOrder.production_order_id == bundle.production_order_id,
+        WorkOrder.operation == "printing",
+    ).first()
+    if wo and wo.status in ("new", "planning", "waiting"):
+        wo.status = "in_progress"
+    sync_production_order_status(db, bundle.production_order_id)
 
 
 def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
@@ -116,9 +138,30 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
     from_code = DEPT_PRT if bundle.status == "received_printing" else DEPT_CUT
     bundle.next_department_id = _dept(db, DEPT_SEW).id if _dept(db, DEPT_SEW) else None
     _transition(db, bundle, "sent_sewing", "sent_to_sewing", from_code, DEPT_SEW, user_id)
+    wo = db.query(WorkOrder).filter(
+        WorkOrder.production_order_id == bundle.production_order_id,
+        WorkOrder.operation == "sewing",
+    ).first()
+    if wo and wo.status in ("new", "planning", "waiting"):
+        wo.status = "in_progress"
+    notify_department(
+        db,
+        department_code=DEPT_SEW,
+        title="Bundle sent to sewing",
+        message=f"{bundle.bundle_no} is ready for sewing receive scan.",
+        exclude_user_id=user_id,
+    )
+    sync_production_order_status(db, bundle.production_order_id)
 
 
 def receive_at_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
     if bundle.status != "sent_to_sewing":
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be received at sewing")
     _transition(db, bundle, "received_sewing", "received_sewing", None, DEPT_SEW, user_id)
+    wo = db.query(WorkOrder).filter(
+        WorkOrder.production_order_id == bundle.production_order_id,
+        WorkOrder.operation == "sewing",
+    ).first()
+    if wo and wo.status in ("new", "planning", "waiting"):
+        wo.status = "in_progress"
+    sync_production_order_status(db, bundle.production_order_id)

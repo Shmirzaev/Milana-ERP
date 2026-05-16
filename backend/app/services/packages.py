@@ -9,6 +9,7 @@ from app.models import (
 )
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
 from app.services.numbering import next_package_no
+from app.services.workflow import decrement_finished_goods_for_package, notify_department, sync_production_order_status
 
 
 def _compute_cost(db: Session, model_id: int) -> float:
@@ -122,7 +123,63 @@ def create_package(
         ))
 
     db.flush()
+    # Storage transfer stage becomes actionable as soon as a package exists.
+    sync_production_order_status(db, production_order_id)
+    notify_department(
+        db,
+        department_code="FGS",
+        title="New package packed",
+        message=f"Package {pkg.package_no} is ready for storage receive.",
+        exclude_user_id=user_id,
+    )
     return pkg
+
+
+def create_packages_bulk(
+    db: Session,
+    *,
+    count: int,
+    production_order_id: int,
+    model_id: int,
+    color: str,
+    items: list[dict],
+    sales_order_id: int | None = None,
+    brand_id: int | None = None,
+    collection_id: int | None = None,
+    package_type: str = "bag",
+    capacity: int = 60,
+    warehouse_id: int | None = None,
+    override_capacity: bool = False,
+    is_admin: bool = False,
+    user_id: int | None = None,
+    notes: str | None = None,
+) -> list[Package]:
+    if count <= 0:
+        raise HTTPException(400, "count must be > 0")
+    if count > 500:
+        raise HTTPException(400, "count is too large (max 500)")
+    created: list[Package] = []
+    for _ in range(count):
+        created.append(
+            create_package(
+                db,
+                production_order_id=production_order_id,
+                model_id=model_id,
+                color=color,
+                items=items,
+                sales_order_id=sales_order_id,
+                brand_id=brand_id,
+                collection_id=collection_id,
+                package_type=package_type,
+                capacity=capacity,
+                warehouse_id=warehouse_id,
+                override_capacity=override_capacity,
+                is_admin=is_admin,
+                user_id=user_id,
+                notes=notes,
+            )
+        )
+    return created
 
 
 def receive_at_storage(db: Session, pkg: Package, warehouse_id: int | None, user_id: int | None):
@@ -134,6 +191,7 @@ def receive_at_storage(db: Session, pkg: Package, warehouse_id: int | None, user
     if warehouse_id:
         pkg.warehouse_id = warehouse_id
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="received_storage"))
+    sync_production_order_status(db, pkg.production_order_id)
     db.flush()
 
 
@@ -150,7 +208,9 @@ def ship_package(db: Session, pkg: Package, user_id: int | None):
         raise HTTPException(400, f"Package cannot be shipped from status '{pkg.status}'")
     pkg.status = "shipped"
     pkg.shipped_at = datetime.now(timezone.utc)
+    decrement_finished_goods_for_package(db, pkg)
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="shipped"))
+    sync_production_order_status(db, pkg.production_order_id)
     db.flush()
 
 
@@ -159,6 +219,7 @@ def mark_delivered(db: Session, pkg: Package, user_id: int | None):
         raise HTTPException(400, f"Package not in 'shipped' status (was '{pkg.status}')")
     pkg.status = "delivered"
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="delivered"))
+    sync_production_order_status(db, pkg.production_order_id)
     db.flush()
 
 

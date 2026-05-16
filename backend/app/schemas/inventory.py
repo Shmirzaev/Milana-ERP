@@ -11,6 +11,7 @@ class ItemIn(BaseModel):
     category: str
     unit: str
     default_cost: float = 0
+    reorder_level: float = 0
     track_batch: bool = False
     is_active: bool = True
 
@@ -22,6 +23,7 @@ class ItemOut(ORMModel):
     category: str
     unit: str
     default_cost: float
+    reorder_level: float
     track_batch: bool
     is_active: bool
 

@@ -39,9 +39,39 @@ def stock_summary(db: Session, category: str | None = None) -> list[dict]:
     q = db.query(Item)
     if category:
         q = q.filter(Item.category == category)
+    items = q.all()
+    if not items:
+        return []
+
+    item_ids = [it.id for it in items]
+    batch_rows = (
+        db.query(StockBatch.item_id, func.coalesce(func.sum(StockBatch.quantity), 0))
+        .filter(StockBatch.item_id.in_(item_ids))
+        .group_by(StockBatch.item_id)
+        .all()
+    )
+    move_rows = (
+        db.query(StockMovement.item_id, StockMovement.movement_type, func.coalesce(func.sum(StockMovement.quantity), 0))
+        .filter(StockMovement.item_id.in_(item_ids))
+        .group_by(StockMovement.item_id, StockMovement.movement_type)
+        .all()
+    )
+
+    batch_totals = {int(item_id): float(qty or 0) for item_id, qty in batch_rows}
+    deltas: dict[int, float] = {int(i): 0.0 for i in item_ids}
+    out_types = {"issue", "consume", "waste", "shipment"}
+    in_types = {"produce", "return", "adjustment"}
+    for item_id, movement_type, qty in move_rows:
+        qv = float(qty or 0)
+        iid = int(item_id)
+        if movement_type in out_types:
+            deltas[iid] = deltas.get(iid, 0.0) - qv
+        elif movement_type in in_types:
+            deltas[iid] = deltas.get(iid, 0.0) + qv
+
     out = []
-    for it in q.all():
-        qty = current_stock_for_item(db, it.id)
+    for it in items:
+        qty = batch_totals.get(it.id, 0.0) + deltas.get(it.id, 0.0)
         out.append({
             "item_id": it.id,
             "sku": it.sku,

@@ -31,6 +31,9 @@ _PATCHES: list[tuple[str, str]] = [
     ("invoices",    "ADD COLUMN IF NOT EXISTS external_id VARCHAR(128)"),
     ("payments",    "ADD COLUMN IF NOT EXISTS external_source VARCHAR(32)"),
     ("payments",    "ADD COLUMN IF NOT EXISTS external_id VARCHAR(128)"),
+    ("items",       "ADD COLUMN IF NOT EXISTS reorder_level NUMERIC(14,4) NOT NULL DEFAULT 0"),
+    ("tasks",       "ADD COLUMN IF NOT EXISTS entity_type VARCHAR(64)"),
+    ("tasks",       "ADD COLUMN IF NOT EXISTS entity_id INTEGER"),
 ]
 
 

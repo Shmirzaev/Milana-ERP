@@ -45,12 +45,30 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
     # cost = sum over production orders linked to SO: estimated material cost via BOM
     cost = 0.0
     pos = db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == sales_order_id).all()
-    for po in pos:
-        bom = db.query(ModelBOM).filter(ModelBOM.model_id == po.model_id).all()
-        for b in bom:
-            avg = db.query(StockBatch).filter(StockBatch.item_id == b.item_id).order_by(StockBatch.id.desc()).first()
-            unit_cost = float(avg.cost_per_unit) if avg else 0.0
-            cost += float(b.quantity_per_piece) * po.planned_quantity * unit_cost * (1.0 + float(b.waste_percent) / 100.0)
+    if pos:
+        model_ids = {p.model_id for p in pos}
+        bom_rows = db.query(ModelBOM).filter(ModelBOM.model_id.in_(model_ids)).all()
+        boms_by_model: dict[int, list[ModelBOM]] = {}
+        for row in bom_rows:
+            boms_by_model.setdefault(row.model_id, []).append(row)
+
+        item_ids = {row.item_id for row in bom_rows}
+        latest_cost_by_item: dict[int, float] = {}
+        if item_ids:
+            latest_rows = (
+                db.query(StockBatch)
+                .filter(StockBatch.item_id.in_(item_ids))
+                .order_by(StockBatch.item_id.asc(), StockBatch.id.desc())
+                .all()
+            )
+            for r in latest_rows:
+                if r.item_id not in latest_cost_by_item:
+                    latest_cost_by_item[r.item_id] = float(r.cost_per_unit or 0)
+
+        for po in pos:
+            for b in boms_by_model.get(po.model_id, []):
+                unit_cost = latest_cost_by_item.get(b.item_id, 0.0)
+                cost += float(b.quantity_per_piece) * po.planned_quantity * unit_cost * (1.0 + float(b.waste_percent) / 100.0)
     waste = float(db.query(func.coalesce(func.sum(WasteRecord.estimated_value), 0)).filter(
         WasteRecord.production_order_id.in_([p.id for p in pos]) if pos else False
     ).scalar() or 0)

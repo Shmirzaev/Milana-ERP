@@ -1,6 +1,6 @@
 """Sequential business number generators (SO-, PO-, WO-, BND-, PKG-, SH-, INV-)."""
 from datetime import datetime
-from sqlalchemy import func
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -10,8 +10,19 @@ from app.models import (
 
 def _next(db: Session, model, attr: str, prefix: str) -> str:
     year = datetime.utcnow().year
-    count = db.query(func.count()).select_from(model).scalar() or 0
-    return f"{prefix}-{year}-{(count + 1):06d}"
+    column = getattr(model, attr)
+    if db.bind and db.bind.dialect.name == "postgresql":
+        db.execute(text(f"LOCK TABLE {model.__tablename__} IN EXCLUSIVE MODE"))
+    pattern = f"{prefix}-{year}-%"
+    last = db.query(column).filter(column.like(pattern)).order_by(column.desc()).first()
+    next_num = 1
+    if last and last[0]:
+        raw = str(last[0])
+        try:
+            next_num = int(raw.rsplit("-", 1)[-1]) + 1
+        except Exception:
+            next_num = 1
+    return f"{prefix}-{year}-{next_num:06d}"
 
 
 def next_sales_order_no(db: Session) -> str:

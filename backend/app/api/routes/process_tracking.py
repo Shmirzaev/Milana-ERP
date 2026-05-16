@@ -6,6 +6,7 @@ planned, deadlines, sewing-flow assignment, overdue and block flags.
 """
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser, is_admin
@@ -146,10 +147,11 @@ def summary(db: DbSession, current: CurrentUser):
     """Counts per status — useful for the top-row cards on the page."""
     if not _can_view(current):
         raise HTTPException(403, "Not allowed")
-    rows = db.query(ProductionOrder).filter(
-        ProductionOrder.status.not_in(["closed", "cancelled", "delivered"]),
-    ).all()
-    counts: dict[str, int] = {}
-    for po in rows:
-        counts[po.status] = counts.get(po.status, 0) + 1
-    return {"counts": counts, "total_active": len(rows)}
+    rows = (
+        db.query(ProductionOrder.status, func.count(ProductionOrder.id))
+        .filter(ProductionOrder.status.not_in(["closed", "cancelled", "delivered"]))
+        .group_by(ProductionOrder.status)
+        .all()
+    )
+    counts = {status: int(total) for status, total in rows}
+    return {"counts": counts, "total_active": int(sum(counts.values()))}

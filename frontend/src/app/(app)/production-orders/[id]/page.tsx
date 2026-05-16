@@ -61,8 +61,6 @@ export default function ProductionOrderDetail() {
     try { await api.post(`/api/production-orders/${id}/cascade-deadlines`); mutate(); }
     catch (e: any) { alert(e.message); }
   }
-  async function startWO(wid: number) { await api.post(`/api/work-orders/${wid}/start`); mutate(); }
-  async function completeWO(wid: number) { await api.post(`/api/work-orders/${wid}/complete`); mutate(); }
   async function blockWO(wid: number) {
     const reason = prompt("Reason for blocking?");
     if (!reason) return;
@@ -173,9 +171,7 @@ export default function ProductionOrderDetail() {
                     <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "—"}</td>
                     <td>{flows?.find((f) => f.id === w.sewing_flow_id)?.code ?? "—"}</td>
                     <td className="flex gap-2 flex-wrap">
-                      {w.status === "waiting" && <button className="text-brand-600 hover:underline" onClick={() => startWO(w.id)}>{t("btn.start")}</button>}
-                      {w.status === "in_progress" && <button className="text-green-700 hover:underline" onClick={() => completeWO(w.id)}>{t("btn.complete")}</button>}
-                      {canPlan && (
+                      {canPlan && w.operation === "sewing" && (
                         <button className="text-slate-700 hover:underline" onClick={() => openEdit(w)}>{t("btn.assign")}</button>
                       )}
                       {!w.is_blocked

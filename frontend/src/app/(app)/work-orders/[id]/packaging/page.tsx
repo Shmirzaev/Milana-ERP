@@ -18,6 +18,7 @@ export default function PackagingPage() {
   const [overrideCap, setOverrideCap] = useState(false);
   const [capacity, setCapacity] = useState(60);
   const [color, setColor] = useState("white");
+  const [copies, setCopies] = useState(1);
   const [msg, setMsg] = useState("");
   const [pkg, setPkg] = useState<any>(null);
 
@@ -36,7 +37,7 @@ export default function PackagingPage() {
     e.preventDefault();
     setMsg("");
     try {
-      const r = await api.post("/api/packages", {
+      const payload = {
         production_order_id: wo?.production_order_id,
         sales_order_id: po?.sales_order_id || null,
         model_id: po?.model_id,
@@ -45,8 +46,18 @@ export default function PackagingPage() {
         capacity,
         override_capacity: overrideCap,
         items: pkgItems.map((i) => ({ model_id: po?.model_id, color, size: i.size, quantity: i.quantity })),
-      });
-      setPkg(r);
+      };
+      if (copies > 1) {
+        const r = await api.post("/api/packages/bulk", { ...payload, count: copies });
+        setPkg({ id: r.package_ids?.[0], package_no: r.package_nos?.[0], barcode: "bulk" });
+        setMsg(`Created ${r.count} packages.`);
+        if (r.package_ids?.length) {
+          await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${r.package_ids.join(",")}`);
+        }
+      } else {
+        const r = await api.post("/api/packages", payload);
+        setPkg(r);
+      }
     } catch (e: any) {
       setMsg(e.message);
     }
@@ -90,6 +101,10 @@ export default function PackagingPage() {
             <input type="checkbox" checked={overrideCap} onChange={(e) => setOverrideCap(e.target.checked)} />
             {t("page.packaging.adminOverride")}
           </label>
+          <div>
+            <label className="label">Copies</label>
+            <input className="input" min={1} type="number" value={copies} onChange={(e) => setCopies(Math.max(1, Number(e.target.value) || 1))} />
+          </div>
         </div>
 
         <h4 className="text-sm font-medium">{t("page.packaging.sizesInPackage")}</h4>
@@ -114,15 +129,19 @@ export default function PackagingPage() {
         <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: 30 }])}>{t("btn.addSize")}</button>
         <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 
-        <button className="btn btn-primary">{t("btn.createPackage")}</button>
+        <button className="btn btn-primary">{copies > 1 ? `Create ${copies} Copies` : t("btn.createPackage")}</button>
         {msg && <div className="text-sm text-red-600">{msg}</div>}
       </form>
 
       {pkg && (
         <div className="card mt-6 p-4">
           <h3 className="font-medium">{t("page.packaging.created", { no: pkg.package_no })}</h3>
-          <p className="text-sm text-slate-500">{t("field.barcode")}: <code>{pkg.barcode}</code></p>
-          <button type="button" className="btn btn-primary mt-2" onClick={() => api.openLabel(`/api/packages/${pkg.id}/label`)}>{t("btn.printLabel")}</button>
+          {pkg.barcode !== "bulk" && (
+            <>
+              <p className="text-sm text-slate-500">{t("field.barcode")}: <code>{pkg.barcode}</code></p>
+              <button type="button" className="btn btn-primary mt-2" onClick={() => api.openLabel(`/api/packages/${pkg.id}/label`)}>{t("btn.printLabel")}</button>
+            </>
+          )}
         </div>
       )}
     </div>

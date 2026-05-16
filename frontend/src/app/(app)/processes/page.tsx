@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+import StagePipeline from "@/components/StagePipeline";
 
 type Stage = {
   work_order_id: number;
@@ -167,9 +168,12 @@ export default function ProcessTrackingPage() {
                   </td>
                   <td>{p.planned_quantity}</td>
                   <td>
-                    <span className={`badge ${STAGE_COLORS[p.current_stage] || "badge"}`}>
-                      {p.current_stage}
-                    </span>
+                    <StagePipeline currentStage={p.current_stage} stages={p.stages} compact={false} />
+                    <div className="mt-1">
+                      <span className={`badge ${STAGE_COLORS[p.current_stage] || "badge"}`}>
+                        {p.current_stage}
+                      </span>
+                    </div>
                     {p.current_stage_status && (
                       <div className="text-xs text-slate-500 mt-1">{p.current_stage_status}</div>
                     )}

@@ -1,11 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
+from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import Package, Model, User
-from app.schemas.tracking import PackageIn, PackageOut, PackageDetail
+from app.schemas.tracking import PackageIn, PackageBulkIn, PackageOut, PackageDetail
 from app.services.packages import (
-    create_package, receive_at_storage, reserve_package, ship_package, mark_delivered, mark_damaged,
+    create_package, create_packages_bulk, receive_at_storage, reserve_package, ship_package, mark_delivered, mark_damaged,
 )
 from app.services.audit import log_action
 
@@ -44,6 +45,36 @@ def create_pkg(payload: PackageIn, db: DbSession, current: User = Depends(requir
     log_action(db, current, "create", "Package", pkg.id, new_value={"package_no": pkg.package_no})
     db.commit(); db.refresh(pkg)
     return pkg
+
+
+@router.post("/bulk")
+def create_pkg_bulk(payload: PackageBulkIn, db: DbSession, current: User = Depends(require_permissions("packaging.packages", "*"))):
+    pkgs = create_packages_bulk(
+        db,
+        count=payload.count,
+        production_order_id=payload.production_order_id,
+        model_id=payload.model_id,
+        color=payload.color,
+        items=[i.model_dump() for i in payload.items],
+        sales_order_id=payload.sales_order_id,
+        brand_id=payload.brand_id,
+        collection_id=payload.collection_id,
+        package_type=payload.package_type,
+        capacity=payload.capacity,
+        warehouse_id=payload.warehouse_id,
+        override_capacity=payload.override_capacity,
+        is_admin=is_admin(current),
+        user_id=current.id,
+        notes=payload.notes,
+    )
+    for p in pkgs:
+        log_action(db, current, "create", "Package", p.id, new_value={"package_no": p.package_no, "mode": "bulk"})
+    db.commit()
+    return {
+        "count": len(pkgs),
+        "package_ids": [p.id for p in pkgs],
+        "package_nos": [p.package_no for p in pkgs],
+    }
 
 
 @router.get("/{pid}", response_model=PackageDetail)
@@ -141,3 +172,57 @@ def label(pid: int, db: DbSession, _: CurrentUser):
 <div style=\"text-align:center;margin-top:4mm\"><img src=\"{qr}\" alt=\"QR\"/></div>
 <button onclick=\"window.print()\">Print</button>
 </div></body></html>"""
+
+
+@router.get("/label-sheet/by-ids", response_class=HTMLResponse)
+def label_sheet(ids: str, db: DbSession, _: CurrentUser):
+    raw_ids = [s.strip() for s in (ids or "").split(",") if s.strip()]
+    try:
+        parsed_ids = [int(v) for v in raw_ids]
+    except ValueError:
+        raise HTTPException(400, "ids must be comma-separated integers")
+    if not parsed_ids:
+        raise HTTPException(400, "Provide at least one package id")
+    rows = (
+        db.query(Package)
+        .options(selectinload(Package.items))
+        .filter(Package.id.in_(parsed_ids))
+        .order_by(Package.id.asc())
+        .all()
+    )
+    if not rows:
+        raise HTTPException(404, "No packages found")
+
+    cards = []
+    for p in rows:
+        model = db.get(Model, p.model_id)
+        sizes = "<br>".join(f"{it.size}: {it.quantity}" for it in p.items)
+        cards.append(
+            f"""
+            <div class='label'>
+              <h2>MILANA ERP</h2>
+              <div class='row'><b>Package</b><span>{p.package_no}</span></div>
+              <div class='row'><b>Model</b><span>{model.code if model else ''}</span></div>
+              <div class='row'><b>Color</b><span>{p.color}</span></div>
+              <div class='row'><b>Total Qty</b><span>{p.total_quantity}</span></div>
+              <div style='margin-top:2mm;font-size:9pt'><b>Sizes:</b><br>{sizes}</div>
+              <div class='row' style='margin-top:2mm'><b>Barcode</b><span>{p.barcode}</span></div>
+              <div style='text-align:center;margin-top:3mm'><img src='{p.qr_code_url or ""}' alt='QR'/></div>
+            </div>
+            """
+        )
+    return f"""<!doctype html>
+<html><head><title>Package Label Sheet</title>
+<style>
+body{{font-family:Arial;margin:0;padding:6mm}}
+.sheet{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6mm}}
+.label{{border:1px solid #000;padding:5mm;min-height:56mm}}
+.row{{display:flex;justify-content:space-between;font-size:10pt}}
+img{{max-width:28mm}}
+h2{{margin:0 0 3mm 0;font-size:13pt}}
+@media print{{button{{display:none}} body{{padding:0}} .sheet{{gap:4mm}}}}
+</style></head>
+<body>
+<div class='sheet'>{''.join(cards)}</div>
+<button onclick="window.print()" style="margin-top:6mm">Print</button>
+</body></html>"""

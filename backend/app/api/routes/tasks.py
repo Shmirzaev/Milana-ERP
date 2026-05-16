@@ -63,6 +63,8 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
                 status=payload.status,
                 priority=payload.priority,
                 due_date=payload.due_date,
+                entity_type=payload.entity_type,
+                entity_id=payload.entity_id,
             )
             db.add(t)
             db.flush()
@@ -105,6 +107,8 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
         status=payload.status,
         priority=payload.priority,
         due_date=payload.due_date,
+        entity_type=payload.entity_type,
+        entity_id=payload.entity_id,
     )
     db.add(t)
     db.flush()

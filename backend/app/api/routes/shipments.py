@@ -7,6 +7,7 @@ from app.schemas.sales import ShipmentIn, ShipmentOut
 from app.services.audit import log_action
 from app.services.numbering import next_shipment_no
 from app.services.packages import ship_package, mark_delivered
+from app.services.workflow import ensure_invoice_for_delivered_shipment, notify_department
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
 
@@ -14,6 +15,24 @@ router = APIRouter(prefix="/shipments", tags=["shipments"])
 @router.get("", response_model=list[ShipmentOut])
 def list_shipments(db: DbSession, _: CurrentUser):
     return db.query(Shipment).order_by(Shipment.id.desc()).all()
+
+
+@router.get("/ready-packages")
+def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = None):
+    qry = db.query(Package).filter(Package.status.in_(["received_in_storage", "reserved"]))
+    if sales_order_id:
+        qry = qry.filter(Package.sales_order_id == sales_order_id)
+    rows = qry.order_by(Package.id.asc()).all()
+    return [
+        {
+            "id": p.id,
+            "package_no": p.package_no,
+            "sales_order_id": p.sales_order_id,
+            "total_quantity": p.total_quantity,
+            "status": p.status,
+        }
+        for p in rows
+    ]
 
 
 @router.post("", response_model=ShipmentOut, status_code=201)
@@ -50,10 +69,39 @@ def add_package(sid: int, package_id: int, db: DbSession, current: User = Depend
     if not sh: raise HTTPException(404, "Shipment not found")
     pkg = db.get(Package, package_id)
     if not pkg: raise HTTPException(404, "Package not found")
+    if pkg.status not in ("received_in_storage", "reserved"):
+        raise HTTPException(409, f"Package {pkg.package_no} is not ready to ship")
+    exists = db.query(ShipmentPackage).filter(
+        ShipmentPackage.shipment_id == sh.id, ShipmentPackage.package_id == pkg.id,
+    ).first()
+    if exists:
+        raise HTTPException(409, "Package already attached to this shipment")
     db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=pkg.total_quantity))
     log_action(db, current, "add_package", "Shipment", sh.id, new_value={"package_id": pkg.id})
     db.commit()
     return {"message": "added"}
+
+
+@router.post("/{sid}/add-ready-packages")
+def add_ready_packages(sid: int, db: DbSession, current: User = Depends(require_permissions("storage.shipment", "*"))):
+    sh = db.get(Shipment, sid)
+    if not sh: raise HTTPException(404, "Shipment not found")
+    if not sh.sales_order_id:
+        raise HTTPException(400, "Shipment has no sales_order_id")
+    attached = {sp.package_id for sp in sh.packages}
+    ready = db.query(Package).filter(
+        Package.sales_order_id == sh.sales_order_id,
+        Package.status.in_(["received_in_storage", "reserved"]),
+    ).all()
+    added = 0
+    for p in ready:
+        if p.id in attached:
+            continue
+        db.add(ShipmentPackage(shipment_id=sh.id, package_id=p.id, quantity=p.total_quantity))
+        added += 1
+    log_action(db, current, "add_ready_packages", "Shipment", sh.id, new_value={"added": added})
+    db.commit()
+    return {"added": added}
 
 
 @router.post("/{sid}/ship", response_model=ShipmentOut)
@@ -81,6 +129,15 @@ def deliver(sid: int, db: DbSession, current: User = Depends(require_permissions
         pkg = db.get(Package, sp.package_id)
         if pkg and pkg.status == "shipped":
             mark_delivered(db, pkg, current.id)
+    inv = ensure_invoice_for_delivered_shipment(db, sales_order_id=sh.sales_order_id)
+    if inv:
+        notify_department(
+            db,
+            department_code="FIN",
+            title="Shipment delivered - draft invoice created",
+            message=f"Shipment {sh.shipment_no} delivered. Invoice {inv.invoice_no} prepared.",
+            exclude_user_id=current.id,
+        )
     log_action(db, current, "deliver", "Shipment", sh.id)
     db.commit(); db.refresh(sh)
     return sh

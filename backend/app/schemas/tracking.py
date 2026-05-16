@@ -83,6 +83,10 @@ class PackageIn(BaseModel):
     notes: Optional[str] = None
 
 
+class PackageBulkIn(PackageIn):
+    count: int = 1
+
+
 class PackageOut(ORMModel):
     id: int
     package_no: str

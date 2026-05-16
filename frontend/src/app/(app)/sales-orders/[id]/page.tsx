@@ -5,6 +5,7 @@ import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useState } from "react";
 import { useT } from "@/lib/i18n";
+import StagePipeline from "@/components/StagePipeline";
 
 export default function SalesOrderDetail() {
   const params = useParams<{ id: string }>();
@@ -12,7 +13,10 @@ export default function SalesOrderDetail() {
   const id = params.id;
   const { data: so, mutate } = useSWR<any>(`/api/sales-orders/${id}`, fetcher);
   const { data: mr } = useSWR<any[]>(so ? `/api/planning/material-requirements/${id}` : null, fetcher);
+  const { data: processes } = useSWR<any[]>(so ? "/api/process-tracking" : null, fetcher);
   const [msg, setMsg] = useState("");
+  const linkedProcesses = (processes || []).filter((p) => String(p.sales_order_id) === String(id));
+  const activeProcess = linkedProcesses.find((p) => p.current_stage !== "completed") || linkedProcesses[0];
 
   async function confirm() {
     await api.post(`/api/sales-orders/${id}/confirm`);
@@ -62,6 +66,21 @@ export default function SalesOrderDetail() {
           </table>
         </div>
       </div>
+
+      {activeProcess && (
+        <div className="card mb-6 p-4">
+          <h3 className="mb-2 font-medium">Current Production Stage</h3>
+          <div className="mb-2 text-sm text-slate-600">
+            {activeProcess.production_no} · {activeProcess.current_stage} · {activeProcess.current_stage_status || "in_progress"}
+          </div>
+          <StagePipeline currentStage={activeProcess.current_stage} stages={activeProcess.stages} compact={false} />
+          {activeProcess.po_deadline && (
+            <div className="mt-2 text-xs text-slate-500">
+              ETA / deadline: {new Date(activeProcess.po_deadline).toLocaleDateString()}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="card p-4">
         <h3 className="font-medium mb-2">{t("page.soDetail.materialReq")}</h3>

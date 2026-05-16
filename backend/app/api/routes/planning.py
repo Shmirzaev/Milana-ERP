@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import User
+from app.models import User, SalesOrder
 from app.schemas.production import ProductionOrderIn, ProductionOrderOut, MaterialRequirement
 from app.services.planning import material_requirements_for_sales_order
-from app.services.production import create_production_order
+from app.services.production import create_production_order, create_work_orders
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/planning", tags=["planning"])
@@ -32,6 +32,9 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
         items=[i.model_dump() for i in payload.items],
         created_by=current.id,
     )
+    so = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
+    include_printing = any(bool(i.printing_required) for i in (so.items or [])) if so else False
+    create_work_orders(db, po.id, include_printing=include_printing)
     log_action(db, current, "create", "ProductionOrder", po.id, new_value={"production_no": po.production_no})
     db.commit(); db.refresh(po)
     return po
@@ -54,6 +57,7 @@ def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User 
         items=[i.model_dump() for i in payload.items],
         created_by=current.id,
     )
+    create_work_orders(db, po.id, include_printing=False)
     log_action(db, current, "create", "ProductionOrder", po.id, new_value={"production_no": po.production_no, "type": "branded_stock"})
     db.commit(); db.refresh(po)
     return po

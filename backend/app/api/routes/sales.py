@@ -4,13 +4,14 @@ from sqlalchemy.orm import joinedload
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import (
     SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation,
-    Customer, Model, User, ProductionOrder, Shipment,
+    Customer, Model, User, ProductionOrder, Shipment, Task, Department,
 )
 from app.schemas.sales import (
     SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
 )
 from app.services.audit import log_action
 from app.services.numbering import next_sales_order_no
+from app.services.workflow import notify_department
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 
@@ -129,6 +130,38 @@ def reserve_stock(sid: int, db: DbSession, current: User = Depends(require_permi
                 "model_id": line.model_id, "color": line.color, "size": line.size, "shortage": needed,
             })
     log_action(db, current, "reserve_stock", "SalesOrder", so.id, new_value={"reservations": reservations, "shortages": shortages})
+    if shortages:
+        planning_dept = db.query(Department).filter(Department.code == "PLN").first()
+        planning_user = (
+            db.query(User)
+            .filter(User.is_active.is_(True), User.department_id == planning_dept.id if planning_dept else False)
+            .order_by(User.id.asc())
+            .first()
+            if planning_dept
+            else None
+        )
+        if planning_user:
+            summary = ", ".join(f"M{r['model_id']} {r['color']}/{r['size']}: {r['shortage']}" for r in shortages[:6])
+            if len(shortages) > 6:
+                summary += f" (+{len(shortages) - 6} more)"
+            db.add(
+                Task(
+                    title=f"Stock shortage for {so.order_no}",
+                    description=f"Auto-created from reserve-stock. Resolve shortages: {summary}",
+                    assigned_to=planning_user.id,
+                    created_by=current.id,
+                    status="pending",
+                    priority="high",
+                    due_date=so.deadline,
+                )
+            )
+        notify_department(
+            db,
+            department_code="PLN",
+            title=f"Shortage detected for {so.order_no}",
+            message=f"{len(shortages)} shortage line(s) were detected during reserve-stock.",
+            exclude_user_id=current.id,
+        )
     db.commit()
     return {"reservations": reservations, "shortages": shortages}
 

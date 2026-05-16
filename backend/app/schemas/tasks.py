@@ -12,6 +12,8 @@ class TaskIn(BaseModel):
     status: str = "pending"
     priority: str = "medium"
     due_date: Optional[datetime] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
 
 
 class TaskUpdate(BaseModel):
@@ -21,6 +23,8 @@ class TaskUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     due_date: Optional[datetime] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
 
 
 class TaskOut(ORMModel):
@@ -32,6 +36,8 @@ class TaskOut(ORMModel):
     status: str
     priority: str
     due_date: Optional[datetime] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
     completed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

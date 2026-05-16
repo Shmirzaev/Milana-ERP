@@ -18,6 +18,13 @@ from app.services.audit import log_action
 from app.services.production import create_production_order, create_work_orders
 from app.services.bundles import create_bundle
 from app.services.packages import create_package
+from app.services.workflow import (
+    advance_workflow,
+    consume_packaging_materials_from_bom,
+    consume_stock_batch,
+    create_waste_record,
+    notify_department,
+)
 
 router = APIRouter(tags=["production"])
 
@@ -67,6 +74,9 @@ def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends
         items=[i.model_dump() for i in payload.items],
         created_by=current.id,
     )
+    so = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
+    include_printing = any(bool(i.printing_required) for i in (so.items or [])) if so else False
+    create_work_orders(db, po.id, include_printing=include_printing)
     log_action(db, current, "create", "ProductionOrder", po.id, new_value={"production_no": po.production_no})
     db.commit(); db.refresh(po)
     return po
@@ -258,15 +268,41 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     wo.actual_output_qty += int(payload.passed_pieces or 0)
     wo.passed_qty += int(payload.passed_pieces or 0)
     wo.failed_qty += int(payload.defective_pieces or 0)
+    if payload.fabric_batch_id and float(payload.input_quantity or 0) > 0:
+        consume_stock_batch(
+            db,
+            batch_id=payload.fabric_batch_id,
+            quantity=float(payload.input_quantity or 0),
+            unit=payload.input_unit,
+            reference_type="CuttingRecord",
+            reference_id=rec.id,
+            user_id=current.id,
+        )
+    create_waste_record(
+        db,
+        production_order_id=wo.production_order_id,
+        work_order_id=wo.id,
+        source_department_id=wo.department_id,
+        item_id=None,
+        batch_id=payload.fabric_batch_id,
+        waste_type="cutting_waste",
+        quantity=float(payload.waste_quantity or 0),
+        unit=payload.waste_unit,
+        reason="Auto-created from cutting record",
+        created_by=current.id,
+    )
 
     # Create bundles for the plan
     po = db.get(ProductionOrder, wo.production_order_id)
     so_id = po.sales_order_id if po else None
     created_bundles = []
+    to_printing = 0
+    to_sewing = 0
     for spec in (payload.bundles or []):
         count = int(spec.get("count", 1))
         qty = int(spec.get("quantity", 0))
         for _ in range(count):
+            next_code = "PRT" if spec.get("next") == "printing" else "SEW"
             b = create_bundle(
                 db,
                 production_order_id=wo.production_order_id,
@@ -275,10 +311,30 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
                 size=spec["size"],
                 quantity=qty,
                 sales_order_id=so_id,
-                next_department_code="PRT" if spec.get("next") == "printing" else "SEW",
+                next_department_code=next_code,
                 user_id=current.id,
             )
             created_bundles.append({"id": b.id, "bundle_no": b.bundle_no, "barcode": b.barcode})
+            if next_code == "PRT":
+                to_printing += 1
+            else:
+                to_sewing += 1
+
+    advance_workflow(db, wo, trigger_output_qty=int(payload.passed_pieces or 0))
+    if to_printing:
+        notify_department(
+            db,
+            department_code="PRT",
+            title="Incoming cutting bundles",
+            message=f"{to_printing} bundle(s) ready from WO #{wo.id}.",
+        )
+    if to_sewing:
+        notify_department(
+            db,
+            department_code="SEW",
+            title="Incoming cutting bundles",
+            message=f"{to_sewing} bundle(s) ready from WO #{wo.id}.",
+        )
 
     log_action(db, current, "create", "CuttingRecord", rec.id, new_value={"bundles": len(created_bundles)})
     db.commit(); db.refresh(rec)
@@ -308,11 +364,33 @@ def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depe
     rec = PrintingRecord(**payload.model_dump(), )
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
+    db.flush()
     wo.actual_input_qty += payload.input_qty
     wo.actual_output_qty += payload.passed_qty
     wo.passed_qty += payload.passed_qty
     wo.failed_qty += payload.rejected_qty
-    log_action(db, current, "create", "PrintingRecord", None, new_value={"work_order_id": wo.id})
+    create_waste_record(
+        db,
+        production_order_id=wo.production_order_id,
+        work_order_id=wo.id,
+        source_department_id=wo.department_id,
+        item_id=None,
+        batch_id=None,
+        waste_type="printing_reject",
+        quantity=float(payload.rejected_qty or 0),
+        unit="pcs",
+        reason=payload.defect_reason or "Auto-created from printing record",
+        created_by=current.id,
+    )
+    advance_workflow(db, wo, trigger_output_qty=int(payload.passed_qty or 0))
+    if int(payload.passed_qty or 0) > 0:
+        notify_department(
+            db,
+            department_code="SEW",
+            title="Incoming printed pieces",
+            message=f"WO #{wo.id} passed {payload.passed_qty} pcs.",
+        )
+    log_action(db, current, "create", "PrintingRecord", rec.id, new_value={"work_order_id": wo.id})
     db.commit(); db.refresh(rec)
     return {"id": rec.id}
 
@@ -354,12 +432,34 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     rec = SewingRecord(**payload.model_dump())
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
+    db.flush()
     wo.actual_input_qty += payload.input_qty
     wo.actual_output_qty += payload.passed_qty
     wo.passed_qty += payload.passed_qty
     wo.failed_qty += payload.failed_qty
     wo.rework_qty += payload.rework_qty
-    log_action(db, current, "create", "SewingRecord", None, new_value={"work_order_id": wo.id})
+    create_waste_record(
+        db,
+        production_order_id=wo.production_order_id,
+        work_order_id=wo.id,
+        source_department_id=wo.department_id,
+        item_id=None,
+        batch_id=None,
+        waste_type="sewing_defect",
+        quantity=float(payload.failed_qty or 0),
+        unit="pcs",
+        reason=payload.defect_reason or "Auto-created from sewing record",
+        created_by=current.id,
+    )
+    advance_workflow(db, wo, trigger_output_qty=int(payload.passed_qty or 0))
+    if int(payload.passed_qty or 0) > 0:
+        notify_department(
+            db,
+            department_code="PKG",
+            title="Awaiting packaging",
+            message=f"WO #{wo.id} has {payload.passed_qty} pcs ready for packaging.",
+        )
+    log_action(db, current, "create", "SewingRecord", rec.id, new_value={"work_order_id": wo.id})
     db.commit(); db.refresh(rec)
     return {"id": rec.id}
 
@@ -393,11 +493,41 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
     rec = PackagingRecord(**payload.model_dump())
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
+    db.flush()
     wo.actual_input_qty += payload.input_qty
     wo.actual_output_qty += payload.packed_qty
     wo.passed_qty += payload.packed_qty
     wo.failed_qty += payload.damaged_qty
-    log_action(db, current, "create", "PackagingRecord", None, new_value={"work_order_id": wo.id})
+    consume_packaging_materials_from_bom(
+        db,
+        production_order_id=wo.production_order_id,
+        packed_qty=int(payload.packed_qty or 0),
+        reference_type="PackagingRecord",
+        reference_id=rec.id,
+        user_id=current.id,
+    )
+    create_waste_record(
+        db,
+        production_order_id=wo.production_order_id,
+        work_order_id=wo.id,
+        source_department_id=wo.department_id,
+        item_id=None,
+        batch_id=None,
+        waste_type="packaging_damage",
+        quantity=float(payload.damaged_qty or 0),
+        unit="pcs",
+        reason="Auto-created from packaging record",
+        created_by=current.id,
+    )
+    advance_workflow(db, wo, trigger_output_qty=int(payload.packed_qty or 0))
+    if int(payload.packed_qty or 0) > 0:
+        notify_department(
+            db,
+            department_code="FGS",
+            title="Packed goods ready",
+            message=f"WO #{wo.id} packed {payload.packed_qty} pcs and is ready for storage intake.",
+        )
+    log_action(db, current, "create", "PackagingRecord", rec.id, new_value={"work_order_id": wo.id})
     db.commit(); db.refresh(rec)
     return {"id": rec.id}
 

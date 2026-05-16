@@ -13,6 +13,7 @@ class Item(Base, PkMixin, TimestampMixin):
     category: Mapped[str] = mapped_column(String(32), nullable=False)  # fabric, accessory, semi_finished, finished, waste, packaging
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     default_cost: Mapped[float] = mapped_column(Numeric(12, 4), default=0, nullable=False)
+    reorder_level: Mapped[float] = mapped_column(Numeric(14, 4), default=0, nullable=False)
     track_batch: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

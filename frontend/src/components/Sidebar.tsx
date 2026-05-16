@@ -72,7 +72,7 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.cutting",
     items: [
-      { href: "/work-orders?dept=CUT", labelKey: "nav.cuttingFloor", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Scissors },
+      { href: "/departments/CUT", labelKey: "nav.cuttingFloor", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Scissors },
       { href: "/bundles", labelKey: "nav.bundles", perms: ["cutting.bundles", "cutting.records", "planning.production"], icon: PackageSearch },
       { href: "/bundles/scan", labelKey: "nav.scanBundle", perms: ["cutting.bundles", "cutting.records"], icon: QrCode },
     ],
@@ -80,7 +80,7 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.printing",
     items: [
-      { href: "/work-orders?dept=PRT", labelKey: "nav.printingFloor", perms: ["printing.records", "printing.bundles", "planning.production"], icon: Palette },
+      { href: "/departments/PRT", labelKey: "nav.printingFloor", perms: ["printing.records", "printing.bundles", "planning.production"], icon: Palette },
       { href: "/bundles/scan", labelKey: "nav.scanBundle", perms: ["printing.bundles", "printing.records"], icon: QrCode },
     ],
   },
@@ -88,14 +88,14 @@ const SECTIONS: Section[] = [
     titleKey: "section.sewing",
     items: [
       { href: "/sewing/flows", labelKey: "nav.sewingFlows", perms: ["sewing.records", "sewing.bundles", "planning.production", "sewing.flows"], icon: Layers3 },
-      { href: "/work-orders?dept=SEW", labelKey: "nav.sewingFloor", perms: ["sewing.records", "sewing.bundles", "planning.production"], icon: Shirt },
+      { href: "/departments/SEW", labelKey: "nav.sewingFloor", perms: ["sewing.records", "sewing.bundles", "planning.production"], icon: Shirt },
       { href: "/bundles/scan", labelKey: "nav.scanBundle", perms: ["sewing.bundles", "sewing.records"], icon: QrCode },
     ],
   },
   {
     titleKey: "section.packaging",
     items: [
-      { href: "/work-orders?dept=PKG", labelKey: "nav.packagingFloor", perms: ["packaging.records", "packaging.packages", "planning.production"], icon: PackageCheck },
+      { href: "/departments/PKG", labelKey: "nav.packagingFloor", perms: ["packaging.records", "packaging.packages", "planning.production"], icon: PackageCheck },
       { href: "/packages", labelKey: "nav.packages", perms: ["packaging.packages", "packaging.records"], icon: Boxes },
       { href: "/packages/scan", labelKey: "nav.scanPackage", perms: ["packaging.packages", "packaging.records"], icon: QrCode },
     ],
@@ -103,7 +103,7 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.storage",
     items: [
-      { href: "/finished-goods", labelKey: "nav.finishedGoods", icon: Building2 },
+      { href: "/departments/FGS", labelKey: "nav.finishedGoods", icon: Building2 },
       { href: "/shipments", labelKey: "nav.shipments", perms: ["storage.shipment"], icon: Truck },
     ],
   },
