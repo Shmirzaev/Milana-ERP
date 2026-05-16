@@ -308,6 +308,18 @@ export default function ModelDetail() {
                   ))}
                 </tbody>
               </table>
+              <form onSubmit={(e) => addBom(e, "material")} className="grid grid-cols-1 md:grid-cols-9 gap-2 mt-2">
+                <select className="input" value={bomRow.item_id} onChange={(e) => setBomRow({ ...bomRow, item_id: n(e.target.value) })} required>
+                  <option value={0}>Item tanlang</option>
+                  {(items || []).map((i) => <option key={i.id} value={i.id}>{i.sku} â€” {i.name} ({i.category})</option>)}
+                </select>
+                <input className="input" placeholder="Rang (ixtiyoriy)" value={bomRow.color} onChange={(e) => setBomRow({ ...bomRow, color: e.target.value })} />
+                <input className="input" placeholder="O'lcham (ixtiyoriy)" value={bomRow.size} onChange={(e) => setBomRow({ ...bomRow, size: e.target.value })} />
+                <input className="input" type="number" step="0.0001" placeholder="Qty/pc" value={bomRow.quantity_per_piece} onChange={(e) => setBomRow({ ...bomRow, quantity_per_piece: n(e.target.value) })} required />
+                <input className="input" placeholder="Unit" value={bomRow.unit} onChange={(e) => setBomRow({ ...bomRow, unit: e.target.value })} required />
+                <input className="input" type="number" step="0.1" placeholder="Waste %" value={bomRow.waste_percent} onChange={(e) => setBomRow({ ...bomRow, waste_percent: n(e.target.value) })} />
+                <button className="btn btn-primary" type="submit">Qo'shish</button>
+              </form>
             </div>
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -331,7 +343,7 @@ export default function ModelDetail() {
               </table>
             </div>
 
-            <form onSubmit={(e) => addBom(e, "material")} className="grid grid-cols-1 md:grid-cols-9 gap-2">
+            <form onSubmit={(e) => addBom(e, "accessory")} className="grid grid-cols-1 md:grid-cols-9 gap-2">
               <select className="input" value={bomRow.item_id} onChange={(e) => setBomRow({ ...bomRow, item_id: n(e.target.value) })} required>
                 <option value={0}>Item tanlang</option>
                 {(items || []).map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name} ({i.category})</option>)}
