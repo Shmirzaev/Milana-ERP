@@ -82,6 +82,22 @@ export const api = {
   get: <T = any>(p: string) => request<T>(p, { method: "GET" }),
   post: <T = any>(p: string, body?: any) =>
     request<T>(p, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
+  postForm: async <T = any>(p: string, form: FormData): Promise<T> => {
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetchWithTimeout(resolveUrl(p), { method: "POST", body: form, headers });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body.detail || JSON.stringify(body);
+      } catch {}
+      throw new Error(`${res.status}: ${detail}`);
+    }
+    if (res.status === 204) return undefined as any;
+    return res.json();
+  },
   patch: <T = any>(p: string, body?: any) =>
     request<T>(p, { method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined }),
   del: <T = any>(p: string) => request<T>(p, { method: "DELETE" }),

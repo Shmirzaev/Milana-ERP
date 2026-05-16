@@ -52,6 +52,16 @@ function n(v: unknown): number {
   return Number.isFinite(x) ? x : 0;
 }
 
+function buildMeasurementJson(fields: { chest: string; waist: string; hip: string; length: string; sleeve: string }) {
+  const out: Record<string, number> = {};
+  if (fields.chest.trim()) out.chest = n(fields.chest);
+  if (fields.waist.trim()) out.waist = n(fields.waist);
+  if (fields.hip.trim()) out.hip = n(fields.hip);
+  if (fields.length.trim()) out.length = n(fields.length);
+  if (fields.sleeve.trim()) out.sleeve = n(fields.sleeve);
+  return out;
+}
+
 export default function ModelDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -74,7 +84,11 @@ export default function ModelDetail() {
   const [bomRow, setBomRow] = useState({ item_id: 0, size: "", color: "", quantity_per_piece: 1, unit: "meter", waste_percent: 5 });
   const [color, setColor] = useState({ color_name: "", color_code: "" });
   const [size, setSize] = useState({ size: "", measurement_json: "" });
+  const [measurementFields, setMeasurementFields] = useState({ chest: "", waist: "", hip: "", length: "", sleeve: "" });
+  const [sizePreview, setSizePreview] = useState<{ size: string; measurement_json: Record<string, number> | null } | null>(null);
   const [imageForm, setImageForm] = useState({ file_url: "", is_primary: false });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   useEffect(() => {
     if (!m) return;
@@ -88,6 +102,11 @@ export default function ModelDetail() {
     });
     setDetails(m.details_json || {});
   }, [m]);
+
+  useEffect(() => {
+    const generated = buildMeasurementJson(measurementFields);
+    setSize((prev) => ({ ...prev, measurement_json: JSON.stringify(generated) }));
+  }, [measurementFields.chest, measurementFields.waist, measurementFields.hip, measurementFields.length, measurementFields.sleeve]);
 
   const itemMap = useMemo(() => {
     const map = new Map<number, any>();
@@ -140,8 +159,18 @@ export default function ModelDetail() {
     mutate();
   }
 
-  async function addBom(e: React.FormEvent) {
-    e.preventDefault();
+  async function addBom(e?: { preventDefault?: () => void }, expectedCategory?: "material" | "accessory") {
+    e?.preventDefault?.();
+    const item = itemMap.get(bomRow.item_id);
+    const category = String(item?.category || "").toLowerCase();
+    if (expectedCategory === "material" && !["fabric", "semi_finished"].includes(category)) {
+      alert("Material qo'shish uchun fabric yoki semi_finished item tanlang.");
+      return;
+    }
+    if (expectedCategory === "accessory" && !["accessory", "packaging"].includes(category)) {
+      alert("Aksessuar qo'shish uchun accessory yoki packaging item tanlang.");
+      return;
+    }
     await api.post(`/api/models/${id}/bom`, {
       item_id: bomRow.item_id,
       size: bomRow.size || null,
@@ -163,17 +192,46 @@ export default function ModelDetail() {
 
   async function addSize(e: React.FormEvent) {
     e.preventDefault();
-    let measurementJson: any = null;
+    const generated = buildMeasurementJson(measurementFields);
+    const baseJson = Object.keys(generated).length ? generated : null;
+    let measurementJson: any = baseJson;
     if (size.measurement_json.trim()) {
-      measurementJson = JSON.parse(size.measurement_json);
+      try {
+        measurementJson = JSON.parse(size.measurement_json.trim());
+      } catch {
+        alert("Measurement JSON noto'g'ri formatda.");
+        return;
+      }
     }
-    await api.post(`/api/models/${id}/sizes`, { size: size.size, measurement_json: measurementJson });
+    setSizePreview({ size: size.size, measurement_json: measurementJson });
+  }
+
+  async function confirmAddSize() {
+    if (!sizePreview) return;
+    await api.post(`/api/models/${id}/sizes`, { size: sizePreview.size, measurement_json: sizePreview.measurement_json });
     setSize({ size: "", measurement_json: "" });
+    setMeasurementFields({ chest: "", waist: "", hip: "", length: "", sleeve: "" });
+    setSizePreview(null);
     mutate();
   }
 
   async function addImage(e: React.FormEvent) {
     e.preventDefault();
+    if (imageFile) {
+      setIsUploadingImage(true);
+      try {
+        const form = new FormData();
+        form.append("file", imageFile);
+        await api.postForm(`/api/models/${id}/images/upload`, form);
+      } finally {
+        setIsUploadingImage(false);
+      }
+      setImageFile(null);
+      setImageForm({ file_url: "", is_primary: false });
+      mutate();
+      return;
+    }
+    if (!imageForm.file_url.trim()) return;
     await api.post(`/api/models/${id}/images`, imageForm);
     setImageForm({ file_url: "", is_primary: false });
     mutate();
@@ -261,7 +319,7 @@ export default function ModelDetail() {
               </table>
             </div>
 
-            <form onSubmit={addBom} className="grid grid-cols-1 md:grid-cols-7 gap-2">
+            <form onSubmit={(e) => addBom(e)} className="grid grid-cols-1 md:grid-cols-9 gap-2">
               <select className="input" value={bomRow.item_id} onChange={(e) => setBomRow({ ...bomRow, item_id: n(e.target.value) })} required>
                 <option value={0}>Item tanlang</option>
                 {(items || []).map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name} ({i.category})</option>)}
@@ -271,7 +329,9 @@ export default function ModelDetail() {
               <input className="input" type="number" step="0.0001" placeholder="Qty/pc" value={bomRow.quantity_per_piece} onChange={(e) => setBomRow({ ...bomRow, quantity_per_piece: n(e.target.value) })} required />
               <input className="input" placeholder="Unit" value={bomRow.unit} onChange={(e) => setBomRow({ ...bomRow, unit: e.target.value })} required />
               <input className="input" type="number" step="0.1" placeholder="Waste %" value={bomRow.waste_percent} onChange={(e) => setBomRow({ ...bomRow, waste_percent: n(e.target.value) })} />
-              <button className="btn btn-primary">Qo'shish</button>
+              <button className="btn" type="button" onClick={() => addBom(undefined, "material")}>Matoga qo'shish</button>
+              <button className="btn" type="button" onClick={() => addBom(undefined, "accessory")}>Aksessuarga qo'shish</button>
+              <button className="btn btn-primary" type="submit">Qo'shish</button>
             </form>
           </div>
         )}
@@ -291,11 +351,30 @@ export default function ModelDetail() {
                 <div className="font-medium">O'lcham qo'shish</div>
                 <div className="flex gap-2">
                   <input className="input" placeholder="S, M, L..." value={size.size} onChange={(e) => setSize({ ...size, size: e.target.value })} required />
-                  <button className="btn btn-primary">Qo'shish</button>
+                  <button className="btn btn-primary" type="submit">Ko'rish</button>
                 </div>
-                <textarea className="input min-h-20" placeholder='Measurement JSON (ixtiyoriy), masalan {"chest":92}' value={size.measurement_json} onChange={(e) => setSize({ ...size, measurement_json: e.target.value })} />
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                  <input className="input" placeholder="chest" value={measurementFields.chest} onChange={(e) => setMeasurementFields({ ...measurementFields, chest: e.target.value })} />
+                  <input className="input" placeholder="waist" value={measurementFields.waist} onChange={(e) => setMeasurementFields({ ...measurementFields, waist: e.target.value })} />
+                  <input className="input" placeholder="hip" value={measurementFields.hip} onChange={(e) => setMeasurementFields({ ...measurementFields, hip: e.target.value })} />
+                  <input className="input" placeholder="length" value={measurementFields.length} onChange={(e) => setMeasurementFields({ ...measurementFields, length: e.target.value })} />
+                  <input className="input" placeholder="sleeve" value={measurementFields.sleeve} onChange={(e) => setMeasurementFields({ ...measurementFields, sleeve: e.target.value })} />
+                </div>
+                <textarea className="input min-h-20" placeholder='Measurement JSON (auto, editable), masalan {"chest":92}' value={size.measurement_json} onChange={(e) => setSize({ ...size, measurement_json: e.target.value })} />
               </form>
             </div>
+            {sizePreview && (
+              <div className="card p-3 flex items-center justify-between gap-2">
+                <div className="text-sm">
+                  <div><span className="text-slate-500">Size:</span> {sizePreview.size}</div>
+                  <div><span className="text-slate-500">Measurement JSON:</span> <code>{JSON.stringify(sizePreview.measurement_json || {})}</code></div>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" className="btn" onClick={() => setSizePreview(null)}>Bekor qilish</button>
+                  <button type="button" className="btn btn-primary" onClick={confirmAddSize}>Tasdiqlab qo'shish</button>
+                </div>
+              </div>
+            )}
             <table className="table">
               <thead><tr><th>Variant</th><th>Rang</th><th>O'lcham</th><th>Taxminiy net cost/pc</th></tr></thead>
               <tbody>
@@ -311,9 +390,22 @@ export default function ModelDetail() {
 
         {tab === 4 && (
           <div className="space-y-3">
-            <form onSubmit={addImage} className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <input className="input md:col-span-3" placeholder="Image URL" value={imageForm.file_url} onChange={(e) => setImageForm({ ...imageForm, file_url: e.target.value })} required />
-              <button className="btn btn-primary">Qolip rasmi qo'shish</button>
+            <form onSubmit={addImage} className="grid grid-cols-1 md:grid-cols-5 gap-2">
+              <input
+                className="input md:col-span-3"
+                type="file"
+                accept="image/*"
+                onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+              />
+              <input
+                className="input"
+                placeholder="yoki Image URL"
+                value={imageForm.file_url}
+                onChange={(e) => setImageForm({ ...imageForm, file_url: e.target.value })}
+              />
+              <button className="btn btn-primary" disabled={isUploadingImage || (!imageFile && !imageForm.file_url.trim())}>
+                {isUploadingImage ? "Yuklanmoqda..." : "Attach / Qo'shish"}
+              </button>
             </form>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {(m.images || []).map((img: any) => (
@@ -340,6 +432,28 @@ export default function ModelDetail() {
 
         {tab === 7 && (
           <div className="space-y-2">
+            <form onSubmit={addSize} className="grid grid-cols-1 md:grid-cols-7 gap-2">
+              <input className="input" placeholder="O'lcham (masalan 44, 46, M)" value={size.size} onChange={(e) => setSize({ ...size, size: e.target.value })} required />
+              <input className="input" placeholder="chest" value={measurementFields.chest} onChange={(e) => setMeasurementFields({ ...measurementFields, chest: e.target.value })} />
+              <input className="input" placeholder="waist" value={measurementFields.waist} onChange={(e) => setMeasurementFields({ ...measurementFields, waist: e.target.value })} />
+              <input className="input" placeholder="hip" value={measurementFields.hip} onChange={(e) => setMeasurementFields({ ...measurementFields, hip: e.target.value })} />
+              <input className="input" placeholder="length" value={measurementFields.length} onChange={(e) => setMeasurementFields({ ...measurementFields, length: e.target.value })} />
+              <input className="input" placeholder="sleeve" value={measurementFields.sleeve} onChange={(e) => setMeasurementFields({ ...measurementFields, sleeve: e.target.value })} />
+              <button className="btn btn-primary" type="submit">Qo'shish</button>
+            </form>
+            <textarea className="input min-h-16" placeholder='Measurement JSON (auto, editable)' value={size.measurement_json} onChange={(e) => setSize({ ...size, measurement_json: e.target.value })} />
+            {sizePreview && (
+              <div className="card p-3 flex items-center justify-between gap-2">
+                <div className="text-sm">
+                  <div><span className="text-slate-500">Size:</span> {sizePreview.size}</div>
+                  <div><span className="text-slate-500">Measurement JSON:</span> <code>{JSON.stringify(sizePreview.measurement_json || {})}</code></div>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" className="btn" onClick={() => setSizePreview(null)}>Bekor qilish</button>
+                  <button type="button" className="btn btn-primary" onClick={confirmAddSize}>Tasdiqlab qo'shish</button>
+                </div>
+              </div>
+            )}
             <table className="table">
               <thead><tr><th>O'lcham</th><th>Measurement JSON</th></tr></thead>
               <tbody>

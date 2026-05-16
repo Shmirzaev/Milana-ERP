@@ -1,7 +1,12 @@
 from datetime import datetime, timezone
+import os
+from uuid import uuid4
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi import UploadFile, File
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.config import settings
 from app.models import (
     Brand, Collection, CollectionModel, Model, ModelImage, ModelSize, ModelColor, ModelBOM, User,
     SalesOrderItem, ProductionOrder, ProductionOrderItem, Bundle, Package, PackageItem, FinishedGoodsStock,
@@ -151,6 +156,37 @@ def add_image(mid: int, payload: ModelImageIn, db: DbSession, current: User = De
     img = ModelImage(model_id=mid, **payload.model_dump())
     db.add(img); db.commit(); db.refresh(img)
     return {"id": img.id}
+
+
+@router.post("/models/{mid}/images/upload", status_code=201)
+async def upload_image(
+    mid: int,
+    db: DbSession,
+    file: UploadFile = File(...),
+    current: User = Depends(require_permissions("modeling.models", "*")),
+):
+    if not db.get(Model, mid):
+        raise HTTPException(404, "Model not found")
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        raise HTTPException(400, "Unsupported image type")
+    os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
+    safe_name = f"model_{mid}_{uuid4().hex}{ext}"
+    abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(400, "Empty file")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 10MB)")
+    with open(abs_path, "wb") as f:
+        f.write(content)
+    file_url = f"/storage/model-files/{safe_name}"
+    img = ModelImage(model_id=mid, file_url=file_url, is_primary=False)
+    db.add(img)
+    db.flush()
+    log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": file_url})
+    db.commit()
+    return {"id": img.id, "file_url": file_url}
 
 
 @router.post("/models/{mid}/sizes", status_code=201)

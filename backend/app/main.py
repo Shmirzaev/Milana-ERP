@@ -87,6 +87,8 @@ app.include_router(api_router)
 # Serve generated QR/barcode images
 os.makedirs(settings.BARCODE_STORAGE_DIR, exist_ok=True)
 app.mount("/storage/barcodes", StaticFiles(directory=settings.BARCODE_STORAGE_DIR), name="barcodes")
+os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
+app.mount("/storage/model-files", StaticFiles(directory=settings.MODEL_FILES_DIR), name="model-files")
 
 
 @app.get("/health")
