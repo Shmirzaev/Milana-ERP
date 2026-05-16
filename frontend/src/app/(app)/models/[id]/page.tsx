@@ -80,7 +80,6 @@ export default function ModelDetail() {
     sam_minutes: 0,
   });
   const [details, setDetails] = useState<ModelDetails>({});
-  const [bomTargetMode, setBomTargetMode] = useState<"auto" | "material" | "accessory">("auto");
 
   const [bomRow, setBomRow] = useState({ item_id: 0, size: "", color: "", quantity_per_piece: 1, unit: "meter", waste_percent: 5 });
   const [color, setColor] = useState({ color_name: "", color_code: "" });
@@ -128,14 +127,6 @@ export default function ModelDetail() {
   const materialRows = bomWithItem.filter((r: any) => ["fabric", "semi_finished", ""].includes(String(r.item?.category || "").toLowerCase()));
   const accessoryRows = bomWithItem.filter((r: any) => ["accessory", "packaging"].includes(String(r.item?.category || "").toLowerCase()));
   const baseCostPerPiece = bomWithItem.reduce((s: number, r: any) => s + n(r.costPerPiece), 0);
-  const selectedItem = itemMap.get(bomRow.item_id);
-  const selectedItemCategory = String(selectedItem?.category || "").toLowerCase();
-  const inferredTarget: "material" | "accessory" | null =
-    ["fabric", "semi_finished"].includes(selectedItemCategory)
-      ? "material"
-      : ["accessory", "packaging"].includes(selectedItemCategory)
-        ? "accessory"
-        : null;
 
   const laborPct = n(details.costing?.labor_pct ?? 12);
   const electricityPct = n(details.costing?.electricity_pct ?? 4);
@@ -176,11 +167,7 @@ export default function ModelDetail() {
       alert("Avval item tanlang.");
       return;
     }
-    const target = expectedCategory || (bomTargetMode === "auto" ? inferredTarget : bomTargetMode);
-    if (!target) {
-      alert("Item kategoriyasi noma'lum. Qo'shish bo'limini tanlang (Matolar yoki Aksessuarlar).");
-      return;
-    }
+    const target: "material" | "accessory" = expectedCategory || "material";
     if (target === "material" && !["fabric", "semi_finished"].includes(category)) {
       alert("Material qo'shish uchun fabric yoki semi_finished item tanlang.");
       return;
@@ -344,7 +331,7 @@ export default function ModelDetail() {
               </table>
             </div>
 
-            <form onSubmit={(e) => addBom(e)} className="grid grid-cols-1 md:grid-cols-9 gap-2">
+            <form onSubmit={(e) => addBom(e, "material")} className="grid grid-cols-1 md:grid-cols-9 gap-2">
               <select className="input" value={bomRow.item_id} onChange={(e) => setBomRow({ ...bomRow, item_id: n(e.target.value) })} required>
                 <option value={0}>Item tanlang</option>
                 {(items || []).map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name} ({i.category})</option>)}
@@ -356,22 +343,6 @@ export default function ModelDetail() {
               <input className="input" type="number" step="0.1" placeholder="Waste %" value={bomRow.waste_percent} onChange={(e) => setBomRow({ ...bomRow, waste_percent: n(e.target.value) })} />
               <button className="btn btn-primary" type="submit">Qo'shish</button>
             </form>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
-              <div className="text-slate-600">
-                Avtomatik yo'nalish:{" "}
-                <span className="font-medium">
-                  {inferredTarget === "material" ? "Matolar" : inferredTarget === "accessory" ? "Aksessuarlar" : "Aniqlanmadi"}
-                </span>
-              </div>
-              <div className="md:col-span-2 flex items-center gap-2">
-                <span className="text-slate-600">Qo'shish bo'limi:</span>
-                <select className="input w-56" value={bomTargetMode} onChange={(e) => setBomTargetMode(e.target.value as "auto" | "material" | "accessory")}>
-                  <option value="auto">Auto (kategoriyadan aniqlash)</option>
-                  <option value="material">Matolar</option>
-                  <option value="accessory">Aksessuarlar</option>
-                </select>
-              </div>
-            </div>
           </div>
         )}
 
