@@ -5,6 +5,14 @@ import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 
+type EstimateFormState = {
+  orderId: number;
+  orderNo: string;
+  materialCost: string;
+  leadHours: string;
+  comment: string;
+};
+
 export default function PlanningDashboard() {
   const { t } = useT();
   const { data: dash } = useSWR<any>("/api/dashboard/planning", fetcher);
@@ -12,6 +20,7 @@ export default function PlanningDashboard() {
   const { data: models } = useSWR<any[]>("/api/models?status=approved", fetcher);
   const [brandedForm, setBrandedForm] = useState({ model_id: 0, planned_quantity: 100, size: "M", color: "white", deadline: "" });
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
+  const [estimateForm, setEstimateForm] = useState<EstimateFormState | null>(null);
 
   const planningOrders = (orders || []).filter((o) => ["confirmed", "pending_sales_approval", "planning_approved"].includes(o.status));
 
@@ -40,10 +49,38 @@ export default function PlanningDashboard() {
     }
   }
 
-  async function sendEstimateToSales(soId: number) {
+  async function openEstimateDialog(soId: number) {
     setBusyOrderId(soId);
     try {
-      await api.post(`/api/planning/submit-estimate/${soId}`);
+      const order = planningOrders.find((o) => o.id === soId);
+      const estimate = await api.get(`/api/planning/estimate/${soId}`);
+      setEstimateForm({
+        orderId: soId,
+        orderNo: order?.order_no || `#${soId}`,
+        materialCost: Number(estimate.estimated_material_cost || 0).toFixed(2),
+        leadHours: Number(estimate.estimated_lead_time_hours || 0).toFixed(2),
+        comment: "",
+      });
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
+
+  async function submitEstimateToSales() {
+    if (!estimateForm) return;
+    const materialCost = Number(estimateForm.materialCost);
+    const leadHours = Number(estimateForm.leadHours);
+    if (!Number.isFinite(materialCost) || materialCost < 0) return;
+    if (!Number.isFinite(leadHours) || leadHours < 0) return;
+
+    setBusyOrderId(estimateForm.orderId);
+    try {
+      await api.post(`/api/planning/submit-estimate/${estimateForm.orderId}`, {
+        estimated_material_cost: materialCost,
+        estimated_lead_time_minutes: Math.round(leadHours * 60),
+        estimate_comment: estimateForm.comment.trim() || null,
+      });
+      setEstimateForm(null);
       await mutateOrders();
     } finally {
       setBusyOrderId(null);
@@ -87,8 +124,8 @@ export default function PlanningDashboard() {
                 <td>{o.status}</td>
                 <td>
                   {o.status === "confirmed" && (
-                    <button className="btn" disabled={busyOrderId === o.id} onClick={() => sendEstimateToSales(o.id)}>
-                      {busyOrderId === o.id ? "Sending..." : "Send Estimate to Sales"}
+                    <button className="btn" disabled={busyOrderId === o.id} onClick={() => openEstimateDialog(o.id)}>
+                      {busyOrderId === o.id ? "Loading..." : "Send Estimate to Sales"}
                     </button>
                   )}
                   {o.status === "pending_sales_approval" && (
@@ -107,6 +144,53 @@ export default function PlanningDashboard() {
           </tbody>
         </table>
       </div>
+
+      {estimateForm && (
+        <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4">
+          <div className="card w-full max-w-xl p-5 space-y-4">
+            <div className="text-lg font-semibold">Planning Estimate for {estimateForm.orderNo}</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Estimated Material Cost</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={estimateForm.materialCost}
+                  onChange={(e) => setEstimateForm({ ...estimateForm, materialCost: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Estimated Lead Time (hours)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  step="0.1"
+                  value={estimateForm.leadHours}
+                  onChange={(e) => setEstimateForm({ ...estimateForm, leadHours: e.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="label">Planning Comment</label>
+              <textarea
+                className="input min-h-24"
+                placeholder="Optional comment for Sales approval"
+                value={estimateForm.comment}
+                onChange={(e) => setEstimateForm({ ...estimateForm, comment: e.target.value })}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className="btn" onClick={() => setEstimateForm(null)} disabled={busyOrderId === estimateForm.orderId}>Cancel</button>
+              <button className="btn btn-primary" onClick={submitEstimateToSales} disabled={busyOrderId === estimateForm.orderId}>
+                {busyOrderId === estimateForm.orderId ? "Sending..." : "Send to Sales"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card p-4">
         <h2 className="font-medium mb-3">{t("page.planning.brandedSection")}</h2>

@@ -58,6 +58,15 @@ export default function SalesOrderDetail() {
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.customer")}</dt><dd>{so.customer_id || "—"}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.total")}</dt><dd>${Number(so.total_amount).toFixed(2)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.deadline")}</dt><dd>{so.deadline ? new Date(so.deadline).toLocaleDateString() : "—"}</dd></div>
+            {so.planning_estimated_material_cost !== null && so.planning_estimated_material_cost !== undefined && (
+              <div className="flex justify-between"><dt className="text-slate-500">Planning material cost</dt><dd>${Number(so.planning_estimated_material_cost).toFixed(2)}</dd></div>
+            )}
+            {so.planning_estimated_lead_time_minutes !== null && so.planning_estimated_lead_time_minutes !== undefined && (
+              <div className="flex justify-between"><dt className="text-slate-500">Planning lead time</dt><dd>{(Number(so.planning_estimated_lead_time_minutes) / 60).toFixed(2)} h</dd></div>
+            )}
+            {so.planning_estimate_comment && (
+              <div className="flex justify-between gap-3"><dt className="text-slate-500">Planning comment</dt><dd className="text-right">{so.planning_estimate_comment}</dd></div>
+            )}
           </dl>
         </div>
         <div className="card p-4">

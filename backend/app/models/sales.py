@@ -14,6 +14,11 @@ class SalesOrder(Base, PkMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     total_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    planning_estimated_material_cost: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    planning_estimated_lead_time_minutes: Mapped[int | None] = mapped_column(Integer)
+    planning_estimate_comment: Mapped[str | None] = mapped_column(Text)
+    planning_estimate_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    planning_estimate_submitted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     notes: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 

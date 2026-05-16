@@ -197,3 +197,9 @@ class PlanningEstimateOut(BaseModel):
     estimated_lead_time_hours: float
     total_quantity: int
     materials: list[PlanningEstimateMaterial]
+
+
+class PlanningEstimateSubmitIn(BaseModel):
+    estimated_material_cost: float | None = None
+    estimated_lead_time_minutes: int | None = None
+    estimate_comment: str | None = None

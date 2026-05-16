@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.deps import DbSession, require_permissions
 from app.models import User, SalesOrder
 from app.schemas.production import (
     MaterialRequirement,
+    PlanningEstimateSubmitIn,
     PlanningEstimateOut,
     ProductionOrderIn,
     ProductionOrderOut,
@@ -22,10 +25,36 @@ def get_material_requirements(sales_order_id: int, db: DbSession, _: User = Depe
     return [MaterialRequirement(**r) for r in rows]
 
 
+@router.get("/estimate/{sales_order_id}", response_model=PlanningEstimateOut)
+def get_planning_estimate_preview(
+    sales_order_id: int,
+    db: DbSession,
+    _: User = Depends(require_permissions("planning.requirements", "planning.production", "sales.orders", "*")),
+):
+    so = db.get(SalesOrder, sales_order_id)
+    if not so:
+        raise HTTPException(404, "Sales order not found")
+    if so.order_type != "client_order":
+        raise HTTPException(400, "Planning estimate flow is only for client_order")
+
+    estimate = planning_estimate_for_sales_order(db, sales_order_id)
+    if not estimate:
+        raise HTTPException(404, "Sales order not found")
+
+    if so.planning_estimated_material_cost is not None:
+        estimate["estimated_material_cost"] = float(so.planning_estimated_material_cost)
+    if so.planning_estimated_lead_time_minutes is not None:
+        lead_minutes = int(so.planning_estimated_lead_time_minutes)
+        estimate["estimated_lead_time_minutes"] = lead_minutes
+        estimate["estimated_lead_time_hours"] = round(lead_minutes / 60.0, 2)
+    return PlanningEstimateOut(status=so.status, **estimate)
+
+
 @router.post("/submit-estimate/{sales_order_id}", response_model=PlanningEstimateOut)
 def submit_planning_estimate(
     sales_order_id: int,
     db: DbSession,
+    payload: PlanningEstimateSubmitIn | None = None,
     current: User = Depends(require_permissions("planning.requirements", "planning.production", "*")),
 ):
     so = db.get(SalesOrder, sales_order_id)
@@ -40,12 +69,35 @@ def submit_planning_estimate(
     if not estimate:
         raise HTTPException(404, "Sales order not found")
 
+    est_material_cost = float(
+        payload.estimated_material_cost
+        if payload and payload.estimated_material_cost is not None
+        else estimate["estimated_material_cost"]
+    )
+    est_lead_minutes = int(
+        payload.estimated_lead_time_minutes
+        if payload and payload.estimated_lead_time_minutes is not None
+        else estimate["estimated_lead_time_minutes"]
+    )
+    est_lead_hours = round(est_lead_minutes / 60.0, 2)
+
+    estimate["estimated_material_cost"] = est_material_cost
+    estimate["estimated_lead_time_minutes"] = est_lead_minutes
+    estimate["estimated_lead_time_hours"] = est_lead_hours
+
+    so.planning_estimated_material_cost = est_material_cost
+    so.planning_estimated_lead_time_minutes = est_lead_minutes
+    so.planning_estimate_comment = payload.estimate_comment.strip() if payload and payload.estimate_comment else None
+    so.planning_estimate_submitted_at = datetime.now(timezone.utc)
+    so.planning_estimate_submitted_by = current.id
     so.status = "pending_sales_approval"
     summary = (
         f"[Planning estimate] Material cost: {estimate['estimated_material_cost']:.2f}; "
         f"Lead time: {estimate['estimated_lead_time_hours']:.2f}h "
         f"({estimate['estimated_lead_time_minutes']} min); Qty: {estimate['total_quantity']}"
     )
+    if so.planning_estimate_comment:
+        summary += f"; Comment: {so.planning_estimate_comment}"
     so.notes = f"{so.notes}\n{summary}".strip() if so.notes else summary
 
     notify_department(
