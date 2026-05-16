@@ -27,6 +27,11 @@ export default function SalesOrderDetail() {
     setMsg(t("page.soDetail.reservationsLine", { res: r.reservations.length, sh: r.shortages.length }));
     mutate();
   }
+  async function approvePlanning() {
+    await api.post(`/api/sales-orders/${id}/approve-planning`);
+    setMsg("Planning estimate approved and sent back to Planning for PO creation.");
+    mutate();
+  }
 
   if (!so) return <div>{t("common.loading")}</div>;
 
@@ -38,6 +43,7 @@ export default function SalesOrderDetail() {
         actions={
           <div className="flex gap-2">
             {so.status === "draft" && <button className="btn btn-primary" onClick={confirm}>{t("btn.confirm")}</button>}
+            {so.status === "pending_sales_approval" && <button className="btn btn-primary" onClick={approvePlanning}>Approve Planning Estimate</button>}
             {so.order_type === "branded_stock_sale" && <button className="btn" onClick={reserveStock}>{t("btn.reserveStock")}</button>}
           </div>
         }

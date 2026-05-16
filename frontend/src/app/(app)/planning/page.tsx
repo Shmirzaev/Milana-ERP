@@ -8,28 +8,46 @@ import { useT } from "@/lib/i18n";
 export default function PlanningDashboard() {
   const { t } = useT();
   const { data: dash } = useSWR<any>("/api/dashboard/planning", fetcher);
-  const { data: orders } = useSWR<any[]>("/api/sales-orders?status=confirmed", fetcher);
+  const { data: orders, mutate: mutateOrders } = useSWR<any[]>("/api/sales-orders?order_type=client_order&page_size=200", fetcher);
   const { data: models } = useSWR<any[]>("/api/models?status=approved", fetcher);
   const [brandedForm, setBrandedForm] = useState({ model_id: 0, planned_quantity: 100, size: "M", color: "white", deadline: "" });
+  const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
+
+  const planningOrders = (orders || []).filter((o) => ["confirmed", "pending_sales_approval", "planning_approved"].includes(o.status));
 
   async function createPOForSO(soId: number) {
-    const so = await api.get(`/api/sales-orders/${soId}`);
-    const items = (so.items || []).map((i: any) => ({ model_id: i.model_id, color: i.color, size: i.size, planned_quantity: i.quantity }));
-    const po = await api.post("/api/planning/create-production-order", {
-      production_type: "client_order",
-      sales_order_id: soId,
-      model_id: so.items?.[0]?.model_id,
-      planned_quantity: items.reduce((s: number, i: any) => s + i.planned_quantity, 0),
-      // Carry the customer deadline through to the production order so the
-      // process tracker shows a meaningful "due by" value.
-      deadline: so.deadline ?? null,
-      items,
-    });
-    // Cascade the deadline into each work-order (cutting/printing/sewing/packaging).
-    if (so.deadline) {
-      try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
+    setBusyOrderId(soId);
+    try {
+      const so = await api.get(`/api/sales-orders/${soId}`);
+      const items = (so.items || []).map((i: any) => ({ model_id: i.model_id, color: i.color, size: i.size, planned_quantity: i.quantity }));
+      const po = await api.post("/api/planning/create-production-order", {
+        production_type: "client_order",
+        sales_order_id: soId,
+        model_id: so.items?.[0]?.model_id,
+        planned_quantity: items.reduce((s: number, i: any) => s + i.planned_quantity, 0),
+        // Carry the customer deadline through to the production order so the
+        // process tracker shows a meaningful "due by" value.
+        deadline: so.deadline ?? null,
+        items,
+      });
+      // Cascade the deadline into each work-order (cutting/printing/sewing/packaging).
+      if (so.deadline) {
+        try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
+      }
+      window.location.href = `/production-orders/${po.id}`;
+    } finally {
+      setBusyOrderId(null);
     }
-    window.location.href = `/production-orders/${po.id}`;
+  }
+
+  async function sendEstimateToSales(soId: number) {
+    setBusyOrderId(soId);
+    try {
+      await api.post(`/api/planning/submit-estimate/${soId}`);
+      await mutateOrders();
+    } finally {
+      setBusyOrderId(null);
+    }
   }
 
   async function createBranded(e: React.FormEvent) {
@@ -59,14 +77,31 @@ export default function PlanningDashboard() {
       <div className="card p-4 mb-6">
         <h2 className="font-medium mb-3">{t("page.planning.confirmedAwaiting")}</h2>
         <table className="table">
-          <thead><tr><th>{t("field.orderNo")}</th><th>{t("field.customer")}</th><th>{t("field.total")}</th><th></th></tr></thead>
+          <thead><tr><th>{t("field.orderNo")}</th><th>{t("field.customer")}</th><th>{t("field.total")}</th><th>{t("common.status")}</th><th></th></tr></thead>
           <tbody>
-            {orders?.map((o) => (
+            {planningOrders.map((o) => (
               <tr key={o.id}>
                 <td>{o.order_no}</td>
                 <td>{o.customer_id}</td>
                 <td>${Number(o.total_amount).toFixed(2)}</td>
-                <td><button className="btn btn-primary" onClick={() => createPOForSO(o.id)}>{t("btn.createProductionOrder")}</button></td>
+                <td>{o.status}</td>
+                <td>
+                  {o.status === "confirmed" && (
+                    <button className="btn" disabled={busyOrderId === o.id} onClick={() => sendEstimateToSales(o.id)}>
+                      {busyOrderId === o.id ? "Sending..." : "Send Estimate to Sales"}
+                    </button>
+                  )}
+                  {o.status === "pending_sales_approval" && (
+                    <button className="btn" disabled>
+                      Waiting Sales Approval
+                    </button>
+                  )}
+                  {o.status === "planning_approved" && (
+                    <button className="btn btn-primary" disabled={busyOrderId === o.id} onClick={() => createPOForSO(o.id)}>
+                      {busyOrderId === o.id ? "Creating..." : t("btn.createProductionOrder")}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
