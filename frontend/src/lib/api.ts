@@ -90,44 +90,50 @@ export const api = {
     const form = new URLSearchParams();
     form.set("username", email);
     form.set("password", password);
+    const loginEndpoints = [
+      resolveUrl("/api/auth/login"),
+      "https://milana-erp.onrender.com/api/auth/login",
+    ];
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const res = await fetchWithTimeout(
-          resolveUrl("/api/auth/login"),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: form.toString(),
-          },
-          20_000,
-        );
-        if (res.ok) {
-          const body = await res.json();
-          setToken(body.access_token);
-          return body.access_token;
-        }
-
-        let msg = "Login failed";
+      for (const endpoint of loginEndpoints) {
         try {
-          const b = await res.json();
-          msg = b.detail || msg;
-        } catch {}
+          const res = await fetchWithTimeout(
+            endpoint,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: form.toString(),
+            },
+            20_000,
+          );
+          if (res.ok) {
+            const body = await res.json();
+            setToken(body.access_token);
+            return body.access_token;
+          }
 
-        const shouldRetry = res.status === 502 || res.status === 503 || res.status === 504;
-        if (shouldRetry && attempt < maxAttempts) {
-          await sleep(1200 * attempt);
-          continue;
+          let msg = "Login failed";
+          try {
+            const b = await res.json();
+            msg = b.detail || msg;
+          } catch {}
+
+          const shouldRetry =
+            res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504;
+          if (shouldRetry) {
+            continue;
+          }
+          throw new Error(msg);
+        } catch (err: any) {
+          const message = String(err?.message || "");
+          if (isTransientNetworkError(message)) {
+            continue;
+          }
+          throw err;
         }
-        throw new Error(msg);
-      } catch (err: any) {
-        const message = String(err?.message || "");
-        if (attempt < maxAttempts && isTransientNetworkError(message)) {
-          await sleep(1200 * attempt);
-          continue;
-        }
-        throw err;
       }
+      if (attempt < maxAttempts) await sleep(1200 * attempt);
     }
     throw new Error("Login failed");
   },
