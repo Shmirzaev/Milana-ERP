@@ -104,6 +104,91 @@ export default function PackagingPage() {
     return out.map(({ size, quantity }) => ({ size, quantity }));
   }, [colorOrderItems, capacity]);
 
+  const packingPreview = useMemo(() => {
+    const perPackage = pkgItems
+      .map((it) => ({ size: String(it.size || "").trim(), qty: Math.max(0, Number(it.quantity || 0)) }))
+      .filter((it) => it.size && it.qty > 0);
+    const perPackageMap = new Map<string, number>();
+    for (const it of perPackage) perPackageMap.set(it.size, (perPackageMap.get(it.size) || 0) + it.qty);
+
+    const demandMap = new Map<string, number>();
+    for (const it of colorOrderItems) demandMap.set(String(it.size || ""), Math.max(0, Number(it.planned_quantity || 0)));
+
+    const packageTotal = perPackage.reduce((s, it) => s + it.qty, 0);
+    if (perPackage.length === 0 || packageTotal <= 0) {
+      return { fullCount: 0, notFullCount: 0, packageTotal: 0, partialPackages: [] as Array<{ index: number; items: Array<{ size: string; qty: number }>; total: number }> };
+    }
+
+    let fullByRecipe = Number.POSITIVE_INFINITY;
+    for (const it of perPackage) {
+      const demand = demandMap.get(it.size) || 0;
+      fullByRecipe = Math.min(fullByRecipe, Math.floor(demand / it.qty));
+    }
+    if (!Number.isFinite(fullByRecipe)) fullByRecipe = 0;
+
+    const targetCopies = Math.max(1, Number(copies || 1));
+    const fullCount = Math.max(0, Math.min(targetCopies, fullByRecipe));
+
+    const remainingMap = new Map<string, number>();
+    for (const [size, demand] of demandMap.entries()) {
+      const used = (perPackageMap.get(size) || 0) * fullCount;
+      remainingMap.set(size, Math.max(0, demand - used));
+    }
+    const remainingTotal = Array.from(remainingMap.values()).reduce((a, b) => a + b, 0);
+    const partialFromDemand = remainingTotal > 0 ? Math.ceil(remainingTotal / packageTotal) : 0;
+    const extraEmpty = Math.max(0, targetCopies - fullCount - partialFromDemand);
+
+    const partialPackages: Array<{ index: number; items: Array<{ size: string; qty: number }>; total: number }> = [];
+    for (let p = 0; p < partialFromDemand; p += 1) {
+      let capLeft = packageTotal;
+      const packItems: Array<{ size: string; qty: number }> = [];
+
+      for (const it of perPackage) {
+        if (capLeft <= 0) break;
+        const rem = remainingMap.get(it.size) || 0;
+        const take = Math.min(rem, it.qty, capLeft);
+        if (take > 0) {
+          packItems.push({ size: it.size, qty: take });
+          remainingMap.set(it.size, rem - take);
+          capLeft -= take;
+        }
+      }
+
+      if (capLeft > 0) {
+        let progress = true;
+        while (capLeft > 0 && progress) {
+          progress = false;
+          for (const it of perPackage) {
+            if (capLeft <= 0) break;
+            const rem = remainingMap.get(it.size) || 0;
+            if (rem > 0) {
+              const idx = packItems.findIndex((x) => x.size === it.size);
+              if (idx >= 0) packItems[idx].qty += 1;
+              else packItems.push({ size: it.size, qty: 1 });
+              remainingMap.set(it.size, rem - 1);
+              capLeft -= 1;
+              progress = true;
+            }
+          }
+        }
+      }
+
+      const total = packItems.reduce((s, x) => s + x.qty, 0);
+      partialPackages.push({ index: p + 1, items: packItems, total });
+    }
+
+    for (let i = 0; i < extraEmpty; i += 1) {
+      partialPackages.push({ index: partialFromDemand + i + 1, items: [], total: 0 });
+    }
+
+    return {
+      fullCount,
+      notFullCount: partialPackages.length,
+      packageTotal,
+      partialPackages,
+    };
+  }, [pkgItems, colorOrderItems, copies]);
+
   useEffect(() => {
     setPkgItems(autoPackageItems);
   }, [autoPackageItems]);
@@ -232,64 +317,105 @@ export default function PackagingPage() {
         <button className="btn btn-primary">{t("btn.savePackagingRecord")}</button>
       </form>
 
-      <form onSubmit={createPkg} className="card max-w-2xl space-y-3 p-6">
-        <h3 className="font-medium">{t("page.packaging.newPackage")}</h3>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="label">{t("field.color")}</label>
-            <input className="input" value={color} onChange={(e) => setColor(e.target.value)} />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <form onSubmit={createPkg} className="card space-y-3 p-6">
+          <h3 className="font-medium">{t("page.packaging.newPackage")}</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="label">{t("field.color")}</label>
+              <input className="input" value={color} onChange={(e) => setColor(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">{t("field.capacity")}</label>
+              <input className="input" type="number" value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} />
+            </div>
+            <label className="mb-2 flex items-end gap-2 text-sm">
+              <input type="checkbox" checked={overrideCap} onChange={(e) => setOverrideCap(e.target.checked)} />
+              {t("page.packaging.adminOverride")}
+            </label>
+            <div>
+              <label className="label">Copies</label>
+              <input
+                className="input"
+                min={1}
+                type="number"
+                value={copies}
+                onChange={(e) => {
+                  setCopiesTouched(true);
+                  setCopies(Math.max(1, Number(e.target.value) || 1));
+                }}
+              />
+            </div>
           </div>
-          <div>
-            <label className="label">{t("field.capacity")}</label>
-            <input className="input" type="number" value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} />
+          <div className="text-xs text-slate-500">
+            Auto mix from order breakdown for selected color. Example: capacity 60 with 6 equal sizes = 10 per size.
           </div>
-          <label className="mb-2 flex items-end gap-2 text-sm">
-            <input type="checkbox" checked={overrideCap} onChange={(e) => setOverrideCap(e.target.checked)} />
-            {t("page.packaging.adminOverride")}
-          </label>
-          <div>
-            <label className="label">Copies</label>
-            <input
-              className="input"
-              min={1}
-              type="number"
-              value={copies}
-              onChange={(e) => {
-                setCopiesTouched(true);
-                setCopies(Math.max(1, Number(e.target.value) || 1));
-              }}
-            />
-          </div>
-        </div>
-        <div className="text-xs text-slate-500">
-          Auto mix from order breakdown for selected color. Example: capacity 60 with 6 equal sizes = 10 per size.
-        </div>
 
-        <h4 className="text-sm font-medium">{t("page.packaging.sizesInPackage")}</h4>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>{t("field.size")}</th>
-              <th>{t("field.qty")}</th>
-              <th>{t("field.actions")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pkgItems.map((it, i) => (
-              <tr key={i}>
-                <td><input className="input" value={it.size} onChange={(e) => setPkgItems(pkgItems.map((x, j) => (j === i ? { ...x, size: e.target.value } : x)))} /></td>
-                <td><input className="input" type="number" value={it.quantity} onChange={(e) => setPkgItems(pkgItems.map((x, j) => (j === i ? { ...x, quantity: Number(e.target.value) } : x)))} /></td>
-                <td><button type="button" className="btn btn-danger" onClick={() => setPkgItems(pkgItems.filter((_, j) => j !== i))}>{t("btn.remove")}</button></td>
+          <h4 className="text-sm font-medium">{t("page.packaging.sizesInPackage")}</h4>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>{t("field.size")}</th>
+                <th>{t("field.qty")}</th>
+                <th>{t("field.actions")}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: 0 }])}>{t("btn.addSize")}</button>
-        <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
+            </thead>
+            <tbody>
+              {pkgItems.map((it, i) => (
+                <tr key={i}>
+                  <td><input className="input" value={it.size} onChange={(e) => setPkgItems(pkgItems.map((x, j) => (j === i ? { ...x, size: e.target.value } : x)))} /></td>
+                  <td><input className="input" type="number" value={it.quantity} onChange={(e) => setPkgItems(pkgItems.map((x, j) => (j === i ? { ...x, quantity: Number(e.target.value) } : x)))} /></td>
+                  <td><button type="button" className="btn btn-danger" onClick={() => setPkgItems(pkgItems.filter((_, j) => j !== i))}>{t("btn.remove")}</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: 0 }])}>{t("btn.addSize")}</button>
+          <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 
-        <button className="btn btn-primary">{copies > 1 ? `Create ${copies} Copies` : t("btn.createPackage")}</button>
-        {msg && <div className="text-sm text-red-600">{msg}</div>}
-      </form>
+          <button className="btn btn-primary">{copies > 1 ? `Create ${copies} Copies` : t("btn.createPackage")}</button>
+          {msg && <div className="text-sm text-red-600">{msg}</div>}
+        </form>
+
+        <div className="card p-6">
+          <h3 className="font-medium">Partial / Not Full Packages</h3>
+          <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+            <div className="rounded-md border border-[#ecebe3] p-3">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Full packages</div>
+              <div className="text-xl font-semibold">{packingPreview.fullCount}</div>
+            </div>
+            <div className="rounded-md border border-[#ecebe3] p-3">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Not full packages</div>
+              <div className="text-xl font-semibold">{packingPreview.notFullCount}</div>
+            </div>
+            <div className="rounded-md border border-[#ecebe3] p-3">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Pack capacity</div>
+              <div className="text-xl font-semibold">{packingPreview.packageTotal}</div>
+            </div>
+          </div>
+          <div className="mt-4 text-xs text-slate-500">
+            Preview is calculated from selected color order quantities and current size mix.
+          </div>
+          <div className="mt-3 space-y-2">
+            {packingPreview.partialPackages.length === 0 ? (
+              <div className="rounded-md border border-[#ecebe3] px-3 py-2 text-sm text-slate-500">No partial packages expected.</div>
+            ) : (
+              packingPreview.partialPackages.map((p) => (
+                <div key={p.index} className="rounded-md border border-[#ecebe3] px-3 py-2">
+                  <div className="text-sm font-medium">
+                    Package #{p.index} - {p.total}/{packingPreview.packageTotal}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-600">
+                    {p.items.length
+                      ? p.items.map((x) => `${x.size}: ${x.qty}`).join(" | ")
+                      : "Empty package (extra copy above required quantity)."}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
 
       {pkg && (
         <div className="card mt-6 p-4">
