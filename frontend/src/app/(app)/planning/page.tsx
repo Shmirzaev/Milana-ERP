@@ -203,8 +203,9 @@ export default function PlanningDashboard() {
       </div>
 
       {estimateForm && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4">
-          <div className="card w-full max-w-4xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-40 bg-black/40">
+          <div className="absolute inset-0 overflow-y-auto p-4 md:p-6">
+            <div className="card w-full max-w-4xl mx-auto p-5 space-y-4">
             <div className="text-lg font-semibold">Planning Estimate for {estimateForm.orderNo}</div>
             {(() => {
               const materialCost = num(estimateForm.materialCost);
@@ -411,6 +412,7 @@ export default function PlanningDashboard() {
               </button>
             </div>
           </div>
+        </div>
         </div>
       )}
 
