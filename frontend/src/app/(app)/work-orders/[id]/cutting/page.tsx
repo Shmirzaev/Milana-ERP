@@ -19,6 +19,14 @@ export default function CuttingPage() {
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
   const { data: batches } = useSWR<any[]>("/api/inventory/batches", fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
+  const orderQtyByKey = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const it of po?.items || []) {
+      const key = `${String(it?.color || "").trim().toLowerCase()}||${String(it?.size || "").trim().toLowerCase()}`;
+      map.set(key, Number(it?.planned_quantity || 0));
+    }
+    return map;
+  }, [po?.items]);
 
   const [form, setForm] = useState({
     fabric_batch_id: 0,
@@ -41,13 +49,14 @@ export default function CuttingPage() {
     if (!Array.isArray(po?.items) || po.items.length === 0) return;
     const hasPrintingStage = Array.isArray(po?.work_orders) && po.work_orders.some((w: any) => w.operation === "printing");
     const nextStage: "sewing" | "printing" = hasPrintingStage ? "printing" : "sewing";
+    const defaultBundleQty = 50;
     const prefilled = po.items
       .filter((it: any) => Number(it?.planned_quantity || 0) > 0)
       .map((it: any) => ({
         color: String(it?.color || "").trim() || "-",
         size: String(it?.size || "").trim() || "-",
-        quantity: Number(it?.planned_quantity || 0),
-        count: 1,
+        quantity: defaultBundleQty,
+        count: Math.max(1, Math.ceil(Number(it?.planned_quantity || 0) / defaultBundleQty)),
         next: nextStage,
       }));
     if (prefilled.length > 0) {
@@ -58,6 +67,16 @@ export default function CuttingPage() {
 
   function setB(i: number, p: Partial<BundlePlan>) {
     setBundles(bundles.map((b, j) => (i === j ? { ...b, ...p } : b)));
+  }
+  function setBQty(i: number, nextQtyRaw: number) {
+    const nextQty = Math.max(1, Number(nextQtyRaw || 0));
+    setBundles((prev) => prev.map((b, j) => {
+      if (i !== j) return b;
+      const key = `${String(b.color || "").trim().toLowerCase()}||${String(b.size || "").trim().toLowerCase()}`;
+      const targetQty = orderQtyByKey.get(key) ?? (Number(b.quantity || 0) * Number(b.count || 1));
+      const nextCount = Math.max(1, Math.ceil(Number(targetQty || 0) / nextQty));
+      return { ...b, quantity: nextQty, count: nextCount };
+    }));
   }
   function addB() {
     const first = bundles[0];
@@ -214,7 +233,7 @@ export default function CuttingPage() {
                 <tr key={i}>
                   <td><input className="input" value={b.color} onChange={(e) => setB(i, { color: e.target.value })} /></td>
                   <td><input className="input" value={b.size} onChange={(e) => setB(i, { size: e.target.value })} /></td>
-                  <td><input className="input" type="number" value={b.quantity} onChange={(e) => setB(i, { quantity: Number(e.target.value) })} /></td>
+                  <td><input className="input" type="number" value={b.quantity} onChange={(e) => setBQty(i, Number(e.target.value))} /></td>
                   <td><input className="input" type="number" value={b.count} onChange={(e) => setB(i, { count: Number(e.target.value) })} /></td>
                   <td>
                     <select className="input" value={b.next} onChange={(e) => setB(i, { next: e.target.value as any })}>
