@@ -24,7 +24,9 @@ export default function PackagingPage() {
   const [color, setColor] = useState("white");
   const [copies, setCopies] = useState(1);
   const [copiesTouched, setCopiesTouched] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [recMsg, setRecMsg] = useState("");
+  const [pkgNotice, setPkgNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [pkg, setPkg] = useState<any>(null);
 
   const colorOrderItems = useMemo(() => {
@@ -199,18 +201,19 @@ export default function PackagingPage() {
 
   async function submitRec(e: React.FormEvent) {
     e.preventDefault();
-    setMsg("");
+    setRecMsg("");
     try {
       await api.post("/api/packaging/records", { work_order_id: id, ...rec });
-      setMsg(t("msg.saved"));
+      setRecMsg(t("msg.saved"));
     } catch (e: any) {
-      setMsg(e.message);
+      setRecMsg(e.message);
     }
   }
 
   async function createPkg(e: React.FormEvent) {
     e.preventDefault();
-    setMsg("");
+    setPkgNotice(null);
+    setIsCreating(true);
     try {
       const payload = {
         production_order_id: wo?.production_order_id,
@@ -225,16 +228,29 @@ export default function PackagingPage() {
       if (copies > 1) {
         const r = await api.post("/api/packages/bulk", { ...payload, count: copies });
         setPkg({ id: r.package_ids?.[0], package_no: r.package_nos?.[0], barcode: "bulk" });
-        setMsg(`Created ${r.count} packages.`);
+        const createdCount = Number(r?.count || copies || 0);
+        const firstPackageNo = r?.package_nos?.[0];
+        setPkgNotice({
+          type: "success",
+          text: firstPackageNo
+            ? `Created ${createdCount} packages successfully. First package: ${firstPackageNo}`
+            : `Created ${createdCount} packages successfully.`,
+        });
         if (r.package_ids?.length) {
           await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${r.package_ids.join(",")}`);
         }
       } else {
         const r = await api.post("/api/packages", payload);
         setPkg(r);
+        setPkgNotice({
+          type: "success",
+          text: `Package ${r?.package_no || "#"} created successfully.`,
+        });
       }
     } catch (e: any) {
-      setMsg(e.message);
+      setPkgNotice({ type: "error", text: e?.message || "Failed to create package." });
+    } finally {
+      setIsCreating(false);
     }
   }
 
@@ -315,6 +331,7 @@ export default function PackagingPage() {
           <input className="input" value={rec.packaging_material_used} onChange={(e) => setRec({ ...rec, packaging_material_used: e.target.value })} />
         </div>
         <button className="btn btn-primary">{t("btn.savePackagingRecord")}</button>
+        {recMsg && <div className="text-sm text-slate-600">{recMsg}</div>}
       </form>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -373,8 +390,20 @@ export default function PackagingPage() {
           <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: 0 }])}>{t("btn.addSize")}</button>
           <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 
-          <button className="btn btn-primary">{copies > 1 ? `Create ${copies} Copies` : t("btn.createPackage")}</button>
-          {msg && <div className="text-sm text-red-600">{msg}</div>}
+          <button className="btn btn-primary" disabled={isCreating}>
+            {isCreating ? "Creating..." : copies > 1 ? `Create ${copies} Copies` : t("btn.createPackage")}
+          </button>
+          {pkgNotice && (
+            <div
+              className={`rounded-md border px-3 py-2 text-sm ${
+                pkgNotice.type === "success"
+                  ? "border-green-300 bg-green-50 text-green-700"
+                  : "border-red-300 bg-red-50 text-red-700"
+              }`}
+            >
+              {pkgNotice.text}
+            </div>
+          )}
         </form>
 
         <div className="card p-6">
