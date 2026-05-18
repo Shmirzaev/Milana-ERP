@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -8,9 +9,56 @@ type N = {
   id: number;
   title: string;
   message: string | null;
+  link: string | null;
   is_read: boolean;
   created_at: string;
 };
+
+/**
+ * Fallback link derivation for notifications created before the backend
+ * started storing a `link` per row. Pattern-matches the title/message to
+ * route the user to the page where they should act.
+ *
+ * Order matters: more specific patterns first.
+ */
+function deriveLink(n: N): string | null {
+  if (n.link) return n.link;
+  const hay = `${n.title} ${n.message ?? ""}`;
+
+  // Bundle: "Bundle BND-... sent/received"
+  const bundleMatch = hay.match(/\bBND[-_][A-Z0-9-]+/i);
+  if (bundleMatch && /\bbundle\b/i.test(hay)) return "/bundles/scan";
+
+  // Package: "Package PKG-..."
+  const packageMatch = hay.match(/\bPKG[-_][A-Z0-9-]+/i);
+  if (packageMatch && /\bpackage\b/i.test(hay)) return "/packages/scan";
+
+  // Sales order: "Sales order SO-..." / "for SO-..." / "approved for SO-..."
+  const soMatch = hay.match(/\bSO[-_]\d+[-_]?\d*/i);
+  if (soMatch) {
+    if (/sent to planning|estimate approved|planning/i.test(hay)) return "/planning";
+    if (/estimate ready|approve/i.test(hay)) return "/sales-orders";
+    return "/sales-orders";
+  }
+
+  // Work order: "WO #123" or "work order #123"
+  const woMatch = hay.match(/\bWO\s*#?(\d+)|\bwork order\s*#?(\d+)/i);
+  if (woMatch) {
+    const wid = woMatch[1] || woMatch[2];
+    if (/sewing/i.test(hay)) return `/work-orders/${wid}/sewing`;
+    if (/printing/i.test(hay)) return `/work-orders/${wid}/printing`;
+    if (/cutting/i.test(hay)) return `/work-orders/${wid}/cutting`;
+    if (/packaging|packed/i.test(hay)) return `/work-orders/${wid}/packaging`;
+    return `/work-orders/${wid}`;
+  }
+
+  // Generic department-style messages
+  if (/awaiting packaging|packed goods|ready for storage/i.test(hay)) return "/packages";
+  if (/incoming cutting|printed pieces/i.test(hay)) return "/bundles/scan";
+  if (/shipment.*delivered|invoice/i.test(hay)) return "/finance";
+
+  return null;
+}
 
 /**
  * NotificationBell — "Live Ping" variant.
@@ -19,6 +67,7 @@ type N = {
  */
 export default function NotificationBell() {
   const { t } = useT();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
 
   const { data: count, mutate: mutateCount } = useSWR<{ count: number }>(
@@ -32,12 +81,17 @@ export default function NotificationBell() {
   );
 
   async function readOne(n: N) {
+    // Mark-as-read in the background; don't block navigation on the request.
     if (!n.is_read) {
-      try {
-        await api.post(`/api/notifications/${n.id}/read`);
-        mutateList();
-        mutateCount();
-      } catch {}
+      api.post(`/api/notifications/${n.id}/read`)
+        .then(() => { mutateList(); mutateCount(); })
+        .catch(() => {});
+    }
+    // Navigate to the place this notification is about.
+    const dest = deriveLink(n);
+    if (dest) {
+      setOpen(false);
+      router.push(dest);
     }
   }
 

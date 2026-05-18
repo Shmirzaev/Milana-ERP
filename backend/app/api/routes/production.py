@@ -271,6 +271,7 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: Curren
             db, user_id=wo.assigned_to,
             title=f"New job: {wo.operation} work order #{wo.id}",
             message=f"You were assigned to work order #{wo.id} ({wo.operation}, status: {wo.status}).",
+            link=f"/work-orders/{wo.id}/{wo.operation}",
         )
     log_action(db, current, "update", "WorkOrder", wo.id, new_value=changes)
     db.commit(); db.refresh(wo)
@@ -388,6 +389,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             department_code="PRT",
             title="Incoming cutting bundles",
             message=f"{to_printing} bundle(s) ready from WO #{wo.id}.",
+            link="/bundles/scan",
         )
     if to_sewing:
         notify_department(
@@ -395,6 +397,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             department_code="SEW",
             title="Incoming cutting bundles",
             message=f"{to_sewing} bundle(s) ready from WO #{wo.id}.",
+            link="/bundles/scan",
         )
 
     log_action(db, current, "create", "CuttingRecord", rec.id, new_value={"bundles": len(created_bundles)})
@@ -445,11 +448,16 @@ def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depe
     )
     advance_workflow(db, wo, trigger_output_qty=int(payload.passed_qty or 0))
     if int(payload.passed_qty or 0) > 0:
+        sew_wo = db.query(WorkOrder).filter(
+            WorkOrder.production_order_id == wo.production_order_id,
+            WorkOrder.operation == "sewing",
+        ).first()
         notify_department(
             db,
             department_code="SEW",
             title="Incoming printed pieces",
             message=f"WO #{wo.id} passed {payload.passed_qty} pcs.",
+            link=f"/work-orders/{sew_wo.id}/sewing" if sew_wo else "/bundles/scan",
         )
     log_action(db, current, "create", "PrintingRecord", rec.id, new_value={"work_order_id": wo.id})
     db.commit(); db.refresh(rec)
@@ -514,11 +522,16 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     )
     advance_workflow(db, wo, trigger_output_qty=int(payload.passed_qty or 0))
     if int(payload.passed_qty or 0) > 0:
+        pkg_wo = db.query(WorkOrder).filter(
+            WorkOrder.production_order_id == wo.production_order_id,
+            WorkOrder.operation == "packaging",
+        ).first()
         notify_department(
             db,
             department_code="PKG",
             title="Awaiting packaging",
             message=f"WO #{wo.id} has {payload.passed_qty} pcs ready for packaging.",
+            link=f"/work-orders/{pkg_wo.id}/packaging" if pkg_wo else "/packages",
         )
     log_action(db, current, "create", "SewingRecord", rec.id, new_value={"work_order_id": wo.id})
     db.commit(); db.refresh(rec)
@@ -587,6 +600,7 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
             department_code="FGS",
             title="Packed goods ready",
             message=f"WO #{wo.id} packed {payload.packed_qty} pcs and is ready for storage intake.",
+            link="/packages/scan",
         )
     log_action(db, current, "create", "PackagingRecord", rec.id, new_value={"work_order_id": wo.id})
     db.commit(); db.refresh(rec)

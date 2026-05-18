@@ -106,6 +106,7 @@ def notify_department(
     department_code: str,
     title: str,
     message: str | None = None,
+    link: str | None = None,
     exclude_user_id: int | None = None,
 ) -> int:
     dept = db.query(Department).filter(Department.code == department_code).first()
@@ -116,7 +117,7 @@ def notify_department(
     for u in users:
         if exclude_user_id and u.id == exclude_user_id:
             continue
-        db.add(Notification(user_id=u.id, title=title, message=message))
+        db.add(Notification(user_id=u.id, title=title, message=message, link=link))
         created += 1
     return created
 

@@ -43,7 +43,8 @@ def block_wo(wid: int, payload: BlockIn, db: DbSession, current: CurrentUser):
     if po and po.created_by and po.created_by != current.id:
         notify(db, user_id=po.created_by,
                title=f"Blocked: {wo.operation} WO #{wo.id}",
-               message=reason)
+               message=reason,
+               link=f"/work-orders/{wo.id}/{wo.operation}")
     db.commit()
     db.refresh(wo)
     return {"id": wo.id, "is_blocked": True, "block_reason": wo.block_reason}

@@ -90,6 +90,7 @@ def confirm_sales_order(sid: int, db: DbSession, current: User = Depends(require
         department_code="PLN",
         title=f"Sales order {so.order_no} sent to planning",
         message="Planning should calculate material usage, estimated cost, and lead time.",
+        link=f"/planning?so_id={so.id}",
         exclude_user_id=current.id,
     )
     log_action(db, current, "confirm", "SalesOrder", so.id)
@@ -116,6 +117,7 @@ def approve_planning_estimate(sid: int, db: DbSession, current: User = Depends(r
         department_code="PLN",
         title=f"Planning estimate approved for {so.order_no}",
         message="Sales approved the estimate. Create the production order now.",
+        link=f"/planning?so_id={so.id}",
         exclude_user_id=current.id,
     )
     log_action(db, current, "approve_planning", "SalesOrder", so.id)
@@ -194,6 +196,7 @@ def reserve_stock(sid: int, db: DbSession, current: User = Depends(require_permi
             department_code="PLN",
             title=f"Shortage detected for {so.order_no}",
             message=f"{len(shortages)} shortage line(s) were detected during reserve-stock.",
+            link=f"/sales-orders/{so.id}",
             exclude_user_id=current.id,
         )
     db.commit()

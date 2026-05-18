@@ -21,6 +21,28 @@ def _can_manage(user: User) -> bool:
     return "tasks.manage" in perms or "management.approve" in perms
 
 
+def _task_link(t: Task) -> str | None:
+    """Build a frontend URL for a task notification when the task references
+    a concrete entity. Returns None when no mapping exists."""
+    et = (t.entity_type or "").lower()
+    eid = t.entity_id
+    if not eid:
+        return None
+    mapping = {
+        "salesorder": f"/sales-orders/{eid}",
+        "sales_order": f"/sales-orders/{eid}",
+        "productionorder": f"/production-orders/{eid}",
+        "production_order": f"/production-orders/{eid}",
+        "workorder": f"/work-orders/{eid}",
+        "work_order": f"/work-orders/{eid}",
+        "bundle": f"/bundles/{eid}",
+        "package": f"/packages/{eid}",
+        "shipment": "/shipments",
+        "invoice": "/finance",
+    }
+    return mapping.get(et)
+
+
 @router.get("", response_model=list[TaskOut])
 def list_tasks(
     db: DbSession, current: CurrentUser,
@@ -73,6 +95,7 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
                 db, user_id=user.id,
                 title=f"New task: {t.title}",
                 message=(t.description or "")[:280],
+                link=_task_link(t),
             )
 
         first_task = created[0]
@@ -119,6 +142,7 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
             db, user_id=assigned,
             title=f"New task: {t.title}",
             message=(t.description or "")[:280],
+            link=_task_link(t),
         )
 
     log_action(db, current, "create", "Task", t.id, new_value={"title": t.title, "assigned_to": assigned})
@@ -168,6 +192,7 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
             db, user_id=t.assigned_to,
             title=f"Task reassigned to you: {t.title}",
             message=(t.description or "")[:280],
+            link=_task_link(t),
         )
 
     log_action(db, current, "update", "Task", t.id, new_value=changes)
@@ -200,6 +225,7 @@ def complete_task(tid: int, db: DbSession, current: CurrentUser):
             db, user_id=t.created_by,
             title=f"Task completed: {t.title}",
             message=f"Completed by user #{current.id}",
+            link=_task_link(t),
         )
     log_action(db, current, "complete", "Task", t.id)
     db.commit(); db.refresh(t)

@@ -48,5 +48,6 @@ class NotificationOut(ORMModel):
     user_id: int
     title: str
     message: Optional[str] = None
+    link: Optional[str] = None
     is_read: bool
     created_at: datetime

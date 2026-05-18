@@ -157,6 +157,7 @@ def submit_planning_estimate(
         department_code="SLS",
         title=f"Planning estimate ready for {so.order_no}",
         message="Review material usage, estimated cost, and estimated lead time, then approve.",
+        link=f"/sales-orders/{so.id}",
         exclude_user_id=current.id,
     )
     log_action(

@@ -136,6 +136,7 @@ def deliver(sid: int, db: DbSession, current: User = Depends(require_permissions
             department_code="FIN",
             title="Shipment delivered - draft invoice created",
             message=f"Shipment {sh.shipment_no} delivered. Invoice {inv.invoice_no} prepared.",
+            link="/finance",
             exclude_user_id=current.id,
         )
     log_action(db, current, "deliver", "Shipment", sh.id)

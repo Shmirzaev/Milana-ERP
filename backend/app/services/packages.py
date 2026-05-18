@@ -130,6 +130,7 @@ def create_package(
         department_code="FGS",
         title="New package packed",
         message=f"Package {pkg.package_no} is ready for storage receive.",
+        link="/packages/scan",
         exclude_user_id=user_id,
     )
     return pkg

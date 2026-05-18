@@ -59,5 +59,7 @@ class Notification(Base, PkMixin):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[str | None] = mapped_column(Text)
+    # Optional frontend route the user should land on when they click this notification.
+    link: Mapped[str | None] = mapped_column(String(512))
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
