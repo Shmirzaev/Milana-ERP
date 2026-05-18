@@ -31,13 +31,14 @@ type WO = {
 export default function SewingFlowsPage() {
   const { t } = useT();
   const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
 
   return (
     <div>
       <PageHeader title={t("page.sewingFlows.title")} subtitle={t("page.sewingFlows.subtitle")} />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {flows?.map((f) => {
+          const isExpanded = !!expanded[f.id];
           const pctDone = f.planned_units > 0 ? Math.min(100, Math.round(100 * f.completed_units / f.planned_units)) : 0;
           return (
           <div key={f.id} className="card p-4">
@@ -76,11 +77,11 @@ export default function SewingFlowsPage() {
             <button
               type="button"
               className="btn w-full justify-center"
-              onClick={() => setExpanded(expanded === f.id ? null : f.id)}
+              onClick={() => setExpanded((prev) => ({ ...prev, [f.id]: !prev[f.id] }))}
             >
-              {expanded === f.id ? t("btn.cancel") : t("page.sewingFlows.assigned")}
+              {isExpanded ? t("btn.cancel") : t("page.sewingFlows.assigned")}
             </button>
-            {expanded === f.id && <FlowDetail flowId={f.id} />}
+            {isExpanded && <FlowDetail flowId={f.id} />}
           </div>
           );
         })}
