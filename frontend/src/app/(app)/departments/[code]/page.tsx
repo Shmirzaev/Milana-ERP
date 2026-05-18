@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -6,13 +6,14 @@ import useSWR from "swr";
 
 import PageHeader from "@/components/PageHeader";
 import { fetcher } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 const DEPT_LABELS: Record<string, string> = {
-  CUT: "Cutting Floor",
-  PRT: "Printing Floor",
-  SEW: "Sewing Floor",
-  PKG: "Packaging Floor",
-  FGS: "Ready Storage",
+  CUT: "nav.cuttingFloor",
+  PRT: "nav.printingFloor",
+  SEW: "nav.sewingFloor",
+  PKG: "nav.packagingFloor",
+  FGS: "nav.finishedGoods",
 };
 
 function woActionLink(wo: any) {
@@ -24,8 +25,10 @@ function woActionLink(wo: any) {
 }
 
 export default function DepartmentInboxPage() {
+  const { t } = useT();
   const params = useParams<{ code: string }>();
   const code = String(params.code || "").toUpperCase();
+  const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
   const { data, isLoading } = useSWR<any>(code ? `/api/inbox?dept=${code}` : null, fetcher, {
     refreshInterval: 10_000,
   });
@@ -33,31 +36,31 @@ export default function DepartmentInboxPage() {
   return (
     <div>
       <PageHeader
-        title={`${DEPT_LABELS[code] || code} Inbox`}
-        subtitle="Incoming, in-progress, and finished work for your department"
+        title={t("page.deptInbox.title", { dept: deptLabel })}
+        subtitle={t("page.deptInbox.subtitle")}
       />
-      {isLoading && <div className="card p-4 text-sm text-slate-500">Loading...</div>}
+      {isLoading && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
       {!isLoading && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <section className="card p-4">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Incoming ({(data?.incoming_bundles || []).length})
+              {t("page.deptInbox.incoming", { count: (data?.incoming_bundles || []).length })}
             </h3>
             <div className="space-y-2">
               {(data?.incoming_bundles || []).map((b: any) => (
                 <div key={b.id} className="rounded border border-slate-200 p-2 text-sm">
                   <div className="font-medium">{b.bundle_no}</div>
                   <div className="text-xs text-slate-500">{b.color} / {b.size} / {b.quantity}</div>
-                  <Link className="text-xs text-brand-600 hover:underline" href={`/bundles/${b.id}`}>Open bundle</Link>
+                  <Link className="text-xs text-brand-600 hover:underline" href={`/bundles/${b.id}`}>{t("page.deptInbox.openBundle")}</Link>
                 </div>
               ))}
-              {(data?.incoming_bundles || []).length === 0 && <div className="text-sm text-slate-400">No incoming bundles</div>}
+              {(data?.incoming_bundles || []).length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noIncomingBundles")}</div>}
             </div>
           </section>
 
           <section className="card p-4">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              In Progress ({(data?.active_work_orders || []).length})
+              {t("page.deptInbox.inProgress", { count: (data?.active_work_orders || []).length })}
             </h3>
             <div className="space-y-2">
               {(data?.active_work_orders || []).map((w: any) => (
@@ -66,27 +69,27 @@ export default function DepartmentInboxPage() {
                     <div className="font-medium">WO #{w.id} ({w.operation})</div>
                     <span className="badge">{w.status}</span>
                   </div>
-                  <div className="text-xs text-slate-500">passed {w.passed_qty} / planned {w.planned_output_qty}</div>
-                  <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>Open</Link>
+                  <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
+                  <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
                 </div>
               ))}
-              {(data?.active_work_orders || []).length === 0 && <div className="text-sm text-slate-400">No active work orders</div>}
+              {(data?.active_work_orders || []).length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noActiveWorkOrders")}</div>}
             </div>
           </section>
 
           <section className="card p-4">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Done Today ({(data?.done_today || []).length})
+              {t("page.deptInbox.doneToday", { count: (data?.done_today || []).length })}
             </h3>
             <div className="space-y-2">
               {(data?.done_today || []).map((w: any) => (
                 <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
                   <div className="font-medium">WO #{w.id} ({w.operation})</div>
-                  <div className="text-xs text-slate-500">passed {w.passed_qty}</div>
-                  <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${w.production_order_id}`}>View order</Link>
+                  <div className="text-xs text-slate-500">{t("page.deptInbox.passedOnly", { passed: w.passed_qty })}</div>
+                  <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${w.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
                 </div>
               ))}
-              {(data?.done_today || []).length === 0 && <div className="text-sm text-slate-400">Nothing completed in the last 24h</div>}
+              {(data?.done_today || []).length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.nothingCompleted24h")}</div>}
             </div>
           </section>
         </div>
@@ -94,10 +97,10 @@ export default function DepartmentInboxPage() {
 
       {code === "PKG" && data?.awaiting_packaging?.length > 0 && (
         <div className="card mt-4 p-4">
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Awaiting Packaging</h3>
+          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")}</h3>
           <table className="table">
             <thead>
-              <tr><th>Production</th><th>Ready qty</th><th>Sewn</th><th>Packed</th></tr>
+              <tr><th>{t("field.production")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
             </thead>
             <tbody>
               {data.awaiting_packaging.map((r: any) => (
@@ -117,26 +120,26 @@ export default function DepartmentInboxPage() {
         <div className="grid grid-cols-1 gap-4 mt-4 lg:grid-cols-2">
           <section className="card p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Pending Package Intake ({(data?.pending_packages || []).length})
+              {t("page.deptInbox.pendingPackageIntake", { count: (data?.pending_packages || []).length })}
             </h3>
             <table className="table">
-              <thead><tr><th>Package</th><th>SO</th><th>Qty</th></tr></thead>
+              <thead><tr><th>{t("field.package")}</th><th>{t("field.salesOrderShort")}</th><th>{t("field.qty")}</th></tr></thead>
               <tbody>
                 {(data?.pending_packages || []).map((p: any) => (
-                  <tr key={p.id}><td>{p.package_no}</td><td>{p.sales_order_id || "â€”"}</td><td>{p.total_quantity}</td></tr>
+                  <tr key={p.id}><td>{p.package_no}</td><td>{p.sales_order_id || "-"}</td><td>{p.total_quantity}</td></tr>
                 ))}
               </tbody>
             </table>
           </section>
           <section className="card p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Ready To Ship ({(data?.ready_to_ship || []).length} orders)
+              {t("page.deptInbox.readyToShip", { count: (data?.ready_to_ship || []).length })}
             </h3>
             <table className="table">
-              <thead><tr><th>SO</th><th>Packages</th><th>Qty</th></tr></thead>
+              <thead><tr><th>{t("field.salesOrderShort")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th></tr></thead>
               <tbody>
                 {(data?.ready_to_ship || []).map((r: any, idx: number) => (
-                  <tr key={`${r.sales_order_id}-${idx}`}><td>{r.sales_order_id || "â€”"}</td><td>{r.packages}</td><td>{r.quantity}</td></tr>
+                  <tr key={`${r.sales_order_id}-${idx}`}><td>{r.sales_order_id || "-"}</td><td>{r.packages}</td><td>{r.quantity}</td></tr>
                 ))}
               </tbody>
             </table>

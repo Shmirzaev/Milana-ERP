@@ -111,7 +111,7 @@ export default function CuttingPage() {
       });
       const created = Array.isArray(r?.bundles) ? r.bundles : [];
       setCreatedBundles(created);
-      setDoneMsg(`Done: ${created.length} bundles created successfully.`);
+      setDoneMsg(t("msg.cuttingDone", { count: created.length }));
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -132,45 +132,45 @@ export default function CuttingPage() {
       <div className="card mb-4 p-4">
         <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Sales Order</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.shipments.salesOrder")}</div>
             <div className="font-medium">{so?.order_no || (po?.sales_order_id ? `#${po.sales_order_id}` : "-")}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Customer</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.customer")}</div>
             <div className="font-medium">{so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : "-"}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Model</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.model")}</div>
             <div className="font-medium">{model ? `${model.code} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-")}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Production Order</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.productionOrder")}</div>
             <div className="font-medium">{po?.production_no || (po?.id ? `#${po.id}` : "-")}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Planned Qty</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.plannedQty")}</div>
             <div className="font-medium">{po?.planned_quantity ?? wo?.planned_output_qty ?? 0}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Status</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("common.status")}</div>
             <div className="font-medium">{wo?.status || "-"}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Sales Deadline</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.salesDeadline")}</div>
             <div className="font-medium">{d(so?.deadline)}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">PO Deadline</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.poDeadline")}</div>
             <div className="font-medium">{d(po?.deadline)}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">WO Deadline</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.woDeadline")}</div>
             <div className="font-medium">{d(wo?.deadline)}</div>
           </div>
         </div>
         {Array.isArray(po?.items) && po.items.length > 0 && (
           <div className="mt-3 border-t border-[#ecebe3] pt-3">
-            <div className="mb-2 text-xs uppercase tracking-wide text-slate-500">Order Breakdown (Color / Size / Qty)</div>
+            <div className="mb-2 text-xs uppercase tracking-wide text-slate-500">{t("page.workOrder.breakdown")}</div>
             <div className="flex flex-wrap gap-2">
               {po.items.map((it: any) => (
                 <span key={it.id} className="rounded-full bg-[#f5f2e8] px-3 py-1 text-xs text-[#5d5747]">
@@ -264,13 +264,13 @@ export default function CuttingPage() {
         {doneMsg && <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{doneMsg}</div>}
         {err && <div className="text-sm text-red-600">{err}</div>}
         <button className="btn btn-primary" disabled={submitting}>
-          {submitting ? "Creating bundles..." : t("btn.saveCreateBundles")}
+          {submitting ? t("msg.creatingBundles") : t("btn.saveCreateBundles")}
         </button>
       </form>
 
       {createdBundles.length > 0 && (
         <div className="card mt-6 p-4">
-          <h3 className="mb-2 font-medium">{t("page.cutting.bundlesCreated")} <span className="text-green-700">- Done</span></h3>
+          <h3 className="mb-2 font-medium">{t("page.cutting.bundlesCreated")}</h3>
           <table className="table">
             <thead>
               <tr>

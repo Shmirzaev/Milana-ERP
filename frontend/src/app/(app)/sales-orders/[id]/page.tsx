@@ -29,7 +29,7 @@ export default function SalesOrderDetail() {
   }
   async function approvePlanning() {
     await api.post(`/api/sales-orders/${id}/approve-planning`);
-    setMsg("Planning estimate approved and sent back to Planning for PO creation.");
+    setMsg(t("msg.planningApproved"));
     mutate();
   }
 
@@ -43,7 +43,7 @@ export default function SalesOrderDetail() {
         actions={
           <div className="flex gap-2">
             {so.status === "draft" && <button className="btn btn-primary" onClick={confirm}>{t("btn.confirm")}</button>}
-            {so.status === "pending_sales_approval" && <button className="btn btn-primary" onClick={approvePlanning}>Approve Planning Estimate</button>}
+            {so.status === "pending_sales_approval" && <button className="btn btn-primary" onClick={approvePlanning}>{t("btn.approvePlanningEstimate")}</button>}
             {so.order_type === "branded_stock_sale" && <button className="btn" onClick={reserveStock}>{t("btn.reserveStock")}</button>}
           </div>
         }
@@ -59,31 +59,31 @@ export default function SalesOrderDetail() {
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.total")}</dt><dd>${Number(so.total_amount).toFixed(2)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.deadline")}</dt><dd>{so.deadline ? new Date(so.deadline).toLocaleDateString() : "—"}</dd></div>
             {so.planning_estimated_material_cost !== null && so.planning_estimated_material_cost !== undefined && (
-              <div className="flex justify-between"><dt className="text-slate-500">Planning material cost</dt><dd>${Number(so.planning_estimated_material_cost).toFixed(2)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.planningMaterialCost")}</dt><dd>${Number(so.planning_estimated_material_cost).toFixed(2)}</dd></div>
             )}
             {so.planning_estimated_labor_cost !== null && so.planning_estimated_labor_cost !== undefined && (
-              <div className="flex justify-between"><dt className="text-slate-500">Planning labor expense</dt><dd>${Number(so.planning_estimated_labor_cost).toFixed(2)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.planningLaborCost")}</dt><dd>${Number(so.planning_estimated_labor_cost).toFixed(2)}</dd></div>
             )}
             {so.planning_estimated_electricity_cost !== null && so.planning_estimated_electricity_cost !== undefined && (
-              <div className="flex justify-between"><dt className="text-slate-500">Planning electricity expense</dt><dd>${Number(so.planning_estimated_electricity_cost).toFixed(2)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.planningElectricityCost")}</dt><dd>${Number(so.planning_estimated_electricity_cost).toFixed(2)}</dd></div>
             )}
             {so.planning_estimated_other_cost !== null && so.planning_estimated_other_cost !== undefined && (
-              <div className="flex justify-between"><dt className="text-slate-500">Planning other expenses</dt><dd>${Number(so.planning_estimated_other_cost).toFixed(2)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.planningOtherCost")}</dt><dd>${Number(so.planning_estimated_other_cost).toFixed(2)}</dd></div>
             )}
             {so.planning_estimated_net_cost !== null && so.planning_estimated_net_cost !== undefined && (
-              <div className="flex justify-between"><dt className="text-slate-500">Planning net price</dt><dd>${Number(so.planning_estimated_net_cost).toFixed(2)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.planningNetPrice")}</dt><dd>${Number(so.planning_estimated_net_cost).toFixed(2)}</dd></div>
             )}
             {so.planning_suggested_price_15 !== null && so.planning_suggested_price_15 !== undefined && (
-              <div className="flex justify-between"><dt className="text-slate-500">Price with 15% profit</dt><dd>${Number(so.planning_suggested_price_15).toFixed(2)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.priceWithProfit15")}</dt><dd>${Number(so.planning_suggested_price_15).toFixed(2)}</dd></div>
             )}
             {so.planning_suggested_price_20 !== null && so.planning_suggested_price_20 !== undefined && (
-              <div className="flex justify-between"><dt className="text-slate-500">Price with 20% profit</dt><dd>${Number(so.planning_suggested_price_20).toFixed(2)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.priceWithProfit20")}</dt><dd>${Number(so.planning_suggested_price_20).toFixed(2)}</dd></div>
             )}
             {so.planning_estimated_lead_time_minutes !== null && so.planning_estimated_lead_time_minutes !== undefined && (
-              <div className="flex justify-between"><dt className="text-slate-500">Planning lead time</dt><dd>{(Number(so.planning_estimated_lead_time_minutes) / 60).toFixed(2)} h</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.planningLeadTime")}</dt><dd>{(Number(so.planning_estimated_lead_time_minutes) / 60).toFixed(2)} h</dd></div>
             )}
             {so.planning_estimate_comment && (
-              <div className="flex justify-between gap-3"><dt className="text-slate-500">Planning comment</dt><dd className="text-right">{so.planning_estimate_comment}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-slate-500">{t("page.soDetail.planningComment")}</dt><dd className="text-right">{so.planning_estimate_comment}</dd></div>
             )}
           </dl>
         </div>
@@ -102,14 +102,14 @@ export default function SalesOrderDetail() {
 
       {activeProcess && (
         <div className="card mb-6 p-4">
-          <h3 className="mb-2 font-medium">Current Production Stage</h3>
+          <h3 className="mb-2 font-medium">{t("page.soDetail.currentProductionStage")}</h3>
           <div className="mb-2 text-sm text-slate-600">
             {activeProcess.production_no} · {activeProcess.current_stage} · {activeProcess.current_stage_status || "in_progress"}
           </div>
           <StagePipeline currentStage={activeProcess.current_stage} stages={activeProcess.stages} compact={false} />
           {activeProcess.po_deadline && (
             <div className="mt-2 text-xs text-slate-500">
-              ETA / deadline: {new Date(activeProcess.po_deadline).toLocaleDateString()}
+              {t("page.soDetail.etaDeadline")}: {new Date(activeProcess.po_deadline).toLocaleDateString()}
             </div>
           )}
         </div>

@@ -182,17 +182,17 @@ export default function PlanningDashboard() {
                 <td>
                   {o.status === "confirmed" && (
                     <button className="btn" disabled={busyOrderId === o.id} onClick={() => openEstimateDialog(o.id)}>
-                      {busyOrderId === o.id ? "Loading..." : "Send Estimate to Sales"}
+                      {busyOrderId === o.id ? t("common.loading") : t("btn.sendEstimateToSales")}
                     </button>
                   )}
                   {o.status === "pending_sales_approval" && (
                     <button className="btn" disabled>
-                      Waiting Sales Approval
+                      {t("page.planning.waitingSalesApproval")}
                     </button>
                   )}
                   {o.status === "planning_approved" && (
                     <button className="btn btn-primary" disabled={busyOrderId === o.id} onClick={() => createPOForSO(o.id)}>
-                      {busyOrderId === o.id ? "Creating..." : t("btn.createProductionOrder")}
+                      {busyOrderId === o.id ? t("common.creating") : t("btn.createProductionOrder")}
                     </button>
                   )}
                 </td>
@@ -206,7 +206,7 @@ export default function PlanningDashboard() {
         <div className="fixed inset-0 z-40 bg-black/40">
           <div className="absolute inset-0 overflow-y-auto p-4 md:p-6">
             <div className="card w-full max-w-4xl mx-auto p-5 space-y-4">
-            <div className="text-lg font-semibold">Planning Estimate for {estimateForm.orderNo}</div>
+            <div className="text-lg font-semibold">{t("page.planning.estimateFor", { orderNo: estimateForm.orderNo })}</div>
             {(() => {
               const materialCost = num(estimateForm.materialCost);
               const laborPercent = num(estimateForm.laborPercent);
@@ -222,7 +222,7 @@ export default function PlanningDashboard() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
-                      <label className="label">Estimated Material Cost</label>
+                      <label className="label">{t("field.estimatedMaterialCost")}</label>
                       <input
                         className="input"
                         type="number"
@@ -233,7 +233,7 @@ export default function PlanningDashboard() {
                       />
                     </div>
                     <div>
-                      <label className="label">Estimated Lead Time (hours)</label>
+                      <label className="label">{t("field.estimatedLeadHours")}</label>
                       <input
                         className="input"
                         type="number"
@@ -246,20 +246,20 @@ export default function PlanningDashboard() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="text-xs text-slate-500">
-                      Overhead is calculated as approximate percentages of total material/accessory cost.
+                      {t("page.planning.overheadHint")}
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="card p-3">
-                      <div className="text-xs text-slate-500 uppercase tracking-wide">Net Price</div>
+                      <div className="text-xs text-slate-500 uppercase tracking-wide">{t("page.planning.netPrice")}</div>
                       <div className="text-lg font-semibold">${netPrice.toFixed(2)}</div>
                     </div>
                     <div className="card p-3">
-                      <div className="text-xs text-slate-500 uppercase tracking-wide">Price (+15% Profit)</div>
+                      <div className="text-xs text-slate-500 uppercase tracking-wide">{t("page.planning.priceWithProfit15")}</div>
                       <div className="text-lg font-semibold">${price15.toFixed(2)}</div>
                     </div>
                     <div className="card p-3">
-                      <div className="text-xs text-slate-500 uppercase tracking-wide">Price (+20% Profit)</div>
+                      <div className="text-xs text-slate-500 uppercase tracking-wide">{t("page.planning.priceWithProfit20")}</div>
                       <div className="text-lg font-semibold">${price20.toFixed(2)}</div>
                     </div>
                   </div>
@@ -288,10 +288,10 @@ export default function PlanningDashboard() {
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Item</th>
-                        <th>Usage</th>
-                        <th>Unit Cost</th>
-                        <th>Total Cost</th>
+                        <th>{t("field.item")}</th>
+                        <th>{t("field.usage")}</th>
+                        <th>{t("field.unitCost")}</th>
+                        <th>{t("field.totalCost")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -314,28 +314,28 @@ export default function PlanningDashboard() {
               return (
                 <div className="space-y-4">
                   <div>
-                    <div className="text-sm font-semibold mb-2">Material Usage and Cost</div>
-                    {materialRows.length > 0 ? renderEstimateRows(materialRows) : <div className="text-sm text-slate-500">No material rows from model BOM.</div>}
+                    <div className="text-sm font-semibold mb-2">{t("page.planning.materialUsageCost")}</div>
+                    {materialRows.length > 0 ? renderEstimateRows(materialRows) : <div className="text-sm text-slate-500">{t("page.planning.noMaterialRows")}</div>}
                   </div>
                   <div>
-                    <div className="text-sm font-semibold mb-2">Accessories Usage and Cost</div>
-                    {accessoryRows.length > 0 ? renderEstimateRows(accessoryRows) : <div className="text-sm text-slate-500">No accessory rows from model BOM.</div>}
+                    <div className="text-sm font-semibold mb-2">{t("page.planning.accessoryUsageCost")}</div>
+                    {accessoryRows.length > 0 ? renderEstimateRows(accessoryRows) : <div className="text-sm text-slate-500">{t("page.planning.noAccessoryRows")}</div>}
                   </div>
                   <div>
-                    <div className="text-sm font-semibold mb-2">Other Expenses (Approx.)</div>
+                    <div className="text-sm font-semibold mb-2">{t("page.planning.otherExpensesApprox")}</div>
                     <div className="overflow-x-auto">
                       <table className="table">
                         <thead>
                           <tr>
-                            <th>Expense</th>
-                            <th>Approx. %</th>
-                            <th>Base Cost</th>
-                            <th>Approx. Cost</th>
+                            <th>{t("field.expense")}</th>
+                            <th>{t("field.approxPercent")}</th>
+                            <th>{t("field.baseCost")}</th>
+                            <th>{t("field.approxCost")}</th>
                           </tr>
                         </thead>
                         <tbody>
                           <tr>
-                            <td>Labor</td>
+                            <td>{t("expense.labor")}</td>
                             <td>
                               <input
                                 className="input"
@@ -350,7 +350,7 @@ export default function PlanningDashboard() {
                             <td>${laborCost.toFixed(2)}</td>
                           </tr>
                           <tr>
-                            <td>Electricity</td>
+                            <td>{t("expense.electricity")}</td>
                             <td>
                               <input
                                 className="input"
@@ -365,7 +365,7 @@ export default function PlanningDashboard() {
                             <td>${electricityCost.toFixed(2)}</td>
                           </tr>
                           <tr>
-                            <td>Other Expenses</td>
+                            <td>{t("expense.other")}</td>
                             <td>
                               <input
                                 className="input"
@@ -387,7 +387,7 @@ export default function PlanningDashboard() {
               );
             })()}
             <div>
-              <label className="label">Planning Deadline</label>
+              <label className="label">{t("field.planningDeadline")}</label>
               <input
                 className="input"
                 type="date"
@@ -397,18 +397,18 @@ export default function PlanningDashboard() {
               />
             </div>
             <div>
-              <label className="label">Planning Comment</label>
+              <label className="label">{t("field.planningComment")}</label>
               <textarea
                 className="input min-h-24"
-                placeholder="Optional comment for Sales approval"
+                placeholder={t("ph.salesApprovalComment")}
                 value={estimateForm.comment}
                 onChange={(e) => setEstimateForm({ ...estimateForm, comment: e.target.value })}
               />
             </div>
             <div className="flex justify-end gap-2">
-              <button className="btn" onClick={() => setEstimateForm(null)} disabled={busyOrderId === estimateForm.orderId}>Cancel</button>
+              <button className="btn" onClick={() => setEstimateForm(null)} disabled={busyOrderId === estimateForm.orderId}>{t("btn.cancel")}</button>
               <button className="btn btn-primary" onClick={submitEstimateToSales} disabled={busyOrderId === estimateForm.orderId || !estimateForm.deadline}>
-                {busyOrderId === estimateForm.orderId ? "Sending..." : "Send to Sales"}
+                {busyOrderId === estimateForm.orderId ? t("btn.sending") : t("btn.sendToSales")}
               </button>
             </div>
           </div>

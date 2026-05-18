@@ -77,7 +77,7 @@ export default function ProductionOrderDetail() {
     catch (e: any) { alert(e.message); }
   }
   async function blockWO(wid: number) {
-    const reason = prompt("Reason for blocking?");
+    const reason = prompt(t("page.poDetail.blockReasonPrompt"));
     if (!reason) return;
     try { await api.post(`/api/work-orders/${wid}/block`, { reason }); mutate(); }
     catch (e: any) { alert(e.message); }
@@ -88,15 +88,15 @@ export default function ProductionOrderDetail() {
   }
 
   async function repairTotals() {
-    if (!confirm("Recalculate and repair stage totals for this production order?")) return;
+    if (!confirm(t("page.poDetail.confirmRepairTotals"))) return;
     setRepairing(true);
     setRepairMsg("");
     try {
       const r = await api.post(`/api/production-orders/${id}/admin-repair-totals`);
-      setRepairMsg(`Repair finished. Updated ${Number(r?.changed_count || 0)} stage row(s).`);
+      setRepairMsg(t("page.poDetail.repairFinished", { count: Number(r?.changed_count || 0) }));
       mutate();
     } catch (e: any) {
-      setRepairMsg(e.message || "Repair failed");
+      setRepairMsg(e.message || t("page.poDetail.repairFailed"));
     } finally {
       setRepairing(false);
     }
@@ -136,10 +136,10 @@ export default function ProductionOrderDetail() {
         subtitle={t("page.poDetail.subtitle", { type: po.production_type, status: po.status })}
         actions={canPlan ? (
           <div className="flex gap-2">
-            <button className="btn" onClick={cascade} title="Distribute the PO deadline across stage deadlines using SAM x qty where available">Cascade deadlines</button>
+            <button className="btn" onClick={cascade} title={t("page.poDetail.cascadeDeadlinesHint")}>{t("page.poDetail.cascadeDeadlines")}</button>
             {isAdmin && (
-              <button className="btn" onClick={repairTotals} disabled={repairing} title="Admin repair: recalculate counters from records and packages">
-                {repairing ? "Repairing..." : "Fix duplicates / totals"}
+              <button className="btn" onClick={repairTotals} disabled={repairing} title={t("page.poDetail.repairTotalsHint")}>
+                {repairing ? t("page.poDetail.repairing") : t("page.poDetail.repairTotals")}
               </button>
             )}
           </div>
@@ -195,7 +195,7 @@ export default function ProductionOrderDetail() {
                     <td className="font-medium">
                       {w.operation}
                       {w.is_blocked && (
-                        <div className="text-xs text-red-700" title={w.block_reason ?? ""}>⛔ blocked</div>
+                        <div className="text-xs text-red-700" title={w.block_reason ?? ""}>⛔ {t("status.blocked")}</div>
                       )}
                     </td>
                     <td><span className="badge">{w.status}</span></td>
@@ -210,11 +210,11 @@ export default function ProductionOrderDetail() {
                         <button className="text-slate-700 hover:underline" onClick={() => openEdit(w)}>{t("btn.assign")}</button>
                       )}
                       {!w.is_blocked
-                        ? <button className="text-red-600 hover:underline" onClick={() => blockWO(w.id)}>Block</button>
-                        : <button className="text-amber-700 hover:underline" onClick={() => unblockWO(w.id)}>Unblock</button>}
+                        ? <button className="text-red-600 hover:underline" onClick={() => blockWO(w.id)}>{t("btn.block")}</button>
+                        : <button className="text-amber-700 hover:underline" onClick={() => unblockWO(w.id)}>{t("btn.unblock")}</button>}
                       {w.operation === "sewing" && (
                         <button className="text-slate-600 hover:underline" onClick={() => setOpenAssignments(openAssignments === w.id ? null : w.id)}>
-                          {openAssignments === w.id ? "Hide split" : "Split"}
+                          {openAssignments === w.id ? t("btn.hideSplit") : t("btn.split")}
                         </button>
                       )}
                       {w.operation === "cutting" && <Link href={`/work-orders/${w.id}/cutting`} className="text-brand-600 hover:underline">{t("dash.cutting")}</Link>}
@@ -259,7 +259,7 @@ export default function ProductionOrderDetail() {
                 })}
               </select>
               {edit.sewing_flow_id > 0 && utilByFlow.get(edit.sewing_flow_id)?.is_full && (
-                <div className="mt-1 text-xs text-red-600">This line is full/overloaded right now.</div>
+                <div className="mt-1 text-xs text-red-600">{t("msg.lineFull")}</div>
               )}
             </div>
           )}
@@ -293,6 +293,7 @@ function SewingAssignmentsPanel({
   flows: Flow[];
   utilByFlow: Map<number, FlowUtil>;
 }) {
+  const { t } = useT();
   const { data, mutate } = useSWR<Assignment[]>(`/api/work-orders/${woId}/assignments`, fetcher);
   const [draft, setDraft] = useState({ sewing_flow_id: 0, quantity: 0, planned_start: "", planned_end: "" });
   const [msg, setMsg] = useState("");
@@ -303,7 +304,7 @@ function SewingAssignmentsPanel({
     e.preventDefault();
     setMsg("");
     if (draft.sewing_flow_id > 0 && utilByFlow.get(draft.sewing_flow_id)?.is_full) {
-      setMsg("Selected line is full/overloaded. Choose another line.");
+      setMsg(t("msg.selectedLineFull"));
       return;
     }
     try {
@@ -319,7 +320,7 @@ function SewingAssignmentsPanel({
     } catch (e: any) { setMsg(e.message); }
   }
   async function del(aid: number) {
-    if (!confirm("Delete assignment?")) return;
+    if (!confirm(t("confirm.deleteAssignment"))) return;
     try { await api.del(`/api/sewing-assignments/${aid}`); mutate(); }
     catch (e: any) { alert(e.message); }
   }
@@ -327,11 +328,11 @@ function SewingAssignmentsPanel({
   return (
     <div>
       <div className="text-xs font-medium text-slate-500 uppercase mb-2">
-        Split sewing across lines — committed {committed} / planned {plannedQty} ({remaining} remaining)
+        {t("page.poDetail.splitSummary", { committed, planned: plannedQty, remaining })}
       </div>
       <table className="table text-xs">
         <thead>
-          <tr><th>Line</th><th>Qty</th><th>Done</th><th>Planned start</th><th>Planned end</th><th>Status</th><th></th></tr>
+          <tr><th>{t("field.line")}</th><th>{t("field.qty")}</th><th>{t("page.poDetail.done")}</th><th>{t("field.plannedStart")}</th><th>{t("field.plannedEnd")}</th><th>{t("common.status")}</th><th></th></tr>
         </thead>
         <tbody>
           {(data || []).map((a) => (
@@ -342,14 +343,14 @@ function SewingAssignmentsPanel({
               <td>{a.planned_start ? new Date(a.planned_start).toLocaleDateString() : "—"}</td>
               <td>{a.planned_end ? new Date(a.planned_end).toLocaleDateString() : "—"}</td>
               <td><span className="badge">{a.status}</span></td>
-              <td><button onClick={() => del(a.id)} className="text-red-600 hover:underline">Delete</button></td>
+              <td><button onClick={() => del(a.id)} className="text-red-600 hover:underline">{t("tasks.delete")}</button></td>
             </tr>
           ))}
         </tbody>
       </table>
       <form onSubmit={add} className="grid grid-cols-1 md:grid-cols-6 gap-2 mt-3">
         <select className="input" value={draft.sewing_flow_id} onChange={(e) => setDraft({ ...draft, sewing_flow_id: Number(e.target.value) })} required>
-          <option value={0}>Pick a line…</option>
+          <option value={0}>{t("ph.pickLine")}</option>
           {flows.map((f) => {
             const u = utilByFlow.get(f.id);
             const isFull = !!u?.is_full;
@@ -360,14 +361,14 @@ function SewingAssignmentsPanel({
             );
           })}
         </select>
-        <input className="input" type="number" placeholder="Qty" value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: Number(e.target.value) })} required />
+        <input className="input" type="number" placeholder={t("field.qty")} value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: Number(e.target.value) })} required />
         <input className="input" type="date" value={draft.planned_start} onChange={(e) => setDraft({ ...draft, planned_start: e.target.value })} />
         <input className="input" type="date" value={draft.planned_end} onChange={(e) => setDraft({ ...draft, planned_end: e.target.value })} />
         <button className="btn btn-primary md:col-span-2" disabled={draft.sewing_flow_id > 0 && !!utilByFlow.get(draft.sewing_flow_id)?.is_full}>
-          Add assignment
+          {t("btn.addAssignment")}
         </button>
         {draft.sewing_flow_id > 0 && utilByFlow.get(draft.sewing_flow_id)?.is_full && (
-          <div className="text-sm text-red-600 md:col-span-6">Selected line is full/overloaded. Choose another line.</div>
+          <div className="text-sm text-red-600 md:col-span-6">{t("msg.selectedLineFull")}</div>
         )}
         {msg && <div className="text-sm text-red-600 md:col-span-6">{msg}</div>}
       </form>

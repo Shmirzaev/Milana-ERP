@@ -233,8 +233,8 @@ export default function PackagingPage() {
         setPkgNotice({
           type: "success",
           text: firstPackageNo
-            ? `Created ${createdCount} packages successfully. First package: ${firstPackageNo}`
-            : `Created ${createdCount} packages successfully.`,
+            ? t("page.packaging.bulkCreatedWithFirst", { count: createdCount, no: firstPackageNo })
+            : t("page.packaging.bulkCreated", { count: createdCount }),
         });
         if (r.package_ids?.length) {
           await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${r.package_ids.join(",")}`);
@@ -244,11 +244,11 @@ export default function PackagingPage() {
         setPkg(r);
         setPkgNotice({
           type: "success",
-          text: `Package ${r?.package_no || "#"} created successfully.`,
+          text: t("page.packaging.singleCreated", { no: r?.package_no || "#" }),
         });
       }
     } catch (e: any) {
-      setPkgNotice({ type: "error", text: e?.message || "Failed to create package." });
+      setPkgNotice({ type: "error", text: e?.message || t("page.packaging.createFailed") });
     } finally {
       setIsCreating(false);
     }
@@ -264,45 +264,45 @@ export default function PackagingPage() {
       <div className="card mb-4 p-4">
         <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Sales Order</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.shipments.salesOrder")}</div>
             <div className="font-medium">{so?.order_no || (po?.sales_order_id ? `#${po.sales_order_id}` : "-")}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Customer</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.customer")}</div>
             <div className="font-medium">{so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : "-"}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Model</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.model")}</div>
             <div className="font-medium">{model ? `${model.code} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-")}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Production Order</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.productionOrder")}</div>
             <div className="font-medium">{po?.production_no || (po?.id ? `#${po.id}` : "-")}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Planned Qty</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.plannedQty")}</div>
             <div className="font-medium">{po?.planned_quantity ?? wo?.planned_output_qty ?? 0}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Status</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("common.status")}</div>
             <div className="font-medium">{wo?.status || "-"}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Sales Deadline</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.salesDeadline")}</div>
             <div className="font-medium">{d(so?.deadline)}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">PO Deadline</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.poDeadline")}</div>
             <div className="font-medium">{d(po?.deadline)}</div>
           </div>
           <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">WO Deadline</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.woDeadline")}</div>
             <div className="font-medium">{d(wo?.deadline)}</div>
           </div>
         </div>
         {Array.isArray(po?.items) && po.items.length > 0 && (
           <div className="mt-3 border-t border-[#ecebe3] pt-3">
-            <div className="mb-2 text-xs uppercase tracking-wide text-slate-500">Order Breakdown (Color / Size / Qty)</div>
+            <div className="mb-2 text-xs uppercase tracking-wide text-slate-500">{t("page.workOrder.breakdown")}</div>
             <div className="flex flex-wrap gap-2">
               {po.items.map((it: any) => (
                 <span key={it.id} className="rounded-full bg-[#f5f2e8] px-3 py-1 text-xs text-[#5d5747]">
@@ -351,7 +351,7 @@ export default function PackagingPage() {
               {t("page.packaging.adminOverride")}
             </label>
             <div>
-              <label className="label">Copies</label>
+              <label className="label">{t("page.packaging.copies")}</label>
               <input
                 className="input"
                 min={1}
@@ -365,7 +365,7 @@ export default function PackagingPage() {
             </div>
           </div>
           <div className="text-xs text-slate-500">
-            Auto mix from order breakdown for selected color. Example: capacity 60 with 6 equal sizes = 10 per size.
+            {t("page.packaging.autoMixHint")}
           </div>
 
           <h4 className="text-sm font-medium">{t("page.packaging.sizesInPackage")}</h4>
@@ -391,7 +391,7 @@ export default function PackagingPage() {
           <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 
           <button className="btn btn-primary" disabled={isCreating}>
-            {isCreating ? "Creating..." : copies > 1 ? `Create ${copies} Copies` : t("btn.createPackage")}
+            {isCreating ? t("common.creating") : copies > 1 ? t("page.packaging.createCopies", { count: copies }) : t("btn.createPackage")}
           </button>
           {pkgNotice && (
             <div
@@ -407,37 +407,37 @@ export default function PackagingPage() {
         </form>
 
         <div className="card p-6">
-          <h3 className="font-medium">Partial / Not Full Packages</h3>
+          <h3 className="font-medium">{t("page.packaging.partialTitle")}</h3>
           <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
             <div className="rounded-md border border-[#ecebe3] p-3">
-              <div className="text-xs uppercase tracking-wide text-slate-500">Full packages</div>
+              <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.fullPackages")}</div>
               <div className="text-xl font-semibold">{packingPreview.fullCount}</div>
             </div>
             <div className="rounded-md border border-[#ecebe3] p-3">
-              <div className="text-xs uppercase tracking-wide text-slate-500">Not full packages</div>
+              <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.notFullPackages")}</div>
               <div className="text-xl font-semibold">{packingPreview.notFullCount}</div>
             </div>
             <div className="rounded-md border border-[#ecebe3] p-3">
-              <div className="text-xs uppercase tracking-wide text-slate-500">Pack capacity</div>
+              <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.packCapacity")}</div>
               <div className="text-xl font-semibold">{packingPreview.packageTotal}</div>
             </div>
           </div>
           <div className="mt-4 text-xs text-slate-500">
-            Preview is calculated from selected color order quantities and current size mix.
+            {t("page.packaging.previewHint")}
           </div>
           <div className="mt-3 space-y-2">
             {packingPreview.partialPackages.length === 0 ? (
-              <div className="rounded-md border border-[#ecebe3] px-3 py-2 text-sm text-slate-500">No partial packages expected.</div>
+              <div className="rounded-md border border-[#ecebe3] px-3 py-2 text-sm text-slate-500">{t("page.packaging.noPartial")}</div>
             ) : (
               packingPreview.partialPackages.map((p) => (
                 <div key={p.index} className="rounded-md border border-[#ecebe3] px-3 py-2">
                   <div className="text-sm font-medium">
-                    Package #{p.index} - {p.total}/{packingPreview.packageTotal}
+                    {t("page.packaging.packageN", { n: p.index })} - {p.total}/{packingPreview.packageTotal}
                   </div>
                   <div className="mt-1 text-xs text-slate-600">
                     {p.items.length
                       ? p.items.map((x) => `${x.size}: ${x.qty}`).join(" | ")
-                      : "Empty package (extra copy above required quantity)."}
+                      : t("page.packaging.emptyExtra")}
                   </div>
                 </div>
               ))
