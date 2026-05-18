@@ -29,6 +29,7 @@ from app.services.workflow import (
 router = APIRouter(tags=["production"])
 
 _ACTIVE_WO_STATUSES = ("waiting", "ready", "in_progress", "paused", "new", "planning")
+_ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 
 
 def _gate_record_submission(wo: WorkOrder, user) -> None:
@@ -79,7 +80,7 @@ def _flow_committed_today(db: DbSession, flow_id: int, now: datetime) -> int:
     for w in direct_wos:
         has_split = db.query(SewingAssignment.id).filter(
             SewingAssignment.work_order_id == w.id,
-            SewingAssignment.status.in_(["planned", "in_progress"]),
+            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
         ).first()
         if has_split:
             continue
@@ -254,7 +255,7 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: Curren
         if wo.sewing_flow_id == target_flow.id:
             has_split = db.query(SewingAssignment.id).filter(
                 SewingAssignment.work_order_id == wo.id,
-                SewingAssignment.status.in_(["planned", "in_progress"]),
+                SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
             ).first()
             if not has_split:
                 committed = max(0, committed - own_remaining)

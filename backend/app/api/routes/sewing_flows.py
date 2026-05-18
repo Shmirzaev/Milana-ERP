@@ -13,6 +13,7 @@ router = APIRouter(prefix="/sewing-flows", tags=["sewing-flows"])
 
 _ACTIVE_WO_STATUSES = ("waiting", "ready", "in_progress", "paused")
 _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
+_ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 
 
 def _bulk_load(db) -> dict[int, dict]:
@@ -29,14 +30,14 @@ def _bulk_load(db) -> dict[int, dict]:
         .filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
         .all()
     )
-    active_split_wo_ids = {
+    assignment_managed_wo_ids = {
         wid for (wid,) in db.query(SewingAssignment.work_order_id).filter(
-            SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES),
+            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
         ).distinct().all()
     }
     direct_by_flow: dict[int, dict] = {}
     for fid, wid, planned, done in rows:
-        if not fid or wid in active_split_wo_ids:
+        if not fid or wid in assignment_managed_wo_ids:
             continue
         bucket = direct_by_flow.setdefault(int(fid), {"active_work_orders": 0, "planned_units": 0, "completed_units": 0})
         bucket["active_work_orders"] += 1
@@ -75,9 +76,9 @@ def _bulk_load(db) -> dict[int, dict]:
 
 
 def _single_load(db, flow_id: int) -> dict:
-    active_split_wo_ids = {
+    assignment_managed_wo_ids = {
         wid for (wid,) in db.query(SewingAssignment.work_order_id).filter(
-            SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES),
+            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
         ).distinct().all()
     }
     direct_rows = (
@@ -90,7 +91,7 @@ def _single_load(db, flow_id: int) -> dict:
     direct_planned = 0
     direct_done = 0
     for wid, planned, done in direct_rows:
-        if wid in active_split_wo_ids:
+        if wid in assignment_managed_wo_ids:
             continue
         direct_active += 1
         direct_planned += int(planned or 0)
@@ -172,16 +173,16 @@ def flow_work_orders(fid: int, db: DbSession, _: CurrentUser, only_active: bool 
     if not db.get(SewingFlow, fid):
         raise HTTPException(404, "Sewing flow not found")
 
-    active_split_wo_ids = {
+    assignment_managed_wo_ids = {
         wid for (wid,) in db.query(SewingAssignment.work_order_id).filter(
-            SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES),
+            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
         ).distinct().all()
     }
 
     direct_qry = db.query(WorkOrder).filter(WorkOrder.sewing_flow_id == fid)
     if only_active:
         direct_qry = direct_qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
-    direct = [w for w in direct_qry.all() if w.id not in active_split_wo_ids]
+    direct = [w for w in direct_qry.all() if w.id not in assignment_managed_wo_ids]
 
     split_qry = (
         db.query(WorkOrder)

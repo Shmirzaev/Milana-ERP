@@ -23,6 +23,7 @@ from app.services.notifications import notify
 
 router = APIRouter(tags=["production_extra"])
 _ACTIVE_WO_STATUSES = ("waiting", "ready", "in_progress", "paused", "new", "planning")
+_ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 
 
 class BlockIn(BaseModel):
@@ -286,7 +287,7 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
     for w in direct_wos:
         has_split = db.query(SewingAssignment.id).filter(
             SewingAssignment.work_order_id == w.id,
-            SewingAssignment.status.in_(["planned", "in_progress"]),
+            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
         ).first()
         if has_split:
             continue
@@ -327,7 +328,7 @@ def utilization_snapshot(db: DbSession, _: CurrentUser):
         for w in direct_wos:
             has_split = db.query(SewingAssignment.id).filter(
                 SewingAssignment.work_order_id == w.id,
-                SewingAssignment.status.in_(["planned", "in_progress"]),
+                SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
             ).first()
             if has_split:
                 continue
