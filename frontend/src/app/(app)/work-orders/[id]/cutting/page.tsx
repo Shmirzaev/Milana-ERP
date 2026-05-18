@@ -42,6 +42,8 @@ export default function CuttingPage() {
   const [bundles, setBundles] = useState<BundlePlan[]>([]);
   const [bundlesAutofilled, setBundlesAutofilled] = useState(false);
   const [createdBundles, setCreatedBundles] = useState<any[]>([]);
+  const [doneMsg, setDoneMsg] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -98,6 +100,8 @@ export default function CuttingPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
+    setDoneMsg("");
+    setSubmitting(true);
     try {
       const r = await api.post("/api/cutting/records", {
         work_order_id: id,
@@ -105,9 +109,13 @@ export default function CuttingPage() {
         fabric_batch_id: form.fabric_batch_id || null,
         bundles,
       });
-      setCreatedBundles(r.bundles);
+      const created = Array.isArray(r?.bundles) ? r.bundles : [];
+      setCreatedBundles(created);
+      setDoneMsg(`Done: ${created.length} bundles created successfully.`);
     } catch (e: any) {
       setErr(e.message);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -253,13 +261,16 @@ export default function CuttingPage() {
           <textarea className="input" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
         </div>
 
+        {doneMsg && <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{doneMsg}</div>}
         {err && <div className="text-sm text-red-600">{err}</div>}
-        <button className="btn btn-primary">{t("btn.saveCreateBundles")}</button>
+        <button className="btn btn-primary" disabled={submitting}>
+          {submitting ? "Creating bundles..." : t("btn.saveCreateBundles")}
+        </button>
       </form>
 
       {createdBundles.length > 0 && (
         <div className="card mt-6 p-4">
-          <h3 className="mb-2 font-medium">{t("page.cutting.bundlesCreated")}</h3>
+          <h3 className="mb-2 font-medium">{t("page.cutting.bundlesCreated")} <span className="text-green-700">- Done</span></h3>
           <table className="table">
             <thead>
               <tr>
