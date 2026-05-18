@@ -1,6 +1,6 @@
 "use client";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -31,17 +31,46 @@ export default function CuttingPage() {
     waste_unit: "kg",
     notes: "",
   });
-  const [bundles, setBundles] = useState<BundlePlan[]>([
-    { color: "white", size: "M", quantity: 50, count: 1, next: "sewing" },
-  ]);
+  const [bundles, setBundles] = useState<BundlePlan[]>([]);
+  const [bundlesAutofilled, setBundlesAutofilled] = useState(false);
   const [createdBundles, setCreatedBundles] = useState<any[]>([]);
   const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (bundlesAutofilled) return;
+    if (!Array.isArray(po?.items) || po.items.length === 0) return;
+    const hasPrintingStage = Array.isArray(po?.work_orders) && po.work_orders.some((w: any) => w.operation === "printing");
+    const nextStage: "sewing" | "printing" = hasPrintingStage ? "printing" : "sewing";
+    const prefilled = po.items
+      .filter((it: any) => Number(it?.planned_quantity || 0) > 0)
+      .map((it: any) => ({
+        color: String(it?.color || "").trim() || "-",
+        size: String(it?.size || "").trim() || "-",
+        quantity: Number(it?.planned_quantity || 0),
+        count: 1,
+        next: nextStage,
+      }));
+    if (prefilled.length > 0) {
+      setBundles(prefilled);
+      setBundlesAutofilled(true);
+    }
+  }, [po, bundlesAutofilled]);
 
   function setB(i: number, p: Partial<BundlePlan>) {
     setBundles(bundles.map((b, j) => (i === j ? { ...b, ...p } : b)));
   }
   function addB() {
-    setBundles([...bundles, { color: "white", size: "M", quantity: 50, count: 1, next: "sewing" }]);
+    const first = bundles[0];
+    setBundles([
+      ...bundles,
+      {
+        color: first?.color || "white",
+        size: first?.size || "M",
+        quantity: first?.quantity || 50,
+        count: 1,
+        next: first?.next || "sewing",
+      },
+    ]);
   }
   function remB(i: number) {
     setBundles(bundles.filter((_, j) => j !== i));
