@@ -1,6 +1,6 @@
 "use client";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -18,13 +18,99 @@ export default function PackagingPage() {
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
   const [rec, setRec] = useState({ input_qty: 0, packed_qty: 0, damaged_qty: 0, packaging_material_used: "", notes: "" });
-  const [pkgItems, setPkgItems] = useState<{ size: string; quantity: number }[]>([{ size: "M", quantity: 30 }]);
+  const [pkgItems, setPkgItems] = useState<{ size: string; quantity: number }[]>([{ size: "M", quantity: 60 }]);
   const [overrideCap, setOverrideCap] = useState(false);
   const [capacity, setCapacity] = useState(60);
   const [color, setColor] = useState("white");
   const [copies, setCopies] = useState(1);
+  const [copiesTouched, setCopiesTouched] = useState(false);
   const [msg, setMsg] = useState("");
   const [pkg, setPkg] = useState<any>(null);
+
+  const colorOrderItems = useMemo(() => {
+    const allItems = po?.items || [];
+    const rows = allItems.filter((it: any) => String(it?.color || "").toLowerCase() === String(color || "").toLowerCase());
+    const source = rows.length > 0 ? rows : allItems;
+    const bySize = new Map<string, number>();
+    for (const it of source) {
+      const size = String(it?.size || "-").trim();
+      if (!size || size === "-") continue;
+      bySize.set(size, (bySize.get(size) || 0) + Math.max(0, Number(it?.planned_quantity || 0)));
+    }
+    return Array.from(bySize.entries()).map(([size, planned_quantity]) => ({ size, planned_quantity }));
+  }, [po?.items, color]);
+
+  const totalColorQty = useMemo(
+    () => colorOrderItems.reduce((s: number, it: any) => s + Number(it?.planned_quantity || 0), 0),
+    [colorOrderItems],
+  );
+
+  const suggestedCopies = useMemo(() => {
+    const cap = Math.max(1, Number(capacity || 0));
+    return totalColorQty > 0 ? Math.max(1, Math.ceil(totalColorQty / cap)) : 1;
+  }, [totalColorQty, capacity]);
+
+  const autoPackageItems = useMemo(() => {
+    const cap = Math.max(1, Number(capacity || 0));
+    const rows = colorOrderItems
+      .map((it: any) => ({ size: String(it?.size || "-"), qty: Math.max(0, Number(it?.planned_quantity || 0)) }))
+      .filter((it: any) => it.size && it.size !== "-");
+    if (!rows.length) return [{ size: "M", quantity: cap }];
+
+    const n = rows.length;
+    const total = rows.reduce((s: number, r: any) => s + r.qty, 0);
+    const out = rows.map((r: any) => ({ size: r.size, quantity: 0, _weight: r.qty }));
+
+    if (cap >= n) {
+      for (const o of out) o.quantity = 1;
+      let remaining = cap - n;
+      if (remaining > 0) {
+        if (total > 0) {
+          const shares = out.map((o) => ({
+            size: o.size,
+            base: Math.floor((remaining * o._weight) / total),
+            rem: ((remaining * o._weight) / total) - Math.floor((remaining * o._weight) / total),
+          }));
+          let used = 0;
+          for (const o of out) {
+            const sh = shares.find((s) => s.size === o.size)!;
+            o.quantity += sh.base;
+            used += sh.base;
+          }
+          let left = remaining - used;
+          const ranked = [...shares].sort((a, b) => b.rem - a.rem);
+          let idx = 0;
+          while (left > 0) {
+            const target = ranked[idx % ranked.length];
+            const o = out.find((x) => x.size === target.size)!;
+            o.quantity += 1;
+            left -= 1;
+            idx += 1;
+          }
+        } else {
+          let i = 0;
+          while (remaining > 0) {
+            out[i % out.length].quantity += 1;
+            remaining -= 1;
+            i += 1;
+          }
+        }
+      }
+    } else {
+      const ranked = [...out].sort((a, b) => b._weight - a._weight);
+      for (let i = 0; i < cap; i += 1) ranked[i].quantity += 1;
+    }
+
+    return out.map(({ size, quantity }) => ({ size, quantity }));
+  }, [colorOrderItems, capacity]);
+
+  useEffect(() => {
+    setPkgItems(autoPackageItems);
+  }, [autoPackageItems]);
+
+  useEffect(() => {
+    if (!copiesTouched) setCopies(suggestedCopies);
+  }, [copiesTouched, suggestedCopies]);
 
   async function submitRec(e: React.FormEvent) {
     e.preventDefault();
@@ -163,8 +249,20 @@ export default function PackagingPage() {
           </label>
           <div>
             <label className="label">Copies</label>
-            <input className="input" min={1} type="number" value={copies} onChange={(e) => setCopies(Math.max(1, Number(e.target.value) || 1))} />
+            <input
+              className="input"
+              min={1}
+              type="number"
+              value={copies}
+              onChange={(e) => {
+                setCopiesTouched(true);
+                setCopies(Math.max(1, Number(e.target.value) || 1));
+              }}
+            />
           </div>
+        </div>
+        <div className="text-xs text-slate-500">
+          Auto mix from order breakdown for selected color. Example: capacity 60 with 6 equal sizes = 10 per size.
         </div>
 
         <h4 className="text-sm font-medium">{t("page.packaging.sizesInPackage")}</h4>
@@ -186,7 +284,7 @@ export default function PackagingPage() {
             ))}
           </tbody>
         </table>
-        <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: 30 }])}>{t("btn.addSize")}</button>
+        <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: 0 }])}>{t("btn.addSize")}</button>
         <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 
         <button className="btn btn-primary">{copies > 1 ? `Create ${copies} Copies` : t("btn.createPackage")}</button>
