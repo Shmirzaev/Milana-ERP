@@ -53,7 +53,10 @@ def _on_startup() -> None:
     # Best-effort: run the seed so new roles/permissions/sewing-flows propagate
     # on every restart. The seed is idempotent (insert-if-missing) and
     # permission-refreshing.
-    if os.environ.get("RUN_SEED_ON_STARTUP", "true").lower() != "false":
+    # Keep web startup fast in hosted environments (Render health checks can
+    # fail if heavy seed tasks run before the server binds to $PORT).
+    # Set RUN_SEED_ON_STARTUP=true explicitly where auto-seed is desired.
+    if os.environ.get("RUN_SEED_ON_STARTUP", "false").lower() == "true":
         try:
             from app.db.seed import seed as _seed
             _seed()
