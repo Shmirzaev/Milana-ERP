@@ -57,6 +57,7 @@ export default function ProductionOrderDetail() {
   const { t } = useT();
   const { me } = useMe();
   const canPlan = can(me, "*", "planning.production");
+  const isAdmin = can(me, "*");
   const id = params.id;
   const { data: po, mutate } = useSWR<any>(`/api/production-orders/${id}`, fetcher);
   const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
@@ -68,6 +69,8 @@ export default function ProductionOrderDetail() {
   const [edit, setEdit] = useState({ deadline: "", sewing_flow_id: 0, assigned_to: 0 });
   const [editMsg, setEditMsg] = useState("");
   const [openAssignments, setOpenAssignments] = useState<number | null>(null);
+  const [repairing, setRepairing] = useState(false);
+  const [repairMsg, setRepairMsg] = useState("");
 
   async function cascade() {
     try { await api.post(`/api/production-orders/${id}/cascade-deadlines`); mutate(); }
@@ -82,6 +85,21 @@ export default function ProductionOrderDetail() {
   async function unblockWO(wid: number) {
     try { await api.post(`/api/work-orders/${wid}/unblock`); mutate(); }
     catch (e: any) { alert(e.message); }
+  }
+
+  async function repairTotals() {
+    if (!confirm("Recalculate and repair stage totals for this production order?")) return;
+    setRepairing(true);
+    setRepairMsg("");
+    try {
+      const r = await api.post(`/api/production-orders/${id}/admin-repair-totals`);
+      setRepairMsg(`Repair finished. Updated ${Number(r?.changed_count || 0)} stage row(s).`);
+      mutate();
+    } catch (e: any) {
+      setRepairMsg(e.message || "Repair failed");
+    } finally {
+      setRepairing(false);
+    }
   }
 
   function openEdit(w: WO) {
@@ -118,10 +136,16 @@ export default function ProductionOrderDetail() {
         subtitle={t("page.poDetail.subtitle", { type: po.production_type, status: po.status })}
         actions={canPlan ? (
           <div className="flex gap-2">
-            <button className="btn" onClick={cascade} title="Distribute the PO deadline across stage deadlines using SAM × qty where available">Cascade deadlines</button>
+            <button className="btn" onClick={cascade} title="Distribute the PO deadline across stage deadlines using SAM x qty where available">Cascade deadlines</button>
+            {isAdmin && (
+              <button className="btn" onClick={repairTotals} disabled={repairing} title="Admin repair: recalculate counters from records and packages">
+                {repairing ? "Repairing..." : "Fix duplicates / totals"}
+              </button>
+            )}
           </div>
         ) : undefined}
       />
+      {repairMsg && <div className="mb-3 text-sm text-slate-600">{repairMsg}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div className="card p-4">
@@ -350,3 +374,5 @@ function SewingAssignmentsPanel({
     </div>
   );
 }
+
+

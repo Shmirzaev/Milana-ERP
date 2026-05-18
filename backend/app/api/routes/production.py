@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
     ProductionOrder, WorkOrder, CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord,
-    SalesOrder, QualityCheck, User, SewingFlow, SewingAssignment,
+    SalesOrder, QualityCheck, User, SewingFlow, SewingAssignment, Package,
 )
 from app.schemas.production import (
     ProductionOrderIn, ProductionOrderOut, ProductionOrderDetail,
@@ -24,6 +25,7 @@ from app.services.workflow import (
     consume_stock_batch,
     create_waste_record,
     notify_department,
+    sync_production_order_status,
 )
 
 router = APIRouter(tags=["production"])
@@ -220,6 +222,191 @@ def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_p
     })
     db.commit()
     return {"updates": updates, "sam_minutes": sam}
+
+
+@router.post("/production-orders/{pid}/admin-repair-totals")
+def admin_repair_totals(pid: int, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
+    """Admin recovery tool:
+    Rebuild WO counters from source records and clamp passed/output to planned qty.
+    Useful when duplicate submissions inflated stage totals.
+    """
+    if not is_admin(current):
+        raise HTTPException(403, "Admin only action")
+
+    po = db.get(ProductionOrder, pid)
+    if not po:
+        raise HTTPException(404, "Production order not found")
+
+    work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == pid).all()
+    by_op = {w.operation: w for w in work_orders}
+    now = datetime.now(timezone.utc)
+
+    def _clamp_pass(planned: int, value: int) -> int:
+        return max(0, min(max(0, int(planned or 0)), max(0, int(value or 0))))
+
+    def _set_wo(wo: WorkOrder, *, input_qty: int, output_qty: int, passed_qty: int, failed_qty: int, rework_qty: int | None = None):
+        before = {
+            "actual_input_qty": int(wo.actual_input_qty or 0),
+            "actual_output_qty": int(wo.actual_output_qty or 0),
+            "passed_qty": int(wo.passed_qty or 0),
+            "failed_qty": int(wo.failed_qty or 0),
+            "rework_qty": int(wo.rework_qty or 0),
+            "status": wo.status,
+        }
+        wo.actual_input_qty = max(0, int(input_qty or 0))
+        wo.actual_output_qty = max(0, int(output_qty or 0))
+        wo.passed_qty = max(0, int(passed_qty or 0))
+        wo.failed_qty = max(0, int(failed_qty or 0))
+        if rework_qty is not None:
+            wo.rework_qty = max(0, int(rework_qty or 0))
+
+        if wo.status not in ("cancelled", "rejected"):
+            planned = max(0, int(wo.planned_output_qty or 0))
+            if planned > 0 and wo.passed_qty >= planned:
+                if wo.status != "completed":
+                    wo.status = "completed"
+                if not wo.end_time:
+                    wo.end_time = now
+            elif wo.passed_qty > 0 and wo.status in ("waiting", "new", "planning"):
+                wo.status = "in_progress"
+                if not wo.start_time:
+                    wo.start_time = now
+
+        after = {
+            "actual_input_qty": int(wo.actual_input_qty or 0),
+            "actual_output_qty": int(wo.actual_output_qty or 0),
+            "passed_qty": int(wo.passed_qty or 0),
+            "failed_qty": int(wo.failed_qty or 0),
+            "rework_qty": int(wo.rework_qty or 0),
+            "status": wo.status,
+        }
+        return before, after
+
+    changes: list[dict] = []
+
+    cut_wo = by_op.get("cutting")
+    if cut_wo:
+        cut_input, cut_passed, cut_failed = db.query(
+            func.coalesce(func.sum(CuttingRecord.cut_pieces), 0),
+            func.coalesce(func.sum(CuttingRecord.passed_pieces), 0),
+            func.coalesce(func.sum(CuttingRecord.defective_pieces), 0),
+        ).filter(CuttingRecord.work_order_id == cut_wo.id).one()
+        planned = int(cut_wo.planned_output_qty or 0)
+        passed = _clamp_pass(planned, int(cut_passed or 0))
+        output = passed
+        before, after = _set_wo(
+            cut_wo,
+            input_qty=max(int(cut_input or 0), passed),
+            output_qty=output,
+            passed_qty=passed,
+            failed_qty=int(cut_failed or 0),
+            rework_qty=int(cut_wo.rework_qty or 0),
+        )
+        if before != after:
+            changes.append({"work_order_id": cut_wo.id, "operation": "cutting", "before": before, "after": after})
+
+    prt_wo = by_op.get("printing")
+    if prt_wo:
+        prt_input, prt_passed, prt_failed = db.query(
+            func.coalesce(func.sum(PrintingRecord.input_qty), 0),
+            func.coalesce(func.sum(PrintingRecord.passed_qty), 0),
+            func.coalesce(func.sum(PrintingRecord.rejected_qty), 0),
+        ).filter(PrintingRecord.work_order_id == prt_wo.id).one()
+        planned = int(prt_wo.planned_output_qty or 0)
+        passed = _clamp_pass(planned, int(prt_passed or 0))
+        output = passed
+        before, after = _set_wo(
+            prt_wo,
+            input_qty=max(int(prt_input or 0), passed),
+            output_qty=output,
+            passed_qty=passed,
+            failed_qty=int(prt_failed or 0),
+            rework_qty=int(prt_wo.rework_qty or 0),
+        )
+        if before != after:
+            changes.append({"work_order_id": prt_wo.id, "operation": "printing", "before": before, "after": after})
+
+    sew_wo = by_op.get("sewing")
+    if sew_wo:
+        sew_input, sew_passed, sew_failed, sew_rework = db.query(
+            func.coalesce(func.sum(SewingRecord.input_qty), 0),
+            func.coalesce(func.sum(SewingRecord.passed_qty), 0),
+            func.coalesce(func.sum(SewingRecord.failed_qty), 0),
+            func.coalesce(func.sum(SewingRecord.rework_qty), 0),
+        ).filter(SewingRecord.work_order_id == sew_wo.id).one()
+        planned = int(sew_wo.planned_output_qty or 0)
+        passed = _clamp_pass(planned, int(sew_passed or 0))
+        output = passed
+        before, after = _set_wo(
+            sew_wo,
+            input_qty=max(int(sew_input or 0), passed),
+            output_qty=output,
+            passed_qty=passed,
+            failed_qty=int(sew_failed or 0),
+            rework_qty=int(sew_rework or 0),
+        )
+        if before != after:
+            changes.append({"work_order_id": sew_wo.id, "operation": "sewing", "before": before, "after": after})
+
+    pkg_wo = by_op.get("packaging")
+    if pkg_wo:
+        pkg_input, rec_packed, pkg_failed = db.query(
+            func.coalesce(func.sum(PackagingRecord.input_qty), 0),
+            func.coalesce(func.sum(PackagingRecord.packed_qty), 0),
+            func.coalesce(func.sum(PackagingRecord.damaged_qty), 0),
+        ).filter(PackagingRecord.work_order_id == pkg_wo.id).one()
+
+        packages_packed = db.query(func.coalesce(func.sum(Package.total_quantity), 0)).filter(
+            Package.production_order_id == pid,
+            Package.status.in_(["packed", "received_in_storage", "reserved", "shipped", "delivered"]),
+        ).scalar() or 0
+
+        source_packed = int(packages_packed or 0) if int(packages_packed or 0) > 0 else int(rec_packed or 0)
+        planned = int(pkg_wo.planned_output_qty or 0)
+        passed = _clamp_pass(planned, source_packed)
+        output = passed
+        before, after = _set_wo(
+            pkg_wo,
+            input_qty=max(int(pkg_input or 0), passed),
+            output_qty=output,
+            passed_qty=passed,
+            failed_qty=int(pkg_failed or 0),
+            rework_qty=int(pkg_wo.rework_qty or 0),
+        )
+        if before != after:
+            changes.append({
+                "work_order_id": pkg_wo.id,
+                "operation": "packaging",
+                "source": "packages" if int(packages_packed or 0) > 0 else "packaging_records",
+                "before": before,
+                "after": after,
+            })
+
+    stg_wo = by_op.get("storage_transfer")
+    if stg_wo:
+        received_total = db.query(func.coalesce(func.sum(Package.total_quantity), 0)).filter(
+            Package.production_order_id == pid,
+            Package.status.in_(["received_in_storage", "reserved", "shipped", "delivered"]),
+        ).scalar() or 0
+        planned = int(stg_wo.planned_output_qty or 0)
+        passed = _clamp_pass(planned, int(received_total or 0))
+        output = passed
+        before, after = _set_wo(
+            stg_wo,
+            input_qty=passed,
+            output_qty=output,
+            passed_qty=passed,
+            failed_qty=0,
+            rework_qty=int(stg_wo.rework_qty or 0),
+        )
+        if before != after:
+            changes.append({"work_order_id": stg_wo.id, "operation": "storage_transfer", "before": before, "after": after})
+
+    sync_production_order_status(db, pid)
+    log_action(db, current, "admin_repair_totals", "ProductionOrder", pid, new_value={"changes": changes})
+    db.commit()
+
+    return {"production_order_id": pid, "changed_count": len(changes), "changes": changes}
 
 
 # ===== Work Orders =====
