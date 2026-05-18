@@ -176,6 +176,10 @@ def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_p
 
     end = as_utc(po.deadline)
     start = as_utc(po.start_date) or (end - timedelta(days=30))
+    now = datetime.now(timezone.utc)
+    # If no explicit start_date is set, avoid generating stage deadlines in the past.
+    if po.start_date is None and start < now < end:
+        start = now
     if start >= end:
         raise HTTPException(400, "start_date must be before deadline")
     total_seconds = (end - start).total_seconds()
