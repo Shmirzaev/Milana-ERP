@@ -51,7 +51,9 @@ def _bulk_load(db) -> dict[int, dict]:
             func.coalesce(func.sum(SewingAssignment.quantity), 0),
             func.coalesce(func.sum(SewingAssignment.completed_qty), 0),
         )
+        .join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id)
         .filter(SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES))
+        .filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
         .group_by(SewingAssignment.sewing_flow_id)
         .all()
     )
@@ -103,8 +105,10 @@ def _single_load(db, flow_id: int) -> dict:
             func.coalesce(func.sum(SewingAssignment.quantity), 0),
             func.coalesce(func.sum(SewingAssignment.completed_qty), 0),
         )
+        .join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id)
         .filter(SewingAssignment.sewing_flow_id == flow_id)
         .filter(SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES))
+        .filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
         .one()
     )
     return {
@@ -191,6 +195,7 @@ def flow_work_orders(fid: int, db: DbSession, _: CurrentUser, only_active: bool 
     )
     if only_active:
         split_qry = split_qry.filter(SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES))
+        split_qry = split_qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
     split = split_qry.all()
 
     uniq: dict[int, WorkOrder] = {w.id: w for w in direct}

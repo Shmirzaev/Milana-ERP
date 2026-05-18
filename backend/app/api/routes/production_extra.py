@@ -265,9 +265,12 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
     f = db.get(SewingFlow, fid)
     if not f: raise HTTPException(404, "Flow not found")
     now = datetime.now(timezone.utc)
-    rows = db.query(SewingAssignment).filter(
+    rows = db.query(SewingAssignment).join(
+        WorkOrder, WorkOrder.id == SewingAssignment.work_order_id
+    ).filter(
         SewingAssignment.sewing_flow_id == fid,
         SewingAssignment.status.in_(["planned", "in_progress"]),
+        WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
     ).all()
     committed_today = 0
     for a in rows:
@@ -307,9 +310,12 @@ def utilization_snapshot(db: DbSession, _: CurrentUser):
     out = []
     for f in flows:
         now = datetime.now(timezone.utc)
-        rows = db.query(SewingAssignment).filter(
+        rows = db.query(SewingAssignment).join(
+            WorkOrder, WorkOrder.id == SewingAssignment.work_order_id
+        ).filter(
             SewingAssignment.sewing_flow_id == f.id,
             SewingAssignment.status.in_(["planned", "in_progress"]),
+            WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
         ).all()
         committed_today = 0
         for a in rows:
