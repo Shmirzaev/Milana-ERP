@@ -3,12 +3,17 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+import { can, useMe } from "@/lib/auth";
 
 export default function ScanBundlePage() {
   const { t } = useT();
+  const { me } = useMe();
   const [code, setCode] = useState("");
   const [bundle, setBundle] = useState<any>(null);
   const [msg, setMsg] = useState("");
+  const canCuttingScan = can(me, "*", "cutting.bundles");
+  const canPrintingScan = can(me, "*", "printing.bundles");
+  const canSewingScan = can(me, "*", "sewing.bundles");
 
   async function lookup() {
     setMsg("");
@@ -30,6 +35,21 @@ export default function ScanBundlePage() {
     } catch (e: any) {
       setMsg(e.message);
     }
+  }
+
+  const availableActions: Array<{ key: "send-printing" | "receive-printing" | "send-sewing" | "receive-sewing"; label: string; primary?: boolean }> = [];
+  if (bundle?.status === "created" && canCuttingScan) {
+    availableActions.push({ key: "send-printing", label: t("btn.sendToPrinting") });
+    availableActions.push({ key: "send-sewing", label: t("btn.sendToSewing"), primary: true });
+  }
+  if (bundle?.status === "sent_to_printing" && canPrintingScan) {
+    availableActions.push({ key: "receive-printing", label: t("btn.receiveAtPrinting"), primary: true });
+  }
+  if (bundle?.status === "received_printing" && canPrintingScan) {
+    availableActions.push({ key: "send-sewing", label: t("btn.sendToSewing"), primary: true });
+  }
+  if (bundle?.status === "sent_to_sewing" && canSewingScan) {
+    availableActions.push({ key: "receive-sewing", label: t("btn.receiveAtSewing"), primary: true });
   }
 
   return (
@@ -60,10 +80,14 @@ export default function ScanBundlePage() {
               <div className="text-slate-500">{t("field.nextDept")}</div><div>{bundle.next_department_id}</div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button className="btn" onClick={() => act("send-printing")}>{t("btn.sendToPrinting")}</button>
-              <button className="btn" onClick={() => act("receive-printing")}>{t("btn.receiveAtPrinting")}</button>
-              <button className="btn" onClick={() => act("send-sewing")}>{t("btn.sendToSewing")}</button>
-              <button className="btn btn-primary" onClick={() => act("receive-sewing")}>{t("btn.receiveAtSewing")}</button>
+              {availableActions.map((a) => (
+                <button key={a.key} className={`btn ${a.primary ? "btn-primary" : ""}`} onClick={() => act(a.key)}>
+                  {a.label}
+                </button>
+              ))}
+              {availableActions.length === 0 && (
+                <div className="text-sm text-slate-500">{t("page.bundleScan.noActions")}</div>
+              )}
             </div>
             <div className="mt-4">
               <button type="button" className="text-brand-600 hover:underline" onClick={() => api.openLabel(`/api/bundles/${bundle.id}/label`)}>{t("btn.printLabel")}</button>

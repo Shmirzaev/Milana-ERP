@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.models import Bundle, Model, ProductionOrder, User
 from app.schemas.tracking import BundleIn, BundleOut, BundleDetail
 from app.services.bundles import (
@@ -86,9 +86,19 @@ def api_receive_printing(bid: int, db: DbSession, current: User = Depends(requir
 
 
 @router.post("/{bid}/send-sewing", response_model=BundleDetail)
-def api_send_sewing(bid: int, db: DbSession, current: CurrentUser):
+def api_send_sewing(
+    bid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.bundles", "printing.bundles", "*")),
+):
     b = db.get(Bundle, bid)
     if not b: raise HTTPException(404, "Bundle not found")
+    perms = set(user_permissions(current))
+    if "*" not in perms:
+        if b.status == "created" and "cutting.bundles" not in perms:
+            raise HTTPException(403, "Only Cutting department can send newly created bundles to sewing")
+        if b.status == "received_printing" and "printing.bundles" not in perms:
+            raise HTTPException(403, "Only Printing department can send printed bundles to sewing")
     send_to_sewing(db, b, current.id)
     log_action(db, current, "send_to_sewing", "Bundle", b.id)
     db.commit(); db.refresh(b)

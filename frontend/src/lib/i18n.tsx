@@ -593,6 +593,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.bundleDetail.mcs": "Model / Color / Size",
     "page.bundleScan.title": "Scan Bundle",
     "page.bundleScan.subtitle": "Type or scan barcode. Hardware scanners typed input + Enter.",
+    "page.bundleScan.noActions": "No scan actions available for your department at this stage.",
 
     // ----- Packages -----
     "page.packages.title": "Packages",
@@ -607,6 +608,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.packageScan.title": "Scan Package",
     "page.packageScan.subtitle": "Receive, reserve, ship, or mark delivered/damaged",
     "page.packageScan.sizesInside": "Sizes inside",
+    "page.packageScan.noActions": "No scan actions available for your department at this stage.",
 
     // ----- Shipments -----
     "page.shipments.title": "Shipments",
@@ -1440,6 +1442,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.bundleDetail.mcs": "Модель / Цвет / Размер",
     "page.bundleScan.title": "Сканировать связку",
     "page.bundleScan.subtitle": "Сканируйте или введите штрих-код. Аппаратный сканер вводит как клавиатура + Enter.",
+    "page.bundleScan.noActions": "Для вашего отдела на этом этапе нет доступных скан-действий.",
 
     "page.packages.title": "Упаковки",
     "page.packages.subtitle": "Готовые упаковки (пакеты/коробки/картоны)",
@@ -1453,6 +1456,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.packageScan.title": "Сканировать упаковку",
     "page.packageScan.subtitle": "Принять, зарезервировать, отгрузить или отметить доставлено/брак",
     "page.packageScan.sizesInside": "Размеры внутри",
+    "page.packageScan.noActions": "Для вашего отдела на этом этапе нет доступных скан-действий.",
 
     "page.shipments.title": "Отгрузки",
     "page.shipments.salesOrder": "Заказ клиента",
@@ -2282,6 +2286,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.bundleDetail.mcs": "Model / Rang / Oʻlcham",
     "page.bundleScan.title": "Bogʻlamni skanerlash",
     "page.bundleScan.subtitle": "Shtrix-kodni skanerlang yoki yozing. Skanerlar klaviatura kabi yozadi + Enter.",
+    "page.bundleScan.noActions": "Bu bosqichda bo'limingiz uchun skan amallari mavjud emas.",
 
     "page.packages.title": "Paketlar",
     "page.packages.subtitle": "Tayyor paketlar (xalta/quti/karton)",
@@ -2295,6 +2300,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.packageScan.title": "Paketni skanerlash",
     "page.packageScan.subtitle": "Qabul qilish, band qilish, joʻnatish yoki yetkazilgan/buzilgan deb belgilash",
     "page.packageScan.sizesInside": "Ichidagi oʻlchamlar",
+    "page.packageScan.noActions": "Bu bosqichda bo'limingiz uchun skan amallari mavjud emas.",
 
     "page.shipments.title": "Joʻnatmalar",
     "page.shipments.salesOrder": "Mijoz buyurtmasi",

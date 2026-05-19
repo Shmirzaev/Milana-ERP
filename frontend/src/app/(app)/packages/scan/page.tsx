@@ -3,12 +3,17 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+import { can, useMe } from "@/lib/auth";
 
 export default function ScanPackagePage() {
   const { t } = useT();
+  const { me } = useMe();
   const [code, setCode] = useState("");
   const [pkg, setPkg] = useState<any>(null);
   const [msg, setMsg] = useState("");
+  const canStoragePackages = can(me, "*", "storage.packages");
+  const canSalesOrders = can(me, "*", "sales.orders");
+  const canShipment = can(me, "*", "storage.shipment");
 
   async function lookup() {
     setMsg("");
@@ -30,6 +35,23 @@ export default function ScanPackagePage() {
     } catch (e: any) {
       setMsg(e.message);
     }
+  }
+
+  const availableActions: Array<{ key: "receive-storage" | "reserve" | "ship" | "mark-delivered" | "mark-damaged"; label: string; primary?: boolean; danger?: boolean }> = [];
+  if (pkg?.status === "packed" && canStoragePackages) {
+    availableActions.push({ key: "receive-storage", label: t("btn.receiveAtStorage"), primary: true });
+  }
+  if ((pkg?.status === "received_in_storage" || pkg?.status === "packed") && canSalesOrders) {
+    availableActions.push({ key: "reserve", label: t("btn.reserve") });
+  }
+  if ((pkg?.status === "received_in_storage" || pkg?.status === "reserved") && canShipment) {
+    availableActions.push({ key: "ship", label: t("btn.ship") });
+  }
+  if (pkg?.status === "shipped" && canShipment) {
+    availableActions.push({ key: "mark-delivered", label: t("btn.markDelivered") });
+  }
+  if (canStoragePackages || canShipment) {
+    availableActions.push({ key: "mark-damaged", label: t("btn.markDamaged"), danger: true });
   }
 
   return (
@@ -64,11 +86,18 @@ export default function ScanPackagePage() {
               </div>
             )}
             <div className="flex flex-wrap gap-2">
-              <button className="btn btn-primary" onClick={() => act("receive-storage")}>{t("btn.receiveAtStorage")}</button>
-              <button className="btn" onClick={() => act("reserve")}>{t("btn.reserve")}</button>
-              <button className="btn" onClick={() => act("ship")}>{t("btn.ship")}</button>
-              <button className="btn" onClick={() => act("mark-delivered")}>{t("btn.markDelivered")}</button>
-              <button className="btn btn-danger" onClick={() => act("mark-damaged")}>{t("btn.markDamaged")}</button>
+              {availableActions.map((a) => (
+                <button
+                  key={a.key}
+                  className={`btn ${a.primary ? "btn-primary" : ""} ${a.danger ? "btn-danger" : ""}`}
+                  onClick={() => act(a.key)}
+                >
+                  {a.label}
+                </button>
+              ))}
+              {availableActions.length === 0 && (
+                <div className="text-sm text-slate-500">{t("page.packageScan.noActions")}</div>
+              )}
             </div>
             <div className="mt-4">
               <button type="button" className="text-brand-600 hover:underline" onClick={() => api.openLabel(`/api/packages/${pkg.id}/label`)}>{t("btn.printLabel")}</button>

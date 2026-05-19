@@ -132,7 +132,11 @@ def api_delivered(pid: int, db: DbSession, current: User = Depends(require_permi
 
 
 @router.post("/{pid}/mark-damaged", response_model=PackageDetail)
-def api_damaged(pid: int, db: DbSession, current: CurrentUser):
+def api_damaged(
+    pid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("storage.packages", "storage.shipment", "*")),
+):
     p = db.get(Package, pid)
     if not p: raise HTTPException(404, "Package not found")
     mark_damaged(db, p, current.id)
