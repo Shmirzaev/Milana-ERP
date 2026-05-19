@@ -193,27 +193,27 @@ function FlowDetail({ flowId }: { flowId: number }) {
   return (
     <div className="mt-3 space-y-3">
       {wos.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="table min-w-[640px] text-xs">
+        <div>
+          <table className="table w-full table-fixed text-xs">
             <thead>
               <tr>
-                <th className="whitespace-nowrap">{t("field.productionNo")}</th>
-                <th className="whitespace-nowrap">{t("common.status")}</th>
-                <th className="whitespace-nowrap">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</th>
-                <th className="whitespace-nowrap">{t("field.deadline2")}</th>
+                <th className="w-[32%]">{t("field.productionNo")}</th>
+                <th className="w-[22%]">{t("common.status")}</th>
+                <th className="w-[24%]">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</th>
+                <th className="w-[22%]">{t("field.deadline2")}</th>
               </tr>
             </thead>
             <tbody>
               {wos.map((w) => (
                 <tr key={w.id}>
-                  <td className="whitespace-nowrap">
+                  <td className="truncate">
                     <Link href={`/production-orders/${w.production_order_id}`} className="text-brand-600 hover:underline">
                       PO #{w.production_order_id}
                     </Link>
                   </td>
-                  <td className="whitespace-nowrap"><span className="badge">{statusLabel(w.status, t)}</span></td>
-                  <td className="whitespace-nowrap">{w.passed_qty} / {w.planned_output_qty}</td>
-                  <td className="whitespace-nowrap">{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
+                  <td><span className="badge">{statusLabel(w.status, t)}</span></td>
+                  <td>{w.passed_qty} / {w.planned_output_qty}</td>
+                  <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -229,34 +229,34 @@ function FlowDetail({ flowId }: { flowId: number }) {
           {unassigned.length === 0 ? (
             <div className="text-xs text-slate-400">{t("page.sewingFlows.noUnassignedWork")}</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="table min-w-[760px] text-xs">
+            <div>
+              <table className="table w-full table-fixed text-xs">
                 <thead>
                   <tr>
-                    <th className="whitespace-nowrap">{t("field.productionNo")}</th>
-                    <th className="whitespace-nowrap">{t("common.status")}</th>
-                    <th className="whitespace-nowrap">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</th>
-                    <th className="whitespace-nowrap">{t("field.deadline2")}</th>
-                    <th className="whitespace-nowrap text-right">{t("field.actions")}</th>
+                    <th className="w-[27%]">{t("field.productionNo")}</th>
+                    <th className="w-[18%]">{t("common.status")}</th>
+                    <th className="w-[21%]">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</th>
+                    <th className="w-[16%]">{t("field.deadline2")}</th>
+                    <th className="w-[18%] text-right">{t("field.actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {unassigned.map((w) => (
                     <tr key={w.id}>
-                      <td className="whitespace-nowrap">
+                      <td className="truncate">
                         <Link href={`/production-orders/${w.production_order_id}`} className="text-brand-600 hover:underline">
                           PO #{w.production_order_id}
                         </Link>
                       </td>
-                      <td className="whitespace-nowrap"><span className="badge">{statusLabel(w.status, t)}</span></td>
-                      <td className="whitespace-nowrap">{w.passed_qty} / {w.planned_output_qty}</td>
-                      <td className="whitespace-nowrap">{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
-                      <td className="whitespace-nowrap text-right">
-                        <div className="flex justify-end gap-2">
-                          <button className="btn" onClick={() => openPick(w)} disabled={claimingId === w.id}>
+                      <td><span className="badge">{statusLabel(w.status, t)}</span></td>
+                      <td>{w.passed_qty} / {w.planned_output_qty}</td>
+                      <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
+                      <td className="text-right">
+                        <div className="flex flex-wrap justify-end gap-1">
+                          <button className="btn h-7 px-2 text-[11px]" onClick={() => openPick(w)} disabled={claimingId === w.id}>
                             {claimingId === w.id ? t("common.loading") : t("btn.assign")}
                           </button>
-                          <Link href={`/work-orders/${w.id}/sewing`} className="btn">{t("btn.open")}</Link>
+                          <Link href={`/work-orders/${w.id}/sewing`} className="btn h-7 px-2 text-[11px]">{t("btn.open")}</Link>
                         </div>
                       </td>
                     </tr>
