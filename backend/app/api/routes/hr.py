@@ -43,8 +43,43 @@ def _serialize(r: Employee) -> dict:
     }
 
 
+def _backfill_employees_from_users(db: DbSession) -> int:
+    """Ensure each app user has a corresponding employee row.
+
+    Older databases may contain demo users in `users` without entries in
+    `employees`, which makes the HR table appear empty.
+    """
+    existing_user_ids = {
+        uid
+        for (uid,) in db.query(Employee.user_id).filter(Employee.user_id.isnot(None)).all()
+        if uid is not None
+    }
+    users = db.query(User).order_by(User.id.asc()).all()
+    created = 0
+    for u in users:
+        if u.id in existing_user_ids:
+            continue
+        db.add(
+            Employee(
+                user_id=u.id,
+                full_name=u.name,
+                department_id=u.department_id,
+                position=(u.role.name if getattr(u, "role", None) else None),
+                phone=None,
+                salary=None,
+                status="active" if bool(u.is_active) else "inactive",
+                joined_at=getattr(u, "created_at", None),
+            )
+        )
+        created += 1
+    if created:
+        db.commit()
+    return created
+
+
 @router.get("/employees")
 def list_employees(db: DbSession, _: CurrentUser):
+    _backfill_employees_from_users(db)
     rows = db.query(Employee).order_by(Employee.id.desc()).all()
     return [_serialize(r) for r in rows]
 
