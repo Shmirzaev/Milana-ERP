@@ -719,9 +719,10 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     wo.passed_qty += payload.passed_qty
     wo.failed_qty += payload.failed_qty
     wo.rework_qty += payload.rework_qty
-    if assignment and int(payload.passed_qty or 0) > 0:
+    consumed_total = int(payload.passed_qty or 0) + int(payload.failed_qty or 0) + int(payload.rejected_qty or 0)
+    if assignment and consumed_total > 0:
         remaining = max(0, int(assignment.quantity or 0) - int(assignment.completed_qty or 0))
-        consumed = min(remaining, int(payload.passed_qty or 0))
+        consumed = min(remaining, consumed_total)
         if consumed > 0:
             assignment.completed_qty = int(assignment.completed_qty or 0) + consumed
         if assignment.completed_qty > 0 and assignment.status == "planned":

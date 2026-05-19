@@ -258,6 +258,68 @@ def test_sewing_record_updates_selected_line_assignment_progress(client, auth_he
     assert assignment["status"] == "completed"
 
 
+def test_sewing_line_plan_consumes_brak_qty(client, auth_headers):
+    so_id = _create_client_sales_order(client, auth_headers)
+    _prepare_sales_order_for_po(client, auth_headers, so_id)
+
+    r = client.post(
+        "/api/planning/create-production-order",
+        json={
+            "production_type": "client_order",
+            "sales_order_id": so_id,
+            "model_id": 1,
+            "planned_quantity": 100,
+            "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 100}],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    po_id = r.json()["id"]
+
+    r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    sewing_wo = next(w for w in r.json() if w["operation"] == "sewing")
+
+    r = client.get("/api/sewing-flows", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    flow_id = r.json()[0]["id"]
+
+    r = client.post(
+        f"/api/work-orders/{sewing_wo['id']}/assignments",
+        json={
+            "work_order_id": sewing_wo["id"],
+            "sewing_flow_id": flow_id,
+            "quantity": 100,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    assignment_id = r.json()["id"]
+
+    # Scenario: input 100, output/passed 99, brak 1.
+    # Brak piece should still consume line plan and not remain as "to sew".
+    r = client.post(
+        "/api/sewing/records",
+        json={
+            "work_order_id": sewing_wo["id"],
+            "input_qty": 100,
+            "sewn_qty": 99,
+            "passed_qty": 99,
+            "failed_qty": 1,
+            "rejected_qty": 0,
+            "sewing_assignment_id": assignment_id,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.get(f"/api/work-orders/{sewing_wo['id']}/assignments", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assignment = next(a for a in r.json() if a["id"] == assignment_id)
+    assert assignment["completed_qty"] == 100
+    assert assignment["status"] == "completed"
+
+
 def test_package_over_capacity_blocked_without_admin_override(client, auth_headers):
     so_id = _create_client_sales_order(client, auth_headers)
     _prepare_sales_order_for_po(client, auth_headers, so_id)
