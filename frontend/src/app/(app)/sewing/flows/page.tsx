@@ -31,7 +31,7 @@ type WO = {
 
 export default function SewingFlowsPage() {
   const { t } = useT();
-  const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
+  const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher, { refreshInterval: 10_000 });
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
 
   return (
@@ -80,7 +80,9 @@ export default function SewingFlowsPage() {
               className="btn w-full justify-center"
               onClick={() => setExpanded((prev) => ({ ...prev, [f.id]: !prev[f.id] }))}
             >
-              {isExpanded ? t("btn.cancel") : t("page.sewingFlows.assigned")}
+              {isExpanded
+                ? t("btn.cancel")
+                : (f.active_work_orders > 0 ? t("page.sewingFlows.assigned") : t("page.sewingFlows.readyForWork"))}
             </button>
             {isExpanded && <FlowDetail flowId={f.id} />}
           </div>
@@ -96,7 +98,7 @@ function FlowUtilization({ flowId }: { flowId: number }) {
   const { data } = useSWR<{ committed_today: number; capacity_per_day: number; utilization_pct: number }>(
     `/api/sewing-flows/${flowId}/utilization`,
     fetcher,
-    { refreshInterval: 60_000 },
+    { refreshInterval: 10_000 },
   );
   if (!data) return null;
   const pct = Math.min(100, data.utilization_pct);

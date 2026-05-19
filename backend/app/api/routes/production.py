@@ -65,13 +65,16 @@ def _flow_committed_today(db: DbSession, flow_id: int, now: datetime) -> int:
         SewingAssignment.status.in_(["planned", "in_progress"]),
     ).all()
     for a in assignments:
+        remaining_qty = max(0, int(a.quantity or 0) - int(a.completed_qty or 0))
+        if remaining_qty <= 0:
+            continue
         a_start = as_utc(a.planned_start)
         a_end = as_utc(a.planned_end)
         if not a_start or not a_end:
             continue
         if a_start <= now <= a_end:
             days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
-            committed += round(a.quantity / days)
+            committed += round(remaining_qty / days)
 
     # 2) Directly assigned sewing WOs (without split assignments) count fully.
     direct_wos = db.query(WorkOrder).filter(

@@ -1,4 +1,5 @@
 """Integration tests for core production flow endpoints."""
+from datetime import datetime, timedelta, timezone
 
 
 def _prepare_sales_order_for_po(client, headers, sales_order_id: int) -> None:
@@ -280,9 +281,21 @@ def test_sewing_line_plan_consumes_brak_qty(client, auth_headers):
     assert r.status_code == 200, r.text
     sewing_wo = next(w for w in r.json() if w["operation"] == "sewing")
 
-    r = client.get("/api/sewing-flows", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    flow_id = r.json()[0]["id"]
+    r = client.post(
+        "/api/sewing-flows",
+        json={
+            "name": f"Test Line {po_id}",
+            "code": f"TST-{po_id}",
+            "capacity_per_day": 200,
+            "is_active": True,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    flow_id = r.json()["id"]
+
+    start = datetime.now(timezone.utc) - timedelta(hours=1)
+    end = datetime.now(timezone.utc) + timedelta(hours=23)
 
     r = client.post(
         f"/api/work-orders/{sewing_wo['id']}/assignments",
@@ -290,6 +303,8 @@ def test_sewing_line_plan_consumes_brak_qty(client, auth_headers):
             "work_order_id": sewing_wo["id"],
             "sewing_flow_id": flow_id,
             "quantity": 100,
+            "planned_start": start.isoformat(),
+            "planned_end": end.isoformat(),
         },
         headers=auth_headers,
     )
@@ -318,6 +333,18 @@ def test_sewing_line_plan_consumes_brak_qty(client, auth_headers):
     assignment = next(a for a in r.json() if a["id"] == assignment_id)
     assert assignment["completed_qty"] == 100
     assert assignment["status"] == "completed"
+
+    # Completed assignment should immediately free the line.
+    r = client.get(f"/api/sewing-flows/{flow_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    flow = r.json()
+    assert flow["active_work_orders"] == 0
+    assert flow["planned_units"] == 0
+
+    r = client.get(f"/api/sewing-flows/{flow_id}/utilization", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    util = r.json()
+    assert util["committed_today"] == 0
 
 
 def test_package_over_capacity_blocked_without_admin_override(client, auth_headers):

@@ -220,6 +220,9 @@ def _project_daily_load(
     existing = qry.all()
     committed = 0.0
     for a in existing:
+        remaining_qty = max(0, int(a.quantity or 0) - int(a.completed_qty or 0))
+        if remaining_qty <= 0:
+            continue
         a_start = as_utc(a.planned_start)
         a_end = as_utc(a.planned_end)
         if not a_start or not a_end:
@@ -227,7 +230,7 @@ def _project_daily_load(
         if a_end < start or a_start > end:
             continue
         a_days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
-        committed += a.quantity / a_days
+        committed += remaining_qty / a_days
     return daily_needed + committed, float(flow.capacity_per_day)
 
 
@@ -274,13 +277,16 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
     ).all()
     committed_today = 0
     for a in rows:
+        remaining_qty = max(0, int(a.quantity or 0) - int(a.completed_qty or 0))
+        if remaining_qty <= 0:
+            continue
         a_start = as_utc(a.planned_start)
         a_end = as_utc(a.planned_end)
         if not a_start or not a_end:
             continue
         if a_start <= now <= a_end:
             days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
-            committed_today += round(a.quantity / days)
+            committed_today += round(remaining_qty / days)
     # Add directly assigned sewing WOs that are not split.
     direct_wos = db.query(WorkOrder).filter(
         WorkOrder.sewing_flow_id == fid,
@@ -319,13 +325,16 @@ def utilization_snapshot(db: DbSession, _: CurrentUser):
         ).all()
         committed_today = 0
         for a in rows:
+            remaining_qty = max(0, int(a.quantity or 0) - int(a.completed_qty or 0))
+            if remaining_qty <= 0:
+                continue
             a_start = as_utc(a.planned_start)
             a_end = as_utc(a.planned_end)
             if not a_start or not a_end:
                 continue
             if a_start <= now <= a_end:
                 days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
-                committed_today += round(a.quantity / days)
+                committed_today += round(remaining_qty / days)
         direct_wos = db.query(WorkOrder).filter(
             WorkOrder.sewing_flow_id == f.id,
             WorkOrder.operation == "sewing",

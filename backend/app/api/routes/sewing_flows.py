@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy import func
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import SewingFlow, WorkOrder, User, SewingAssignment
@@ -44,27 +43,33 @@ def _bulk_load(db) -> dict[int, dict]:
         bucket["planned_units"] += int(planned or 0)
         bucket["completed_units"] += int(done or 0)
 
-    split_rows = (
+    split_assignments = (
         db.query(
             SewingAssignment.sewing_flow_id,
-            func.count(func.distinct(SewingAssignment.work_order_id)),
-            func.coalesce(func.sum(SewingAssignment.quantity), 0),
-            func.coalesce(func.sum(SewingAssignment.completed_qty), 0),
+            SewingAssignment.work_order_id,
+            SewingAssignment.quantity,
+            SewingAssignment.completed_qty,
         )
         .join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id)
         .filter(SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES))
         .filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
-        .group_by(SewingAssignment.sewing_flow_id)
         .all()
     )
-    split_by_flow = {
-        int(fid): {
-            "active_work_orders": int(cnt or 0),
-            "planned_units": int(planned or 0),
-            "completed_units": int(done or 0),
-        }
-        for fid, cnt, planned, done in split_rows
-    }
+    split_by_flow: dict[int, dict] = {}
+    split_wo_by_flow: dict[int, set[int]] = {}
+    for fid, wid, qty, done in split_assignments:
+        if not fid:
+            continue
+        remaining = max(0, int(qty or 0) - int(done or 0))
+        if remaining <= 0:
+            continue
+        fid_i = int(fid)
+        bucket = split_by_flow.setdefault(fid_i, {"active_work_orders": 0, "planned_units": 0, "completed_units": 0})
+        bucket["planned_units"] += int(qty or 0)
+        bucket["completed_units"] += int(done or 0)
+        split_wo_by_flow.setdefault(fid_i, set()).add(int(wid))
+    for fid, wo_ids in split_wo_by_flow.items():
+        split_by_flow[fid]["active_work_orders"] = len(wo_ids)
 
     out: dict[int, dict] = {}
     for fid, vals in direct_by_flow.items():
@@ -99,22 +104,32 @@ def _single_load(db, flow_id: int) -> dict:
         direct_planned += int(planned or 0)
         direct_done += int(done or 0)
 
-    split_cnt, split_planned, split_done = (
+    split_rows = (
         db.query(
-            func.count(func.distinct(SewingAssignment.work_order_id)),
-            func.coalesce(func.sum(SewingAssignment.quantity), 0),
-            func.coalesce(func.sum(SewingAssignment.completed_qty), 0),
+            SewingAssignment.work_order_id,
+            SewingAssignment.quantity,
+            SewingAssignment.completed_qty,
         )
         .join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id)
         .filter(SewingAssignment.sewing_flow_id == flow_id)
         .filter(SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES))
         .filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
-        .one()
+        .all()
     )
+    split_wo_ids: set[int] = set()
+    split_planned = 0
+    split_done = 0
+    for wid, qty, done in split_rows:
+        remaining = max(0, int(qty or 0) - int(done or 0))
+        if remaining <= 0:
+            continue
+        split_wo_ids.add(int(wid))
+        split_planned += int(qty or 0)
+        split_done += int(done or 0)
     return {
-        "active_work_orders": int(direct_active + int(split_cnt or 0)),
-        "planned_units": int(direct_planned + int(split_planned or 0)),
-        "completed_units": int(direct_done + int(split_done or 0)),
+        "active_work_orders": int(direct_active + len(split_wo_ids)),
+        "planned_units": int(direct_planned + split_planned),
+        "completed_units": int(direct_done + split_done),
     }
 
 
@@ -196,6 +211,7 @@ def flow_work_orders(fid: int, db: DbSession, _: CurrentUser, only_active: bool 
     if only_active:
         split_qry = split_qry.filter(SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES))
         split_qry = split_qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
+        split_qry = split_qry.filter(SewingAssignment.completed_qty < SewingAssignment.quantity)
     split = split_qry.all()
 
     uniq: dict[int, WorkOrder] = {w.id: w for w in direct}
