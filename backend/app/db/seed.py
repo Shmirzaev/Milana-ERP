@@ -269,8 +269,8 @@ def seed():
 
         # ----- Items -----
         items_specs = [
-            ("FAB-COT-001", "Cotton Jersey 180gsm", "fabric", "meter", 3.50, True),
-            ("FAB-POL-001", "Polyester Blend 220gsm", "fabric", "meter", 4.20, True),
+            ("FAB-COT-001", "Cotton Jersey 180gsm", "fabric", "kg", 3.50, True),
+            ("FAB-POL-001", "Polyester Blend 220gsm", "fabric", "kg", 4.20, True),
             ("ACC-BTN-001", "Plastic Button 12mm", "accessory", "pcs", 0.05, False),
             ("ACC-ZIP-001", "Metal Zipper 20cm", "accessory", "pcs", 0.35, False),
             ("ACC-THR-001", "Polyester Thread Black", "accessory", "roll", 1.20, False),
@@ -289,12 +289,12 @@ def seed():
         if not db.query(StockBatch).first():
             db.add(StockBatch(
                 item_id=item_map["FAB-COT-001"].id, batch_no="B-COT-202401",
-                color="white", width=160, gsm=180, quantity=500, unit="meter",
+                color="white", width=160, gsm=180, quantity=500, unit="kg",
                 cost_per_unit=3.50, warehouse_id=wh_map["fabric_storage"].id, qc_status="passed",
             ))
             db.add(StockBatch(
                 item_id=item_map["FAB-POL-001"].id, batch_no="B-POL-202401",
-                color="black", width=150, gsm=220, quantity=300, unit="meter",
+                color="black", width=150, gsm=220, quantity=300, unit="kg",
                 cost_per_unit=4.20, warehouse_id=wh_map["fabric_storage"].id, qc_status="passed",
             ))
 
@@ -322,7 +322,7 @@ def seed():
             for c, code in [("white", "#FFFFFF"), ("black", "#000000")]:
                 db.add(ModelColor(model_id=model.id, color_name=c, color_code=code))
             db.add(ModelBOM(model_id=model.id, item_id=item_map["FAB-COT-001"].id,
-                            quantity_per_piece=1.4, unit="meter", waste_percent=8.0))
+                            quantity_per_piece=1.4, unit="kg", waste_percent=8.0))
             db.add(ModelBOM(model_id=model.id, item_id=item_map["ACC-THR-001"].id,
                             quantity_per_piece=0.02, unit="roll", waste_percent=5.0))
             db.add(ModelBOM(model_id=model.id, item_id=item_map["PKG-BAG-001"].id,

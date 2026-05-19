@@ -85,7 +85,7 @@ export default function ModelDetail() {
   });
   const [details, setDetails] = useState<ModelDetails>({});
 
-  const [bomRow, setBomRow] = useState({ item_id: 0, size: "", color: "", quantity_per_piece: 1, unit: "meter", waste_percent: 5 });
+  const [bomRow, setBomRow] = useState({ item_id: 0, size: "", color: "", quantity_per_piece: 1, unit: "kg", waste_percent: 5 });
   const [color, setColor] = useState({ color_name: "", color_code: "" });
   const [size, setSize] = useState({ size: "", measurement_json: "" });
   const [measurementFields, setMeasurementFields] = useState({ chest: "", waist: "", hip: "", length: "", sleeve: "" });
@@ -188,7 +188,7 @@ export default function ModelDetail() {
       unit: bomRow.unit,
       waste_percent: n(bomRow.waste_percent),
     });
-    setBomRow({ item_id: 0, size: "", color: "", quantity_per_piece: 1, unit: "meter", waste_percent: 5 });
+    setBomRow({ item_id: 0, size: "", color: "", quantity_per_piece: 1, unit: "kg", waste_percent: 5 });
     setMsg(target === "material" ? t("page.modelDetail.msg.addedToFabrics") : t("page.modelDetail.msg.addedToAccessories"));
     mutate();
   }

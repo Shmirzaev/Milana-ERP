@@ -70,7 +70,7 @@ class CuttingRecord(Base, PkMixin, TimestampMixin):
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False)
     fabric_batch_id: Mapped[int | None] = mapped_column(ForeignKey("stock_batches.id"))
     input_quantity: Mapped[float] = mapped_column(Numeric(14, 4), default=0, nullable=False)
-    input_unit: Mapped[str] = mapped_column(String(32), default="meter", nullable=False)
+    input_unit: Mapped[str] = mapped_column(String(32), default="kg", nullable=False)
     cut_pieces: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     passed_pieces: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     defective_pieces: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

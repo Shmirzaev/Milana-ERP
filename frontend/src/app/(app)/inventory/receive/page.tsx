@@ -12,7 +12,7 @@ export default function ReceiveStockPage() {
   const { data: suppliers } = useSWR<any[]>("/api/suppliers", fetcher);
   const [f, setF] = useState({
     item_id: 0, batch_no: "", supplier_id: 0, color: "", width: 0, gsm: 0,
-    quantity: 0, unit: "meter", cost_per_unit: 0, warehouse_id: 0, qc_status: "passed",
+    quantity: 0, unit: "kg", cost_per_unit: 0, warehouse_id: 0, qc_status: "passed",
   });
   const [msg, setMsg] = useState("");
   async function submit(e: React.FormEvent) {

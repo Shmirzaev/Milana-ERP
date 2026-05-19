@@ -94,7 +94,7 @@ class CuttingRecordIn(BaseModel):
     work_order_id: int
     fabric_batch_id: Optional[int] = None
     input_quantity: float
-    input_unit: str = "meter"
+    input_unit: str = "kg"
     cut_pieces: int
     passed_pieces: int
     defective_pieces: int = 0

@@ -31,7 +31,7 @@ export default function CuttingPage() {
   const [form, setForm] = useState({
     fabric_batch_id: 0,
     input_quantity: 0,
-    input_unit: "meter",
+    input_unit: "kg",
     cut_pieces: 0,
     passed_pieces: 0,
     defective_pieces: 0,

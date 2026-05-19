@@ -104,7 +104,7 @@ def test_full_flow(client, auth_headers):
             "work_order_id": cutting_wo["id"],
             "fabric_batch_id": None,
             "input_quantity": 140.0,
-            "input_unit": "meter",
+            "input_unit": "kg",
             "cut_pieces": 100,
             "passed_pieces": 100,
             "defective_pieces": 0,

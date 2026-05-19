@@ -39,6 +39,14 @@ _PATCHES: list[tuple[str, str]] = [
     ("sales_orders", "ADD COLUMN IF NOT EXISTS printing_attachments JSONB"),
 ]
 
+_DATA_FIXES: list[str] = [
+    "UPDATE items SET unit = 'kg' WHERE lower(trim(unit)) = 'meter'",
+    "UPDATE stock_batches SET unit = 'kg' WHERE lower(trim(unit)) = 'meter'",
+    "UPDATE stock_movements SET unit = 'kg' WHERE lower(trim(unit)) = 'meter'",
+    "UPDATE model_bom SET unit = 'kg' WHERE lower(trim(unit)) = 'meter'",
+    "UPDATE cutting_records SET input_unit = 'kg' WHERE lower(trim(input_unit)) = 'meter'",
+]
+
 
 def run(engine: Engine) -> None:
     """Apply every patch in its own transaction.
@@ -60,4 +68,12 @@ def run(engine: Engine) -> None:
         except Exception as e:
             # Common cause on first boot: dependent table (e.g. sewing_flows)
             # doesn't exist yet. Next restart, after create_all, will fix it.
+            log.warning("schema_hotfix: skipped (%s) -- %s", sql, e)
+
+    for sql in _DATA_FIXES:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(sql))
+            log.info("schema_hotfix: OK %s", sql)
+        except Exception as e:
             log.warning("schema_hotfix: skipped (%s) -- %s", sql, e)
