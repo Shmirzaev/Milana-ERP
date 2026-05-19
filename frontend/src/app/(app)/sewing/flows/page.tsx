@@ -193,30 +193,32 @@ function FlowDetail({ flowId }: { flowId: number }) {
   return (
     <div className="mt-3 space-y-3">
       {wos.length > 0 ? (
-        <table className="table text-xs">
-          <thead>
-            <tr>
-              <th>{t("field.productionNo")}</th>
-              <th>{t("common.status")}</th>
-              <th>{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</th>
-              <th>{t("field.deadline2")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {wos.map((w) => (
-              <tr key={w.id}>
-                <td>
-                  <Link href={`/production-orders/${w.production_order_id}`} className="text-brand-600 hover:underline">
-                    PO #{w.production_order_id}
-                  </Link>
-                </td>
-                <td><span className="badge">{statusLabel(w.status, t)}</span></td>
-                <td>{w.passed_qty} / {w.planned_output_qty}</td>
-                <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
+        <div className="overflow-x-auto">
+          <table className="table min-w-[640px] text-xs">
+            <thead>
+              <tr>
+                <th className="whitespace-nowrap">{t("field.productionNo")}</th>
+                <th className="whitespace-nowrap">{t("common.status")}</th>
+                <th className="whitespace-nowrap">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</th>
+                <th className="whitespace-nowrap">{t("field.deadline2")}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {wos.map((w) => (
+                <tr key={w.id}>
+                  <td className="whitespace-nowrap">
+                    <Link href={`/production-orders/${w.production_order_id}`} className="text-brand-600 hover:underline">
+                      PO #{w.production_order_id}
+                    </Link>
+                  </td>
+                  <td className="whitespace-nowrap"><span className="badge">{statusLabel(w.status, t)}</span></td>
+                  <td className="whitespace-nowrap">{w.passed_qty} / {w.planned_output_qty}</td>
+                  <td className="whitespace-nowrap">{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="text-xs text-slate-500">{t("page.sewingFlows.empty")}</div>
       )}
@@ -227,37 +229,41 @@ function FlowDetail({ flowId }: { flowId: number }) {
           {unassigned.length === 0 ? (
             <div className="text-xs text-slate-400">{t("page.sewingFlows.noUnassignedWork")}</div>
           ) : (
-            <table className="table text-xs">
-              <thead>
-                <tr>
-                  <th>{t("field.productionNo")}</th>
-                  <th>{t("common.status")}</th>
-                  <th>{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</th>
-                  <th>{t("field.deadline2")}</th>
-                  <th>{t("field.actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {unassigned.map((w) => (
-                  <tr key={w.id}>
-                    <td>
-                      <Link href={`/production-orders/${w.production_order_id}`} className="text-brand-600 hover:underline">
-                        PO #{w.production_order_id}
-                      </Link>
-                    </td>
-                    <td><span className="badge">{statusLabel(w.status, t)}</span></td>
-                    <td>{w.passed_qty} / {w.planned_output_qty}</td>
-                    <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
-                    <td className="flex gap-2">
-                      <button className="btn" onClick={() => openPick(w)} disabled={claimingId === w.id}>
-                        {claimingId === w.id ? t("common.loading") : t("btn.assign")}
-                      </button>
-                      <Link href={`/work-orders/${w.id}/sewing`} className="btn">{t("btn.open")}</Link>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="table min-w-[760px] text-xs">
+                <thead>
+                  <tr>
+                    <th className="whitespace-nowrap">{t("field.productionNo")}</th>
+                    <th className="whitespace-nowrap">{t("common.status")}</th>
+                    <th className="whitespace-nowrap">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</th>
+                    <th className="whitespace-nowrap">{t("field.deadline2")}</th>
+                    <th className="whitespace-nowrap text-right">{t("field.actions")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {unassigned.map((w) => (
+                    <tr key={w.id}>
+                      <td className="whitespace-nowrap">
+                        <Link href={`/production-orders/${w.production_order_id}`} className="text-brand-600 hover:underline">
+                          PO #{w.production_order_id}
+                        </Link>
+                      </td>
+                      <td className="whitespace-nowrap"><span className="badge">{statusLabel(w.status, t)}</span></td>
+                      <td className="whitespace-nowrap">{w.passed_qty} / {w.planned_output_qty}</td>
+                      <td className="whitespace-nowrap">{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
+                      <td className="whitespace-nowrap text-right">
+                        <div className="flex justify-end gap-2">
+                          <button className="btn" onClick={() => openPick(w)} disabled={claimingId === w.id}>
+                            {claimingId === w.id ? t("common.loading") : t("btn.assign")}
+                          </button>
+                          <Link href={`/work-orders/${w.id}/sewing`} className="btn">{t("btn.open")}</Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           {msg && <div className="mt-2 text-xs text-red-600">{msg}</div>}
         </div>
