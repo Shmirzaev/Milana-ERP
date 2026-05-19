@@ -72,7 +72,7 @@ export default function ModelsPage() {
         <input className="input" placeholder={t("common.code")} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} required />
         <input className="input" placeholder={t("common.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
         <input className="input" placeholder={t("field.category")} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-        <input className="input" type="number" step="0.1" placeholder="SAM (min/pc)" value={form.sam_minutes} onChange={(e) => setForm({ ...form, sam_minutes: Number(e.target.value) })} title="Standard Allowed Minutes per piece — drives sewing deadline math" />
+        <input className="input" type="number" step="0.1" placeholder={t("field.samMinutes")} value={form.sam_minutes} onChange={(e) => setForm({ ...form, sam_minutes: Number(e.target.value) })} title={t("field.samHint")} />
         <button className="btn btn-primary">{t("btn.createDraftModel")}</button>
         {err && <div className="md:col-span-5 text-sm text-red-600">{err}</div>}
       </form>
@@ -81,7 +81,7 @@ export default function ModelsPage() {
           <thead>
             <tr>
               <th>{t("common.code")}</th><th>{t("common.name")}</th>
-              <th>{t("field.status")}</th><th>SAM</th><th>{t("field.created")}</th><th>{t("field.actions")}</th>
+              <th>{t("field.status")}</th><th>{t("field.sam")}</th><th>{t("field.created")}</th><th>{t("field.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -125,7 +125,7 @@ export default function ModelsPage() {
               </select>
             </div>
             <div>
-              <label className="label" title="Standard Allowed Minutes per piece">SAM (min/pc)</label>
+              <label className="label" title={t("field.samHint")}>{t("field.samMinutes")}</label>
               <input className="input" type="number" step="0.1" value={edit.sam_minutes} onChange={(e) => setEdit({ ...edit, sam_minutes: Number(e.target.value) })} />
             </div>
           </div>

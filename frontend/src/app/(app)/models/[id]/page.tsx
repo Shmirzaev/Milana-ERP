@@ -4,6 +4,8 @@ import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { useT } from "@/lib/i18n";
+import { statusLabel } from "@/components/StagePipeline";
 
 type ModelDetails = {
   general?: {
@@ -34,18 +36,18 @@ type ModelDetails = {
   features?: Record<string, boolean>;
 };
 
-const TABS = [
-  "Asosiy ma'lumotlar",
-  "Mato va aksesuar",
-  "Variantlar",
-  "Qolip",
-  "Boshqa",
-  "Mini posta",
-  "O'lchamlar jadvali",
-  "Tikuv ta'limoti",
-  "Model tarjimasi",
-  "Model tayyor bo'lish narxi",
-];
+const TAB_KEYS = [
+  "page.modelDetail.tab.general",
+  "page.modelDetail.tab.materials",
+  "page.modelDetail.tab.variants",
+  "page.modelDetail.tab.pattern",
+  "page.modelDetail.tab.other",
+  "page.modelDetail.tab.miniPost",
+  "page.modelDetail.tab.sizeChart",
+  "page.modelDetail.tab.sewingGuide",
+  "page.modelDetail.tab.translation",
+  "page.modelDetail.tab.costing",
+] as const;
 
 function n(v: unknown): number {
   const x = Number(v ?? 0);
@@ -65,8 +67,10 @@ function buildMeasurementJson(fields: { chest: string; waist: string; hip: strin
 export default function ModelDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const { t } = useT();
   const { data: m, mutate } = useSWR<any>(`/api/models/${id}`, fetcher);
   const { data: items } = useSWR<any[]>("/api/inventory/items", fetcher);
+  const tabs = TAB_KEYS.map((k) => t(k));
 
   const [tab, setTab] = useState(1);
   const [msg, setMsg] = useState("");
@@ -146,7 +150,7 @@ export default function ModelDetail() {
     return rows;
   }, [m?.colors, m?.sizes]);
 
-  if (!m) return <div>Loading...</div>;
+  if (!m) return <div>{t("common.loading")}</div>;
 
   async function saveModel() {
     await api.patch(`/api/models/${id}`, {
@@ -155,7 +159,7 @@ export default function ModelDetail() {
       description: modelForm.description || null,
       details_json: details,
     });
-    setMsg("Saved");
+    setMsg(t("msg.saved"));
     mutate();
   }
 
@@ -164,16 +168,16 @@ export default function ModelDetail() {
     const item = itemMap.get(bomRow.item_id);
     const category = String(item?.category || "").toLowerCase();
     if (!bomRow.item_id) {
-      alert("Avval item tanlang.");
+      alert(t("page.modelDetail.alert.pickItemFirst"));
       return;
     }
     const target: "material" | "accessory" = expectedCategory || "material";
     if (target === "material" && !["fabric", "semi_finished"].includes(category)) {
-      alert("Material qo'shish uchun fabric yoki semi_finished item tanlang.");
+      alert(t("page.modelDetail.alert.materialItemType"));
       return;
     }
     if (target === "accessory" && !["accessory", "packaging"].includes(category)) {
-      alert("Aksessuar qo'shish uchun accessory yoki packaging item tanlang.");
+      alert(t("page.modelDetail.alert.accessoryItemType"));
       return;
     }
     await api.post(`/api/models/${id}/bom`, {
@@ -185,7 +189,7 @@ export default function ModelDetail() {
       waste_percent: n(bomRow.waste_percent),
     });
     setBomRow({ item_id: 0, size: "", color: "", quantity_per_piece: 1, unit: "meter", waste_percent: 5 });
-    setMsg(target === "material" ? "Matolar bo'limiga qo'shildi." : "Aksessuarlar bo'limiga qo'shildi.");
+    setMsg(target === "material" ? t("page.modelDetail.msg.addedToFabrics") : t("page.modelDetail.msg.addedToAccessories"));
     mutate();
   }
 
@@ -205,7 +209,7 @@ export default function ModelDetail() {
       try {
         measurementJson = JSON.parse(size.measurement_json.trim());
       } catch {
-        alert("Measurement JSON noto'g'ri formatda.");
+        alert(t("page.modelDetail.alert.invalidMeasurementJson"));
         return;
       }
     }
@@ -259,30 +263,33 @@ export default function ModelDetail() {
 
   return (
     <div>
-      <PageHeader title={`Ko'rish: ${m.code}`} subtitle={`${m.name} • ${m.status}`} />
+      <PageHeader
+        title={t("page.modelDetail.viewTitle", { code: m.code })}
+        subtitle={t("page.modelDetail.subtitle", { name: m.name, status: statusLabel(m.status, t) })}
+      />
       <div className="card p-4 space-y-4">
         <div className="flex flex-wrap gap-1 border-b border-[#ecebe3] pb-2">
-          {TABS.map((label, i) => tabButton(i + 1, label))}
+          {tabs.map((label, i) => tabButton(i + 1, label))}
         </div>
 
         {tab === 1 && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div><label className="label">Model kodi</label><input className="input" value={modelForm.code} onChange={(e) => setModelForm({ ...modelForm, code: e.target.value })} /></div>
-              <div><label className="label">Nomi</label><input className="input" value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} /></div>
-              <div><label className="label">Kategoriya</label><input className="input" value={modelForm.category} onChange={(e) => setModelForm({ ...modelForm, category: e.target.value })} /></div>
+              <div><label className="label">{t("common.code")}</label><input className="input" value={modelForm.code} onChange={(e) => setModelForm({ ...modelForm, code: e.target.value })} /></div>
+              <div><label className="label">{t("common.name")}</label><input className="input" value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} /></div>
+              <div><label className="label">{t("field.category")}</label><input className="input" value={modelForm.category} onChange={(e) => setModelForm({ ...modelForm, category: e.target.value })} /></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <div><label className="label">Brand</label><input className="input" value={details.general?.brand || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, brand: e.target.value } })} /></div>
-              <div><label className="label">Turi</label><input className="input" value={details.general?.product_type || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, product_type: e.target.value } })} /></div>
-              <div><label className="label">Mavsum</label><input className="input" value={details.general?.season || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, season: e.target.value } })} /></div>
-              <div><label className="label">SAM (min/pc)</label><input className="input" type="number" step="0.1" value={modelForm.sam_minutes} onChange={(e) => setModelForm({ ...modelForm, sam_minutes: n(e.target.value) })} /></div>
+              <div><label className="label">{t("field.brand")}</label><input className="input" value={details.general?.brand || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, brand: e.target.value } })} /></div>
+              <div><label className="label">{t("field.type")}</label><input className="input" value={details.general?.product_type || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, product_type: e.target.value } })} /></div>
+              <div><label className="label">{t("field.season")}</label><input className="input" value={details.general?.season || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, season: e.target.value } })} /></div>
+              <div><label className="label">{t("field.samMinutes")}</label><input className="input" type="number" step="0.1" value={modelForm.sam_minutes} onChange={(e) => setModelForm({ ...modelForm, sam_minutes: n(e.target.value) })} /></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div><label className="label">Konstruktor</label><input className="input" value={details.general?.constructor || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, constructor: e.target.value } })} /></div>
-              <div><label className="label">Dizayner</label><input className="input" value={details.general?.designer || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, designer: e.target.value } })} /></div>
+              <div><label className="label">{t("page.modelDetail.constructor")}</label><input className="input" value={details.general?.constructor || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, constructor: e.target.value } })} /></div>
+              <div><label className="label">{t("page.modelDetail.designer")}</label><input className="input" value={details.general?.designer || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, designer: e.target.value } })} /></div>
             </div>
-            <div><label className="label">Izoh</label><textarea className="input min-h-24" value={modelForm.description} onChange={(e) => setModelForm({ ...modelForm, description: e.target.value })} /></div>
+            <div><label className="label">{t("field.description")}</label><textarea className="input min-h-24" value={modelForm.description} onChange={(e) => setModelForm({ ...modelForm, description: e.target.value })} /></div>
           </div>
         )}
 
@@ -290,17 +297,17 @@ export default function ModelDetail() {
           <div className="space-y-5">
             <div>
               <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold">Matolar</h3>
-                <button className="btn btn-primary" type="button" onClick={() => addBom(undefined, "material")}>+ Matoga qo'shish</button>
+                <h3 className="font-semibold">{t("page.modelDetail.fabrics")}</h3>
+                <button className="btn btn-primary" type="button" onClick={() => addBom(undefined, "material")}>+ {t("page.modelDetail.addToFabrics")}</button>
               </div>
               <table className="table">
-                <thead><tr><th>Kodi</th><th>Nomi</th><th>O'lcham/Rang</th><th>Ishlatish</th><th>Unit cost</th><th>Cost/pc</th></tr></thead>
+                <thead><tr><th>{t("common.code")}</th><th>{t("common.name")}</th><th>{t("page.modelDetail.sizeColor")}</th><th>{t("field.usage")}</th><th>{t("field.unitCost")}</th><th>{t("page.modelDetail.costPerPiece")}</th></tr></thead>
                 <tbody>
                   {materialRows.map((r: any) => (
                     <tr key={r.id}>
                       <td>{r.item?.sku || r.item_id}</td>
                       <td>{r.item?.name || "-"}</td>
-                      <td>{r.size || "Barcha"} / {r.color || "Barcha"}</td>
+                      <td>{r.size || t("common.all")} / {r.color || t("common.all")}</td>
                       <td>{n(r.quantity_per_piece).toFixed(4)} {r.unit} (+{n(r.waste_percent).toFixed(1)}%)</td>
                       <td>${n(r.unitCost).toFixed(4)}</td>
                       <td>${n(r.costPerPiece).toFixed(4)}</td>
@@ -310,30 +317,30 @@ export default function ModelDetail() {
               </table>
               <form onSubmit={(e) => addBom(e, "material")} className="grid grid-cols-1 md:grid-cols-9 gap-2 mt-2">
                 <select className="input" value={bomRow.item_id} onChange={(e) => setBomRow({ ...bomRow, item_id: n(e.target.value) })} required>
-                  <option value={0}>Item tanlang</option>
-                  {(items || []).map((i) => <option key={i.id} value={i.id}>{i.sku} â€” {i.name} ({i.category})</option>)}
+                  <option value={0}>{t("page.modelDetail.selectItem")}</option>
+                  {(items || []).map((i) => <option key={i.id} value={i.id}>{i.sku} - {i.name} ({i.category})</option>)}
                 </select>
-                <input className="input" placeholder="Rang (ixtiyoriy)" value={bomRow.color} onChange={(e) => setBomRow({ ...bomRow, color: e.target.value })} />
-                <input className="input" placeholder="O'lcham (ixtiyoriy)" value={bomRow.size} onChange={(e) => setBomRow({ ...bomRow, size: e.target.value })} />
-                <input className="input" type="number" step="0.0001" placeholder="Qty/pc" value={bomRow.quantity_per_piece} onChange={(e) => setBomRow({ ...bomRow, quantity_per_piece: n(e.target.value) })} required />
-                <input className="input" placeholder="Unit" value={bomRow.unit} onChange={(e) => setBomRow({ ...bomRow, unit: e.target.value })} required />
-                <input className="input" type="number" step="0.1" placeholder="Waste %" value={bomRow.waste_percent} onChange={(e) => setBomRow({ ...bomRow, waste_percent: n(e.target.value) })} />
-                <button className="btn btn-primary" type="submit">Qo'shish</button>
+                <input className="input" placeholder={t("page.modelDetail.colorOptional")} value={bomRow.color} onChange={(e) => setBomRow({ ...bomRow, color: e.target.value })} />
+                <input className="input" placeholder={t("page.modelDetail.sizeOptional")} value={bomRow.size} onChange={(e) => setBomRow({ ...bomRow, size: e.target.value })} />
+                <input className="input" type="number" step="0.0001" placeholder={t("page.modelDetail.qtyPerPieceShort")} value={bomRow.quantity_per_piece} onChange={(e) => setBomRow({ ...bomRow, quantity_per_piece: n(e.target.value) })} required />
+                <input className="input" placeholder={t("field.unit")} value={bomRow.unit} onChange={(e) => setBomRow({ ...bomRow, unit: e.target.value })} required />
+                <input className="input" type="number" step="0.1" placeholder={t("page.modelDetail.wastePctShort")} value={bomRow.waste_percent} onChange={(e) => setBomRow({ ...bomRow, waste_percent: n(e.target.value) })} />
+                <button className="btn btn-primary" type="submit">{t("btn.add")}</button>
               </form>
             </div>
             <div>
               <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold">Aksessuarlar</h3>
-                <button className="btn" type="button" onClick={() => addBom(undefined, "accessory")}>+ Aksessuarga qo'shish</button>
+                <h3 className="font-semibold">{t("page.modelDetail.accessories")}</h3>
+                <button className="btn" type="button" onClick={() => addBom(undefined, "accessory")}>+ {t("page.modelDetail.addToAccessories")}</button>
               </div>
               <table className="table">
-                <thead><tr><th>Kodi</th><th>Nomi</th><th>O'lcham/Rang</th><th>Ishlatish</th><th>Unit cost</th><th>Cost/pc</th></tr></thead>
+                <thead><tr><th>{t("common.code")}</th><th>{t("common.name")}</th><th>{t("page.modelDetail.sizeColor")}</th><th>{t("field.usage")}</th><th>{t("field.unitCost")}</th><th>{t("page.modelDetail.costPerPiece")}</th></tr></thead>
                 <tbody>
                   {accessoryRows.map((r: any) => (
                     <tr key={r.id}>
                       <td>{r.item?.sku || r.item_id}</td>
                       <td>{r.item?.name || "-"}</td>
-                      <td>{r.size || "Barcha"} / {r.color || "Barcha"}</td>
+                      <td>{r.size || t("common.all")} / {r.color || t("common.all")}</td>
                       <td>{n(r.quantity_per_piece).toFixed(4)} {r.unit} (+{n(r.waste_percent).toFixed(1)}%)</td>
                       <td>${n(r.unitCost).toFixed(4)}</td>
                       <td>${n(r.costPerPiece).toFixed(4)}</td>
@@ -345,15 +352,15 @@ export default function ModelDetail() {
 
             <form onSubmit={(e) => addBom(e, "accessory")} className="grid grid-cols-1 md:grid-cols-9 gap-2">
               <select className="input" value={bomRow.item_id} onChange={(e) => setBomRow({ ...bomRow, item_id: n(e.target.value) })} required>
-                <option value={0}>Item tanlang</option>
-                {(items || []).map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name} ({i.category})</option>)}
+                <option value={0}>{t("page.modelDetail.selectItem")}</option>
+                {(items || []).map((i) => <option key={i.id} value={i.id}>{i.sku} - {i.name} ({i.category})</option>)}
               </select>
-              <input className="input" placeholder="Rang (ixtiyoriy)" value={bomRow.color} onChange={(e) => setBomRow({ ...bomRow, color: e.target.value })} />
-              <input className="input" placeholder="O'lcham (ixtiyoriy)" value={bomRow.size} onChange={(e) => setBomRow({ ...bomRow, size: e.target.value })} />
-              <input className="input" type="number" step="0.0001" placeholder="Qty/pc" value={bomRow.quantity_per_piece} onChange={(e) => setBomRow({ ...bomRow, quantity_per_piece: n(e.target.value) })} required />
-              <input className="input" placeholder="Unit" value={bomRow.unit} onChange={(e) => setBomRow({ ...bomRow, unit: e.target.value })} required />
-              <input className="input" type="number" step="0.1" placeholder="Waste %" value={bomRow.waste_percent} onChange={(e) => setBomRow({ ...bomRow, waste_percent: n(e.target.value) })} />
-              <button className="btn btn-primary" type="submit">Qo'shish</button>
+              <input className="input" placeholder={t("page.modelDetail.colorOptional")} value={bomRow.color} onChange={(e) => setBomRow({ ...bomRow, color: e.target.value })} />
+              <input className="input" placeholder={t("page.modelDetail.sizeOptional")} value={bomRow.size} onChange={(e) => setBomRow({ ...bomRow, size: e.target.value })} />
+              <input className="input" type="number" step="0.0001" placeholder={t("page.modelDetail.qtyPerPieceShort")} value={bomRow.quantity_per_piece} onChange={(e) => setBomRow({ ...bomRow, quantity_per_piece: n(e.target.value) })} required />
+              <input className="input" placeholder={t("field.unit")} value={bomRow.unit} onChange={(e) => setBomRow({ ...bomRow, unit: e.target.value })} required />
+              <input className="input" type="number" step="0.1" placeholder={t("page.modelDetail.wastePctShort")} value={bomRow.waste_percent} onChange={(e) => setBomRow({ ...bomRow, waste_percent: n(e.target.value) })} />
+              <button className="btn btn-primary" type="submit">{t("btn.add")}</button>
             </form>
           </div>
         )}
@@ -362,43 +369,43 @@ export default function ModelDetail() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <form onSubmit={addColor} className="card p-3 space-y-2">
-                <div className="font-medium">Rang qo'shish</div>
+                <div className="font-medium">{t("page.modelDetail.addColor")}</div>
                 <div className="flex gap-2">
-                  <input className="input" placeholder="Rang nomi" value={color.color_name} onChange={(e) => setColor({ ...color, color_name: e.target.value })} required />
-                  <input className="input w-24" placeholder="#hex" value={color.color_code} onChange={(e) => setColor({ ...color, color_code: e.target.value })} />
-                  <button className="btn btn-primary">Qo'shish</button>
+                  <input className="input" placeholder={t("page.modelDetail.colorName")} value={color.color_name} onChange={(e) => setColor({ ...color, color_name: e.target.value })} required />
+                  <input className="input w-24" placeholder={t("page.modelDetail.colorCodeHex")} value={color.color_code} onChange={(e) => setColor({ ...color, color_code: e.target.value })} />
+                  <button className="btn btn-primary">{t("btn.add")}</button>
                 </div>
               </form>
               <form onSubmit={addSize} className="card p-3 space-y-2">
-                <div className="font-medium">O'lcham qo'shish</div>
+                <div className="font-medium">{t("page.modelDetail.addSize")}</div>
                 <div className="flex gap-2">
-                  <input className="input" placeholder="S, M, L..." value={size.size} onChange={(e) => setSize({ ...size, size: e.target.value })} required />
-                  <button className="btn btn-primary" type="submit">Ko'rish</button>
+                  <input className="input" placeholder={t("page.modelDetail.sizeListExample")} value={size.size} onChange={(e) => setSize({ ...size, size: e.target.value })} required />
+                  <button className="btn btn-primary" type="submit">{t("btn.view")}</button>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                  <input className="input" placeholder="chest" value={measurementFields.chest} onChange={(e) => setMeasurementFields({ ...measurementFields, chest: e.target.value })} />
-                  <input className="input" placeholder="waist" value={measurementFields.waist} onChange={(e) => setMeasurementFields({ ...measurementFields, waist: e.target.value })} />
-                  <input className="input" placeholder="hip" value={measurementFields.hip} onChange={(e) => setMeasurementFields({ ...measurementFields, hip: e.target.value })} />
-                  <input className="input" placeholder="length" value={measurementFields.length} onChange={(e) => setMeasurementFields({ ...measurementFields, length: e.target.value })} />
-                  <input className="input" placeholder="sleeve" value={measurementFields.sleeve} onChange={(e) => setMeasurementFields({ ...measurementFields, sleeve: e.target.value })} />
+                  <input className="input" placeholder={t("page.modelDetail.measurement.chest")} value={measurementFields.chest} onChange={(e) => setMeasurementFields({ ...measurementFields, chest: e.target.value })} />
+                  <input className="input" placeholder={t("page.modelDetail.measurement.waist")} value={measurementFields.waist} onChange={(e) => setMeasurementFields({ ...measurementFields, waist: e.target.value })} />
+                  <input className="input" placeholder={t("page.modelDetail.measurement.hip")} value={measurementFields.hip} onChange={(e) => setMeasurementFields({ ...measurementFields, hip: e.target.value })} />
+                  <input className="input" placeholder={t("page.modelDetail.measurement.length")} value={measurementFields.length} onChange={(e) => setMeasurementFields({ ...measurementFields, length: e.target.value })} />
+                  <input className="input" placeholder={t("page.modelDetail.measurement.sleeve")} value={measurementFields.sleeve} onChange={(e) => setMeasurementFields({ ...measurementFields, sleeve: e.target.value })} />
                 </div>
-                <textarea className="input min-h-20" placeholder='Measurement JSON (auto, editable), masalan {"chest":92}' value={size.measurement_json} onChange={(e) => setSize({ ...size, measurement_json: e.target.value })} />
+                <textarea className="input min-h-20" placeholder={t("page.modelDetail.measurementJsonHelp")} value={size.measurement_json} onChange={(e) => setSize({ ...size, measurement_json: e.target.value })} />
               </form>
             </div>
             {sizePreview && (
               <div className="card p-3 flex items-center justify-between gap-2">
                 <div className="text-sm">
-                  <div><span className="text-slate-500">Size:</span> {sizePreview.size}</div>
-                  <div><span className="text-slate-500">Measurement JSON:</span> <code>{JSON.stringify(sizePreview.measurement_json || {})}</code></div>
+                  <div><span className="text-slate-500">{t("field.size")}:</span> {sizePreview.size}</div>
+                  <div><span className="text-slate-500">{t("page.modelDetail.measurementJson")}:</span> <code>{JSON.stringify(sizePreview.measurement_json || {})}</code></div>
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" className="btn" onClick={() => setSizePreview(null)}>Bekor qilish</button>
-                  <button type="button" className="btn btn-primary" onClick={confirmAddSize}>Tasdiqlab qo'shish</button>
+                  <button type="button" className="btn" onClick={() => setSizePreview(null)}>{t("btn.cancel")}</button>
+                  <button type="button" className="btn btn-primary" onClick={confirmAddSize}>{t("page.modelDetail.confirmAdd")}</button>
                 </div>
               </div>
             )}
             <table className="table">
-              <thead><tr><th>Variant</th><th>Rang</th><th>O'lcham</th><th>Taxminiy net cost/pc</th></tr></thead>
+              <thead><tr><th>{t("page.modelDetail.variant")}</th><th>{t("field.color")}</th><th>{t("field.size")}</th><th>{t("page.modelDetail.estimatedNetCostPerPiece")}</th></tr></thead>
               <tbody>
                 {variants.map((v, idx) => (
                   <tr key={`${v.color}-${v.size}-${idx}`}>
@@ -421,12 +428,12 @@ export default function ModelDetail() {
               />
               <input
                 className="input"
-                placeholder="yoki Image URL"
+                placeholder={t("page.modelDetail.orImageUrl")}
                 value={imageForm.file_url}
                 onChange={(e) => setImageForm({ ...imageForm, file_url: e.target.value })}
               />
               <button className="btn btn-primary" disabled={isUploadingImage || (!imageFile && !imageForm.file_url.trim())}>
-                {isUploadingImage ? "Yuklanmoqda..." : "Attach / Qo'shish"}
+                {isUploadingImage ? t("common.uploading") : t("page.modelDetail.attachOrAdd")}
               </button>
             </form>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -441,43 +448,43 @@ export default function ModelDetail() {
 
         {tab === 5 && (
           <div className="space-y-3">
-            <label className="label">Qo'shimcha izoh</label>
+            <label className="label">{t("page.modelDetail.additionalNote")}</label>
             <textarea className="input min-h-28" value={details.general?.note || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, note: e.target.value } })} />
           </div>
         )}
 
         {tab === 6 && (
           <div className="card p-3">
-            <div className="text-sm text-slate-600">Mini posta: hozircha model variantlari va mato sarfiga asoslangan hisob-kitoblar 7- va 10-tabda ko'rsatiladi.</div>
+            <div className="text-sm text-slate-600">{t("page.modelDetail.miniPostNote")}</div>
           </div>
         )}
 
         {tab === 7 && (
           <div className="space-y-2">
             <form onSubmit={addSize} className="grid grid-cols-1 md:grid-cols-7 gap-2">
-              <input className="input" placeholder="O'lcham (masalan 44, 46, M)" value={size.size} onChange={(e) => setSize({ ...size, size: e.target.value })} required />
-              <input className="input" placeholder="chest" value={measurementFields.chest} onChange={(e) => setMeasurementFields({ ...measurementFields, chest: e.target.value })} />
-              <input className="input" placeholder="waist" value={measurementFields.waist} onChange={(e) => setMeasurementFields({ ...measurementFields, waist: e.target.value })} />
-              <input className="input" placeholder="hip" value={measurementFields.hip} onChange={(e) => setMeasurementFields({ ...measurementFields, hip: e.target.value })} />
-              <input className="input" placeholder="length" value={measurementFields.length} onChange={(e) => setMeasurementFields({ ...measurementFields, length: e.target.value })} />
-              <input className="input" placeholder="sleeve" value={measurementFields.sleeve} onChange={(e) => setMeasurementFields({ ...measurementFields, sleeve: e.target.value })} />
-              <button className="btn btn-primary" type="submit">Qo'shish</button>
+              <input className="input" placeholder={t("page.modelDetail.sizeExample")} value={size.size} onChange={(e) => setSize({ ...size, size: e.target.value })} required />
+              <input className="input" placeholder={t("page.modelDetail.measurement.chest")} value={measurementFields.chest} onChange={(e) => setMeasurementFields({ ...measurementFields, chest: e.target.value })} />
+              <input className="input" placeholder={t("page.modelDetail.measurement.waist")} value={measurementFields.waist} onChange={(e) => setMeasurementFields({ ...measurementFields, waist: e.target.value })} />
+              <input className="input" placeholder={t("page.modelDetail.measurement.hip")} value={measurementFields.hip} onChange={(e) => setMeasurementFields({ ...measurementFields, hip: e.target.value })} />
+              <input className="input" placeholder={t("page.modelDetail.measurement.length")} value={measurementFields.length} onChange={(e) => setMeasurementFields({ ...measurementFields, length: e.target.value })} />
+              <input className="input" placeholder={t("page.modelDetail.measurement.sleeve")} value={measurementFields.sleeve} onChange={(e) => setMeasurementFields({ ...measurementFields, sleeve: e.target.value })} />
+              <button className="btn btn-primary" type="submit">{t("btn.add")}</button>
             </form>
-            <textarea className="input min-h-16" placeholder='Measurement JSON (auto, editable)' value={size.measurement_json} onChange={(e) => setSize({ ...size, measurement_json: e.target.value })} />
+            <textarea className="input min-h-16" placeholder={t("page.modelDetail.measurementJsonAutoEditable")} value={size.measurement_json} onChange={(e) => setSize({ ...size, measurement_json: e.target.value })} />
             {sizePreview && (
               <div className="card p-3 flex items-center justify-between gap-2">
                 <div className="text-sm">
-                  <div><span className="text-slate-500">Size:</span> {sizePreview.size}</div>
-                  <div><span className="text-slate-500">Measurement JSON:</span> <code>{JSON.stringify(sizePreview.measurement_json || {})}</code></div>
+                  <div><span className="text-slate-500">{t("field.size")}:</span> {sizePreview.size}</div>
+                  <div><span className="text-slate-500">{t("page.modelDetail.measurementJson")}:</span> <code>{JSON.stringify(sizePreview.measurement_json || {})}</code></div>
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" className="btn" onClick={() => setSizePreview(null)}>Bekor qilish</button>
-                  <button type="button" className="btn btn-primary" onClick={confirmAddSize}>Tasdiqlab qo'shish</button>
+                  <button type="button" className="btn" onClick={() => setSizePreview(null)}>{t("btn.cancel")}</button>
+                  <button type="button" className="btn btn-primary" onClick={confirmAddSize}>{t("page.modelDetail.confirmAdd")}</button>
                 </div>
               </div>
             )}
             <table className="table">
-              <thead><tr><th>O'lcham</th><th>Measurement JSON</th></tr></thead>
+              <thead><tr><th>{t("field.size")}</th><th>{t("page.modelDetail.measurementJson")}</th></tr></thead>
               <tbody>
                 {(m.sizes || []).map((s: any) => (
                   <tr key={s.id}>
@@ -493,43 +500,43 @@ export default function ModelDetail() {
         {tab === 8 && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div><label className="label">Murakkablik darajasi</label><input className="input" value={details.sewing?.complexity_level || ""} onChange={(e) => setDetails({ ...details, sewing: { ...details.sewing, complexity_level: e.target.value } })} /></div>
-              <div><label className="label">Bir kishi normasi</label><input className="input" type="number" step="0.01" value={n(details.sewing?.one_person_norm)} onChange={(e) => setDetails({ ...details, sewing: { ...details.sewing, one_person_norm: n(e.target.value) } })} /></div>
-              <div><label className="label">SAM (min/pc)</label><input className="input" type="number" step="0.1" value={modelForm.sam_minutes} onChange={(e) => setModelForm({ ...modelForm, sam_minutes: n(e.target.value) })} /></div>
+              <div><label className="label">{t("page.modelDetail.complexityLevel")}</label><input className="input" value={details.sewing?.complexity_level || ""} onChange={(e) => setDetails({ ...details, sewing: { ...details.sewing, complexity_level: e.target.value } })} /></div>
+              <div><label className="label">{t("page.modelDetail.onePersonNorm")}</label><input className="input" type="number" step="0.01" value={n(details.sewing?.one_person_norm)} onChange={(e) => setDetails({ ...details, sewing: { ...details.sewing, one_person_norm: n(e.target.value) } })} /></div>
+              <div><label className="label">{t("field.samMinutes")}</label><input className="input" type="number" step="0.1" value={modelForm.sam_minutes} onChange={(e) => setModelForm({ ...modelForm, sam_minutes: n(e.target.value) })} /></div>
             </div>
-            <label className="label">Tikuv izohi</label>
+            <label className="label">{t("page.modelDetail.sewingNote")}</label>
             <textarea className="input min-h-24" value={details.sewing?.note || ""} onChange={(e) => setDetails({ ...details, sewing: { ...details.sewing, note: e.target.value } })} />
           </div>
         )}
 
         {tab === 9 && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div><label className="label">UZ</label><input className="input" value={details.translation?.uz || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, uz: e.target.value } })} /></div>
-            <div><label className="label">RU</label><input className="input" value={details.translation?.ru || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, ru: e.target.value } })} /></div>
-            <div><label className="label">EN</label><input className="input" value={details.translation?.en || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, en: e.target.value } })} /></div>
+            <div><label className="label">{t("page.modelDetail.langUz")}</label><input className="input" value={details.translation?.uz || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, uz: e.target.value } })} /></div>
+            <div><label className="label">{t("page.modelDetail.langRu")}</label><input className="input" value={details.translation?.ru || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, ru: e.target.value } })} /></div>
+            <div><label className="label">{t("page.modelDetail.langEn")}</label><input className="input" value={details.translation?.en || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, en: e.target.value } })} /></div>
           </div>
         )}
 
         {tab === 10 && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <div><label className="label">Labor %</label><input className="input" type="number" step="0.1" value={laborPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, labor_pct: n(e.target.value) } })} /></div>
-              <div><label className="label">Electricity %</label><input className="input" type="number" step="0.1" value={electricityPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, electricity_pct: n(e.target.value) } })} /></div>
-              <div><label className="label">Other %</label><input className="input" type="number" step="0.1" value={otherPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, other_pct: n(e.target.value) } })} /></div>
-              <div><label className="label">Target margin %</label><input className="input" type="number" step="0.1" value={marginPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, target_margin_pct: n(e.target.value) } })} /></div>
+              <div><label className="label">{t("page.modelDetail.laborPct")}</label><input className="input" type="number" step="0.1" value={laborPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, labor_pct: n(e.target.value) } })} /></div>
+              <div><label className="label">{t("page.modelDetail.electricityPct")}</label><input className="input" type="number" step="0.1" value={electricityPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, electricity_pct: n(e.target.value) } })} /></div>
+              <div><label className="label">{t("page.modelDetail.otherPct")}</label><input className="input" type="number" step="0.1" value={otherPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, other_pct: n(e.target.value) } })} /></div>
+              <div><label className="label">{t("page.modelDetail.targetMarginPct")}</label><input className="input" type="number" step="0.1" value={marginPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, target_margin_pct: n(e.target.value) } })} /></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <div className="card p-3"><div className="text-xs text-slate-500">Mato + Aksessuar cost/pc</div><div className="text-lg font-semibold">${baseCostPerPiece.toFixed(2)}</div></div>
-              <div className="card p-3"><div className="text-xs text-slate-500">Qo'shimcha xarajatlar/pc</div><div className="text-lg font-semibold">${(laborCost + electricityCost + otherCost).toFixed(2)}</div></div>
-              <div className="card p-3"><div className="text-xs text-slate-500">Net cost/pc</div><div className="text-lg font-semibold">${netCost.toFixed(2)}</div></div>
-              <div className="card p-3"><div className="text-xs text-slate-500">Target price/pc</div><div className="text-lg font-semibold">${targetPrice.toFixed(2)}</div></div>
+              <div className="card p-3"><div className="text-xs text-slate-500">{t("page.modelDetail.materialAccessoryCostPerPiece")}</div><div className="text-lg font-semibold">${baseCostPerPiece.toFixed(2)}</div></div>
+              <div className="card p-3"><div className="text-xs text-slate-500">{t("page.modelDetail.extraCostsPerPiece")}</div><div className="text-lg font-semibold">${(laborCost + electricityCost + otherCost).toFixed(2)}</div></div>
+              <div className="card p-3"><div className="text-xs text-slate-500">{t("page.modelDetail.netCostPerPiece")}</div><div className="text-lg font-semibold">${netCost.toFixed(2)}</div></div>
+              <div className="card p-3"><div className="text-xs text-slate-500">{t("page.modelDetail.targetPricePerPiece")}</div><div className="text-lg font-semibold">${targetPrice.toFixed(2)}</div></div>
             </div>
           </div>
         )}
 
         <div className="flex justify-end gap-2 border-t border-[#ecebe3] pt-3">
           {msg && <div className="text-sm text-green-700 self-center">{msg}</div>}
-          <button className="btn btn-primary" onClick={saveModel}>Saqlash</button>
+          <button className="btn btn-primary" onClick={saveModel}>{t("common.save")}</button>
         </div>
       </div>
     </div>

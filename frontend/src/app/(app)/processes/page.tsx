@@ -5,7 +5,7 @@ import Link from "next/link";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
-import StagePipeline from "@/components/StagePipeline";
+import StagePipeline, { operationLabel, statusLabel } from "@/components/StagePipeline";
 
 type Stage = {
   work_order_id: number;
@@ -91,8 +91,8 @@ export default function ProcessTrackingPage() {
         subtitle={t("page.processes.subtitle")}
         actions={
           <div className="flex gap-2">
-            <button className="btn" onClick={() => mutate()} title="Refresh">↻</button>
-            <button className="btn" onClick={openPdf}>PDF</button>
+            <button className="btn" onClick={() => mutate()} title={t("page.processes.refresh")}>↻</button>
+            <button className="btn" onClick={openPdf}>{t("page.processes.exportPdf")}</button>
           </div>
         }
       />
@@ -116,7 +116,7 @@ export default function ProcessTrackingPage() {
           <div className="text-xs text-slate-500 uppercase">{t("common.search")}</div>
           <input
             className="input mt-1"
-            placeholder="PO / SO / customer / model"
+            placeholder={t("page.processes.searchPlaceholder")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
@@ -170,16 +170,14 @@ export default function ProcessTrackingPage() {
                   <td>
                     <StagePipeline currentStage={p.current_stage} stages={p.stages} compact={false} />
                     <div className="mt-1">
-                      <span className={`badge ${STAGE_COLORS[p.current_stage] || "badge"}`}>
-                        {p.current_stage}
-                      </span>
+                      <span className={`badge ${STAGE_COLORS[p.current_stage] || "badge"}`}>{operationLabel(p.current_stage, t)}</span>
                     </div>
                     {p.current_stage_status && (
-                      <div className="text-xs text-slate-500 mt-1">{p.current_stage_status}</div>
+                      <div className="text-xs text-slate-500 mt-1">{statusLabel(p.current_stage_status, t)}</div>
                     )}
                     {p.is_blocked && p.blocked_by && (
                       <div className="text-xs text-red-700 mt-1" title={p.blocked_by.reason ?? ""}>
-                        ⛔ blocked on {p.blocked_by.operation}
+                        ⛔ {t("page.processes.blockedOn", { operation: operationLabel(p.blocked_by.operation, t) })}
                       </div>
                     )}
                   </td>
@@ -198,7 +196,7 @@ export default function ProcessTrackingPage() {
                       href={`/admin/audit-logs?entity=ProductionOrder&id=${p.production_order_id}`}
                       className="text-xs text-slate-500 hover:underline"
                     >
-                      audit
+                      {t("page.processes.audit")}
                     </Link>
                   </td>
                 </tr>
@@ -223,9 +221,9 @@ export default function ProcessTrackingPage() {
                           {p.stages.map((s) => (
                             <tr key={s.work_order_id}>
                               <td>
-                                <span className={`badge ${STAGE_COLORS[s.operation] || "badge"}`}>{s.operation}</span>
+                                <span className={`badge ${STAGE_COLORS[s.operation] || "badge"}`}>{operationLabel(s.operation, t)}</span>
                               </td>
-                              <td>{s.status}</td>
+                              <td>{statusLabel(s.status, t)}</td>
                               <td>
                                 <div className="w-32 h-2 bg-slate-200 rounded overflow-hidden">
                                   <div

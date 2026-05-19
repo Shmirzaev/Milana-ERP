@@ -16,8 +16,16 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("models", sa.Column("details_json", sa.JSON(), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    cols = {c.get("name") for c in inspector.get_columns("models")}
+    if "details_json" not in cols:
+        op.add_column("models", sa.Column("details_json", sa.JSON(), nullable=True))
 
 
 def downgrade():
-    op.drop_column("models", "details_json")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    cols = {c.get("name") for c in inspector.get_columns("models")}
+    if "details_json" in cols:
+        op.drop_column("models", "details_json")

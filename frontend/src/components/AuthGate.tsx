@@ -2,10 +2,12 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMe } from "@/lib/auth";
+import { useT } from "@/lib/i18n";
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { me, error, loading, hasToken } = useMe();
+  const { t } = useT();
 
   useEffect(() => {
     // Only redirect once we have *definitive* knowledge that there's no token.
@@ -19,7 +21,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   // Still detecting localStorage, or token exists but /me hasn't responded yet -> spinner.
   if (hasToken === undefined || (hasToken && (loading || !me))) {
-    return <div className="p-6 text-slate-500">Loading…</div>;
+    return <div className="p-6 text-slate-500">{t("common.loading")}</div>;
   }
   if (!hasToken) return null;
   return <>{children}</>;

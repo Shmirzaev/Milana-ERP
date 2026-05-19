@@ -28,12 +28,12 @@ export default function AuditLogsPage() {
     <div>
       <PageHeader title={t("page.admin.audit.title")} subtitle={t("page.admin.audit.subtitle")} />
       <div className="card p-3 mb-4 flex flex-wrap gap-3">
-        <input className="input max-w-xs" placeholder="Filter by entity_type (e.g. ProductionOrder)" value={entityFilter} onChange={(e) => setEntityFilter(e.target.value)} />
-        <input className="input max-w-xs" placeholder="Filter by entity_id" value={idFilter} onChange={(e) => setIdFilter(e.target.value)} />
+        <input className="input max-w-xs" placeholder={t("page.admin.audit.filterEntity")} value={entityFilter} onChange={(e) => setEntityFilter(e.target.value)} />
+        <input className="input max-w-xs" placeholder={t("page.admin.audit.filterId")} value={idFilter} onChange={(e) => setIdFilter(e.target.value)} />
         {(entityFilter || idFilter) && (
-          <button className="btn" onClick={() => { setEntityFilter(""); setIdFilter(""); }}>Clear</button>
+          <button className="btn" onClick={() => { setEntityFilter(""); setIdFilter(""); }}>{t("common.clear")}</button>
         )}
-        <div className="text-xs text-slate-500 self-center">{rows.length} matches</div>
+        <div className="text-xs text-slate-500 self-center">{t("common.matches", { count: rows.length })}</div>
       </div>
       <div className="card overflow-x-auto">
         <table className="table">

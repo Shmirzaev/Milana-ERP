@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
-import StagePipeline from "@/components/StagePipeline";
+import StagePipeline, { operationLabel, statusLabel } from "@/components/StagePipeline";
 
 export default function WorkOrdersPage() {
   const { t } = useT();
@@ -28,14 +28,6 @@ export default function WorkOrdersPage() {
   const { data: processes } = useSWR<any[]>("/api/process-tracking", fetcher);
   const processByPo = new Map((processes || []).map((p) => [p.production_order_id, p]));
 
-  function opLabel(op: string) {
-    if (op === "cutting") return t("dash.cutting");
-    if (op === "printing") return t("dash.printing");
-    if (op === "sewing") return t("dash.sewing");
-    if (op === "packaging") return t("dash.packaging");
-    return op;
-  }
-
   return (
     <div>
       <PageHeader title={t("page.wo.title")} subtitle={t("page.wo.subtitle")} />
@@ -53,7 +45,7 @@ export default function WorkOrdersPage() {
               <th>{t("field.id")}</th>
               <th>{t("field.operation")}</th>
               <th>{t("common.status")}</th>
-              <th>Pipeline</th>
+              <th>{t("page.wo.pipeline")}</th>
               <th>{t("field.input")}</th>
               <th>{t("field.output")}</th>
               <th>{t("field.passed")}</th>
@@ -67,8 +59,8 @@ export default function WorkOrdersPage() {
             {data?.map((w) => (
               <tr key={w.id}>
                 <td>{w.id}</td>
-                <td>{opLabel(w.operation)}</td>
-                <td><span className="badge">{w.status}</span></td>
+                <td>{operationLabel(w.operation, t)}</td>
+                <td><span className="badge">{statusLabel(w.status, t)}</span></td>
                 <td>
                   <StagePipeline
                     currentStage={processByPo.get(w.production_order_id)?.current_stage}

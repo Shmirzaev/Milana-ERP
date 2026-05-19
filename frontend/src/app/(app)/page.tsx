@@ -6,6 +6,7 @@ import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { statusLabel } from "@/components/StagePipeline";
 
 type FilterKind = "all" | "client_order" | "branded_stock_sale";
 type DatePreset = "all" | "today" | "yesterday" | "tomorrow" | "this_week" | "this_month" | "current_year" | "custom";
@@ -306,7 +307,7 @@ export default function HomePage() {
                           <span className="mono text-xs text-[#8a8472]">{pct}%</span>
                         </div>
                       </td>
-                      <td><span className="badge bg-[#fbe9dd] text-[#c2410c]">{o.status}</span></td>
+                      <td><span className="badge bg-[#fbe9dd] text-[#c2410c]">{statusLabel(o.status, t)}</span></td>
                       <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-"}</td>
                       <td className="text-right"><Money value={Number(o.total_amount || 0)} /></td>
                     </tr>
@@ -349,8 +350,8 @@ export default function HomePage() {
           <div className="card p-4">
             <h3 className="app-card-title">{t("dash.finance")}</h3>
             <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <div><div className="label">Revenue</div><div className="text-xl"><Money value={fin.revenue_total || 0} /></div></div>
-              <div><div className="label">Payments</div><div className="text-xl"><Money value={fin.payments_received || 0} /></div></div>
+              <div><div className="label">{t("dash.revenue")}</div><div className="text-xl"><Money value={fin.revenue_total || 0} /></div></div>
+              <div><div className="label">{t("dash.payments")}</div><div className="text-xl"><Money value={fin.payments_received || 0} /></div></div>
             </div>
           </div>
           <a href="/processes" className="card p-4 transition hover:border-[#c2410c]">

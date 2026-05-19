@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+import { statusLabel } from "@/components/StagePipeline";
 
 export default function ShipmentsPage() {
   const { t } = useT();
@@ -71,7 +72,7 @@ export default function ShipmentsPage() {
               </select>
             </div>
             <button className="btn" onClick={addPkg}>{t("btn.addPackage")}</button>
-            <button className="btn" onClick={addAllReady}>Ship All Ready</button>
+            <button className="btn" onClick={addAllReady}>{t("page.shipments.addAllReady")}</button>
             <button className="btn" onClick={ship}>{t("btn.ship")}</button>
             <button className="btn btn-primary" onClick={deliver}>{t("btn.markDelivered")}</button>
           </>
@@ -91,7 +92,7 @@ export default function ShipmentsPage() {
             {data?.map((s) => (
               <tr key={s.id} className={s.id === activeShip ? "bg-yellow-50" : ""}>
                 <td>{s.shipment_no}</td>
-                <td><span className="badge">{s.status}</span></td>
+                <td><span className="badge">{statusLabel(s.status, t)}</span></td>
                 <td>{s.shipped_at ? new Date(s.shipped_at).toLocaleString() : "-"}</td>
                 <td>{s.delivered_at ? new Date(s.delivered_at).toLocaleString() : "-"}</td>
               </tr>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+import { statusLabel } from "@/components/StagePipeline";
 
 type Flow = {
   id: number;
@@ -91,6 +92,7 @@ export default function SewingFlowsPage() {
 }
 
 function FlowUtilization({ flowId }: { flowId: number }) {
+  const { t } = useT();
   const { data } = useSWR<{ committed_today: number; capacity_per_day: number; utilization_pct: number }>(
     `/api/sewing-flows/${flowId}/utilization`,
     fetcher,
@@ -102,7 +104,7 @@ function FlowUtilization({ flowId }: { flowId: number }) {
   return (
     <div className="mb-2">
       <div className="flex justify-between text-[10px] text-slate-500 mb-0.5">
-        <span>Utilization today</span>
+        <span>{t("page.sewingFlows.utilizationToday")}</span>
         <span>{data.committed_today}/{data.capacity_per_day} ({data.utilization_pct}%)</span>
       </div>
       <div className="w-full h-1.5 bg-slate-100 rounded overflow-hidden">
@@ -135,7 +137,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
                 PO #{w.production_order_id}
               </Link>
             </td>
-            <td><span className="badge">{w.status}</span></td>
+            <td><span className="badge">{statusLabel(w.status, t)}</span></td>
             <td>{w.passed_qty} / {w.planned_output_qty}</td>
             <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "—"}</td>
           </tr>

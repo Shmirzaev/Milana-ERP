@@ -77,11 +77,11 @@ export default function NewSalesOrderPage() {
     const startIdx = SIZE_OPTIONS.indexOf(sizeFrom);
     const endIdx = SIZE_OPTIONS.indexOf(sizeTo);
     if (startIdx < 0 || endIdx < 0 || startIdx > endIdx) {
-      setErr("Choose a valid size range.");
+      setErr(t("newso.invalidSizeRange"));
       return;
     }
     if (!Number.isFinite(distributeTotalQty) || distributeTotalQty <= 0) {
-      setErr("Total quantity must be greater than 0.");
+      setErr(t("newso.invalidTotalQty"));
       return;
     }
 
@@ -173,7 +173,7 @@ export default function NewSalesOrderPage() {
               <div>
                 <label className="label">{t("field.brand")}</label>
                 <select className="input" value={brandId} onChange={(e) => setBrandId(Number(e.target.value) || "")}>
-                  <option value="">Select brand...</option>
+                  <option value="">{t("newso.brandSelect")}</option>
                   {brands?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
               </div>
@@ -189,27 +189,27 @@ export default function NewSalesOrderPage() {
               <button type="button" className="btn" onClick={addLine}><Plus />{t("newso.addLine")}</button>
             </div>
             <div className="border-b border-[#ecebe3] px-5 py-4">
-              <div className="mb-2 text-sm font-semibold text-[#14110b]">Size distribution helper</div>
+              <div className="mb-2 text-sm font-semibold text-[#14110b]">{t("newso.sizeHelper")}</div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_140px_180px_auto]">
                 <div>
-                  <label className="label">From size</label>
+                  <label className="label">{t("newso.sizeFrom")}</label>
                   <select className="input" value={sizeFrom} onChange={(e) => setSizeFrom(e.target.value)}>
                     {SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="label">To size</label>
+                  <label className="label">{t("newso.sizeTo")}</label>
                   <select className="input" value={sizeTo} onChange={(e) => setSizeTo(e.target.value)}>
                     {SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="label">Total quantity</label>
+                  <label className="label">{t("newso.sizeTotalQty")}</label>
                   <input className="input" type="number" min={1} value={distributeTotalQty} onChange={(e) => setDistributeTotalQty(Number(e.target.value))} />
                 </div>
                 <div className="flex items-end">
                   <button type="button" className="btn btn-primary" onClick={distributeBySizeRange}>
-                    Distribute equally
+                    {t("newso.distributeEvenly")}
                   </button>
                 </div>
               </div>

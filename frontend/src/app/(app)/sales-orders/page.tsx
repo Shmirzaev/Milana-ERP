@@ -6,6 +6,7 @@ import { Download, Filter, MoreHorizontal, Plus, Search, X } from "lucide-react"
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+import { statusLabel } from "@/components/StagePipeline";
 
 type SO = {
   id: number;
@@ -167,7 +168,7 @@ export default function SalesOrdersPage() {
             <label className="label">{t("common.status")}</label>
             <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="all">{t("sales.allStatuses")}</option>
-              {[...new Set(data.map((o) => o.status))].map((s) => <option key={s} value={s}>{s}</option>)}
+              {[...new Set(data.map((o) => o.status))].map((s) => <option key={s} value={s}>{statusLabel(s, t)}</option>)}
             </select>
           </div>
           <div>
@@ -223,7 +224,7 @@ export default function SalesOrdersPage() {
                         <span className="mono text-xs text-[#8a8472]">{pct}%</span>
                       </div>
                     </td>
-                    <td><span className={`badge ${statusClass(o.status)}`}>{o.status}</span></td>
+                    <td><span className={`badge ${statusClass(o.status)}`}>{statusLabel(o.status, t)}</span></td>
                     <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-"}</td>
                     <td className="text-right"><Money value={Number(o.total_amount || 0)} /></td>
                   </tr>
@@ -239,7 +240,7 @@ export default function SalesOrdersPage() {
               <div className="flex items-center justify-between border-b border-[#ecebe3] px-4 py-4">
                 <a href={`/sales-orders/${selected.id}`} className="mono font-semibold">{selected.order_no}</a>
                 <div className="flex items-center gap-3">
-                  <span className={`badge ${statusClass(selected.status)}`}>{selected.status}</span>
+                  <span className={`badge ${statusClass(selected.status)}`}>{statusLabel(selected.status, t)}</span>
                   <button className="icon-btn"><MoreHorizontal /></button>
                   <button
                     type="button"
