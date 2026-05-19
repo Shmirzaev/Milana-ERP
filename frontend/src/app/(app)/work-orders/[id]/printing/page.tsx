@@ -17,12 +17,23 @@ export default function PrintingPage() {
   const { data: wo } = useSWR<any>(Number.isFinite(id) ? `/api/work-orders/${id}` : null, fetcher);
   const { data: po } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
+  const { data: customers } = useSWR<any[]>(so?.customer_id ? "/api/customers" : null, fetcher);
+  const { data: models } = useSWR<any[]>((so?.items?.length ?? 0) > 0 ? "/api/models" : null, fetcher);
   const printFiles: PrintingAttachment[] = Array.isArray(so?.printing_attachments) ? so.printing_attachments : [];
+  const customerName = customers?.find((c) => Number(c.id) === Number(so?.customer_id))?.name;
+  const soItems = Array.isArray(so?.items) ? so.items : [];
+  const printingItems = soItems.filter((item: any) => Boolean(item?.printing_required));
+  const orderItemsForPrint = printingItems.length > 0 ? printingItems : soItems;
 
   function isImageAttachment(a: PrintingAttachment): boolean {
     const byMime = (a.content_type || "").toLowerCase().startsWith("image/");
     const byName = /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(a.file_name || a.file_url || "");
     return byMime || byName;
+  }
+
+  function modelLabel(modelId: number): string {
+    const m = models?.find((row: any) => Number(row.id) === Number(modelId));
+    return m ? `${m.code} - ${m.name}` : String(modelId || "—");
   }
 
   async function submit(e: React.FormEvent) {
@@ -38,6 +49,48 @@ export default function PrintingPage() {
   return (
     <div>
       <PageHeader title={t("page.printing.title", { id })} />
+      {so && (
+        <div className="card mb-4 max-w-2xl space-y-3 p-4">
+          <div className="label">{t("newso.orderDetails")}</div>
+          <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+            <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.orderNo")}</dt><dd className="font-medium">{so.order_no || "—"}</dd></div>
+            <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.productionNo")}</dt><dd className="font-medium">{po?.production_no || "—"}</dd></div>
+            <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.customer")}</dt><dd className="font-medium">{customerName || so.customer_id || "—"}</dd></div>
+            <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.deadline")}</dt><dd className="font-medium">{so.deadline ? new Date(so.deadline).toLocaleDateString() : "—"}</dd></div>
+            <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2 sm:col-span-2"><dt className="text-[#8a8472]">{t("field.plannedQty")}</dt><dd className="font-medium">{wo?.planned_output_qty ?? po?.planned_quantity ?? "—"}</dd></div>
+          </dl>
+          {orderItemsForPrint.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>{t("field.model")}</th>
+                    <th>{t("field.color")}</th>
+                    <th>{t("field.size")}</th>
+                    <th>{t("field.qty")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orderItemsForPrint.map((item: any) => (
+                    <tr key={item.id}>
+                      <td>{modelLabel(Number(item.model_id))}</td>
+                      <td>{item.color || "—"}</td>
+                      <td>{item.size || "—"}</td>
+                      <td>{item.quantity ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {so?.notes && (
+            <div>
+              <div className="label">{t("field.notes")}</div>
+              <div className="rounded-md bg-[#f8f7f3] p-3 text-sm whitespace-pre-wrap">{so.notes}</div>
+            </div>
+          )}
+        </div>
+      )}
       {(so?.printing_instructions || printFiles.length > 0) && (
         <div className="card mb-4 max-w-2xl space-y-3 p-4">
           <div>
