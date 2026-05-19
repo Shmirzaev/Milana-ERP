@@ -104,6 +104,7 @@ def department_inbox(
             )
 
     pending_packages = []
+    ready_packages = []
     ready_to_ship = []
     if d.code == "FGS":
         packed = db.query(Package).filter(Package.status == "packed").order_by(Package.id.desc()).limit(200).all()
@@ -117,6 +118,16 @@ def department_inbox(
             for p in packed
         ]
         ready = db.query(Package).filter(Package.status.in_(["received_in_storage", "reserved"])).all()
+        ready_packages = [
+            {
+                "id": p.id,
+                "package_no": p.package_no,
+                "sales_order_id": p.sales_order_id,
+                "total_quantity": p.total_quantity,
+                "status": p.status,
+            }
+            for p in ready
+        ]
         grouped: dict[int | None, dict] = {}
         for p in ready:
             g = grouped.setdefault(
@@ -228,5 +239,6 @@ def department_inbox(
         ],
         "awaiting_packaging": awaiting_packaging,
         "pending_packages": pending_packages,
+        "ready_packages": ready_packages,
         "ready_to_ship": ready_to_ship,
     }

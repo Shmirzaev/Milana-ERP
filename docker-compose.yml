@@ -24,6 +24,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://erp:erp@db:5432/erp
+      PORT: "8000"
       JWT_SECRET: change-me-in-production-please
       JWT_ALGORITHM: HS256
       JWT_EXPIRES_MINUTES: 1440

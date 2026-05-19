@@ -49,9 +49,10 @@ export default function DepartmentInboxPage() {
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
   const activeWorkOrders = Array.isArray(data?.active_work_orders) ? data.active_work_orders : [];
   const pendingPackages = Array.isArray(data?.pending_packages) ? data.pending_packages : [];
-  const readyToShip = Array.isArray(data?.ready_to_ship) ? data.ready_to_ship : [];
+  const readyPackages = Array.isArray(data?.ready_packages) ? data.ready_packages : [];
   const splitQueueByStatus = code === "PRT";
   const [expandedPackageGroups, setExpandedPackageGroups] = useState<Record<string, boolean>>({});
+  const [expandedReadyGroups, setExpandedReadyGroups] = useState<Record<string, boolean>>({});
 
   const pendingPackagesByOrder = useMemo(() => {
     const groups = new Map<string, { key: string; sales_order_id: number | null; packages: any[]; total_quantity: number }>();
@@ -78,6 +79,31 @@ export default function DepartmentInboxPage() {
         return left - right;
       });
   }, [pendingPackages]);
+  const readyPackagesByOrder = useMemo(() => {
+    const groups = new Map<string, { key: string; sales_order_id: number | null; packages: any[]; total_quantity: number }>();
+    for (const p of readyPackages) {
+      const key = p.sales_order_id == null ? "no-so" : `so-${p.sales_order_id}`;
+      const existing = groups.get(key) ?? {
+        key,
+        sales_order_id: p.sales_order_id == null ? null : Number(p.sales_order_id),
+        packages: [],
+        total_quantity: 0,
+      };
+      existing.packages.push(p);
+      existing.total_quantity += Number(p.total_quantity || 0);
+      groups.set(key, existing);
+    }
+    return Array.from(groups.values())
+      .map((g) => ({
+        ...g,
+        packages: [...g.packages].sort((a, b) => String(b.package_no || "").localeCompare(String(a.package_no || ""))),
+      }))
+      .sort((a, b) => {
+        const left = a.sales_order_id ?? Number.MAX_SAFE_INTEGER;
+        const right = b.sales_order_id ?? Number.MAX_SAFE_INTEGER;
+        return left - right;
+      });
+  }, [readyPackages]);
 
   return (
     <div>
@@ -269,14 +295,55 @@ export default function DepartmentInboxPage() {
           </section>
           <section className="card p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.readyToShip", { count: readyToShip.length })}
+              {t("page.deptInbox.readyToShip", { count: readyPackagesByOrder.length })}
             </h3>
             <table className="table">
-              <thead><tr><th>{t("field.salesOrderShort")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th></tr></thead>
+              <thead><tr><th>{t("field.salesOrderShort")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th><th className="text-right">{t("field.actions")}</th></tr></thead>
               <tbody>
-                {readyToShip.map((r: any, idx: number) => (
-                  <tr key={`${r.sales_order_id}-${idx}`}><td>{r.sales_order_id || "-"}</td><td>{r.packages}</td><td>{r.quantity}</td></tr>
+                {readyPackagesByOrder.map((g) => (
+                  <Fragment key={`ready-${g.key}`}>
+                    <tr>
+                      <td>{g.sales_order_id || "-"}</td>
+                      <td>{g.packages.length}</td>
+                      <td>{g.total_quantity}</td>
+                      <td className="text-right">
+                        <button
+                          className="btn h-7 px-2 text-[11px]"
+                          onClick={() => setExpandedReadyGroups((prev) => ({ ...prev, [g.key]: !prev[g.key] }))}
+                        >
+                          {expandedReadyGroups[g.key] ? t("common.close") : t("btn.open")}
+                        </button>
+                      </td>
+                    </tr>
+                    {expandedReadyGroups[g.key] && (
+                      <tr>
+                        <td colSpan={4} className="bg-slate-50">
+                          <table className="table text-xs">
+                            <thead>
+                              <tr>
+                                <th>{t("field.package")}</th>
+                                <th>{t("field.qty")}</th>
+                                <th>{t("common.status")}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {g.packages.map((p: any) => (
+                                <tr key={p.id}>
+                                  <td>{p.package_no}</td>
+                                  <td>{p.total_quantity}</td>
+                                  <td>{statusLabel(String(p.status || ""), t)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
+                {readyPackagesByOrder.length === 0 && (
+                  <tr><td colSpan={4} className="text-sm text-slate-400">{t("page.deptInbox.noReadyToShip")}</td></tr>
+                )}
               </tbody>
             </table>
           </section>
