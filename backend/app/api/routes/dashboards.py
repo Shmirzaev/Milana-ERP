@@ -1,4 +1,5 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 
@@ -14,14 +15,34 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 @router.get("/management")
-def management(db: DbSession, _: CurrentUser):
+def management(db: DbSession, _: CurrentUser, tz: str | None = None):
     now = datetime.now(timezone.utc)
+    try:
+        client_tz = ZoneInfo(tz) if tz else timezone.utc
+    except Exception:
+        client_tz = timezone.utc
+    today_local = now.astimezone(client_tz).date()
+    start_local = datetime.combine(today_local, time.min, tzinfo=client_tz)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(timezone.utc)
+    end_utc = end_local.astimezone(timezone.utc)
+
     active_orders = db.query(func.count(SalesOrder.id)).filter(
         SalesOrder.status.in_(["confirmed", "pending_sales_approval", "planning_approved", "planning", "production", "ready"])
     ).scalar() or 0
     late_orders = db.query(func.count(SalesOrder.id)).filter(SalesOrder.deadline < now, SalesOrder.status.not_in(["delivered", "closed", "cancelled"])).scalar() or 0
-    todays_defects = db.query(func.coalesce(func.sum(SewingRecord.failed_qty + SewingRecord.rejected_qty), 0)).filter(SewingRecord.created_at >= now - timedelta(days=1)).scalar() or 0
-    todays_waste = db.query(func.coalesce(func.sum(WasteRecord.quantity), 0)).filter(WasteRecord.created_at >= now - timedelta(days=1)).scalar() or 0
+    todays_defects = (
+        db.query(func.coalesce(func.sum(SewingRecord.failed_qty + SewingRecord.rejected_qty), 0))
+        .filter(SewingRecord.created_at >= start_utc, SewingRecord.created_at < end_utc)
+        .scalar()
+        or 0
+    )
+    todays_waste = (
+        db.query(func.coalesce(func.sum(WasteRecord.quantity), 0))
+        .filter(WasteRecord.created_at >= start_utc, WasteRecord.created_at < end_utc)
+        .scalar()
+        or 0
+    )
     return {
         "active_orders": int(active_orders),
         "late_orders": int(late_orders),

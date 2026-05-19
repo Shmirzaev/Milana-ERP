@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { CalendarDays, Download, Factory, Plus, TrendingDown, TrendingUp } from "lucide-react";
 import { fetcher } from "@/lib/api";
@@ -113,7 +113,17 @@ function toCsvCell(v: unknown): string {
 export default function HomePage() {
   const { me } = useMe();
   const { t } = useT();
-  const { data: mgmt } = useSWR<any>("/api/dashboard/management", fetcher);
+  const [clientTz, setClientTz] = useState("UTC");
+  useEffect(() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz) setClientTz(tz);
+    } catch {
+      setClientTz("UTC");
+    }
+  }, []);
+
+  const { data: mgmt } = useSWR<any>(`/api/dashboard/management?tz=${encodeURIComponent(clientTz)}`, fetcher);
   const { data: prod } = useSWR<any>("/api/dashboard/production", fetcher);
   const { data: fin } = useSWR<any>(can(me, "finance.view", "*") ? "/api/dashboard/finance" : null, fetcher);
   const { data: orders = [] } = useSWR<any[]>("/api/sales-orders", fetcher);
