@@ -178,6 +178,86 @@ def test_full_flow(client, auth_headers):
     assert r.json()["status"] == "received_in_storage"
 
 
+def test_sewing_record_updates_selected_line_assignment_progress(client, auth_headers):
+    so_id = _create_client_sales_order(client, auth_headers)
+    _prepare_sales_order_for_po(client, auth_headers, so_id)
+
+    r = client.post(
+        "/api/planning/create-production-order",
+        json={
+            "production_type": "client_order",
+            "sales_order_id": so_id,
+            "model_id": 1,
+            "planned_quantity": 100,
+            "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 100}],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    po_id = r.json()["id"]
+
+    r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    sewing_wo = next(w for w in r.json() if w["operation"] == "sewing")
+
+    r = client.get("/api/sewing-flows", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    flow_id = r.json()[0]["id"]
+
+    r = client.post(
+        f"/api/work-orders/{sewing_wo['id']}/assignments",
+        json={
+            "work_order_id": sewing_wo["id"],
+            "sewing_flow_id": flow_id,
+            "quantity": 40,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    assignment_id = r.json()["id"]
+
+    r = client.post(
+        "/api/sewing/records",
+        json={
+            "work_order_id": sewing_wo["id"],
+            "input_qty": 25,
+            "sewn_qty": 25,
+            "passed_qty": 25,
+            "failed_qty": 0,
+            "sewing_assignment_id": assignment_id,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.get(f"/api/work-orders/{sewing_wo['id']}/assignments", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assignment = next(a for a in r.json() if a["id"] == assignment_id)
+    assert assignment["completed_qty"] == 25
+    assert assignment["status"] == "in_progress"
+
+    # Over-completion is capped at planned assignment quantity.
+    r = client.post(
+        "/api/sewing/records",
+        json={
+            "work_order_id": sewing_wo["id"],
+            "input_qty": 30,
+            "sewn_qty": 30,
+            "passed_qty": 30,
+            "failed_qty": 0,
+            "sewing_assignment_id": assignment_id,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.get(f"/api/work-orders/{sewing_wo['id']}/assignments", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assignment = next(a for a in r.json() if a["id"] == assignment_id)
+    assert assignment["completed_qty"] == 40
+    assert assignment["status"] == "completed"
+
+
 def test_package_over_capacity_blocked_without_admin_override(client, auth_headers):
     so_id = _create_client_sales_order(client, auth_headers)
     _prepare_sales_order_for_po(client, auth_headers, so_id)

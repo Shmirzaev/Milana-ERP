@@ -128,6 +128,7 @@ class SewingRecordIn(BaseModel):
     rejected_qty: int = 0
     defect_reason: Optional[str] = None
     line_name: Optional[str] = None
+    sewing_assignment_id: Optional[int] = None
     operator_id: Optional[int] = None
     notes: Optional[str] = None
 

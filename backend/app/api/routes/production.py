@@ -690,7 +690,27 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     if upstream_passed and wo.actual_input_qty + payload.input_qty > upstream_passed:
         raise HTTPException(400, f"Sewing input {wo.actual_input_qty + payload.input_qty} exceeds upstream passed {upstream_passed}")
 
-    rec = SewingRecord(**payload.model_dump())
+    assignment = None
+    if payload.sewing_assignment_id:
+        assignment = db.get(SewingAssignment, payload.sewing_assignment_id)
+        if not assignment:
+            raise HTTPException(404, "Sewing assignment not found")
+        if assignment.work_order_id != wo.id:
+            raise HTTPException(400, "Selected sewing assignment does not belong to this work order")
+    elif payload.line_name:
+        line_key = payload.line_name.strip().lower()
+        if line_key:
+            assignment = (
+                db.query(SewingAssignment)
+                .join(SewingFlow, SewingFlow.id == SewingAssignment.sewing_flow_id)
+                .filter(SewingAssignment.work_order_id == wo.id)
+                .filter(SewingAssignment.status.in_(["planned", "in_progress", "completed"]))
+                .filter(func.lower(SewingFlow.code) == line_key)
+                .order_by(SewingAssignment.id.desc())
+                .first()
+            )
+
+    rec = SewingRecord(**payload.model_dump(exclude={"sewing_assignment_id"}))
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
     db.flush()
@@ -699,6 +719,21 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     wo.passed_qty += payload.passed_qty
     wo.failed_qty += payload.failed_qty
     wo.rework_qty += payload.rework_qty
+    if assignment and int(payload.passed_qty or 0) > 0:
+        remaining = max(0, int(assignment.quantity or 0) - int(assignment.completed_qty or 0))
+        consumed = min(remaining, int(payload.passed_qty or 0))
+        if consumed > 0:
+            assignment.completed_qty = int(assignment.completed_qty or 0) + consumed
+        if assignment.completed_qty > 0 and assignment.status == "planned":
+            assignment.status = "in_progress"
+            if not assignment.actual_start:
+                assignment.actual_start = datetime.now(timezone.utc)
+        if assignment.completed_qty >= int(assignment.quantity or 0):
+            assignment.completed_qty = int(assignment.quantity or 0)
+            assignment.status = "completed"
+            if not assignment.actual_start:
+                assignment.actual_start = datetime.now(timezone.utc)
+            assignment.actual_end = datetime.now(timezone.utc)
     create_waste_record(
         db,
         production_order_id=wo.production_order_id,

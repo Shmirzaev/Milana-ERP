@@ -1,10 +1,31 @@
 "use client";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+
+type Flow = {
+  id: number;
+  code: string;
+  name: string;
+};
+
+type Assignment = {
+  id: number;
+  sewing_flow_id: number;
+  quantity: number;
+  completed_qty: number;
+};
+
+type LineOption = {
+  key: string;
+  assignmentId: number | null;
+  lineName: string;
+  label: string;
+  disabled: boolean;
+};
 
 export default function SewingPage() {
   const { t } = useT();
@@ -14,9 +35,59 @@ export default function SewingPage() {
   const { data: po } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
   const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
+  const { data: flows = [] } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
+  const { data: assignments = [], mutate: mutateAssignments } = useSWR<Assignment[]>(wo ? `/api/work-orders/${id}/assignments` : null, fetcher);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
-  const [f, setF] = useState({
+  const lineOptions = useMemo<LineOption[]>(() => {
+    if (assignments.length > 0) {
+      return assignments.map((a) => {
+        const flow = flows.find((f) => f.id === a.sewing_flow_id);
+        const lineName = flow?.code || flow?.name || `#${a.sewing_flow_id}`;
+        const remaining = Math.max(0, Number(a.quantity || 0) - Number(a.completed_qty || 0));
+        return {
+          key: `assignment:${a.id}`,
+          assignmentId: a.id,
+          lineName,
+          label: `${lineName}${flow?.name ? ` - ${flow.name}` : ""} (${remaining}/${a.quantity})`,
+          disabled: false,
+        };
+      });
+    }
+    if (wo?.sewing_flow_id) {
+      const flow = flows.find((f) => f.id === wo.sewing_flow_id);
+      const lineName = flow?.code || flow?.name || `#${wo.sewing_flow_id}`;
+      return [{
+        key: `flow:${wo.sewing_flow_id}`,
+        assignmentId: null,
+        lineName,
+        label: `${lineName}${flow?.name ? ` - ${flow.name}` : ""}`,
+        disabled: false,
+      }];
+    }
+    if (flows.length > 0) {
+      return flows.map((flow) => ({
+        key: `flow:${flow.id}`,
+        assignmentId: null,
+        lineName: flow.code || flow.name || `#${flow.id}`,
+        label: `${flow.code || flow.name || `#${flow.id}`}${flow.name ? ` - ${flow.name}` : ""}`,
+        disabled: false,
+      }));
+    }
+    return [];
+  }, [assignments, flows, wo?.sewing_flow_id]);
+  const [f, setF] = useState<{
+    input_qty: number;
+    sewn_qty: number;
+    passed_qty: number;
+    failed_qty: number;
+    rework_qty: number;
+    rejected_qty: number;
+    line_name: string;
+    sewing_assignment_id: number | null;
+    defect_reason: string;
+    notes: string;
+  }>({
     input_qty: 0,
     sewn_qty: 0,
     passed_qty: 0,
@@ -24,15 +95,40 @@ export default function SewingPage() {
     rework_qty: 0,
     rejected_qty: 0,
     line_name: "",
+    sewing_assignment_id: null,
     defect_reason: "",
     notes: "",
   });
   const [msg, setMsg] = useState("");
+  const selectedLine = useMemo(
+    () => lineOptions.find((opt) => opt.assignmentId === f.sewing_assignment_id && opt.lineName === f.line_name),
+    [lineOptions, f.line_name, f.sewing_assignment_id],
+  );
+
+  useEffect(() => {
+    if (!lineOptions.length) return;
+    const current = lineOptions.find((opt) => opt.assignmentId === f.sewing_assignment_id && opt.lineName === f.line_name);
+    if (current) return;
+    const next = lineOptions.find((opt) => !opt.disabled) || lineOptions[0];
+    setF((prev) => ({ ...prev, line_name: next.lineName, sewing_assignment_id: next.assignmentId }));
+  }, [lineOptions, f.sewing_assignment_id, f.line_name]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     try {
       await api.post("/api/sewing/records", { work_order_id: id, ...f });
+      mutateAssignments();
+      setF((prev) => ({
+        ...prev,
+        input_qty: 0,
+        sewn_qty: 0,
+        passed_qty: 0,
+        failed_qty: 0,
+        rework_qty: 0,
+        rejected_qty: 0,
+        defect_reason: "",
+        notes: "",
+      }));
       setMsg(t("msg.saved"));
     } catch (e: any) {
       setMsg(e.message);
@@ -125,7 +221,26 @@ export default function SewingPage() {
         </div>
         <div>
           <label className="label">{t("field.lineName")}</label>
-          <input className="input" value={f.line_name} onChange={(e) => setF({ ...f, line_name: e.target.value })} />
+          <select
+            className="input"
+            value={selectedLine?.key || ""}
+            onChange={(e) => {
+              const picked = lineOptions.find((opt) => opt.key === e.target.value);
+              setF((prev) => ({
+                ...prev,
+                line_name: picked?.lineName || "",
+                sewing_assignment_id: picked?.assignmentId ?? null,
+              }));
+            }}
+            required
+          >
+            <option value="">{t("ph.pickLine")}</option>
+            {lineOptions.map((opt) => (
+              <option key={opt.key} value={opt.key} disabled={opt.disabled}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <label className="label">{t("field.defectReason")}</label>
