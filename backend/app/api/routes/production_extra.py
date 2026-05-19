@@ -73,7 +73,7 @@ def list_assignments(wid: int, db: DbSession, _: CurrentUser):
 @router.post("/work-orders/{wid}/assignments", response_model=SewingAssignmentOut, status_code=201)
 def create_assignment(
     wid: int, payload: SewingAssignmentIn, db: DbSession,
-    current: User = Depends(require_permissions("planning.production", "sewing.flows", "*")),
+    current: User = Depends(require_permissions("planning.production", "sewing.flows", "sewing.records", "*")),
 ):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
