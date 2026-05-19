@@ -23,6 +23,7 @@ class BundleOut(ORMModel):
     barcode: str
     qr_code_url: Optional[str] = None
     production_order_id: int
+    production_no: Optional[str] = None
     sales_order_id: Optional[int] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None

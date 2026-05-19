@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import Bundle, Model, User
+from app.models import Bundle, Model, ProductionOrder, User
 from app.schemas.tracking import BundleIn, BundleOut, BundleDetail
 from app.services.bundles import (
     create_bundle, send_to_printing, receive_at_printing, send_to_sewing, receive_at_sewing,
@@ -16,11 +16,19 @@ router = APIRouter(prefix="/bundles", tags=["bundles"])
 def list_bundles(db: DbSession, _: CurrentUser,
                  production_order_id: int | None = None, status: str | None = None,
                  model_id: int | None = None, page: int = 1, page_size: int = 100):
-    qry = db.query(Bundle)
+    qry = db.query(Bundle, ProductionOrder.production_no).outerjoin(
+        ProductionOrder, Bundle.production_order_id == ProductionOrder.id
+    )
     if production_order_id: qry = qry.filter(Bundle.production_order_id == production_order_id)
     if status: qry = qry.filter(Bundle.status == status)
     if model_id: qry = qry.filter(Bundle.model_id == model_id)
-    return qry.order_by(Bundle.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    rows = qry.order_by(Bundle.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    out: list[dict] = []
+    for bundle, production_no in rows:
+        row = BundleOut.model_validate(bundle).model_dump()
+        row["production_no"] = production_no
+        out.append(row)
+    return out
 
 
 @router.post("", response_model=BundleOut, status_code=201)
