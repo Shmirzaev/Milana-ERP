@@ -1,11 +1,31 @@
 ﻿"use client";
-import { useState } from "react";
-import { api } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
+import { api, fetcher } from "@/lib/api";
 import { Lang, LANG_NAMES, useT } from "@/lib/i18n";
 import BrandMark from "@/components/BrandMark";
 
 const LANGS: Lang[] = ["en", "ru", "uz"];
 const SHORT: Record<Lang, string> = { en: "EN", ru: "RU", uz: "UZ" };
+
+type LoginPanel = {
+  active_orders: number;
+  todays_receipts: number;
+  late_orders: number;
+  production_14d: number[];
+  open_tasks: Array<{ title: string; priority: string; status: string }>;
+};
+
+function clamp(v: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, v));
+}
+
+function priorityColor(priority?: string) {
+  if (priority === "urgent") return "#c2410c";
+  if (priority === "high") return "#1e5fb3";
+  if (priority === "medium") return "#1f7a4d";
+  return "#8a8472";
+}
 
 export default function LoginPage() {
   const { t, lang, setLang } = useT();
@@ -13,6 +33,54 @@ export default function LoginPage() {
   const [password, setPassword] = useState("admin12345");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [clientTz, setClientTz] = useState("UTC");
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz) setClientTz(tz);
+    } catch {
+      setClientTz("UTC");
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const { data: panel } = useSWR<LoginPanel>(`/api/auth/login-panel?tz=${encodeURIComponent(clientTz)}`, fetcher);
+
+  const locale = lang === "ru" ? "ru-RU" : lang === "uz" ? "uz-UZ" : "en-US";
+  const moneyFmt = useMemo(() => new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }), [locale]);
+  const intFmt = useMemo(() => new Intl.NumberFormat(locale), [locale]);
+
+  const series = panel?.production_14d?.length ? panel.production_14d : Array.from({ length: 14 }, () => 0);
+  const chart = useMemo(() => {
+    const width = 312;
+    const bottom = 70;
+    const top = 14;
+    const step = series.length > 1 ? width / (series.length - 1) : width;
+    const max = Math.max(1, ...series);
+    const min = Math.min(...series);
+    const range = Math.max(1, max - min);
+    const pts = series.map((v, i) => {
+      const x = i * step;
+      const y = bottom - ((v - min) / range) * (bottom - top);
+      return [x, clamp(y, top, bottom)] as const;
+    });
+    const linePath = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+    const areaPath = `${linePath} L${width} 90 L0 90 Z`;
+    return { linePath, areaPath, step };
+  }, [series]);
+
+  const openTasks = panel?.open_tasks || [];
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,9 +97,15 @@ export default function LoginPage() {
   }
 
   const dateStr = new Intl.DateTimeFormat(
-    lang === "ru" ? "ru-RU" : lang === "uz" ? "uz-UZ" : "en-GB",
+    locale,
     { day: "numeric", month: "long", year: "numeric", weekday: "long" }
-  ).format(new Date());
+  ).format(now);
+  const timeStr = new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(now);
 
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] bg-[#f7f6f1] text-[#14110b]">
@@ -53,7 +127,10 @@ export default function LoginPage() {
               <span className="text-[10.5px] uppercase tracking-[0.18em] text-[#8a8472]">{t("login.atelier")}</span>
             </div>
           </div>
-          <div className="text-[11px] tracking-wider text-[#8a8472]">{dateStr}</div>
+	          <div className="text-[11px] tracking-wider text-[#8a8472] text-right leading-tight">
+	            <div>{dateStr}</div>
+	            <div>{timeStr} · {clientTz}</div>
+	          </div>
         </header>
 
         <div className="relative mb-7 max-w-[540px]">
@@ -72,9 +149,9 @@ export default function LoginPage() {
         </div>
 
         <div className="relative grid grid-cols-3 gap-3.5">
-          <KpiPeek kicker={t("login.kpiOrders")} value="148" delta="+12" color="#1f7a4d" />
-          <KpiPeek kicker={t("login.kpiReceipts")} value="$ 32.4M" delta="+8.1%" color="#c2410c" />
-          <KpiPeek kicker={t("login.kpiBackorders")} value="6" delta="-3" color="#1e5fb3" />
+          <KpiPeek kicker={t("login.kpiOrders")} value={intFmt.format(panel?.active_orders || 0)} color="#1f7a4d" />
+          <KpiPeek kicker={t("login.kpiReceipts")} value={moneyFmt.format(panel?.todays_receipts || 0)} color="#c2410c" />
+          <KpiPeek kicker={t("login.kpiBackorders")} value={intFmt.format(panel?.late_orders || 0)} color="#1e5fb3" />
         </div>
 
         <div className="relative mt-3.5 grid grid-cols-[1.4fr_1fr] gap-3.5">
@@ -91,34 +168,39 @@ export default function LoginPage() {
                 </linearGradient>
               </defs>
               <path
-                d="M0 70 L24 60 L48 64 L72 50 L96 56 L120 42 L144 48 L168 36 L192 40 L216 30 L240 36 L264 22 L288 26 L312 14 L320 18 L320 90 L0 90 Z"
+                d={chart.areaPath}
                 fill="url(#loginLine)"
               />
               <path
-                d="M0 70 L24 60 L48 64 L72 50 L96 56 L120 42 L144 48 L168 36 L192 40 L216 30 L240 36 L264 22 L288 26 L312 14"
+                d={chart.linePath}
                 fill="none"
                 stroke="#c2410c"
                 strokeWidth="1.6"
               />
-              {[0, 24, 48, 72, 96, 120, 144, 168, 192, 216, 240, 264, 288, 312].map((x, i) => (
-                <line key={i} x1={x} y1="78" x2={x} y2="82" stroke="#e3dfd3" strokeWidth="1" />
+              {series.map((_, i) => (
+                <line
+                  key={i}
+                  x1={i * chart.step}
+                  y1="78"
+                  x2={i * chart.step}
+                  y2="82"
+                  stroke="#e3dfd3"
+                  strokeWidth="1"
+                />
               ))}
             </svg>
           </div>
           <div className="rounded-[10px] border border-[#e3dfd3] bg-[#fdfcf8] p-4">
             <div className="text-[12px] font-semibold mb-2.5">{t("login.openTasks")}</div>
             <div className="flex flex-col gap-1.5">
-              {[
-                { label: "QC - roll #2241", color: "#1f7a4d" },
-                { label: "Vendor - Nodira", color: "#c2410c" },
-                { label: "Pack list 0431", color: "#1e5fb3" },
-                { label: "Audit - Q2", color: "#8a8472" },
-              ].map((row) => (
-                <div key={row.label} className="flex items-center gap-2 text-[11.5px] text-[#2c2920]">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: row.color }} />
-                  {row.label}
+              {openTasks.length ? openTasks.map((row, idx) => (
+                <div key={`${row.title}-${idx}`} className="flex items-center gap-2 text-[11.5px] text-[#2c2920]">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: priorityColor(row.priority) }} />
+                  {row.title}
                 </div>
-              ))}
+              )) : (
+                <div className="text-[11.5px] text-[#8a8472]">{t("tasks.empty")}</div>
+              )}
             </div>
           </div>
         </div>
@@ -264,7 +346,7 @@ function Field({
   );
 }
 
-function KpiPeek({ kicker, value, delta, color }: { kicker: string; value: string; delta: string; color: string }) {
+function KpiPeek({ kicker, value, delta, color }: { kicker: string; value: string; delta?: string; color: string }) {
   return (
     <div className="relative overflow-hidden rounded-[10px] border border-[#e3dfd3] bg-[#fdfcf8] p-4">
       <div className="text-[10.5px] tracking-[0.14em] uppercase text-[#8a8472] font-semibold">{kicker}</div>
@@ -275,9 +357,11 @@ function KpiPeek({ kicker, value, delta, color }: { kicker: string; value: strin
         >
           {value}
         </div>
-        <div className="text-[11.5px] font-semibold" style={{ color }}>
-          {delta}
-        </div>
+        {delta ? (
+          <div className="text-[11.5px] font-semibold" style={{ color }}>
+            {delta}
+          </div>
+        ) : null}
       </div>
       <div className="absolute left-0 bottom-0 h-[2px] w-full opacity-85" style={{ background: color }} />
     </div>
