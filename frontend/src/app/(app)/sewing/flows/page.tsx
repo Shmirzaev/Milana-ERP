@@ -25,6 +25,7 @@ type WO = {
   production_order_id: number;
   operation: string;
   status: string;
+  planned_input_qty: number;
   planned_output_qty: number;
   passed_qty: number;
   deadline: string | null;
@@ -127,28 +128,43 @@ function FlowDetail({ flowId }: { flowId: number }) {
   const { t } = useT();
   const { mutate: mutateGlobal } = useSWRConfig();
   const { data: wos, mutate: mutateAssigned } = useSWR<WO[]>(`/api/sewing-flows/${flowId}/work-orders?only_active=true`, fetcher);
-  const { data: unassigned, mutate: mutateUnassigned } = useSWR<WO[]>(
-    "/api/work-orders?operation=sewing&only_active=true&unassigned_flow=true",
+  const { data: availableWos, mutate: mutateAvailableWos } = useSWR<WO[]>(
+    "/api/work-orders?operation=sewing&only_active=true",
     fetcher,
   );
   const { data: util } = useSWR<Util>(`/api/sewing-flows/${flowId}/utilization`, fetcher, { refreshInterval: 10_000 });
   const [claimingId, setClaimingId] = useState<number | null>(null);
+  const [loadingPickId, setLoadingPickId] = useState<number | null>(null);
   const [msg, setMsg] = useState("");
-  const [pick, setPick] = useState<{ wo: WO | null; qty: number }>({ wo: null, qty: 0 });
+  const [pick, setPick] = useState<{ wo: WO | null; qty: number; maxQty: number }>({ wo: null, qty: 0, maxQty: 0 });
   const showReadyPicker = !!wos && wos.length === 0;
   const freeCapacity = Math.max(0, (util?.capacity_per_day || 0) - (util?.committed_today || 0));
 
-  function openPick(wo: WO) {
-    const remainingWo = Math.max(0, Number(wo.planned_output_qty || 0) - Number(wo.passed_qty || 0));
-    const suggested = freeCapacity > 0 ? Math.min(remainingWo, freeCapacity) : remainingWo;
-    setPick({ wo, qty: suggested > 0 ? suggested : 1 });
+  async function openPick(wo: WO) {
+    setLoadingPickId(wo.id);
     setMsg("");
+    try {
+      const assignments = await api.get<any[]>(`/api/work-orders/${wo.id}/assignments`);
+      const assignedTotal = (assignments || []).reduce((sum, a) => sum + Number(a?.quantity || 0), 0);
+      const planned = Number(wo.planned_input_qty || wo.planned_output_qty || 0);
+      const remainingAssignable = Math.max(0, planned - assignedTotal);
+      if (remainingAssignable <= 0) {
+        setMsg(`${t("field.qty")} <= 0`);
+        return;
+      }
+      const suggested = freeCapacity > 0 ? Math.min(remainingAssignable, freeCapacity) : remainingAssignable;
+      setPick({ wo, qty: suggested > 0 ? suggested : 1, maxQty: remainingAssignable });
+    } catch (e: any) {
+      setMsg(e.message);
+    } finally {
+      setLoadingPickId(null);
+    }
   }
 
   async function takeWork() {
     if (!pick.wo) return;
     const wid = pick.wo.id;
-    const remainingWo = Math.max(0, Number(pick.wo.planned_output_qty || 0) - Number(pick.wo.passed_qty || 0));
+    const remainingWo = Math.max(0, Number(pick.maxQty || 0));
     const qty = Number(pick.qty || 0);
     if (util && freeCapacity <= 0) {
       setMsg(t("msg.lineFull"));
@@ -179,8 +195,8 @@ function FlowDetail({ flowId }: { flowId: number }) {
         planned_start: now.toISOString(),
         planned_end: nextDay.toISOString(),
       });
-      setPick({ wo: null, qty: 0 });
-      await Promise.all([mutateAssigned(), mutateUnassigned(), mutateGlobal("/api/sewing-flows")]);
+      setPick({ wo: null, qty: 0, maxQty: 0 });
+      await Promise.all([mutateAssigned(), mutateAvailableWos(), mutateGlobal("/api/sewing-flows")]);
     } catch (e: any) {
       setMsg(e.message);
     } finally {
@@ -188,7 +204,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
     }
   }
 
-  if (!wos || !unassigned) return <div className="mt-3 text-xs text-slate-500">{t("common.loading")}</div>;
+  if (!wos || !availableWos) return <div className="mt-3 text-xs text-slate-500">{t("common.loading")}</div>;
 
   return (
     <div className="mt-3 space-y-3">
@@ -225,8 +241,8 @@ function FlowDetail({ flowId }: { flowId: number }) {
 
       {showReadyPicker && (
         <div className="rounded border border-slate-200 p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("page.sewingFlows.unassignedWork")}</div>
-          {unassigned.length === 0 ? (
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("page.sewingFlows.assignableWork")}</div>
+          {availableWos.length === 0 ? (
             <div className="text-xs text-slate-400">{t("page.sewingFlows.noUnassignedWork")}</div>
           ) : (
             <div>
@@ -241,7 +257,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {unassigned.map((w) => (
+                  {availableWos.map((w) => (
                     <tr key={w.id}>
                       <td className="truncate">
                         <Link href={`/production-orders/${w.production_order_id}`} className="text-brand-600 hover:underline">
@@ -253,8 +269,8 @@ function FlowDetail({ flowId }: { flowId: number }) {
                       <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
                       <td className="text-right">
                         <div className="flex flex-wrap justify-end gap-1">
-                          <button className="btn h-7 px-2 text-[11px]" onClick={() => openPick(w)} disabled={claimingId === w.id}>
-                            {claimingId === w.id ? t("common.loading") : t("btn.assign")}
+                          <button className="btn h-7 px-2 text-[11px]" onClick={() => openPick(w)} disabled={claimingId === w.id || loadingPickId === w.id}>
+                            {(claimingId === w.id || loadingPickId === w.id) ? t("common.loading") : t("btn.assign")}
                           </button>
                           <Link href={`/work-orders/${w.id}/sewing`} className="btn h-7 px-2 text-[11px]">{t("btn.open")}</Link>
                         </div>
@@ -269,13 +285,16 @@ function FlowDetail({ flowId }: { flowId: number }) {
         </div>
       )}
 
-      <Modal open={!!pick.wo} onClose={() => setPick({ wo: null, qty: 0 })} title={t("btn.assign")}>
+      <Modal open={!!pick.wo} onClose={() => setPick({ wo: null, qty: 0, maxQty: 0 })} title={t("btn.assign")}>
         <div className="space-y-3">
           <div className="text-xs text-slate-500">
             {pick.wo ? `PO #${pick.wo.production_order_id}` : ""}
           </div>
           <div className="text-xs text-slate-500">
             {t("field.passed")}/{t("page.sewingFlows.plannedUnits")}: {pick.wo ? `${pick.wo.passed_qty}/${pick.wo.planned_output_qty}` : "-"}
+          </div>
+          <div className="text-xs text-slate-500">
+            {t("field.available")}: {pick.maxQty}
           </div>
           <div className="text-xs text-slate-500">
             {t("page.sewingFlows.capacityPerDay")}: {util?.capacity_per_day || 0}, {t("page.sewingFlows.utilizationToday")}: {util?.committed_today || 0}, {t("field.available")}: {freeCapacity}
@@ -292,7 +311,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
           </div>
           {msg && <div className="text-xs text-red-600">{msg}</div>}
           <div className="flex justify-end gap-2 pt-1">
-            <button type="button" className="btn" onClick={() => setPick({ wo: null, qty: 0 })}>{t("btn.cancel")}</button>
+            <button type="button" className="btn" onClick={() => setPick({ wo: null, qty: 0, maxQty: 0 })}>{t("btn.cancel")}</button>
             <button type="button" className="btn btn-primary" onClick={takeWork} disabled={!!claimingId}>
               {claimingId ? t("common.loading") : t("btn.assign")}
             </button>
