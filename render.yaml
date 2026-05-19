@@ -30,6 +30,8 @@ services:
         value: "*"
       - key: BARCODE_STORAGE_DIR
         value: /opt/render/project/src/backend/storage/barcodes
+      - key: SALES_ORDER_FILES_DIR
+        value: /opt/render/project/src/backend/storage/sales_order_files
 
   - type: web
     name: milanaerp-frontend

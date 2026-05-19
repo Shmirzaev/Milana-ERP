@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric
+from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -25,6 +25,8 @@ class SalesOrder(Base, PkMixin, TimestampMixin):
     planning_estimate_comment: Mapped[str | None] = mapped_column(Text)
     planning_estimate_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     planning_estimate_submitted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    printing_instructions: Mapped[str | None] = mapped_column(Text)
+    printing_attachments: Mapped[list[dict] | None] = mapped_column(JSON, default=list)
     notes: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 

@@ -92,6 +92,8 @@ os.makedirs(settings.BARCODE_STORAGE_DIR, exist_ok=True)
 app.mount("/storage/barcodes", StaticFiles(directory=settings.BARCODE_STORAGE_DIR), name="barcodes")
 os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
 app.mount("/storage/model-files", StaticFiles(directory=settings.MODEL_FILES_DIR), name="model-files")
+os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
+app.mount("/storage/sales-order-files", StaticFiles(directory=settings.SALES_ORDER_FILES_DIR), name="sales-order-files")
 
 
 @app.get("/health")

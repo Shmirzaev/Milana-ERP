@@ -1,9 +1,12 @@
 "use client";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { api } from "@/lib/api";
+import useSWR from "swr";
+import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+
+type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
 
 export default function PrintingPage() {
   const { t } = useT();
@@ -11,6 +14,16 @@ export default function PrintingPage() {
   const id = Number(params.id);
   const [f, setF] = useState({ input_qty: 0, printed_qty: 0, passed_qty: 0, rejected_qty: 0, defect_reason: "", print_type: "", notes: "" });
   const [msg, setMsg] = useState("");
+  const { data: wo } = useSWR<any>(Number.isFinite(id) ? `/api/work-orders/${id}` : null, fetcher);
+  const { data: po } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
+  const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
+  const printFiles: PrintingAttachment[] = Array.isArray(so?.printing_attachments) ? so.printing_attachments : [];
+
+  function isImageAttachment(a: PrintingAttachment): boolean {
+    const byMime = (a.content_type || "").toLowerCase().startsWith("image/");
+    const byName = /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(a.file_name || a.file_url || "");
+    return byMime || byName;
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,6 +38,33 @@ export default function PrintingPage() {
   return (
     <div>
       <PageHeader title={t("page.printing.title", { id })} />
+      {(so?.printing_instructions || printFiles.length > 0) && (
+        <div className="card mb-4 max-w-2xl space-y-3 p-4">
+          <div>
+            <div className="label">Printing details</div>
+            <div className="mt-1 text-sm text-[#8a8472]">
+              Sales order {so?.order_no || ""} instructions for print execution.
+            </div>
+          </div>
+          {so?.printing_instructions && (
+            <div className="rounded-md bg-[#f8f7f3] p-3 text-sm whitespace-pre-wrap">
+              {so.printing_instructions}
+            </div>
+          )}
+          {printFiles.length > 0 && (
+            <div className="space-y-2">
+              {printFiles.map((file, idx) => (
+                <div key={`${file.file_url}-${idx}`} className="flex flex-wrap items-center gap-3 rounded-md border border-[#ecebe3] p-2">
+                  {isImageAttachment(file) && <img src={file.file_url} alt={file.file_name || "print"} className="h-12 w-12 rounded object-cover" />}
+                  <a className="text-sm text-[#3b3528] underline" href={file.file_url} target="_blank" rel="noreferrer">
+                    {file.file_name || file.file_url}
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <form onSubmit={submit} className="card max-w-2xl space-y-3 p-6">
         <div>
           <label className="label">{t("field.inputQty")}</label>

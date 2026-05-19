@@ -7,6 +7,7 @@ import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 
 type Line = { model_id: number; color: string; size: string; quantity: number; unit_price: number; printing_required: boolean };
+type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
 
 const SIZE_OPTIONS = ["44", "46", "48", "50", "52", "54", "56", "58", "60", "62", "64"];
 
@@ -19,6 +20,9 @@ export default function NewSalesOrderPage() {
   const [brandId, setBrandId] = useState<number | "">("");
   const [orderType, setOrderType] = useState("client_order");
   const [deadline, setDeadline] = useState("");
+  const [printingInstructions, setPrintingInstructions] = useState("");
+  const [printingAttachments, setPrintingAttachments] = useState<PrintingAttachment[]>([]);
+  const [uploadingPrintFile, setUploadingPrintFile] = useState(false);
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<Line[]>([
     { model_id: 0, color: "white", size: "M", quantity: 50, unit_price: 12, printing_required: false },
@@ -107,6 +111,33 @@ export default function NewSalesOrderPage() {
 
   const subtotal = lines.reduce((s, l) => s + Number(l.quantity || 0) * Number(l.unit_price || 0), 0);
   const qty = lines.reduce((s, l) => s + Number(l.quantity || 0), 0);
+  const hasPrintingSelected = lines.some((line) => Boolean(line.printing_required));
+
+  function isImageAttachment(a: PrintingAttachment): boolean {
+    const byMime = (a.content_type || "").toLowerCase().startsWith("image/");
+    const byName = /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(a.file_name || a.file_url || "");
+    return byMime || byName;
+  }
+
+  async function onPickPrintingFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setErr("");
+    setUploadingPrintFile(true);
+    try {
+      const uploaded: PrintingAttachment[] = [];
+      for (const file of Array.from(files)) {
+        const form = new FormData();
+        form.append("file", file);
+        const saved = await api.postForm<PrintingAttachment>("/api/sales-orders/printing-attachments/upload", form);
+        uploaded.push(saved);
+      }
+      setPrintingAttachments((prev) => [...prev, ...uploaded]);
+    } catch (e: any) {
+      setErr(e.message || "Failed to upload file");
+    } finally {
+      setUploadingPrintFile(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -117,6 +148,8 @@ export default function NewSalesOrderPage() {
         customer_id: customerId || null,
         order_type: orderType,
         deadline: deadline || null,
+        printing_instructions: hasPrintingSelected ? (printingInstructions.trim() || null) : null,
+        printing_attachments: hasPrintingSelected ? printingAttachments : [],
         notes,
         items: lines.map((line) => ({
           ...line,
@@ -254,6 +287,63 @@ export default function NewSalesOrderPage() {
               </table>
             </div>
           </section>
+
+          {hasPrintingSelected && (
+            <section className="card p-5">
+              <div className="mb-4">
+                <h2 className="app-card-title">Printing details</h2>
+                <p className="mt-1 text-sm text-[#8a8472]">Visible to the printing team when this order reaches printing.</p>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="label">Printing instructions</label>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={printingInstructions}
+                    onChange={(e) => setPrintingInstructions(e.target.value)}
+                    placeholder="Placement, colors, technique, size, references..."
+                  />
+                </div>
+                <div>
+                  <label className="label">Attach picture or file</label>
+                  <input
+                    className="input"
+                    type="file"
+                    multiple
+                    disabled={uploadingPrintFile}
+                    onChange={(e) => {
+                      onPickPrintingFiles(e.target.files);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  <p className="mt-1 text-xs text-[#8a8472]">You can attach artwork, PDF spec, or sample photo.</p>
+                </div>
+                {uploadingPrintFile && <div className="text-sm text-[#8a8472]">{t("common.uploading")}</div>}
+                {printingAttachments.length > 0 && (
+                  <div className="space-y-2">
+                    {printingAttachments.map((file, idx) => (
+                      <div key={`${file.file_url}-${idx}`} className="flex flex-wrap items-center gap-3 rounded-md border border-[#ecebe3] p-2">
+                        {isImageAttachment(file) && (
+                          <img src={file.file_url} alt={file.file_name || "print"} className="h-12 w-12 rounded object-cover" />
+                        )}
+                        <a className="text-sm text-[#3b3528] underline" href={file.file_url} target="_blank" rel="noreferrer">
+                          {file.file_name || file.file_url}
+                        </a>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => setPrintingAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                        >
+                          {t("common.remove")}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
           <section className="card p-5">
             <label className="label">{t("field.notes")}</label>

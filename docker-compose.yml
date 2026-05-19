@@ -32,6 +32,7 @@ services:
       DEBUG: "true"
       CORS_ORIGINS: "http://localhost:3000"
       BARCODE_STORAGE_DIR: "/app/storage/barcodes"
+      SALES_ORDER_FILES_DIR: "/app/storage/sales_order_files"
     ports:
       - "8000:8000"
     volumes:

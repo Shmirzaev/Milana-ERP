@@ -33,10 +33,18 @@ class SalesOrderItemOut(ORMModel):
     notes: Optional[str] = None
 
 
+class SalesOrderPrintingAttachment(BaseModel):
+    file_url: str
+    file_name: Optional[str] = None
+    content_type: Optional[str] = None
+
+
 class SalesOrderIn(BaseModel):
     customer_id: Optional[int] = None
     order_type: str = "client_order"
     deadline: Optional[datetime] = None
+    printing_instructions: Optional[str] = None
+    printing_attachments: list[SalesOrderPrintingAttachment] = []
     notes: Optional[str] = None
     items: list[SalesOrderItemIn] = []
 
@@ -44,6 +52,8 @@ class SalesOrderIn(BaseModel):
 class SalesOrderUpdate(BaseModel):
     customer_id: Optional[int] = None
     deadline: Optional[datetime] = None
+    printing_instructions: Optional[str] = None
+    printing_attachments: Optional[list[SalesOrderPrintingAttachment]] = None
     notes: Optional[str] = None
     status: Optional[str] = None
 
@@ -67,6 +77,8 @@ class SalesOrderOut(ORMModel):
     planning_estimate_comment: Optional[str] = None
     planning_estimate_submitted_at: Optional[datetime] = None
     planning_estimate_submitted_by: Optional[int] = None
+    printing_instructions: Optional[str] = None
+    printing_attachments: Optional[list[SalesOrderPrintingAttachment]] = None
     notes: Optional[str] = None
     created_at: datetime
 

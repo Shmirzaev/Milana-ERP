@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000"
     BARCODE_STORAGE_DIR: str = "/app/storage/barcodes"
     MODEL_FILES_DIR: str = "/app/storage/model_files"
+    SALES_ORDER_FILES_DIR: str = "/app/storage/sales_order_files"
     INTEGRATION_1C_TOKEN: str = ""
 
     @field_validator("DEBUG", mode="before")

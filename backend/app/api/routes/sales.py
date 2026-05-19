@@ -1,7 +1,13 @@
+import os
+from pathlib import Path
+from uuid import uuid4
+
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi import UploadFile, File
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.config import settings
 from app.models import (
     SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation,
     Customer, Model, User, ProductionOrder, Shipment, Task, Department,
@@ -14,6 +20,31 @@ from app.services.numbering import next_sales_order_no
 from app.services.workflow import notify_department
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
+
+
+@router.post("/printing-attachments/upload", status_code=201)
+async def upload_printing_attachment(
+    file: UploadFile = File(...),
+    current: User = Depends(require_permissions("sales.orders", "*")),
+):
+    _ = current
+    ext = Path(file.filename or "").suffix.lower()
+    os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
+    safe_name = f"so_print_{uuid4().hex}{ext}"
+    abs_path = os.path.join(settings.SALES_ORDER_FILES_DIR, safe_name)
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(400, "Empty file")
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 20MB)")
+    with open(abs_path, "wb") as f:
+        f.write(content)
+    file_url = f"/storage/sales-order-files/{safe_name}"
+    return {
+        "file_url": file_url,
+        "file_name": file.filename or safe_name,
+        "content_type": file.content_type,
+    }
 
 
 @router.get("", response_model=list[SalesOrderOut])
@@ -43,6 +74,8 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         order_type=payload.order_type,
         status="draft",
         deadline=payload.deadline,
+        printing_instructions=payload.printing_instructions,
+        printing_attachments=[a.model_dump() for a in payload.printing_attachments] if payload.printing_attachments else [],
         notes=payload.notes,
         created_by=current.id,
     )

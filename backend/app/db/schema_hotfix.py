@@ -35,6 +35,8 @@ _PATCHES: list[tuple[str, str]] = [
     ("tasks",       "ADD COLUMN IF NOT EXISTS entity_type VARCHAR(64)"),
     ("tasks",       "ADD COLUMN IF NOT EXISTS entity_id INTEGER"),
     ("notifications", "ADD COLUMN IF NOT EXISTS link VARCHAR(512)"),
+    ("sales_orders", "ADD COLUMN IF NOT EXISTS printing_instructions TEXT"),
+    ("sales_orders", "ADD COLUMN IF NOT EXISTS printing_attachments JSONB"),
 ]
 
 

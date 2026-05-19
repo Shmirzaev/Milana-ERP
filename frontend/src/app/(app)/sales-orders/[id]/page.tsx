@@ -7,6 +7,8 @@ import { useState } from "react";
 import { useT } from "@/lib/i18n";
 import StagePipeline from "@/components/StagePipeline";
 
+type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
+
 export default function SalesOrderDetail() {
   const params = useParams<{ id: string }>();
   const { t } = useT();
@@ -17,6 +19,13 @@ export default function SalesOrderDetail() {
   const [msg, setMsg] = useState("");
   const linkedProcesses = (processes || []).filter((p) => String(p.sales_order_id) === String(id));
   const activeProcess = linkedProcesses.find((p) => p.current_stage !== "completed") || linkedProcesses[0];
+  const printFiles: PrintingAttachment[] = Array.isArray(so?.printing_attachments) ? so.printing_attachments : [];
+
+  function isImageAttachment(a: PrintingAttachment): boolean {
+    const byMime = (a.content_type || "").toLowerCase().startsWith("image/");
+    const byName = /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(a.file_name || a.file_url || "");
+    return byMime || byName;
+  }
 
   async function confirm() {
     await api.post(`/api/sales-orders/${id}/confirm`);
@@ -110,6 +119,29 @@ export default function SalesOrderDetail() {
           {activeProcess.po_deadline && (
             <div className="mt-2 text-xs text-slate-500">
               {t("page.soDetail.etaDeadline")}: {new Date(activeProcess.po_deadline).toLocaleDateString()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(so.printing_instructions || printFiles.length > 0) && (
+        <div className="card mb-6 p-4">
+          <h3 className="font-medium mb-2">Printing details</h3>
+          {so.printing_instructions && (
+            <div className="mb-3 rounded-md bg-[#f8f7f3] p-3 text-sm whitespace-pre-wrap">
+              {so.printing_instructions}
+            </div>
+          )}
+          {printFiles.length > 0 && (
+            <div className="space-y-2">
+              {printFiles.map((file, idx) => (
+                <div key={`${file.file_url}-${idx}`} className="flex flex-wrap items-center gap-3 rounded-md border border-[#ecebe3] p-2">
+                  {isImageAttachment(file) && <img src={file.file_url} alt={file.file_name || "print"} className="h-12 w-12 rounded object-cover" />}
+                  <a className="text-sm text-[#3b3528] underline" href={file.file_url} target="_blank" rel="noreferrer">
+                    {file.file_name || file.file_url}
+                  </a>
+                </div>
+              ))}
             </div>
           )}
         </div>
