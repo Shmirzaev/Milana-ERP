@@ -124,10 +124,11 @@ export default function HomePage() {
   }, []);
 
   const { data: mgmt } = useSWR<any>(`/api/dashboard/management?tz=${encodeURIComponent(clientTz)}`, fetcher);
-  const { data: prod } = useSWR<any>("/api/dashboard/production", fetcher);
   const { data: fin } = useSWR<any>(can(me, "finance.view", "*") ? "/api/dashboard/finance" : null, fetcher);
   const { data: orders = [] } = useSWR<any[]>("/api/sales-orders", fetcher);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
+  const { data: productionOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
+  const { data: workOrders = [] } = useSWR<any[]>("/api/work-orders", fetcher);
 
   const [kind, setKind] = useState<FilterKind>("all");
   const [datePreset, setDatePreset] = useState<DatePreset>("this_week");
@@ -168,6 +169,36 @@ export default function HomePage() {
     return { start: null as Date | null, end: null as Date | null };
   }, [datePreset, customFrom, customTo]);
 
+  const prodUrl = useMemo(() => {
+    const params = new URLSearchParams();
+    if (dateRange.start) params.set("start", dateRange.start.toISOString());
+    if (dateRange.end) params.set("end", dateRange.end.toISOString());
+    const qs = params.toString();
+    return qs ? `/api/dashboard/production?${qs}` : "/api/dashboard/production";
+  }, [dateRange.start, dateRange.end]);
+  const { data: prod } = useSWR<any>(prodUrl, fetcher);
+
+  const poBySalesOrder = useMemo(() => {
+    const map = new Map<number, any[]>();
+    for (const po of productionOrders || []) {
+      if (!po.sales_order_id) continue;
+      const list = map.get(po.sales_order_id);
+      if (list) list.push(po);
+      else map.set(po.sales_order_id, [po]);
+    }
+    return map;
+  }, [productionOrders]);
+
+  const woByPo = useMemo(() => {
+    const map = new Map<number, any[]>();
+    for (const wo of workOrders || []) {
+      const list = map.get(wo.production_order_id);
+      if (list) list.push(wo);
+      else map.set(wo.production_order_id, [wo]);
+    }
+    return map;
+  }, [workOrders]);
+
   const activeOrders = useMemo(() => {
     const base = orders
       .filter((o) => !["closed", "cancelled", "delivered"].includes(String(o.status)))
@@ -184,6 +215,44 @@ export default function HomePage() {
   }, [orders, kind, dateRange]);
 
   const totalValue = activeOrders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+  const stageFallbackPct: Record<string, number> = {
+    draft: 5,
+    confirmed: 10,
+    pending_sales_approval: 20,
+    planning_approved: 30,
+    planning: 35,
+    production: 60,
+    cutting: 45,
+    printing: 55,
+    sewing: 75,
+    packaging: 90,
+    ready: 98,
+    delivered: 100,
+    closed: 100,
+  };
+
+  function orderPlannedQty(salesOrderId: number): number {
+    const pos = poBySalesOrder.get(salesOrderId) || [];
+    return pos.reduce((sum, po) => sum + Number(po.planned_quantity || 0), 0);
+  }
+
+  function orderProgressPct(order: any): number {
+    const pos = poBySalesOrder.get(order.id) || [];
+    if (!pos.length) return stageFallbackPct[String(order.status)] ?? 0;
+    let planned = 0;
+    let passed = 0;
+    for (const po of pos) {
+      for (const wo of woByPo.get(po.id) || []) {
+        const p = Number(wo.planned_output_qty || 0);
+        const ok = Number(wo.passed_qty || 0);
+        planned += Math.max(0, p);
+        passed += Math.max(0, Math.min(ok, p));
+      }
+    }
+    if (planned > 0) return Math.max(0, Math.min(100, Math.round((passed / planned) * 100)));
+    const weighted = pos.reduce((s, po) => s + (stageFallbackPct[String(po.status)] ?? 0), 0) / pos.length;
+    return Math.max(0, Math.min(100, Math.round(weighted)));
+  }
 
   function exportOrders() {
     if (!activeOrders.length) return;
@@ -210,6 +279,14 @@ export default function HomePage() {
     setDatePreset("custom");
     setShowDateMenu(false);
   }
+
+  const stageRows = [
+    { name: t("dash.cutting"), value: Number(prod?.cutting_output || 0) },
+    { name: t("dash.printing"), value: Number(prod?.printing_output || 0) },
+    { name: t("dash.sewing"), value: Number(prod?.sewing_output || 0) },
+    { name: t("dash.packaging"), value: Number(prod?.packaging_output || 0) },
+  ];
+  const maxStageValue = Math.max(1, ...stageRows.map((r) => r.value));
 
   return (
     <div>
@@ -276,10 +353,10 @@ export default function HomePage() {
       />
 
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Kpi label={t("dash.activeOrders")} value={mgmt?.active_orders ?? activeOrders.length} sub={t("home.plusOrders")} tone="good" visual={<MiniBars />} />
-        <Kpi label={t("dash.production")} value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} sub={t("home.outputSub")} tone="good" visual={<Spark accent />} />
-        <Kpi label={t("home.onTimeRate")} value="92%" sub={t("home.onTimeRateSub")} tone="bad" visual={<Spark />} />
-        <Kpi label={t("dash.lateOrders")} value={mgmt?.late_orders ?? 0} sub={t("home.exposed", { value: `$${Math.round(totalValue).toLocaleString()}` })} tone="bad" visual={<MiniBars hot />} />
+        <Kpi label={t("dash.activeOrders")} value={activeOrders.length} tone="good" />
+        <Kpi label={t("dash.production")} value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} tone="good" />
+        <Kpi label={t("dash.lateOrders")} value={mgmt?.late_orders ?? 0} tone={Number(mgmt?.late_orders || 0) > 0 ? "bad" : "good"} />
+        <Kpi label={t("dash.todaysDefects")} value={Number(mgmt?.todays_defects || 0).toLocaleString()} tone={Number(mgmt?.todays_defects || 0) > 0 ? "bad" : "good"} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.55fr_1fr]">
@@ -304,13 +381,14 @@ export default function HomePage() {
               <tbody>
                 {!activeOrders.length ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("home.noOrdersForFilter")}</td></tr>
-                ) : activeOrders.map((o, i) => {
-                  const pct = [62, 18, 81, 47, 4, 0][i] ?? 30;
+                ) : activeOrders.map((o) => {
+                  const pct = orderProgressPct(o);
+                  const qty = orderPlannedQty(o.id);
                   return (
                     <tr key={o.id}>
                       <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
                       <td>{customerMap.get(o.customer_id) || t("sales.unknownCustomer")}</td>
-                      <td className="mono">{[4800, 12000, 3200, 9600, 2100, 1500][i] ?? 1000}</td>
+                      <td className="mono">{qty.toLocaleString()}</td>
                       <td className="min-w-36">
                         <div className="flex items-center gap-2">
                           <div className="mini-bar flex-1"><span style={{ width: `${pct}%` }} /></div>
@@ -334,20 +412,14 @@ export default function HomePage() {
             <div className="text-xs text-[#8a8472]">{t("home.piecesProcessed")}</div>
           </div>
           <div className="space-y-5 p-4">
-            {[
-              [t("dash.cutting"), prod?.cutting_output ?? 1240, 1600],
-              [t("dash.printing"), prod?.printing_output ?? 920, 1200],
-              [t("dash.sewing"), prod?.sewing_output ?? 820, 1100],
-              [t("dash.packaging"), prod?.packaging_output ?? 640, 900],
-            ].map(([name, value, cap], i) => (
-              <div key={String(name)}>
+            {stageRows.map(({ name, value }, i) => (
+              <div key={name}>
                 <div className="mb-2 flex items-center justify-between text-sm">
                   <div className="font-medium">{name} {i === 2 && <span className="badge bg-[#fbe9dd] text-[#c2410c]">{t("home.live")}</span>}</div>
-                  <div className="mono"><b>{Number(value).toLocaleString()}</b> <span className="text-[#8a8472]">/ {Number(cap).toLocaleString()}</span></div>
+                  <div className="mono"><b>{value.toLocaleString()}</b></div>
                 </div>
-                <div className="grid grid-cols-[1fr_90px] items-center gap-3">
-                  <div className="mini-bar"><span className={i === 2 ? "bg-[#c2410c]" : ""} style={{ width: `${Math.min(100, Number(value) / Number(cap) * 100)}%` }} /></div>
-                  <Spark accent={i === 2} />
+                <div className="mini-bar">
+                  <span className={i === 2 ? "bg-[#c2410c]" : ""} style={{ width: `${Math.min(100, (value / maxStageValue) * 100)}%` }} />
                 </div>
               </div>
             ))}

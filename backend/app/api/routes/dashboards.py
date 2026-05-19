@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 
 from app.core.deps import DbSession, CurrentUser
+from app.core.dt import as_utc
 from app.models import (
     SalesOrder, ProductionOrder, WorkOrder, Bundle, Package, WasteRecord, FinishedGoodsStock,
     Item, StockBatch, CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord,
@@ -64,13 +65,34 @@ def planning(db: DbSession, _: CurrentUser):
 
 
 @router.get("/production")
-def production(db: DbSession, _: CurrentUser):
+def production(
+    db: DbSession,
+    _: CurrentUser,
+    start: datetime | None = None,
+    end: datetime | None = None,
+):
+    start_utc = as_utc(start)
+    end_utc = as_utc(end)
+
+    def _with_range(qry, column):
+        if start_utc:
+            qry = qry.filter(column >= start_utc)
+        if end_utc:
+            qry = qry.filter(column <= end_utc)
+        return qry
+
+    cutting_q = _with_range(db.query(func.coalesce(func.sum(CuttingRecord.passed_pieces), 0)), CuttingRecord.created_at)
+    printing_q = _with_range(db.query(func.coalesce(func.sum(PrintingRecord.passed_qty), 0)), PrintingRecord.created_at)
+    sewing_q = _with_range(db.query(func.coalesce(func.sum(SewingRecord.passed_qty), 0)), SewingRecord.created_at)
+    packaging_q = _with_range(db.query(func.coalesce(func.sum(PackagingRecord.packed_qty), 0)), PackagingRecord.created_at)
+    rework_q = _with_range(db.query(func.coalesce(func.sum(SewingRecord.rework_qty), 0)), SewingRecord.created_at)
+
     return {
-        "cutting_output": int(db.query(func.coalesce(func.sum(CuttingRecord.passed_pieces), 0)).scalar() or 0),
-        "printing_output": int(db.query(func.coalesce(func.sum(PrintingRecord.passed_qty), 0)).scalar() or 0),
-        "sewing_output": int(db.query(func.coalesce(func.sum(SewingRecord.passed_qty), 0)).scalar() or 0),
-        "packaging_output": int(db.query(func.coalesce(func.sum(PackagingRecord.packed_qty), 0)).scalar() or 0),
-        "rework_qty": int(db.query(func.coalesce(func.sum(SewingRecord.rework_qty), 0)).scalar() or 0),
+        "cutting_output": int(cutting_q.scalar() or 0),
+        "printing_output": int(printing_q.scalar() or 0),
+        "sewing_output": int(sewing_q.scalar() or 0),
+        "packaging_output": int(packaging_q.scalar() or 0),
+        "rework_qty": int(rework_q.scalar() or 0),
         "active_work_orders": db.query(func.count(WorkOrder.id)).filter(WorkOrder.status == "in_progress").scalar() or 0,
     }
 
