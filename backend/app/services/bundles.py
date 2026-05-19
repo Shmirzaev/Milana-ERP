@@ -108,7 +108,7 @@ def send_to_printing(db: Session, bundle: Bundle, user_id: int | None = None):
         WorkOrder.operation == "printing",
     ).first()
     if wo and wo.status in ("new", "planning", "waiting"):
-        wo.status = "in_progress"
+        wo.status = "pending"
     notify_department(
         db,
         department_code=DEPT_PRT,
@@ -129,7 +129,7 @@ def receive_at_printing(db: Session, bundle: Bundle, user_id: int | None = None)
         WorkOrder.operation == "printing",
     ).first()
     if wo and wo.status in ("new", "planning", "waiting"):
-        wo.status = "in_progress"
+        wo.status = "pending"
     sync_production_order_status(db, bundle.production_order_id)
 
 

@@ -8,6 +8,8 @@ from app.core.dt import as_utc
 from app.models import Bundle, Department, Package, ProductionOrder, WorkOrder
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
+_PENDING_WO_STATUSES = ("new", "planning", "ready", "waiting", "pending", "collected", "paused")
+_IN_PROGRESS_WO_STATUSES = ("in_progress",)
 
 
 def _resolve_department(db: DbSession, current: CurrentUser, dept: str | None) -> Department:
@@ -57,7 +59,9 @@ def department_inbox(
         .limit(500)
         .all()
     )
-    active = [w for w in work_orders if w.status in ("waiting", "in_progress")]
+    pending_work_orders = [w for w in work_orders if w.status in _PENDING_WO_STATUSES]
+    in_progress_work_orders = [w for w in work_orders if w.status in _IN_PROGRESS_WO_STATUSES]
+    active = [w for w in work_orders if w.status in (*_PENDING_WO_STATUSES, *_IN_PROGRESS_WO_STATUSES)]
     blocked = [w for w in work_orders if bool(w.is_blocked)]
     overdue = [
         w
@@ -152,6 +156,36 @@ def department_inbox(
                 "block_reason": w.block_reason,
             }
             for w in active
+        ],
+        "pending_work_orders": [
+            {
+                "id": w.id,
+                "production_order_id": w.production_order_id,
+                "operation": w.operation,
+                "status": w.status,
+                "planned_output_qty": w.planned_output_qty,
+                "passed_qty": w.passed_qty,
+                "failed_qty": w.failed_qty,
+                "deadline": w.deadline,
+                "is_blocked": w.is_blocked,
+                "block_reason": w.block_reason,
+            }
+            for w in pending_work_orders
+        ],
+        "in_progress_work_orders": [
+            {
+                "id": w.id,
+                "production_order_id": w.production_order_id,
+                "operation": w.operation,
+                "status": w.status,
+                "planned_output_qty": w.planned_output_qty,
+                "passed_qty": w.passed_qty,
+                "failed_qty": w.failed_qty,
+                "deadline": w.deadline,
+                "is_blocked": w.is_blocked,
+                "block_reason": w.block_reason,
+            }
+            for w in in_progress_work_orders
         ],
         "blocked": [
             {

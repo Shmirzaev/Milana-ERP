@@ -22,7 +22,7 @@ from app.services.audit import log_action
 from app.services.notifications import notify
 
 router = APIRouter(tags=["production_extra"])
-_ACTIVE_WO_STATUSES = ("waiting", "ready", "in_progress", "paused", "new", "planning")
+_ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 
 

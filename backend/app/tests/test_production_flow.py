@@ -524,3 +524,125 @@ def test_planning_assign_rejects_overloaded_sewing_line(client, auth_headers):
         headers=planning_headers,
     )
     assert r.status_code == 409, r.text
+
+
+def test_printing_work_starts_pending_until_collected(client, auth_headers):
+    r = client.post(
+        "/api/sales-orders",
+        json={
+            "order_type": "client_order",
+            "notes": "printing queue test",
+            "items": [
+                {
+                    "model_id": 1,
+                    "color": "white",
+                    "size": "M",
+                    "quantity": 100,
+                    "unit_price": 12.5,
+                    "printing_required": True,
+                },
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    so_id = r.json()["id"]
+    r = client.post(f"/api/sales-orders/{so_id}/confirm", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    _prepare_sales_order_for_po(client, auth_headers, so_id)
+
+    r = client.post(
+        "/api/planning/create-production-order",
+        json={
+            "production_type": "client_order",
+            "sales_order_id": so_id,
+            "model_id": 1,
+            "planned_quantity": 100,
+            "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 100}],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    po_id = r.json()["id"]
+
+    r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    by_op = {w["operation"]: w for w in r.json()}
+    cutting_wo = by_op["cutting"]
+    printing_wo = by_op["printing"]
+
+    r = client.post(
+        "/api/cutting/records",
+        json={
+            "work_order_id": cutting_wo["id"],
+            "fabric_batch_id": None,
+            "input_quantity": 120.0,
+            "input_unit": "kg",
+            "cut_pieces": 100,
+            "passed_pieces": 100,
+            "defective_pieces": 0,
+            "waste_quantity": 2.0,
+            "waste_unit": "kg",
+            "bundles": [
+                {"color": "white", "size": "M", "quantity": 100, "count": 1, "next": "printing"},
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    bundle_id = r.json()["bundles"][0]["id"]
+
+    r = client.get(f"/api/work-orders/{printing_wo['id']}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "pending"
+
+    r = client.post(f"/api/bundles/{bundle_id}/send-printing", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    r = client.post(f"/api/bundles/{bundle_id}/receive-printing", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    r = client.get(f"/api/work-orders/{printing_wo['id']}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "pending"
+
+    r = client.post(
+        "/api/printing/records",
+        json={
+            "work_order_id": printing_wo["id"],
+            "input_qty": 10,
+            "printed_qty": 10,
+            "passed_qty": 10,
+            "rejected_qty": 0,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 409, r.text
+
+    r = client.post(
+        f"/api/work-orders/{printing_wo['id']}/collect",
+        json={
+            "deadline": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+            "notes": "Master accepted queue",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "collected"
+    assert r.json()["deadline"] is not None
+
+    r = client.post(
+        "/api/printing/records",
+        json={
+            "work_order_id": printing_wo["id"],
+            "input_qty": 10,
+            "printed_qty": 10,
+            "passed_qty": 10,
+            "rejected_qty": 0,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.get(f"/api/work-orders/{printing_wo['id']}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "in_progress"
+    assert r.json()["start_time"] is not None

@@ -10,7 +10,7 @@ from app.services.audit import log_action
 
 router = APIRouter(prefix="/sewing-flows", tags=["sewing-flows"])
 
-_ACTIVE_WO_STATUSES = ("waiting", "ready", "in_progress", "paused")
+_ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused")
 _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 

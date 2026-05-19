@@ -1,9 +1,11 @@
 "use client";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { statusLabel } from "@/components/StagePipeline";
 import PageHeader from "@/components/PageHeader";
+import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
@@ -12,9 +14,13 @@ export default function PrintingPage() {
   const { t } = useT();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
+  const { me } = useMe();
+  const canCollect = can(me, "*", "printing.records", "planning.production");
   const [f, setF] = useState({ input_qty: 0, printed_qty: 0, passed_qty: 0, rejected_qty: 0, defect_reason: "", print_type: "", notes: "" });
   const [msg, setMsg] = useState("");
-  const { data: wo } = useSWR<any>(Number.isFinite(id) ? `/api/work-orders/${id}` : null, fetcher);
+  const [collectBusy, setCollectBusy] = useState(false);
+  const [collect, setCollect] = useState({ deadline: "", notes: "" });
+  const { data: wo, mutate: mutateWo } = useSWR<any>(Number.isFinite(id) ? `/api/work-orders/${id}` : null, fetcher);
   const { data: po } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
   const { data: customers } = useSWR<any[]>(so?.customer_id ? "/api/customers" : null, fetcher);
@@ -24,6 +30,14 @@ export default function PrintingPage() {
   const soItems = Array.isArray(so?.items) ? so.items : [];
   const printingItems = soItems.filter((item: any) => Boolean(item?.printing_required));
   const orderItemsForPrint = printingItems.length > 0 ? printingItems : soItems;
+  const woStatus = String(wo?.status || "").toLowerCase();
+  const needsCollection = ["new", "planning", "waiting", "ready", "pending", "paused"].includes(woStatus);
+  const canCollectNow = canCollect && ["new", "planning", "waiting", "ready", "pending", "paused", "collected"].includes(woStatus);
+
+  useEffect(() => {
+    if (!wo?.deadline || collect.deadline) return;
+    setCollect((prev) => ({ ...prev, deadline: String(wo.deadline).slice(0, 10) }));
+  }, [wo?.deadline, collect.deadline]);
 
   function isImageAttachment(a: PrintingAttachment): boolean {
     const byMime = (a.content_type || "").toLowerCase().startsWith("image/");
@@ -40,15 +54,65 @@ export default function PrintingPage() {
     e.preventDefault();
     try {
       await api.post("/api/printing/records", { work_order_id: id, ...f });
+      mutateWo();
       setMsg(t("msg.saved"));
     } catch (e: any) {
       setMsg(e.message);
     }
   }
 
+  async function collectForPlan(e: React.FormEvent) {
+    e.preventDefault();
+    if (!collect.deadline) return;
+    setCollectBusy(true);
+    setMsg("");
+    try {
+      await api.post(`/api/work-orders/${id}/collect`, {
+        deadline: new Date(collect.deadline).toISOString(),
+        notes: collect.notes.trim() ? collect.notes.trim() : null,
+      });
+      await mutateWo();
+      setMsg(t("msg.printingCollected"));
+    } catch (e: any) {
+      setMsg(e.message);
+    } finally {
+      setCollectBusy(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader title={t("page.printing.title", { id })} />
+      {wo && (
+        <div className="card mb-4 max-w-2xl space-y-3 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-sm font-medium">{t("common.status")}: <span className="badge">{statusLabel(wo.status, t)}</span></div>
+            <div className="text-sm text-[#8a8472]">{t("field.deadline")}: {wo.deadline ? new Date(wo.deadline).toLocaleDateString() : "—"}</div>
+          </div>
+          {needsCollection && <div className="text-sm text-amber-700">{t("msg.printingNeedsCollect")}</div>}
+          {canCollectNow && (
+            <form className="grid gap-3 sm:grid-cols-2" onSubmit={collectForPlan}>
+              <div className="sm:col-span-2">
+                <div className="label">{t("page.printing.collectForPlan")}</div>
+                <div className="text-xs text-[#8a8472]">{t("page.printing.collectHint")}</div>
+              </div>
+              <div>
+                <label className="label">{t("field.deadline")}</label>
+                <input className="input" type="date" value={collect.deadline} onChange={(e) => setCollect({ ...collect, deadline: e.target.value })} required />
+              </div>
+              <div>
+                <label className="label">{t("common.notes")}</label>
+                <input className="input" value={collect.notes} onChange={(e) => setCollect({ ...collect, notes: e.target.value })} />
+              </div>
+              <div className="sm:col-span-2">
+                <button className="btn" disabled={collectBusy || !collect.deadline}>
+                  {collectBusy ? t("common.loading") : t("btn.collect")}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
       {so && (
         <div className="card mb-4 max-w-2xl space-y-3 p-4">
           <div className="label">{t("newso.orderDetails")}</div>

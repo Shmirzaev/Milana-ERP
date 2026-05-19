@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
@@ -30,8 +31,13 @@ from app.services.workflow import (
 
 router = APIRouter(tags=["production"])
 
-_ACTIVE_WO_STATUSES = ("waiting", "ready", "in_progress", "paused", "new", "planning")
+_ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
+
+
+class PrintingCollectIn(BaseModel):
+    deadline: datetime
+    notes: str | None = None
 
 
 def _gate_record_submission(wo: WorkOrder, user) -> None:
@@ -270,7 +276,7 @@ def admin_repair_totals(pid: int, db: DbSession, current: User = Depends(require
                     wo.status = "completed"
                 if not wo.end_time:
                     wo.end_time = now
-            elif wo.passed_qty > 0 and wo.status in ("waiting", "new", "planning"):
+            elif wo.passed_qty > 0 and wo.status in ("waiting", "pending", "collected", "new", "planning"):
                 wo.status = "in_progress"
                 if not wo.start_time:
                     wo.start_time = now
@@ -499,6 +505,44 @@ def start_wo(wid: int, db: DbSession, current: CurrentUser):
     return wo
 
 
+@router.post("/work-orders/{wid}/collect", response_model=WorkOrderOut)
+def collect_printing_wo(
+    wid: int,
+    payload: PrintingCollectIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("printing.records", "planning.production", "*")),
+):
+    """Master intake for printing queue: confirm collection and set print ETA."""
+    wo = db.get(WorkOrder, wid)
+    if not wo:
+        raise HTTPException(404, "Work order not found")
+    if wo.operation != "printing":
+        raise HTTPException(400, "Collect action is only allowed for printing work orders")
+    if wo.status in ("in_progress", "completed", "rejected", "cancelled"):
+        raise HTTPException(409, f"Cannot collect work order in status '{wo.status}'")
+
+    wo.status = "collected"
+    wo.deadline = payload.deadline
+    if payload.notes is not None:
+        wo.notes = payload.notes
+
+    log_action(
+        db,
+        current,
+        "collect",
+        "WorkOrder",
+        wo.id,
+        new_value={
+            "status": wo.status,
+            "deadline": wo.deadline,
+            "notes": wo.notes,
+        },
+    )
+    db.commit()
+    db.refresh(wo)
+    return wo
+
+
 @router.post("/work-orders/{wid}/complete", response_model=WorkOrderOut)
 def complete_wo(wid: int, db: DbSession, current: CurrentUser):
     wo = db.get(WorkOrder, wid)
@@ -634,6 +678,15 @@ def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depe
     wo = db.get(WorkOrder, payload.work_order_id)
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "printing": raise HTTPException(400, "Work order is not a printing operation")
+    if wo.status in ("new", "planning", "waiting", "ready", "pending", "paused"):
+        raise HTTPException(
+            409,
+            "Printing work order must be collected first. Set status to 'collected' and add a deadline.",
+        )
+    if wo.status == "collected":
+        wo.status = "in_progress"
+        if not wo.start_time:
+            wo.start_time = datetime.now(timezone.utc)
     _gate_record_submission(wo, current)
     rec = PrintingRecord(**payload.model_dump(), )
     rec.operator_id = payload.operator_id or current.id

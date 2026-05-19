@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { useEffect, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
+import { statusLabel } from "@/components/StagePipeline";
 import { fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
@@ -44,6 +45,10 @@ export default function DepartmentInboxPage() {
   const { data, isLoading } = useSWR<any>(code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null, fetcher, {
     refreshInterval: 10_000,
   });
+  const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
+  const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
+  const activeWorkOrders = Array.isArray(data?.active_work_orders) ? data.active_work_orders : [];
+  const splitQueueByStatus = code === "PRT";
 
   return (
     <div>
@@ -53,7 +58,7 @@ export default function DepartmentInboxPage() {
       />
       {isLoading && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
       {!isLoading && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className={`grid grid-cols-1 gap-4 ${splitQueueByStatus ? "xl:grid-cols-4" : "lg:grid-cols-3"}`}>
           <section className="card p-4">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
               {t("page.deptInbox.incoming", { count: (data?.incoming_bundles || []).length })}
@@ -70,24 +75,75 @@ export default function DepartmentInboxPage() {
             </div>
           </section>
 
-          <section className="card p-4">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.inProgress", { count: (data?.active_work_orders || []).length })}
-            </h3>
-            <div className="space-y-2">
-              {(data?.active_work_orders || []).map((w: any) => (
-                <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium">WO #{w.id} ({w.operation})</div>
-                    <span className="badge">{w.status}</span>
-                  </div>
-                  <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
-                  <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
+          {splitQueueByStatus ? (
+            <>
+              <section className="card p-4">
+                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  {t("page.deptInbox.pending", { count: pendingWorkOrders.length })}
+                </h3>
+                <div className="space-y-2">
+                  {pendingWorkOrders.map((w: any) => (
+                    <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium">WO #{w.id} ({w.operation})</div>
+                        <span className="badge">{statusLabel(w.status, t)}</span>
+                      </div>
+                      <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
+                      {w.deadline && (
+                        <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
+                      )}
+                      <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
+                    </div>
+                  ))}
+                  {pendingWorkOrders.length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noPendingWorkOrders")}</div>}
                 </div>
-              ))}
-              {(data?.active_work_orders || []).length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noActiveWorkOrders")}</div>}
-            </div>
-          </section>
+              </section>
+
+              <section className="card p-4">
+                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  {t("page.deptInbox.inProgress", { count: inProgressWorkOrders.length })}
+                </h3>
+                <div className="space-y-2">
+                  {inProgressWorkOrders.map((w: any) => (
+                    <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium">WO #{w.id} ({w.operation})</div>
+                        <span className="badge">{statusLabel(w.status, t)}</span>
+                      </div>
+                      <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
+                      {w.deadline && (
+                        <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
+                      )}
+                      <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
+                    </div>
+                  ))}
+                  {inProgressWorkOrders.length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noInProgressWorkOrders")}</div>}
+                </div>
+              </section>
+            </>
+          ) : (
+            <section className="card p-4">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                {t("page.deptInbox.inProgress", { count: activeWorkOrders.length })}
+              </h3>
+              <div className="space-y-2">
+                {activeWorkOrders.map((w: any) => (
+                  <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">WO #{w.id} ({w.operation})</div>
+                      <span className="badge">{statusLabel(w.status, t)}</span>
+                    </div>
+                    <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
+                    {w.deadline && (
+                      <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
+                    )}
+                    <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
+                  </div>
+                ))}
+                {activeWorkOrders.length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noActiveWorkOrders")}</div>}
+              </div>
+            </section>
+          )}
 
           <section className="card p-4">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">

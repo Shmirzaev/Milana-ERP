@@ -54,6 +54,12 @@ def _start_if_waiting(wo: WorkOrder) -> None:
             wo.start_time = datetime.now(timezone.utc)
 
 
+def _queue_printing_if_waiting(wo: WorkOrder) -> None:
+    """Printing starts in a pending queue until master collects it."""
+    if wo.operation == "printing" and wo.status in ("new", "planning", "waiting"):
+        wo.status = "pending"
+
+
 def _complete_if_done(wo: WorkOrder) -> None:
     planned = int(wo.planned_output_qty or 0)
     passed = int(wo.passed_qty or 0)
@@ -95,7 +101,10 @@ def advance_workflow(
         if next_op:
             nxt = by_op.get(next_op)
             if nxt:
-                _start_if_waiting(nxt)
+                if next_op == "printing":
+                    _queue_printing_if_waiting(nxt)
+                else:
+                    _start_if_waiting(nxt)
 
     sync_production_order_status(db, wo.production_order_id)
 
