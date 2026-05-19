@@ -33,6 +33,7 @@ export default function PrintingPage() {
   const woStatus = String(wo?.status || "").toLowerCase();
   const needsCollection = ["new", "planning", "waiting", "ready", "pending", "paused"].includes(woStatus);
   const canCollectNow = canCollect && ["new", "planning", "waiting", "ready", "pending", "paused", "collected"].includes(woStatus);
+  const canRecordNow = woStatus === "in_progress";
 
   useEffect(() => {
     if (!wo?.deadline || collect.deadline) return;
@@ -182,38 +183,42 @@ export default function PrintingPage() {
           )}
         </div>
       )}
-      <form onSubmit={submit} className="card max-w-2xl space-y-3 p-6">
-        <div>
-          <label className="label">{t("field.inputQty")}</label>
-          <input className="input" type="number" value={f.input_qty} onChange={(e) => setF({ ...f, input_qty: Number(e.target.value) })} />
-        </div>
-        <div>
-          <label className="label">{t("field.output")}</label>
-          <input className="input" type="number" value={f.printed_qty} onChange={(e) => setF({ ...f, printed_qty: Number(e.target.value) })} />
-        </div>
-        <div>
-          <label className="label">{t("field.passed")}</label>
-          <input className="input" type="number" value={f.passed_qty} onChange={(e) => setF({ ...f, passed_qty: Number(e.target.value) })} />
-        </div>
-        <div>
-          <label className="label">{t("field.rejected")}</label>
-          <input className="input" type="number" value={f.rejected_qty} onChange={(e) => setF({ ...f, rejected_qty: Number(e.target.value) })} />
-        </div>
-        <div>
-          <label className="label">{t("field.printType")}</label>
-          <input className="input" value={f.print_type} onChange={(e) => setF({ ...f, print_type: e.target.value })} />
-        </div>
-        <div>
-          <label className="label">{t("field.defectReason")}</label>
-          <input className="input" value={f.defect_reason} onChange={(e) => setF({ ...f, defect_reason: e.target.value })} />
-        </div>
-        <div>
-          <label className="label">{t("common.notes")}</label>
-          <textarea className="input" rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
-        </div>
-        <button className="btn btn-primary">{t("btn.saveRecord")}</button>
-        {msg && <div className="mt-2 text-sm">{msg}</div>}
-      </form>
+      {canRecordNow ? (
+        <form onSubmit={submit} className="card max-w-2xl space-y-3 p-6">
+          <div>
+            <label className="label">{t("field.inputQty")}</label>
+            <input className="input" type="number" value={f.input_qty} onChange={(e) => setF({ ...f, input_qty: Number(e.target.value) })} />
+          </div>
+          <div>
+            <label className="label">{t("field.output")}</label>
+            <input className="input" type="number" value={f.printed_qty} onChange={(e) => setF({ ...f, printed_qty: Number(e.target.value) })} />
+          </div>
+          <div>
+            <label className="label">{t("field.passed")}</label>
+            <input className="input" type="number" value={f.passed_qty} onChange={(e) => setF({ ...f, passed_qty: Number(e.target.value) })} />
+          </div>
+          <div>
+            <label className="label">{t("field.rejected")}</label>
+            <input className="input" type="number" value={f.rejected_qty} onChange={(e) => setF({ ...f, rejected_qty: Number(e.target.value) })} />
+          </div>
+          <div>
+            <label className="label">{t("field.printType")}</label>
+            <input className="input" value={f.print_type} onChange={(e) => setF({ ...f, print_type: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">{t("field.defectReason")}</label>
+            <input className="input" value={f.defect_reason} onChange={(e) => setF({ ...f, defect_reason: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">{t("common.notes")}</label>
+            <textarea className="input" rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+          </div>
+          <button className="btn btn-primary">{t("btn.saveRecord")}</button>
+          {msg && <div className="mt-2 text-sm">{msg}</div>}
+        </form>
+      ) : (
+        <div className="card max-w-2xl p-4 text-sm text-[#8a8472]">{t("msg.printingInputLockedUntilInProgress")}</div>
+      )}
     </div>
   );
 }

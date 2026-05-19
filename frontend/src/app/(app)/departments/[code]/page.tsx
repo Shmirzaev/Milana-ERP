@@ -7,7 +7,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
-import { fetcher } from "@/lib/api";
+import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 const DEPT_LABELS: Record<string, string> = {
@@ -32,6 +32,8 @@ export default function DepartmentInboxPage() {
   const code = String(params.code || "").toUpperCase();
   const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
   const [clientTz, setClientTz] = useState("UTC");
+  const [startingWoId, setStartingWoId] = useState<number | null>(null);
+  const [startError, setStartError] = useState("");
 
   useEffect(() => {
     try {
@@ -42,7 +44,7 @@ export default function DepartmentInboxPage() {
     }
   }, []);
 
-  const { data, isLoading } = useSWR<any>(code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null, fetcher, {
+  const { data, isLoading, mutate } = useSWR<any>(code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null, fetcher, {
     refreshInterval: 10_000,
   });
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
@@ -105,6 +107,19 @@ export default function DepartmentInboxPage() {
       });
   }, [readyPackages]);
 
+  async function movePendingToInProgress(workOrderId: number) {
+    setStartingWoId(workOrderId);
+    setStartError("");
+    try {
+      await api.post(`/api/work-orders/${workOrderId}/start`, {});
+      await mutate();
+    } catch (e: any) {
+      setStartError(e?.message || "Failed to move work order to in progress");
+    } finally {
+      setStartingWoId(null);
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -136,6 +151,7 @@ export default function DepartmentInboxPage() {
                 <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
                   {t("page.deptInbox.pending", { count: pendingWorkOrders.length })}
                 </h3>
+                {startError && <div className="mb-2 text-xs text-red-600">{startError}</div>}
                 <div className="space-y-2">
                   {pendingWorkOrders.map((w: any) => (
                     <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
@@ -147,7 +163,18 @@ export default function DepartmentInboxPage() {
                       {w.deadline && (
                         <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
                       )}
-                      <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
+                      <div className="mt-1 flex items-center gap-2">
+                        {code === "PRT" && (
+                          <button
+                            className="btn h-7 px-2 text-[11px]"
+                            onClick={() => movePendingToInProgress(Number(w.id))}
+                            disabled={startingWoId === Number(w.id)}
+                          >
+                            {startingWoId === Number(w.id) ? t("common.loading") : t("btn.moveToInProgress")}
+                          </button>
+                        )}
+                        <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
+                      </div>
                     </div>
                   ))}
                   {pendingWorkOrders.length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noPendingWorkOrders")}</div>}
