@@ -215,6 +215,11 @@ def _project_daily_load(
         SewingAssignment.sewing_flow_id == flow.id,
         SewingAssignment.status.in_(["planned", "in_progress"]),
     )
+    # Keep validation consistent with the utilization widgets: only active WOs
+    # should consume today's capacity.
+    qry = qry.join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id).filter(
+        WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+    )
     if exclude_assignment_id:
         qry = qry.filter(SewingAssignment.id != exclude_assignment_id)
     existing = qry.all()

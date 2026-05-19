@@ -526,6 +526,92 @@ def test_planning_assign_rejects_overloaded_sewing_line(client, auth_headers):
     assert r.status_code == 409, r.text
 
 
+def test_assignment_capacity_ignores_completed_work_orders(client, auth_headers):
+    so_1 = _create_client_sales_order(client, auth_headers)
+    _prepare_sales_order_for_po(client, auth_headers, so_1)
+    r = client.post(
+        "/api/planning/create-production-order",
+        json={
+            "production_type": "client_order",
+            "sales_order_id": so_1,
+            "model_id": 1,
+            "planned_quantity": 200,
+            "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 200}],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    po_1 = r.json()["id"]
+
+    r = client.get(f"/api/work-orders?production_order_id={po_1}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    sew_1 = next(w for w in r.json() if w["operation"] == "sewing")
+
+    r = client.post(
+        "/api/sewing-flows",
+        json={
+            "name": f"Cap Test {po_1}",
+            "code": f"CAP-{po_1}",
+            "capacity_per_day": 200,
+            "is_active": True,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    flow_id = r.json()["id"]
+
+    start = datetime.now(timezone.utc) - timedelta(hours=1)
+    end = datetime.now(timezone.utc) + timedelta(hours=23)
+    r = client.post(
+        f"/api/work-orders/{sew_1['id']}/assignments",
+        json={
+            "work_order_id": sew_1["id"],
+            "sewing_flow_id": flow_id,
+            "quantity": 200,
+            "planned_start": start.isoformat(),
+            "planned_end": end.isoformat(),
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.post(f"/api/work-orders/{sew_1['id']}/complete", headers=auth_headers)
+    assert r.status_code == 200, r.text
+
+    so_2 = _create_client_sales_order(client, auth_headers)
+    _prepare_sales_order_for_po(client, auth_headers, so_2)
+    r = client.post(
+        "/api/planning/create-production-order",
+        json={
+            "production_type": "client_order",
+            "sales_order_id": so_2,
+            "model_id": 1,
+            "planned_quantity": 200,
+            "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 200}],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    po_2 = r.json()["id"]
+
+    r = client.get(f"/api/work-orders?production_order_id={po_2}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    sew_2 = next(w for w in r.json() if w["operation"] == "sewing")
+
+    r = client.post(
+        f"/api/work-orders/{sew_2['id']}/assignments",
+        json={
+            "work_order_id": sew_2["id"],
+            "sewing_flow_id": flow_id,
+            "quantity": 200,
+            "planned_start": start.isoformat(),
+            "planned_end": end.isoformat(),
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+
 def test_printing_work_starts_pending_until_collected(client, auth_headers):
     r = client.post(
         "/api/sales-orders",

@@ -69,6 +69,10 @@ def _flow_committed_today(db: DbSession, flow_id: int, now: datetime) -> int:
     assignments = db.query(SewingAssignment).filter(
         SewingAssignment.sewing_flow_id == flow_id,
         SewingAssignment.status.in_(["planned", "in_progress"]),
+    ).join(
+        WorkOrder, WorkOrder.id == SewingAssignment.work_order_id,
+    ).filter(
+        WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
     ).all()
     for a in assignments:
         remaining_qty = max(0, int(a.quantity or 0) - int(a.completed_qty or 0))
