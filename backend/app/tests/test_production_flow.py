@@ -347,6 +347,56 @@ def test_sewing_line_plan_consumes_brak_qty(client, auth_headers):
     assert util["committed_today"] == 0
 
 
+def test_list_unassigned_sewing_work_orders_filter(client, auth_headers):
+    so_id = _create_client_sales_order(client, auth_headers)
+    _prepare_sales_order_for_po(client, auth_headers, so_id)
+
+    r = client.post(
+        "/api/planning/create-production-order",
+        json={
+            "production_type": "client_order",
+            "sales_order_id": so_id,
+            "model_id": 1,
+            "planned_quantity": 100,
+            "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 100}],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    po_id = r.json()["id"]
+
+    r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    sewing_wo = next(w for w in r.json() if w["operation"] == "sewing")
+
+    r = client.get(
+        "/api/work-orders?operation=sewing&only_active=true&unassigned_flow=true",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    unassigned_before = [w["id"] for w in r.json()]
+    assert sewing_wo["id"] in unassigned_before
+
+    r = client.get("/api/sewing-flows", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    flow_id = r.json()[0]["id"]
+
+    r = client.patch(
+        f"/api/work-orders/{sewing_wo['id']}",
+        json={"sewing_flow_id": flow_id},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    r = client.get(
+        "/api/work-orders?operation=sewing&only_active=true&unassigned_flow=true",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    unassigned_after = [w["id"] for w in r.json()]
+    assert sewing_wo["id"] not in unassigned_after
+
+
 def test_package_over_capacity_blocked_without_admin_override(client, auth_headers):
     so_id = _create_client_sales_order(client, auth_headers)
     _prepare_sales_order_for_po(client, auth_headers, so_id)

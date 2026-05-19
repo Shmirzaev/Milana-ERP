@@ -414,11 +414,26 @@ def admin_repair_totals(pid: int, db: DbSession, current: User = Depends(require
 
 # ===== Work Orders =====
 @router.get("/work-orders", response_model=list[WorkOrderOut])
-def list_wos(db: DbSession, _: CurrentUser, department_id: int | None = None, status: str | None = None, production_order_id: int | None = None):
+def list_wos(
+    db: DbSession,
+    _: CurrentUser,
+    department_id: int | None = None,
+    status: str | None = None,
+    production_order_id: int | None = None,
+    operation: str | None = None,
+    only_active: bool = False,
+    unassigned_flow: bool = False,
+):
     qry = db.query(WorkOrder)
     if department_id: qry = qry.filter(WorkOrder.department_id == department_id)
     if status: qry = qry.filter(WorkOrder.status == status)
     if production_order_id: qry = qry.filter(WorkOrder.production_order_id == production_order_id)
+    if operation: qry = qry.filter(WorkOrder.operation == operation)
+    if only_active: qry = qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
+    if unassigned_flow:
+        if not operation:
+            qry = qry.filter(WorkOrder.operation == "sewing")
+        qry = qry.filter(WorkOrder.sewing_flow_id.is_(None))
     return qry.order_by(WorkOrder.id.desc()).all()
 
 
