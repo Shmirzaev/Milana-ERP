@@ -141,7 +141,7 @@ export default function NewSalesOrderPage() {
         actions={<a href="/sales-orders" className="btn"><ArrowLeft />{t("newso.backToOrders")}</a>}
       />
 
-      <form onSubmit={submit} className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_360px]">
+      <form onSubmit={submit} className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-4">
           <section className="card p-5">
             <div className="mb-4 flex items-center justify-between">
@@ -190,7 +190,7 @@ export default function NewSalesOrderPage() {
             </div>
             <div className="border-b border-[#ecebe3] px-5 py-4">
               <div className="mb-2 text-sm font-semibold text-[#14110b]">{t("newso.sizeHelper")}</div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_140px_180px_auto]">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_140px_180px_auto] md:items-end">
                 <div>
                   <label className="label">{t("newso.sizeFrom")}</label>
                   <select className="input" value={sizeFrom} onChange={(e) => setSizeFrom(e.target.value)}>
@@ -207,7 +207,7 @@ export default function NewSalesOrderPage() {
                   <label className="label">{t("newso.sizeTotalQty")}</label>
                   <input className="input" type="number" min={1} value={distributeTotalQty} onChange={(e) => setDistributeTotalQty(Number(e.target.value))} />
                 </div>
-                <div className="flex items-end">
+                <div className="flex items-end md:pb-[1px]">
                   <button type="button" className="btn btn-primary" onClick={distributeBySizeRange}>
                     {t("newso.distributeEvenly")}
                   </button>
