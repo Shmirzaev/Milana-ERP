@@ -647,7 +647,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             department_code="PRT",
             title="Incoming cutting bundles",
             message=f"{to_printing} bundle(s) ready from WO #{wo.id}.",
-            link="/bundles/scan",
+            link="/bundles/scan/printing",
         )
     if to_sewing:
         notify_department(
@@ -655,7 +655,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             department_code="SEW",
             title="Incoming cutting bundles",
             message=f"{to_sewing} bundle(s) ready from WO #{wo.id}.",
-            link="/bundles/scan",
+            link="/bundles/scan/sewing",
         )
 
     log_action(db, current, "create", "CuttingRecord", rec.id, new_value={"bundles": len(created_bundles)})
@@ -724,7 +724,7 @@ def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depe
             department_code="SEW",
             title="Incoming printed pieces",
             message=f"WO #{wo.id} passed {payload.passed_qty} pcs.",
-            link=f"/work-orders/{sew_wo.id}/sewing" if sew_wo else "/bundles/scan",
+            link=f"/work-orders/{sew_wo.id}/sewing" if sew_wo else "/bundles/scan/sewing",
         )
     log_action(db, current, "create", "PrintingRecord", rec.id, new_value={"work_order_id": wo.id})
     db.commit(); db.refresh(rec)

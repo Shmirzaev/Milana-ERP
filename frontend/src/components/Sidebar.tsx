@@ -74,14 +74,14 @@ const SECTIONS: Section[] = [
     items: [
       { href: "/departments/CUT", labelKey: "nav.cuttingFloor", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Scissors },
       { href: "/bundles", labelKey: "nav.bundles", perms: ["cutting.bundles", "cutting.records", "planning.production"], icon: PackageSearch },
-      { href: "/bundles/scan", labelKey: "nav.scanBundle", perms: ["cutting.bundles", "cutting.records"], icon: QrCode },
+      { href: "/bundles/scan/cutting", labelKey: "nav.scanBundle", perms: ["cutting.bundles", "cutting.records"], icon: QrCode },
     ],
   },
   {
     titleKey: "section.printing",
     items: [
       { href: "/departments/PRT", labelKey: "nav.printingFloor", perms: ["printing.records", "printing.bundles", "planning.production"], icon: Palette },
-      { href: "/bundles/scan", labelKey: "nav.scanBundle", perms: ["printing.bundles", "printing.records"], icon: QrCode },
+      { href: "/bundles/scan/printing", labelKey: "nav.scanBundle", perms: ["printing.bundles", "printing.records"], icon: QrCode },
     ],
   },
   {
@@ -89,7 +89,7 @@ const SECTIONS: Section[] = [
     items: [
       { href: "/sewing/flows", labelKey: "nav.sewingFlows", perms: ["sewing.records", "sewing.bundles", "planning.production", "sewing.flows"], icon: Layers3 },
       { href: "/departments/SEW", labelKey: "nav.sewingFloor", perms: ["sewing.records", "sewing.bundles", "planning.production"], icon: Shirt },
-      { href: "/bundles/scan", labelKey: "nav.scanBundle", perms: ["sewing.bundles", "sewing.records"], icon: QrCode },
+      { href: "/bundles/scan/sewing", labelKey: "nav.scanBundle", perms: ["sewing.bundles", "sewing.records"], icon: QrCode },
     ],
   },
   {
@@ -153,7 +153,12 @@ export default function Sidebar() {
             <ul className="space-y-0.5">
               {visible.map((it) => {
                 const basePath = it.href.split("?")[0];
-                const active = pathname === basePath || (basePath !== "/" && pathname?.startsWith(basePath));
+                const bundlesScanMismatch = basePath === "/bundles" && pathname.startsWith("/bundles/scan");
+                const packagesScanMismatch = basePath === "/packages" && pathname.startsWith("/packages/scan");
+                const active =
+                  !bundlesScanMismatch &&
+                  !packagesScanMismatch &&
+                  (pathname === basePath || (basePath !== "/" && pathname?.startsWith(basePath)));
                 const ItemIcon = it.icon;
                 return (
                   <li key={`${sec.titleKey}-${it.href}`}>

@@ -27,7 +27,12 @@ function deriveLink(n: N): string | null {
 
   // Bundle: "Bundle BND-... sent/received"
   const bundleMatch = hay.match(/\bBND[-_][A-Z0-9-]+/i);
-  if (bundleMatch && /\bbundle\b/i.test(hay)) return "/bundles/scan";
+  if (bundleMatch && /\bbundle\b/i.test(hay)) {
+    if (/printing/i.test(hay)) return "/bundles/scan/printing";
+    if (/sewing/i.test(hay)) return "/bundles/scan/sewing";
+    if (/cutting/i.test(hay)) return "/bundles/scan/cutting";
+    return "/bundles/scan";
+  }
 
   // Package: "Package PKG-..."
   const packageMatch = hay.match(/\bPKG[-_][A-Z0-9-]+/i);
@@ -54,7 +59,8 @@ function deriveLink(n: N): string | null {
 
   // Generic department-style messages
   if (/awaiting packaging|packed goods|ready for storage/i.test(hay)) return "/packages";
-  if (/incoming cutting|printed pieces/i.test(hay)) return "/bundles/scan";
+  if (/incoming cutting/i.test(hay)) return "/bundles/scan/printing";
+  if (/printed pieces/i.test(hay)) return "/bundles/scan/sewing";
   if (/shipment.*delivered|invoice/i.test(hay)) return "/finance";
 
   return null;

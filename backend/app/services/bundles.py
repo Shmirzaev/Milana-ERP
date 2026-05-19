@@ -114,7 +114,7 @@ def send_to_printing(db: Session, bundle: Bundle, user_id: int | None = None):
         department_code=DEPT_PRT,
         title="Bundle sent to printing",
         message=f"{bundle.bundle_no} is on the way to printing.",
-        link="/bundles/scan",
+        link="/bundles/scan/printing",
         exclude_user_id=user_id,
     )
     sync_production_order_status(db, bundle.production_order_id)
@@ -150,7 +150,7 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
         department_code=DEPT_SEW,
         title="Bundle sent to sewing",
         message=f"{bundle.bundle_no} is ready for sewing receive scan.",
-        link="/bundles/scan",
+        link="/bundles/scan/sewing",
         exclude_user_id=user_id,
     )
     sync_production_order_status(db, bundle.production_order_id)
