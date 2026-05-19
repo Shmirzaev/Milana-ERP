@@ -9,10 +9,10 @@ type EstimateFormState = {
   orderId: number;
   orderNo: string;
   materialCost: string;
+  accessoryCost: string;
   laborPercent: string;
   electricityPercent: string;
   otherPercent: string;
-  leadHours: string;
   deadline: string;
   comment: string;
   materials: EstimateMaterialRow[];
@@ -42,6 +42,18 @@ function num(v: string | number | null | undefined): number {
 
 function round2(v: number): number {
   return Math.round(v * 100) / 100;
+}
+
+function splitEstimateRows(rows: EstimateMaterialRow[]) {
+  const materialRows = rows.filter((m) => {
+    const c = String(m.category || "").toLowerCase();
+    return c === "fabric" || c === "semi_finished" || c === "";
+  });
+  const accessoryRows = rows.filter((m) => {
+    const c = String(m.category || "").toLowerCase();
+    return c === "accessory" || c === "packaging";
+  });
+  return { materialRows, accessoryRows };
 }
 
 export default function PlanningDashboard() {
@@ -85,24 +97,32 @@ export default function PlanningDashboard() {
     try {
       const order = planningOrders.find((o) => o.id === soId);
       const estimate = await api.get(`/api/planning/estimate/${soId}`);
-      const baseMaterialCost = num(estimate.estimated_material_cost);
+      const baseTotalCost = num(estimate.estimated_material_cost);
+      const materials = Array.isArray(estimate.materials) ? estimate.materials : [];
+      const { materialRows, accessoryRows } = splitEstimateRows(materials);
+      const accessoryRowsCost = round2(accessoryRows.reduce((sum, row) => sum + num(row.estimated_cost), 0));
+      const baseAccessoryCost = accessoryRows.length > 0 ? accessoryRowsCost : 0;
+      const baseMaterialCost = materialRows.length > 0
+        ? round2(Math.max(0, baseTotalCost - baseAccessoryCost))
+        : baseTotalCost;
       const savedLaborCost = num(estimate.estimated_labor_cost);
       const savedElectricityCost = num(estimate.estimated_electricity_cost);
       const savedOtherCost = num(estimate.estimated_other_expenses);
-      const laborPercent = baseMaterialCost > 0 ? (savedLaborCost / baseMaterialCost) * 100 : DEFAULT_LABOR_PERCENT;
-      const electricityPercent = baseMaterialCost > 0 ? (savedElectricityCost / baseMaterialCost) * 100 : DEFAULT_ELECTRICITY_PERCENT;
-      const otherPercent = baseMaterialCost > 0 ? (savedOtherCost / baseMaterialCost) * 100 : DEFAULT_OTHER_PERCENT;
+      const baseCost = baseMaterialCost + baseAccessoryCost;
+      const laborPercent = baseCost > 0 ? (savedLaborCost / baseCost) * 100 : DEFAULT_LABOR_PERCENT;
+      const electricityPercent = baseCost > 0 ? (savedElectricityCost / baseCost) * 100 : DEFAULT_ELECTRICITY_PERCENT;
+      const otherPercent = baseCost > 0 ? (savedOtherCost / baseCost) * 100 : DEFAULT_OTHER_PERCENT;
       setEstimateForm({
         orderId: soId,
         orderNo: order?.order_no || `#${soId}`,
         materialCost: baseMaterialCost.toFixed(2),
+        accessoryCost: baseAccessoryCost.toFixed(2),
         laborPercent: round2(laborPercent).toFixed(2),
         electricityPercent: round2(electricityPercent).toFixed(2),
         otherPercent: round2(otherPercent).toFixed(2),
-        leadHours: Number(estimate.estimated_lead_time_hours || 0).toFixed(2),
         deadline: order?.deadline ? String(order.deadline).slice(0, 10) : "",
         comment: "",
-        materials: Array.isArray(estimate.materials) ? estimate.materials : [],
+        materials,
       });
     } finally {
       setBusyOrderId(null);
@@ -112,28 +132,28 @@ export default function PlanningDashboard() {
   async function submitEstimateToSales() {
     if (!estimateForm) return;
     const materialCost = Number(estimateForm.materialCost);
+    const accessoryCost = Number(estimateForm.accessoryCost);
     const laborPercent = Number(estimateForm.laborPercent);
     const electricityPercent = Number(estimateForm.electricityPercent);
     const otherPercent = Number(estimateForm.otherPercent);
-    const leadHours = Number(estimateForm.leadHours);
     if (!Number.isFinite(materialCost) || materialCost < 0) return;
+    if (!Number.isFinite(accessoryCost) || accessoryCost < 0) return;
     if (!Number.isFinite(laborPercent) || laborPercent < 0) return;
     if (!Number.isFinite(electricityPercent) || electricityPercent < 0) return;
     if (!Number.isFinite(otherPercent) || otherPercent < 0) return;
-    if (!Number.isFinite(leadHours) || leadHours < 0) return;
     if (!estimateForm.deadline) return;
-    const laborCost = round2(materialCost * laborPercent / 100);
-    const electricityCost = round2(materialCost * electricityPercent / 100);
-    const otherExpenses = round2(materialCost * otherPercent / 100);
+    const baseCost = materialCost + accessoryCost;
+    const laborCost = round2(baseCost * laborPercent / 100);
+    const electricityCost = round2(baseCost * electricityPercent / 100);
+    const otherExpenses = round2(baseCost * otherPercent / 100);
 
     setBusyOrderId(estimateForm.orderId);
     try {
       await api.post(`/api/planning/submit-estimate/${estimateForm.orderId}`, {
-        estimated_material_cost: materialCost,
+        estimated_material_cost: baseCost,
         estimated_labor_cost: laborCost,
         estimated_electricity_cost: electricityCost,
         estimated_other_expenses: otherExpenses,
-        estimated_lead_time_minutes: Math.round(leadHours * 60),
         planned_deadline: estimateForm.deadline,
         estimate_comment: estimateForm.comment.trim() || null,
       });
@@ -209,13 +229,15 @@ export default function PlanningDashboard() {
             <div className="text-lg font-semibold">{t("page.planning.estimateFor", { orderNo: estimateForm.orderNo })}</div>
             {(() => {
               const materialCost = num(estimateForm.materialCost);
+              const accessoryCost = num(estimateForm.accessoryCost);
+              const baseCost = materialCost + accessoryCost;
               const laborPercent = num(estimateForm.laborPercent);
               const electricityPercent = num(estimateForm.electricityPercent);
               const otherPercent = num(estimateForm.otherPercent);
-              const laborCost = round2(materialCost * laborPercent / 100);
-              const electricityCost = round2(materialCost * electricityPercent / 100);
-              const otherExpenses = round2(materialCost * otherPercent / 100);
-              const netPrice = materialCost + laborCost + electricityCost + otherExpenses;
+              const laborCost = round2(baseCost * laborPercent / 100);
+              const electricityCost = round2(baseCost * electricityPercent / 100);
+              const otherExpenses = round2(baseCost * otherPercent / 100);
+              const netPrice = baseCost + laborCost + electricityCost + otherExpenses;
               const price15 = netPrice * 1.15;
               const price20 = netPrice * 1.20;
               return (
@@ -233,14 +255,14 @@ export default function PlanningDashboard() {
                       />
                     </div>
                     <div>
-                      <label className="label">{t("field.estimatedLeadHours")}</label>
+                      <label className="label">{t("field.accessoryCost")}</label>
                       <input
                         className="input"
                         type="number"
                         min={0}
-                        step="0.1"
-                        value={estimateForm.leadHours}
-                        onChange={(e) => setEstimateForm({ ...estimateForm, leadHours: e.target.value })}
+                        step="0.01"
+                        value={estimateForm.accessoryCost}
+                        onChange={(e) => setEstimateForm({ ...estimateForm, accessoryCost: e.target.value })}
                       />
                     </div>
                   </div>
@@ -268,21 +290,16 @@ export default function PlanningDashboard() {
             })()}
             {(() => {
               const allRows = estimateForm.materials || [];
-              const materialRows = allRows.filter((m) => {
-                const c = String(m.category || "").toLowerCase();
-                return c === "fabric" || c === "semi_finished" || c === "";
-              });
-              const accessoryRows = allRows.filter((m) => {
-                const c = String(m.category || "").toLowerCase();
-                return c === "accessory" || c === "packaging";
-              });
+              const { materialRows, accessoryRows } = splitEstimateRows(allRows);
               const materialCost = num(estimateForm.materialCost);
+              const accessoryCost = num(estimateForm.accessoryCost);
+              const baseCost = materialCost + accessoryCost;
               const laborPercent = num(estimateForm.laborPercent);
               const electricityPercent = num(estimateForm.electricityPercent);
               const otherPercent = num(estimateForm.otherPercent);
-              const laborCost = round2(materialCost * laborPercent / 100);
-              const electricityCost = round2(materialCost * electricityPercent / 100);
-              const otherCost = round2(materialCost * otherPercent / 100);
+              const laborCost = round2(baseCost * laborPercent / 100);
+              const electricityCost = round2(baseCost * electricityPercent / 100);
+              const otherCost = round2(baseCost * otherPercent / 100);
               const renderEstimateRows = (rows: EstimateMaterialRow[]) => (
                 <div className="overflow-x-auto">
                   <table className="table">
@@ -346,7 +363,7 @@ export default function PlanningDashboard() {
                                 onChange={(e) => setEstimateForm({ ...estimateForm, laborPercent: e.target.value })}
                               />
                             </td>
-                            <td>${materialCost.toFixed(2)}</td>
+                            <td>${baseCost.toFixed(2)}</td>
                             <td>${laborCost.toFixed(2)}</td>
                           </tr>
                           <tr>
@@ -361,7 +378,7 @@ export default function PlanningDashboard() {
                                 onChange={(e) => setEstimateForm({ ...estimateForm, electricityPercent: e.target.value })}
                               />
                             </td>
-                            <td>${materialCost.toFixed(2)}</td>
+                            <td>${baseCost.toFixed(2)}</td>
                             <td>${electricityCost.toFixed(2)}</td>
                           </tr>
                           <tr>
@@ -376,7 +393,7 @@ export default function PlanningDashboard() {
                                 onChange={(e) => setEstimateForm({ ...estimateForm, otherPercent: e.target.value })}
                               />
                             </td>
-                            <td>${materialCost.toFixed(2)}</td>
+                            <td>${baseCost.toFixed(2)}</td>
                             <td>${otherCost.toFixed(2)}</td>
                           </tr>
                         </tbody>
