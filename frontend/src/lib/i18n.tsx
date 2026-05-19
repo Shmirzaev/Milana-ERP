@@ -45,6 +45,7 @@ const dict: Record<Lang, Record<string, string>> = {
     // Topbar
     "top.department": "Department",
     "top.language": "Language",
+    "top.localTime": "Local time",
 
     // Generic
     "common.loading": "Loadingâ€¦",
@@ -776,7 +777,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.deptInbox.inProgress": "In progress ({count})",
     "page.deptInbox.noActiveWorkOrders": "No active work orders",
     "page.deptInbox.noIncomingBundles": "No incoming bundles",
-    "page.deptInbox.nothingCompleted24h": "Nothing completed in the last 24h",
+    "page.deptInbox.nothingCompleted24h": "Nothing completed today",
     "page.deptInbox.openBundle": "Open bundle",
     "page.deptInbox.passedOnly": "passed {passed}",
     "page.deptInbox.passedPlanned": "passed {passed} / planned {planned}",
@@ -891,6 +892,7 @@ const dict: Record<Lang, Record<string, string>> = {
 
     "top.department": "Отдел",
     "top.language": "Язык",
+    "top.localTime": "Местное время",
 
     "common.loading": "Загрузка…",
     "common.add": "Добавить",
@@ -1598,7 +1600,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.deptInbox.inProgress": "В работе ({count})",
     "page.deptInbox.noActiveWorkOrders": "Нет активных заданий",
     "page.deptInbox.noIncomingBundles": "Нет входящих связок",
-    "page.deptInbox.nothingCompleted24h": "За последние 24 часа ничего не завершено",
+    "page.deptInbox.nothingCompleted24h": "Сегодня ничего не завершено",
     "page.deptInbox.openBundle": "Открыть связку",
     "page.deptInbox.passedOnly": "принято {passed}",
     "page.deptInbox.passedPlanned": "принято {passed} / план {planned}",
@@ -1713,6 +1715,7 @@ const dict: Record<Lang, Record<string, string>> = {
 
     "top.department": "Boʻlim",
     "top.language": "Til",
+    "top.localTime": "Mahalliy vaqt",
 
     "common.loading": "Yuklanmoqda…",
     "common.add": "Qoʻshish",
@@ -2420,7 +2423,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.deptInbox.inProgress": "Jarayonda ({count})",
     "page.deptInbox.noActiveWorkOrders": "Faol ish topshiriqlari yo'q",
     "page.deptInbox.noIncomingBundles": "Kirim bog'lamlar yo'q",
-    "page.deptInbox.nothingCompleted24h": "So'nggi 24 soatda hech narsa yakunlanmadi",
+    "page.deptInbox.nothingCompleted24h": "Bugun hech narsa yakunlanmadi",
     "page.deptInbox.openBundle": "Bog'lamni ochish",
     "page.deptInbox.passedOnly": "qabul qilingan {passed}",
     "page.deptInbox.passedPlanned": "qabul qilingan {passed} / reja {planned}",

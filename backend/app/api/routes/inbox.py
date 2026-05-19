@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException
 
@@ -24,9 +25,19 @@ def _resolve_department(db: DbSession, current: CurrentUser, dept: str | None) -
 
 
 @router.get("")
-def department_inbox(db: DbSession, current: CurrentUser, dept: str | None = None):
+def department_inbox(
+    db: DbSession,
+    current: CurrentUser,
+    dept: str | None = None,
+    tz: str | None = None,
+):
     d = _resolve_department(db, current, dept)
     now = datetime.now(timezone.utc)
+    try:
+        client_tz = ZoneInfo(tz) if tz else timezone.utc
+    except Exception:
+        client_tz = timezone.utc
+    today_client = now.astimezone(client_tz).date()
 
     incoming_bundles = (
         db.query(Bundle)
@@ -61,7 +72,8 @@ def department_inbox(db: DbSession, current: CurrentUser, dept: str | None = Non
         for w in work_orders
         if w.status == "completed"
         and w.end_time
-        and (now - as_utc(w.end_time)).total_seconds() <= 86400
+        and as_utc(w.end_time)
+        and as_utc(w.end_time).astimezone(client_tz).date() == today_client
     ]
 
     awaiting_packaging = []

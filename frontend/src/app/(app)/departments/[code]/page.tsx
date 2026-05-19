@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
+import { useEffect, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
 import { fetcher } from "@/lib/api";
@@ -29,7 +30,18 @@ export default function DepartmentInboxPage() {
   const params = useParams<{ code: string }>();
   const code = String(params.code || "").toUpperCase();
   const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
-  const { data, isLoading } = useSWR<any>(code ? `/api/inbox?dept=${code}` : null, fetcher, {
+  const [clientTz, setClientTz] = useState("UTC");
+
+  useEffect(() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz) setClientTz(tz);
+    } catch {
+      setClientTz("UTC");
+    }
+  }, []);
+
+  const { data, isLoading } = useSWR<any>(code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null, fetcher, {
     refreshInterval: 10_000,
   });
 

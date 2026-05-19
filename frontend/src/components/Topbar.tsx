@@ -13,12 +13,37 @@ export default function Topbar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { me } = useMe();
-  const { t } = useT();
+  const { t, lang } = useT();
   const [search, setSearch] = useState("");
+  const [now, setNow] = useState<Date>(new Date());
 
   useEffect(() => {
     setSearch(searchParams.get("q") ?? "");
   }, [searchParams]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const localeByLang: Record<string, string> = {
+    en: "en-US",
+    ru: "ru-RU",
+    uz: "uz-UZ",
+  };
+  const locale = localeByLang[lang] || "en-US";
+  const localDate = now.toLocaleDateString(locale, {
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  });
+  const localTime = now.toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
   function resolveSearchTarget(path: string): string {
     const moduleRoots = [
@@ -67,6 +92,12 @@ export default function Topbar() {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <div className="hidden rounded-md border border-[#e3dfd3] bg-[#f8f6ef] px-2 py-1 text-right sm:block">
+          <div className="text-[10px] uppercase tracking-wide text-[#8a8472]">{t("top.localTime")}</div>
+          <div className="text-[11px] font-medium leading-tight text-[#2c2920]">{localDate}</div>
+          <div className="text-[11px] font-semibold leading-tight text-[#14110b]">{localTime}</div>
+          <div className="text-[10px] leading-tight text-[#8a8472]">{tzName}</div>
+        </div>
         <form onSubmit={submitSearch} className="hidden h-8 w-[274px] items-center gap-2 rounded-md border border-[#e3dfd3] bg-[#f1efe8] px-3 text-sm text-[#8a8472] xl:flex">
           <Search className="h-4 w-4" />
           <input
