@@ -1,12 +1,29 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import Package, Model, User
-from app.schemas.tracking import PackageIn, PackageBulkIn, PackageOut, PackageDetail
+from app.schemas.tracking import (
+    PackageIn,
+    PackageBulkIn,
+    PackageOut,
+    PackageDetail,
+    PackageReceiveStorageIn,
+    PackageStoragePlacementIn,
+)
 from app.services.packages import (
-    create_package, create_packages_bulk, receive_at_storage, reserve_package, ship_package, mark_delivered, mark_damaged,
+    WAREHOUSE_MAP_LAYOUT,
+    create_package,
+    create_packages_bulk,
+    receive_at_storage,
+    reserve_package,
+    ship_package,
+    mark_delivered,
+    mark_damaged,
+    place_on_storage_map,
+    format_storage_location,
 )
 from app.services.audit import log_action
 
@@ -77,6 +94,143 @@ def create_pkg_bulk(payload: PackageBulkIn, db: DbSession, current: User = Depen
     }
 
 
+@router.get("/storage-map")
+def storage_map(
+    db: DbSession,
+    _: CurrentUser,
+    model_query: str | None = None,
+):
+    query = (
+        db.query(Package, Model)
+        .join(Model, Model.id == Package.model_id)
+        .filter(
+            Package.storage_cell.isnot(None),
+            Package.status.in_(["packed", "received_in_storage", "reserved"]),
+        )
+        .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
+    )
+
+    q = (model_query or "").strip().lower()
+    placements: list[dict] = []
+    matches: list[dict] = []
+    by_cell: dict[str, list[dict]] = {}
+    for pkg, model in query.all():
+        model_code = model.code if model else None
+        model_name = model.name if model else None
+        fields = [
+            model_code or "",
+            model_name or "",
+            pkg.package_no or "",
+            pkg.barcode or "",
+        ]
+        matched = bool(q) and any(q in f.lower() for f in fields)
+        row = {
+            "id": pkg.id,
+            "package_no": pkg.package_no,
+            "barcode": pkg.barcode,
+            "model_id": pkg.model_id,
+            "model_code": model_code,
+            "model_name": model_name,
+            "color": pkg.color,
+            "total_quantity": pkg.total_quantity,
+            "status": pkg.status,
+            "storage_cell": pkg.storage_cell,
+            "storage_shelf": pkg.storage_shelf,
+            "storage_placed_at": pkg.storage_placed_at,
+            "location": format_storage_location(pkg.storage_cell, pkg.storage_shelf),
+            "matched": matched,
+        }
+        placements.append(row)
+        if matched:
+            matches.append(row)
+        if pkg.storage_cell:
+            by_cell.setdefault(pkg.storage_cell, []).append(row)
+
+    cells: list[dict] = []
+    for zone, size in WAREHOUSE_MAP_LAYOUT:
+        for idx in range(1, size + 1):
+            code = f"{zone}-{idx:02d}"
+            packs = by_cell.get(code, [])
+            count = len(packs)
+            matched_count = sum(1 for p in packs if p["matched"])
+            if count == 0:
+                status = "free"
+            elif count == 1:
+                status = "partial"
+            else:
+                status = "full"
+            cells.append(
+                {
+                    "code": code,
+                    "zone": zone,
+                    "count": count,
+                    "status": status,
+                    "matched_count": matched_count,
+                    "package_nos": [p["package_no"] for p in packs],
+                    "model_codes": [p["model_code"] for p in packs if p.get("model_code")],
+                }
+            )
+
+    return {
+        "query": model_query or "",
+        "summary": {
+            "cells_total": len(cells),
+            "cells_occupied": sum(1 for c in cells if c["count"] > 0),
+            "packages_on_map": len(placements),
+            "matched_packages": len(matches),
+        },
+        "zones": [{"id": zone, "size": size} for zone, size in WAREHOUSE_MAP_LAYOUT],
+        "cells": cells,
+        "placements": placements,
+        "matches": matches,
+    }
+
+
+@router.get("/storage-map/find")
+def find_on_storage_map(
+    db: DbSession,
+    _: CurrentUser,
+    q: str,
+):
+    needle = q.strip()
+    if not needle:
+        raise HTTPException(400, "q is required")
+    like = f"%{needle}%"
+    rows = (
+        db.query(Package, Model)
+        .join(Model, Model.id == Package.model_id)
+        .filter(
+            Package.storage_cell.isnot(None),
+            Package.status.in_(["packed", "received_in_storage", "reserved"]),
+            or_(
+                Model.code.ilike(like),
+                Model.name.ilike(like),
+                Package.package_no.ilike(like),
+                Package.barcode.ilike(like),
+            ),
+        )
+        .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
+        .all()
+    )
+    return [
+        {
+            "id": pkg.id,
+            "package_no": pkg.package_no,
+            "barcode": pkg.barcode,
+            "model_id": pkg.model_id,
+            "model_code": model.code if model else None,
+            "model_name": model.name if model else None,
+            "color": pkg.color,
+            "total_quantity": pkg.total_quantity,
+            "status": pkg.status,
+            "storage_cell": pkg.storage_cell,
+            "storage_shelf": pkg.storage_shelf,
+            "location": format_storage_location(pkg.storage_cell, pkg.storage_shelf),
+        }
+        for pkg, model in rows
+    ]
+
+
 @router.get("/{pid}", response_model=PackageDetail)
 def get_pkg(pid: int, db: DbSession, _: CurrentUser):
     p = db.get(Package, pid)
@@ -92,11 +246,56 @@ def get_pkg_by_barcode(code: str, db: DbSession, _: CurrentUser):
 
 
 @router.post("/{pid}/receive-storage", response_model=PackageDetail)
-def api_receive(pid: int, db: DbSession, current: User = Depends(require_permissions("storage.packages", "*")), warehouse_id: int | None = None):
+def api_receive(
+    pid: int,
+    db: DbSession,
+    payload: PackageReceiveStorageIn | None = None,
+    warehouse_id: int | None = None,
+    current: User = Depends(require_permissions("storage.packages", "*")),
+):
     p = db.get(Package, pid)
     if not p: raise HTTPException(404, "Package not found")
-    receive_at_storage(db, p, warehouse_id, current.id)
+    selected_warehouse_id = warehouse_id
+    if payload and payload.warehouse_id is not None:
+        selected_warehouse_id = payload.warehouse_id
+    receive_at_storage(
+        db,
+        p,
+        selected_warehouse_id,
+        current.id,
+        storage_cell=payload.storage_cell if payload else None,
+        storage_shelf=payload.storage_shelf if payload else None,
+    )
     log_action(db, current, "receive_storage", "Package", p.id)
+    db.commit(); db.refresh(p)
+    return p
+
+
+@router.post("/{pid}/place-on-map", response_model=PackageDetail)
+def api_place_on_map(
+    pid: int,
+    payload: PackageStoragePlacementIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("storage.packages", "storage.shipment", "*")),
+):
+    p = db.get(Package, pid)
+    if not p:
+        raise HTTPException(404, "Package not found")
+    place_on_storage_map(
+        db,
+        p,
+        storage_cell=payload.storage_cell,
+        storage_shelf=payload.storage_shelf,
+        user_id=current.id,
+    )
+    log_action(
+        db,
+        current,
+        "place_storage_map",
+        "Package",
+        p.id,
+        new_value={"storage_cell": p.storage_cell, "storage_shelf": p.storage_shelf},
+    )
     db.commit(); db.refresh(p)
     return p
 

@@ -22,6 +22,8 @@ export default function PackagesPage() {
               <th>{t("field.model")}</th>
               <th>{t("field.color")}</th>
               <th>{t("field.totalQty")}</th>
+              <th>{t("field.cell")}</th>
+              <th>{t("field.shelf")}</th>
               <th>{t("common.status")}</th>
               <th>{t("field.actions")}</th>
             </tr>
@@ -34,6 +36,8 @@ export default function PackagesPage() {
                 <td>{p.model_id}</td>
                 <td>{p.color}</td>
                 <td>{p.total_quantity}</td>
+                <td>{p.storage_cell || "-"}</td>
+                <td>{p.storage_shelf || "-"}</td>
                 <td><span className="badge">{statusLabel(p.status, t)}</span></td>
                 <td className="flex gap-2">
                   <Link href={`/packages/${p.id}`} className="text-brand-600 hover:underline">{t("btn.view")}</Link>

@@ -104,6 +104,7 @@ const SECTIONS: Section[] = [
     titleKey: "section.storage",
     items: [
       { href: "/departments/FGS", labelKey: "nav.finishedGoods", icon: Building2 },
+      { href: "/packages/scan", labelKey: "nav.scanPackage", perms: ["storage.packages"], icon: QrCode },
       { href: "/shipments", labelKey: "nav.shipments", perms: ["storage.shipment"], icon: Truck },
     ],
   },

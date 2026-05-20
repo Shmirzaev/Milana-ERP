@@ -12,6 +12,80 @@ from app.services.numbering import next_package_no
 from app.services.workflow import decrement_finished_goods_for_package, notify_department, sync_production_order_status
 
 
+WAREHOUSE_MAP_LAYOUT: tuple[tuple[str, int], ...] = (
+    ("N", 16),
+    ("A", 12),
+    ("B", 12),
+    ("C", 16),
+    ("D", 20),
+    ("E", 20),
+    ("F", 20),
+    ("G", 16),
+    ("H", 20),
+    ("M", 12),
+    ("K", 2),
+    ("L", 5),
+)
+VALID_STORAGE_CELLS = {
+    f"{zone}-{idx:02d}"
+    for zone, size in WAREHOUSE_MAP_LAYOUT
+    for idx in range(1, size + 1)
+}
+VALID_STORAGE_SHELVES = {"S1", "S2"}
+
+
+def normalize_storage_cell(cell: str | None) -> str | None:
+    if cell is None:
+        return None
+    normalized = cell.strip().upper()
+    if not normalized:
+        return None
+    return normalized
+
+
+def normalize_storage_shelf(shelf: str | None) -> str | None:
+    if shelf is None:
+        return None
+    normalized = shelf.strip().upper()
+    if not normalized:
+        return None
+    return normalized
+
+
+def validate_storage_location(
+    storage_cell: str | None,
+    storage_shelf: str | None,
+    *,
+    require_cell: bool,
+) -> tuple[str | None, str | None]:
+    cell = normalize_storage_cell(storage_cell)
+    shelf = normalize_storage_shelf(storage_shelf)
+
+    if require_cell and not cell:
+        raise HTTPException(400, "storage_cell is required")
+    if not cell and shelf:
+        raise HTTPException(400, "storage_shelf requires storage_cell")
+
+    if cell and cell not in VALID_STORAGE_CELLS:
+        raise HTTPException(400, f"Unknown storage cell '{cell}'")
+
+    if cell and not shelf:
+        shelf = "S1"
+
+    if shelf and shelf not in VALID_STORAGE_SHELVES:
+        raise HTTPException(400, "storage_shelf must be S1 or S2")
+
+    return cell, shelf
+
+
+def format_storage_location(storage_cell: str | None, storage_shelf: str | None) -> str | None:
+    if not storage_cell:
+        return None
+    if storage_shelf:
+        return f"{storage_cell}/{storage_shelf}"
+    return storage_cell
+
+
 def _compute_cost(db: Session, model_id: int) -> float:
     """Estimate cost-per-piece from BOM × avg batch cost. Used for finished goods valuation."""
     cost = 0.0
@@ -183,16 +257,66 @@ def create_packages_bulk(
     return created
 
 
-def receive_at_storage(db: Session, pkg: Package, warehouse_id: int | None, user_id: int | None):
+def receive_at_storage(
+    db: Session,
+    pkg: Package,
+    warehouse_id: int | None,
+    user_id: int | None,
+    *,
+    storage_cell: str | None = None,
+    storage_shelf: str | None = None,
+):
     if pkg.status not in ("packed",):
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be received at storage")
+    cell, shelf = validate_storage_location(storage_cell, storage_shelf, require_cell=False)
     pkg.status = "received_in_storage"
     pkg.received_by = user_id
     pkg.received_at = datetime.now(timezone.utc)
     if warehouse_id:
         pkg.warehouse_id = warehouse_id
-    db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="received_storage"))
+    if cell:
+        pkg.storage_cell = cell
+        pkg.storage_shelf = shelf
+        pkg.storage_placed_at = datetime.now(timezone.utc)
+    db.add(
+        PackageScanLog(
+            package_id=pkg.id,
+            scanned_by=user_id,
+            scan_type="received_storage",
+            location=format_storage_location(cell, shelf),
+        )
+    )
     sync_production_order_status(db, pkg.production_order_id)
+    db.flush()
+
+
+def place_on_storage_map(
+    db: Session,
+    pkg: Package,
+    *,
+    storage_cell: str,
+    storage_shelf: str | None,
+    user_id: int | None,
+):
+    if pkg.status in ("shipped", "delivered", "damaged"):
+        raise HTTPException(400, f"Package in status '{pkg.status}' cannot be moved on storage map")
+    cell, shelf = validate_storage_location(storage_cell, storage_shelf, require_cell=True)
+    prev_location = format_storage_location(pkg.storage_cell, pkg.storage_shelf)
+    next_location = format_storage_location(cell, shelf)
+
+    pkg.storage_cell = cell
+    pkg.storage_shelf = shelf
+    pkg.storage_placed_at = datetime.now(timezone.utc)
+
+    scan_type = "placed_storage" if not prev_location else "relocated_storage"
+    db.add(
+        PackageScanLog(
+            package_id=pkg.id,
+            scanned_by=user_id,
+            scan_type=scan_type,
+            location=next_location,
+        )
+    )
     db.flush()
 
 
@@ -209,6 +333,9 @@ def ship_package(db: Session, pkg: Package, user_id: int | None):
         raise HTTPException(400, f"Package cannot be shipped from status '{pkg.status}'")
     pkg.status = "shipped"
     pkg.shipped_at = datetime.now(timezone.utc)
+    pkg.storage_cell = None
+    pkg.storage_shelf = None
+    pkg.storage_placed_at = None
     decrement_finished_goods_for_package(db, pkg)
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="shipped"))
     sync_production_order_status(db, pkg.production_order_id)
@@ -226,5 +353,8 @@ def mark_delivered(db: Session, pkg: Package, user_id: int | None):
 
 def mark_damaged(db: Session, pkg: Package, user_id: int | None):
     pkg.status = "damaged"
+    pkg.storage_cell = None
+    pkg.storage_shelf = None
+    pkg.storage_placed_at = None
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="audit_check", location="damaged"))
     db.flush()

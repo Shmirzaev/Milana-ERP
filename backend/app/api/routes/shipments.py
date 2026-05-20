@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import Shipment, ShipmentPackage, Package, SalesOrder, User
+from app.models import Shipment, ShipmentPackage, Package, SalesOrder, User, Model
 from app.schemas.sales import ShipmentIn, ShipmentOut
 from app.services.audit import log_action
 from app.services.numbering import next_shipment_no
@@ -19,7 +19,11 @@ def list_shipments(db: DbSession, _: CurrentUser):
 
 @router.get("/ready-packages")
 def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = None):
-    qry = db.query(Package).filter(Package.status.in_(["received_in_storage", "reserved"]))
+    qry = (
+        db.query(Package, Model)
+        .join(Model, Model.id == Package.model_id)
+        .filter(Package.status.in_(["received_in_storage", "reserved"]))
+    )
     if sales_order_id:
         qry = qry.filter(Package.sales_order_id == sales_order_id)
     rows = qry.order_by(Package.id.asc()).all()
@@ -28,10 +32,15 @@ def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
             "id": p.id,
             "package_no": p.package_no,
             "sales_order_id": p.sales_order_id,
+            "model_id": p.model_id,
+            "model_code": model.code if model else None,
+            "color": p.color,
             "total_quantity": p.total_quantity,
             "status": p.status,
+            "storage_cell": p.storage_cell,
+            "storage_shelf": p.storage_shelf,
         }
-        for p in rows
+        for p, model in rows
     ]
 
 

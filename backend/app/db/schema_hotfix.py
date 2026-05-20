@@ -37,6 +37,9 @@ _PATCHES: list[tuple[str, str]] = [
     ("notifications", "ADD COLUMN IF NOT EXISTS link VARCHAR(512)"),
     ("sales_orders", "ADD COLUMN IF NOT EXISTS printing_instructions TEXT"),
     ("sales_orders", "ADD COLUMN IF NOT EXISTS printing_attachments JSONB"),
+    ("packages",    "ADD COLUMN IF NOT EXISTS storage_cell VARCHAR(32)"),
+    ("packages",    "ADD COLUMN IF NOT EXISTS storage_shelf VARCHAR(8)"),
+    ("packages",    "ADD COLUMN IF NOT EXISTS storage_placed_at TIMESTAMPTZ"),
 ]
 
 _DATA_FIXES: list[str] = [

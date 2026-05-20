@@ -88,6 +88,17 @@ class PackageBulkIn(PackageIn):
     count: int = 1
 
 
+class PackageReceiveStorageIn(BaseModel):
+    warehouse_id: Optional[int] = None
+    storage_cell: Optional[str] = None
+    storage_shelf: Optional[str] = None
+
+
+class PackageStoragePlacementIn(BaseModel):
+    storage_cell: str
+    storage_shelf: Optional[str] = "S1"
+
+
 class PackageOut(ORMModel):
     id: int
     package_no: str
@@ -103,6 +114,9 @@ class PackageOut(ORMModel):
     total_quantity: int
     capacity: int
     warehouse_id: Optional[int] = None
+    storage_cell: Optional[str] = None
+    storage_shelf: Optional[str] = None
+    storage_placed_at: Optional[datetime] = None
     status: str
     packed_at: Optional[datetime] = None
     received_at: Optional[datetime] = None
