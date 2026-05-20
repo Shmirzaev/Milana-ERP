@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { can, useMe } from "@/lib/auth";
 
@@ -97,7 +98,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               <div>{bundle.quantity}</div>
               <div className="text-slate-500">{t("common.status")}</div>
               <div>
-                <span className="badge">{bundle.status}</span>
+                <span className="badge">{statusLabel(bundle.status, t)}</span>
               </div>
               <div className="text-slate-500">{t("field.currentDept")}</div>
               <div>{bundle.current_department_id}</div>
@@ -123,4 +124,3 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     </div>
   );
 }
-

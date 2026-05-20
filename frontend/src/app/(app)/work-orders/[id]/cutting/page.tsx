@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
 type BundlePlan = { color: string; size: string; quantity: number; count: number; next: "sewing" | "printing" };
@@ -127,7 +128,7 @@ export default function CuttingPage() {
     <div>
       <PageHeader
         title={t("page.cutting.title", { id })}
-        subtitle={wo ? t("page.cutting.subtitle", { op: wo.operation, status: wo.status }) : ""}
+        subtitle={wo ? t("page.cutting.subtitle", { op: operationLabel(wo.operation, t), status: statusLabel(wo.status, t) }) : ""}
       />
       <div className="card mb-4 p-4">
         <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
@@ -153,7 +154,7 @@ export default function CuttingPage() {
           </div>
           <div className="space-y-1">
             <div className="text-xs uppercase tracking-wide text-slate-500">{t("common.status")}</div>
-            <div className="font-medium">{wo?.status || "-"}</div>
+            <div className="font-medium">{wo ? statusLabel(wo.status, t) : "-"}</div>
           </div>
           <div className="space-y-1">
             <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.salesDeadline")}</div>

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+import { operationLabel, productionTypeLabel, statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { useMe, can } from "@/lib/auth";
 
@@ -133,7 +134,7 @@ export default function ProductionOrderDetail() {
     <div>
       <PageHeader
         title={t("page.poDetail.title", { productionNo: po.production_no })}
-        subtitle={t("page.poDetail.subtitle", { type: po.production_type, status: po.status })}
+        subtitle={t("page.poDetail.subtitle", { type: productionTypeLabel(po.production_type, t), status: statusLabel(po.status, t) })}
         actions={canPlan ? (
           <div className="flex gap-2">
             <button className="btn" onClick={cascade} title={t("page.poDetail.cascadeDeadlinesHint")}>{t("page.poDetail.cascadeDeadlines")}</button>
@@ -193,12 +194,12 @@ export default function ProductionOrderDetail() {
                 <>
                   <tr key={w.id} className={w.is_blocked ? "bg-red-50" : ""}>
                     <td className="font-medium">
-                      {w.operation}
+                      {operationLabel(w.operation, t)}
                       {w.is_blocked && (
                         <div className="text-xs text-red-700" title={w.block_reason ?? ""}>⛔ {t("status.blocked")}</div>
                       )}
                     </td>
-                    <td><span className="badge">{w.status}</span></td>
+                    <td><span className="badge">{statusLabel(w.status, t)}</span></td>
                     <td>{w.actual_input_qty}</td>
                     <td>{w.actual_output_qty}</td>
                     <td>{w.passed_qty}</td>
@@ -237,7 +238,7 @@ export default function ProductionOrderDetail() {
         </div>
       </div>
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing ? `${editing.operation.toUpperCase()} #${editing.id}` : ""}>
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing ? `${operationLabel(editing.operation, t)} #${editing.id}` : ""}>
         <form onSubmit={saveAssign} className="space-y-3">
           <div>
             <label className="label">{t("field.deadline2")}</label>
@@ -342,7 +343,7 @@ function SewingAssignmentsPanel({
               <td>{a.completed_qty}</td>
               <td>{a.planned_start ? new Date(a.planned_start).toLocaleDateString() : "—"}</td>
               <td>{a.planned_end ? new Date(a.planned_end).toLocaleDateString() : "—"}</td>
-              <td><span className="badge">{a.status}</span></td>
+              <td><span className="badge">{statusLabel(a.status, t)}</span></td>
               <td><button onClick={() => del(a.id)} className="text-red-600 hover:underline">{t("tasks.delete")}</button></td>
             </tr>
           ))}

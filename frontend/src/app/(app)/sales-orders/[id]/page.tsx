@@ -5,7 +5,7 @@ import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useState } from "react";
 import { useT } from "@/lib/i18n";
-import StagePipeline from "@/components/StagePipeline";
+import StagePipeline, { operationLabel, productionTypeLabel, statusLabel } from "@/components/StagePipeline";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
 
@@ -48,7 +48,7 @@ export default function SalesOrderDetail() {
     <div>
       <PageHeader
         title={t("page.soDetail.title", { orderNo: so.order_no })}
-        subtitle={t("page.soDetail.subtitle", { type: so.order_type === "client_order" ? t("orderType.client") : t("orderType.branded"), status: so.status })}
+        subtitle={t("page.soDetail.subtitle", { type: productionTypeLabel(so.order_type, t), status: statusLabel(so.status, t) })}
         actions={
           <div className="flex gap-2">
             {so.status === "draft" && <button className="btn btn-primary" onClick={confirm}>{t("btn.confirm")}</button>}
@@ -113,7 +113,7 @@ export default function SalesOrderDetail() {
         <div className="card mb-6 p-4">
           <h3 className="mb-2 font-medium">{t("page.soDetail.currentProductionStage")}</h3>
           <div className="mb-2 text-sm text-slate-600">
-            {activeProcess.production_no} · {activeProcess.current_stage} · {activeProcess.current_stage_status || "in_progress"}
+            {activeProcess.production_no} · {operationLabel(activeProcess.current_stage, t)} · {statusLabel(activeProcess.current_stage_status || "in_progress", t)}
           </div>
           <StagePipeline currentStage={activeProcess.current_stage} stages={activeProcess.stages} compact={false} />
           {activeProcess.po_deadline && (
@@ -126,7 +126,7 @@ export default function SalesOrderDetail() {
 
       {(so.printing_instructions || printFiles.length > 0) && (
         <div className="card mb-6 p-4">
-          <h3 className="font-medium mb-2">Printing details</h3>
+          <h3 className="font-medium mb-2">{t("field.printingRequired")}</h3>
           {so.printing_instructions && (
             <div className="mb-3 rounded-md bg-[#f8f7f3] p-3 text-sm whitespace-pre-wrap">
               {so.printing_instructions}

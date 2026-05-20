@@ -3,6 +3,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
 export default function WastePage() {
@@ -60,7 +61,7 @@ export default function WastePage() {
                 <td>{w.waste_type}</td>
                 <td>{Number(w.quantity).toFixed(2)} {w.unit}</td>
                 <td>{w.sellable ? t("field.yes") : t("field.no")}</td>
-                <td><span className="badge">{w.status}</span></td>
+                <td><span className="badge">{statusLabel(w.status, t)}</span></td>
                 <td>${Number(w.estimated_value).toFixed(2)}</td>
                 <td className="flex gap-2 flex-wrap">
                   {w.status === "recorded" && <button className="text-brand-600 hover:underline" onClick={() => act(w.id, "receive")}>{t("btn.receive")}</button>}

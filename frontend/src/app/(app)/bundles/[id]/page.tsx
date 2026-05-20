@@ -3,6 +3,7 @@ import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
 export default function BundleDetail() {
@@ -17,7 +18,7 @@ export default function BundleDetail() {
     <div>
       <PageHeader
         title={t("page.bundleDetail.title", { no: b.bundle_no })}
-        subtitle={t("page.bundleDetail.subtitle", { status: b.status })}
+        subtitle={t("page.bundleDetail.subtitle", { status: statusLabel(b.status, t) })}
         actions={<button type="button" className="btn" onClick={() => api.openLabel(`/api/bundles/${b.id}/label`)}>{t("btn.printLabel")}</button>}
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -47,7 +48,7 @@ export default function BundleDetail() {
               {b.scan_logs?.map((s: any) => (
                 <tr key={s.id}>
                   <td>{new Date(s.scanned_at).toLocaleString()}</td>
-                  <td>{s.scan_type}</td>
+                  <td>{statusLabel(s.scan_type, t)}</td>
                   <td>{s.from_department_id || "-"}</td>
                   <td>{s.to_department_id || "-"}</td>
                   <td>{s.scanned_by || "-"}</td>

@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
 export default function BundlesPage() {
@@ -79,7 +80,7 @@ export default function BundlesPage() {
                       <td>{b.color}</td>
                       <td>{b.size}</td>
                       <td>{b.quantity}</td>
-                      <td><span className="badge">{b.status}</span></td>
+                      <td><span className="badge">{statusLabel(b.status, t)}</span></td>
                       <td className="flex gap-2">
                         <Link className="text-brand-600 hover:underline" href={`/bundles/${b.id}`}>{t("btn.view")}</Link>
                         <button type="button" className="text-slate-600 hover:underline" onClick={() => api.openLabel(`/api/bundles/${b.id}/label`)}>{t("btn.label")}</button>

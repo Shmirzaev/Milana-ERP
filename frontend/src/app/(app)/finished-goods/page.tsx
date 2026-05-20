@@ -2,6 +2,7 @@
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
 export default function FinishedGoodsPage() {
@@ -33,7 +34,7 @@ export default function FinishedGoodsPage() {
               <th>{t("field.sold")}</th><th>{t("field.status")}</th>
             </tr>
           </thead>
-          <tbody>{data?.map((s) => <tr key={s.id}><td>{s.model_id}</td><td>{s.color}</td><td>{s.size}</td><td>{s.quantity}</td><td>{s.available_qty}</td><td>{s.reserved_qty}</td><td>{s.sold_qty}</td><td>{s.status}</td></tr>)}</tbody>
+          <tbody>{data?.map((s) => <tr key={s.id}><td>{s.model_id}</td><td>{s.color}</td><td>{s.size}</td><td>{s.quantity}</td><td>{s.available_qty}</td><td>{s.reserved_qty}</td><td>{s.sold_qty}</td><td>{statusLabel(s.status, t)}</td></tr>)}</tbody>
         </table>
       </div>
     </div>

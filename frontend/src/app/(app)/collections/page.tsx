@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+import { statusLabel } from "@/components/StagePipeline";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 
@@ -92,7 +93,7 @@ export default function CollectionsPage() {
               <tr key={c.id}>
                 <td>{brands?.find((b) => b.id === c.brand_id)?.name ?? c.brand_id}</td>
                 <td>{c.name}</td><td>{c.season}</td><td>{c.year}</td>
-                <td><span className="badge">{c.status}</span></td>
+                <td><span className="badge">{statusLabel(c.status, t)}</span></td>
                 {isAdmin && (
                   <td><button className="text-brand-600 hover:underline" onClick={() => openEdit(c)}>{t("btn.edit")}</button></td>
                 )}

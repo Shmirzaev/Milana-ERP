@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { can, useMe } from "@/lib/auth";
 
@@ -77,7 +78,7 @@ export default function ScanPackagePage() {
               <div className="text-slate-500">{t("field.model")}</div><div>{pkg.model_id}</div>
               <div className="text-slate-500">{t("field.color")}</div><div>{pkg.color}</div>
               <div className="text-slate-500">{t("field.totalQty")}</div><div>{pkg.total_quantity}</div>
-              <div className="text-slate-500">{t("common.status")}</div><div><span className="badge">{pkg.status}</span></div>
+              <div className="text-slate-500">{t("common.status")}</div><div><span className="badge">{statusLabel(pkg.status, t)}</span></div>
             </div>
             {pkg.items && (
               <div className="mb-3">

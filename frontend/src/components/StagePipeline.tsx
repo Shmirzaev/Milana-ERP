@@ -25,10 +25,29 @@ export function operationLabel(op: string, t: CtxT) {
 }
 
 export function statusLabel(status: string, t: CtxT) {
-  const key = `statusValue.${String(status || "").toLowerCase()}`;
+  const normalized = String(status || "").toLowerCase();
+  const operationKey = ({
+    cutting: "dash.cutting",
+    printing: "dash.printing",
+    sewing: "dash.sewing",
+    packaging: "dash.packaging",
+    storage_transfer: "stage.storageTransfer",
+  } as Record<string, string>)[normalized];
+  if (operationKey) {
+    const opTranslated = t(operationKey);
+    if (opTranslated !== operationKey) return opTranslated;
+  }
+  const key = `statusValue.${normalized}`;
   const translated = t(key);
   if (translated !== key) return translated;
   return fallbackLabel(status);
+}
+
+export function productionTypeLabel(type: string, t: CtxT) {
+  const normalized = String(type || "").toLowerCase();
+  if (normalized === "client_order") return t("orderType.client");
+  if (normalized === "branded_stock" || normalized === "branded_stock_sale") return t("orderType.branded");
+  return fallbackLabel(type);
 }
 
 export default function StagePipeline({

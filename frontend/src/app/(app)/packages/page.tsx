@@ -3,6 +3,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
 export default function PackagesPage() {
@@ -33,7 +34,7 @@ export default function PackagesPage() {
                 <td>{p.model_id}</td>
                 <td>{p.color}</td>
                 <td>{p.total_quantity}</td>
-                <td><span className="badge">{p.status}</span></td>
+                <td><span className="badge">{statusLabel(p.status, t)}</span></td>
                 <td className="flex gap-2">
                   <Link href={`/packages/${p.id}`} className="text-brand-600 hover:underline">{t("btn.view")}</Link>
                   <button type="button" className="text-slate-600 hover:underline" onClick={() => api.openLabel(`/api/packages/${p.id}/label`)}>{t("btn.label")}</button>

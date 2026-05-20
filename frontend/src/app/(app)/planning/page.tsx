@@ -3,6 +3,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
 type EstimateFormState = {
@@ -198,7 +199,7 @@ export default function PlanningDashboard() {
                 <td>{o.order_no}</td>
                 <td>{o.customer_id}</td>
                 <td>${Number(o.total_amount).toFixed(2)}</td>
-                <td>{o.status}</td>
+                <td>{statusLabel(o.status, t)}</td>
                 <td>
                   {o.status === "confirmed" && (
                     <button className="btn" disabled={busyOrderId === o.id} onClick={() => openEstimateDialog(o.id)}>

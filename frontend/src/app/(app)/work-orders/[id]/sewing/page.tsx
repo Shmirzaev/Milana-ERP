@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
 type Flow = {
@@ -166,7 +167,7 @@ export default function SewingPage() {
           </div>
           <div className="space-y-1">
             <div className="text-xs uppercase tracking-wide text-slate-500">{t("common.status")}</div>
-            <div className="font-medium">{wo?.status || "-"}</div>
+            <div className="font-medium">{wo ? statusLabel(wo.status, t) : "-"}</div>
           </div>
           <div className="space-y-1">
             <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.salesDeadline")}</div>

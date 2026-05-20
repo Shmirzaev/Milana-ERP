@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+import { productionTypeLabel, statusLabel } from "@/components/StagePipeline";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 
@@ -67,13 +68,13 @@ export default function ProductionOrdersPage() {
             {data?.map((p) => (
               <tr key={p.id}>
                 <td className="font-medium">{p.production_no}</td>
-                <td><span className="badge badge-blue">{p.production_type}</span></td>
+                <td><span className="badge badge-blue">{productionTypeLabel(p.production_type, t)}</span></td>
                 <td>
                   <div className="font-medium text-sm">{modelMap.get(p.model_id)?.code ?? p.model_id}</div>
                   <div className="text-xs text-slate-500">{modelMap.get(p.model_id)?.name ?? ""}</div>
                 </td>
                 <td>{p.planned_quantity}</td>
-                <td><span className="badge">{p.status}</span></td>
+                <td><span className="badge">{statusLabel(p.status, t)}</span></td>
                 <td>{p.deadline ? new Date(p.deadline).toLocaleDateString() : "—"}</td>
                 <td className="flex gap-3">
                   <Link href={`/production-orders/${p.id}`} className="text-brand-600 hover:underline">{t("btn.view")}</Link>
@@ -92,7 +93,7 @@ export default function ProductionOrdersPage() {
           <div>
             <label className="label">{t("field.status")}</label>
             <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}>
-              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s, t)}</option>)}
             </select>
           </div>
           <div>
