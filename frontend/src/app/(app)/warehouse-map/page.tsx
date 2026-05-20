@@ -149,7 +149,6 @@ function formatDateTime(value?: string | null, langCode?: string) {
 }
 
 export default function WarehouseMapPage() {
-  // redeploy marker: frontend change to force Render rebuild
   const router = useRouter();
   const { t, lang } = useT();
   const [modelQuery, setModelQuery] = useState("");
