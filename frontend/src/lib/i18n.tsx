@@ -165,6 +165,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "nav.packages": "Packages",
     "nav.scanPackage": "Scan Package",
     "nav.finishedGoods": "Finished Goods",
+    "nav.warehouseMap": "Warehouse Map",
     "nav.shipments": "Shipments",
     "nav.wasteDash": "Waste Dashboard",
     "nav.financeDash": "Finance Dashboard",
@@ -625,6 +626,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.packageScan.packagesOnMap": "Packages on map: {count}",
     "page.packageScan.sameModelOnMap": "Same model on map",
     "page.packageScan.noModelPackagesOnMap": "No packages for this model are placed on map yet.",
+    "page.warehouseMap.title": "Warehouse Map",
+    "page.warehouseMap.subtitle": "Find package location by model, package, or barcode.",
 
     // ----- Shipments -----
     "page.shipments.title": "Shipments",
@@ -1081,6 +1084,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "nav.packages": "Упаковки",
     "nav.scanPackage": "Сканировать упаковку",
     "nav.finishedGoods": "Готовая продукция",
+    "nav.warehouseMap": "Карта склада",
     "nav.shipments": "Отгрузки",
     "nav.wasteDash": "Отходы",
     "nav.financeDash": "Финансы",
@@ -1526,6 +1530,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.packageScan.packagesOnMap": "Упаковок на карте: {count}",
     "page.packageScan.sameModelOnMap": "Эта же модель на карте",
     "page.packageScan.noModelPackagesOnMap": "Упаковки этой модели еще не размещены на карте.",
+    "page.warehouseMap.title": "Карта склада",
+    "page.warehouseMap.subtitle": "Поиск местоположения упаковки по модели, номеру упаковки или штрих-коду.",
 
     "page.shipments.title": "Отгрузки",
     "page.shipments.salesOrder": "Заказ клиента",
@@ -1978,6 +1984,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "nav.packages": "Paketlar",
     "nav.scanPackage": "Paketni skanerlash",
     "nav.finishedGoods": "Tayyor mahsulot",
+    "nav.warehouseMap": "Ombor xaritasi",
     "nav.shipments": "Yetkazib berish",
     "nav.wasteDash": "Chiqindilar paneli",
     "nav.financeDash": "Moliya paneli",
@@ -2423,6 +2430,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.packageScan.packagesOnMap": "Xaritadagi paketlar: {count}",
     "page.packageScan.sameModelOnMap": "Xaritada shu model",
     "page.packageScan.noModelPackagesOnMap": "Bu model paketlari hali xaritaga joylanmagan.",
+    "page.warehouseMap.title": "Ombor xaritasi",
+    "page.warehouseMap.subtitle": "Paket joylashuvini model, paket raqami yoki shtrix-kod bo'yicha toping.",
 
     "page.shipments.title": "Joʻnatmalar",
     "page.shipments.salesOrder": "Mijoz buyurtmasi",
