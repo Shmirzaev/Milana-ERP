@@ -664,6 +664,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.warehouseMap.bookmarkAdded": "Package bookmarked.",
     "page.warehouseMap.bookmarkRemoved": "Bookmark removed.",
     "page.warehouseMap.actionFailed": "Action failed.",
+    "page.warehouseMap.allowMultiModelsOneCell": "Allow multiple models in one cell",
+    "page.warehouseMap.mixedModelBlocked": "Target cell has another model. Enable the multi-model option to place different models in one cell.",
 
     // ----- Shipments -----
     "page.shipments.title": "Shipments",
@@ -1604,6 +1606,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.warehouseMap.bookmarkAdded": "Упаковка добавлена в закладки.",
     "page.warehouseMap.bookmarkRemoved": "Закладка удалена.",
     "page.warehouseMap.actionFailed": "Не удалось выполнить действие.",
+    "page.warehouseMap.allowMultiModelsOneCell": "Разрешить несколько моделей в одной ячейке",
+    "page.warehouseMap.mixedModelBlocked": "В целевой ячейке уже другая модель. Включите опцию нескольких моделей, чтобы размещать разные модели в одной ячейке.",
 
     "page.shipments.title": "Отгрузки",
     "page.shipments.salesOrder": "Заказ клиента",
@@ -2540,6 +2544,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.warehouseMap.bookmarkAdded": "Paket saqlandi.",
     "page.warehouseMap.bookmarkRemoved": "Saqlangan belgi olib tashlandi.",
     "page.warehouseMap.actionFailed": "Amal bajarilmadi.",
+    "page.warehouseMap.allowMultiModelsOneCell": "Bitta yacheykada bir nechta modelga ruxsat berish",
+    "page.warehouseMap.mixedModelBlocked": "Maqsad yacheykada boshqa model bor. Turli modellerni bitta yacheykaga joylash uchun ko'p model opsiyasini yoqing.",
 
     "page.shipments.title": "Joʻnatmalar",
     "page.shipments.salesOrder": "Mijoz buyurtmasi",

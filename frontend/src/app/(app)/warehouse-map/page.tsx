@@ -159,6 +159,7 @@ export default function WarehouseMapPage() {
   const [busyAction, setBusyAction] = useState<"move" | "label" | null>(null);
   const [bookmarkedPackages, setBookmarkedPackages] = useState<number[]>([]);
   const [moveSource, setMoveSource] = useState<StoragePlacement | null>(null);
+  const [allowMixedModels, setAllowMixedModels] = useState(false);
 
   const mapQueryPath = modelQuery.trim()
     ? `/api/packages/storage-map?model_query=${encodeURIComponent(modelQuery.trim())}`
@@ -295,6 +296,16 @@ export default function WarehouseMapPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem("warehouse_map_allow_mixed_models");
+      if (raw === "1") setAllowMixedModels(true);
+    } catch {
+      // ignore malformed local storage
+    }
+  }, []);
+
   function saveBookmarks(next: number[]) {
     setBookmarkedPackages(next);
     if (typeof window === "undefined") return;
@@ -308,6 +319,16 @@ export default function WarehouseMapPage() {
   function clearMessages() {
     setMessage("");
     setMessageError("");
+  }
+
+  function toggleAllowMixedModels(enabled: boolean) {
+    setAllowMixedModels(enabled);
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem("warehouse_map_allow_mixed_models", enabled ? "1" : "0");
+    } catch {
+      // ignore local storage write failures
+    }
   }
 
   function toggleBookmark() {
@@ -350,6 +371,18 @@ export default function WarehouseMapPage() {
     const sourceShelf = normalizeShelf(moveSource.storage_shelf);
     if (moveSource.storage_cell === selectedCell && sourceShelf === selectedShelf) {
       setMessageError(t("page.warehouseMap.moveSameTarget"));
+      return;
+    }
+
+    const sourceModel = String(moveSource.model_code || moveSource.model_id || "");
+    const targetPlacements = placements.filter((row) => row.storage_cell === selectedCell && row.id !== moveSource.id);
+    const targetHasDifferentModel = targetPlacements.some((row) => {
+      const targetModel = String(row.model_code || row.model_id || "");
+      if (!targetModel || !sourceModel) return false;
+      return targetModel !== sourceModel;
+    });
+    if (!allowMixedModels && targetHasDifferentModel) {
+      setMessageError(t("page.warehouseMap.mixedModelBlocked"));
       return;
     }
 
@@ -761,6 +794,16 @@ export default function WarehouseMapPage() {
                 </button>
               )}
             </div>
+            <label className="mt-3 flex items-center gap-2 text-xs text-[#56503f]">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-[#c2410c]"
+                checked={allowMixedModels}
+                onChange={(e) => toggleAllowMixedModels(e.target.checked)}
+                disabled={busyAction === "move" || busyAction === "label"}
+              />
+              {t("page.warehouseMap.allowMultiModelsOneCell")}
+            </label>
             {(message || messageError) && (
               <div className={`mt-2 text-xs ${messageError ? "text-red-700" : "text-[#1f7a4d]"}`}>
                 {messageError || message}
