@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Bookmark, Clock3, MoveHorizontal, QrCode } from "lucide-react";
+import { useRouter } from "next/navigation";
 
-import { fetcher } from "@/lib/api";
+import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 
@@ -148,15 +149,21 @@ function formatDateTime(value?: string | null, langCode?: string) {
 }
 
 export default function WarehouseMapPage() {
+  const router = useRouter();
   const { t, lang } = useT();
   const [modelQuery, setModelQuery] = useState("");
   const [selectedCell, setSelectedCell] = useState<string | null>(null);
   const [selectedShelf, setSelectedShelf] = useState<"S1" | "S2">("S1");
+  const [message, setMessage] = useState("");
+  const [messageError, setMessageError] = useState("");
+  const [busyAction, setBusyAction] = useState<"move" | "label" | null>(null);
+  const [bookmarkedPackages, setBookmarkedPackages] = useState<number[]>([]);
+  const [moveSource, setMoveSource] = useState<StoragePlacement | null>(null);
 
   const mapQueryPath = modelQuery.trim()
     ? `/api/packages/storage-map?model_query=${encodeURIComponent(modelQuery.trim())}`
     : "/api/packages/storage-map";
-  const { data: mapData } = useSWR<any>(mapQueryPath, fetcher);
+  const { data: mapData, mutate: mutateMap } = useSWR<any>(mapQueryPath, fetcher);
 
   const normalizedCells = useMemo(() => {
     const source = (mapData?.cells || []) as StorageMapCell[];
@@ -273,6 +280,131 @@ export default function WarehouseMapPage() {
       receivingQty,
     };
   }, [placements, mapData?.summary, normalizedCells.length]);
+
+  const selectedPlacementBookmarked = !!(selectedPlacement && bookmarkedPackages.includes(selectedPlacement.id));
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem("warehouse_map_bookmarks");
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) setBookmarkedPackages(parsed.filter((v) => Number.isInteger(v)));
+    } catch {
+      // ignore malformed local storage
+    }
+  }, []);
+
+  function saveBookmarks(next: number[]) {
+    setBookmarkedPackages(next);
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem("warehouse_map_bookmarks", JSON.stringify(next));
+    } catch {
+      // ignore local storage write failures
+    }
+  }
+
+  function clearMessages() {
+    setMessage("");
+    setMessageError("");
+  }
+
+  function toggleBookmark() {
+    clearMessages();
+    if (!selectedPlacement) {
+      setMessageError(t("page.warehouseMap.noPackageSelected"));
+      return;
+    }
+    const already = bookmarkedPackages.includes(selectedPlacement.id);
+    const next = already
+      ? bookmarkedPackages.filter((id) => id !== selectedPlacement.id)
+      : [...bookmarkedPackages, selectedPlacement.id];
+    saveBookmarks(next);
+    setMessage(already ? t("page.warehouseMap.bookmarkRemoved") : t("page.warehouseMap.bookmarkAdded"));
+  }
+
+  async function handleMove() {
+    clearMessages();
+    if (!selectedCell) {
+      setMessageError(t("page.warehouseMap.selectCellFirst"));
+      return;
+    }
+
+    if (!moveSource) {
+      if (!selectedPlacement) {
+        setMessageError(t("page.warehouseMap.noPackageSelected"));
+        return;
+      }
+      setMoveSource(selectedPlacement);
+      setMessage(
+        t("page.warehouseMap.moveArmed", {
+          package: selectedPlacement.package_no,
+          cell: selectedPlacement.storage_cell,
+          shelf: normalizeShelf(selectedPlacement.storage_shelf),
+        }),
+      );
+      return;
+    }
+
+    const sourceShelf = normalizeShelf(moveSource.storage_shelf);
+    if (moveSource.storage_cell === selectedCell && sourceShelf === selectedShelf) {
+      setMessageError(t("page.warehouseMap.moveSameTarget"));
+      return;
+    }
+
+    try {
+      setBusyAction("move");
+      await api.post(`/api/packages/${moveSource.id}/place-on-map`, {
+        storage_cell: selectedCell,
+        storage_shelf: selectedShelf,
+      });
+      await mutateMap();
+      setMessage(
+        t("page.warehouseMap.moveSuccess", {
+          package: moveSource.package_no,
+          cell: selectedCell,
+          shelf: selectedShelf,
+        }),
+      );
+      setMoveSource(null);
+    } catch (err: any) {
+      setMessageError(err?.message || t("page.warehouseMap.actionFailed"));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  function cancelMove() {
+    setMoveSource(null);
+    clearMessages();
+    setMessage(t("page.warehouseMap.moveCancelled"));
+  }
+
+  function openHistory() {
+    clearMessages();
+    if (!selectedPlacement) {
+      setMessageError(t("page.warehouseMap.noPackageSelected"));
+      return;
+    }
+    router.push(`/packages/${selectedPlacement.id}`);
+  }
+
+  async function openLabel() {
+    clearMessages();
+    if (!selectedPlacement) {
+      setMessageError(t("page.warehouseMap.noPackageSelected"));
+      return;
+    }
+    try {
+      setBusyAction("label");
+      await api.openLabel(`/api/packages/${selectedPlacement.id}/label`);
+    } catch (err: any) {
+      setMessageError(err?.message || t("page.warehouseMap.actionFailed"));
+    } finally {
+      setBusyAction(null);
+    }
+  }
 
   function renderCellButton(code: string) {
     const cell = cellsByCode.get(code) || { code, zone: code.split("-")[0], count: 0, matched_count: 0, status: "free" as CellStatus };
@@ -544,6 +676,15 @@ export default function WarehouseMapPage() {
               </span>
             </div>
             <div className="mt-1 text-sm text-[#8a8472]">{selectedPlacement?.model_name || selectedPlacement?.package_no || t("page.warehouseMap.empty")}</div>
+            {moveSource && (
+              <div className="mt-2 rounded-md border border-[#f1d4be] bg-[#fbe9dd] px-2 py-1 text-xs text-[#9a3308]">
+                {t("page.warehouseMap.movePending", {
+                  package: moveSource.package_no,
+                  cell: moveSource.storage_cell,
+                  shelf: normalizeShelf(moveSource.storage_shelf),
+                })}
+              </div>
+            )}
 
             <div className="mt-5 grid grid-cols-2 gap-3">
               <div>
@@ -582,20 +723,49 @@ export default function WarehouseMapPage() {
             </div>
 
             <div className="mt-5 flex gap-2">
-              <button className="btn btn-accent flex-1">
+              <button
+                className="btn btn-accent flex-1 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleMove}
+                disabled={busyAction === "move" || busyAction === "label"}
+              >
                 <MoveHorizontal className="h-4 w-4" />
-                {t("page.warehouseMap.move")}
+                {moveSource ? t("page.warehouseMap.confirmMove") : t("page.warehouseMap.move")}
               </button>
-              <button className="btn" title="bookmark">
+              <button
+                className={`btn ${selectedPlacementBookmarked ? "border-[#c2410c] text-[#9a3308]" : ""}`}
+                title="bookmark"
+                onClick={toggleBookmark}
+                disabled={busyAction === "move" || busyAction === "label"}
+              >
                 <Bookmark className="h-4 w-4" />
               </button>
-              <button className="btn" title="history">
+              <button
+                className="btn"
+                title="history"
+                onClick={openHistory}
+                disabled={busyAction === "move" || busyAction === "label"}
+              >
                 <Clock3 className="h-4 w-4" />
               </button>
-              <button className="btn" title="qr">
+              <button
+                className="btn disabled:cursor-not-allowed disabled:opacity-60"
+                title="qr"
+                onClick={openLabel}
+                disabled={busyAction === "move" || busyAction === "label"}
+              >
                 <QrCode className="h-4 w-4" />
               </button>
+              {moveSource && (
+                <button className="btn" onClick={cancelMove} disabled={busyAction === "move"}>
+                  {t("btn.cancel")}
+                </button>
+              )}
             </div>
+            {(message || messageError) && (
+              <div className={`mt-2 text-xs ${messageError ? "text-red-700" : "text-[#1f7a4d]"}`}>
+                {messageError || message}
+              </div>
+            )}
           </div>
 
           <div className="card p-5">
