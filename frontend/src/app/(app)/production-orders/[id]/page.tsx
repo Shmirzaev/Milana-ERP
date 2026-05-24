@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import useSWR from "swr";
 import Link from "next/link";
 import { api, fetcher } from "@/lib/api";
+import { formatBatchLabel } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { operationLabel, productionTypeLabel, statusLabel } from "@/components/StagePipeline";
@@ -12,6 +13,7 @@ import { useMe, can } from "@/lib/auth";
 
 type WO = {
   id: number;
+  production_batch_id?: number | null;
   operation: string;
   department_id: number;
   status: string;
@@ -25,6 +27,14 @@ type WO = {
   sewing_flow_id: number | null;
   is_blocked: boolean;
   block_reason: string | null;
+};
+
+type BatchMeta = {
+  id: number;
+  batch_no: string;
+  batch_index: number;
+  name: string | null;
+  planned_quantity: number;
 };
 
 type Assignment = {
@@ -60,11 +70,13 @@ export default function ProductionOrderDetail() {
   const canPlan = can(me, "*", "planning.production");
   const isAdmin = can(me, "*");
   const id = params.id;
-  const { data: po, mutate } = useSWR<any>(`/api/production-orders/${id}`, fetcher);
+  const isNumericId = /^\d+$/.test(String(id || ""));
+  const { data: po, error: poError, isLoading: poLoading, mutate } = useSWR<any>(isNumericId ? `/api/production-orders/${id}` : null, fetcher);
   const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
   const { data: flowUtil } = useSWR<FlowUtil[]>("/api/sewing-flows/utilization-snapshot", fetcher, { refreshInterval: 60_000 });
   const { data: users } = useSWR<any[]>(canPlan ? "/api/users" : null, fetcher);
   const utilByFlow = new Map((flowUtil || []).map((u) => [u.flow_id, u]));
+  const batchById = new Map<number, BatchMeta>(((po?.batches || []) as BatchMeta[]).map((b) => [b.id, b]));
 
   const [editing, setEditing] = useState<WO | null>(null);
   const [edit, setEdit] = useState({ deadline: "", sewing_flow_id: 0, assigned_to: 0 });
@@ -128,7 +140,22 @@ export default function ProductionOrderDetail() {
     } catch (e: any) { setEditMsg(e.message); }
   }
 
-  if (!po) return <div>{t("common.loading")}</div>;
+  if (!isNumericId) {
+    return (
+      <div className="card p-4 text-sm text-red-700">
+        Could not load production order. The detail URL must use the numeric production order ID.
+      </div>
+    );
+  }
+  if (poError) {
+    return (
+      <div className="card p-4 text-sm text-red-700">
+        <div>Could not load production order. Please try again.</div>
+        <button className="btn mt-3" onClick={() => mutate()}>Retry</button>
+      </div>
+    );
+  }
+  if (poLoading || !po) return <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>;
 
   return (
     <div>
@@ -178,11 +205,11 @@ export default function ProductionOrderDetail() {
           <table className="table">
             <thead>
               <tr>
+                <th>{t("field.batch")}</th>
                 <th>{t("page.poDetail.op")}</th>
                 <th>{t("common.status")}</th>
                 <th>{t("field.input")}</th>
                 <th>{t("field.output")}</th>
-                <th>{t("field.passed")}</th>
                 <th>{t("field.failed")}</th>
                 <th>{t("field.deadline2")}</th>
                 <th>{t("field.line")}</th>
@@ -193,6 +220,14 @@ export default function ProductionOrderDetail() {
               {po.work_orders?.map((w: WO) => (
                 <>
                   <tr key={w.id} className={w.is_blocked ? "bg-red-50" : ""}>
+                    <td>
+                      {w.production_batch_id
+                        ? (() => {
+                            const b = batchById.get(w.production_batch_id);
+                            return b ? formatBatchLabel(b, po?.id) : "-";
+                          })()
+                        : "-"}
+                    </td>
                     <td className="font-medium">
                       {operationLabel(w.operation, t)}
                       {w.is_blocked && (
@@ -202,7 +237,6 @@ export default function ProductionOrderDetail() {
                     <td><span className="badge">{statusLabel(w.status, t)}</span></td>
                     <td>{w.actual_input_qty}</td>
                     <td>{w.actual_output_qty}</td>
-                    <td>{w.passed_qty}</td>
                     <td>{w.failed_qty}</td>
                     <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "—"}</td>
                     <td>{flows?.find((f) => f.id === w.sewing_flow_id)?.code ?? "—"}</td>

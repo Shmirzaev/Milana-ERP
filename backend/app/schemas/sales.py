@@ -18,10 +18,24 @@ class SalesOrderItemIn(BaseModel):
     notes: Optional[str] = None
 
 
+class SalesOrderItemModelRef(BaseModel):
+    id: int
+    code: str
+    name: str
+    translations: Optional[dict] = None
+
+
+class SalesOrderCustomerRef(BaseModel):
+    id: int
+    name: str
+
+
 class SalesOrderItemOut(ORMModel):
     id: int
     sales_order_id: int
     model_id: int
+    model_code: Optional[str] = None
+    model_name: Optional[str] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
     color: str
@@ -31,6 +45,7 @@ class SalesOrderItemOut(ORMModel):
     printing_required: bool
     source_type: str
     notes: Optional[str] = None
+    model: Optional[SalesOrderItemModelRef] = None
 
 
 class SalesOrderPrintingAttachment(BaseModel):
@@ -62,6 +77,7 @@ class SalesOrderOut(ORMModel):
     id: int
     order_no: str
     customer_id: Optional[int] = None
+    customer_name: Optional[str] = None
     order_type: str
     status: str
     deadline: Optional[datetime] = None
@@ -80,6 +96,7 @@ class SalesOrderOut(ORMModel):
     printing_instructions: Optional[str] = None
     printing_attachments: Optional[list[SalesOrderPrintingAttachment]] = None
     notes: Optional[str] = None
+    customer: Optional[SalesOrderCustomerRef] = None
     created_at: datetime
 
 
@@ -102,12 +119,34 @@ class ShipmentOut(ORMModel):
     shipped_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
     notes: Optional[str] = None
+    sales_order_no: Optional[str] = None
+    customer_name: Optional[str] = None
+    packages_count: int = 0
+    total_qty: int = 0
     created_at: datetime
+
+
+class ShipmentScanIn(BaseModel):
+    code: str
+
+
+class ShipmentScanOut(BaseModel):
+    ok: bool
+    sign: str
+    code: str
+    message: str
+    package_id: Optional[int] = None
+    package_no: Optional[str] = None
+    package_model_code: Optional[str] = None
+    required_count: int = 0
+    scanned_count: int = 0
+    remaining_count: int = 0
+    is_complete: bool = False
 
 
 class InvoiceIn(BaseModel):
     sales_order_id: int
-    amount: float
+    amount: Optional[float] = None
 
 
 class InvoiceOut(ORMModel):
@@ -123,6 +162,7 @@ class InvoiceOut(ORMModel):
 class PaymentIn(BaseModel):
     invoice_id: int
     amount: float
+    paid_at: Optional[datetime] = None
     payment_method: Optional[str] = None
     notes: Optional[str] = None
 

@@ -4,20 +4,79 @@ from uuid import uuid4
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi import UploadFile, File
+from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.config import settings
 from app.models import (
     Brand, Collection, CollectionModel, Model, ModelImage, ModelSize, ModelColor, ModelBOM, User,
-    SalesOrderItem, ProductionOrder, ProductionOrderItem, Bundle, Package, PackageItem, FinishedGoodsStock,
+    Item, SalesOrderItem, ProductionOrder, ProductionOrderItem, Bundle, Package, PackageItem, FinishedGoodsStock,
 )
 from app.schemas.catalog import (
     BrandIn, BrandOut, CollectionIn, CollectionOut,
-    ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelSizeIn, ModelColorIn, ModelBOMIn,
+    ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelColorIn, ModelBOMIn,
 )
 from app.services.audit import log_action
 
 router = APIRouter(tags=["catalog"])
+
+
+def _estimate_variant_net_cost_pc(db: DbSession, model: Model) -> float:
+    """Estimate per-piece net cost from BOM default costs and costing percentages."""
+    item_ids = {int(row.item_id) for row in (model.bom or []) if row.item_id}
+    item_cost_map = {
+        int(item.id): float(item.default_cost or 0)
+        for item in (db.query(Item).filter(Item.id.in_(item_ids)).all() if item_ids else [])
+    }
+    base_cost = 0.0
+    for row in model.bom or []:
+        item_cost = item_cost_map.get(int(row.item_id), 0.0)
+        base_cost += float(row.quantity_per_piece or 0) * (1.0 + float(row.waste_percent or 0) / 100.0) * item_cost
+
+    details = model.details_json or {}
+    costing = details.get("costing", {}) if isinstance(details, dict) else {}
+    labor_pct = float(costing.get("labor_pct") or 12)
+    electricity_pct = float(costing.get("electricity_pct") or 4)
+    other_pct = float(costing.get("other_pct") or 3)
+    return round(base_cost * (1.0 + (labor_pct + electricity_pct + other_pct) / 100.0), 2)
+
+
+def _pagination_payload(rows: list[dict], *, total: int, page: int, page_size: int) -> dict:
+    safe_page = max(1, int(page or 1))
+    safe_size = max(1, min(int(page_size or 50), 500))
+    return {"rows": rows, "total": int(total), "page": safe_page, "page_size": safe_size}
+
+
+def _collection_payload(c: Collection) -> dict:
+    return CollectionOut.model_validate(c).model_dump()
+
+
+def _is_preview_image(img: ModelImage) -> bool:
+    content_type = str(img.content_type or "").lower()
+    file_name = str(img.file_name or img.file_url or "").lower()
+    return content_type.startswith("image/") or file_name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"))
+
+
+def _image_payload(img: ModelImage) -> dict:
+    return ModelImageOut.model_validate(img).model_dump()
+
+
+def _model_payload(m: Model) -> dict:
+    payload = ModelOut.model_validate(m).model_dump()
+    images = list(m.images or [])
+    primary_image = next((img for img in images if img.is_primary and _is_preview_image(img)), None)
+    if not primary_image:
+        primary_image = next((img for img in images if _is_preview_image(img)), None)
+    primary_payload = _image_payload(primary_image) if primary_image else None
+    payload["primary_image"] = primary_payload
+    payload["primary_image_url"] = primary_payload["file_url"] if primary_payload else None
+    payload["image_count"] = len(images)
+    return payload
+
+
+def _models_query(db: DbSession):
+    return db.query(Model).options(selectinload(Model.images))
 
 
 # ===== Brands =====
@@ -54,21 +113,51 @@ def update_brand(bid: int, payload: BrandIn, db: DbSession, current: User = Depe
 
 
 # ===== Collections =====
-@router.get("/collections", response_model=list[CollectionOut])
-def list_collections(db: DbSession, _: CurrentUser, brand_id: int | None = None):
+@router.get("/collections")
+def list_collections(
+    db: DbSession,
+    _: CurrentUser,
+    brand_id: int | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    include_total: bool = False,
+):
     qry = db.query(Collection)
     if brand_id:
         qry = qry.filter(Collection.brand_id == brand_id)
-    return qry.order_by(Collection.id.desc()).all()
+    total = qry.count() if include_total else 0
+    qry = qry.order_by(Collection.id.desc())
+    if include_total:
+        safe_page = max(1, page)
+        safe_size = max(1, min(page_size, 500))
+        qry = qry.offset((safe_page - 1) * safe_size).limit(safe_size)
+    rows = [_collection_payload(c) for c in qry.all()]
+    if include_total:
+        return _pagination_payload(rows, total=total, page=page, page_size=page_size)
+    return rows
 
 
 @router.post("/collections", response_model=CollectionOut, status_code=201)
 def create_collection(payload: CollectionIn, db: DbSession, current: User = Depends(require_permissions("modeling.collections", "*"))):
+    if not payload.year:
+        raise HTTPException(400, "Year is required")
     c = Collection(**payload.model_dump())
     db.add(c); db.flush()
     log_action(db, current, "create", "Collection", c.id)
     db.commit(); db.refresh(c)
     return c
+
+
+@router.get("/collections/seasons")
+def list_collection_seasons(db: DbSession, _: CurrentUser):
+    rows = (
+        db.query(Collection.season)
+        .filter(Collection.season.isnot(None), Collection.season != "")
+        .group_by(Collection.season)
+        .order_by(Collection.season.asc())
+        .all()
+    )
+    return [season for (season,) in rows if season]
 
 
 @router.get("/collections/{cid}", response_model=CollectionOut)
@@ -82,7 +171,10 @@ def get_collection(cid: int, db: DbSession, _: CurrentUser):
 def update_collection(cid: int, payload: CollectionIn, db: DbSession, current: User = Depends(require_permissions("modeling.collections", "*"))):
     c = db.get(Collection, cid)
     if not c: raise HTTPException(404, "Collection not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    if "year" in data and not data["year"]:
+        raise HTTPException(400, "Year is required")
+    for k, v in data.items():
         setattr(c, k, v)
     log_action(db, current, "update", "Collection", c.id)
     db.commit(); db.refresh(c)
@@ -101,12 +193,29 @@ def add_model_to_collection(cid: int, model_id: int, db: DbSession, current: Use
 
 
 # ===== Models =====
-@router.get("/models", response_model=list[ModelOut])
-def list_models(db: DbSession, _: CurrentUser, status: str | None = None, q: str | None = None):
-    qry = db.query(Model)
+@router.get("/models")
+def list_models(
+    db: DbSession,
+    _: CurrentUser,
+    status: str | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    include_total: bool = False,
+):
+    qry = _models_query(db)
     if status: qry = qry.filter(Model.status == status)
     if q: qry = qry.filter((Model.name.ilike(f"%{q}%")) | (Model.code.ilike(f"%{q}%")))
-    return qry.order_by(Model.id.desc()).all()
+    total = qry.count() if include_total else 0
+    qry = qry.order_by(Model.id.desc())
+    if include_total:
+        safe_page = max(1, page)
+        safe_size = max(1, min(page_size, 500))
+        qry = qry.offset((safe_page - 1) * safe_size).limit(safe_size)
+    rows = [_model_payload(m) for m in qry.all()]
+    if include_total:
+        return _pagination_payload(rows, total=total, page=page, page_size=page_size)
+    return rows
 
 
 @router.post("/models", response_model=ModelOut, status_code=201)
@@ -125,6 +234,32 @@ def get_model(mid: int, db: DbSession, _: CurrentUser):
     m = db.get(Model, mid)
     if not m: raise HTTPException(404, "Model not found")
     return m
+
+
+@router.get("/models/{mid}/variants")
+def list_model_variants(mid: int, db: DbSession, _: CurrentUser):
+    """Return color/size variants for a model with estimated net cost per piece."""
+    m = db.query(Model).filter(Model.id == mid).first()
+    if not m:
+        raise HTTPException(404, "Model not found")
+
+    rows: list[dict] = []
+    cost_pc = _estimate_variant_net_cost_pc(db, m)
+    index = 1
+    colors = [c.color_name for c in (m.colors or [])]
+    sizes = [s.size for s in (m.sizes or [])]
+    for color in colors:
+        for size in sizes:
+            rows.append(
+                {
+                    "id": index,
+                    "color": color,
+                    "size": size,
+                    "estimated_net_cost_pc": cost_pc,
+                }
+            )
+            index += 1
+    return rows
 
 
 @router.patch("/models/{mid}", response_model=ModelOut)
@@ -154,7 +289,10 @@ def approve_model(mid: int, db: DbSession, current: User = Depends(require_permi
 def add_image(mid: int, payload: ModelImageIn, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
     if not db.get(Model, mid): raise HTTPException(404, "Model not found")
     img = ModelImage(model_id=mid, **payload.model_dump())
-    db.add(img); db.commit(); db.refresh(img)
+    db.add(img)
+    db.flush()
+    log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": img.file_url})
+    db.commit(); db.refresh(img)
     return {"id": img.id}
 
 
@@ -168,20 +306,26 @@ async def upload_image(
     if not db.get(Model, mid):
         raise HTTPException(404, "Model not found")
     ext = Path(file.filename or "").suffix.lower()
-    if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
-        raise HTTPException(400, "Unsupported image type")
+    if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".dxf", ".ai", ".svg"}:
+        raise HTTPException(400, "Unsupported pattern file type")
     os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
     safe_name = f"model_{mid}_{uuid4().hex}{ext}"
     abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
     content = await file.read()
     if len(content) == 0:
         raise HTTPException(400, "Empty file")
-    if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(400, "File too large (max 10MB)")
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 20MB)")
     with open(abs_path, "wb") as f:
         f.write(content)
     file_url = f"/storage/model-files/{safe_name}"
-    img = ModelImage(model_id=mid, file_url=file_url, is_primary=False)
+    img = ModelImage(
+        model_id=mid,
+        file_url=file_url,
+        file_name=file.filename or safe_name,
+        content_type=file.content_type,
+        is_primary=False,
+    )
     db.add(img)
     db.flush()
     log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": file_url})
@@ -189,12 +333,41 @@ async def upload_image(
     return {"id": img.id, "file_url": file_url}
 
 
+@router.delete("/models/{mid}/images/{image_id}", status_code=204)
+def delete_image(
+    mid: int,
+    image_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.models", "*")),
+):
+    img = db.query(ModelImage).filter(ModelImage.id == image_id, ModelImage.model_id == mid).first()
+    if not img:
+        raise HTTPException(404, "Pattern file not found")
+    file_url = img.file_url
+    db.delete(img)
+    log_action(db, current, "delete", "ModelImage", image_id, new_value={"model_id": mid, "file_url": file_url})
+    db.commit()
+
+
 @router.post("/models/{mid}/sizes", status_code=201)
 def add_size(mid: int, payload: ModelSizeIn, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
     if not db.get(Model, mid): raise HTTPException(404, "Model not found")
     s = ModelSize(model_id=mid, **payload.model_dump())
-    db.add(s); db.commit(); db.refresh(s)
+    db.add(s)
+    db.flush()
+    log_action(db, current, "create", "ModelSize", s.id, new_value={"model_id": mid, "size": s.size})
+    db.commit(); db.refresh(s)
     return {"id": s.id}
+
+
+@router.delete("/models/{mid}/sizes/{size_id}", status_code=204)
+def delete_size(mid: int, size_id: int, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
+    s = db.query(ModelSize).filter(ModelSize.id == size_id, ModelSize.model_id == mid).first()
+    if not s:
+        raise HTTPException(404, "Size not found")
+    db.delete(s)
+    log_action(db, current, "delete", "ModelSize", size_id, new_value={"model_id": mid, "size": s.size})
+    db.commit()
 
 
 @router.post("/models/{mid}/colors", status_code=201)

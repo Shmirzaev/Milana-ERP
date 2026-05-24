@@ -3,6 +3,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
@@ -32,12 +33,16 @@ export default function SewingPage() {
   const { t } = useT();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  const { data: wo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
+  const { data: wo, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
   const { data: po } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
   const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
   const { data: flows = [] } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
   const { data: assignments = [], mutate: mutateAssignments } = useSWR<Assignment[]>(wo ? `/api/work-orders/${id}/assignments` : null, fetcher);
+  const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
+    wo ? `/api/work-orders/${id}/sewing-batch-progress` : null,
+    fetcher,
+  );
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
   const lineOptions = useMemo<LineOption[]>(() => {
@@ -78,9 +83,9 @@ export default function SewingPage() {
     return [];
   }, [assignments, flows, wo?.sewing_flow_id]);
   const [f, setF] = useState<{
+    production_batch_id: number;
     input_qty: number;
     sewn_qty: number;
-    passed_qty: number;
     failed_qty: number;
     rework_qty: number;
     rejected_qty: number;
@@ -89,9 +94,9 @@ export default function SewingPage() {
     defect_reason: string;
     notes: string;
   }>({
+    production_batch_id: 0,
     input_qty: 0,
     sewn_qty: 0,
-    passed_qty: 0,
     failed_qty: 0,
     rework_qty: 0,
     rejected_qty: 0,
@@ -101,6 +106,8 @@ export default function SewingPage() {
     notes: "",
   });
   const [msg, setMsg] = useState("");
+  const isAlreadyBatched = Array.isArray(po?.batches) && po.batches.length > 0;
+  const batchItems = Array.isArray(batchProgress?.items) ? batchProgress.items : [];
   const selectedLine = useMemo(
     () => lineOptions.find((opt) => opt.assignmentId === f.sewing_assignment_id && opt.lineName === f.line_name),
     [lineOptions, f.line_name, f.sewing_assignment_id],
@@ -114,16 +121,35 @@ export default function SewingPage() {
     setF((prev) => ({ ...prev, line_name: next.lineName, sewing_assignment_id: next.assignmentId }));
   }, [lineOptions, f.sewing_assignment_id, f.line_name]);
 
+  useEffect(() => {
+    if (!isAlreadyBatched || !Array.isArray(po?.batches) || po.batches.length === 0) return;
+    setF((prev) => {
+      if (prev.production_batch_id) return prev;
+      return { ...prev, production_batch_id: Number(po.batches[0].id || 0) };
+    });
+  }, [isAlreadyBatched, po?.batches]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (isAlreadyBatched && !f.production_batch_id) {
+      setMsg("Select a batch before saving the sewing record.");
+      return;
+    }
     try {
-      await api.post("/api/sewing/records", { work_order_id: id, ...f });
+      const outputQty = Math.max(0, Number(f.sewn_qty || 0));
+      await api.post("/api/sewing/records", {
+        work_order_id: id,
+        ...f,
+        passed_qty: outputQty,
+        production_batch_id: f.production_batch_id || null,
+      });
       mutateAssignments();
+      mutateBatchProgress();
+      mutateWo();
       setF((prev) => ({
         ...prev,
         input_qty: 0,
         sewn_qty: 0,
-        passed_qty: 0,
         failed_qty: 0,
         rework_qty: 0,
         rejected_qty: 0,
@@ -195,7 +221,66 @@ export default function SewingPage() {
           </div>
         )}
       </div>
+      {isAlreadyBatched && (
+        <div className="card mb-4 p-4">
+          <div className="mb-2 text-base font-semibold">Batches Managed Inside This Work Order</div>
+          <div className="mb-3 text-sm text-slate-600">
+            Record each sewing action against a batch below. This order stays as one WO.
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table text-sm">
+              <thead>
+                <tr>
+                  <th>Batch</th>
+                  <th>Planned</th>
+                  <th>Output</th>
+                  <th>Failed</th>
+                  <th>Remaining</th>
+                  <th>Progress</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batchItems.map((row: any) => (
+                  <tr key={row.id}>
+                    <td>
+                      <div className="font-medium">{formatBatchLabel(row, po?.id)}</div>
+                      <div className="text-xs text-slate-500">{formatBatchSerial(row, po?.id)}</div>
+                    </td>
+                    <td>{row.planned_quantity}</td>
+                    <td>{row.passed_qty}</td>
+                    <td>{row.failed_qty}</td>
+                    <td>{row.remaining_quantity}</td>
+                    <td>{row.progress_pct}%</td>
+                  </tr>
+                ))}
+                {batchItems.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="text-slate-500">No batch progress yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <form onSubmit={submit} className="card max-w-2xl space-y-3 p-6">
+        {isAlreadyBatched && (
+          <div>
+            <label className="label">Order batch</label>
+            <select
+              className="input"
+              value={f.production_batch_id}
+              onChange={(e) => setF({ ...f, production_batch_id: Number(e.target.value) })}
+            >
+              <option value={0}>Select batch</option>
+              {(po?.batches || []).map((b: any) => (
+                <option key={b.id} value={b.id}>
+                  {formatBatchLabel(b, po?.id)} ({b.planned_quantity})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="label">{t("field.inputQty")}</label>
           <input className="input" type="number" value={f.input_qty} onChange={(e) => setF({ ...f, input_qty: Number(e.target.value) })} />
@@ -203,10 +288,6 @@ export default function SewingPage() {
         <div>
           <label className="label">{t("field.output")}</label>
           <input className="input" type="number" value={f.sewn_qty} onChange={(e) => setF({ ...f, sewn_qty: Number(e.target.value) })} />
-        </div>
-        <div>
-          <label className="label">{t("field.passed")}</label>
-          <input className="input" type="number" value={f.passed_qty} onChange={(e) => setF({ ...f, passed_qty: Number(e.target.value) })} />
         </div>
         <div>
           <label className="label">{t("field.failed")}</label>

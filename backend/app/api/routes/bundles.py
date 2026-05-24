@@ -1,33 +1,66 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
+import base64
+import os
 
+from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.models import Bundle, Model, ProductionOrder, User
 from app.schemas.tracking import BundleIn, BundleOut, BundleDetail
 from app.services.bundles import (
     create_bundle, send_to_printing, receive_at_printing, send_to_sewing, receive_at_sewing,
 )
+from app.services.barcode import save_qr_image
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/bundles", tags=["bundles"])
 
 
-@router.get("", response_model=list[BundleOut])
+def _qr_data_uri_for_bundle(db: DbSession, b: Bundle) -> str:
+    qr_rel = (b.qr_code_url or "").strip()
+    qr_path = ""
+    if qr_rel.startswith("/storage/barcodes/"):
+        fname = qr_rel.split("/storage/barcodes/", 1)[1]
+        qr_path = os.path.join(settings.BARCODE_STORAGE_DIR, fname)
+
+    if not qr_path or not os.path.isfile(qr_path):
+        payload = f"BUNDLE:{b.bundle_no}|{b.barcode}"
+        qr_rel = save_qr_image(payload, f"bundle_qr_{b.bundle_no}")
+        if b.qr_code_url != qr_rel:
+            b.qr_code_url = qr_rel
+            db.add(b)
+            db.commit()
+            db.refresh(b)
+        fname = qr_rel.split("/storage/barcodes/", 1)[1]
+        qr_path = os.path.join(settings.BARCODE_STORAGE_DIR, fname)
+
+    with open(qr_path, "rb") as fh:
+        png = fh.read()
+    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
+@router.get("")
 def list_bundles(db: DbSession, _: CurrentUser,
                  production_order_id: int | None = None, status: str | None = None,
-                 model_id: int | None = None, page: int = 1, page_size: int = 100):
+                 model_id: int | None = None, page: int = 1, page_size: int = 50,
+                 include_total: bool = False):
     qry = db.query(Bundle, ProductionOrder.production_no).outerjoin(
         ProductionOrder, Bundle.production_order_id == ProductionOrder.id
     )
     if production_order_id: qry = qry.filter(Bundle.production_order_id == production_order_id)
     if status: qry = qry.filter(Bundle.status == status)
     if model_id: qry = qry.filter(Bundle.model_id == model_id)
-    rows = qry.order_by(Bundle.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    total = qry.count() if include_total else 0
+    safe_page = max(1, page)
+    safe_size = max(1, min(page_size, 500))
+    rows = qry.order_by(Bundle.id.desc()).offset((safe_page - 1) * safe_size).limit(safe_size).all()
     out: list[dict] = []
     for bundle, production_no in rows:
         row = BundleOut.model_validate(bundle).model_dump()
         row["production_no"] = production_no
         out.append(row)
+    if include_total:
+        return {"rows": out, "total": total, "page": safe_page, "page_size": safe_size}
     return out
 
 
@@ -135,7 +168,7 @@ def bundle_label(bid: int, db: DbSession, _: CurrentUser):
     b = db.get(Bundle, bid)
     if not b: raise HTTPException(404, "Bundle not found")
     model = db.get(Model, b.model_id)
-    qr = b.qr_code_url or ""
+    qr = _qr_data_uri_for_bundle(db, b)
     return f"""<!doctype html>
 <html><head><title>Bundle Label {b.bundle_no}</title>
 <style>body{{font-family:Arial;margin:0;padding:8mm}} .label{{border:1px solid #000;padding:6mm;width:80mm}} .row{{display:flex;justify-content:space-between;font-size:10pt}} img{{max-width:32mm}} h2{{margin:0 0 4mm 0;font-size:14pt}}@media print{{body{{margin:0}}}}</style></head>

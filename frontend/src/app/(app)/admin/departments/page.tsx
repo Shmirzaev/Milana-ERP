@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { Pencil, Trash2, X, Check } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { useT } from "@/lib/i18n";
 
 type Department = { id: number; name: string; code: string };
@@ -18,6 +19,7 @@ export default function DepartmentsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [edit, setEdit] = useState({ name: "", code: "" });
   const [msg, setMsg] = useState("");
+  const [deleting, setDeleting] = useState<Department | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,12 +53,17 @@ export default function DepartmentsPage() {
     }
   }
 
-  async function removeDepartment(d: Department) {
-    if (!confirm(t("departments.deleteConfirm", { code: d.code, name: d.name }))) return;
+  function removeDepartment(d: Department) {
+    setDeleting(d);
+  }
+
+  async function confirmRemoveDepartment() {
+    if (!deleting) return;
     setMsg("");
     try {
-      await api.del(`/api/departments/${d.id}`);
-      if (editingId === d.id) setEditingId(null);
+      await api.del(`/api/departments/${deleting.id}`);
+      if (editingId === deleting.id) setEditingId(null);
+      setDeleting(null);
       mutate();
     } catch (e: any) {
       setMsg(e.message || t("departments.deleteFailed"));
@@ -143,6 +150,13 @@ export default function DepartmentsPage() {
           </tbody>
         </table>
       </div>
+      <ConfirmDialog
+        isOpen={!!deleting}
+        title="Confirm delete"
+        message={deleting ? `Are you sure you want to delete department ${deleting.code} (${deleting.name})? This action cannot be undone.` : ""}
+        onConfirm={confirmRemoveDepartment}
+        onCancel={() => setDeleting(null)}
+      />
     </div>
   );
 }

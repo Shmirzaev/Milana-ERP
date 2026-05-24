@@ -3,22 +3,65 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+
+type PackagePlanItem = { model_id: number; color: string; size: string; quantity: number };
+
+function allocateDemandBySize(items: Array<{ size: string; planned_quantity: number }>, targetQty: number) {
+  const target = Math.max(0, Math.floor(Number(targetQty || 0)));
+  const total = items.reduce((s, it) => s + Math.max(0, Number(it.planned_quantity || 0)), 0);
+  if (target <= 0 || total <= 0) {
+    return items.map((it) => ({ ...it, planned_quantity: 0 }));
+  }
+  if (target >= total) return items;
+
+  const shares = items.map((it, index) => {
+    const planned = Math.max(0, Number(it.planned_quantity || 0));
+    const exact = (target * planned) / total;
+    const base = Math.floor(exact);
+    return { index, size: it.size, planned_quantity: base, remainder: exact - base };
+  });
+  let used = shares.reduce((s, it) => s + it.planned_quantity, 0);
+  let left = target - used;
+  const ranked = [...shares].sort((a, b) => b.remainder - a.remainder);
+  let idx = 0;
+  while (left > 0 && ranked.length > 0) {
+    ranked[idx % ranked.length].planned_quantity += 1;
+    left -= 1;
+    idx += 1;
+  }
+
+  return shares
+    .sort((a, b) => a.index - b.index)
+    .map(({ size, planned_quantity }) => ({ size, planned_quantity }));
+}
 
 export default function PackagingPage() {
   const { t } = useT();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  const { data: wo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
+  const { data: wo, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
   const { data: po } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
+  const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
+    wo ? `/api/work-orders/${id}/packaging-batch-progress` : null,
+    fetcher,
+  );
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
   const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
-  const [rec, setRec] = useState({ input_qty: 0, packed_qty: 0, damaged_qty: 0, packaging_material_used: "", notes: "" });
+  const [rec, setRec] = useState({
+    production_batch_id: 0,
+    input_qty: 0,
+    packed_qty: 0,
+    damaged_qty: 0,
+    packaging_material_used: "",
+    notes: "",
+  });
   const [pkgItems, setPkgItems] = useState<{ size: string; quantity: number }[]>([{ size: "M", quantity: 60 }]);
   const [overrideCap, setOverrideCap] = useState(false);
   const [capacity, setCapacity] = useState(60);
@@ -29,8 +72,14 @@ export default function PackagingPage() {
   const [pkgNotice, setPkgNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [pkg, setPkg] = useState<any>(null);
+  const isAlreadyBatched = Array.isArray(po?.batches) && po.batches.length > 0;
+  const batchItems = Array.isArray(batchProgress?.items) ? batchProgress.items : [];
+  const selectedBatchProgress = useMemo(() => {
+    const selectedId = Number(rec.production_batch_id || 0);
+    return batchItems.find((row: any) => Number(row?.id || 0) === selectedId) || null;
+  }, [batchItems, rec.production_batch_id]);
 
-  const colorOrderItems = useMemo(() => {
+  const orderColorItems = useMemo(() => {
     const allItems = po?.items || [];
     const rows = allItems.filter((it: any) => String(it?.color || "").toLowerCase() === String(color || "").toLowerCase());
     const source = rows.length > 0 ? rows : allItems;
@@ -42,6 +91,33 @@ export default function PackagingPage() {
     }
     return Array.from(bySize.entries()).map(([size, planned_quantity]) => ({ size, planned_quantity }));
   }, [po?.items, color]);
+
+  const totalOrderColorQty = useMemo(
+    () => orderColorItems.reduce((s: number, it: any) => s + Number(it?.planned_quantity || 0), 0),
+    [orderColorItems],
+  );
+
+  const packageableColorQty = useMemo(() => {
+    const packedQty = isAlreadyBatched
+      ? selectedBatchProgress
+        ? Number(selectedBatchProgress.packed_qty || 0)
+        : Number(rec.packed_qty || 0)
+      : Number(wo?.passed_qty || wo?.actual_output_qty || rec.packed_qty || 0);
+    if (packedQty <= 0) return totalOrderColorQty;
+    return totalOrderColorQty > 0 ? Math.min(totalOrderColorQty, packedQty) : packedQty;
+  }, [
+    isAlreadyBatched,
+    rec.packed_qty,
+    selectedBatchProgress?.packed_qty,
+    totalOrderColorQty,
+    wo?.actual_output_qty,
+    wo?.passed_qty,
+  ]);
+
+  const colorOrderItems = useMemo(
+    () => allocateDemandBySize(orderColorItems, packageableColorQty),
+    [orderColorItems, packageableColorQty],
+  );
 
   const totalColorQty = useMemo(
     () => colorOrderItems.reduce((s: number, it: any) => s + Number(it?.planned_quantity || 0), 0),
@@ -192,6 +268,37 @@ export default function PackagingPage() {
     };
   }, [pkgItems, colorOrderItems, copies]);
 
+  const basePackageItems = useMemo<PackagePlanItem[]>(() => (
+    pkgItems
+      .map((i) => ({
+        model_id: Number(po?.model_id || 0),
+        color,
+        size: String(i.size || "").trim(),
+        quantity: Math.max(0, Number(i.quantity || 0)),
+      }))
+      .filter((i) => i.model_id > 0 && i.size && i.quantity > 0)
+  ), [color, pkgItems, po?.model_id]);
+
+  const packagePlans = useMemo<PackagePlanItem[][]>(() => {
+    const plans: PackagePlanItem[][] = [];
+    for (let i = 0; i < packingPreview.fullCount; i += 1) {
+      plans.push(basePackageItems);
+    }
+    for (const partial of packingPreview.partialPackages) {
+      const items = partial.items
+        .map((i) => ({
+          model_id: Number(po?.model_id || 0),
+          color,
+          size: String(i.size || "").trim(),
+          quantity: Math.max(0, Number(i.qty || 0)),
+        }))
+        .filter((i) => i.model_id > 0 && i.size && i.quantity > 0);
+      if (items.length > 0) plans.push(items);
+    }
+    if (plans.length === 0 && basePackageItems.length > 0) plans.push(basePackageItems);
+    return plans;
+  }, [basePackageItems, color, packingPreview.fullCount, packingPreview.partialPackages, po?.model_id]);
+
   useEffect(() => {
     setPkgItems(autoPackageItems);
   }, [autoPackageItems]);
@@ -200,11 +307,29 @@ export default function PackagingPage() {
     if (!copiesTouched) setCopies(suggestedCopies);
   }, [copiesTouched, suggestedCopies]);
 
+  useEffect(() => {
+    if (!isAlreadyBatched || !Array.isArray(po?.batches) || po.batches.length === 0) return;
+    setRec((prev) => {
+      if (prev.production_batch_id) return prev;
+      return { ...prev, production_batch_id: Number(po.batches[0].id || 0) };
+    });
+  }, [isAlreadyBatched, po?.batches]);
+
   async function submitRec(e: React.FormEvent) {
     e.preventDefault();
     setRecMsg("");
+    if (isAlreadyBatched && !rec.production_batch_id) {
+      setRecMsg("Select a batch before saving the packaging record.");
+      return;
+    }
     try {
-      await api.post("/api/packaging/records", { work_order_id: id, ...rec });
+      await api.post("/api/packaging/records", {
+        work_order_id: id,
+        ...rec,
+        production_batch_id: rec.production_batch_id || null,
+      });
+      mutateBatchProgress();
+      mutateWo();
       setRecMsg(t("msg.saved"));
     } catch (e: any) {
       setRecMsg(e.message);
@@ -216,7 +341,7 @@ export default function PackagingPage() {
     setPkgNotice(null);
     setIsCreating(true);
     try {
-      const payload = {
+      const payloadBase = {
         production_order_id: wo?.production_order_id,
         sales_order_id: po?.sales_order_id || null,
         model_id: po?.model_id,
@@ -224,12 +349,17 @@ export default function PackagingPage() {
         package_type: "bag",
         capacity,
         override_capacity: overrideCap,
-        items: pkgItems.map((i) => ({ model_id: po?.model_id, color, size: i.size, quantity: i.quantity })),
+        production_batch_id: rec.production_batch_id || null,
       };
-      if (copies > 1) {
-        const r = await api.post("/api/packages/bulk", { ...payload, count: copies });
+      if (packagePlans.length === 0) {
+        throw new Error("No package items to create.");
+      }
+
+      const hasPartialPackage = packingPreview.partialPackages.some((p) => p.total > 0);
+      if (packagePlans.length > 1 && !hasPartialPackage) {
+        const r = await api.post("/api/packages/bulk", { ...payloadBase, items: packagePlans[0], count: packagePlans.length });
         setPkg({ id: r.package_ids?.[0], package_no: r.package_nos?.[0], barcode: "bulk" });
-        const createdCount = Number(r?.count || copies || 0);
+        const createdCount = Number(r?.count || packagePlans.length || 0);
         const firstPackageNo = r?.package_nos?.[0];
         setPkgNotice({
           type: "success",
@@ -241,12 +371,22 @@ export default function PackagingPage() {
           await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${r.package_ids.join(",")}`);
         }
       } else {
-        const r = await api.post("/api/packages", payload);
-        setPkg(r);
+        const created = [];
+        for (const items of packagePlans) {
+          created.push(await api.post("/api/packages", { ...payloadBase, items }));
+        }
+        const r = created[0];
+        setPkg(packagePlans.length > 1 ? { id: r?.id, package_no: r?.package_no, barcode: "bulk" } : r);
         setPkgNotice({
           type: "success",
-          text: t("page.packaging.singleCreated", { no: r?.package_no || "#" }),
+          text: packagePlans.length > 1
+            ? t("page.packaging.bulkCreatedWithFirst", { count: created.length, no: r?.package_no || "#" })
+            : t("page.packaging.singleCreated", { no: r?.package_no || "#" }),
         });
+        const ids = created.map((p) => p?.id).filter(Boolean);
+        if (ids.length > 1) {
+          await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${ids.join(",")}`);
+        }
       }
     } catch (e: any) {
       setPkgNotice({ type: "error", text: e?.message || t("page.packaging.createFailed") });
@@ -314,7 +454,69 @@ export default function PackagingPage() {
           </div>
         )}
       </div>
+      {isAlreadyBatched && (
+        <div className="card mb-4 p-4">
+          <div className="mb-2 text-base font-semibold">Batches Managed Inside This Work Order</div>
+          <div className="mb-3 text-sm text-slate-600">
+            Record each packaging action against a batch below. This order stays as one WO.
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table text-sm">
+              <thead>
+                <tr>
+                  <th>Batch</th>
+                  <th>Planned</th>
+                  <th>Packed</th>
+                  <th>Damaged</th>
+                  <th>Remaining</th>
+                  <th>Progress</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batchItems.map((row: any) => (
+                  <tr key={row.id}>
+                    <td>
+                      <div className="font-medium">{formatBatchLabel(row, po?.id)}</div>
+                      <div className="text-xs text-slate-500">{formatBatchSerial(row, po?.id)}</div>
+                    </td>
+                    <td>{row.planned_quantity}</td>
+                    <td>{row.packed_qty}</td>
+                    <td>{row.damaged_qty}</td>
+                    <td>{row.remaining_quantity}</td>
+                    <td>{row.progress_pct}%</td>
+                  </tr>
+                ))}
+                {batchItems.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="text-slate-500">No batch progress yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <form onSubmit={submitRec} className="card mb-6 max-w-2xl space-y-3 p-6">
+        {isAlreadyBatched && (
+          <div>
+            <label className="label">Order batch</label>
+            <select
+              className="input"
+              value={rec.production_batch_id}
+              onChange={(e) => {
+                setRec({ ...rec, production_batch_id: Number(e.target.value) });
+                setCopiesTouched(false);
+              }}
+            >
+              <option value={0}>Select batch</option>
+              {(po?.batches || []).map((b: any) => (
+                <option key={b.id} value={b.id}>
+                  {formatBatchLabel(b, po?.id)} ({b.planned_quantity})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="label">{t("field.inputQty")}</label>
           <input className="input" type="number" value={rec.input_qty} onChange={(e) => setRec({ ...rec, input_qty: Number(e.target.value) })} />
@@ -392,7 +594,7 @@ export default function PackagingPage() {
           <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 
           <button className="btn btn-primary" disabled={isCreating}>
-            {isCreating ? t("common.creating") : copies > 1 ? t("page.packaging.createCopies", { count: copies }) : t("btn.createPackage")}
+            {isCreating ? t("common.creating") : packagePlans.length > 1 ? t("page.packaging.createCopies", { count: packagePlans.length }) : t("btn.createPackage")}
           </button>
           {pkgNotice && (
             <div

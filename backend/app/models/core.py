@@ -63,3 +63,9 @@ class Notification(Base, PkMixin):
     link: Mapped[str | None] = mapped_column(String(512))
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class SystemSetting(Base, PkMixin, TimestampMixin):
+    __tablename__ = "system_settings"
+    key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    value_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)

@@ -4,17 +4,25 @@ import { Fragment, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import PaginationControls from "@/components/PaginationControls";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
 export default function BundlesPage() {
   const { t } = useT();
-  const { data } = useSWR<any[]>("/api/bundles", fetcher);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const { data: pageData } = useSWR<any>(`/api/bundles?include_total=true&page=${page}&page_size=${pageSize}`, fetcher);
+  const data: any[] = pageData?.rows || [];
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const visibleBundles = useMemo(
+    () => (data || []).filter((b) => String(b?.status || "") !== "received_sewing"),
+    [data],
+  );
 
   const grouped = useMemo(() => {
     const map = new Map<string, { key: string; items: any[]; totalQty: number }>();
-    for (const b of data || []) {
+    for (const b of visibleBundles) {
       const key = b.production_no || `PO-${b.production_order_id}`;
       const group = map.get(key);
       if (group) {
@@ -25,7 +33,7 @@ export default function BundlesPage() {
       }
     }
     return Array.from(map.values());
-  }, [data]);
+  }, [visibleBundles]);
 
   function toggleGroup(key: string) {
     setOpenGroups((prev) => {
@@ -92,6 +100,14 @@ export default function BundlesPage() {
             })}
           </tbody>
         </table>
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          total={Number(pageData?.total || data.length)}
+          count={data.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
       </div>
     </div>
   );

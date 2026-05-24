@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric, JSON
+from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -61,6 +61,12 @@ class Shipment(Base, PkMixin, TimestampMixin):
     notes: Mapped[str | None] = mapped_column(Text)
 
     packages: Mapped[list["ShipmentPackage"]] = relationship("ShipmentPackage", back_populates="shipment", cascade="all, delete-orphan")
+    scan_logs: Mapped[list["ShipmentScanLog"]] = relationship(
+        "ShipmentScanLog",
+        back_populates="shipment",
+        cascade="all, delete-orphan",
+        order_by="ShipmentScanLog.scanned_at",
+    )
 
 
 class ShipmentPackage(Base, PkMixin, TimestampMixin):
@@ -70,6 +76,19 @@ class ShipmentPackage(Base, PkMixin, TimestampMixin):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
 
     shipment: Mapped["Shipment"] = relationship("Shipment", back_populates="packages")
+
+
+class ShipmentScanLog(Base, PkMixin):
+    __tablename__ = "shipment_scan_logs"
+    shipment_id: Mapped[int] = mapped_column(ForeignKey("shipments.id"), nullable=False, index=True)
+    package_id: Mapped[int | None] = mapped_column(ForeignKey("packages.id"), index=True)
+    scanned_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    scan_result: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str | None] = mapped_column(Text)
+    scanned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    shipment: Mapped["Shipment"] = relationship("Shipment", back_populates="scan_logs")
 
 
 class Invoice(Base, PkMixin, TimestampMixin):

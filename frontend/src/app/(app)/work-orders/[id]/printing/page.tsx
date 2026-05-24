@@ -3,6 +3,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import { statusLabel } from "@/components/StagePipeline";
 import PageHeader from "@/components/PageHeader";
 import { can, useMe } from "@/lib/auth";
@@ -16,12 +17,24 @@ export default function PrintingPage() {
   const id = Number(params.id);
   const { me } = useMe();
   const canCollect = can(me, "*", "printing.records", "planning.production");
-  const [f, setF] = useState({ input_qty: 0, printed_qty: 0, passed_qty: 0, rejected_qty: 0, defect_reason: "", print_type: "", notes: "" });
+  const [f, setF] = useState({
+    production_batch_id: 0,
+    input_qty: 0,
+    printed_qty: 0,
+    rejected_qty: 0,
+    defect_reason: "",
+    print_type: "",
+    notes: "",
+  });
   const [msg, setMsg] = useState("");
   const [collectBusy, setCollectBusy] = useState(false);
   const [collect, setCollect] = useState({ deadline: "", notes: "" });
   const { data: wo, mutate: mutateWo } = useSWR<any>(Number.isFinite(id) ? `/api/work-orders/${id}` : null, fetcher);
   const { data: po } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
+  const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
+    wo ? `/api/work-orders/${id}/printing-batch-progress` : null,
+    fetcher,
+  );
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
   const { data: customers } = useSWR<any[]>(so?.customer_id ? "/api/customers" : null, fetcher);
   const { data: models } = useSWR<any[]>((so?.items?.length ?? 0) > 0 ? "/api/models" : null, fetcher);
@@ -34,11 +47,21 @@ export default function PrintingPage() {
   const needsCollection = ["new", "planning", "waiting", "ready", "pending", "paused"].includes(woStatus);
   const canCollectNow = canCollect && ["new", "planning", "waiting", "ready", "pending", "paused", "collected"].includes(woStatus);
   const canRecordNow = woStatus === "in_progress";
+  const isAlreadyBatched = Array.isArray(po?.batches) && po.batches.length > 0;
+  const batchItems = Array.isArray(batchProgress?.items) ? batchProgress.items : [];
 
   useEffect(() => {
     if (!wo?.deadline || collect.deadline) return;
     setCollect((prev) => ({ ...prev, deadline: String(wo.deadline).slice(0, 10) }));
   }, [wo?.deadline, collect.deadline]);
+
+  useEffect(() => {
+    if (!isAlreadyBatched || !Array.isArray(po?.batches) || po.batches.length === 0) return;
+    setF((prev) => {
+      if (prev.production_batch_id) return prev;
+      return { ...prev, production_batch_id: Number(po.batches[0].id || 0) };
+    });
+  }, [isAlreadyBatched, po?.batches]);
 
   function isImageAttachment(a: PrintingAttachment): boolean {
     const byMime = (a.content_type || "").toLowerCase().startsWith("image/");
@@ -53,9 +76,20 @@ export default function PrintingPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (isAlreadyBatched && !f.production_batch_id) {
+      setMsg("Select a batch before saving the printing record.");
+      return;
+    }
     try {
-      await api.post("/api/printing/records", { work_order_id: id, ...f });
+      const outputQty = Math.max(0, Number(f.printed_qty || 0));
+      await api.post("/api/printing/records", {
+        work_order_id: id,
+        ...f,
+        passed_qty: outputQty,
+        production_batch_id: f.production_batch_id || null,
+      });
       mutateWo();
+      mutateBatchProgress();
       setMsg(t("msg.saved"));
     } catch (e: any) {
       setMsg(e.message);
@@ -183,8 +217,67 @@ export default function PrintingPage() {
           )}
         </div>
       )}
+      {isAlreadyBatched && (
+        <div className="card mb-4 p-4">
+          <div className="mb-2 text-base font-semibold">Batches Managed Inside This Work Order</div>
+          <div className="mb-3 text-sm text-slate-600">
+            Record each printing action against a batch below. This order stays as one WO.
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table text-sm">
+              <thead>
+                <tr>
+                  <th>Batch</th>
+                  <th>Planned</th>
+                  <th>Output</th>
+                  <th>Rejected</th>
+                  <th>Remaining</th>
+                  <th>Progress</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batchItems.map((row: any) => (
+                  <tr key={row.id}>
+                    <td>
+                      <div className="font-medium">{formatBatchLabel(row, po?.id)}</div>
+                      <div className="text-xs text-slate-500">{formatBatchSerial(row, po?.id)}</div>
+                    </td>
+                    <td>{row.planned_quantity}</td>
+                    <td>{row.passed_qty}</td>
+                    <td>{row.rejected_qty}</td>
+                    <td>{row.remaining_quantity}</td>
+                    <td>{row.progress_pct}%</td>
+                  </tr>
+                ))}
+                {batchItems.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="text-slate-500">No batch progress yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {canRecordNow ? (
         <form onSubmit={submit} className="card max-w-2xl space-y-3 p-6">
+          {isAlreadyBatched && (
+            <div>
+              <label className="label">Order batch</label>
+              <select
+                className="input"
+                value={f.production_batch_id}
+                onChange={(e) => setF({ ...f, production_batch_id: Number(e.target.value) })}
+              >
+                <option value={0}>Select batch</option>
+                {(po?.batches || []).map((b: any) => (
+                  <option key={b.id} value={b.id}>
+                    {formatBatchLabel(b, po?.id)} ({b.planned_quantity})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="label">{t("field.inputQty")}</label>
             <input className="input" type="number" value={f.input_qty} onChange={(e) => setF({ ...f, input_qty: Number(e.target.value) })} />
@@ -192,10 +285,6 @@ export default function PrintingPage() {
           <div>
             <label className="label">{t("field.output")}</label>
             <input className="input" type="number" value={f.printed_qty} onChange={(e) => setF({ ...f, printed_qty: Number(e.target.value) })} />
-          </div>
-          <div>
-            <label className="label">{t("field.passed")}</label>
-            <input className="input" type="number" value={f.passed_qty} onChange={(e) => setF({ ...f, passed_qty: Number(e.target.value) })} />
           </div>
           <div>
             <label className="label">{t("field.rejected")}</label>

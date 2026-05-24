@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Query
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -11,6 +11,7 @@ from app.services.finance_1c import sync_from_1c
 from app.services.numbering import next_invoice_no
 from app.services.finance import (
     dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
+    list_recent_invoices, revenue_by_period, cost_breakdown,
 )
 
 router = APIRouter(prefix="/finance", tags=["finance"])
@@ -36,14 +37,42 @@ def get_waste(db: DbSession, _: User = Depends(require_permissions("finance.view
     return {"cost": waste_cost(db), "income": waste_income(db)}
 
 
+@router.get("/invoices")
+def list_invoices(
+    db: DbSession,
+    _: User = Depends(require_permissions("finance.view", "*")),
+    limit: int = 50,
+):
+    return list_recent_invoices(db, limit=limit)
+
+
+@router.get("/revenue-by-period")
+def get_revenue_by_period(
+    db: DbSession,
+    _: User = Depends(require_permissions("finance.view", "*")),
+    from_dt: datetime | None = Query(default=None, alias="from"),
+    to_dt: datetime | None = Query(default=None, alias="to"),
+):
+    return revenue_by_period(db, from_dt=from_dt, to_dt=to_dt)
+
+
+@router.get("/cost-breakdown")
+def get_cost_breakdown(db: DbSession, _: User = Depends(require_permissions("finance.view", "*"))):
+    return cost_breakdown(db)
+
+
 @router.post("/invoices", response_model=InvoiceOut, status_code=201)
 def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(require_permissions("finance.invoice", "*"))):
-    if not db.get(SalesOrder, payload.sales_order_id):
+    so = db.get(SalesOrder, payload.sales_order_id)
+    if not so:
         raise HTTPException(404, "Sales order not found")
+    existing = db.query(Invoice).filter(Invoice.sales_order_id == payload.sales_order_id).order_by(Invoice.id.desc()).first()
+    if existing:
+        return existing
     inv = Invoice(
         sales_order_id=payload.sales_order_id,
         invoice_no=next_invoice_no(db),
-        amount=payload.amount,
+        amount=float(payload.amount if payload.amount is not None else so.total_amount or 0),
         status="unpaid",
         issued_at=datetime.now(timezone.utc),
     )
@@ -59,13 +88,10 @@ def create_payment(payload: PaymentIn, db: DbSession, current: User = Depends(re
     if not inv: raise HTTPException(404, "Invoice not found")
     p = Payment(
         invoice_id=inv.id, amount=payload.amount, payment_method=payload.payment_method,
-        paid_at=datetime.now(timezone.utc), notes=payload.notes,
+        paid_at=payload.paid_at or datetime.now(timezone.utc), notes=payload.notes,
     )
     db.add(p); db.flush()
-    # update invoice status
-    total_paid = sum(float(x.amount) for x in db.query(Payment).filter(Payment.invoice_id == inv.id).all())
-    if total_paid >= float(inv.amount): inv.status = "paid"
-    elif total_paid > 0: inv.status = "partially_paid"
+    inv.status = "paid"
     log_action(db, current, "create", "Payment", p.id, new_value={"amount": float(p.amount)})
     db.commit(); db.refresh(p)
     return p

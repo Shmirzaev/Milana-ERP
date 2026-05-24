@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
 import { useEffect } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Globe2, LogOut, Search, Settings } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { LogOut, Search, Settings } from "lucide-react";
 import { useMe, logout } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import LangSwitcher from "@/components/LangSwitcher";
@@ -10,7 +10,6 @@ import NotificationBell from "@/components/NotificationBell";
 
 export default function Topbar() {
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { me } = useMe();
   const { t, lang } = useT();
@@ -45,43 +44,14 @@ export default function Topbar() {
   });
   const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-  function resolveSearchTarget(path: string): string {
-    const moduleRoots = [
-      "/sales-orders",
-      "/models",
-      "/customers",
-      "/brands",
-      "/collections",
-      "/inventory",
-      "/production-orders",
-      "/work-orders",
-      "/bundles",
-      "/packages",
-      "/finished-goods",
-      "/shipments",
-      "/hr/employees",
-      "/waste",
-      "/admin/users",
-      "/admin/departments",
-      "/processes",
-      "/planning",
-      "/finance",
-    ];
-    for (const root of moduleRoots) {
-      if (path === root || path.startsWith(`${root}/`)) return root;
-    }
-    return path || "/";
-  }
-
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
     const q = search.trim();
     if (!q) return;
 
-    const target = resolveSearchTarget(pathname);
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams();
     params.set("q", q);
-    router.push(`${target}?${params.toString()}`);
+    router.push(`/search?${params.toString()}`);
   }
 
   return (
@@ -108,16 +78,15 @@ export default function Topbar() {
           />
           <button type="submit" className="rounded border border-[#ded9ca] bg-[#fdfcf8] px-1.5 py-0.5 text-[11px]">{t("top.searchSubmit")}</button>
         </form>
-        <button className="icon-btn" title={t("top.language")}><Globe2 /></button>
         <LangSwitcher />
         <div className="relative">
           <NotificationBell />
         </div>
-        <button className="icon-btn" title={t("common.actions")}><Settings /></button>
-        <div className="hidden text-right text-sm sm:block">
+        <button className="icon-btn" title="Settings" onClick={() => router.push("/settings")}><Settings /></button>
+        <button className="hidden text-right text-sm sm:block" onClick={() => router.push("/profile")} title="Profile">
           <div className="font-medium text-[#14110b]">{me?.name || "-"}</div>
           <div className="text-xs text-[#8a8472]">{me?.role || ""}</div>
-        </div>
+        </button>
         <button className="btn" onClick={() => logout()}>
           <LogOut className="h-4 w-4" />
           {t("auth.logout")}

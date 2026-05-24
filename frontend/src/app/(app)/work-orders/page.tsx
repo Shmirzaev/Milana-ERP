@@ -48,7 +48,6 @@ export default function WorkOrdersPage() {
               <th>{t("page.wo.pipeline")}</th>
               <th>{t("field.input")}</th>
               <th>{t("field.output")}</th>
-              <th>{t("field.passed")}</th>
               <th>{t("field.failed")}</th>
               <th>{t("field.deadline")}</th>
               <th>{t("field.line")}</th>
@@ -69,7 +68,6 @@ export default function WorkOrdersPage() {
                 </td>
                 <td>{w.actual_input_qty}</td>
                 <td>{w.actual_output_qty}</td>
-                <td>{w.passed_qty}</td>
                 <td>{w.failed_qty}</td>
                 <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "—"}</td>
                 <td>{w.sewing_flow_id ?? "—"}</td>

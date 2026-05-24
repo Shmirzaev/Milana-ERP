@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import BrandMark from "@/components/BrandMark";
+import BrandLogo from "@/components/BrandLogo";
 
 type NavItem = { href: string; labelKey: string; perms?: string[]; icon: ComponentType<{ className?: string }> };
 type Section = { titleKey: string; items: NavItem[] };
@@ -127,7 +127,7 @@ const SECTIONS: Section[] = [
       { href: "/admin/users", labelKey: "nav.users", perms: ["admin.users"], icon: UserRoundCog },
       { href: "/admin/departments", labelKey: "nav.departments", icon: Building2 },
       { href: "/admin/audit-logs", labelKey: "nav.auditLogs", perms: ["admin.audit"], icon: Settings },
-      { href: "/hr/employees", labelKey: "nav.employees", perms: ["hr.employees"], icon: Users },
+      { href: "/admin/employees", labelKey: "nav.employees", perms: ["hr.employees"], icon: Users },
     ],
   },
 ];
@@ -138,12 +138,11 @@ export default function Sidebar() {
   const pathname = usePathname() || "";
   return (
     <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col overflow-hidden border-r border-[#e3dfd3] bg-[#fdfcf8] text-[#2c2920]">
-      <div className="flex h-20 items-center gap-3 border-b border-[#ecebe3] px-3">
-        <BrandMark size={36} />
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-[#14110b]">{t("app.name")}</div>
-          <div className="text-xs leading-tight text-[#8a8472]">{t("sidebar.tagline")}</div>
-        </div>
+      <div className="flex h-28 items-center border-b border-[#ecebe3] px-3">
+        <BrandLogo
+          alt={t("app.name")}
+          className="h-16 w-full max-w-[220px]"
+        />
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-4">
       {SECTIONS.map((sec) => {

@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
@@ -29,11 +29,14 @@ function woActionLink(wo: any) {
 export default function DepartmentInboxPage() {
   const { t } = useT();
   const params = useParams<{ code: string }>();
+  const router = useRouter();
   const code = String(params.code || "").toUpperCase();
   const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
   const [clientTz, setClientTz] = useState("UTC");
   const [startingWoId, setStartingWoId] = useState<number | null>(null);
   const [startError, setStartError] = useState("");
+  const [creatingShipmentFor, setCreatingShipmentFor] = useState<string | null>(null);
+  const [shipmentError, setShipmentError] = useState("");
 
   useEffect(() => {
     try {
@@ -52,9 +55,8 @@ export default function DepartmentInboxPage() {
   const activeWorkOrders = Array.isArray(data?.active_work_orders) ? data.active_work_orders : [];
   const pendingPackages = Array.isArray(data?.pending_packages) ? data.pending_packages : [];
   const readyPackages = Array.isArray(data?.ready_packages) ? data.ready_packages : [];
-  const splitQueueByStatus = code === "PRT";
+  const splitQueueByStatus = true;
   const [expandedPackageGroups, setExpandedPackageGroups] = useState<Record<string, boolean>>({});
-  const [expandedReadyGroups, setExpandedReadyGroups] = useState<Record<string, boolean>>({});
 
   const pendingPackagesByOrder = useMemo(() => {
     const groups = new Map<string, { key: string; sales_order_id: number | null; packages: any[]; total_quantity: number }>();
@@ -106,6 +108,32 @@ export default function DepartmentInboxPage() {
         return left - right;
       });
   }, [readyPackages]);
+  const readyToShipOrders = useMemo(() => {
+    if (Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0) {
+      return data.ready_to_ship;
+    }
+    return readyPackagesByOrder.map((g) => ({
+      sales_order_id: g.sales_order_id,
+      sales_order_no: g.sales_order_id ? `SO-${g.sales_order_id}` : null,
+      order_type: "standard",
+      shipment_type: "standard",
+      customer_name: null,
+      customer_address: null,
+      destination: null,
+      shipment_id: null,
+      shipment_no: null,
+      shipment_status: "not_created",
+      packages: g.packages.length,
+      quantity: g.total_quantity,
+      pending_qty: 0,
+      package_lines: g.packages.map((p: any) => ({
+        package_id: p.id,
+        package_no: p.package_no,
+        reserved_qty: p.total_quantity,
+        status: p.status,
+      })),
+    }));
+  }, [data?.ready_to_ship, readyPackagesByOrder]);
 
   async function movePendingToInProgress(workOrderId: number) {
     setStartingWoId(workOrderId);
@@ -118,6 +146,33 @@ export default function DepartmentInboxPage() {
     } finally {
       setStartingWoId(null);
     }
+  }
+
+  async function createShipmentForOrder(salesOrderId: number | null | undefined) {
+    const soId = Number(salesOrderId || 0);
+    if (!soId) return;
+    const key = `so-${soId}`;
+    setShipmentError("");
+    setCreatingShipmentFor(key);
+    try {
+      const created = await api.post("/api/shipments", { sales_order_id: soId });
+      await api.post(`/api/shipments/${created.id}/add-ready-packages`);
+      await mutate();
+      openShipment(soId, created.id);
+    } catch (e: any) {
+      setShipmentError(e?.message || "Failed to create shipment");
+    } finally {
+      setCreatingShipmentFor(null);
+    }
+  }
+
+  function openShipment(salesOrderId: number | null | undefined, shipmentId?: number | null) {
+    const soId = Number(salesOrderId || 0);
+    const shId = Number(shipmentId || 0);
+    const qs = new URLSearchParams();
+    if (soId > 0) qs.set("so_id", String(soId));
+    if (shId > 0) qs.set("shipment_id", String(shId));
+    router.push(`/shipments${qs.toString() ? `?${qs.toString()}` : ""}`);
   }
 
   return (
@@ -164,15 +219,13 @@ export default function DepartmentInboxPage() {
                         <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
                       )}
                       <div className="mt-1 flex items-center gap-2">
-                        {code === "PRT" && (
-                          <button
-                            className="btn h-7 px-2 text-[11px]"
-                            onClick={() => movePendingToInProgress(Number(w.id))}
-                            disabled={startingWoId === Number(w.id)}
-                          >
-                            {startingWoId === Number(w.id) ? t("common.loading") : t("btn.moveToInProgress")}
-                          </button>
-                        )}
+                        <button
+                          className="btn h-7 px-2 text-[11px]"
+                          onClick={() => movePendingToInProgress(Number(w.id))}
+                          disabled={startingWoId === Number(w.id)}
+                        >
+                          {startingWoId === Number(w.id) ? t("common.loading") : t("btn.moveToInProgress")}
+                        </button>
                         <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
                       </div>
                     </div>
@@ -322,54 +375,73 @@ export default function DepartmentInboxPage() {
           </section>
           <section className="card p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.readyToShip", { count: readyPackagesByOrder.length })}
+              {t("page.deptInbox.readyToShip", { count: readyToShipOrders.length })}
             </h3>
+            {shipmentError && <div className="mb-2 text-xs text-red-600">{shipmentError}</div>}
             <table className="table">
-              <thead><tr><th>{t("field.salesOrderShort")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th><th className="text-right">{t("field.actions")}</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>{t("field.salesOrderShort")}</th>
+                  <th>{t("field.customer")}</th>
+                  <th>{t("field.address")}</th>
+                  <th>{t("field.type")}</th>
+                  <th>{t("field.shipmentNo")}</th>
+                  <th>{t("field.packages")}</th>
+                  <th>{t("field.qty")}</th>
+                  <th className="text-right">{t("field.actions")}</th>
+                </tr>
+              </thead>
               <tbody>
-                {readyPackagesByOrder.map((g) => (
-                  <Fragment key={`ready-${g.key}`}>
+                {readyToShipOrders.map((g: any) => {
+                  const key = `ready-${String(g.sales_order_id ?? "no-so")}`;
+                  const soLabel = g.sales_order_no || g.sales_order_id || "-";
+                  const pendingQty = Number(g.pending_qty || 0);
+                  const shipmentType = String(g.shipment_type || g.order_type || "standard").replace(/_/g, " ");
+                  const shipmentLabel = g.shipment_no ? `${g.shipment_no} (${statusLabel(String(g.shipment_status || ""), t)})` : "Not created";
+                  const soId = Number(g.sales_order_id || 0);
+                  const rowKey = `so-${soId}`;
+                  return (
+                  <Fragment key={key}>
                     <tr>
-                      <td>{g.sales_order_id || "-"}</td>
-                      <td>{g.packages.length}</td>
-                      <td>{g.total_quantity}</td>
+                      <td>{soLabel}</td>
+                      <td>{g.customer_name || "-"}</td>
+                      <td className="max-w-[260px] truncate" title={String(g.destination || g.customer_address || "-")}>
+                        {g.destination || g.customer_address || "-"}
+                      </td>
+                      <td>{shipmentType}</td>
+                      <td>{shipmentLabel}</td>
+                      <td>{Number(g.packages || 0)}</td>
+                      <td>
+                        <div>{Number(g.quantity || 0)}</div>
+                        {pendingQty > 0 && <div className="text-[11px] text-amber-700">Pending: {pendingQty}</div>}
+                      </td>
                       <td className="text-right">
-                        <button
-                          className="btn h-7 px-2 text-[11px]"
-                          onClick={() => setExpandedReadyGroups((prev) => ({ ...prev, [g.key]: !prev[g.key] }))}
-                        >
-                          {expandedReadyGroups[g.key] ? t("common.close") : t("btn.open")}
-                        </button>
+                        <div className="flex justify-end gap-2">
+                          {soId > 0 && (
+                            <button
+                              className="btn h-7 px-2 text-[11px]"
+                              onClick={() => openShipment(soId, Number(g.shipment_id || 0))}
+                            >
+                              {t("btn.open")}
+                            </button>
+                          )}
+                          <button
+                            className="btn h-7 px-2 text-[11px]"
+                            onClick={() => {
+                              if (g.shipment_id) return;
+                              createShipmentForOrder(soId);
+                            }}
+                            disabled={!soId || !!g.shipment_id || creatingShipmentFor === rowKey}
+                          >
+                            {creatingShipmentFor === rowKey ? t("common.loading") : t("btn.createShipment")}
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                    {expandedReadyGroups[g.key] && (
-                      <tr>
-                        <td colSpan={4} className="bg-slate-50">
-                          <table className="table text-xs">
-                            <thead>
-                              <tr>
-                                <th>{t("field.package")}</th>
-                                <th>{t("field.qty")}</th>
-                                <th>{t("common.status")}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {g.packages.map((p: any) => (
-                                <tr key={p.id}>
-                                  <td>{p.package_no}</td>
-                                  <td>{p.total_quantity}</td>
-                                  <td>{statusLabel(String(p.status || ""), t)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </td>
-                      </tr>
-                    )}
                   </Fragment>
-                ))}
-                {readyPackagesByOrder.length === 0 && (
-                  <tr><td colSpan={4} className="text-sm text-slate-400">{t("page.deptInbox.noReadyToShip")}</td></tr>
+                )})}
+                {readyToShipOrders.length === 0 && (
+                  <tr><td colSpan={8} className="text-sm text-slate-400">{t("page.deptInbox.noReadyToShip")}</td></tr>
                 )}
               </tbody>
             </table>

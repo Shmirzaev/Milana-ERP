@@ -2,6 +2,11 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+ARG NEXT_PUBLIC_API_URL
+ARG API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV API_URL=${API_URL}
+
 COPY . .
 
 RUN if [ -f /app/frontend/package.json ]; then cp -R /app/frontend/. /app/; fi \

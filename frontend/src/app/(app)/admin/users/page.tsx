@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { useT } from "@/lib/i18n";
 
 type Role = { id: number; name: string };
@@ -62,6 +63,7 @@ export default function AdminUsersPage() {
     is_active: true,
   });
   const [editMsg, setEditMsg] = useState("");
+  const [deleting, setDeleting] = useState<User | null>(null);
 
   function openEdit(u: User) {
     setEditing(u);
@@ -97,10 +99,15 @@ export default function AdminUsersPage() {
     }
   }
 
-  async function deleteUser(u: User) {
-    if (!confirm(`${t("common.delete")} ${u.email}?`)) return;
+  function deleteUser(u: User) {
+    setDeleting(u);
+  }
+
+  async function confirmDeleteUser() {
+    if (!deleting) return;
     try {
-      await api.del(`/api/users/${u.id}`);
+      await api.del(`/api/users/${deleting.id}`);
+      setDeleting(null);
       mutate();
     } catch (e: any) {
       alert(e.message);
@@ -126,10 +133,10 @@ export default function AdminUsersPage() {
     <div>
       <PageHeader title={t("page.admin.users")} />
 
-      <form onSubmit={create} className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-6">
+      <form onSubmit={create} autoComplete="off" className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-6">
         <input className="input" placeholder={t("common.name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />
-        <input className="input" placeholder={t("auth.email")} type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required />
-        <input className="input" placeholder={t("auth.password")} type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required />
+        <input className="input" name="new_user_email" autoComplete="off" placeholder={t("auth.email")} type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required />
+        <input className="input" name="new_user_password" autoComplete="new-password" placeholder={t("auth.password")} type="password" minLength={12} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required />
         <select className="input" value={f.role_id} onChange={(e) => setF({ ...f, role_id: Number(e.target.value) })}>
           <option value={0}>{t("ph.role")}</option>
           {roles?.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -188,7 +195,7 @@ export default function AdminUsersPage() {
           </div>
           <div>
             <label className="label">{t("page.admin.users.newPassword")}</label>
-            <input className="input" type="password" value={edit.password} onChange={(e) => setEdit({ ...edit, password: e.target.value })} autoComplete="new-password" />
+            <input className="input" type="password" minLength={12} value={edit.password} onChange={(e) => setEdit({ ...edit, password: e.target.value })} autoComplete="new-password" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -217,6 +224,13 @@ export default function AdminUsersPage() {
           </div>
         </form>
       </Modal>
+      <ConfirmDialog
+        isOpen={!!deleting}
+        title="Confirm delete"
+        message={deleting ? `Are you sure you want to delete user ${deleting.email}? This action cannot be undone.` : ""}
+        onConfirm={confirmDeleteUser}
+        onCancel={() => setDeleting(null)}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 from app.models.core import (
-    Role, Department, User, Employee, AuditLog, Notification,
+    Role, Department, User, Employee, AuditLog, Notification, SystemSetting,
 )
 from app.models.partners import Customer, Supplier
 from app.models.catalog import (
@@ -9,10 +9,10 @@ from app.models.inventory import (
     Item, Warehouse, StockBatch, StockMovement,
 )
 from app.models.sales import (
-    SalesOrder, SalesOrderItem, Shipment, ShipmentPackage, Invoice, Payment,
+    SalesOrder, SalesOrderItem, Shipment, ShipmentPackage, ShipmentScanLog, Invoice, Payment,
 )
 from app.models.production import (
-    ProductionOrder, ProductionOrderItem, WorkOrder,
+    ProductionOrder, ProductionBatch, ProductionOrderItem, WorkOrder,
     CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, QualityCheck,
 )
 from app.models.tracking import (
@@ -25,12 +25,12 @@ from app.models.sewing_flow import SewingFlow
 from app.models.sewing_assignment import SewingAssignment
 
 __all__ = [
-    "Role", "Department", "User", "Employee", "AuditLog", "Notification",
+    "Role", "Department", "User", "Employee", "AuditLog", "Notification", "SystemSetting",
     "Customer", "Supplier",
     "Brand", "Collection", "CollectionModel", "Model", "ModelImage", "ModelSize", "ModelColor", "ModelBOM",
     "Item", "Warehouse", "StockBatch", "StockMovement",
-    "SalesOrder", "SalesOrderItem", "Shipment", "ShipmentPackage", "Invoice", "Payment",
-    "ProductionOrder", "ProductionOrderItem", "WorkOrder",
+    "SalesOrder", "SalesOrderItem", "Shipment", "ShipmentPackage", "ShipmentScanLog", "Invoice", "Payment",
+    "ProductionOrder", "ProductionBatch", "ProductionOrderItem", "WorkOrder",
     "CuttingRecord", "PrintingRecord", "SewingRecord", "PackagingRecord", "QualityCheck",
     "Bundle", "BundleScanLog", "Package", "PackageItem", "PackageScanLog",
     "FinishedGoodsStock", "StockReservation",

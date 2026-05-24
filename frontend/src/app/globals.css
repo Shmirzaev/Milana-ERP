@@ -5,6 +5,7 @@
 html, body { height: 100%; }
 body {
   @apply bg-[#f7f6f1] text-[#14110b] antialiased;
+  font-family: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-feature-settings: "cv11", "ss01", "ss03";
 }
 
@@ -36,6 +37,7 @@ body {
 .table { @apply w-full text-left text-sm; }
 .table thead th { @apply border-b border-[#e3dfd3] bg-[#f1efe8] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]; }
 .table tbody td { @apply border-b border-[#ecebe3] px-4 py-3 align-middle; }
+.table.table--sales-lines tbody td { @apply align-top; }
 .table tbody tr { @apply transition hover:bg-[#fdf3eb]; }
 .table code { @apply rounded bg-[#f1efe8] px-1.5 py-0.5 text-xs text-[#56503f]; }
 

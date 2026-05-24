@@ -20,8 +20,24 @@ class ProductionOrder(Base, PkMixin, TimestampMixin):
     destination_warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
+    batches: Mapped[list["ProductionBatch"]] = relationship("ProductionBatch", back_populates="production_order", cascade="all, delete-orphan")
     items: Mapped[list["ProductionOrderItem"]] = relationship("ProductionOrderItem", back_populates="production_order", cascade="all, delete-orphan")
     work_orders: Mapped[list["WorkOrder"]] = relationship("WorkOrder", back_populates="production_order", cascade="all, delete-orphan")
+
+
+class ProductionBatch(Base, PkMixin, TimestampMixin):
+    __tablename__ = "production_batches"
+    production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False, index=True)
+    batch_no: Mapped[str] = mapped_column(String(32), nullable=False)
+    batch_index: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    name: Mapped[str | None] = mapped_column(String(128))
+    planned_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    production_order: Mapped["ProductionOrder"] = relationship("ProductionOrder", back_populates="batches")
+    work_orders: Mapped[list["WorkOrder"]] = relationship("WorkOrder", back_populates="production_batch")
 
 
 class ProductionOrderItem(Base, PkMixin, TimestampMixin):
@@ -39,6 +55,7 @@ class ProductionOrderItem(Base, PkMixin, TimestampMixin):
 class WorkOrder(Base, PkMixin, TimestampMixin):
     __tablename__ = "work_orders"
     production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False)
+    production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"))
     department_id: Mapped[int] = mapped_column(ForeignKey("departments.id"), nullable=False)
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="waiting", nullable=False)
@@ -60,6 +77,7 @@ class WorkOrder(Base, PkMixin, TimestampMixin):
     notes: Mapped[str | None] = mapped_column(Text)
 
     production_order: Mapped["ProductionOrder"] = relationship("ProductionOrder", back_populates="work_orders")
+    production_batch: Mapped[ProductionBatch | None] = relationship("ProductionBatch", back_populates="work_orders")
     sewing_assignments: Mapped[list["SewingAssignment"]] = relationship(
         "SewingAssignment", back_populates="work_order", cascade="all, delete-orphan",
     )
@@ -68,6 +86,7 @@ class WorkOrder(Base, PkMixin, TimestampMixin):
 class CuttingRecord(Base, PkMixin, TimestampMixin):
     __tablename__ = "cutting_records"
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False)
+    production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"))
     fabric_batch_id: Mapped[int | None] = mapped_column(ForeignKey("stock_batches.id"))
     input_quantity: Mapped[float] = mapped_column(Numeric(14, 4), default=0, nullable=False)
     input_unit: Mapped[str] = mapped_column(String(32), default="kg", nullable=False)
@@ -85,6 +104,7 @@ class CuttingRecord(Base, PkMixin, TimestampMixin):
 class PrintingRecord(Base, PkMixin, TimestampMixin):
     __tablename__ = "printing_records"
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False)
+    production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"))
     input_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     printed_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     passed_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -98,6 +118,7 @@ class PrintingRecord(Base, PkMixin, TimestampMixin):
 class SewingRecord(Base, PkMixin, TimestampMixin):
     __tablename__ = "sewing_records"
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False)
+    production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"))
     input_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     sewn_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     passed_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -113,6 +134,7 @@ class SewingRecord(Base, PkMixin, TimestampMixin):
 class PackagingRecord(Base, PkMixin, TimestampMixin):
     __tablename__ = "packaging_records"
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False)
+    production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"))
     input_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     packed_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     damaged_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

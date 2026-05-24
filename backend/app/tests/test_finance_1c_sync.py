@@ -72,6 +72,6 @@ def test_1c_sync_creates_and_updates_finance_data(client):
 
 
 def _admin_token(client) -> str:
-    r = client.post("/api/auth/login", data={"username": "admin@example.com", "password": "admin12345"})
+    r = client.post("/api/auth/login", data={"username": "admin@example.com", "password": "test-admin-password-123!"})
     assert r.status_code == 200, r.text
     return r.json()["access_token"]

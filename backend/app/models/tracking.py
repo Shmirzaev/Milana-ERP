@@ -47,6 +47,7 @@ class Package(Base, PkMixin, TimestampMixin):
     barcode: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     qr_code_url: Mapped[str | None] = mapped_column(String(512))
     production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False)
+    production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"), index=True)
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))

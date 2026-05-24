@@ -18,7 +18,15 @@ dist/
 
 # DB / artifacts
 *.db
+*.db-journal
+*.log
+*.tsbuildinfo
 backend/storage/
+frontend/tmp_*.html
+.tmp/
+.VSCodeCounter/
+.claude/launch.json
+.claude/worktrees/
 
 # Editor / OS
 .idea/

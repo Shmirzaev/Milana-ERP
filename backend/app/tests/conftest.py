@@ -12,6 +12,9 @@ os.environ["BARCODE_STORAGE_DIR"] = os.path.join(_tmpdir, "barcodes")
 os.environ["JWT_SECRET"] = "test-secret"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
 os.environ["INTEGRATION_1C_TOKEN"] = "test-1c-token"
+os.environ["INITIAL_ADMIN_EMAIL"] = "admin@example.com"
+os.environ["INITIAL_ADMIN_PASSWORD"] = "test-admin-password-123!"
+os.environ["SEED_DEMO_USERS"] = "true"
 
 from fastapi.testclient import TestClient
 
@@ -63,7 +66,7 @@ def client():
 def admin_token(client):
     r = client.post(
         "/api/auth/login",
-        data={"username": "admin@example.com", "password": "admin12345"},
+        data={"username": "admin@example.com", "password": "test-admin-password-123!"},
     )
     assert r.status_code == 200, r.text
     return r.json()["access_token"]

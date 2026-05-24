@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import PaginationControls from "@/components/PaginationControls";
 import { useT } from "@/lib/i18n";
 
 export default function AuditLogsPage() {
@@ -13,7 +14,10 @@ export default function AuditLogsPage() {
   const initialId = params?.get("id") ?? "";
   const [entityFilter, setEntityFilter] = useState(initialEntity);
   const [idFilter, setIdFilter] = useState(initialId);
-  const { data } = useSWR<any[]>("/api/audit-logs", fetcher);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const { data: pageData } = useSWR<any>(`/api/audit-logs?include_total=true&page=${page}&page_size=${pageSize}`, fetcher);
+  const data: any[] = pageData?.rows || [];
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -51,7 +55,7 @@ export default function AuditLogsPage() {
             {rows.map((r) => (
               <tr key={r.id}>
                 <td>{new Date(r.created_at).toLocaleString()}</td>
-                <td>{r.user_id || "-"}</td>
+                <td>{r.user?.name || r.user_name || r.user_id || "-"}</td>
                 <td>{r.action}</td>
                 <td>{r.entity_type}</td>
                 <td>{r.entity_id || "-"}</td>
@@ -62,6 +66,14 @@ export default function AuditLogsPage() {
             ))}
           </tbody>
         </table>
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          total={Number(pageData?.total || rows.length)}
+          count={data.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
       </div>
     </div>
   );

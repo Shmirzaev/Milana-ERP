@@ -2,8 +2,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import selectinload
+import base64
+import os
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
+from app.core.config import settings
 from app.models import Package, Model, User
 from app.schemas.tracking import (
     PackageIn,
@@ -25,19 +28,56 @@ from app.services.packages import (
     place_on_storage_map,
     format_storage_location,
 )
+from app.services.barcode import save_qr_image
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/packages", tags=["packages"])
 
 
-@router.get("", response_model=list[PackageOut])
+def _qr_data_uri_for_package(db: DbSession, pkg: Package) -> str:
+    """Return a render-safe QR src for HTML labels (data URI).
+
+    Label pages are opened via Blob URLs in the frontend, so relative image URLs
+    like /storage/barcodes/... can fail to resolve. We embed QR as base64 PNG to
+    keep printing reliable in all browsers.
+    """
+    qr_rel = (pkg.qr_code_url or "").strip()
+    qr_path = ""
+    if qr_rel.startswith("/storage/barcodes/"):
+        fname = qr_rel.split("/storage/barcodes/", 1)[1]
+        qr_path = os.path.join(settings.BARCODE_STORAGE_DIR, fname)
+
+    if not qr_path or not os.path.isfile(qr_path):
+        payload = f"PACKAGE:{pkg.package_no}|{pkg.barcode}"
+        qr_rel = save_qr_image(payload, f"package_qr_{pkg.package_no}")
+        if pkg.qr_code_url != qr_rel:
+            pkg.qr_code_url = qr_rel
+            db.add(pkg)
+            db.commit()
+            db.refresh(pkg)
+        fname = qr_rel.split("/storage/barcodes/", 1)[1]
+        qr_path = os.path.join(settings.BARCODE_STORAGE_DIR, fname)
+
+    with open(qr_path, "rb") as fh:
+        png = fh.read()
+    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
+@router.get("")
 def list_packages(db: DbSession, _: CurrentUser,
                   status: str | None = None, production_order_id: int | None = None,
-                  page: int = 1, page_size: int = 100):
+                  page: int = 1, page_size: int = 50, include_total: bool = False):
     qry = db.query(Package)
     if status: qry = qry.filter(Package.status == status)
     if production_order_id: qry = qry.filter(Package.production_order_id == production_order_id)
-    return qry.order_by(Package.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    total = qry.count() if include_total else 0
+    safe_page = max(1, page)
+    safe_size = max(1, min(page_size, 500))
+    rows = qry.order_by(Package.id.desc()).offset((safe_page - 1) * safe_size).limit(safe_size).all()
+    out = [PackageOut.model_validate(p).model_dump() for p in rows]
+    if include_total:
+        return {"rows": out, "total": total, "page": safe_page, "page_size": safe_size}
+    return out
 
 
 @router.post("", response_model=PackageOut, status_code=201)
@@ -45,6 +85,7 @@ def create_pkg(payload: PackageIn, db: DbSession, current: User = Depends(requir
     pkg = create_package(
         db,
         production_order_id=payload.production_order_id,
+        production_batch_id=payload.production_batch_id,
         model_id=payload.model_id,
         color=payload.color,
         items=[i.model_dump() for i in payload.items],
@@ -70,6 +111,7 @@ def create_pkg_bulk(payload: PackageBulkIn, db: DbSession, current: User = Depen
         db,
         count=payload.count,
         production_order_id=payload.production_order_id,
+        production_batch_id=payload.production_batch_id,
         model_id=payload.model_id,
         color=payload.color,
         items=[i.model_dump() for i in payload.items],
@@ -360,7 +402,7 @@ def label(pid: int, db: DbSession, _: CurrentUser):
     if not p: raise HTTPException(404, "Package not found")
     model = db.get(Model, p.model_id)
     sizes = "<br>".join(f"{it.size}: {it.quantity}" for it in p.items)
-    qr = p.qr_code_url or ""
+    qr = _qr_data_uri_for_package(db, p)
     return f"""<!doctype html>
 <html><head><title>Package Label {p.package_no}</title>
 <style>body{{font-family:Arial;margin:0;padding:8mm}} .label{{border:1px solid #000;padding:6mm;width:90mm}} .row{{display:flex;justify-content:space-between;font-size:10pt}} img{{max-width:32mm}} h2{{margin:0 0 4mm 0;font-size:14pt}}@media print{{body{{margin:0}}}}</style></head>
@@ -399,6 +441,7 @@ def label_sheet(ids: str, db: DbSession, _: CurrentUser):
     cards = []
     for p in rows:
         model = db.get(Model, p.model_id)
+        qr = _qr_data_uri_for_package(db, p)
         sizes = "<br>".join(f"{it.size}: {it.quantity}" for it in p.items)
         cards.append(
             f"""
@@ -410,7 +453,7 @@ def label_sheet(ids: str, db: DbSession, _: CurrentUser):
               <div class='row'><b>Total Qty</b><span>{p.total_quantity}</span></div>
               <div style='margin-top:2mm;font-size:9pt'><b>Sizes:</b><br>{sizes}</div>
               <div class='row' style='margin-top:2mm'><b>Barcode</b><span>{p.barcode}</span></div>
-              <div style='text-align:center;margin-top:3mm'><img src='{p.qr_code_url or ""}' alt='QR'/></div>
+              <div style='text-align:center;margin-top:3mm'><img src='{qr}' alt='QR'/></div>
             </div>
             """
         )

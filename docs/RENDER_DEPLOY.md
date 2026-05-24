@@ -1,34 +1,36 @@
 # Milana ERP - Render One-Click Deploy
 
-This repo is now configured for Render Blueprint deployment using `render.yaml`.
-You do **not** need to manually create services or type environment variables.
+This repo is configured for Render Blueprint deployment using `render.yaml`.
+You only need to provide the private `INITIAL_ADMIN_PASSWORD` value when Render prompts for it.
 
 ## Deploy without typing configs
 
 1. Open this link:
    - [Deploy Milana ERP on Render](https://render.com/deploy?repo=https://github.com/Shmirzaev/Milana-ERP)
 2. Sign in to Render (or create an account).
-3. Click **Apply** on the Blueprint screen.
-4. Wait until all 3 resources are created:
+3. Set `INITIAL_ADMIN_PASSWORD` to a strong unique password on the Blueprint screen.
+4. Click **Apply** on the Blueprint screen.
+5. Wait until all 3 resources are created:
    - `milana-erp-db` (PostgreSQL)
-   - `milana-erp-backend` (FastAPI)
-   - `milana-erp-frontend` (Next.js)
-5. Open the frontend service URL after deploy is green.
+   - `milana-erp` (FastAPI)
+   - `milanaerp-frontend` (Next.js)
+6. Open the frontend service URL after deploy is green.
 
 ## First login
 
-- Email: `admin@example.com`
-- Password: `admin12345`
+- Email: the `INITIAL_ADMIN_EMAIL` value, defaulting to `admin@example.com`
+- Password: the private `INITIAL_ADMIN_PASSWORD` value you set during deploy
 
 ## URLs after deploy
 
-- Frontend: `https://milana-erp-frontend.onrender.com`
-- Backend docs (Swagger): `https://milana-erp-backend.onrender.com/docs`
-- Backend health: `https://milana-erp-backend.onrender.com/health`
+- Frontend: the `milanaerp-frontend` service URL
+- Backend docs (Swagger): the `milana-erp` service URL plus `/docs`
+- Backend health: the `milana-erp` service URL plus `/health`
 
 ## Notes
 
 - Backend migrations and seed run automatically on each deploy.
+- The legacy shared admin password is rejected by the API.
 - Free Render instances sleep after inactivity and can be slow on first request.
 - Free Render Postgres has platform limits; upgrade to paid for stable production usage.
 

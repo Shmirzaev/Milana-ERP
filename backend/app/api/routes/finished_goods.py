@@ -1,11 +1,39 @@
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import FinishedGoodsStock, StockReservation, User
+from app.models import Brand, FinishedGoodsStock, Model, StockReservation, User
 from app.schemas.tracking import FinishedGoodsStockOut
 from app.services.audit import log_action
+from app.services.finished_goods import repair_missing_brand_metadata
 
 router = APIRouter(prefix="/finished-goods", tags=["finished_goods"])
+
+
+def _stock_payload(db: DbSession, stock: FinishedGoodsStock) -> dict:
+    model = db.get(Model, stock.model_id) if stock.model_id else None
+    brand = db.get(Brand, stock.brand_id) if stock.brand_id else None
+    return {
+        "id": stock.id,
+        "production_order_id": stock.production_order_id,
+        "sales_order_id": stock.sales_order_id,
+        "package_id": stock.package_id,
+        "model_id": stock.model_id,
+        "model_code": model.code if model else None,
+        "model_name": model.name if model else None,
+        "brand_id": stock.brand_id,
+        "brand_name": brand.name if brand else None,
+        "collection_id": stock.collection_id,
+        "color": stock.color,
+        "size": stock.size,
+        "quantity": stock.quantity,
+        "available_qty": stock.available_qty,
+        "reserved_qty": stock.reserved_qty,
+        "sold_qty": stock.sold_qty,
+        "cost_per_piece": float(stock.cost_per_piece or 0),
+        "selling_price": float(stock.selling_price or 0),
+        "warehouse_id": stock.warehouse_id,
+        "status": stock.status,
+    }
 
 
 @router.get("", response_model=list[FinishedGoodsStockOut])
@@ -15,15 +43,19 @@ def list_stock(db: DbSession, _: CurrentUser,
     if model_id: qry = qry.filter(FinishedGoodsStock.model_id == model_id)
     if status: qry = qry.filter(FinishedGoodsStock.status == status)
     if brand_id: qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
-    return qry.order_by(FinishedGoodsStock.id.desc()).all()
+    return [_stock_payload(db, row) for row in qry.order_by(FinishedGoodsStock.id.desc()).all()]
 
 
 @router.get("/branded-stock", response_model=list[FinishedGoodsStockOut])
 def list_branded(db: DbSession, _: CurrentUser):
-    return db.query(FinishedGoodsStock).filter(
+    repaired = repair_missing_brand_metadata(db)
+    if repaired:
+        db.commit()
+    rows = db.query(FinishedGoodsStock).filter(
         FinishedGoodsStock.brand_id.isnot(None),
         FinishedGoodsStock.available_qty > 0,
     ).order_by(FinishedGoodsStock.id.desc()).all()
+    return [_stock_payload(db, row) for row in rows]
 
 
 @router.post("/reserve")

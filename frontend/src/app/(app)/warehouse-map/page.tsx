@@ -160,6 +160,7 @@ export default function WarehouseMapPage() {
   const [bookmarkedPackages, setBookmarkedPackages] = useState<number[]>([]);
   const [moveSource, setMoveSource] = useState<StoragePlacement | null>(null);
   const [allowMixedModels, setAllowMixedModels] = useState(false);
+  const [selectedPackageId, setSelectedPackageId] = useState<number | null>(null);
 
   const mapQueryPath = modelQuery.trim()
     ? `/api/packages/storage-map?model_query=${encodeURIComponent(modelQuery.trim())}`
@@ -215,7 +216,25 @@ export default function WarehouseMapPage() {
     [selectedCellPlacements, selectedShelf],
   );
 
-  const selectedPlacement = selectedShelfPlacements[0] || selectedCellPlacements[0] || null;
+  const candidatePlacements = selectedShelfPlacements.length ? selectedShelfPlacements : selectedCellPlacements;
+
+  useEffect(() => {
+    if (!candidatePlacements.length) {
+      setSelectedPackageId(null);
+      return;
+    }
+    if (selectedPackageId == null) {
+      setSelectedPackageId(candidatePlacements[0].id);
+      return;
+    }
+    const exists = candidatePlacements.some((row) => row.id === selectedPackageId);
+    if (!exists) setSelectedPackageId(candidatePlacements[0].id);
+  }, [candidatePlacements, selectedPackageId]);
+
+  const selectedPlacement =
+    candidatePlacements.find((row) => row.id === selectedPackageId) ||
+    candidatePlacements[0] ||
+    null;
   const selectedCellQty = selectedCellPlacements.reduce((sum, row) => sum + (row.total_quantity || 0), 0);
 
   const zoneCells = useMemo(() => normalizedCells.filter((row) => row.zone === selectedZone), [normalizedCells, selectedZone]);
@@ -709,6 +728,25 @@ export default function WarehouseMapPage() {
               </span>
             </div>
             <div className="mt-1 text-sm text-[#8a8472]">{selectedPlacement?.model_name || selectedPlacement?.package_no || t("page.warehouseMap.empty")}</div>
+            {candidatePlacements.length > 1 && (
+              <div className="mt-3">
+                <label className="label">{t("field.package")}</label>
+                <select
+                  className="input h-10"
+                  value={selectedPlacement?.id ?? ""}
+                  onChange={(e) => setSelectedPackageId(Number(e.target.value))}
+                >
+                  {candidatePlacements.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {`${row.package_no} · ${row.model_code || row.model_id || "-"} · ${row.total_quantity}`}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-1 text-xs text-[#8a8472]">
+                  {t("field.packages")}: {candidatePlacements.length}
+                </div>
+              </div>
+            )}
             {moveSource && (
               <div className="mt-2 rounded-md border border-[#f1d4be] bg-[#fbe9dd] px-2 py-1 text-xs text-[#9a3308]">
                 {t("page.warehouseMap.movePending", {

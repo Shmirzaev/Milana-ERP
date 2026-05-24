@@ -2,14 +2,33 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import func
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.dt import as_utc
-from app.models import Bundle, Department, Package, ProductionOrder, WorkOrder
+from app.models import (
+    Bundle,
+    Customer,
+    Department,
+    Package,
+    ProductionOrder,
+    SalesOrder,
+    Shipment,
+    StockReservation,
+    WorkOrder,
+)
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 _PENDING_WO_STATUSES = ("new", "planning", "ready", "waiting", "pending", "collected", "paused")
 _IN_PROGRESS_WO_STATUSES = ("in_progress",)
+
+
+def _shipment_type_label(order_type: str | None) -> str:
+    mapping = {
+        "branded_stock_sale": "from_stock",
+        "client_order": "client_order",
+    }
+    return mapping.get(str(order_type or "").strip(), "standard")
 
 
 def _resolve_department(db: DbSession, current: CurrentUser, dept: str | None) -> Department:
@@ -128,15 +147,107 @@ def department_inbox(
             }
             for p in ready
         ]
-        grouped: dict[int | None, dict] = {}
-        for p in ready:
-            g = grouped.setdefault(
-                p.sales_order_id,
-                {"sales_order_id": p.sales_order_id, "packages": 0, "quantity": 0},
+        grouped: dict[int, dict] = {}
+        reservation_rows = (
+            db.query(
+                StockReservation.sales_order_id,
+                SalesOrder.order_no,
+                SalesOrder.order_type,
+                Customer.name.label("customer_name"),
+                Customer.address.label("customer_address"),
+                Package.id.label("package_id"),
+                Package.package_no,
+                Package.status.label("package_status"),
+                func.coalesce(func.sum(StockReservation.quantity), 0).label("reserved_qty"),
             )
-            g["packages"] += 1
-            g["quantity"] += int(p.total_quantity or 0)
-        ready_to_ship = list(grouped.values())
+            .join(SalesOrder, SalesOrder.id == StockReservation.sales_order_id)
+            .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+            .outerjoin(Package, Package.id == StockReservation.package_id)
+            .filter(
+                SalesOrder.order_type == "branded_stock_sale",
+                SalesOrder.status.in_(["ready", "reserved"]),
+            )
+            .group_by(
+                StockReservation.sales_order_id,
+                SalesOrder.order_no,
+                SalesOrder.order_type,
+                Customer.name,
+                Customer.address,
+                Package.id,
+                Package.package_no,
+                Package.status,
+            )
+            .all()
+        )
+        for row in reservation_rows:
+            so_id = int(row.sales_order_id)
+            reserved_qty = int(row.reserved_qty or 0)
+            g = grouped.setdefault(
+                so_id,
+                {
+                    "sales_order_id": so_id,
+                    "sales_order_no": row.order_no,
+                    "order_type": row.order_type,
+                    "shipment_type": _shipment_type_label(row.order_type),
+                    "customer_name": row.customer_name,
+                    "customer_address": row.customer_address,
+                    "destination": row.customer_address,
+                    "shipment_id": None,
+                    "shipment_no": None,
+                    "shipment_status": "not_created",
+                    "packages": 0,
+                    "quantity": 0,
+                    "reserved_qty": 0,
+                    "pending_qty": 0,
+                    "package_lines": [],
+                    "_ready_package_ids": set(),
+                },
+            )
+            g["reserved_qty"] += reserved_qty
+            package_status = str(row.package_status or "")
+            if package_status in ("received_in_storage", "reserved"):
+                g["quantity"] += reserved_qty
+                if row.package_id is not None:
+                    pkg_id = int(row.package_id)
+                    if pkg_id not in g["_ready_package_ids"]:
+                        g["_ready_package_ids"].add(pkg_id)
+                        g["packages"] += 1
+                g["package_lines"].append(
+                    {
+                        "package_id": int(row.package_id) if row.package_id is not None else None,
+                        "package_no": row.package_no,
+                        "reserved_qty": reserved_qty,
+                        "status": package_status,
+                    }
+                )
+            else:
+                g["pending_qty"] += reserved_qty
+        so_ids = [int(x) for x in grouped.keys()]
+        if so_ids:
+            shipment_rows = (
+                db.query(Shipment)
+                .filter(Shipment.sales_order_id.in_(so_ids))
+                .order_by(Shipment.sales_order_id.asc(), Shipment.id.desc())
+                .all()
+            )
+            latest_by_so: dict[int, Shipment] = {}
+            for sh in shipment_rows:
+                sid = int(sh.sales_order_id or 0)
+                if sid <= 0 or sid in latest_by_so:
+                    continue
+                latest_by_so[sid] = sh
+            for so_id, row in grouped.items():
+                sh = latest_by_so.get(int(so_id))
+                if not sh:
+                    continue
+                row["shipment_id"] = int(sh.id)
+                row["shipment_no"] = sh.shipment_no
+                row["shipment_status"] = sh.status
+        ready_to_ship = [
+            {k: v for k, v in g.items() if k != "_ready_package_ids"}
+            for g in sorted(grouped.values(), key=lambda x: int(x["sales_order_id"]))
+            if int(g.get("quantity") or 0) > 0 or int(g.get("pending_qty") or 0) > 0
+        ]
 
     return {
         "department": {"id": d.id, "code": d.code, "name": d.name},

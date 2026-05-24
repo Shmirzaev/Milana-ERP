@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { Download, Filter, MoreHorizontal, Plus, Search, X } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import PaginationControls from "@/components/PaginationControls";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
 
@@ -55,7 +56,10 @@ export default function SalesOrdersPage() {
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q") || "";
 
-  const { data = [], isLoading, mutate } = useSWR<SO[]>("/api/sales-orders", fetcher);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const { data: pageData, isLoading, mutate } = useSWR<any>(`/api/sales-orders?include_total=true&page=${page}&page_size=${pageSize}`, fetcher);
+  const data: SO[] = pageData?.rows || [];
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -191,47 +195,57 @@ export default function SalesOrdersPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_480px]">
-        <div className="card overflow-x-auto">
-          <table className="table">
-            <thead>
-              <tr>
-                <th className="w-10"><input type="checkbox" /></th>
-                <th>{t("field.orderNo")}</th>
-                <th>{t("field.customer")}</th>
-                <th>{t("field.qty")}</th>
-                <th>{t("page.processes.progress")}</th>
-                <th>{t("common.status")}</th>
-                <th>{t("field.deadline")}</th>
-                <th className="text-right">{t("field.value")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && <tr><td colSpan={8} className="text-[#8a8472]">{t("common.loading")}</td></tr>}
-              {!isLoading && !filtered.length && <tr><td colSpan={8} className="text-[#8a8472]">{t("sales.noMatch")}</td></tr>}
-              {filtered.map((o, i) => {
-                const pct = [62, 18, 81, 47, 4, 0, 93, 100][i % 8];
-                const qty = [4800, 12000, 3200, 9600, 2100, 1500, 5400, 720][i % 8];
-                const active = selected?.id === o.id;
-                return (
-                  <tr key={o.id} data-selected={active} className={active ? "bg-[#fdf3eb]" : ""} onClick={() => setSelectedId(o.id)}>
-                    <td><input type="checkbox" onClick={(e) => e.stopPropagation()} /></td>
-                    <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
-                    <td>{customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}</td>
-                    <td className="mono text-right">{qty.toLocaleString()}</td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <div className="mini-bar w-24"><span style={{ width: `${pct}%` }} /></div>
-                        <span className="mono text-xs text-[#8a8472]">{pct}%</span>
-                      </div>
-                    </td>
-                    <td><span className={`badge ${statusClass(o.status)}`}>{statusLabel(o.status, t)}</span></td>
-                    <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-"}</td>
-                    <td className="text-right"><Money value={Number(o.total_amount || 0)} /></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="card">
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="w-10"><input type="checkbox" /></th>
+                  <th>{t("field.orderNo")}</th>
+                  <th>{t("field.customer")}</th>
+                  <th>{t("field.qty")}</th>
+                  <th>{t("page.processes.progress")}</th>
+                  <th>{t("common.status")}</th>
+                  <th>{t("field.deadline")}</th>
+                  <th className="text-right">{t("field.value")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading && <tr><td colSpan={8} className="text-[#8a8472]">{t("common.loading")}</td></tr>}
+                {!isLoading && !filtered.length && <tr><td colSpan={8} className="text-[#8a8472]">{t("sales.noMatch")}</td></tr>}
+                {filtered.map((o, i) => {
+                  const pct = [62, 18, 81, 47, 4, 0, 93, 100][i % 8];
+                  const qty = [4800, 12000, 3200, 9600, 2100, 1500, 5400, 720][i % 8];
+                  const active = selected?.id === o.id;
+                  return (
+                    <tr key={o.id} data-selected={active} className={active ? "bg-[#fdf3eb]" : ""} onClick={() => setSelectedId(o.id)}>
+                      <td><input type="checkbox" onClick={(e) => e.stopPropagation()} /></td>
+                      <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
+                      <td>{customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}</td>
+                      <td className="mono text-right">{qty.toLocaleString()}</td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <div className="mini-bar w-24"><span style={{ width: `${pct}%` }} /></div>
+                          <span className="mono text-xs text-[#8a8472]">{pct}%</span>
+                        </div>
+                      </td>
+                      <td><span className={`badge ${statusClass(o.status)}`}>{statusLabel(o.status, t)}</span></td>
+                      <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-"}</td>
+                      <td className="text-right"><Money value={Number(o.total_amount || 0)} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <PaginationControls
+            page={page}
+            pageSize={pageSize}
+            total={Number(pageData?.total || data.length)}
+            count={data.length}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         </div>
 
         <aside className="card self-start">

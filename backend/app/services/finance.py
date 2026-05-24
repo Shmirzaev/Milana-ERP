@@ -1,10 +1,11 @@
 """Finance/reporting service."""
+from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import (
     SalesOrder, SalesOrderItem, ProductionOrder, FinishedGoodsStock,
-    WasteRecord, WasteSale, Invoice, Payment, ModelBOM, StockBatch,
+    WasteRecord, WasteSale, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
 )
 
 
@@ -25,7 +26,8 @@ def waste_cost(db: Session) -> float:
 
 
 def waste_income(db: Session) -> float:
-    val = db.query(func.coalesce(func.sum(WasteSale.total_amount), 0)).scalar()
+    val = db.query(func.coalesce(func.sum(WasteRecord.estimated_value), 0)) \
+        .filter(WasteRecord.sellable.is_(True)).scalar()
     return float(val or 0)
 
 
@@ -89,4 +91,107 @@ def dashboard_summary(db: Session) -> dict:
         "branded_stock_value": branded_stock_value(db),
         "waste_cost": waste_cost(db),
         "waste_income": waste_income(db),
+    }
+
+
+def list_recent_invoices(db: Session, limit: int = 50) -> list[dict]:
+    """Return recent invoices with sales-order and customer labels for finance UI."""
+    safe_limit = max(1, min(int(limit or 50), 200))
+    rows = (
+        db.query(Invoice, SalesOrder, Customer)
+        .join(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
+        .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+        .order_by(Invoice.id.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    out: list[dict] = []
+    for invoice, so, customer in rows:
+        dt = invoice.issued_at or invoice.created_at
+        out.append(
+            {
+                "id": int(invoice.id),
+                "invoice_no": invoice.invoice_no,
+                "sales_order_id": int(so.id),
+                "order_no": so.order_no,
+                "customer": customer.name if customer else None,
+                "amount": float(invoice.amount or 0),
+                "status": invoice.status,
+                "date": dt.isoformat() if dt else None,
+            }
+        )
+    return out
+
+
+def revenue_by_period(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict]:
+    """Aggregate invoice revenue by month for charting."""
+    invoices = db.query(Invoice).order_by(Invoice.id.asc()).all()
+    buckets: dict[str, float] = {}
+    for invoice in invoices:
+        dt = invoice.issued_at or invoice.created_at
+        if not dt:
+            continue
+        if from_dt and dt < from_dt:
+            continue
+        if to_dt and dt > to_dt:
+            continue
+        key = dt.strftime("%Y-%m")
+        buckets[key] = buckets.get(key, 0.0) + float(invoice.amount or 0)
+    return [{"period": k, "amount": round(v, 2)} for k, v in sorted(buckets.items(), key=lambda x: x[0])]
+
+
+def cost_breakdown(db: Session) -> dict:
+    """Estimate COGS split into fabric, accessories, and labor components."""
+    pos = db.query(ProductionOrder).all()
+    model_ids = {int(po.model_id) for po in pos if po.model_id}
+    bom_rows = db.query(ModelBOM).filter(ModelBOM.model_id.in_(model_ids)).all() if model_ids else []
+
+    item_ids = {int(row.item_id) for row in bom_rows if row.item_id}
+    item_rows = db.query(Item).filter(Item.id.in_(item_ids)).all() if item_ids else []
+    item_map = {int(item.id): item for item in item_rows}
+
+    latest_cost_by_item: dict[int, float] = {}
+    if item_ids:
+        latest_rows = (
+            db.query(StockBatch)
+            .filter(StockBatch.item_id.in_(item_ids))
+            .order_by(StockBatch.item_id.asc(), StockBatch.id.desc())
+            .all()
+        )
+        for row in latest_rows:
+            item_id = int(row.item_id)
+            if item_id not in latest_cost_by_item:
+                latest_cost_by_item[item_id] = float(row.cost_per_unit or 0)
+
+    boms_by_model: dict[int, list[ModelBOM]] = {}
+    for row in bom_rows:
+        boms_by_model.setdefault(int(row.model_id), []).append(row)
+
+    fabric_cost = 0.0
+    accessories_cost = 0.0
+    for po in pos:
+        for bom in boms_by_model.get(int(po.model_id), []):
+            item_id = int(bom.item_id)
+            item = item_map.get(item_id)
+            category = str(item.category if item else "").lower()
+            fallback_cost = float(item.default_cost or 0) if item else 0.0
+            unit_cost = latest_cost_by_item.get(item_id, fallback_cost)
+            row_cost = (
+                float(bom.quantity_per_piece or 0)
+                * float(po.planned_quantity or 0)
+                * unit_cost
+                * (1.0 + float(bom.waste_percent or 0) / 100.0)
+            )
+            if category in ("accessory", "packaging"):
+                accessories_cost += row_cost
+            else:
+                fabric_cost += row_cost
+
+    labor_cost = float(db.query(func.coalesce(func.sum(SalesOrder.planning_estimated_labor_cost), 0)).scalar() or 0)
+    total_cogs = fabric_cost + accessories_cost + labor_cost
+    return {
+        "fabric_cost": round(fabric_cost, 2),
+        "labor_cost": round(labor_cost, 2),
+        "accessories_cost": round(accessories_cost, 2),
+        "total_cogs": round(total_cogs, 2),
     }

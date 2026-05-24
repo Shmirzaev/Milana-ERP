@@ -70,13 +70,13 @@ export default function CollectionsPage() {
     <div>
       <PageHeader title={t("page.collections.title")} />
       <form onSubmit={submit} className="card p-4 mb-6 grid grid-cols-1 md:grid-cols-5 gap-3">
-        <select className="input" value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: Number(e.target.value) })}>
+        <select className="input" value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: Number(e.target.value) })} required>
           <option value={0}>{t("ph.brand")}</option>
           {brands?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         <input className="input" placeholder={t("common.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
         <input className="input" placeholder={t("field.season")} value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} />
-        <input className="input" type="number" placeholder={t("field.year")} value={form.year} onChange={(e) => setForm({ ...form, year: Number(e.target.value) })} />
+        <input className="input" type="number" placeholder={t("field.year")} value={form.year} onChange={(e) => setForm({ ...form, year: Number(e.target.value) })} required />
         <button className="btn btn-primary">{t("btn.create")}</button>
       </form>
       <div className="card">
@@ -119,7 +119,7 @@ export default function CollectionsPage() {
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div><label className="label">{t("field.season")}</label><input className="input" value={edit.season} onChange={(e) => setEdit({ ...edit, season: e.target.value })} /></div>
-            <div><label className="label">{t("field.year")}</label><input className="input" type="number" value={edit.year} onChange={(e) => setEdit({ ...edit, year: Number(e.target.value) })} /></div>
+            <div><label className="label">{t("field.year")}</label><input className="input" type="number" value={edit.year} onChange={(e) => setEdit({ ...edit, year: Number(e.target.value) })} required /></div>
             <div>
               <label className="label">{t("field.status")}</label>
               <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}>

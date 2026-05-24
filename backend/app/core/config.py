@@ -11,6 +11,14 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "dev-secret"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRES_MINUTES: int = 1440
+    INITIAL_ADMIN_EMAIL: str = "admin@example.com"
+    INITIAL_ADMIN_PASSWORD: str = ""
+    SEED_DEMO_USERS: bool = False
+    PASSWORD_MIN_LENGTH: int = 12
+    AUTH_MAX_FAILED_ATTEMPTS: int = 5
+    AUTH_WINDOW_SECONDS: int = 15 * 60
+    AUTH_LOCKOUT_SECONDS: int = 15 * 60
+    ALLOW_INSECURE_DEFAULT_ADMIN_LOGIN: bool = False
     CORS_ORIGINS: str = "http://localhost:3000"
     BARCODE_STORAGE_DIR: str = "/app/storage/barcodes"
     MODEL_FILES_DIR: str = "/app/storage/model_files"

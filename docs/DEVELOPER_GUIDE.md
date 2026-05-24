@@ -82,7 +82,7 @@ On backend startup (`main.py`):
 
 1. `Base.metadata.create_all(...)` for missing tables.
 2. `schema_hotfix.run(...)` for missing columns.
-3. `seed()` unless `RUN_SEED_ON_STARTUP=false`.
+3. `seed()` only when `RUN_SEED_ON_STARTUP=true`.
 
 Note: `seed()` must stay idempotent. Never write seed logic that duplicates rows each restart.
 
@@ -175,7 +175,7 @@ Note: `seed()` must stay idempotent. Never write seed logic that duplicates rows
 ## 9. Quick Onboarding Checklist for New Engineers
 
 1. Read `README.md` then this file.
-2. Run app locally and log in as `admin@example.com`.
+2. Run app locally and log in with the `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD` values from `backend/.env`.
 3. Open Swagger at `/docs` and inspect route groups.
 4. Trace one end-to-end flow:
    1. create sales order

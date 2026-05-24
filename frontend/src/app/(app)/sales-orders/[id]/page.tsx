@@ -11,9 +11,10 @@ type PrintingAttachment = { file_url: string; file_name?: string | null; content
 
 export default function SalesOrderDetail() {
   const params = useParams<{ id: string }>();
-  const { t } = useT();
+  const { t, lang } = useT();
   const id = params.id;
-  const { data: so, mutate } = useSWR<any>(`/api/sales-orders/${id}`, fetcher);
+  const isNumericId = /^\d+$/.test(String(id || ""));
+  const { data: so, error: orderError, isLoading: orderLoading, mutate } = useSWR<any>(isNumericId ? `/api/sales-orders/${id}` : null, fetcher);
   const { data: mr } = useSWR<any[]>(so ? `/api/planning/material-requirements/${id}` : null, fetcher);
   const { data: processes } = useSWR<any[]>(so ? "/api/process-tracking" : null, fetcher);
   const [msg, setMsg] = useState("");
@@ -25,6 +26,13 @@ export default function SalesOrderDetail() {
     const byMime = (a.content_type || "").toLowerCase().startsWith("image/");
     const byName = /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(a.file_name || a.file_url || "");
     return byMime || byName;
+  }
+
+  function modelLabel(item: any) {
+    const model = item.model || {};
+    const translated = model.translations?.[lang] || (lang === "ru" ? model.translations?.ru : "") || item.model_name || model.name;
+    const code = item.model_code || model.code;
+    return code && translated ? `${code} - ${translated}` : code || translated || item.model_id;
   }
 
   async function confirm() {
@@ -41,8 +49,27 @@ export default function SalesOrderDetail() {
     setMsg(t("msg.planningApproved"));
     mutate();
   }
+  async function generateInvoice() {
+    const inv = await api.post("/api/finance/invoices", { sales_order_id: Number(id) });
+    setMsg(`Invoice generated: ${inv.invoice_no}`);
+  }
 
-  if (!so) return <div>{t("common.loading")}</div>;
+  if (!isNumericId) {
+    return (
+      <div className="card p-4 text-sm text-red-700">
+        Could not load sales order. The detail URL must use the numeric order ID.
+      </div>
+    );
+  }
+  if (orderError) {
+    return (
+      <div className="card p-4 text-sm text-red-700">
+        <div>Could not load sales order. Please try again.</div>
+        <button className="btn mt-3" onClick={() => mutate()}>Retry</button>
+      </div>
+    );
+  }
+  if (orderLoading || !so) return <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>;
 
   return (
     <div>
@@ -53,7 +80,12 @@ export default function SalesOrderDetail() {
           <div className="flex gap-2">
             {so.status === "draft" && <button className="btn btn-primary" onClick={confirm}>{t("btn.confirm")}</button>}
             {so.status === "pending_sales_approval" && <button className="btn btn-primary" onClick={approvePlanning}>{t("btn.approvePlanningEstimate")}</button>}
-            {so.order_type === "branded_stock_sale" && <button className="btn" onClick={reserveStock}>{t("btn.reserveStock")}</button>}
+            {["confirmed", "in_production", "cutting", "sewing", "packaging", "storage", "ready", "reserved", "planning", "planning_approved", "production", "shipped", "delivered"].includes(String(so.status || "")) && (
+              <button className="btn" onClick={generateInvoice}>Generate Invoice</button>
+            )}
+            {so.order_type === "branded_stock_sale" && !["ready", "reserved"].includes(String(so.status || "")) && (
+              <button className="btn" onClick={reserveStock}>{t("btn.reserveStock")}</button>
+            )}
           </div>
         }
       />
@@ -64,7 +96,7 @@ export default function SalesOrderDetail() {
           <h3 className="font-medium mb-2">{t("page.soDetail.details")}</h3>
           <dl className="text-sm space-y-1">
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.orderNo")}</dt><dd>{so.order_no}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">{t("field.customer")}</dt><dd>{so.customer_id || "—"}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{t("field.customer")}</dt><dd>{so.customer?.name || so.customer_name || so.customer_id || "-"}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.total")}</dt><dd>${Number(so.total_amount).toFixed(2)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.deadline")}</dt><dd>{so.deadline ? new Date(so.deadline).toLocaleDateString() : "—"}</dd></div>
             {so.planning_estimated_material_cost !== null && so.planning_estimated_material_cost !== undefined && (
@@ -102,7 +134,13 @@ export default function SalesOrderDetail() {
             <thead><tr><th>{t("field.model")}</th><th>{t("field.color")}</th><th>{t("field.size")}</th><th>{t("field.qty")}</th><th>{t("field.price")}</th></tr></thead>
             <tbody>
               {so.items?.map((i: any) => (
-                <tr key={i.id}><td>{i.model_id}</td><td>{i.color}</td><td>{i.size}</td><td>{i.quantity}</td><td>${Number(i.unit_price).toFixed(2)}</td></tr>
+                <tr key={i.id}>
+                  <td>{modelLabel(i)}</td>
+                  <td>{i.color}</td>
+                  <td>{i.size}</td>
+                  <td>{i.quantity}</td>
+                  <td>${Number(i.unit_price).toFixed(2)}</td>
+                </tr>
               ))}
             </tbody>
           </table>
@@ -155,6 +193,7 @@ export default function SalesOrderDetail() {
             {mr?.map((m, i) => (
               <tr key={i}><td>{m.sku} — {m.name}</td><td>{m.required_quantity.toFixed(2)} {m.unit}</td><td>{m.available_quantity.toFixed(2)}</td><td className={m.shortage > 0 ? "text-red-600" : ""}>{m.shortage.toFixed(2)}</td></tr>
             ))}
+            {mr && mr.length === 0 && <tr><td colSpan={4} className="text-sm text-slate-500">No BOM requirements found for this order.</td></tr>}
           </tbody>
         </table>
       </div>

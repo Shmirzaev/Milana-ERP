@@ -7,12 +7,71 @@ from app.core.deps import DbSession, CurrentUser
 from app.core.dt import as_utc
 from app.models import (
     SalesOrder, ProductionOrder, WorkOrder, Bundle, Package, WasteRecord, FinishedGoodsStock,
-    Item, StockBatch, CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord,
+    Item, StockBatch, CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer,
 )
 from app.services.finance import dashboard_summary, branded_stock_value
 from app.services.inventory import stock_summary
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+_ACTIVE_ORDER_STATUSES = (
+    "confirmed",
+    "planning",
+    "planning_approved",
+    "in_production",
+    "production",
+    "cutting",
+    "sewing",
+    "packaging",
+    "storage",
+)
+
+
+@router.get("/active-production")
+def active_production(db: DbSession, _: CurrentUser):
+    """Return active sales orders with production progress for the dashboard table."""
+    orders = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.status.in_(("planning", "confirmed", "in_production")))
+        .order_by(SalesOrder.deadline.asc(), SalesOrder.id.asc())
+        .all()
+    )
+    result = []
+    for order in orders:
+        production_orders = db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == order.id).all()
+        po_ids = [int(po.id) for po in production_orders]
+        planned_qty = sum(int(po.planned_quantity or 0) for po in production_orders)
+        if planned_qty <= 0:
+            planned_qty = sum(int(item.quantity or 0) for item in (order.items or []))
+
+        completed_qty = 0
+        if po_ids:
+            packaging_wos = db.query(WorkOrder).filter(
+                WorkOrder.production_order_id.in_(po_ids),
+                WorkOrder.operation == "packaging",
+            ).all()
+            completed_qty = sum(
+                max(int(wo.passed_qty or 0), int(wo.actual_output_qty or 0))
+                for wo in packaging_wos
+            )
+        progress_pct = round((completed_qty / planned_qty * 100) if planned_qty > 0 else 0)
+        customer = db.get(Customer, order.customer_id) if order.customer_id else None
+        result.append(
+            {
+                "id": order.id,
+                "order_no": order.order_no,
+                "customer_id": order.customer_id,
+                "customer": customer.name if customer else "-",
+                "qty": planned_qty,
+                "progress": max(0, min(100, int(progress_pct))),
+                "status": order.status,
+                "deadline": order.deadline.isoformat() if order.deadline else None,
+                "deadline_label": order.deadline.strftime("%b %d") if order.deadline else "-",
+                "value": float(order.total_amount or 0),
+                "type": order.order_type,
+                "order_type": order.order_type,
+            }
+        )
+    return result
 
 
 @router.get("/management")
@@ -28,9 +87,13 @@ def management(db: DbSession, _: CurrentUser, tz: str | None = None):
     start_utc = start_local.astimezone(timezone.utc)
     end_utc = end_local.astimezone(timezone.utc)
 
-    active_orders = db.query(func.count(SalesOrder.id)).filter(
-        SalesOrder.status.in_(["confirmed", "pending_sales_approval", "planning_approved", "planning", "production", "ready"])
-    ).scalar() or 0
+    # "Active orders" means commercially active demand: confirmed, in planning, or already in production.
+    active_orders = (
+        db.query(func.count(SalesOrder.id))
+        .filter(SalesOrder.status.in_(_ACTIVE_ORDER_STATUSES))
+        .scalar()
+        or 0
+    )
     late_orders = db.query(func.count(SalesOrder.id)).filter(SalesOrder.deadline < now, SalesOrder.status.not_in(["delivered", "closed", "cancelled"])).scalar() or 0
     todays_defects = (
         db.query(func.coalesce(func.sum(SewingRecord.failed_qty + SewingRecord.rejected_qty), 0))

@@ -71,6 +71,7 @@ class PackageItemOut(ORMModel):
 
 class PackageIn(BaseModel):
     production_order_id: int
+    production_batch_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
@@ -105,6 +106,7 @@ class PackageOut(ORMModel):
     barcode: str
     qr_code_url: Optional[str] = None
     production_order_id: int
+    production_batch_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
@@ -144,7 +146,10 @@ class FinishedGoodsStockOut(ORMModel):
     sales_order_id: Optional[int] = None
     package_id: Optional[int] = None
     model_id: int
+    model_code: Optional[str] = None
+    model_name: Optional[str] = None
     brand_id: Optional[int] = None
+    brand_name: Optional[str] = None
     collection_id: Optional[int] = None
     color: str
     size: str

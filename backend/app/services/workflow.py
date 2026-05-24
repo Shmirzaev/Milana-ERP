@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -24,10 +25,20 @@ from app.models import (
 from app.services.numbering import next_invoice_no
 
 WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
+_OP_INDEX = {op: idx for idx, op in enumerate(WORKFLOW_SEQUENCE)}
 
 
-def _work_orders_by_op(db: Session, production_order_id: int) -> dict[str, WorkOrder]:
-    rows = db.query(WorkOrder).filter(WorkOrder.production_order_id == production_order_id).all()
+def _work_orders_by_op(
+    db: Session,
+    production_order_id: int,
+    production_batch_id: int | None = None,
+) -> dict[str, WorkOrder]:
+    qry = db.query(WorkOrder).filter(WorkOrder.production_order_id == production_order_id)
+    if production_batch_id is None:
+        qry = qry.filter(WorkOrder.production_batch_id.is_(None))
+    else:
+        qry = qry.filter(WorkOrder.production_batch_id == production_batch_id)
+    rows = qry.all()
     return {w.operation: w for w in rows}
 
 
@@ -72,17 +83,72 @@ def sync_production_order_status(db: Session, production_order_id: int) -> None:
     po = db.get(ProductionOrder, production_order_id)
     if not po:
         return
-    by_op = _work_orders_by_op(db, production_order_id)
-    ordered = [by_op[op] for op in WORKFLOW_SEQUENCE if op in by_op]
-    if not ordered:
+    all_wos = db.query(WorkOrder).filter(WorkOrder.production_order_id == production_order_id).all()
+    if not all_wos:
         po.status = "planning"
         return
 
-    first_active = next((w for w in ordered if w.status != "completed"), None)
-    if first_active is None:
+    active = [w for w in all_wos if w.status not in ("completed", "rejected", "cancelled")]
+    if not active:
         po.status = "finished_storage"
         return
+    first_active = min(active, key=lambda w: (_OP_INDEX.get(w.operation, 999), w.id))
     po.status = first_active.operation
+
+
+def sync_storage_transfer_work_order(db: Session, production_order_id: int) -> None:
+    """Recalculate storage_transfer WO counters from package state.
+
+    Storage transfer progress is driven by package intake at FGS.
+    When packages move to received/reserved/shipped/delivered, this WO should
+    advance even if no manual WO record was posted.
+    """
+    # SessionLocal uses autoflush=False, so persist any pending package status
+    # changes before we aggregate moved quantities.
+    db.flush()
+
+    wo = (
+        db.query(WorkOrder)
+        .filter(
+            WorkOrder.production_order_id == production_order_id,
+            WorkOrder.operation == "storage_transfer",
+            WorkOrder.production_batch_id.is_(None),
+        )
+        .order_by(WorkOrder.id.asc())
+        .first()
+    )
+    if not wo:
+        return
+
+    moved_total = int(
+        db.query(func.coalesce(func.sum(Package.total_quantity), 0))
+        .filter(
+            Package.production_order_id == production_order_id,
+            Package.status.in_(["received_in_storage", "reserved", "shipped", "delivered"]),
+        )
+        .scalar()
+        or 0
+    )
+    planned = max(0, int(wo.planned_output_qty or 0))
+    passed = moved_total if planned <= 0 else min(moved_total, planned)
+
+    wo.actual_input_qty = passed
+    wo.actual_output_qty = passed
+    wo.passed_qty = passed
+    if wo.failed_qty is None:
+        wo.failed_qty = 0
+
+    if wo.status not in ("cancelled", "rejected"):
+        now = datetime.now(timezone.utc)
+        if planned > 0 and passed >= planned:
+            if wo.status != "completed":
+                wo.status = "completed"
+            if not wo.end_time:
+                wo.end_time = now
+        elif passed > 0 and wo.status in ("new", "planning", "ready", "waiting", "pending", "collected", "paused"):
+            wo.status = "in_progress"
+            if not wo.start_time:
+                wo.start_time = now
 
 
 def advance_workflow(
@@ -96,7 +162,11 @@ def advance_workflow(
     _complete_if_done(wo)
 
     if allow_next_stage_start and trigger_output_qty > 0:
-        by_op = _work_orders_by_op(db, wo.production_order_id)
+        by_op = _work_orders_by_op(
+            db,
+            wo.production_order_id,
+            production_batch_id=wo.production_batch_id,
+        )
         next_op = _next_existing_operation(wo.operation, by_op)
         if next_op:
             nxt = by_op.get(next_op)

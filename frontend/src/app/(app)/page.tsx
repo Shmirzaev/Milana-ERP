@@ -11,6 +11,20 @@ import { statusLabel } from "@/components/StagePipeline";
 type FilterKind = "all" | "client_order" | "branded_stock_sale";
 type DatePreset = "all" | "today" | "yesterday" | "tomorrow" | "this_week" | "this_month" | "current_year" | "custom";
 
+type ActiveProductionOrder = {
+  id: number;
+  order_no: string;
+  customer: string;
+  qty: number;
+  progress: number;
+  status: string;
+  deadline: string | null;
+  deadline_label?: string;
+  value: number;
+  type: string;
+  order_type?: string;
+};
+
 function startOfDay(d: Date): Date {
   const r = new Date(d);
   r.setHours(0, 0, 0, 0);
@@ -125,18 +139,17 @@ export default function HomePage() {
 
   const { data: mgmt } = useSWR<any>(`/api/dashboard/management?tz=${encodeURIComponent(clientTz)}`, fetcher);
   const { data: fin } = useSWR<any>(can(me, "finance.view", "*") ? "/api/dashboard/finance" : null, fetcher);
-  const { data: orders = [] } = useSWR<any[]>("/api/sales-orders", fetcher);
-  const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
-  const { data: productionOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
-  const { data: workOrders = [] } = useSWR<any[]>("/api/work-orders", fetcher);
+  const {
+    data: activeProduction = [],
+    error: activeProductionError,
+    isLoading: activeProductionLoading,
+  } = useSWR<ActiveProductionOrder[]>("/api/dashboard/active-production", fetcher);
 
   const [kind, setKind] = useState<FilterKind>("all");
   const [datePreset, setDatePreset] = useState<DatePreset>("this_week");
   const [showDateMenu, setShowDateMenu] = useState(false);
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-
-  const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
   const dateRange = useMemo(() => {
     const now = new Date();
@@ -178,91 +191,23 @@ export default function HomePage() {
   }, [dateRange.start, dateRange.end]);
   const { data: prod } = useSWR<any>(prodUrl, fetcher);
 
-  const poBySalesOrder = useMemo(() => {
-    const map = new Map<number, any[]>();
-    for (const po of productionOrders || []) {
-      if (!po.sales_order_id) continue;
-      const list = map.get(po.sales_order_id);
-      if (list) list.push(po);
-      else map.set(po.sales_order_id, [po]);
-    }
-    return map;
-  }, [productionOrders]);
-
-  const woByPo = useMemo(() => {
-    const map = new Map<number, any[]>();
-    for (const wo of workOrders || []) {
-      const list = map.get(wo.production_order_id);
-      if (list) list.push(wo);
-      else map.set(wo.production_order_id, [wo]);
-    }
-    return map;
-  }, [workOrders]);
-
   const activeOrders = useMemo(() => {
-    const base = orders
-      .filter((o) => !["closed", "cancelled", "delivered"].includes(String(o.status)))
-      .filter((o) => kind === "all" || o.order_type === kind)
-      .filter((o) => {
-        if (!dateRange.start && !dateRange.end) return true;
-        if (!o.deadline) return false;
-        const d = new Date(o.deadline);
-        if (dateRange.start && d < dateRange.start) return false;
-        if (dateRange.end && d > dateRange.end) return false;
-        return true;
-      });
-    return base.slice(0, 6);
-  }, [orders, kind, dateRange]);
+    return activeProduction
+      .filter((o) => kind === "all" || String(o.type || o.order_type || "") === kind)
+      .slice(0, 6);
+  }, [activeProduction, kind]);
 
-  const totalValue = activeOrders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const stageFallbackPct: Record<string, number> = {
-    draft: 5,
-    confirmed: 10,
-    pending_sales_approval: 20,
-    planning_approved: 30,
-    planning: 35,
-    production: 60,
-    cutting: 45,
-    printing: 55,
-    sewing: 75,
-    packaging: 90,
-    ready: 98,
-    delivered: 100,
-    closed: 100,
-  };
-
-  function orderPlannedQty(salesOrderId: number): number {
-    const pos = poBySalesOrder.get(salesOrderId) || [];
-    return pos.reduce((sum, po) => sum + Number(po.planned_quantity || 0), 0);
-  }
-
-  function orderProgressPct(order: any): number {
-    const pos = poBySalesOrder.get(order.id) || [];
-    if (!pos.length) return stageFallbackPct[String(order.status)] ?? 0;
-    let planned = 0;
-    let passed = 0;
-    for (const po of pos) {
-      for (const wo of woByPo.get(po.id) || []) {
-        const p = Number(wo.planned_output_qty || 0);
-        const ok = Number(wo.passed_qty || 0);
-        planned += Math.max(0, p);
-        passed += Math.max(0, Math.min(ok, p));
-      }
-    }
-    if (planned > 0) return Math.max(0, Math.min(100, Math.round((passed / planned) * 100)));
-    const weighted = pos.reduce((s, po) => s + (stageFallbackPct[String(po.status)] ?? 0), 0) / pos.length;
-    return Math.max(0, Math.min(100, Math.round(weighted)));
-  }
+  const activeOrdersTotal = activeProduction.length;
 
   function exportOrders() {
     if (!activeOrders.length) return;
     const rows = activeOrders.map((o) => [
       o.order_no,
-      customerMap.get(o.customer_id) || `Customer #${o.customer_id ?? "-"}`,
-      o.order_type,
+      o.customer,
+      o.type || o.order_type || "",
       o.status,
       o.deadline || "",
-      Number(o.total_amount || 0).toFixed(2),
+      Number(o.value || 0).toFixed(2),
     ]);
     const header = ["order_no", "customer", "order_type", "status", "deadline", "total_amount"];
     const csv = [header, ...rows].map((r) => r.map(toCsvCell).join(",")).join("\n");
@@ -353,7 +298,7 @@ export default function HomePage() {
       />
 
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Kpi label={t("dash.activeOrders")} value={activeOrders.length} tone="good" />
+        <Kpi label={t("dash.activeOrders")} value={activeOrdersTotal || mgmt?.active_orders || 0} sub="Planning + confirmed + in production" tone="good" />
         <Kpi label={t("dash.production")} value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} tone="good" />
         <Kpi label={t("dash.lateOrders")} value={mgmt?.late_orders ?? 0} tone={Number(mgmt?.late_orders || 0) > 0 ? "bad" : "good"} />
         <Kpi label={t("dash.todaysDefects")} value={Number(mgmt?.todays_defects || 0).toLocaleString()} tone={Number(mgmt?.todays_defects || 0) > 0 ? "bad" : "good"} />
@@ -363,7 +308,7 @@ export default function HomePage() {
         <div className="card">
           <div className="flex items-center gap-3 border-b border-[#ecebe3] px-4 py-3">
             <h2 className="app-card-title">{t("home.activeProduction")}</h2>
-            <span className="text-xs text-[#8a8472]">{t("home.ordersInFlight", { count: activeOrders.length, value: Math.round(totalValue).toLocaleString() })}</span>
+            <span className="text-xs text-[#8a8472]">{t("home.ordersInFlight", { count: activeOrders.length, value: activeOrders.length })}</span>
             <div className="ml-auto rounded-md border border-[#ded9ca] bg-[#f1efe8] p-0.5 text-xs">
               <button className={`px-3 py-1 ${kind === "all" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("all")}>{t("sales.tab.all")}</button>
               <button className={`px-3 py-1 ${kind === "client_order" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("client_order")}>{t("orderType.client")}</button>
@@ -379,16 +324,19 @@ export default function HomePage() {
                 </tr>
               </thead>
               <tbody>
-                {!activeOrders.length ? (
-                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("home.noOrdersForFilter")}</td></tr>
+                {activeProductionLoading ? (
+                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("common.loading")}</td></tr>
+                ) : activeProductionError ? (
+                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-red-600">Could not load active production. Please try again.</td></tr>
+                ) : !activeOrders.length ? (
+                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">No orders match selected filters.</td></tr>
                 ) : activeOrders.map((o) => {
-                  const pct = orderProgressPct(o);
-                  const qty = orderPlannedQty(o.id);
+                  const pct = Math.max(0, Math.min(100, Number(o.progress || 0)));
                   return (
                     <tr key={o.id}>
                       <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
-                      <td>{customerMap.get(o.customer_id) || t("sales.unknownCustomer")}</td>
-                      <td className="mono">{qty.toLocaleString()}</td>
+                      <td>{o.customer || t("sales.unknownCustomer")}</td>
+                      <td className="mono">{Number(o.qty || 0).toLocaleString()}</td>
                       <td className="min-w-36">
                         <div className="flex items-center gap-2">
                           <div className="mini-bar flex-1"><span style={{ width: `${pct}%` }} /></div>
@@ -396,8 +344,8 @@ export default function HomePage() {
                         </div>
                       </td>
                       <td><span className="badge bg-[#fbe9dd] text-[#c2410c]">{statusLabel(o.status, t)}</span></td>
-                      <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-"}</td>
-                      <td className="text-right"><Money value={Number(o.total_amount || 0)} /></td>
+                      <td className="mono text-[#8a8472]">{o.deadline_label || (o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-")}</td>
+                      <td className="text-right"><Money value={Number(o.value || 0)} /></td>
                     </tr>
                   );
                 })}

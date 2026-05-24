@@ -11,10 +11,13 @@ type ModelDetails = {
   general?: {
     full_name?: string;
     brand?: string;
+    brand_id?: number;
     product_type?: string;
     season?: string;
     designer?: string;
+    designer_employee_id?: number;
     constructor?: string;
+    constructor_employee_id?: number;
     note?: string;
   };
   sewing?: {
@@ -67,9 +70,17 @@ function buildMeasurementJson(fields: { chest: string; waist: string; hip: strin
 export default function ModelDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
-  const { t } = useT();
-  const { data: m, mutate } = useSWR<any>(`/api/models/${id}`, fetcher);
+  const { t, lang } = useT();
+  const isNumericId = /^\d+$/.test(String(id || ""));
+  const { data: m, error: modelError, isLoading: modelLoading, mutate } = useSWR<any>(isNumericId ? `/api/models/${id}` : null, fetcher);
+  const { data: variantsData, mutate: mutateVariants } = useSWR<any[]>(isNumericId ? `/api/models/${id}/variants` : null, fetcher);
   const { data: items } = useSWR<any[]>("/api/inventory/items", fetcher);
+  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
+  const { data: collections } = useSWR<any[]>("/api/collections", fetcher);
+  const { data: seasons } = useSWR<string[]>("/api/collections/seasons", fetcher);
+  const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
+  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
+  const { data: appSettings } = useSWR<any>("/api/settings", fetcher);
   const tabs = TAB_KEYS.map((k) => t(k));
 
   const [tab, setTab] = useState(1);
@@ -80,6 +91,12 @@ export default function ModelDetail() {
     name: "",
     category: "",
     description: "",
+    brand_id: 0,
+    collection_id: 0,
+    product_type: "",
+    season: "",
+    constructor_employee_id: 0,
+    designer_employee_id: 0,
     status: "draft",
     sam_minutes: 0,
   });
@@ -101,10 +118,20 @@ export default function ModelDetail() {
       name: m.name ?? "",
       category: m.category ?? "",
       description: m.description ?? "",
+      brand_id: Number(m.brand_id || m.details_json?.general?.brand_id || 0),
+      collection_id: Number(m.collection_id || 0),
+      product_type: m.product_type ?? m.details_json?.general?.product_type ?? "",
+      season: m.season ?? m.details_json?.general?.season ?? "",
+      constructor_employee_id: Number(m.constructor_employee_id || m.details_json?.general?.constructor_employee_id || 0),
+      designer_employee_id: Number(m.designer_employee_id || m.details_json?.general?.designer_employee_id || 0),
       status: m.status ?? "draft",
       sam_minutes: n(m.sam_minutes),
     });
-    setDetails(m.details_json || {});
+    const nextDetails = m.details_json || {};
+    if (!nextDetails.translation?.ru) {
+      nextDetails.translation = { ...(nextDetails.translation || {}), ru: m.name ?? "" };
+    }
+    setDetails(nextDetails);
   }, [m]);
 
   useEffect(() => {
@@ -142,25 +169,80 @@ export default function ModelDetail() {
   const netCost = baseCostPerPiece + laborCost + electricityCost + otherCost;
   const targetPrice = netCost * (1 + marginPct / 100);
 
-  const variants = useMemo(() => {
-    const colors = m?.colors || [];
-    const sizes = m?.sizes || [];
-    const rows: Array<{ color: string; size: string }> = [];
-    for (const c of colors) for (const s of sizes) rows.push({ color: c.color_name, size: s.size });
-    return rows;
-  }, [m?.colors, m?.sizes]);
+  const variants = useMemo(() => (Array.isArray(variantsData) ? variantsData : []), [variantsData]);
+  const modelingDepartmentIds = useMemo(() => {
+    return new Set(
+      (depts || [])
+        .filter((d: any) => /model|plm|mod/i.test(`${d.name || ""} ${d.code || ""}`))
+        .map((d: any) => Number(d.id)),
+    );
+  }, [depts]);
+  const modelingEmployees = useMemo(() => {
+    const rows = employees || [];
+    if (!modelingDepartmentIds.size) return rows;
+    return rows.filter((e: any) => modelingDepartmentIds.has(Number(e.department_id)));
+  }, [employees, modelingDepartmentIds]);
+  const modelTypeOptions: string[] = appSettings?.preferences?.model_types || [];
+  const sizeRows = m?.sizes || [];
+  const colorRows = m?.colors || [];
+  const primaryImage = (m?.images || []).find((img: any) => img.is_primary) || (m?.images || [])[0];
+  const translatedName = details.translation?.[lang] || (lang === "ru" ? details.translation?.ru : "") || m?.name || "";
 
-  if (!m) return <div>{t("common.loading")}</div>;
+  if (!isNumericId) {
+    return (
+      <div className="card p-4 text-sm text-red-700">
+        Could not load model. The detail URL must use the numeric model ID.
+      </div>
+    );
+  }
+  if (modelError) {
+    return (
+      <div className="card p-4 text-sm text-red-700">
+        <div>Could not load model. Please try again.</div>
+        <button className="btn mt-3" onClick={() => mutate()}>Retry</button>
+      </div>
+    );
+  }
+  if (modelLoading || !m) return <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>;
 
   async function saveModel() {
+    const selectedBrand = (brands || []).find((b) => Number(b.id) === Number(modelForm.brand_id));
+    const constructor = (employees || []).find((e) => Number(e.id) === Number(modelForm.constructor_employee_id));
+    const designer = (employees || []).find((e) => Number(e.id) === Number(modelForm.designer_employee_id));
+    const normalizedDetails: ModelDetails = {
+      ...details,
+      general: {
+        ...details.general,
+        brand: selectedBrand?.name || "",
+        brand_id: modelForm.brand_id || undefined,
+        product_type: modelForm.product_type || "",
+        season: modelForm.season || "",
+        constructor: constructor?.full_name || "",
+        constructor_employee_id: modelForm.constructor_employee_id || undefined,
+        designer: designer?.full_name || "",
+        designer_employee_id: modelForm.designer_employee_id || undefined,
+      },
+      translation: {
+        ...(details.translation || {}),
+        ru: details.translation?.ru || modelForm.name,
+      },
+    };
     await api.patch(`/api/models/${id}`, {
       ...modelForm,
       category: modelForm.category || null,
       description: modelForm.description || null,
-      details_json: details,
+      brand_id: modelForm.brand_id || null,
+      collection_id: modelForm.collection_id || null,
+      product_type: modelForm.product_type || null,
+      season: modelForm.season || null,
+      constructor_employee_id: modelForm.constructor_employee_id || null,
+      designer_employee_id: modelForm.designer_employee_id || null,
+      details_json: normalizedDetails,
     });
+    setDetails(normalizedDetails);
     setMsg(t("msg.saved"));
     mutate();
+    mutateVariants();
   }
 
   async function addBom(e?: { preventDefault?: () => void }, expectedCategory?: "material" | "accessory") {
@@ -198,22 +280,21 @@ export default function ModelDetail() {
     await api.post(`/api/models/${id}/colors`, color);
     setColor({ color_name: "", color_code: "" });
     mutate();
+    mutateVariants();
   }
 
   async function addSize(e: React.FormEvent) {
     e.preventDefault();
     const generated = buildMeasurementJson(measurementFields);
-    const baseJson = Object.keys(generated).length ? generated : null;
-    let measurementJson: any = baseJson;
-    if (size.measurement_json.trim()) {
-      try {
-        measurementJson = JSON.parse(size.measurement_json.trim());
-      } catch {
-        alert(t("page.modelDetail.alert.invalidMeasurementJson"));
-        return;
-      }
-    }
-    setSizePreview({ size: size.size, measurement_json: measurementJson });
+    await api.post(`/api/models/${id}/sizes`, {
+      size: size.size,
+      measurement_json: Object.keys(generated).length ? generated : null,
+    });
+    setSize({ size: "", measurement_json: "" });
+    setMeasurementFields({ chest: "", waist: "", hip: "", length: "", sleeve: "" });
+    setSizePreview(null);
+    mutate();
+    mutateVariants();
   }
 
   async function confirmAddSize() {
@@ -223,6 +304,7 @@ export default function ModelDetail() {
     setMeasurementFields({ chest: "", waist: "", hip: "", length: "", sleeve: "" });
     setSizePreview(null);
     mutate();
+    mutateVariants();
   }
 
   async function addImage(e: React.FormEvent) {
@@ -247,7 +329,20 @@ export default function ModelDetail() {
     mutate();
   }
 
-  function tabButton(index: number, label: string) {
+  async function deleteImage(imageId: number) {
+    if (!confirm("Delete this pattern file?")) return;
+    await api.del(`/api/models/${id}/images/${imageId}`);
+    mutate();
+  }
+
+  async function deleteSize(sizeId: number) {
+    if (!confirm("Delete this size?")) return;
+    await api.del(`/api/models/${id}/sizes/${sizeId}`);
+    mutate();
+    mutateVariants();
+  }
+
+  function tabButton(index: number, label: string, badgeValue: number) {
     const active = tab === index;
     return (
       <button
@@ -256,7 +351,7 @@ export default function ModelDetail() {
         onClick={() => setTab(index)}
         className={`px-3 py-1.5 text-xs border-b-2 ${active ? "border-[#14110b] text-[#14110b] font-semibold" : "border-transparent text-slate-500"}`}
       >
-        {label} <span className="badge">{index}</span>
+        {label} <span className="badge">{badgeValue}</span>
       </button>
     );
   }
@@ -265,11 +360,14 @@ export default function ModelDetail() {
     <div>
       <PageHeader
         title={t("page.modelDetail.viewTitle", { code: m.code })}
-        subtitle={t("page.modelDetail.subtitle", { name: m.name, status: statusLabel(m.status, t) })}
+        subtitle={t("page.modelDetail.subtitle", { name: translatedName, status: statusLabel(m.status, t) })}
       />
       <div className="card p-4 space-y-4">
         <div className="flex flex-wrap gap-1 border-b border-[#ecebe3] pb-2">
-          {tabs.map((label, i) => tabButton(i + 1, label))}
+          {tabs.map((label, i) => {
+            const counts = [0, bomWithItem.length, variants.length, (m.images || []).length, 0, 0, sizeRows.length, 0, 0, 0];
+            return tabButton(i + 1, label, counts[i] || 0);
+          })}
         </div>
 
         {tab === 1 && (
@@ -280,14 +378,48 @@ export default function ModelDetail() {
               <div><label className="label">{t("field.category")}</label><input className="input" value={modelForm.category} onChange={(e) => setModelForm({ ...modelForm, category: e.target.value })} /></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <div><label className="label">{t("field.brand")}</label><input className="input" value={details.general?.brand || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, brand: e.target.value } })} /></div>
-              <div><label className="label">{t("field.type")}</label><input className="input" value={details.general?.product_type || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, product_type: e.target.value } })} /></div>
-              <div><label className="label">{t("field.season")}</label><input className="input" value={details.general?.season || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, season: e.target.value } })} /></div>
+              <div>
+                <label className="label">{t("field.brand")}</label>
+                <select className="input" value={modelForm.brand_id} onChange={(e) => setModelForm({ ...modelForm, brand_id: n(e.target.value) })}>
+                  <option value={0}>{t("ph.brand")}</option>
+                  {(brands || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">{t("field.type")}</label>
+                {modelTypeOptions.length ? (
+                  <select className="input" value={modelForm.product_type} onChange={(e) => setModelForm({ ...modelForm, product_type: e.target.value })}>
+                    <option value="">-</option>
+                    {modelTypeOptions.map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                ) : (
+                  <input className="input" value={modelForm.product_type} onChange={(e) => setModelForm({ ...modelForm, product_type: e.target.value })} />
+                )}
+              </div>
+              <div>
+                <label className="label">{t("field.season")}</label>
+                <select className="input" value={modelForm.season} onChange={(e) => setModelForm({ ...modelForm, season: e.target.value })}>
+                  <option value="">-</option>
+                  {(seasons || []).map((season) => <option key={season} value={season}>{season}</option>)}
+                </select>
+              </div>
               <div><label className="label">{t("field.samMinutes")}</label><input className="input" type="number" step="0.1" value={modelForm.sam_minutes} onChange={(e) => setModelForm({ ...modelForm, sam_minutes: n(e.target.value) })} /></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div><label className="label">{t("page.modelDetail.constructor")}</label><input className="input" value={details.general?.constructor || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, constructor: e.target.value } })} /></div>
-              <div><label className="label">{t("page.modelDetail.designer")}</label><input className="input" value={details.general?.designer || ""} onChange={(e) => setDetails({ ...details, general: { ...details.general, designer: e.target.value } })} /></div>
+              <div>
+                <label className="label">{t("page.modelDetail.constructor")}</label>
+                <select className="input" value={modelForm.constructor_employee_id} onChange={(e) => setModelForm({ ...modelForm, constructor_employee_id: n(e.target.value) })}>
+                  <option value={0}>-</option>
+                  {modelingEmployees.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">{t("page.modelDetail.designer")}</label>
+                <select className="input" value={modelForm.designer_employee_id} onChange={(e) => setModelForm({ ...modelForm, designer_employee_id: n(e.target.value) })}>
+                  <option value={0}>-</option>
+                  {modelingEmployees.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                </select>
+              </div>
             </div>
             <div><label className="label">{t("field.description")}</label><textarea className="input min-h-24" value={modelForm.description} onChange={(e) => setModelForm({ ...modelForm, description: e.target.value })} /></div>
           </div>
@@ -389,29 +521,35 @@ export default function ModelDetail() {
                   <input className="input" placeholder={t("page.modelDetail.measurement.length")} value={measurementFields.length} onChange={(e) => setMeasurementFields({ ...measurementFields, length: e.target.value })} />
                   <input className="input" placeholder={t("page.modelDetail.measurement.sleeve")} value={measurementFields.sleeve} onChange={(e) => setMeasurementFields({ ...measurementFields, sleeve: e.target.value })} />
                 </div>
-                <textarea className="input min-h-20" placeholder={t("page.modelDetail.measurementJsonHelp")} value={size.measurement_json} onChange={(e) => setSize({ ...size, measurement_json: e.target.value })} />
               </form>
             </div>
-            {sizePreview && (
-              <div className="card p-3 flex items-center justify-between gap-2">
-                <div className="text-sm">
-                  <div><span className="text-slate-500">{t("field.size")}:</span> {sizePreview.size}</div>
-                  <div><span className="text-slate-500">{t("page.modelDetail.measurementJson")}:</span> <code>{JSON.stringify(sizePreview.measurement_json || {})}</code></div>
-                </div>
-                <div className="flex gap-2">
-                  <button type="button" className="btn" onClick={() => setSizePreview(null)}>{t("btn.cancel")}</button>
-                  <button type="button" className="btn btn-primary" onClick={confirmAddSize}>{t("page.modelDetail.confirmAdd")}</button>
-                </div>
-              </div>
-            )}
             <table className="table">
               <thead><tr><th>{t("page.modelDetail.variant")}</th><th>{t("field.color")}</th><th>{t("field.size")}</th><th>{t("page.modelDetail.estimatedNetCostPerPiece")}</th></tr></thead>
               <tbody>
                 {variants.map((v, idx) => (
                   <tr key={`${v.color}-${v.size}-${idx}`}>
-                    <td>{idx + 1}</td><td>{v.color}</td><td>{v.size}</td><td>${netCost.toFixed(2)}</td>
+                    <td>{idx + 1}</td><td>{v.color}</td><td>{v.size}</td><td>${Number(v.estimated_net_cost_pc ?? netCost).toFixed(2)}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+            <table className="table">
+              <thead><tr><th>{t("field.size")}</th><th>Chest</th><th>Waist</th><th>Hip</th><th>Length</th><th>Sleeve</th><th>{t("field.actions")}</th></tr></thead>
+              <tbody>
+                {sizeRows.map((s: any) => {
+                  const mm = s.measurement_json || {};
+                  return (
+                    <tr key={s.id}>
+                      <td>{s.size}</td>
+                      <td>{mm.chest ?? "-"}</td>
+                      <td>{mm.waist ?? "-"}</td>
+                      <td>{mm.hip ?? "-"}</td>
+                      <td>{mm.length ?? "-"}</td>
+                      <td>{mm.sleeve ?? "-"}</td>
+                      <td><button className="text-red-600 hover:underline" onClick={() => deleteSize(s.id)}>{t("btn.delete")}</button></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -423,7 +561,7 @@ export default function ModelDetail() {
               <input
                 className="input md:col-span-3"
                 type="file"
-                accept="image/*"
+                accept="image/*,.pdf,.dxf,.ai,.svg"
                 onChange={(e) => setImageFile(e.target.files?.[0] || null)}
               />
               <input
@@ -436,13 +574,27 @@ export default function ModelDetail() {
                 {isUploadingImage ? t("common.uploading") : t("page.modelDetail.attachOrAdd")}
               </button>
             </form>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              {(m.images || []).map((img: any) => (
-                <div key={img.id} className="card p-2">
-                  <img src={img.file_url} alt={`model-${img.id}`} className="w-full h-28 object-cover rounded" />
-                </div>
-              ))}
-            </div>
+            <table className="table">
+              <thead><tr><th>Preview</th><th>Filename</th><th>Uploaded</th><th>{t("field.actions")}</th></tr></thead>
+              <tbody>
+                {(m.images || []).map((img: any) => {
+                  const name = img.file_name || String(img.file_url || "").split("/").pop() || `file-${img.id}`;
+                  const isImage = String(img.content_type || "").startsWith("image/") || /\.(png|jpe?g|webp|gif|svg)$/i.test(name);
+                  return (
+                    <tr key={img.id}>
+                      <td>{isImage ? <img src={img.file_url} alt={name} className="h-14 w-14 rounded object-cover" /> : <span className="badge">file</span>}</td>
+                      <td>{name}</td>
+                      <td>{img.created_at ? new Date(img.created_at).toLocaleString() : "-"}</td>
+                      <td className="flex gap-3">
+                        <a className="text-brand-600 hover:underline" href={img.file_url} download>Download</a>
+                        <button className="text-red-600 hover:underline" onClick={() => deleteImage(img.id)}>{t("btn.delete")}</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {(m.images || []).length === 0 && <tr><td colSpan={4} className="text-sm text-slate-500">No pattern files uploaded.</td></tr>}
+              </tbody>
+            </table>
           </div>
         )}
 
@@ -454,8 +606,46 @@ export default function ModelDetail() {
         )}
 
         {tab === 6 && (
-          <div className="card p-3">
-            <div className="text-sm text-slate-600">{t("page.modelDetail.miniPostNote")}</div>
+          <div className="max-w-3xl rounded-md border border-[#ded9ca] bg-white p-5 shadow-sm print:shadow-none">
+            <div className="grid grid-cols-[140px_1fr] gap-5">
+              <div className="h-40 rounded-md border border-[#ecebe3] bg-[#f8f6ef]">
+                {primaryImage ? (
+                  <img src={primaryImage.file_url} alt={translatedName} className="h-full w-full rounded-md object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-xs text-slate-400">No image</div>
+                )}
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{m.code}</div>
+                  <div className="text-2xl font-semibold text-[#14110b]">{translatedName}</div>
+                  <div className="text-sm text-slate-600">{modelForm.category || "-"} · {modelForm.product_type || "-"}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div><span className="text-slate-500">Size range:</span> {sizeRows.map((s: any) => s.size).join(", ") || "-"}</div>
+                  <div><span className="text-slate-500">Colors:</span> {colorRows.map((c: any) => c.color_name).join(", ") || "-"}</div>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">BOM Summary</div>
+                  <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+                    <div>
+                      <div className="font-medium">Fabric</div>
+                      <ul className="mt-1 space-y-1">
+                        {materialRows.map((r: any) => <li key={r.id}>{r.item?.sku || r.item_id} · {n(r.quantity_per_piece).toFixed(4)} {r.unit}</li>)}
+                        {materialRows.length === 0 && <li className="text-slate-400">-</li>}
+                      </ul>
+                    </div>
+                    <div>
+                      <div className="font-medium">Accessories</div>
+                      <ul className="mt-1 space-y-1">
+                        {accessoryRows.map((r: any) => <li key={r.id}>{r.item?.sku || r.item_id} · {n(r.quantity_per_piece).toFixed(4)} {r.unit}</li>)}
+                        {accessoryRows.length === 0 && <li className="text-slate-400">-</li>}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -470,26 +660,18 @@ export default function ModelDetail() {
               <input className="input" placeholder={t("page.modelDetail.measurement.sleeve")} value={measurementFields.sleeve} onChange={(e) => setMeasurementFields({ ...measurementFields, sleeve: e.target.value })} />
               <button className="btn btn-primary" type="submit">{t("btn.add")}</button>
             </form>
-            <textarea className="input min-h-16" placeholder={t("page.modelDetail.measurementJsonAutoEditable")} value={size.measurement_json} onChange={(e) => setSize({ ...size, measurement_json: e.target.value })} />
-            {sizePreview && (
-              <div className="card p-3 flex items-center justify-between gap-2">
-                <div className="text-sm">
-                  <div><span className="text-slate-500">{t("field.size")}:</span> {sizePreview.size}</div>
-                  <div><span className="text-slate-500">{t("page.modelDetail.measurementJson")}:</span> <code>{JSON.stringify(sizePreview.measurement_json || {})}</code></div>
-                </div>
-                <div className="flex gap-2">
-                  <button type="button" className="btn" onClick={() => setSizePreview(null)}>{t("btn.cancel")}</button>
-                  <button type="button" className="btn btn-primary" onClick={confirmAddSize}>{t("page.modelDetail.confirmAdd")}</button>
-                </div>
-              </div>
-            )}
             <table className="table">
-              <thead><tr><th>{t("field.size")}</th><th>{t("page.modelDetail.measurementJson")}</th></tr></thead>
+              <thead><tr><th>{t("field.size")}</th><th>Chest</th><th>Waist</th><th>Hip</th><th>Length</th><th>Sleeve</th><th>{t("field.actions")}</th></tr></thead>
               <tbody>
                 {(m.sizes || []).map((s: any) => (
                   <tr key={s.id}>
                     <td>{s.size}</td>
-                    <td><code>{JSON.stringify(s.measurement_json || {})}</code></td>
+                    <td>{s.measurement_json?.chest ?? "-"}</td>
+                    <td>{s.measurement_json?.waist ?? "-"}</td>
+                    <td>{s.measurement_json?.hip ?? "-"}</td>
+                    <td>{s.measurement_json?.length ?? "-"}</td>
+                    <td>{s.measurement_json?.sleeve ?? "-"}</td>
+                    <td><button className="text-red-600 hover:underline" onClick={() => deleteSize(s.id)}>{t("btn.delete")}</button></td>
                   </tr>
                 ))}
               </tbody>

@@ -1,8 +1,10 @@
 "use client";
-import { useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { api, fetcher } from "@/lib/api";
+import { formatBatchSerial } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 import StagePipeline, { operationLabel, statusLabel } from "@/components/StagePipeline";
@@ -20,8 +22,26 @@ type Stage = {
   sewing_flow_id: number | null;
   sewing_flow_code: string | null;
   sewing_flow_name: string | null;
+  is_blocked?: boolean;
+  block_reason?: string | null;
   deadline: string | null;
   overdue: boolean;
+};
+
+type ProcessBatch = {
+  id: number;
+  batch_no: string;
+  batch_index: number;
+  name: string | null;
+  planned_quantity: number;
+  start_date: string | null;
+  deadline: string | null;
+  current_stage: string;
+  current_stage_status: string | null;
+  current_sewing_flow: string | null;
+  is_blocked?: boolean;
+  blocked_by?: { work_order_id: number; operation: string; reason: string | null } | null;
+  stages: Stage[];
 };
 
 type Process = {
@@ -43,6 +63,7 @@ type Process = {
   current_stage_status: string | null;
   current_sewing_flow: string | null;
   stages: Stage[];
+  batches?: ProcessBatch[];
 };
 
 const STAGE_COLORS: Record<string, string> = {
@@ -57,6 +78,7 @@ const STAGE_COLORS: Record<string, string> = {
 
 export default function ProcessTrackingPage() {
   const { t } = useT();
+  const searchParams = useSearchParams();
   const { data, error, isLoading, mutate } = useSWR<Process[]>(
     "/api/process-tracking",
     fetcher,
@@ -66,19 +88,24 @@ export default function ProcessTrackingPage() {
   function openPdf() {
     api.openLabel("/api/process-tracking/export");
   }
+
   const [filter, setFilter] = useState<string>("");
   const [expanded, setExpanded] = useState<number | null>(null);
 
+  useEffect(() => {
+    setFilter(searchParams.get("q") ?? "");
+  }, [searchParams]);
+
   const filtered = useMemo(() => {
     if (!data) return [];
-    if (!filter) return data;
-    const q = filter.toLowerCase();
+    const q = filter.trim().toLowerCase();
+    if (!q) return data;
     return data.filter((p) =>
-      p.production_no?.toLowerCase().includes(q) ||
-      (p.sales_order_no || "").toLowerCase().includes(q) ||
-      (p.customer_name || "").toLowerCase().includes(q) ||
-      (p.model_code || "").toLowerCase().includes(q) ||
-      p.current_stage.toLowerCase().includes(q)
+      p.production_no?.toLowerCase().includes(q)
+      || (p.sales_order_no || "").toLowerCase().includes(q)
+      || (p.customer_name || "").toLowerCase().includes(q)
+      || (p.model_code || "").toLowerCase().includes(q)
+      || p.current_stage.toLowerCase().includes(q),
     );
   }, [data, filter]);
 
@@ -89,12 +116,12 @@ export default function ProcessTrackingPage() {
       <PageHeader
         title={t("page.processes.title")}
         subtitle={t("page.processes.subtitle")}
-        actions={
+        actions={(
           <div className="flex gap-2">
-            <button className="btn" onClick={() => mutate()} title={t("page.processes.refresh")}>↻</button>
+            <button className="btn" onClick={() => mutate()} title={t("page.processes.refresh")}>R</button>
             <button className="btn" onClick={openPdf}>{t("page.processes.exportPdf")}</button>
           </div>
-        }
+        )}
       />
 
       {error && (
@@ -145,8 +172,8 @@ export default function ProcessTrackingPage() {
               <tr><td colSpan={8} className="text-slate-500">{t("page.processes.empty")}</td></tr>
             )}
             {filtered.map((p) => (
-              <>
-                <tr key={p.production_order_id}>
+              <Fragment key={p.production_order_id}>
+                <tr>
                   <td>
                     <div className="font-medium">
                       <Link href={`/production-orders/${p.production_order_id}`} className="text-brand-600 hover:underline">
@@ -161,12 +188,17 @@ export default function ProcessTrackingPage() {
                       </div>
                     )}
                   </td>
-                  <td>{p.customer_name || "—"}</td>
+                  <td>{p.customer_name || "-"}</td>
                   <td>
                     <div className="font-medium text-sm">{p.model_code}</div>
                     <div className="text-xs text-slate-500">{p.model_name}</div>
                   </td>
-                  <td>{p.planned_quantity}</td>
+                  <td>
+                    {p.planned_quantity}
+                    {(p.batches || []).length > 0 && (
+                      <div className="text-[10px] text-slate-500 mt-0.5">{(p.batches || []).length} batch(es)</div>
+                    )}
+                  </td>
                   <td>
                     <StagePipeline currentStage={p.current_stage} stages={p.stages} compact={false} />
                     <div className="mt-1">
@@ -177,13 +209,13 @@ export default function ProcessTrackingPage() {
                     )}
                     {p.is_blocked && p.blocked_by && (
                       <div className="text-xs text-red-700 mt-1" title={p.blocked_by.reason ?? ""}>
-                        ⛔ {t("page.processes.blockedOn", { operation: operationLabel(p.blocked_by.operation, t) })}
+                        Blocked on {operationLabel(p.blocked_by.operation, t)}
                       </div>
                     )}
                   </td>
-                  <td>{p.current_sewing_flow || "—"}</td>
+                  <td>{p.current_sewing_flow || "-"}</td>
                   <td className={p.po_overdue ? "text-red-600 font-medium" : ""}>
-                    {p.po_deadline ? new Date(p.po_deadline).toLocaleDateString() : "—"}
+                    {p.po_deadline ? new Date(p.po_deadline).toLocaleDateString() : "-"}
                   </td>
                   <td className="flex flex-col gap-1">
                     <button
@@ -201,55 +233,94 @@ export default function ProcessTrackingPage() {
                   </td>
                 </tr>
                 {expanded === p.production_order_id && (
-                  <tr key={`${p.production_order_id}-detail`}>
+                  <tr>
                     <td colSpan={8} className="bg-slate-50 p-3">
                       <div className="text-xs font-medium text-slate-500 uppercase mb-2">
                         {t("page.processes.stagesHeader")}
                       </div>
-                      <table className="table text-xs">
-                        <thead>
-                          <tr>
-                            <th>{t("field.operation")}</th>
-                            <th>{t("common.status")}</th>
-                            <th>{t("page.processes.progress")}</th>
-                            <th>{t("field.passed")} / {t("field.failed")}</th>
-                            <th>{t("page.processes.assignedFlow")}</th>
-                            <th>{t("page.processes.deadline")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {p.stages.map((s) => (
-                            <tr key={s.work_order_id}>
-                              <td>
-                                <span className={`badge ${STAGE_COLORS[s.operation] || "badge"}`}>{operationLabel(s.operation, t)}</span>
-                              </td>
-                              <td>{statusLabel(s.status, t)}</td>
-                              <td>
-                                <div className="w-32 h-2 bg-slate-200 rounded overflow-hidden">
-                                  <div
-                                    className="h-full bg-brand-500"
-                                    style={{ width: `${Math.min(100, s.progress_pct)}%` }}
-                                  />
+                      <StageRowsTable stages={p.stages} />
+
+                      {(p.batches || []).length > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <div className="text-xs font-medium text-slate-500 uppercase">Batch process tracking</div>
+                          {(p.batches || []).map((batch) => (
+                            <details key={batch.id} className="rounded border border-slate-200 bg-white">
+                              <summary className="cursor-pointer list-none px-3 py-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="badge">{formatBatchSerial(batch, p.production_order_id)}</span>
+                                    <span className="text-sm font-medium">{batch.name || `Batch ${batch.batch_index}`}</span>
+                                    <span className="text-xs text-slate-500">{batch.planned_quantity} pcs</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className={`badge ${STAGE_COLORS[batch.current_stage] || "badge"}`}>
+                                      {operationLabel(batch.current_stage, t)}
+                                    </span>
+                                    {batch.current_stage_status && <span>{statusLabel(batch.current_stage_status, t)}</span>}
+                                    <span>{batch.deadline ? new Date(batch.deadline).toLocaleDateString() : "No deadline"}</span>
+                                  </div>
                                 </div>
-                                <div className="text-[10px] text-slate-500 mt-0.5">{s.completed}/{s.planned} ({s.progress_pct}%)</div>
-                              </td>
-                              <td>{s.completed} / {s.failed}</td>
-                              <td>{s.sewing_flow_code || "—"}</td>
-                              <td className={s.overdue ? "text-red-600" : ""}>
-                                {s.deadline ? new Date(s.deadline).toLocaleDateString() : "—"}
-                              </td>
-                            </tr>
+                              </summary>
+                              <div className="border-t border-slate-200 p-3">
+                                <StagePipeline currentStage={batch.current_stage} stages={batch.stages} compact={false} />
+                                <div className="mt-2">
+                                  <StageRowsTable stages={batch.stages} />
+                                </div>
+                              </div>
+                            </details>
                           ))}
-                        </tbody>
-                      </table>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+function StageRowsTable({ stages }: { stages: Stage[] }) {
+  const { t } = useT();
+  return (
+    <table className="table text-xs">
+      <thead>
+        <tr>
+          <th>{t("field.operation")}</th>
+          <th>{t("common.status")}</th>
+          <th>{t("page.processes.progress")}</th>
+          <th>{t("field.passed")} / {t("field.failed")}</th>
+          <th>{t("page.processes.assignedFlow")}</th>
+          <th>{t("page.processes.deadline")}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {stages.map((s) => (
+          <tr key={s.work_order_id}>
+            <td>
+              <span className={`badge ${STAGE_COLORS[s.operation] || "badge"}`}>{operationLabel(s.operation, t)}</span>
+            </td>
+            <td>{statusLabel(s.status, t)}</td>
+            <td>
+              <div className="w-32 h-2 bg-slate-200 rounded overflow-hidden">
+                <div
+                  className="h-full bg-brand-500"
+                  style={{ width: `${Math.min(100, s.progress_pct)}%` }}
+                />
+              </div>
+              <div className="text-[10px] text-slate-500 mt-0.5">{s.completed}/{s.planned} ({s.progress_pct}%)</div>
+            </td>
+            <td>{s.completed} / {s.failed}</td>
+            <td>{s.sewing_flow_code || "-"}</td>
+            <td className={s.overdue ? "text-red-600" : ""}>
+              {s.deadline ? new Date(s.deadline).toLocaleDateString() : "-"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

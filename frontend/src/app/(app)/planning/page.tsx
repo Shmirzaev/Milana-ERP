@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import useSWR from "swr";
+import { Plus, Trash2 } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
@@ -32,9 +33,32 @@ type EstimateMaterialRow = {
   estimated_cost: number;
 };
 
+type BrandedLine = {
+  color: string;
+  size: string;
+  quantity: number;
+};
+
+type BatchPlanRow = {
+  name: string;
+  planned_quantity: number;
+  start_date: string;
+  deadline: string;
+  notes: string;
+};
+
+type BatchPlanState = {
+  orderId: number;
+  orderNo: string;
+  totalQty: number;
+  maxPerBatch: number;
+  rows: BatchPlanRow[];
+};
+
 const DEFAULT_LABOR_PERCENT = 12;
 const DEFAULT_ELECTRICITY_PERCENT = 4;
 const DEFAULT_OTHER_PERCENT = 3;
+const SIZE_OPTIONS = ["44", "46", "48", "50", "52", "54", "56", "58", "60", "62", "64"];
 
 function num(v: string | number | null | undefined): number {
   const n = Number(v ?? 0);
@@ -57,22 +81,117 @@ function splitEstimateRows(rows: EstimateMaterialRow[]) {
   return { materialRows, accessoryRows };
 }
 
+function autoSplitBatchRows(totalQty: number, maxPerBatch: number): BatchPlanRow[] {
+  const safeTotal = Math.max(0, Number(totalQty || 0));
+  const safeMax = Math.max(1, Number(maxPerBatch || 1));
+  if (safeTotal <= 0) {
+    return [{ name: "Batch 1", planned_quantity: 0, start_date: "", deadline: "", notes: "" }];
+  }
+  const out: BatchPlanRow[] = [];
+  let left = safeTotal;
+  let idx = 1;
+  while (left > 0) {
+    const qty = Math.min(safeMax, left);
+    out.push({
+      name: `Batch ${idx}`,
+      planned_quantity: qty,
+      start_date: "",
+      deadline: "",
+      notes: "",
+    });
+    left -= qty;
+    idx += 1;
+  }
+  return out;
+}
+
 export default function PlanningDashboard() {
   const { t } = useT();
   const { data: dash } = useSWR<any>("/api/dashboard/planning", fetcher);
   const { data: orders, mutate: mutateOrders } = useSWR<any[]>("/api/sales-orders?order_type=client_order&page_size=200", fetcher);
   const { data: models } = useSWR<any[]>("/api/models?status=approved", fetcher);
-  const [brandedForm, setBrandedForm] = useState({ model_id: 0, planned_quantity: 100, size: "M", color: "white", deadline: "" });
+  const [brandedForm, setBrandedForm] = useState<{ model_id: number; deadline: string; lines: BrandedLine[] }>({
+    model_id: 0,
+    deadline: "",
+    lines: [{ color: "white", size: "46", quantity: 50 }],
+  });
+  const [brandedSizeFrom, setBrandedSizeFrom] = useState("46");
+  const [brandedSizeTo, setBrandedSizeTo] = useState("56");
+  const [brandedDistributeQty, setBrandedDistributeQty] = useState(6000);
+  const [brandedSaving, setBrandedSaving] = useState(false);
+  const [brandedErr, setBrandedErr] = useState("");
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
   const [estimateForm, setEstimateForm] = useState<EstimateFormState | null>(null);
+  const [batchPlan, setBatchPlan] = useState<BatchPlanState | null>(null);
+  const [batchPlanErr, setBatchPlanErr] = useState("");
 
   const planningOrders = (orders || []).filter((o) => ["confirmed", "pending_sales_approval", "planning_approved"].includes(o.status));
+  const brandedTotalQty = brandedForm.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+  const selectedBrandedModel = models?.find((m) => Number(m.id) === Number(brandedForm.model_id)) || null;
 
-  async function createPOForSO(soId: number) {
+  function updateBrandedLine(i: number, patch: Partial<BrandedLine>) {
+    setBrandedForm((prev) => ({
+      ...prev,
+      lines: prev.lines.map((line, idx) => (idx === i ? { ...line, ...patch } : line)),
+    }));
+  }
+
+  function addBrandedLine() {
+    setBrandedForm((prev) => ({
+      ...prev,
+      lines: [...prev.lines, { color: prev.lines[0]?.color || "white", size: "46", quantity: 1 }],
+    }));
+  }
+
+  function removeBrandedLine(i: number) {
+    setBrandedForm((prev) => {
+      if (prev.lines.length <= 1) return prev;
+      return { ...prev, lines: prev.lines.filter((_, idx) => idx !== i) };
+    });
+  }
+
+  function distributeBrandedBySizeRange() {
+    setBrandedErr("");
+    const startIdx = SIZE_OPTIONS.indexOf(brandedSizeFrom);
+    const endIdx = SIZE_OPTIONS.indexOf(brandedSizeTo);
+    if (startIdx < 0 || endIdx < 0 || startIdx > endIdx) {
+      setBrandedErr(t("newso.invalidSizeRange"));
+      return;
+    }
+    if (!Number.isFinite(brandedDistributeQty) || brandedDistributeQty <= 0) {
+      setBrandedErr(t("newso.invalidTotalQty"));
+      return;
+    }
+
+    const selectedSizes = SIZE_OPTIONS.slice(startIdx, endIdx + 1);
+    const count = selectedSizes.length;
+    const qtyPerSize = Math.floor(brandedDistributeQty / count);
+    let remainder = brandedDistributeQty % count;
+    const baseColor = brandedForm.lines[0]?.color || "white";
+
+    const nextLines: BrandedLine[] = selectedSizes.map((size) => {
+      const addOne = remainder > 0 ? 1 : 0;
+      if (remainder > 0) remainder -= 1;
+      return { color: baseColor, size, quantity: qtyPerSize + addOne };
+    });
+
+    setBrandedForm((prev) => ({ ...prev, lines: nextLines }));
+  }
+
+  async function createPOForSO(soId: number, batches?: BatchPlanRow[]) {
     setBusyOrderId(soId);
     try {
       const so = await api.get(`/api/sales-orders/${soId}`);
       const items = (so.items || []).map((i: any) => ({ model_id: i.model_id, color: i.color, size: i.size, planned_quantity: i.quantity }));
+      const normalizedBatches = (batches || [])
+        .map((b) => ({
+          name: String(b.name || "").trim() || null,
+          planned_quantity: Number(b.planned_quantity || 0),
+          start_date: b.start_date ? new Date(b.start_date).toISOString() : null,
+          deadline: b.deadline ? new Date(b.deadline).toISOString() : null,
+          notes: String(b.notes || "").trim() || null,
+        }))
+        .filter((b) => b.planned_quantity > 0);
       const po = await api.post("/api/planning/create-production-order", {
         production_type: "client_order",
         sales_order_id: soId,
@@ -82,15 +201,89 @@ export default function PlanningDashboard() {
         // process tracker shows a meaningful "due by" value.
         deadline: so.deadline ?? null,
         items,
+        batches: normalizedBatches,
       });
-      // Cascade the deadline into each work-order (cutting/printing/sewing/packaging).
-      if (so.deadline) {
+      // Cascade the deadline into each work-order (cutting/printing/sewing/packaging)
+      // unless explicit per-batch planning is used.
+      if (so.deadline && normalizedBatches.length === 0) {
         try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
       }
       window.location.href = `/production-orders/${po.id}`;
     } finally {
       setBusyOrderId(null);
     }
+  }
+
+  async function openBatchPlannerForSO(soId: number) {
+    setBusyOrderId(soId);
+    setBatchPlanErr("");
+    try {
+      const so = await api.get(`/api/sales-orders/${soId}`);
+      const totalQty = (so.items || []).reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
+      const maxPerBatch = 600;
+      setBatchPlan({
+        orderId: soId,
+        orderNo: so.order_no || `#${soId}`,
+        totalQty,
+        maxPerBatch,
+        rows: autoSplitBatchRows(totalQty, maxPerBatch),
+      });
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
+
+  function updateBatchPlanRow(index: number, patch: Partial<BatchPlanRow>) {
+    setBatchPlan((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        rows: prev.rows.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+      };
+    });
+  }
+
+  function addBatchPlanRow() {
+    setBatchPlan((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        rows: [
+          ...prev.rows,
+          { name: `Batch ${prev.rows.length + 1}`, planned_quantity: 0, start_date: "", deadline: "", notes: "" },
+        ],
+      };
+    });
+  }
+
+  function removeBatchPlanRow(index: number) {
+    setBatchPlan((prev) => {
+      if (!prev || prev.rows.length <= 1) return prev;
+      return {
+        ...prev,
+        rows: prev.rows.filter((_, i) => i !== index),
+      };
+    });
+  }
+
+  async function createPOFromBatchPlan() {
+    if (!batchPlan) return;
+    const rows = batchPlan.rows.map((row) => ({
+      ...row,
+      planned_quantity: Number(row.planned_quantity || 0),
+      name: String(row.name || "").trim(),
+    }));
+    if (rows.some((row) => !Number.isFinite(row.planned_quantity) || row.planned_quantity <= 0)) {
+      setBatchPlanErr("Each batch quantity must be greater than zero.");
+      return;
+    }
+    const total = rows.reduce((sum, row) => sum + row.planned_quantity, 0);
+    if (total !== batchPlan.totalQty) {
+      setBatchPlanErr(`Batch total must match order quantity (${batchPlan.totalQty}). Current total: ${total}.`);
+      return;
+    }
+    setBatchPlanErr("");
+    await createPOForSO(batchPlan.orderId, rows);
   }
 
   async function openEstimateDialog(soId: number) {
@@ -167,17 +360,45 @@ export default function PlanningDashboard() {
 
   async function createBranded(e: React.FormEvent) {
     e.preventDefault();
-    const po = await api.post("/api/planning/create-branded-production", {
-      production_type: "branded_stock",
-      model_id: brandedForm.model_id,
-      planned_quantity: brandedForm.planned_quantity,
-      deadline: brandedForm.deadline || null,
-      items: [{ model_id: brandedForm.model_id, color: brandedForm.color, size: brandedForm.size, planned_quantity: brandedForm.planned_quantity }],
-    });
-    if (brandedForm.deadline) {
-      try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
+    setBrandedErr("");
+    if (!brandedForm.model_id) {
+      setBrandedErr(t("newso.selectModel"));
+      return;
     }
-    window.location.href = `/production-orders/${po.id}`;
+
+    const items = brandedForm.lines
+      .map((line) => ({
+        model_id: brandedForm.model_id,
+        color: String(line.color || "").trim() || "white",
+        size: String(line.size || "").trim() || "46",
+        planned_quantity: Number(line.quantity || 0),
+      }))
+      .filter((line) => line.planned_quantity > 0);
+
+    if (!items.length) {
+      setBrandedErr(t("newso.invalidTotalQty"));
+      return;
+    }
+
+    const plannedQty = items.reduce((sum, line) => sum + line.planned_quantity, 0);
+    setBrandedSaving(true);
+    try {
+      const po = await api.post("/api/planning/create-branded-production", {
+        production_type: "branded_stock",
+        model_id: brandedForm.model_id,
+        planned_quantity: plannedQty,
+        deadline: brandedForm.deadline || null,
+        items,
+      });
+      if (brandedForm.deadline) {
+        try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
+      }
+      window.location.href = `/production-orders/${po.id}`;
+    } catch (e: any) {
+      setBrandedErr(e?.message || t("page.warehouseMap.actionFailed"));
+    } finally {
+      setBrandedSaving(false);
+    }
   }
 
   return (
@@ -197,7 +418,7 @@ export default function PlanningDashboard() {
             {planningOrders.map((o) => (
               <tr key={o.id}>
                 <td>{o.order_no}</td>
-                <td>{o.customer_id}</td>
+                <td>{o.customer?.name || o.customer_name || o.customer_id || "-"}</td>
                 <td>${Number(o.total_amount).toFixed(2)}</td>
                 <td>{statusLabel(o.status, t)}</td>
                 <td>
@@ -222,6 +443,130 @@ export default function PlanningDashboard() {
           </tbody>
         </table>
       </div>
+
+      {batchPlan && (
+        <div className="fixed inset-0 z-40 bg-black/40">
+          <div className="absolute inset-0 overflow-y-auto p-4 md:p-6">
+            <div className="card w-full max-w-5xl mx-auto p-5 space-y-4">
+              <div className="text-lg font-semibold">Batch Planning for {batchPlan.orderNo}</div>
+              <div className="text-sm text-slate-600">
+                Split this order into production batches. Cutting capacity is usually limited per batch, so you can plan today/tomorrow work separately.
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[220px_auto] gap-3 items-end">
+                <div>
+                  <label className="label">Max pieces per batch</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    value={batchPlan.maxPerBatch}
+                    onChange={(e) => setBatchPlan((prev) => prev ? { ...prev, maxPerBatch: Math.max(1, Number(e.target.value) || 1) } : prev)}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setBatchPlan((prev) => prev ? { ...prev, rows: autoSplitBatchRows(prev.totalQty, prev.maxPerBatch) } : prev)}
+                  >
+                    Auto split
+                  </button>
+                  <button type="button" className="btn" onClick={addBatchPlanRow}>Add batch</button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="table text-sm">
+                  <thead>
+                    <tr>
+                      <th>Batch</th>
+                      <th>Quantity</th>
+                      <th>Start date</th>
+                      <th>Deadline</th>
+                      <th>Notes</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batchPlan.rows.map((row, index) => (
+                      <tr key={index}>
+                        <td>
+                          <input
+                            className="input min-w-32"
+                            value={row.name}
+                            onChange={(e) => updateBatchPlanRow(index, { name: e.target.value })}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="input w-28"
+                            type="number"
+                            min={1}
+                            value={row.planned_quantity}
+                            onChange={(e) => updateBatchPlanRow(index, { planned_quantity: Number(e.target.value) || 0 })}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="input"
+                            type="date"
+                            value={row.start_date}
+                            onChange={(e) => updateBatchPlanRow(index, { start_date: e.target.value })}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="input"
+                            type="date"
+                            value={row.deadline}
+                            onChange={(e) => updateBatchPlanRow(index, { deadline: e.target.value })}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="input min-w-44"
+                            value={row.notes}
+                            onChange={(e) => updateBatchPlanRow(index, { notes: e.target.value })}
+                          />
+                        </td>
+                        <td>
+                          <button type="button" className="btn btn-danger" onClick={() => removeBatchPlanRow(index)} disabled={batchPlan.rows.length <= 1}>
+                            {t("btn.remove")}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="text-sm">
+                Total in batches: <span className="font-semibold">{batchPlan.rows.reduce((sum, row) => sum + Number(row.planned_quantity || 0), 0)}</span> / {batchPlan.totalQty}
+              </div>
+              {batchPlanErr && <div className="text-sm text-red-600">{batchPlanErr}</div>}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setBatchPlan(null);
+                    setBatchPlanErr("");
+                  }}
+                  disabled={busyOrderId === batchPlan.orderId}
+                >
+                  {t("btn.cancel")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={createPOFromBatchPlan}
+                  disabled={busyOrderId === batchPlan.orderId}
+                >
+                  {busyOrderId === batchPlan.orderId ? t("common.creating") : "Create production with batches"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {estimateForm && (
         <div className="fixed inset-0 z-40 bg-black/40">
@@ -434,20 +779,157 @@ export default function PlanningDashboard() {
         </div>
       )}
 
-      <div className="card p-4">
-        <h2 className="font-medium mb-3">{t("page.planning.brandedSection")}</h2>
-        <form onSubmit={createBranded} className="grid grid-cols-1 md:grid-cols-6 gap-3">
-          <select className="input" value={brandedForm.model_id} onChange={(e) => setBrandedForm({ ...brandedForm, model_id: Number(e.target.value) })} required>
-            <option value={0}>{t("ph.approvedModel")}</option>
-            {models?.map((m) => <option key={m.id} value={m.id}>{m.code} — {m.name}</option>)}
-          </select>
-          <input className="input" placeholder={t("field.color")} value={brandedForm.color} onChange={(e) => setBrandedForm({ ...brandedForm, color: e.target.value })} />
-          <input className="input" placeholder={t("field.size")} value={brandedForm.size} onChange={(e) => setBrandedForm({ ...brandedForm, size: e.target.value })} />
-          <input className="input" type="number" value={brandedForm.planned_quantity} onChange={(e) => setBrandedForm({ ...brandedForm, planned_quantity: Number(e.target.value) })} />
-          <input className="input" type="date" value={brandedForm.deadline} onChange={(e) => setBrandedForm({ ...brandedForm, deadline: e.target.value })} title={t("field.deadline")} />
-          <button className="btn btn-primary">{t("btn.createBrandedPlan")}</button>
-        </form>
-      </div>
+      <form onSubmit={createBranded} className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="card">
+          <div className="flex items-center justify-between border-b border-[#ecebe3] px-5 py-4">
+            <div>
+              <h2 className="app-card-title">{t("page.planning.brandedSection")}</h2>
+              <p className="mt-1 text-sm text-[#8a8472]">{t("newso.orderDetailsSub")}</p>
+            </div>
+            <span className="badge bg-[#fbe9dd] text-[#c2410c]">{t("newso.draft")}</span>
+          </div>
+          <div className="border-b border-[#ecebe3] px-5 py-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label className="label">{t("field.model")}</label>
+                <select
+                  className="input"
+                  value={brandedForm.model_id}
+                  onChange={(e) => setBrandedForm((prev) => ({ ...prev, model_id: Number(e.target.value) }))}
+                  required
+                >
+                  <option value={0}>{t("ph.approvedModel")}</option>
+                  {models?.map((m) => (
+                    <option key={m.id} value={m.id}>{m.code} - {m.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">{t("field.deadline")}</label>
+                <input
+                  className="input"
+                  type="date"
+                  value={brandedForm.deadline}
+                  onChange={(e) => setBrandedForm((prev) => ({ ...prev, deadline: e.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between border-b border-[#ecebe3] px-5 py-4">
+            <div>
+              <h2 className="app-card-title">{t("newso.lines")}</h2>
+              <p className="mt-1 text-sm text-[#8a8472]">
+                {t("newso.linesSummary", { lines: brandedForm.lines.length, qty: brandedTotalQty.toLocaleString() })}
+              </p>
+            </div>
+            <button type="button" className="btn" onClick={addBrandedLine}><Plus />{t("newso.addLine")}</button>
+          </div>
+          <div className="border-b border-[#ecebe3] px-5 py-4">
+            <div className="mb-2 text-sm font-semibold text-[#14110b]">{t("newso.sizeHelper")}</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_140px_180px_auto] md:items-end">
+              <div>
+                <label className="label">{t("newso.sizeFrom")}</label>
+                <select className="input" value={brandedSizeFrom} onChange={(e) => setBrandedSizeFrom(e.target.value)}>
+                  {SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">{t("newso.sizeTo")}</label>
+                <select className="input" value={brandedSizeTo} onChange={(e) => setBrandedSizeTo(e.target.value)}>
+                  {SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">{t("newso.sizeTotalQty")}</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={brandedDistributeQty}
+                  onChange={(e) => setBrandedDistributeQty(Number(e.target.value) || 0)}
+                />
+              </div>
+              <div className="flex items-end md:pb-[1px]">
+                <button type="button" className="btn btn-primary" onClick={distributeBrandedBySizeRange}>
+                  {t("newso.distributeEvenly")}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t("field.color")}</th>
+                  <th>{t("field.size")}</th>
+                  <th>{t("field.qty")}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {brandedForm.lines.map((line, i) => (
+                  <tr key={i}>
+                    <td><input className="input min-w-28" value={line.color} onChange={(e) => updateBrandedLine(i, { color: e.target.value })} /></td>
+                    <td>
+                      <select className="input min-w-24" value={line.size} onChange={(e) => updateBrandedLine(i, { size: e.target.value })}>
+                        {SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        className="input w-28"
+                        type="number"
+                        min={1}
+                        value={line.quantity}
+                        onChange={(e) => updateBrandedLine(i, { quantity: Number(e.target.value) || 0 })}
+                      />
+                    </td>
+                    <td>
+                      <button type="button" className="icon-btn text-red-600" onClick={() => removeBrandedLine(i)} title={t("newso.remove")}>
+                        <Trash2 />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside className="card self-start">
+          <div className="border-b border-[#ecebe3] px-5 py-4">
+            <h2 className="app-card-title">{t("newso.orderSummary")}</h2>
+            <p className="mt-1 text-sm text-[#8a8472]">{t("newso.orderSummarySub")}</p>
+          </div>
+          <div className="space-y-5 p-5">
+            <div className="rounded-lg bg-[#f1efe8] p-4">
+              <div className="label">{t("newso.totalQuantity")}</div>
+              <div className="mt-1 text-3xl font-semibold">{brandedTotalQty.toLocaleString()}</div>
+              <div className="mt-1 text-sm text-[#8a8472]">
+                {t("newso.piecesAcross", { qty: brandedTotalQty.toLocaleString(), lines: brandedForm.lines.length })}
+              </div>
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <span className="text-[#8a8472]">{t("field.model")}</span>
+                <span className="text-right">{selectedBrandedModel ? `${selectedBrandedModel.code} - ${selectedBrandedModel.name}` : "-"}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-[#8a8472]">{t("field.deadline")}</span>
+                <span>{brandedForm.deadline || "-"}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-[#8a8472]">{t("newso.lines")}</span>
+                <span>{brandedForm.lines.length}</span>
+              </div>
+            </div>
+            {brandedErr && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{brandedErr}</div>}
+            <button className="btn btn-primary w-full" disabled={brandedSaving}>
+              {brandedSaving ? t("newso.creating") : t("btn.createBrandedPlan")}
+            </button>
+          </div>
+        </aside>
+      </form>
     </div>
   );
 }

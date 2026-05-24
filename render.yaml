@@ -22,6 +22,14 @@ services:
         value: HS256
       - key: JWT_EXPIRES_MINUTES
         value: "1440"
+      - key: INITIAL_ADMIN_EMAIL
+        value: admin@example.com
+      - key: INITIAL_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_DEMO_USERS
+        value: "false"
+      - key: RUN_SEED_ON_STARTUP
+        value: "true"
       - key: APP_NAME
         value: Milana ERP
       - key: DEBUG

@@ -19,21 +19,15 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    env_file:
+      - ./backend/.env
     depends_on:
       db:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://erp:erp@db:5432/erp
       PORT: "8000"
-      JWT_SECRET: change-me-in-production-please
-      JWT_ALGORITHM: HS256
-      JWT_EXPIRES_MINUTES: 1440
       RUN_SEED_ON_STARTUP: "true"
-      APP_NAME: "Milana ERP"
-      DEBUG: "true"
-      CORS_ORIGINS: "http://localhost:3000"
-      BARCODE_STORAGE_DIR: "/app/storage/barcodes"
-      SALES_ORDER_FILES_DIR: "/app/storage/sales_order_files"
     ports:
       - "8000:8000"
     volumes:
@@ -41,7 +35,11 @@ services:
       - barcode_storage:/app/storage/barcodes
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: "http://backend:8000"
+        API_URL: "http://backend:8000"
     restart: unless-stopped
     depends_on:
       - backend
@@ -49,10 +47,6 @@ services:
       NEXT_PUBLIC_API_URL: "http://backend:8000"
     ports:
       - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
 
 volumes:
   pgdata:

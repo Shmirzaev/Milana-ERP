@@ -10,6 +10,15 @@ const apiBaseUrl = withScheme.replace(/\/+$/, "");
 
 const nextConfig = {
   reactStrictMode: true,
+  async redirects() {
+    return [
+      {
+        source: "/warehouse",
+        destination: "/warehouse-map",
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

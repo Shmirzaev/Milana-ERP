@@ -22,6 +22,27 @@ class ProductionOrderItemOut(ORMModel):
     completed_quantity: int
 
 
+class ProductionBatchIn(BaseModel):
+    batch_no: str | None = None
+    name: str | None = None
+    planned_quantity: int
+    start_date: Optional[datetime] = None
+    deadline: Optional[datetime] = None
+    notes: str | None = None
+
+
+class ProductionBatchOut(ORMModel):
+    id: int
+    production_order_id: int
+    batch_no: str
+    batch_index: int
+    name: str | None = None
+    planned_quantity: int
+    start_date: Optional[datetime] = None
+    deadline: Optional[datetime] = None
+    notes: str | None = None
+
+
 class ProductionOrderIn(BaseModel):
     production_type: str  # client_order | branded_stock
     sales_order_id: Optional[int] = None
@@ -32,6 +53,7 @@ class ProductionOrderIn(BaseModel):
     deadline: Optional[datetime] = None
     destination_warehouse_id: Optional[int] = None
     items: list[ProductionOrderItemIn] = []
+    batches: list[ProductionBatchIn] = []
 
 
 class ProductionOrderOut(ORMModel):
@@ -52,6 +74,7 @@ class ProductionOrderOut(ORMModel):
 class WorkOrderOut(ORMModel):
     id: int
     production_order_id: int
+    production_batch_id: Optional[int] = None
     department_id: int
     operation: str
     status: str
@@ -73,6 +96,7 @@ class WorkOrderOut(ORMModel):
 
 
 class ProductionOrderDetail(ProductionOrderOut):
+    batches: list[ProductionBatchOut] = []
     items: list[ProductionOrderItemOut] = []
     work_orders: list[WorkOrderOut] = []
 
@@ -92,6 +116,7 @@ class WorkOrderUpdate(BaseModel):
 
 class CuttingRecordIn(BaseModel):
     work_order_id: int
+    production_batch_id: Optional[int] = None
     fabric_batch_id: Optional[int] = None
     input_quantity: float
     input_unit: str = "kg"
@@ -108,6 +133,7 @@ class CuttingRecordIn(BaseModel):
 
 class PrintingRecordIn(BaseModel):
     work_order_id: int
+    production_batch_id: Optional[int] = None
     input_qty: int
     printed_qty: int
     passed_qty: int
@@ -120,6 +146,7 @@ class PrintingRecordIn(BaseModel):
 
 class SewingRecordIn(BaseModel):
     work_order_id: int
+    production_batch_id: Optional[int] = None
     input_qty: int
     sewn_qty: int
     passed_qty: int
@@ -135,6 +162,7 @@ class SewingRecordIn(BaseModel):
 
 class PackagingRecordIn(BaseModel):
     work_order_id: int
+    production_batch_id: Optional[int] = None
     input_qty: int
     packed_qty: int
     damaged_qty: int = 0

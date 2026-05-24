@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import Item, Warehouse, StockBatch, StockMovement, User
+from app.models import Item, Warehouse, StockBatch, StockMovement, Supplier, User
 from app.schemas.inventory import (
     ItemIn, ItemOut, WarehouseIn, WarehouseOut,
     StockBatchIn, StockBatchOut, StockMovementIn, StockMovementOut, StockLine,
@@ -13,12 +13,29 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 
 # ===== Items =====
-@router.get("/items", response_model=list[ItemOut])
-def list_items(db: DbSession, _: CurrentUser, category: str | None = None, q: str | None = None):
+@router.get("/items")
+def list_items(
+    db: DbSession,
+    _: CurrentUser,
+    category: str | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    include_total: bool = False,
+):
     qry = db.query(Item).filter(Item.is_active.is_(True))
     if category: qry = qry.filter(Item.category == category)
     if q: qry = qry.filter((Item.name.ilike(f"%{q}%")) | (Item.sku.ilike(f"%{q}%")))
-    return qry.order_by(Item.id.desc()).all()
+    total = qry.count() if include_total else 0
+    qry = qry.order_by(Item.id.desc())
+    if include_total:
+        safe_page = max(1, page)
+        safe_size = max(1, min(page_size, 500))
+        qry = qry.offset((safe_page - 1) * safe_size).limit(safe_size)
+    rows = [ItemOut.model_validate(row).model_dump() for row in qry.all()]
+    if include_total:
+        return {"rows": rows, "total": total, "page": max(1, page), "page_size": max(1, min(page_size, 500))}
+    return rows
 
 
 @router.post("/items", response_model=ItemOut, status_code=201)
@@ -48,9 +65,21 @@ def create_warehouse(payload: WarehouseIn, db: DbSession, current: User = Depend
 
 
 # ===== Stock view =====
-@router.get("/stock", response_model=list[StockLine])
-def get_stock(db: DbSession, _: CurrentUser, category: str | None = None):
+@router.get("/stock")
+def get_stock(
+    db: DbSession,
+    _: CurrentUser,
+    category: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    include_total: bool = False,
+):
     rows = stock_summary(db, category)
+    total = len(rows)
+    if include_total:
+        safe_page = max(1, page)
+        safe_size = max(1, min(page_size, 500))
+        rows = rows[(safe_page - 1) * safe_size : safe_page * safe_size]
     # adapt -> StockLine
     out = []
     for r in rows:
@@ -61,7 +90,9 @@ def get_stock(db: DbSession, _: CurrentUser, category: str | None = None):
             warehouse_id=0,
             quantity=r["quantity"],
             unit=r["unit"],
-        ))
+        ).model_dump())
+    if include_total:
+        return {"rows": out, "total": total, "page": max(1, page), "page_size": max(1, min(page_size, 500))}
     return out
 
 
@@ -104,8 +135,40 @@ def transfer_stock(payload: StockMovementIn, db: DbSession, current: User = Depe
 
 
 # ===== Batches =====
-@router.get("/batches", response_model=list[StockBatchOut])
-def list_batches(db: DbSession, _: CurrentUser, item_id: int | None = None):
-    qry = db.query(StockBatch)
-    if item_id: qry = qry.filter(StockBatch.item_id == item_id)
-    return qry.order_by(StockBatch.id.desc()).all()
+@router.get("/batches")
+def list_batches(
+    db: DbSession,
+    _: CurrentUser,
+    item_id: int | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    include_total: bool = False,
+):
+    qry = (
+        db.query(StockBatch, Item, Warehouse, Supplier)
+        .join(Item, Item.id == StockBatch.item_id)
+        .join(Warehouse, Warehouse.id == StockBatch.warehouse_id)
+        .outerjoin(Supplier, Supplier.id == StockBatch.supplier_id)
+    )
+    if item_id:
+        qry = qry.filter(StockBatch.item_id == item_id)
+    total = qry.count() if include_total else 0
+    qry = qry.order_by(StockBatch.id.desc())
+    if include_total:
+        safe_page = max(1, page)
+        safe_size = max(1, min(page_size, 500))
+        qry = qry.offset((safe_page - 1) * safe_size).limit(safe_size)
+    rows = qry.all()
+    out = [
+        {
+            **StockBatchOut.model_validate(batch).model_dump(),
+            "item_sku": item.sku if item else None,
+            "item_name": item.name if item else None,
+            "supplier_name": supplier.name if supplier else None,
+            "warehouse_name": warehouse.name if warehouse else None,
+        }
+        for batch, item, warehouse, supplier in rows
+    ]
+    if include_total:
+        return {"rows": out, "total": total, "page": max(1, page), "page_size": max(1, min(page_size, 500))}
+    return out

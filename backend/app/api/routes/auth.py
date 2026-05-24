@@ -1,43 +1,133 @@
-from fastapi import APIRouter, HTTPException
+import time as time_module
+
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
 from fastapi import Depends
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
+from pydantic import BaseModel, EmailStr
 from sqlalchemy import case, func
+from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, user_permissions
 from app.core.dt import as_utc
-from app.core.security import verify_password, create_access_token
+from app.core.security import (
+    create_access_token,
+    hash_password,
+    is_legacy_default_admin_login,
+    normalize_email,
+    validate_password_strength,
+    verify_password,
+)
 from app.models import (
     User, SalesOrder, Payment, Task,
     CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord,
 )
 from app.schemas.auth import LoginIn, TokenOut, UserMe
+from app.services.audit import log_action
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+_DUMMY_PASSWORD_HASH = hash_password("dummy-login-password-0")
+_LOGIN_FAILURES: dict[str, list[float]] = {}
+_LOGIN_LOCKS: dict[str, float] = {}
+
+
+class ProfileUpdateIn(BaseModel):
+    name: str
+    email: EmailStr
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_new_password: str
+
+
+def _login_key(request: Request, email: str) -> str:
+    client = request.client.host if request.client else "unknown"
+    return f"{client}:{normalize_email(email)}"
+
+
+def _enforce_login_rate_limit(key: str) -> None:
+    now = time_module.monotonic()
+    locked_until = _LOGIN_LOCKS.get(key)
+    if locked_until and locked_until > now:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many failed login attempts. Try again later.",
+        )
+    if locked_until:
+        _LOGIN_LOCKS.pop(key, None)
+
+    window_started = now - settings.AUTH_WINDOW_SECONDS
+    failures = [ts for ts in _LOGIN_FAILURES.get(key, []) if ts >= window_started]
+    if failures:
+        _LOGIN_FAILURES[key] = failures
+    else:
+        _LOGIN_FAILURES.pop(key, None)
+
+
+def _record_login_failure(key: str) -> None:
+    if settings.AUTH_MAX_FAILED_ATTEMPTS <= 0:
+        return
+    now = time_module.monotonic()
+    window_started = now - settings.AUTH_WINDOW_SECONDS
+    failures = [ts for ts in _LOGIN_FAILURES.get(key, []) if ts >= window_started]
+    failures.append(now)
+    if len(failures) >= settings.AUTH_MAX_FAILED_ATTEMPTS:
+        _LOGIN_LOCKS[key] = now + settings.AUTH_LOCKOUT_SECONDS
+        _LOGIN_FAILURES.pop(key, None)
+    else:
+        _LOGIN_FAILURES[key] = failures
+
+
+def _clear_login_failures(key: str) -> None:
+    _LOGIN_FAILURES.pop(key, None)
+    _LOGIN_LOCKS.pop(key, None)
+
+
+def _authenticate(request: Request, db: Session, email: str, password: str) -> User:
+    email_norm = normalize_email(email)
+    key = _login_key(request, email_norm)
+    _enforce_login_rate_limit(key)
+
+    user = db.query(User).filter(User.email == email_norm).first()
+    password_hash = user.password_hash if user else _DUMMY_PASSWORD_HASH
+    try:
+        password_ok = verify_password(password, password_hash)
+    except Exception:
+        password_ok = False
+
+    blocked_default = (
+        is_legacy_default_admin_login(email_norm, password)
+        and not settings.ALLOW_INSECURE_DEFAULT_ADMIN_LOGIN
+    )
+    if blocked_default or not user or not user.is_active or not password_ok:
+        _record_login_failure(key)
+        raise HTTPException(401, "Invalid credentials")
+
+    _clear_login_failures(key)
+    return user
+
 
 @router.post("/login", response_model=TokenOut)
-def login_oauth(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: DbSession):
+def login_oauth(
+    request: Request,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    db: DbSession,
+):
     """OAuth2-compatible login (form: username=email, password)."""
-    email = form_data.username.lower()
-    user = db.query(User).filter(User.email == email).first()
-    if not user or not verify_password(form_data.password, user.password_hash):
-        raise HTTPException(401, "Invalid credentials")
-    if not user.is_active:
-        raise HTTPException(401, "User inactive")
+    user = _authenticate(request, db, form_data.username, form_data.password)
     token = create_access_token(user.id)
     return TokenOut(access_token=token)
 
 
 @router.post("/login-json", response_model=TokenOut)
-def login_json(payload: LoginIn, db: DbSession):
-    user = db.query(User).filter(User.email == payload.email.lower()).first()
-    if not user or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(401, "Invalid credentials")
-    if not user.is_active:
-        raise HTTPException(401, "User inactive")
+def login_json(request: Request, payload: LoginIn, db: DbSession):
+    user = _authenticate(request, db, str(payload.email), payload.password)
     return TokenOut(access_token=create_access_token(user.id))
 
 
@@ -51,6 +141,43 @@ def me(user: CurrentUser):
         department=user.department.name if user.department else None,
         permissions=user_permissions(user),
     )
+
+
+@router.patch("/me", response_model=UserMe)
+def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
+    email = normalize_email(str(payload.email))
+    if db.query(User).filter(User.email == email, User.id != user.id).first():
+        raise HTTPException(400, "Email already exists")
+    old_value = {"name": user.name, "email": user.email}
+    user.name = payload.name.strip()
+    user.email = email
+    log_action(db, user, "update_profile", "User", user.id, old_value=old_value, new_value={"name": user.name, "email": user.email})
+    db.commit()
+    db.refresh(user)
+    return UserMe(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        role=user.role.name if user.role else None,
+        department=user.department.name if user.department else None,
+        permissions=user_permissions(user),
+    )
+
+
+@router.post("/change-password")
+def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser):
+    if payload.new_password != payload.confirm_new_password:
+        raise HTTPException(400, "New passwords do not match")
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(400, "Current password is incorrect")
+    try:
+        validate_password_strength(payload.new_password)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    user.password_hash = hash_password(payload.new_password)
+    log_action(db, user, "change_password", "User", user.id)
+    db.commit()
+    return {"message": "password_updated"}
 
 
 @router.get("/login-panel")

@@ -5,7 +5,15 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.core.security import hash_password
+from app.core.config import settings
+from app.core.security import (
+    LEGACY_DEFAULT_ADMIN_EMAIL,
+    LEGACY_DEFAULT_ADMIN_PASSWORD,
+    hash_password,
+    normalize_email,
+    validate_password_strength,
+    verify_password,
+)
 from app.db.session import SessionLocal, engine
 from app.db.base import Base
 import app.models  # noqa
@@ -61,6 +69,21 @@ SEWING_FLOWS = [
 ]
 
 LEGACY_MODELS_CSV = Path(__file__).resolve().parents[2] / "data" / "legacy_models.csv"
+
+
+def _password_matches(plain: str, hashed: str) -> bool:
+    try:
+        return verify_password(plain, hashed)
+    except Exception:
+        return False
+
+
+def _initial_admin_password() -> str | None:
+    password = settings.INITIAL_ADMIN_PASSWORD
+    if not password:
+        return None
+    validate_password_strength(password)
+    return password
 
 
 def _clean_text(value) -> str:
@@ -148,6 +171,7 @@ def _import_legacy_models(db: Session, admin: User) -> tuple[int, int, int]:
                         brand_id=legacy_brand.id,
                         name=collection_name,
                         season=_infer_season(collection_name),
+                        year=2024,
                         status="approved",
                     )
                     db.add(c)
@@ -199,42 +223,73 @@ def seed():
             role_map[name] = r
 
         # ----- Admin user -----
-        admin = db.query(User).filter(User.email == "admin@example.com").first()
+        admin_email = normalize_email(settings.INITIAL_ADMIN_EMAIL or LEGACY_DEFAULT_ADMIN_EMAIL)
+        admin_password = _initial_admin_password()
+        admin = db.query(User).filter(User.email == admin_email).first()
+        if not admin and admin_email != LEGACY_DEFAULT_ADMIN_EMAIL:
+            legacy_admin = db.query(User).filter(User.email == LEGACY_DEFAULT_ADMIN_EMAIL).first()
+            if legacy_admin:
+                legacy_admin.email = admin_email
+                admin = legacy_admin
+
         if not admin:
+            admin_is_active = bool(admin_password)
             admin = User(
                 name="System Admin",
-                email="admin@example.com",
-                password_hash=hash_password("admin12345"),
+                email=admin_email,
+                password_hash=hash_password(admin_password or "inactive-admin-bootstrap-0"),
                 role_id=role_map["Admin"].id,
                 department_id=dept_map["ADM"].id,
-                is_active=True,
+                is_active=admin_is_active,
             )
             db.add(admin); db.flush()
+            if not admin_password:
+                print(
+                    "Seed warning: created inactive admin bootstrap user. "
+                    "Set INITIAL_ADMIN_PASSWORD to activate the first admin."
+                )
+        elif _password_matches(LEGACY_DEFAULT_ADMIN_PASSWORD, admin.password_hash):
+            if admin_password:
+                admin.password_hash = hash_password(admin_password)
+                admin.is_active = True
+                print("Seed security: rotated legacy default admin password from INITIAL_ADMIN_PASSWORD.")
+            else:
+                admin.is_active = False
+                print(
+                    "Seed security: disabled legacy default admin password. "
+                    "Set INITIAL_ADMIN_PASSWORD to reactivate the admin user."
+                )
+        elif admin_password and not admin.is_active:
+            admin.password_hash = hash_password(admin_password)
+            admin.is_active = True
+            print("Seed security: activated initial admin from INITIAL_ADMIN_PASSWORD.")
 
-        # A user per role (for quick demos)
-        role_user_specs = [
-            ("Sales", "sales@example.com", "SLS"),
-            ("Planning", "planning@example.com", "PLN"),
-            ("Modeling", "modeling@example.com", "MOD"),
-            ("Storage", "storage@example.com", "STR"),
-            ("Cutting", "cutting@example.com", "CUT"),
-            ("Printing", "printing@example.com", "PRT"),
-            ("Sewing", "sewing@example.com", "SEW"),
-            ("Packaging", "packaging@example.com", "PKG"),
-            ("ReadyStorage", "fgs@example.com", "FGS"),
-            ("Waste", "waste@example.com", "WST"),
-            ("Finance", "finance@example.com", "FIN"),
-            ("HR", "hr@example.com", "HR"),
-            ("Management", "mgr@example.com", "ADM"),
-        ]
-        for role_name, email, dcode in role_user_specs:
-            if not db.query(User).filter(User.email == email).first():
-                db.add(User(
-                    name=role_name + " User", email=email,
-                    password_hash=hash_password("demo12345"),
-                    role_id=role_map[role_name].id,
-                    department_id=dept_map[dcode].id, is_active=True,
-                ))
+        # A user per role (for quick demos). Disabled by default so shared
+        # demo credentials are not created in secured deployments.
+        if settings.SEED_DEMO_USERS:
+            role_user_specs = [
+                ("Sales", "sales@example.com", "SLS"),
+                ("Planning", "planning@example.com", "PLN"),
+                ("Modeling", "modeling@example.com", "MOD"),
+                ("Storage", "storage@example.com", "STR"),
+                ("Cutting", "cutting@example.com", "CUT"),
+                ("Printing", "printing@example.com", "PRT"),
+                ("Sewing", "sewing@example.com", "SEW"),
+                ("Packaging", "packaging@example.com", "PKG"),
+                ("ReadyStorage", "fgs@example.com", "FGS"),
+                ("Waste", "waste@example.com", "WST"),
+                ("Finance", "finance@example.com", "FIN"),
+                ("HR", "hr@example.com", "HR"),
+                ("Management", "mgr@example.com", "ADM"),
+            ]
+            for role_name, email, dcode in role_user_specs:
+                if not db.query(User).filter(User.email == email).first():
+                    db.add(User(
+                        name=role_name + " User", email=email,
+                        password_hash=hash_password("demo12345"),
+                        role_id=role_map[role_name].id,
+                        department_id=dept_map[dcode].id, is_active=True,
+                    ))
 
         # ----- Customers / Suppliers -----
         if not db.query(Customer).first():

@@ -46,9 +46,15 @@ class StockBatchIn(BaseModel):
     batch_no: str
     supplier_id: Optional[int] = None
     color: Optional[str] = None
+    old_code: Optional[str] = None
+    color_code: Optional[str] = None
+    color_status: Optional[str] = None
+    order_no: Optional[str] = None
     width: Optional[float] = None
     gsm: Optional[float] = None
     quantity: float
+    piece_count: Optional[int] = None
+    processes: Optional[str] = None
     unit: str
     cost_per_unit: float = 0
     warehouse_id: int
@@ -58,16 +64,26 @@ class StockBatchIn(BaseModel):
 class StockBatchOut(ORMModel):
     id: int
     item_id: int
+    item_sku: Optional[str] = None
+    item_name: Optional[str] = None
     batch_no: str
     supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
     color: Optional[str] = None
+    old_code: Optional[str] = None
+    color_code: Optional[str] = None
+    color_status: Optional[str] = None
+    order_no: Optional[str] = None
     width: Optional[float] = None
     gsm: Optional[float] = None
     quantity: float
+    piece_count: Optional[int] = None
+    processes: Optional[str] = None
     unit: str
     cost_per_unit: float
     received_date: datetime
     warehouse_id: int
+    warehouse_name: Optional[str] = None
     qc_status: str
 
 

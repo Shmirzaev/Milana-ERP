@@ -7,7 +7,7 @@ from sqlalchemy.orm import joinedload
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
     ProductionOrder, WorkOrder, CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord,
-    SalesOrder, QualityCheck, User, SewingFlow, SewingAssignment, Package,
+    SalesOrder, QualityCheck, User, SewingFlow, SewingAssignment, Package, ProductionBatch, WasteRecord,
 )
 from app.schemas.production import (
     ProductionOrderIn, ProductionOrderOut, ProductionOrderDetail,
@@ -17,7 +17,7 @@ from app.schemas.production import (
 )
 from app.core.dt import as_utc
 from app.services.audit import log_action
-from app.services.production import create_production_order, create_work_orders
+from app.services.production import create_production_order, create_production_batches, create_work_orders
 from app.services.bundles import create_bundle
 from app.services.packages import create_package
 from app.services.workflow import (
@@ -38,6 +38,75 @@ _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 class PrintingCollectIn(BaseModel):
     deadline: datetime
     notes: str | None = None
+
+
+class SplitBatchLineIn(BaseModel):
+    name: str | None = None
+    planned_quantity: int
+    start_date: datetime | None = None
+    deadline: datetime | None = None
+    notes: str | None = None
+
+
+class SplitWorkOrderBatchesIn(BaseModel):
+    batches: list[SplitBatchLineIn]
+
+
+def _ordered_batches_for_work_order(db: DbSession, wo: WorkOrder) -> tuple[ProductionOrder, list[ProductionBatch]]:
+    po = db.get(ProductionOrder, wo.production_order_id)
+    if not po:
+        raise HTTPException(404, "Production order not found")
+    batches = (
+        db.query(ProductionBatch)
+        .filter(ProductionBatch.production_order_id == po.id)
+        .order_by(ProductionBatch.batch_index.asc(), ProductionBatch.id.asc())
+        .all()
+    )
+    return po, batches
+
+
+def _resolve_record_batch_id(
+    db: DbSession,
+    wo: WorkOrder,
+    payload_batch_id: int | None,
+    *,
+    operation_name: str,
+) -> int | None:
+    normalized = int(payload_batch_id) if payload_batch_id else None
+
+    # Legacy mode: one WO per batch (or explicitly batch-tied WO)
+    if wo.production_batch_id is not None:
+        expected = int(wo.production_batch_id)
+        if normalized is not None and normalized != expected:
+            raise HTTPException(400, f"This work order is bound to batch #{expected}")
+        return expected
+
+    po, batches = _ordered_batches_for_work_order(db, wo)
+    if not batches:
+        return None
+
+    if normalized is None:
+        raise HTTPException(400, f"Select a production batch for this {operation_name} record")
+
+    exists = db.query(ProductionBatch.id).filter(
+        ProductionBatch.id == normalized,
+        ProductionBatch.production_order_id == po.id,
+    ).first()
+    if not exists:
+        raise HTTPException(404, "Production batch not found for this production order")
+    return normalized
+
+
+def _context_work_order(db: DbSession, source_wo: WorkOrder, operation: str) -> WorkOrder | None:
+    qry = db.query(WorkOrder).filter(
+        WorkOrder.production_order_id == source_wo.production_order_id,
+        WorkOrder.operation == operation,
+    )
+    if source_wo.production_batch_id is None:
+        qry = qry.filter(WorkOrder.production_batch_id.is_(None))
+    else:
+        qry = qry.filter(WorkOrder.production_batch_id == source_wo.production_batch_id)
+    return qry.order_by(WorkOrder.id.asc()).first()
 
 
 def _gate_record_submission(wo: WorkOrder, user) -> None:
@@ -129,6 +198,8 @@ def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends
         items=[i.model_dump() for i in payload.items],
         created_by=current.id,
     )
+    if payload.batches:
+        create_production_batches(db, po.id, [b.model_dump() for b in payload.batches])
     so = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
     include_printing = any(bool(i.printing_required) for i in (so.items or [])) if so else False
     create_work_orders(db, po.id, include_printing=include_printing)
@@ -140,6 +211,7 @@ def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends
 @router.get("/production-orders/{pid}", response_model=ProductionOrderDetail)
 def get_po(pid: int, db: DbSession, _: CurrentUser):
     po = db.query(ProductionOrder).options(
+        joinedload(ProductionOrder.batches),
         joinedload(ProductionOrder.items),
         joinedload(ProductionOrder.work_orders),
     ).filter(ProductionOrder.id == pid).first()
@@ -167,7 +239,7 @@ def create_wos(pid: int, db: DbSession, current: User = Depends(require_permissi
     return {"created": [{"id": w.id, "operation": w.operation} for w in wos]}
 
 
-# Operation order matters for deadline backfill — earlier ops finish earlier.
+# Operation order matters for deadline backfill â€” earlier ops finish earlier.
 _OP_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
 # Default share of total duration consumed by each stage (rough industry mix).
 _OP_DURATION_SHARE = {
@@ -181,12 +253,14 @@ def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_p
     """Distribute the PO deadline backwards across each work order's deadline.
 
     If the model has a non-zero `sam_minutes`, sewing duration is computed from
-    SAM × quantity. Other stages fill the remaining horizon proportionally.
+    SAM * quantity. Other stages fill the remaining horizon proportionally.
     Otherwise the static 20/10/45/15/10 share is used.
     """
     from app.models import Model as ModelEntity  # local import to avoid cycles
+
     po = db.get(ProductionOrder, pid)
-    if not po: raise HTTPException(404, "Production order not found")
+    if not po:
+        raise HTTPException(404, "Production order not found")
     if not po.deadline:
         raise HTTPException(400, "Set a Production-Order deadline first")
 
@@ -198,41 +272,73 @@ def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_p
         start = now
     if start >= end:
         raise HTTPException(400, "start_date must be before deadline")
-    total_seconds = (end - start).total_seconds()
 
     model_obj = db.get(ModelEntity, po.model_id)
     sam = float(model_obj.sam_minutes) if model_obj else 0.0
     qty = int(po.planned_quantity or 0)
 
-    if sam > 0 and qty > 0:
-        # Sewing: SAM × qty minutes, capped at 70% of total horizon.
-        sew_seconds = min(total_seconds * 0.7, sam * qty * 60.0)
-        other_seconds = max(0.0, total_seconds - sew_seconds)
-        others = {op: s for op, s in _OP_DURATION_SHARE.items() if op != "sewing"}
-        s_sum = sum(others.values()) or 1.0
-        per_op = {op: other_seconds * (s / s_sum) for op, s in others.items()}
-        per_op["sewing"] = sew_seconds
-    else:
-        per_op = {op: total_seconds * _OP_DURATION_SHARE.get(op, 0.2) for op in _OP_SEQUENCE}
+    def _per_op_seconds(total_seconds: float, units: int) -> dict[str, float]:
+        if sam > 0 and units > 0:
+            # Sewing: SAM * qty minutes, capped at 70% of the available horizon.
+            sew_seconds = min(total_seconds * 0.7, sam * units * 60.0)
+            other_seconds = max(0.0, total_seconds - sew_seconds)
+            others = {op: s for op, s in _OP_DURATION_SHARE.items() if op != "sewing"}
+            s_sum = sum(others.values()) or 1.0
+            out = {op: other_seconds * (s / s_sum) for op, s in others.items()}
+            out["sewing"] = sew_seconds
+            return out
+        return {op: total_seconds * _OP_DURATION_SHARE.get(op, 0.2) for op in _OP_SEQUENCE}
 
-    wos_by_op: dict[str, WorkOrder] = {}
-    for w in db.query(WorkOrder).filter(WorkOrder.production_order_id == pid).all():
-        wos_by_op[w.operation] = w
+    batches = (
+        db.query(ProductionBatch)
+        .filter(ProductionBatch.production_order_id == pid)
+        .order_by(ProductionBatch.batch_index.asc(), ProductionBatch.id.asc())
+        .all()
+    )
+    batch_map = {b.id: b for b in batches}
+    all_wos = db.query(WorkOrder).filter(WorkOrder.production_order_id == pid).all()
+    groups: dict[int | None, list[WorkOrder]] = {}
+    for w in all_wos:
+        groups.setdefault(w.production_batch_id, []).append(w)
 
-    cursor = start
     updates: list[dict] = []
-    for op in _OP_SEQUENCE:
-        wo = wos_by_op.get(op)
-        if not wo:
-            continue
-        cursor = cursor + timedelta(seconds=per_op.get(op, 0))
-        deadline = min(cursor, end)
-        wo.deadline = deadline
-        updates.append({"work_order_id": wo.id, "operation": op, "deadline": deadline.isoformat()})
+    for batch_id, wos in groups.items():
+        batch = batch_map.get(batch_id) if batch_id is not None else None
+        group_end = as_utc(batch.deadline) if batch and batch.deadline else end
+        group_start = as_utc(batch.start_date) if batch and batch.start_date else start
+        if (batch is None or batch.start_date is None) and po.start_date is None and group_start < now < group_end:
+            group_start = now
+        if group_start >= group_end:
+            group_start = group_end - timedelta(minutes=1)
 
-    log_action(db, current, "cascade_deadlines", "ProductionOrder", pid, new_value={
-        "updates": updates, "sam_minutes": sam, "qty": qty,
-    })
+        group_qty = int(batch.planned_quantity or 0) if batch else max(0, qty)
+        total_seconds = max(60.0, (group_end - group_start).total_seconds())
+        per_op = _per_op_seconds(total_seconds, group_qty)
+        by_op = {w.operation: w for w in wos}
+
+        cursor = group_start
+        for op in _OP_SEQUENCE:
+            wo = by_op.get(op)
+            if not wo:
+                continue
+            cursor = cursor + timedelta(seconds=per_op.get(op, 0))
+            deadline = min(cursor, group_end)
+            wo.deadline = deadline
+            updates.append({
+                "work_order_id": wo.id,
+                "operation": op,
+                "batch_id": batch_id,
+                "deadline": deadline.isoformat(),
+            })
+
+    log_action(
+        db,
+        current,
+        "cascade_deadlines",
+        "ProductionOrder",
+        pid,
+        new_value={"updates": updates, "sam_minutes": sam, "qty": qty},
+    )
     db.commit()
     return {"updates": updates, "sam_minutes": sam}
 
@@ -251,6 +357,8 @@ def admin_repair_totals(pid: int, db: DbSession, current: User = Depends(require
         raise HTTPException(404, "Production order not found")
 
     work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == pid).all()
+    if any(w.production_batch_id is not None for w in work_orders):
+        raise HTTPException(400, "Admin repair totals is not available for batched production orders yet")
     by_op = {w.operation: w for w in work_orders}
     now = datetime.now(timezone.utc)
 
@@ -558,6 +666,319 @@ def complete_wo(wid: int, db: DbSession, current: CurrentUser):
     return wo
 
 
+@router.post("/work-orders/{wid}/split-batches")
+def split_cutting_work_order_batches(
+    wid: int,
+    payload: SplitWorkOrderBatchesIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.records", "planning.production", "*")),
+):
+    wo = db.get(WorkOrder, wid)
+    if not wo:
+        raise HTTPException(404, "Work order not found")
+    if wo.operation != "cutting":
+        raise HTTPException(400, "Only cutting work orders can be split into batches")
+    if wo.production_batch_id is not None:
+        raise HTTPException(409, "This work order is already assigned to a batch")
+
+    po = db.get(ProductionOrder, wo.production_order_id)
+    if not po:
+        raise HTTPException(404, "Production order not found")
+
+    existing_batches = db.query(ProductionBatch.id).filter(ProductionBatch.production_order_id == po.id).first()
+    if existing_batches:
+        raise HTTPException(409, "Production order already has batches")
+
+    rows = payload.batches or []
+    if not rows:
+        raise HTTPException(400, "Provide at least one batch")
+    if any(int(row.planned_quantity or 0) <= 0 for row in rows):
+        raise HTTPException(400, "Each batch quantity must be greater than zero")
+    total = sum(int(row.planned_quantity or 0) for row in rows)
+    if total != int(po.planned_quantity or 0):
+        raise HTTPException(
+            400,
+            f"Batch quantities ({total}) must match production planned quantity ({int(po.planned_quantity or 0)})",
+        )
+
+    work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()
+    work_order_ids = [w.id for w in work_orders]
+    if not work_order_ids:
+        raise HTTPException(400, "No work orders found for this production order")
+
+    has_activity = (
+        db.query(CuttingRecord.id).filter(CuttingRecord.work_order_id.in_(work_order_ids)).first()
+        or db.query(PrintingRecord.id).filter(PrintingRecord.work_order_id.in_(work_order_ids)).first()
+        or db.query(SewingRecord.id).filter(SewingRecord.work_order_id.in_(work_order_ids)).first()
+        or db.query(PackagingRecord.id).filter(PackagingRecord.work_order_id.in_(work_order_ids)).first()
+        or db.query(SewingAssignment.id).filter(SewingAssignment.work_order_id.in_(work_order_ids)).first()
+        or db.query(QualityCheck.id).filter(QualityCheck.work_order_id.in_(work_order_ids)).first()
+        or db.query(WasteRecord.id).filter(WasteRecord.work_order_id.in_(work_order_ids)).first()
+    )
+    if has_activity:
+        raise HTTPException(409, "Cannot split: this order already has production activity records")
+
+    batch_payload = [row.model_dump() for row in rows]
+    created_batches = create_production_batches(db, po.id, batch_payload)
+
+    log_action(
+        db,
+        current,
+        "split_into_batches",
+        "ProductionOrder",
+        po.id,
+        new_value={
+            "batch_count": len(created_batches),
+            "total_quantity": total,
+            "work_order_id": wo.id,
+            "kept_single_work_order": True,
+        },
+    )
+    db.commit()
+    return {
+        "production_order_id": po.id,
+        "batch_count": len(created_batches),
+        "work_order_id": wo.id,
+        "kept_single_work_order": True,
+    }
+
+
+@router.get("/work-orders/{wid}/cutting-batch-progress")
+def cutting_batch_progress(wid: int, db: DbSession, _: CurrentUser):
+    wo = db.get(WorkOrder, wid)
+    if not wo:
+        raise HTTPException(404, "Work order not found")
+    if wo.operation != "cutting":
+        raise HTTPException(400, "Work order is not a cutting operation")
+
+    _, batches = _ordered_batches_for_work_order(db, wo)
+    if not batches:
+        return {"work_order_id": wo.id, "items": []}
+
+    rows = (
+        db.query(
+            CuttingRecord.production_batch_id,
+            func.coalesce(func.sum(CuttingRecord.cut_pieces), 0),
+            func.coalesce(func.sum(CuttingRecord.passed_pieces), 0),
+            func.coalesce(func.sum(CuttingRecord.defective_pieces), 0),
+        )
+        .filter(CuttingRecord.work_order_id == wo.id)
+        .group_by(CuttingRecord.production_batch_id)
+        .all()
+    )
+    totals_by_batch: dict[int, dict[str, int]] = {}
+    for batch_id, cut_sum, passed_sum, defective_sum in rows:
+        if batch_id is None:
+            continue
+        totals_by_batch[int(batch_id)] = {
+            "cut_pieces": int(cut_sum or 0),
+            "passed_pieces": int(passed_sum or 0),
+            "defective_pieces": int(defective_sum or 0),
+        }
+
+    items = []
+    for b in batches:
+        totals = totals_by_batch.get(int(b.id), {})
+        passed = int(totals.get("passed_pieces", 0))
+        planned = int(b.planned_quantity or 0)
+        items.append({
+            "id": b.id,
+            "batch_no": b.batch_no,
+            "batch_index": b.batch_index,
+            "name": b.name,
+            "planned_quantity": planned,
+            "cut_pieces": int(totals.get("cut_pieces", 0)),
+            "passed_pieces": passed,
+            "defective_pieces": int(totals.get("defective_pieces", 0)),
+            "remaining_quantity": max(0, planned - passed),
+            "progress_pct": round((100.0 * passed / planned), 1) if planned > 0 else 0.0,
+            "start_date": b.start_date,
+            "deadline": b.deadline,
+            "notes": b.notes,
+        })
+    return {"work_order_id": wo.id, "items": items}
+
+
+@router.get("/work-orders/{wid}/printing-batch-progress")
+def printing_batch_progress(wid: int, db: DbSession, _: CurrentUser):
+    wo = db.get(WorkOrder, wid)
+    if not wo:
+        raise HTTPException(404, "Work order not found")
+    if wo.operation != "printing":
+        raise HTTPException(400, "Work order is not a printing operation")
+
+    _, batches = _ordered_batches_for_work_order(db, wo)
+    if not batches:
+        return {"work_order_id": wo.id, "items": []}
+
+    rows = (
+        db.query(
+            PrintingRecord.production_batch_id,
+            func.coalesce(func.sum(PrintingRecord.input_qty), 0),
+            func.coalesce(func.sum(PrintingRecord.printed_qty), 0),
+            func.coalesce(func.sum(PrintingRecord.passed_qty), 0),
+            func.coalesce(func.sum(PrintingRecord.rejected_qty), 0),
+        )
+        .filter(PrintingRecord.work_order_id == wo.id)
+        .group_by(PrintingRecord.production_batch_id)
+        .all()
+    )
+    totals_by_batch: dict[int, dict[str, int]] = {}
+    for batch_id, input_sum, printed_sum, passed_sum, rejected_sum in rows:
+        if batch_id is None:
+            continue
+        totals_by_batch[int(batch_id)] = {
+            "input_qty": int(input_sum or 0),
+            "printed_qty": int(printed_sum or 0),
+            "passed_qty": int(passed_sum or 0),
+            "rejected_qty": int(rejected_sum or 0),
+        }
+
+    items = []
+    for b in batches:
+        totals = totals_by_batch.get(int(b.id), {})
+        passed = int(totals.get("passed_qty", 0))
+        planned = int(b.planned_quantity or 0)
+        items.append({
+            "id": b.id,
+            "batch_no": b.batch_no,
+            "batch_index": b.batch_index,
+            "name": b.name,
+            "planned_quantity": planned,
+            "input_qty": int(totals.get("input_qty", 0)),
+            "printed_qty": int(totals.get("printed_qty", 0)),
+            "passed_qty": passed,
+            "rejected_qty": int(totals.get("rejected_qty", 0)),
+            "remaining_quantity": max(0, planned - passed),
+            "progress_pct": round((100.0 * passed / planned), 1) if planned > 0 else 0.0,
+            "start_date": b.start_date,
+            "deadline": b.deadline,
+            "notes": b.notes,
+        })
+    return {"work_order_id": wo.id, "items": items}
+
+
+@router.get("/work-orders/{wid}/sewing-batch-progress")
+def sewing_batch_progress(wid: int, db: DbSession, _: CurrentUser):
+    wo = db.get(WorkOrder, wid)
+    if not wo:
+        raise HTTPException(404, "Work order not found")
+    if wo.operation != "sewing":
+        raise HTTPException(400, "Work order is not a sewing operation")
+
+    _, batches = _ordered_batches_for_work_order(db, wo)
+    if not batches:
+        return {"work_order_id": wo.id, "items": []}
+
+    rows = (
+        db.query(
+            SewingRecord.production_batch_id,
+            func.coalesce(func.sum(SewingRecord.input_qty), 0),
+            func.coalesce(func.sum(SewingRecord.sewn_qty), 0),
+            func.coalesce(func.sum(SewingRecord.passed_qty), 0),
+            func.coalesce(func.sum(SewingRecord.failed_qty), 0),
+            func.coalesce(func.sum(SewingRecord.rework_qty), 0),
+            func.coalesce(func.sum(SewingRecord.rejected_qty), 0),
+        )
+        .filter(SewingRecord.work_order_id == wo.id)
+        .group_by(SewingRecord.production_batch_id)
+        .all()
+    )
+    totals_by_batch: dict[int, dict[str, int]] = {}
+    for batch_id, input_sum, sewn_sum, passed_sum, failed_sum, rework_sum, rejected_sum in rows:
+        if batch_id is None:
+            continue
+        totals_by_batch[int(batch_id)] = {
+            "input_qty": int(input_sum or 0),
+            "sewn_qty": int(sewn_sum or 0),
+            "passed_qty": int(passed_sum or 0),
+            "failed_qty": int(failed_sum or 0),
+            "rework_qty": int(rework_sum or 0),
+            "rejected_qty": int(rejected_sum or 0),
+        }
+
+    items = []
+    for b in batches:
+        totals = totals_by_batch.get(int(b.id), {})
+        passed = int(totals.get("passed_qty", 0))
+        planned = int(b.planned_quantity or 0)
+        items.append({
+            "id": b.id,
+            "batch_no": b.batch_no,
+            "batch_index": b.batch_index,
+            "name": b.name,
+            "planned_quantity": planned,
+            "input_qty": int(totals.get("input_qty", 0)),
+            "sewn_qty": int(totals.get("sewn_qty", 0)),
+            "passed_qty": passed,
+            "failed_qty": int(totals.get("failed_qty", 0)),
+            "rework_qty": int(totals.get("rework_qty", 0)),
+            "rejected_qty": int(totals.get("rejected_qty", 0)),
+            "remaining_quantity": max(0, planned - passed),
+            "progress_pct": round((100.0 * passed / planned), 1) if planned > 0 else 0.0,
+            "start_date": b.start_date,
+            "deadline": b.deadline,
+            "notes": b.notes,
+        })
+    return {"work_order_id": wo.id, "items": items}
+
+
+@router.get("/work-orders/{wid}/packaging-batch-progress")
+def packaging_batch_progress(wid: int, db: DbSession, _: CurrentUser):
+    wo = db.get(WorkOrder, wid)
+    if not wo:
+        raise HTTPException(404, "Work order not found")
+    if wo.operation != "packaging":
+        raise HTTPException(400, "Work order is not a packaging operation")
+
+    _, batches = _ordered_batches_for_work_order(db, wo)
+    if not batches:
+        return {"work_order_id": wo.id, "items": []}
+
+    rows = (
+        db.query(
+            PackagingRecord.production_batch_id,
+            func.coalesce(func.sum(PackagingRecord.input_qty), 0),
+            func.coalesce(func.sum(PackagingRecord.packed_qty), 0),
+            func.coalesce(func.sum(PackagingRecord.damaged_qty), 0),
+        )
+        .filter(PackagingRecord.work_order_id == wo.id)
+        .group_by(PackagingRecord.production_batch_id)
+        .all()
+    )
+    totals_by_batch: dict[int, dict[str, int]] = {}
+    for batch_id, input_sum, packed_sum, damaged_sum in rows:
+        if batch_id is None:
+            continue
+        totals_by_batch[int(batch_id)] = {
+            "input_qty": int(input_sum or 0),
+            "packed_qty": int(packed_sum or 0),
+            "damaged_qty": int(damaged_sum or 0),
+        }
+
+    items = []
+    for b in batches:
+        totals = totals_by_batch.get(int(b.id), {})
+        packed = int(totals.get("packed_qty", 0))
+        planned = int(b.planned_quantity or 0)
+        items.append({
+            "id": b.id,
+            "batch_no": b.batch_no,
+            "batch_index": b.batch_index,
+            "name": b.name,
+            "planned_quantity": planned,
+            "input_qty": int(totals.get("input_qty", 0)),
+            "packed_qty": packed,
+            "damaged_qty": int(totals.get("damaged_qty", 0)),
+            "remaining_quantity": max(0, planned - packed),
+            "progress_pct": round((100.0 * packed / planned), 1) if planned > 0 else 0.0,
+            "start_date": b.start_date,
+            "deadline": b.deadline,
+            "notes": b.notes,
+        })
+    return {"work_order_id": wo.id, "items": items}
+
+
 # ===== Cutting =====
 @router.post("/cutting/records", status_code=201)
 def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depends(require_permissions("cutting.records", "*"))):
@@ -565,9 +986,20 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "cutting": raise HTTPException(400, "Work order is not a cutting operation")
     _gate_record_submission(wo, current)
+    po = db.get(ProductionOrder, wo.production_order_id)
+    if not po:
+        raise HTTPException(404, "Production order not found")
+
+    batch_id = _resolve_record_batch_id(
+        db,
+        wo,
+        payload.production_batch_id,
+        operation_name="cutting",
+    )
 
     rec = CuttingRecord(
         work_order_id=payload.work_order_id,
+        production_batch_id=batch_id,
         fabric_batch_id=payload.fabric_batch_id,
         input_quantity=payload.input_quantity,
         input_unit=payload.input_unit,
@@ -613,7 +1045,6 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     )
 
     # Create bundles for the plan
-    po = db.get(ProductionOrder, wo.production_order_id)
     so_id = po.sales_order_id if po else None
     created_bundles = []
     to_printing = 0
@@ -668,7 +1099,10 @@ def get_cutting(rid: int, db: DbSession, _: CurrentUser):
     r = db.get(CuttingRecord, rid)
     if not r: raise HTTPException(404, "Not found")
     return {
-        "id": r.id, "work_order_id": r.work_order_id, "fabric_batch_id": r.fabric_batch_id,
+        "id": r.id,
+        "production_batch_id": r.production_batch_id,
+        "work_order_id": r.work_order_id,
+        "fabric_batch_id": r.fabric_batch_id,
         "input_quantity": float(r.input_quantity), "cut_pieces": r.cut_pieces, "passed_pieces": r.passed_pieces,
         "defective_pieces": r.defective_pieces, "waste_quantity": float(r.waste_quantity),
         "bundle_count": r.bundle_count, "total_bundled_quantity": r.total_bundled_quantity,
@@ -692,7 +1126,45 @@ def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depe
         if not wo.start_time:
             wo.start_time = datetime.now(timezone.utc)
     _gate_record_submission(wo, current)
-    rec = PrintingRecord(**payload.model_dump(), )
+    batch_id = _resolve_record_batch_id(
+        db,
+        wo,
+        payload.production_batch_id,
+        operation_name="printing",
+    )
+
+    if batch_id is not None:
+        cut_wo = _context_work_order(db, wo, "cutting")
+        upstream_passed = 0
+        if cut_wo:
+            upstream_passed = int(
+                db.query(func.coalesce(func.sum(CuttingRecord.passed_pieces), 0))
+                .filter(
+                    CuttingRecord.work_order_id == cut_wo.id,
+                    CuttingRecord.production_batch_id == batch_id,
+                )
+                .scalar()
+                or 0
+            )
+        current_input = int(
+            db.query(func.coalesce(func.sum(PrintingRecord.input_qty), 0))
+            .filter(
+                PrintingRecord.work_order_id == wo.id,
+                PrintingRecord.production_batch_id == batch_id,
+            )
+            .scalar()
+            or 0
+        )
+        next_total = current_input + int(payload.input_qty or 0)
+        if next_total > upstream_passed:
+            raise HTTPException(
+                400,
+                f"Printing input {next_total} exceeds cutting passed {upstream_passed} for this batch",
+            )
+
+    rec_data = payload.model_dump()
+    rec_data["production_batch_id"] = batch_id
+    rec = PrintingRecord(**rec_data)
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
     db.flush()
@@ -715,10 +1187,7 @@ def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depe
     )
     advance_workflow(db, wo, trigger_output_qty=int(payload.passed_qty or 0))
     if int(payload.passed_qty or 0) > 0:
-        sew_wo = db.query(WorkOrder).filter(
-            WorkOrder.production_order_id == wo.production_order_id,
-            WorkOrder.operation == "sewing",
-        ).first()
+        sew_wo = _context_work_order(db, wo, "sewing")
         notify_department(
             db,
             department_code="SEW",
@@ -737,6 +1206,7 @@ def get_printing(rid: int, db: DbSession, _: CurrentUser):
     if not r: raise HTTPException(404, "Not found")
     return {
         "id": r.id, "work_order_id": r.work_order_id,
+        "production_batch_id": r.production_batch_id,
         "input_qty": r.input_qty, "printed_qty": r.printed_qty,
         "passed_qty": r.passed_qty, "rejected_qty": r.rejected_qty,
         "defect_reason": r.defect_reason, "print_type": r.print_type,
@@ -751,19 +1221,60 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "sewing": raise HTTPException(400, "Work order is not a sewing operation")
     _gate_record_submission(wo, current)
+    batch_id = _resolve_record_batch_id(
+        db,
+        wo,
+        payload.production_batch_id,
+        operation_name="sewing",
+    )
 
     # Rule: sewing cannot receive more than cutting/printing passed
-    po_id = wo.production_order_id
     upstream_passed = 0
-    cut_wo = db.query(WorkOrder).filter(WorkOrder.production_order_id == po_id, WorkOrder.operation == "cutting").first()
-    prt_wo = db.query(WorkOrder).filter(WorkOrder.production_order_id == po_id, WorkOrder.operation == "printing").first()
-    if prt_wo and prt_wo.passed_qty > 0:
-        upstream_passed = prt_wo.passed_qty
-    elif cut_wo:
-        upstream_passed = cut_wo.passed_qty
-
-    if upstream_passed and wo.actual_input_qty + payload.input_qty > upstream_passed:
-        raise HTTPException(400, f"Sewing input {wo.actual_input_qty + payload.input_qty} exceeds upstream passed {upstream_passed}")
+    cut_wo = _context_work_order(db, wo, "cutting")
+    prt_wo = _context_work_order(db, wo, "printing")
+    if batch_id is not None:
+        printing_passed = 0
+        cutting_passed = 0
+        if prt_wo:
+            printing_passed = int(
+                db.query(func.coalesce(func.sum(PrintingRecord.passed_qty), 0))
+                .filter(
+                    PrintingRecord.work_order_id == prt_wo.id,
+                    PrintingRecord.production_batch_id == batch_id,
+                )
+                .scalar()
+                or 0
+            )
+        if cut_wo:
+            cutting_passed = int(
+                db.query(func.coalesce(func.sum(CuttingRecord.passed_pieces), 0))
+                .filter(
+                    CuttingRecord.work_order_id == cut_wo.id,
+                    CuttingRecord.production_batch_id == batch_id,
+                )
+                .scalar()
+                or 0
+            )
+        upstream_passed = printing_passed if printing_passed > 0 else cutting_passed
+        current_input = int(
+            db.query(func.coalesce(func.sum(SewingRecord.input_qty), 0))
+            .filter(
+                SewingRecord.work_order_id == wo.id,
+                SewingRecord.production_batch_id == batch_id,
+            )
+            .scalar()
+            or 0
+        )
+        next_total = current_input + int(payload.input_qty or 0)
+        if next_total > upstream_passed:
+            raise HTTPException(400, f"Sewing input {next_total} exceeds upstream passed {upstream_passed} for this batch")
+    else:
+        if prt_wo and prt_wo.passed_qty > 0:
+            upstream_passed = prt_wo.passed_qty
+        elif cut_wo:
+            upstream_passed = cut_wo.passed_qty
+        if upstream_passed and wo.actual_input_qty + payload.input_qty > upstream_passed:
+            raise HTTPException(400, f"Sewing input {wo.actual_input_qty + payload.input_qty} exceeds upstream passed {upstream_passed}")
 
     assignment = None
     if payload.sewing_assignment_id:
@@ -785,7 +1296,9 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
                 .first()
             )
 
-    rec = SewingRecord(**payload.model_dump(exclude={"sewing_assignment_id"}))
+    rec_data = payload.model_dump(exclude={"sewing_assignment_id"})
+    rec_data["production_batch_id"] = batch_id
+    rec = SewingRecord(**rec_data)
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
     db.flush()
@@ -825,10 +1338,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     )
     advance_workflow(db, wo, trigger_output_qty=int(payload.passed_qty or 0))
     if int(payload.passed_qty or 0) > 0:
-        pkg_wo = db.query(WorkOrder).filter(
-            WorkOrder.production_order_id == wo.production_order_id,
-            WorkOrder.operation == "packaging",
-        ).first()
+        pkg_wo = _context_work_order(db, wo, "packaging")
         notify_department(
             db,
             department_code="PKG",
@@ -847,6 +1357,7 @@ def get_sewing(rid: int, db: DbSession, _: CurrentUser):
     if not r: raise HTTPException(404, "Not found")
     return {
         "id": r.id, "work_order_id": r.work_order_id,
+        "production_batch_id": r.production_batch_id,
         "input_qty": r.input_qty, "sewn_qty": r.sewn_qty,
         "passed_qty": r.passed_qty, "failed_qty": r.failed_qty,
         "rework_qty": r.rework_qty, "rejected_qty": r.rejected_qty,
@@ -862,12 +1373,45 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "packaging": raise HTTPException(400, "Work order is not a packaging operation")
     _gate_record_submission(wo, current)
+    batch_id = _resolve_record_batch_id(
+        db,
+        wo,
+        payload.production_batch_id,
+        operation_name="packaging",
+    )
 
-    sew_wo = db.query(WorkOrder).filter(WorkOrder.production_order_id == wo.production_order_id, WorkOrder.operation == "sewing").first()
-    if sew_wo and wo.actual_input_qty + payload.input_qty > sew_wo.passed_qty:
-        raise HTTPException(400, f"Packaging input {wo.actual_input_qty + payload.input_qty} exceeds sewing passed {sew_wo.passed_qty}")
+    sew_wo = _context_work_order(db, wo, "sewing")
+    if batch_id is not None:
+        sewing_passed = 0
+        if sew_wo:
+            sewing_passed = int(
+                db.query(func.coalesce(func.sum(SewingRecord.passed_qty), 0))
+                .filter(
+                    SewingRecord.work_order_id == sew_wo.id,
+                    SewingRecord.production_batch_id == batch_id,
+                )
+                .scalar()
+                or 0
+            )
+        current_input = int(
+            db.query(func.coalesce(func.sum(PackagingRecord.input_qty), 0))
+            .filter(
+                PackagingRecord.work_order_id == wo.id,
+                PackagingRecord.production_batch_id == batch_id,
+            )
+            .scalar()
+            or 0
+        )
+        next_total = current_input + int(payload.input_qty or 0)
+        if next_total > sewing_passed:
+            raise HTTPException(400, f"Packaging input {next_total} exceeds sewing passed {sewing_passed} for this batch")
+    else:
+        if sew_wo and wo.actual_input_qty + payload.input_qty > sew_wo.passed_qty:
+            raise HTTPException(400, f"Packaging input {wo.actual_input_qty + payload.input_qty} exceeds sewing passed {sew_wo.passed_qty}")
 
-    rec = PackagingRecord(**payload.model_dump())
+    rec_data = payload.model_dump()
+    rec_data["production_batch_id"] = batch_id
+    rec = PackagingRecord(**rec_data)
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
     db.flush()

@@ -15,6 +15,7 @@ type Employee = {
   salary: number | null;
   department_id: number | null;
   status: string;
+  joined_at: string | null;
 };
 
 const EMPTY = {
@@ -28,8 +29,8 @@ const EMPTY = {
 
 export default function EmployeesPage() {
   const { t } = useT();
-  const { data, mutate } = useSWR<Employee[]>("/api/employees", fetcher);
-  const { data: depts } = useSWR<Dept[]>("/api/departments", fetcher);
+  const { data, error: employeesError, isLoading, mutate } = useSWR<Employee[]>("/api/employees", fetcher);
+  const { data: depts, error: deptsError } = useSWR<Dept[]>("/api/departments", fetcher);
 
   const [f, setF] = useState(EMPTY);
   const [createMsg, setCreateMsg] = useState("");
@@ -97,40 +98,53 @@ export default function EmployeesPage() {
     <div>
       <PageHeader title={t("page.hr.title")} />
 
-      <form onSubmit={create} className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-6">
+      <form onSubmit={create} className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-7">
         <input className="input" placeholder={t("field.fullName")} value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} required />
         <input className="input" placeholder={t("field.position")} value={f.position} onChange={(e) => setF({ ...f, position: e.target.value })} />
-        <input className="input" placeholder={t("field.phone")} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
-        <input className="input" type="number" placeholder={t("field.salary")} value={f.salary} onChange={(e) => setF({ ...f, salary: Number(e.target.value) })} />
         <select className="input" value={f.department_id} onChange={(e) => setF({ ...f, department_id: Number(e.target.value) })}>
           <option value={0}>{t("ph.dept")}</option>
           {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
+        <input className="input" placeholder={t("field.phone")} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+        <input className="input" type="number" placeholder={t("field.salary")} value={f.salary} onChange={(e) => setF({ ...f, salary: Number(e.target.value) })} />
+        <select className="input" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+          <option value="active">{t("empStatus.active")}</option>
+          <option value="inactive">{t("empStatus.inactive")}</option>
+          <option value="on_leave">{t("empStatus.onLeave")}</option>
+          <option value="terminated">{t("empStatus.terminated")}</option>
+        </select>
         <button className="btn btn-primary">{t("btn.add")}</button>
-        {createMsg && <div className="text-sm text-red-600 md:col-span-6">{createMsg}</div>}
+        {createMsg && <div className="text-sm text-red-600 md:col-span-7">{createMsg}</div>}
       </form>
 
       <div className="card overflow-x-auto">
+        {(employeesError || deptsError) && (
+          <div className="border-b border-[#ecebe3] p-3 text-sm text-red-600">
+            Could not load employees. Please try again.
+          </div>
+        )}
         <table className="table">
           <thead>
             <tr>
               <th>{t("field.fullName")}</th>
               <th>{t("field.position")}</th>
+              <th>{t("field.department")}</th>
               <th>{t("field.phone")}</th>
               <th>{t("field.salary")}</th>
-              <th>{t("field.department")}</th>
               <th>{t("common.status")}</th>
+              <th>{t("field.joined")}</th>
               <th>{t("field.actions")}</th>
             </tr>
           </thead>
           <tbody>
+            {isLoading && <tr><td colSpan={8} className="text-sm text-slate-500">{t("common.loading")}</td></tr>}
             {data?.map((emp) => (
               <tr key={emp.id}>
                 <td>{emp.full_name}</td>
                 <td>{emp.position ?? "-"}</td>
+                <td>{depts?.find((d) => d.id === emp.department_id)?.name ?? emp.department_id ?? "-"}</td>
                 <td>{emp.phone ?? "-"}</td>
                 <td>{emp.salary ?? "-"}</td>
-                <td>{depts?.find((d) => d.id === emp.department_id)?.name ?? emp.department_id ?? "-"}</td>
                 <td>
                   <span className={`badge ${emp.status === "active" ? "badge-green" : "badge-red"}`}>
                     {emp.status === "active" && t("empStatus.active")}
@@ -139,6 +153,7 @@ export default function EmployeesPage() {
                     {emp.status === "terminated" && t("empStatus.terminated")}
                   </span>
                 </td>
+                <td>{emp.joined_at ? new Date(emp.joined_at).toLocaleDateString() : "-"}</td>
                 <td className="flex gap-2">
                   <button className="text-brand-600 hover:underline" onClick={() => openEdit(emp)}>{t("btn.edit")}</button>
                   <button className="text-red-600 hover:underline" onClick={() => del(emp)}>{t("btn.delete")}</button>

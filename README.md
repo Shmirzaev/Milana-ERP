@@ -16,6 +16,7 @@ A production-ready MVP ERP for a textile/garment manufacturing company. It imple
 ```bash
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
+# Edit backend/.env and set INITIAL_ADMIN_PASSWORD to a strong unique password.
 
 docker compose up --build
 ```
@@ -29,26 +30,13 @@ When the stack is up:
 | API (ReDoc)    | http://localhost:8000/redoc      |
 | PostgreSQL     | localhost:5432 (erp / erp / erp) |
 
-The backend container automatically runs `alembic upgrade head`, then seeds initial data (`python -m app.db.seed`), then starts uvicorn.
+The backend container automatically runs `alembic upgrade head`, then starts uvicorn. When `RUN_SEED_ON_STARTUP=true`, it also seeds initial data.
 
-### Default login
+### First admin login
 
-| Email                 | Password    | Role        |
-|-----------------------|-------------|-------------|
-| admin@example.com     | admin12345  | Admin       |
-| sales@example.com     | demo12345   | Sales       |
-| planning@example.com  | demo12345   | Planning    |
-| modeling@example.com  | demo12345   | Modeling    |
-| storage@example.com   | demo12345   | Storage     |
-| cutting@example.com   | demo12345   | Cutting     |
-| printing@example.com  | demo12345   | Printing    |
-| sewing@example.com    | demo12345   | Sewing      |
-| packaging@example.com | demo12345   | Packaging   |
-| fgs@example.com       | demo12345   | ReadyStore  |
-| waste@example.com     | demo12345   | Waste       |
-| finance@example.com   | demo12345   | Finance     |
-| hr@example.com        | demo12345   | HR          |
-| mgr@example.com       | demo12345   | Management  |
+The seed creates an active admin only when `INITIAL_ADMIN_PASSWORD` is set. The email defaults to `admin@example.com`, or you can change it with `INITIAL_ADMIN_EMAIL`. Shared demo/admin passwords are blocked for the admin account.
+
+Demo role users are not created unless `SEED_DEMO_USERS=true`.
 
 ---
 
@@ -62,6 +50,7 @@ source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
 # point DATABASE_URL at your local Postgres
+# set INITIAL_ADMIN_PASSWORD to a strong unique password
 alembic upgrade head
 python -m app.db.seed
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000

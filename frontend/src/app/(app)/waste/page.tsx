@@ -9,10 +9,10 @@ import { useT } from "@/lib/i18n";
 export default function WastePage() {
   const { t } = useT();
   const { data, mutate } = useSWR<any[]>("/api/waste", fetcher);
-  const { data: items } = useSWR<any[]>("/api/inventory/items?category=waste", fetcher);
+  const { data: items } = useSWR<any[]>("/api/inventory/items", fetcher);
   const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const { data: dash } = useSWR<any>("/api/dashboard/waste", fetcher);
-  const [f, setF] = useState({ item_id: 0, source_department_id: 0, waste_type: "fabric", quantity: 0, unit: "kg", reason: "", sellable: true, estimated_value: 0 });
+  const [f, setF] = useState({ item_id: 0, source_department_id: 0, waste_type: "fabric", quantity: 0, unit: "kg", reason: "", sellable: true });
   const [msg, setMsg] = useState("");
 
   async function record(e: React.FormEvent) {
@@ -22,6 +22,7 @@ export default function WastePage() {
     catch (e: any) { setMsg(e.message); }
   }
   async function act(id: number, action: string, body?: any) {
+    if (["sell", "request-disposal"].includes(action) && !confirm("Confirm this action?")) return;
     await api.post(`/api/waste/${id}/${action}`, body); mutate();
   }
 
@@ -42,7 +43,6 @@ export default function WastePage() {
         <input className="input" placeholder={t("page.waste.wasteType")} value={f.waste_type} onChange={(e) => setF({ ...f, waste_type: e.target.value })} />
         <input className="input" type="number" step="0.01" placeholder={t("field.quantity")} value={f.quantity} onChange={(e) => setF({ ...f, quantity: Number(e.target.value) })} />
         <input className="input" placeholder={t("field.unit")} value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} />
-        <input className="input" type="number" step="0.01" placeholder={t("field.estimatedValue")} value={f.estimated_value} onChange={(e) => setF({ ...f, estimated_value: Number(e.target.value) })} />
         <label className="text-sm flex items-center gap-2 mt-1"><input type="checkbox" checked={f.sellable} onChange={(e) => setF({ ...f, sellable: e.target.checked })} />{t("field.sellable")}</label>
         <button className="btn btn-primary md:col-span-1">{t("btn.recordWaste")}</button>
         {msg && <div className="md:col-span-4 text-sm">{msg}</div>}

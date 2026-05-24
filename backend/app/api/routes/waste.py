@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import WasteRecord, WasteSale, WasteDisposalRequest, User
+from app.models import WasteRecord, WasteSale, WasteDisposalRequest, User, StockBatch, Item
 from app.schemas.waste import (
     WasteIn, WasteOut, WasteSaleIn, WasteSaleOut, WasteDisposalIn, WasteDisposalOut,
 )
@@ -11,17 +11,55 @@ from app.services.audit import log_action
 router = APIRouter(prefix="/waste", tags=["waste"])
 
 
+def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | None) -> float:
+    if batch_id:
+        batch = db.get(StockBatch, batch_id)
+        if batch:
+            return float(batch.cost_per_unit or 0)
+    if item_id:
+        latest = (
+            db.query(StockBatch)
+            .filter(StockBatch.item_id == item_id)
+            .order_by(StockBatch.id.desc())
+            .first()
+        )
+        if latest:
+            return float(latest.cost_per_unit or 0)
+        item = db.get(Item, item_id)
+        if item:
+            return float(item.default_cost or 0)
+    return 0.0
+
+
+def _recalculate_value(db: DbSession, w: WasteRecord) -> float:
+    unit_cost = _unit_cost_for_waste(db, w.item_id, w.batch_id)
+    value = round(float(w.quantity or 0) * unit_cost, 2)
+    if float(w.estimated_value or 0) != value:
+        w.estimated_value = value
+    return value
+
+
 @router.get("", response_model=list[WasteOut])
 def list_waste(db: DbSession, _: CurrentUser, status: str | None = None, sellable: bool | None = None):
     qry = db.query(WasteRecord)
     if status: qry = qry.filter(WasteRecord.status == status)
     if sellable is not None: qry = qry.filter(WasteRecord.sellable.is_(sellable))
-    return qry.order_by(WasteRecord.id.desc()).all()
+    rows = qry.order_by(WasteRecord.id.desc()).all()
+    changed = False
+    for row in rows:
+        before = float(row.estimated_value or 0)
+        _recalculate_value(db, row)
+        changed = changed or before != float(row.estimated_value or 0)
+    if changed:
+        db.commit()
+    return rows
 
 
 @router.post("", response_model=WasteOut, status_code=201)
 def create_waste(payload: WasteIn, db: DbSession, current: CurrentUser):
-    w = WasteRecord(**payload.model_dump(), created_by=current.id, status="recorded")
+    data = payload.model_dump()
+    data["estimated_value"] = round(float(data.get("quantity") or 0) * _unit_cost_for_waste(db, data.get("item_id"), data.get("batch_id")), 2)
+    w = WasteRecord(**data, created_by=current.id, status="recorded")
     db.add(w); db.flush()
     log_action(db, current, "create", "WasteRecord", w.id, new_value={"type": w.waste_type, "qty": float(w.quantity)})
     db.commit(); db.refresh(w)

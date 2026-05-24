@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { Lang, LANG_NAMES, useT } from "@/lib/i18n";
-import BrandMark from "@/components/BrandMark";
+import BrandLogo from "@/components/BrandLogo";
 
 const LANGS: Lang[] = ["en", "ru", "uz"];
 const SHORT: Record<Lang, string> = { en: "EN", ru: "RU", uz: "UZ" };
@@ -29,12 +29,12 @@ function priorityColor(priority?: string) {
 
 export default function LoginPage() {
   const { t, lang, setLang } = useT();
-  const [email, setEmail] = useState("admin@example.com");
-  const [password, setPassword] = useState("admin12345");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [clientTz, setClientTz] = useState("UTC");
-  const [now, setNow] = useState(() => new Date());
+  const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
     try {
@@ -46,6 +46,7 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
+    setNow(new Date());
     const id = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(id);
   }, []);
@@ -96,16 +97,20 @@ export default function LoginPage() {
     }
   }
 
-  const dateStr = new Intl.DateTimeFormat(
-    locale,
-    { day: "numeric", month: "long", year: "numeric", weekday: "long" }
-  ).format(now);
-  const timeStr = new Intl.DateTimeFormat(locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(now);
+  const dateStr = now
+    ? new Intl.DateTimeFormat(
+        locale,
+        { day: "numeric", month: "long", year: "numeric", weekday: "long" }
+      ).format(now)
+    : "";
+  const timeStr = now
+    ? new Intl.DateTimeFormat(locale, {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      }).format(now)
+    : "";
 
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] bg-[#f7f6f1] text-[#14110b]">
@@ -120,12 +125,8 @@ export default function LoginPage() {
         </svg>
 
         <header className="relative flex items-center justify-between mb-9">
-          <div className="flex items-center gap-3">
-            <BrandMark size={32} className="ring-0 shadow-none" />
-            <div className="flex flex-col leading-tight">
-              <span className="text-[13px] font-semibold text-[#14110b]">{t("app.name")}</span>
-              <span className="text-[10.5px] uppercase tracking-[0.18em] text-[#8a8472]">{t("login.atelier")}</span>
-            </div>
+          <div className="flex items-center">
+            <BrandLogo alt={t("app.name")} className="h-14 w-auto max-w-[240px]" />
           </div>
 	          <div className="text-[11px] tracking-wider text-[#8a8472] text-right leading-tight">
 	            <div>{dateStr}</div>
@@ -250,6 +251,7 @@ export default function LoginPage() {
               value={email}
               onChange={setEmail}
               iconPath="M2 6l8 5 8-5M2 6h16v10H2z"
+              autoComplete="email"
             />
             <Field
               label={t("auth.password")}
@@ -258,6 +260,7 @@ export default function LoginPage() {
               onChange={setPassword}
               iconPath="M5 9V7a3 3 0 016 0v2M3 9h10v8H3z"
               trailing={t("login.forgot")}
+              autoComplete="current-password"
             />
 
             {error && (
@@ -285,11 +288,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 px-3.5 py-3 rounded-lg bg-[#f1efe8] text-[#56503f] text-[11.5px] flex items-center gap-2.5">
-            <span className="text-[10px] uppercase tracking-[0.18em] text-[#8a8472] font-semibold">{t("auth.defaultAdmin")}</span>
-            <code className="font-mono text-[11.5px] text-[#2c2920] bg-transparent p-0">admin@example.com · admin12345</code>
-          </div>
-
           <div className="mt-8 text-[11px] tracking-wider text-[#8a8472]">© 2026 Milana Ecosystem · v4.2.1</div>
         </div>
       </section>
@@ -304,6 +302,7 @@ function Field({
   onChange,
   iconPath,
   trailing,
+  autoComplete,
 }: {
   label: string;
   type: string;
@@ -311,6 +310,7 @@ function Field({
   onChange: (v: string) => void;
   iconPath: string;
   trailing?: string;
+  autoComplete?: string;
 }) {
   return (
     <div>
@@ -338,6 +338,7 @@ function Field({
           type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          autoComplete={autoComplete}
           required
           style={{ height: 42, paddingLeft: 36, fontSize: 14 }}
         />

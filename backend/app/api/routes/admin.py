@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from fastapi import Depends
-from app.core.security import hash_password
+from app.core.security import hash_password, normalize_email, validate_password_strength
 from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
 from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
@@ -19,6 +19,13 @@ class ResetDemoIn(BaseModel):
 
 
 # ===== Users =====
+def _require_strong_password(password: str) -> None:
+    try:
+        validate_password_strength(password)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.get("/users", response_model=list[UserOut])
 def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
     return db.query(User).order_by(User.id).all()
@@ -26,11 +33,13 @@ def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users
 
 @router.post("/users", response_model=UserOut, status_code=201)
 def create_user(payload: UserIn, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
-    if db.query(User).filter(User.email == payload.email.lower()).first():
+    email = normalize_email(payload.email)
+    _require_strong_password(payload.password)
+    if db.query(User).filter(User.email == email).first():
         raise HTTPException(400, "Email already exists")
     u = User(
         name=payload.name,
-        email=payload.email.lower(),
+        email=email,
         password_hash=hash_password(payload.password),
         role_id=payload.role_id,
         department_id=payload.department_id,
@@ -59,9 +68,12 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)
     if "password" in data and data["password"]:
+        _require_strong_password(data["password"])
         u.password_hash = hash_password(data.pop("password"))
     elif "password" in data:
         data.pop("password")
+    if "email" in data and data["email"]:
+        data["email"] = normalize_email(data["email"])
     for k, v in data.items():
         setattr(u, k, v)
     log_action(db, current, "update", "User", u.id, new_value=data)
@@ -170,21 +182,41 @@ def delete_department(
 
 # ===== Audit log =====
 @router.get("/audit-logs")
-def list_audit_logs(db: DbSession, _: User = Depends(require_permissions("admin.audit", "*")), limit: int = 200):
-    rows = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(limit).all()
-    return [
+def list_audit_logs(
+    db: DbSession,
+    _: User = Depends(require_permissions("admin.audit", "*")),
+    limit: int = 200,
+    page: int = 1,
+    page_size: int = 50,
+    include_total: bool = False,
+):
+    qry = db.query(AuditLog, User).outerjoin(User, User.id == AuditLog.user_id)
+    total = qry.count() if include_total else 0
+    if include_total:
+        safe_page = max(1, page)
+        safe_size = max(1, min(page_size, 500))
+        qry = qry.order_by(AuditLog.id.desc()).offset((safe_page - 1) * safe_size).limit(safe_size)
+    else:
+        qry = qry.order_by(AuditLog.id.desc()).limit(limit)
+    rows = qry.all()
+    out = [
         {
-            "id": r.id,
-            "user_id": r.user_id,
-            "action": r.action,
-            "entity_type": r.entity_type,
-            "entity_id": r.entity_id,
-            "new_value": r.new_value_json,
-            "old_value": r.old_value_json,
-            "created_at": r.created_at,
+            "id": audit.id,
+            "user_id": audit.user_id,
+            "user_name": user.name if user else None,
+            "user": {"id": user.id, "name": user.name} if user else None,
+            "action": audit.action,
+            "entity_type": audit.entity_type,
+            "entity_id": audit.entity_id,
+            "new_value": audit.new_value_json,
+            "old_value": audit.old_value_json,
+            "created_at": audit.created_at,
         }
-        for r in rows
+        for audit, user in rows
     ]
+    if include_total:
+        return {"rows": out, "total": total, "page": max(1, page), "page_size": max(1, min(page_size, 500))}
+    return out
 
 
 @router.post("/admin/reset-test-data")

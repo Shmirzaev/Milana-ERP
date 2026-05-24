@@ -27,6 +27,14 @@ _PATCHES: list[tuple[str, str]] = [
     ("work_orders", "ADD COLUMN IF NOT EXISTS deadline TIMESTAMPTZ"),
     ("work_orders", "ADD COLUMN IF NOT EXISTS sewing_flow_id INTEGER REFERENCES sewing_flows(id)"),
     ("models",      "ADD COLUMN IF NOT EXISTS sam_minutes NUMERIC(8,2) NOT NULL DEFAULT 0"),
+    ("models",      "ADD COLUMN IF NOT EXISTS brand_id INTEGER REFERENCES brands(id)"),
+    ("models",      "ADD COLUMN IF NOT EXISTS collection_id INTEGER REFERENCES collections(id)"),
+    ("models",      "ADD COLUMN IF NOT EXISTS product_type VARCHAR(64)"),
+    ("models",      "ADD COLUMN IF NOT EXISTS season VARCHAR(64)"),
+    ("models",      "ADD COLUMN IF NOT EXISTS constructor_employee_id INTEGER REFERENCES employees(id)"),
+    ("models",      "ADD COLUMN IF NOT EXISTS designer_employee_id INTEGER REFERENCES employees(id)"),
+    ("model_images", "ADD COLUMN IF NOT EXISTS file_name VARCHAR(255)"),
+    ("model_images", "ADD COLUMN IF NOT EXISTS content_type VARCHAR(128)"),
     ("invoices",    "ADD COLUMN IF NOT EXISTS external_source VARCHAR(32)"),
     ("invoices",    "ADD COLUMN IF NOT EXISTS external_id VARCHAR(128)"),
     ("payments",    "ADD COLUMN IF NOT EXISTS external_source VARCHAR(32)"),
@@ -37,9 +45,14 @@ _PATCHES: list[tuple[str, str]] = [
     ("notifications", "ADD COLUMN IF NOT EXISTS link VARCHAR(512)"),
     ("sales_orders", "ADD COLUMN IF NOT EXISTS printing_instructions TEXT"),
     ("sales_orders", "ADD COLUMN IF NOT EXISTS printing_attachments JSONB"),
+    ("packages",    "ADD COLUMN IF NOT EXISTS production_batch_id INTEGER REFERENCES production_batches(id)"),
     ("packages",    "ADD COLUMN IF NOT EXISTS storage_cell VARCHAR(32)"),
     ("packages",    "ADD COLUMN IF NOT EXISTS storage_shelf VARCHAR(8)"),
     ("packages",    "ADD COLUMN IF NOT EXISTS storage_placed_at TIMESTAMPTZ"),
+    ("cutting_records", "ADD COLUMN IF NOT EXISTS production_batch_id INTEGER REFERENCES production_batches(id)"),
+    ("printing_records", "ADD COLUMN IF NOT EXISTS production_batch_id INTEGER REFERENCES production_batches(id)"),
+    ("sewing_records", "ADD COLUMN IF NOT EXISTS production_batch_id INTEGER REFERENCES production_batches(id)"),
+    ("packaging_records", "ADD COLUMN IF NOT EXISTS production_batch_id INTEGER REFERENCES production_batches(id)"),
 ]
 
 _DATA_FIXES: list[str] = [
@@ -48,6 +61,26 @@ _DATA_FIXES: list[str] = [
     "UPDATE stock_movements SET unit = 'kg' WHERE lower(trim(unit)) = 'meter'",
     "UPDATE model_bom SET unit = 'kg' WHERE lower(trim(unit)) = 'meter'",
     "UPDATE cutting_records SET input_unit = 'kg' WHERE lower(trim(input_unit)) = 'meter'",
+    "UPDATE collections SET year = 2024 WHERE year IS NULL",
+    "ALTER TABLE collections ALTER COLUMN year SET DEFAULT 2024",
+    "ALTER TABLE collections ALTER COLUMN year SET NOT NULL",
+    """
+    WITH ranked AS (
+        SELECT
+            id,
+            production_order_id,
+            ROW_NUMBER() OVER (
+                PARTITION BY production_order_id
+                ORDER BY COALESCE(batch_index, 0), id
+            ) AS rn
+        FROM production_batches
+    )
+    UPDATE production_batches pb
+    SET batch_no = 'BT-' || LPAD(pb.production_order_id::text, 4, '0') || '-' || LPAD(r.rn::text, 2, '0')
+    FROM ranked r
+    WHERE pb.id = r.id
+      AND (pb.batch_no IS NULL OR pb.batch_no !~ '^BT-[0-9]{4,}-[0-9]{2}$')
+    """,
 ]
 
 

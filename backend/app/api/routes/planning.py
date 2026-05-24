@@ -12,7 +12,7 @@ from app.schemas.production import (
     ProductionOrderOut,
 )
 from app.services.planning import material_requirements_for_sales_order, planning_estimate_for_sales_order
-from app.services.production import create_production_order, create_work_orders
+from app.services.production import create_production_order, create_production_batches, create_work_orders
 from app.services.audit import log_action
 from app.services.workflow import notify_department
 
@@ -20,7 +20,11 @@ router = APIRouter(prefix="/planning", tags=["planning"])
 
 
 @router.get("/material-requirements/{sales_order_id}", response_model=list[MaterialRequirement])
-def get_material_requirements(sales_order_id: int, db: DbSession, _: User = Depends(require_permissions("planning.requirements", "*"))):
+def get_material_requirements(
+    sales_order_id: int,
+    db: DbSession,
+    _: User = Depends(require_permissions("planning.requirements", "sales.orders", "*")),
+):
     rows = material_requirements_for_sales_order(db, sales_order_id)
     return [MaterialRequirement(**r) for r in rows]
 
@@ -203,6 +207,8 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
         items=[i.model_dump() for i in payload.items],
         created_by=current.id,
     )
+    if payload.batches:
+        create_production_batches(db, po.id, [b.model_dump() for b in payload.batches])
     include_printing = any(bool(i.printing_required) for i in (so.items or [])) if so else False
     create_work_orders(db, po.id, include_printing=include_printing)
     so.status = "planning"
@@ -228,6 +234,8 @@ def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User 
         items=[i.model_dump() for i in payload.items],
         created_by=current.id,
     )
+    if payload.batches:
+        create_production_batches(db, po.id, [b.model_dump() for b in payload.batches])
     create_work_orders(db, po.id, include_printing=False)
     log_action(db, current, "create", "ProductionOrder", po.id, new_value={"production_no": po.production_no, "type": "branded_stock"})
     db.commit(); db.refresh(po)

@@ -94,7 +94,7 @@ class CollectionIn(BaseModel):
     brand_id: int
     name: str
     season: Optional[str] = None
-    year: Optional[int] = None
+    year: int
     description: Optional[str] = None
     status: str = "draft"
 
@@ -104,20 +104,25 @@ class CollectionOut(ORMModel):
     brand_id: int
     name: str
     season: Optional[str] = None
-    year: Optional[int] = None
+    year: int
     description: Optional[str] = None
     status: str
 
 
 class ModelImageIn(BaseModel):
     file_url: str
+    file_name: Optional[str] = None
+    content_type: Optional[str] = None
     is_primary: bool = False
 
 
 class ModelImageOut(ORMModel):
     id: int
     file_url: str
+    file_name: Optional[str] = None
+    content_type: Optional[str] = None
     is_primary: bool
+    created_at: datetime
 
 
 class ModelSizeIn(BaseModel):
@@ -166,6 +171,12 @@ class ModelIn(BaseModel):
     name: str
     category: Optional[str] = None
     description: Optional[str] = None
+    brand_id: Optional[int] = None
+    collection_id: Optional[int] = None
+    product_type: Optional[str] = None
+    season: Optional[str] = None
+    constructor_employee_id: Optional[int] = None
+    designer_employee_id: Optional[int] = None
     details_json: Optional[dict] = None
     status: str = "draft"
     sam_minutes: float = 0
@@ -177,6 +188,12 @@ class ModelOut(ORMModel):
     name: str
     category: Optional[str] = None
     description: Optional[str] = None
+    brand_id: Optional[int] = None
+    collection_id: Optional[int] = None
+    product_type: Optional[str] = None
+    season: Optional[str] = None
+    constructor_employee_id: Optional[int] = None
+    designer_employee_id: Optional[int] = None
     details_json: Optional[dict] = None
     status: str
     sam_minutes: float = 0

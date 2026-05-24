@@ -1,10 +1,13 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import PaginationControls from "@/components/PaginationControls";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 
@@ -17,14 +20,18 @@ export default function CustomersPage() {
   const { me } = useMe();
   const { t } = useT();
   const isAdmin = can(me, "*");
-  const customersUrl = q ? `/api/customers?q=${encodeURIComponent(q)}` : "/api/customers";
-  const { data, mutate } = useSWR<Customer[]>(customersUrl, fetcher);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const customersUrl = `/api/customers?include_total=true&page=${page}&page_size=${pageSize}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+  const { data: pageData, mutate } = useSWR<any>(customersUrl, fetcher);
+  const data: Customer[] = pageData?.rows || [];
   const [form, setForm] = useState(EMPTY);
   const [err, setErr] = useState("");
 
   const [editing, setEditing] = useState<Customer | null>(null);
   const [edit, setEdit] = useState(EMPTY);
   const [editMsg, setEditMsg] = useState("");
+  const [deleting, setDeleting] = useState<Customer | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,6 +51,20 @@ export default function CustomersPage() {
     setEditMsg("");
     try { await api.patch(`/api/customers/${editing.id}`, edit); setEditing(null); mutate(); }
     catch (e: any) { setEditMsg(e.message); }
+  }
+  function deleteCustomer(c: Customer) {
+    setDeleting(c);
+  }
+  async function confirmDeleteCustomer() {
+    if (!deleting) return;
+    try {
+      await api.del(`/api/customers/${deleting.id}`);
+      if (editing?.id === deleting.id) setEditing(null);
+      setDeleting(null);
+      mutate();
+    } catch (e: any) {
+      alert(e.message);
+    }
   }
 
   return (
@@ -71,12 +92,23 @@ export default function CustomersPage() {
               <tr key={c.id}>
                 <td>{c.name}</td><td>{c.phone}</td><td>{c.email}</td><td>{c.address}</td>
                 {isAdmin && (
-                  <td><button className="text-brand-600 hover:underline" onClick={() => openEdit(c)}>{t("btn.edit")}</button></td>
+                  <td className="flex gap-2">
+                    <Link className="text-brand-600 hover:underline" href={`/customers/${c.id}`}>{t("btn.edit")}</Link>
+                    <button className="text-red-600 hover:underline" onClick={() => deleteCustomer(c)}>{t("btn.delete")}</button>
+                  </td>
                 )}
               </tr>
             ))}
           </tbody>
         </table>
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          total={Number(pageData?.total || data.length)}
+          count={data.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
       </div>
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={t("page.customers.editTitle", { name: editing?.name ?? "" })} wide>
@@ -95,6 +127,13 @@ export default function CustomersPage() {
           </div>
         </form>
       </Modal>
+      <ConfirmDialog
+        isOpen={!!deleting}
+        title="Confirm delete"
+        message={deleting ? `Are you sure you want to delete customer ${deleting.name}? This action cannot be undone.` : ""}
+        onConfirm={confirmDeleteCustomer}
+        onCancel={() => setDeleting(null)}
+      />
     </div>
   );
 }

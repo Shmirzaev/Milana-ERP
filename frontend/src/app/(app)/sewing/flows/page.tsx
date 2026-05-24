@@ -38,6 +38,73 @@ type Util = {
   utilization_pct: number;
 };
 
+function formatDeadline(value: string | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString();
+}
+
+function WorkOrderMiniRow({
+  workOrder,
+  showActions = false,
+  isBusy = false,
+  onAssign,
+}: {
+  workOrder: WO;
+  showActions?: boolean;
+  isBusy?: boolean;
+  onAssign?: (wo: WO) => void;
+}) {
+  const { t } = useT();
+  return (
+    <div className="grid grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
+      <Link
+        href={`/production-orders/${workOrder.production_order_id}`}
+        className="min-w-0 truncate font-medium text-brand-600 hover:underline"
+        title={`PO #${workOrder.production_order_id}`}
+      >
+        PO #{workOrder.production_order_id}
+      </Link>
+      <div className="min-w-0">
+        <span className="badge max-w-full justify-center truncate px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
+      </div>
+      <div className="text-right tabular-nums text-[#14110b]">
+        {workOrder.passed_qty} / {workOrder.planned_output_qty}
+      </div>
+      <div className="text-right tabular-nums text-[#14110b]">
+        {formatDeadline(workOrder.deadline)}
+      </div>
+      <div className="flex flex-col gap-1">
+        {showActions && (
+          <button
+            type="button"
+            className="btn h-7 w-full px-2 text-[11px]"
+            onClick={() => onAssign?.(workOrder)}
+            disabled={isBusy}
+          >
+            {isBusy ? t("common.loading") : t("btn.assign")}
+          </button>
+        )}
+        <Link href={`/work-orders/${workOrder.id}/sewing`} className="btn h-7 w-full px-2 text-[11px]">
+          {t("btn.open")}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function WorkOrderMiniHeader() {
+  const { t } = useT();
+  return (
+    <div className="grid grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
+      <div className="min-w-0">{t("field.productionNo")}</div>
+      <div>{t("common.status")}</div>
+      <div className="text-right">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</div>
+      <div className="text-right">{t("field.deadline2")}</div>
+      <div className="text-right">{t("field.actions")}</div>
+    </div>
+  );
+}
+
 export default function SewingFlowsPage() {
   const { t } = useT();
   const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher, { refreshInterval: 10_000 });
@@ -209,76 +276,33 @@ function FlowDetail({ flowId }: { flowId: number }) {
   return (
     <div className="mt-3 space-y-3">
       {wos.length > 0 ? (
-        <div>
-          <table className="table w-full table-fixed text-xs">
-            <thead>
-              <tr>
-                <th className="w-[32%]">{t("field.productionNo")}</th>
-                <th className="w-[22%]">{t("common.status")}</th>
-                <th className="w-[24%]">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</th>
-                <th className="w-[22%]">{t("field.deadline2")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {wos.map((w) => (
-                <tr key={w.id}>
-                  <td className="truncate">
-                    <Link href={`/production-orders/${w.production_order_id}`} className="text-brand-600 hover:underline">
-                      PO #{w.production_order_id}
-                    </Link>
-                  </td>
-                  <td><span className="badge">{statusLabel(w.status, t)}</span></td>
-                  <td>{w.passed_qty} / {w.planned_output_qty}</td>
-                  <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="overflow-hidden rounded-md border border-[#e3dfd3]">
+          <WorkOrderMiniHeader />
+          {wos.map((w) => (
+            <WorkOrderMiniRow key={w.id} workOrder={w} />
+          ))}
         </div>
       ) : (
         <div className="text-xs text-slate-500">{t("page.sewingFlows.empty")}</div>
       )}
 
       {showReadyPicker && (
-        <div className="rounded border border-slate-200 p-3">
+        <div className="rounded-md border border-[#e3dfd3] p-3">
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("page.sewingFlows.assignableWork")}</div>
           {availableWos.length === 0 ? (
             <div className="text-xs text-slate-400">{t("page.sewingFlows.noUnassignedWork")}</div>
           ) : (
-            <div>
-              <table className="table w-full table-fixed text-xs">
-                <thead>
-                  <tr>
-                    <th className="w-[27%]">{t("field.productionNo")}</th>
-                    <th className="w-[18%]">{t("common.status")}</th>
-                    <th className="w-[21%]">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</th>
-                    <th className="w-[16%]">{t("field.deadline2")}</th>
-                    <th className="w-[18%] text-right">{t("field.actions")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {availableWos.map((w) => (
-                    <tr key={w.id}>
-                      <td className="truncate">
-                        <Link href={`/production-orders/${w.production_order_id}`} className="text-brand-600 hover:underline">
-                          PO #{w.production_order_id}
-                        </Link>
-                      </td>
-                      <td><span className="badge">{statusLabel(w.status, t)}</span></td>
-                      <td>{w.passed_qty} / {w.planned_output_qty}</td>
-                      <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "-"}</td>
-                      <td className="text-right">
-                        <div className="flex flex-wrap justify-end gap-1">
-                          <button className="btn h-7 px-2 text-[11px]" onClick={() => openPick(w)} disabled={claimingId === w.id || loadingPickId === w.id}>
-                            {(claimingId === w.id || loadingPickId === w.id) ? t("common.loading") : t("btn.assign")}
-                          </button>
-                          <Link href={`/work-orders/${w.id}/sewing`} className="btn h-7 px-2 text-[11px]">{t("btn.open")}</Link>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="overflow-hidden rounded-md border border-[#e3dfd3]">
+              <WorkOrderMiniHeader />
+              {availableWos.map((w) => (
+                <WorkOrderMiniRow
+                  key={w.id}
+                  workOrder={w}
+                  showActions
+                  isBusy={claimingId === w.id || loadingPickId === w.id}
+                  onAssign={openPick}
+                />
+              ))}
             </div>
           )}
           {msg && <div className="mt-2 text-xs text-red-600">{msg}</div>}

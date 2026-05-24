@@ -19,7 +19,7 @@ class Collection(Base, PkMixin, TimestampMixin):
     brand_id: Mapped[int] = mapped_column(ForeignKey("brands.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     season: Mapped[str | None] = mapped_column(String(64))
-    year: Mapped[int | None] = mapped_column(Integer)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
 
@@ -32,6 +32,12 @@ class Model(Base, PkMixin, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str | None] = mapped_column(String(64))
     description: Mapped[str | None] = mapped_column(Text)
+    brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
+    collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
+    product_type: Mapped[str | None] = mapped_column(String(64))
+    season: Mapped[str | None] = mapped_column(String(64))
+    constructor_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"))
+    designer_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"))
     details_json: Mapped[dict | None] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
@@ -57,6 +63,8 @@ class ModelImage(Base, PkMixin, TimestampMixin):
     __tablename__ = "model_images"
     model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
     file_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    file_name: Mapped[str | None] = mapped_column(String(255))
+    content_type: Mapped[str | None] = mapped_column(String(128))
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     model: Mapped["Model"] = relationship("Model", back_populates="images")
 

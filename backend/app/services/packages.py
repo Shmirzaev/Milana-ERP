@@ -5,11 +5,17 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     Package, PackageItem, PackageScanLog, ProductionOrder, FinishedGoodsStock,
-    Warehouse, ModelBOM, StockBatch, Model,
+    Warehouse, ModelBOM, StockBatch, Model, ProductionBatch,
 )
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
+from app.services.finished_goods import infer_brand_and_collection
 from app.services.numbering import next_package_no
-from app.services.workflow import decrement_finished_goods_for_package, notify_department, sync_production_order_status
+from app.services.workflow import (
+    decrement_finished_goods_for_package,
+    notify_department,
+    sync_production_order_status,
+    sync_storage_transfer_work_order,
+)
 
 
 WAREHOUSE_MAP_LAYOUT: tuple[tuple[str, int], ...] = (
@@ -101,6 +107,7 @@ def create_package(
     db: Session,
     *,
     production_order_id: int,
+    production_batch_id: int | None = None,
     model_id: int,
     color: str,
     items: list[dict],
@@ -137,15 +144,39 @@ def create_package(
     if not po:
         raise HTTPException(404, "Production order not found")
 
+    batch_id = int(production_batch_id) if production_batch_id else None
+    has_batches = db.query(ProductionBatch.id).filter(ProductionBatch.production_order_id == po.id).first()
+    if batch_id is not None:
+        batch_exists = db.query(ProductionBatch.id).filter(
+            ProductionBatch.id == batch_id,
+            ProductionBatch.production_order_id == po.id,
+        ).first()
+        if not batch_exists:
+            raise HTTPException(404, "Production batch not found for this production order")
+    elif has_batches:
+        raise HTTPException(400, "Select a production batch for this package")
+
+    resolved_sales_order_id = sales_order_id if sales_order_id is not None else po.sales_order_id
+    resolved_brand_id, resolved_collection_id = infer_brand_and_collection(
+        db,
+        model_id=model_id,
+        sales_order_id=resolved_sales_order_id,
+        production_order_id=production_order_id,
+        package_id=None,
+        brand_id=brand_id,
+        collection_id=collection_id if collection_id is not None else po.collection_id,
+    )
+
     pkg_no = next_package_no(db)
     barcode_value = generate_barcode_value("PKG")
     pkg = Package(
         package_no=pkg_no,
         barcode=barcode_value,
         production_order_id=production_order_id,
-        sales_order_id=sales_order_id,
-        brand_id=brand_id,
-        collection_id=collection_id,
+        production_batch_id=batch_id,
+        sales_order_id=resolved_sales_order_id,
+        brand_id=resolved_brand_id,
+        collection_id=resolved_collection_id,
         model_id=model_id,
         color=color,
         package_type=package_type,
@@ -182,11 +213,11 @@ def create_package(
     for it in items:
         db.add(FinishedGoodsStock(
             production_order_id=production_order_id,
-            sales_order_id=sales_order_id,
+            sales_order_id=resolved_sales_order_id,
             package_id=pkg.id,
             model_id=int(it.get("model_id", model_id)),
-            brand_id=brand_id,
-            collection_id=collection_id,
+            brand_id=resolved_brand_id,
+            collection_id=resolved_collection_id,
             color=it["color"],
             size=it["size"],
             quantity=int(it["quantity"]),
@@ -215,6 +246,7 @@ def create_packages_bulk(
     *,
     count: int,
     production_order_id: int,
+    production_batch_id: int | None = None,
     model_id: int,
     color: str,
     items: list[dict],
@@ -239,6 +271,7 @@ def create_packages_bulk(
             create_package(
                 db,
                 production_order_id=production_order_id,
+                production_batch_id=production_batch_id,
                 model_id=model_id,
                 color=color,
                 items=items,
@@ -286,6 +319,7 @@ def receive_at_storage(
             location=format_storage_location(cell, shelf),
         )
     )
+    sync_storage_transfer_work_order(db, pkg.production_order_id)
     sync_production_order_status(db, pkg.production_order_id)
     db.flush()
 
@@ -325,6 +359,8 @@ def reserve_package(db: Session, pkg: Package, user_id: int | None):
         raise HTTPException(400, f"Package cannot be reserved from status '{pkg.status}'")
     pkg.status = "reserved"
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="reserved"))
+    sync_storage_transfer_work_order(db, pkg.production_order_id)
+    sync_production_order_status(db, pkg.production_order_id)
     db.flush()
 
 
@@ -338,6 +374,7 @@ def ship_package(db: Session, pkg: Package, user_id: int | None):
     pkg.storage_placed_at = None
     decrement_finished_goods_for_package(db, pkg)
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="shipped"))
+    sync_storage_transfer_work_order(db, pkg.production_order_id)
     sync_production_order_status(db, pkg.production_order_id)
     db.flush()
 
@@ -347,6 +384,7 @@ def mark_delivered(db: Session, pkg: Package, user_id: int | None):
         raise HTTPException(400, f"Package not in 'shipped' status (was '{pkg.status}')")
     pkg.status = "delivered"
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="delivered"))
+    sync_storage_transfer_work_order(db, pkg.production_order_id)
     sync_production_order_status(db, pkg.production_order_id)
     db.flush()
 
@@ -357,4 +395,6 @@ def mark_damaged(db: Session, pkg: Package, user_id: int | None):
     pkg.storage_shelf = None
     pkg.storage_placed_at = None
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="audit_check", location="damaged"))
+    sync_storage_transfer_work_order(db, pkg.production_order_id)
+    sync_production_order_status(db, pkg.production_order_id)
     db.flush()

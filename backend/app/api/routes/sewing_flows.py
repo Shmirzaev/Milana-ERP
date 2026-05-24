@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -10,7 +12,7 @@ from app.services.audit import log_action
 
 router = APIRouter(prefix="/sewing-flows", tags=["sewing-flows"])
 
-_ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused")
+_ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 
@@ -161,6 +163,72 @@ def create_flow(payload: SewingFlowIn, db: DbSession, current: User = Depends(re
     log_action(db, current, "create", "SewingFlow", f.id, new_value={"code": f.code})
     db.commit(); db.refresh(f)
     return f
+
+
+def _committed_today(db, flow_id: int) -> int:
+    now = datetime.now(timezone.utc)
+    committed = 0
+    rows = (
+        db.query(SewingAssignment)
+        .join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id)
+        .filter(
+            SewingAssignment.sewing_flow_id == flow_id,
+            SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES),
+            WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+        )
+        .all()
+    )
+    for assignment in rows:
+        remaining = max(0, int(assignment.quantity or 0) - int(assignment.completed_qty or 0))
+        if remaining <= 0:
+            continue
+        start = assignment.planned_start
+        end = assignment.planned_end
+        if not start or not end:
+            continue
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        if start <= now <= end:
+            days = max(1.0, (end - start).total_seconds() / 86400.0)
+            committed += round(remaining / days)
+
+    direct_wos = db.query(WorkOrder).filter(
+        WorkOrder.sewing_flow_id == flow_id,
+        WorkOrder.operation == "sewing",
+        WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+    ).all()
+    for wo in direct_wos:
+        has_split = db.query(SewingAssignment.id).filter(
+            SewingAssignment.work_order_id == wo.id,
+            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
+        ).first()
+        if has_split:
+            continue
+        committed += max(0, int(wo.planned_output_qty or 0) - int(wo.passed_qty or 0))
+    return int(committed)
+
+
+@router.get("/utilization-snapshot")
+def utilization_snapshot(db: DbSession, _: CurrentUser):
+    flows = db.query(SewingFlow).filter(SewingFlow.is_active.is_(True)).order_by(SewingFlow.code).all()
+    out = []
+    for flow in flows:
+        committed = _committed_today(db, int(flow.id))
+        capacity = int(flow.capacity_per_day or 0)
+        pct = (committed / capacity * 100) if capacity else 0
+        out.append(
+            {
+                "flow_id": flow.id,
+                "code": flow.code,
+                "capacity_per_day": capacity,
+                "committed_today": committed,
+                "utilization_pct": round(pct, 1),
+                "is_full": pct >= 100,
+            }
+        )
+    return out
 
 
 @router.get("/{fid}", response_model=SewingFlowWithLoad)

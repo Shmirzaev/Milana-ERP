@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import (
-    ProductionOrder, ProductionOrderItem, WorkOrder, Department, Model, SalesOrder,
+    ProductionOrder, ProductionBatch, ProductionOrderItem, WorkOrder, Department, Model, SalesOrder,
 )
 from app.services.numbering import next_production_order_no
 
@@ -84,14 +84,73 @@ def create_production_order(
     return po
 
 
+def create_production_batches(db: Session, production_order_id: int, batches: list[dict] | None) -> list[ProductionBatch]:
+    po = db.get(ProductionOrder, production_order_id)
+    if not po:
+        raise HTTPException(404, "Production order not found")
+    if not batches:
+        return []
+
+    # Do not silently create duplicate batches for idempotent endpoint retries.
+    existing = db.query(ProductionBatch).filter(ProductionBatch.production_order_id == po.id).all()
+    if existing:
+        return existing
+
+    used_nos: set[str] = set()
+    created: list[ProductionBatch] = []
+    total_qty = 0
+    for idx, raw in enumerate(batches, start=1):
+        qty = int(raw.get("planned_quantity", 0))
+        if qty <= 0:
+            raise HTTPException(400, f"Batch #{idx} planned_quantity must be > 0")
+        total_qty += qty
+
+        # Dedicated batch serial that is clearly different from WO numbers.
+        proposed_no = f"BT-{int(po.id):04d}-{idx:02d}"
+        batch_no = proposed_no
+        suffix = 2
+        while batch_no.lower() in used_nos:
+            batch_no = f"{proposed_no}-{suffix}"
+            suffix += 1
+        used_nos.add(batch_no.lower())
+
+        b = ProductionBatch(
+            production_order_id=po.id,
+            batch_no=batch_no,
+            batch_index=idx,
+            name=(str(raw.get("name") or "").strip() or None),
+            planned_quantity=qty,
+            start_date=raw.get("start_date"),
+            deadline=raw.get("deadline"),
+            notes=(str(raw.get("notes") or "").strip() or None),
+        )
+        db.add(b)
+        created.append(b)
+
+    if total_qty != int(po.planned_quantity or 0):
+        raise HTTPException(
+            400,
+            f"Batch quantities ({total_qty}) must match planned_quantity ({int(po.planned_quantity or 0)})",
+        )
+
+    db.flush()
+    return created
+
+
 def create_work_orders(db: Session, production_order_id: int, include_printing: bool = False) -> list[WorkOrder]:
     po = db.get(ProductionOrder, production_order_id)
     if not po:
         raise HTTPException(404, "Production order not found")
 
-    existing_ops = {wo.operation for wo in db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()}
+    existing_ops = {
+        str(wo.operation)
+        for wo in db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()
+    }
     created: list[WorkOrder] = []
+    planned_qty = int(po.planned_quantity or 0)
 
+    # Keep one WO per operation even when the PO has internal batches.
+    # Batches are managed inside the operation screen, not by duplicating WOs.
     for code, op in DEPT_OPS:
         if op == "printing" and not include_printing:
             continue
@@ -100,26 +159,44 @@ def create_work_orders(db: Session, production_order_id: int, include_printing: 
         dept = _get_dept(db, code)
         wo = WorkOrder(
             production_order_id=po.id,
+            production_batch_id=None,
             department_id=dept.id,
             operation=op,
             status="waiting",
-            planned_input_qty=po.planned_quantity,
-            planned_output_qty=po.planned_quantity,
+            planned_input_qty=planned_qty,
+            planned_output_qty=planned_qty,
+            deadline=po.deadline,
         )
         db.add(wo)
         created.append(wo)
+        existing_ops.add(op)
 
     # Orders should enter cutting immediately; planning only assigns sewing lines.
-    cutting_wo = next((w for w in created if w.operation == "cutting"), None)
-    if not cutting_wo:
-        cutting_wo = db.query(WorkOrder).filter(
+    cutting_wos = (
+        db.query(WorkOrder)
+        .filter(
             WorkOrder.production_order_id == po.id,
             WorkOrder.operation == "cutting",
-        ).first()
-    if cutting_wo and cutting_wo.status in ("new", "planning", "waiting"):
-        cutting_wo.status = "in_progress"
-        if not cutting_wo.start_time:
-            cutting_wo.start_time = datetime.now(timezone.utc)
-    po.status = "cutting" if cutting_wo else "planning"
+        )
+        .order_by(WorkOrder.production_batch_id.asc(), WorkOrder.id.asc())
+        .all()
+    )
+    if cutting_wos:
+        # Start only one cutting WO when there are duplicates from legacy data.
+        first_started = False
+        for cutting_wo in cutting_wos:
+            if cutting_wo.status in ("new", "planning", "waiting"):
+                if not first_started:
+                    cutting_wo.status = "in_progress"
+                    if not cutting_wo.start_time:
+                        cutting_wo.start_time = datetime.now(timezone.utc)
+                    first_started = True
+                else:
+                    cutting_wo.status = "waiting"
+            elif cutting_wo.status in ("in_progress", "paused"):
+                first_started = True
+        po.status = "cutting"
+    else:
+        po.status = "planning"
     db.flush()
     return created
