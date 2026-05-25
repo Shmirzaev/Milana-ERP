@@ -32,3 +32,5 @@ frontend/tmp_*.html
 .idea/
 .vscode/
 .DS_Store
+
+.vercel
