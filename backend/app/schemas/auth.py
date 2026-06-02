@@ -7,6 +7,10 @@ class LoginIn(BaseModel):
     password: str
 
 
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"

@@ -154,6 +154,35 @@ export const api = {
     throw new Error("Login failed");
   },
 
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const endpoints = [
+      resolveUrl("/api/auth/forgot-password"),
+      "https://milana-erp.onrender.com/api/auth/forgot-password",
+    ];
+    let lastError: Error | null = null;
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetchWithTimeout(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        if (res.ok) return res.json();
+
+        let msg = "Could not send reset request";
+        try {
+          const body = await res.json();
+          msg = body.detail || body.message || msg;
+        } catch {}
+        lastError = new Error(`${res.status}: ${msg}`);
+      } catch (err: any) {
+        lastError = err instanceof Error ? err : new Error(String(err?.message || err));
+        if (!isTransientNetworkError(lastError.message)) break;
+      }
+    }
+    throw lastError || new Error("Could not send reset request");
+  },
+
   logout() {
     clearToken();
   },

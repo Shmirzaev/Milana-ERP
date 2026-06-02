@@ -35,6 +35,27 @@ def test_login_bad_password(client):
     assert r.status_code == 401
 
 
+def test_forgot_password_notifies_admin_for_known_user(client, auth_headers):
+    r = client.post("/api/auth/forgot-password", json={"email": "planning@example.com"})
+    assert r.status_code == 200
+    assert r.json()["message"] == "If this account exists, an admin has been notified."
+
+    r2 = client.get("/api/notifications?limit=20", headers=auth_headers)
+    assert r2.status_code == 200
+    assert any(
+        n["title"] == "Password reset requested"
+        and "planning@example.com" in (n.get("message") or "")
+        and n.get("link") == "/admin/users"
+        for n in r2.json()
+    )
+
+
+def test_forgot_password_uses_neutral_response_for_unknown_email(client):
+    r = client.post("/api/auth/forgot-password", json={"email": "missing@example.com"})
+    assert r.status_code == 200
+    assert r.json()["message"] == "If this account exists, an admin has been notified."
+
+
 def test_login_rate_limit_after_repeated_failures(client):
     for _ in range(5):
         r = client.post("/api/auth/login", data={"username": "missing@example.com", "password": "wrong"})

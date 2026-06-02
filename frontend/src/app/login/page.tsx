@@ -32,6 +32,11 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotMsg, setForgotMsg] = useState("");
+  const [forgotError, setForgotError] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [clientTz, setClientTz] = useState("UTC");
   const [now, setNow] = useState<Date | null>(null);
@@ -94,6 +99,33 @@ export default function LoginPage() {
       setError(err.message || t("auth.loginFailed"));
     } finally {
       setLoading(false);
+    }
+  }
+
+  function openForgotPassword() {
+    setForgotEmail(email);
+    setForgotMsg("");
+    setForgotError("");
+    setForgotOpen(true);
+  }
+
+  async function submitForgotPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setForgotMsg("");
+    setForgotError("");
+    setForgotLoading(true);
+    try {
+      await api.forgotPassword(forgotEmail);
+      setForgotMsg(t("login.forgotSuccess"));
+    } catch (err: any) {
+      const message = String(err?.message || "");
+      setForgotError(
+        message.startsWith("404:") || message.startsWith("501:")
+          ? t("login.forgotUnavailable")
+          : message || t("login.forgotError")
+      );
+    } finally {
+      setForgotLoading(false);
     }
   }
 
@@ -260,6 +292,7 @@ export default function LoginPage() {
               onChange={setPassword}
               iconPath="M5 9V7a3 3 0 016 0v2M3 9h10v8H3z"
               trailing={t("login.forgot")}
+              onTrailingClick={openForgotPassword}
               autoComplete="current-password"
             />
 
@@ -291,6 +324,65 @@ export default function LoginPage() {
           <div className="mt-8 text-[11px] tracking-wider text-[#8a8472]">© 2026 Milana Ecosystem · v4.2.1</div>
         </div>
       </section>
+
+      {forgotOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#14110b]/35 px-4">
+          <div className="w-full max-w-[380px] rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="m-0 text-lg font-semibold text-[#14110b]">{t("login.forgotTitle")}</h3>
+                <p className="m-0 mt-1 text-sm text-[#56503f]">{t("login.forgotHelp")}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForgotOpen(false)}
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-[#8a8472] hover:bg-[#f1efe8] hover:text-[#14110b]"
+                aria-label={t("common.cancel")}
+              >
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden>
+                  <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={submitForgotPassword} className="mt-5 space-y-3">
+              <div>
+                <label className="label">{t("auth.email")}</label>
+                <input
+                  className="input"
+                  type="email"
+                  data-testid="forgot-password-email"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                  style={{ height: 42, fontSize: 14 }}
+                />
+              </div>
+
+              {forgotMsg && (
+                <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-[12.5px] text-green-700">
+                  {forgotMsg}
+                </div>
+              )}
+              {forgotError && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-700">
+                  {forgotError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setForgotOpen(false)} className="btn">
+                  {t("common.cancel")}
+                </button>
+                <button type="submit" disabled={forgotLoading} data-testid="forgot-password-submit" className="btn btn-primary">
+                  {forgotLoading ? t("login.forgotSending") : t("login.forgotSend")}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -302,6 +394,7 @@ function Field({
   onChange,
   iconPath,
   trailing,
+  onTrailingClick,
   autoComplete,
 }: {
   label: string;
@@ -310,6 +403,7 @@ function Field({
   onChange: (v: string) => void;
   iconPath: string;
   trailing?: string;
+  onTrailingClick?: () => void;
   autoComplete?: string;
 }) {
   return (
@@ -317,9 +411,14 @@ function Field({
       <div className="flex justify-between items-baseline">
         <label className="label">{label}</label>
         {trailing && (
-          <a href="#" className="text-[11.5px] font-medium text-[#c2410c] no-underline hover:underline">
+          <button
+            type="button"
+            onClick={onTrailingClick}
+            data-testid="forgot-password-open"
+            className="-mr-1 rounded px-1 py-0.5 text-[11.5px] font-medium text-[#c2410c] no-underline hover:bg-[#fbe9dd] hover:underline"
+          >
             {trailing}
-          </a>
+          </button>
         )}
       </div>
       <div className="relative">

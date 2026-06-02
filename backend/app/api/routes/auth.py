@@ -22,10 +22,10 @@ from app.core.security import (
     verify_password,
 )
 from app.models import (
-    User, SalesOrder, Payment, Task,
+    User, Notification, SalesOrder, Payment, Task,
     CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord,
 )
-from app.schemas.auth import LoginIn, TokenOut, UserMe
+from app.schemas.auth import ForgotPasswordIn, LoginIn, TokenOut, UserMe
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -129,6 +129,30 @@ def login_oauth(
 def login_json(request: Request, payload: LoginIn, db: DbSession):
     user = _authenticate(request, db, str(payload.email), payload.password)
     return TokenOut(access_token=create_access_token(user.id))
+
+
+@router.post("/forgot-password")
+def forgot_password(payload: ForgotPasswordIn, db: DbSession):
+    email = normalize_email(str(payload.email))
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        recipients = [
+            admin for admin in db.query(User).filter(User.is_active.is_(True)).all()
+            if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
+        ]
+        for admin in recipients:
+            db.add(Notification(
+                user_id=admin.id,
+                title="Password reset requested",
+                message=(
+                    f"{user.name} ({user.email}) requested a password reset. "
+                    "Open Admin / Users and set a new password."
+                ),
+                link="/admin/users",
+            ))
+        if recipients:
+            db.commit()
+    return {"message": "If this account exists, an admin has been notified."}
 
 
 @router.get("/me", response_model=UserMe)
