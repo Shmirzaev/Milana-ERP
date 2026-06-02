@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 const DEFAULT_API_URL = "https://milana-erp.onrender.com";
 
 function apiBaseUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || DEFAULT_API_URL;
+  const raw = process.env.API_URL || DEFAULT_API_URL;
   const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   return withScheme.replace(/\/+$/, "");
 }
