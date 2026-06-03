@@ -70,6 +70,27 @@ def test_forgot_password_uses_neutral_response_for_unknown_email(client):
     assert r.json()["message"] == "If this account exists, a reset link has been sent."
 
 
+def test_forgot_password_notifies_admin_with_link_when_email_fails(client, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.api.routes.auth.secrets.token_urlsafe", lambda _: "failed-email-token")
+
+    def fail_send(*args, **kwargs):
+        raise RuntimeError("smtp blocked")
+
+    monkeypatch.setattr("app.api.routes.auth.send_password_reset_email", fail_send)
+
+    r = client.post("/api/auth/forgot-password", json={"email": "planning@example.com"})
+    assert r.status_code == 200
+
+    r2 = client.get("/api/notifications?limit=20", headers=auth_headers)
+    assert r2.status_code == 200
+    assert any(
+        n["title"] == "Password reset email failed"
+        and "failed-email-token" in (n.get("message") or "")
+        and n.get("link", "").endswith("/reset-password?token=failed-email-token")
+        for n in r2.json()
+    )
+
+
 def test_reset_password_accepts_valid_token(client, monkeypatch):
     monkeypatch.setattr("app.api.routes.auth.secrets.token_urlsafe", lambda _: "reset-login-token")
     monkeypatch.setattr("app.api.routes.auth.send_password_reset_email", lambda *args, **kwargs: True)

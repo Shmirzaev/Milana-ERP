@@ -1,5 +1,6 @@
 import time as time_module
 import hashlib
+import logging
 import secrets
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, user_permissions
 from app.core.dt import as_utc
+from app.db.session import SessionLocal
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -32,6 +34,7 @@ from app.services.audit import log_action
 from app.services.email import send_password_reset_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+log = logging.getLogger(__name__)
 
 _DUMMY_PASSWORD_HASH = hash_password("dummy-login-password-0")
 _LOGIN_FAILURES: dict[str, list[float]] = {}
@@ -125,11 +128,45 @@ def _password_reset_url(token: str) -> str:
     return f"{base}/reset-password?token={token}"
 
 
-def _send_password_reset_email_safely(email: str, name: str, reset_url: str) -> None:
+def _notify_admins_about_reset_email_failure(user_id: int, reset_url: str, error: str) -> None:
+    db = SessionLocal()
     try:
-        send_password_reset_email(email, name, reset_url)
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return
+        recipients = [
+            admin for admin in db.query(User).filter(User.is_active.is_(True)).all()
+            if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
+        ]
+        for admin in recipients:
+            db.add(Notification(
+                user_id=admin.id,
+                title="Password reset email failed",
+                message=(
+                    f"{user.name} ({user.email}) requested a password reset, but email delivery failed. "
+                    f"Share this link privately: {reset_url}. Error: {error[:180]}"
+                ),
+                link=reset_url,
+            ))
+        if recipients:
+            db.commit()
     except Exception:
-        pass
+        db.rollback()
+        log.exception("Could not create password reset failure notification for user_id=%s", user_id)
+    finally:
+        db.close()
+
+
+def _send_password_reset_email_safely(email: str, name: str, reset_url: str, user_id: int) -> None:
+    try:
+        if send_password_reset_email(email, name, reset_url):
+            log.info("Password reset email sent to %s", email)
+        else:
+            log.warning("Password reset email not sent to %s: SMTP is not configured", email)
+            _notify_admins_about_reset_email_failure(user_id, reset_url, "SMTP is not configured")
+    except Exception as exc:
+        log.exception("Password reset email failed for %s", email)
+        _notify_admins_about_reset_email_failure(user_id, reset_url, str(exc))
 
 
 @router.post("/login", response_model=TokenOut)
@@ -163,7 +200,7 @@ def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: 
             expires_at=expires_at,
         ))
         reset_url = _password_reset_url(raw_token)
-        background_tasks.add_task(_send_password_reset_email_safely, user.email, user.name, reset_url)
+        background_tasks.add_task(_send_password_reset_email_safely, user.email, user.name, reset_url, user.id)
         recipients = [
             admin for admin in db.query(User).filter(User.is_active.is_(True)).all()
             if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
