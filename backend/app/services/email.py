@@ -46,6 +46,7 @@ def _send_resend_email(to_email: str, subject: str, text_body: str) -> bool:
         headers={
             "Authorization": f"Bearer {settings.RESEND_API_KEY}",
             "Content-Type": "application/json",
+            "User-Agent": "milana-erp/1.0",
         },
         method="POST",
     )
