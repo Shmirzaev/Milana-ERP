@@ -155,10 +155,24 @@ export const api = {
   },
 
   async forgotPassword(email: string): Promise<{ message: string }> {
-    return request<{ message: string }>("/api/auth/forgot-password", {
-      method: "POST",
-      body: JSON.stringify({ email }),
-    });
+    const res = await fetchWithTimeout(
+      resolveUrl("/api/auth/forgot-password"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      },
+      60_000,
+    );
+    if (!res.ok) {
+      let msg = "Could not send reset request";
+      try {
+        const body = await res.json();
+        msg = body.detail || body.message || msg;
+      } catch {}
+      throw new Error(`${res.status}: ${msg}`);
+    }
+    return res.json();
   },
 
   logout() {

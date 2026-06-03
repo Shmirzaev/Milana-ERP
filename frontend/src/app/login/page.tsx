@@ -122,6 +122,8 @@ export default function LoginPage() {
       setForgotError(
         message.startsWith("404:") || message.startsWith("501:")
           ? t("login.forgotUnavailable")
+          : message.toLowerCase().includes("backend is not responding")
+          ? t("login.forgotRetry")
           : message || t("login.forgotError")
       );
     } finally {
