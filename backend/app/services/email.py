@@ -26,13 +26,13 @@ def send_email(to_email: str, subject: str, text_body: str) -> bool:
         with smtplib.SMTP_SSL(
             settings.SMTP_HOST,
             settings.SMTP_PORT,
-            timeout=20,
+            timeout=settings.SMTP_TIMEOUT_SECONDS,
             context=ssl.create_default_context(),
         ) as smtp:
             _login_if_needed(smtp)
             smtp.send_message(message)
     else:
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20) as smtp:
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=settings.SMTP_TIMEOUT_SECONDS) as smtp:
             if settings.SMTP_USE_TLS:
                 smtp.starttls(context=ssl.create_default_context())
             _login_if_needed(smtp)

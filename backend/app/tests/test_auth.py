@@ -58,7 +58,7 @@ def test_forgot_password_sends_reset_link_for_known_user(client, auth_headers, m
     assert any(
         n["title"] == "Password reset requested"
         and "planning@example.com" in (n.get("message") or "")
-        and "reset email was sent" in (n.get("message") or "")
+        and "reset email was queued" in (n.get("message") or "")
         and n.get("link") == "/admin/users"
         for n in r2.json()
     )

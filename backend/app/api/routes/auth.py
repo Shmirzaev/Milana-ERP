@@ -2,7 +2,7 @@ import time as time_module
 import hashlib
 import secrets
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
 from fastapi import Depends
@@ -125,6 +125,13 @@ def _password_reset_url(token: str) -> str:
     return f"{base}/reset-password?token={token}"
 
 
+def _send_password_reset_email_safely(email: str, name: str, reset_url: str) -> None:
+    try:
+        send_password_reset_email(email, name, reset_url)
+    except Exception:
+        pass
+
+
 @router.post("/login", response_model=TokenOut)
 def login_oauth(
     request: Request,
@@ -144,7 +151,7 @@ def login_json(request: Request, payload: LoginIn, db: DbSession):
 
 
 @router.post("/forgot-password")
-def forgot_password(payload: ForgotPasswordIn, db: DbSession):
+def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: BackgroundTasks):
     email = normalize_email(str(payload.email))
     user = db.query(User).filter(User.email == email).first()
     if user and user.is_active:
@@ -156,10 +163,7 @@ def forgot_password(payload: ForgotPasswordIn, db: DbSession):
             expires_at=expires_at,
         ))
         reset_url = _password_reset_url(raw_token)
-        try:
-            sent = send_password_reset_email(user.email, user.name, reset_url)
-        except Exception:
-            sent = False
+        background_tasks.add_task(_send_password_reset_email_safely, user.email, user.name, reset_url)
         recipients = [
             admin for admin in db.query(User).filter(User.is_active.is_(True)).all()
             if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
@@ -170,7 +174,7 @@ def forgot_password(payload: ForgotPasswordIn, db: DbSession):
                 title="Password reset requested",
                 message=(
                     f"{user.name} ({user.email}) requested a password reset. "
-                    + ("A reset email was sent." if sent else "Email delivery is not configured or failed.")
+                    "A reset email was queued."
                 ),
                 link="/admin/users",
             ))
