@@ -1,4 +1,6 @@
 import time as time_module
+import hashlib
+import secrets
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -22,11 +24,12 @@ from app.core.security import (
     verify_password,
 )
 from app.models import (
-    User, Notification, SalesOrder, Payment, Task,
+    User, Notification, PasswordResetToken, SalesOrder, Payment, Task,
     CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord,
 )
-from app.schemas.auth import ForgotPasswordIn, LoginIn, TokenOut, UserMe
+from app.schemas.auth import ForgotPasswordIn, LoginIn, ResetPasswordIn, TokenOut, UserMe
 from app.services.audit import log_action
+from app.services.email import send_password_reset_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -113,6 +116,15 @@ def _authenticate(request: Request, db: Session, email: str, password: str) -> U
     return user
 
 
+def _password_reset_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _password_reset_url(token: str) -> str:
+    base = settings.FRONTEND_BASE_URL.rstrip("/")
+    return f"{base}/reset-password?token={token}"
+
+
 @router.post("/login", response_model=TokenOut)
 def login_oauth(
     request: Request,
@@ -135,7 +147,19 @@ def login_json(request: Request, payload: LoginIn, db: DbSession):
 def forgot_password(payload: ForgotPasswordIn, db: DbSession):
     email = normalize_email(str(payload.email))
     user = db.query(User).filter(User.email == email).first()
-    if user:
+    if user and user.is_active:
+        raw_token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_MINUTES)
+        db.add(PasswordResetToken(
+            user_id=user.id,
+            token_hash=_password_reset_hash(raw_token),
+            expires_at=expires_at,
+        ))
+        reset_url = _password_reset_url(raw_token)
+        try:
+            sent = send_password_reset_email(user.email, user.name, reset_url)
+        except Exception:
+            sent = False
         recipients = [
             admin for admin in db.query(User).filter(User.is_active.is_(True)).all()
             if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
@@ -146,13 +170,39 @@ def forgot_password(payload: ForgotPasswordIn, db: DbSession):
                 title="Password reset requested",
                 message=(
                     f"{user.name} ({user.email}) requested a password reset. "
-                    "Open Admin / Users and set a new password."
+                    + ("A reset email was sent." if sent else "Email delivery is not configured or failed.")
                 ),
                 link="/admin/users",
             ))
-        if recipients:
-            db.commit()
-    return {"message": "If this account exists, an admin has been notified."}
+        db.commit()
+    return {"message": "If this account exists, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+def reset_password(payload: ResetPasswordIn, db: DbSession):
+    if payload.new_password != payload.confirm_new_password:
+        raise HTTPException(400, "New passwords do not match")
+    try:
+        validate_password_strength(payload.new_password)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    token_hash = _password_reset_hash(payload.token.strip())
+    reset_token = db.query(PasswordResetToken).filter(PasswordResetToken.token_hash == token_hash).first()
+    now = datetime.now(timezone.utc)
+    if (
+        not reset_token
+        or reset_token.used_at is not None
+        or as_utc(reset_token.expires_at) < now
+        or not reset_token.user
+        or not reset_token.user.is_active
+    ):
+        raise HTTPException(400, "Invalid or expired reset link")
+
+    reset_token.user.password_hash = hash_password(payload.new_password)
+    reset_token.used_at = now
+    db.commit()
+    return {"message": "password_reset"}
 
 
 @router.get("/me", response_model=UserMe)

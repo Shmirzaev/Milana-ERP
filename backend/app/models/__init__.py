@@ -1,5 +1,5 @@
 from app.models.core import (
-    Role, Department, User, Employee, AuditLog, Notification, SystemSetting,
+    Role, Department, User, Employee, AuditLog, Notification, PasswordResetToken, SystemSetting,
 )
 from app.models.partners import Customer, Supplier
 from app.models.catalog import (
@@ -25,7 +25,7 @@ from app.models.sewing_flow import SewingFlow
 from app.models.sewing_assignment import SewingAssignment
 
 __all__ = [
-    "Role", "Department", "User", "Employee", "AuditLog", "Notification", "SystemSetting",
+    "Role", "Department", "User", "Employee", "AuditLog", "Notification", "PasswordResetToken", "SystemSetting",
     "Customer", "Supplier",
     "Brand", "Collection", "CollectionModel", "Model", "ModelImage", "ModelSize", "ModelColor", "ModelBOM",
     "Item", "Warehouse", "StockBatch", "StockMovement",

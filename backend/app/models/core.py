@@ -65,6 +65,17 @@ class Notification(Base, PkMixin):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class PasswordResetToken(Base, PkMixin):
+    __tablename__ = "password_reset_tokens"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user: Mapped["User"] = relationship("User", lazy="joined")
+
+
 class SystemSetting(Base, PkMixin, TimestampMixin):
     __tablename__ = "system_settings"
     key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)

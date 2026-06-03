@@ -19,6 +19,16 @@ class Settings(BaseSettings):
     AUTH_WINDOW_SECONDS: int = 15 * 60
     AUTH_LOCKOUT_SECONDS: int = 15 * 60
     ALLOW_INSECURE_DEFAULT_ADMIN_LOGIN: bool = False
+    FRONTEND_BASE_URL: str = "https://milana-erp-web.vercel.app"
+    PASSWORD_RESET_TOKEN_MINUTES: int = 60
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_FROM_NAME: str = "Milana ERP"
+    SMTP_USE_TLS: bool = True
+    SMTP_USE_SSL: bool = False
     CORS_ORIGINS: str = "http://localhost:3000"
     BARCODE_STORAGE_DIR: str = "/app/storage/barcodes"
     MODEL_FILES_DIR: str = "/app/storage/model_files"

@@ -108,7 +108,6 @@ export const api = {
     form.set("password", password);
     const loginEndpoints = [
       resolveUrl("/api/auth/login"),
-      "https://milana-erp.onrender.com/api/auth/login",
     ];
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -166,6 +165,31 @@ export const api = {
     );
     if (!res.ok) {
       let msg = "Could not send reset request";
+      try {
+        const body = await res.json();
+        msg = body.detail || body.message || msg;
+      } catch {}
+      throw new Error(`${res.status}: ${msg}`);
+    }
+    return res.json();
+  },
+
+  async resetPassword(token: string, newPassword: string, confirmNewPassword: string): Promise<{ message: string }> {
+    const res = await fetchWithTimeout(
+      resolveUrl("/api/auth/reset-password"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          new_password: newPassword,
+          confirm_new_password: confirmNewPassword,
+        }),
+      },
+      60_000,
+    );
+    if (!res.ok) {
+      let msg = "Could not reset password";
       try {
         const body = await res.json();
         msg = body.detail || body.message || msg;

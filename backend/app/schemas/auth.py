@@ -11,6 +11,12 @@ class ForgotPasswordIn(BaseModel):
     email: EmailStr
 
 
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str
+    confirm_new_password: str
+
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
