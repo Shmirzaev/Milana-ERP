@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import smtplib
 import ssl
+import json
+import urllib.error
+import urllib.request
 from email.message import EmailMessage
 from email.utils import formataddr
 
@@ -9,11 +12,53 @@ from app.core.config import settings
 
 
 def email_configured() -> bool:
+    return resend_configured() or smtp_configured()
+
+
+def resend_configured() -> bool:
+    return bool(settings.RESEND_API_KEY and (settings.RESEND_FROM_EMAIL or settings.SMTP_FROM_EMAIL))
+
+
+def smtp_configured() -> bool:
     return bool(settings.SMTP_HOST and settings.SMTP_FROM_EMAIL)
 
 
 def send_email(to_email: str, subject: str, text_body: str) -> bool:
-    if not email_configured():
+    if resend_configured():
+        return _send_resend_email(to_email, subject, text_body)
+    if smtp_configured():
+        return _send_smtp_email(to_email, subject, text_body)
+    return False
+
+
+def _send_resend_email(to_email: str, subject: str, text_body: str) -> bool:
+    from_email = settings.RESEND_FROM_EMAIL or settings.SMTP_FROM_EMAIL
+    from_value = formataddr((settings.SMTP_FROM_NAME, from_email))
+    payload = json.dumps({
+        "from": from_value,
+        "to": [to_email],
+        "subject": subject,
+        "text": text_body,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=settings.SMTP_TIMEOUT_SECONDS) as response:
+            return 200 <= response.status < 300
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Resend API error {exc.code}: {detail}") from exc
+
+
+def _send_smtp_email(to_email: str, subject: str, text_body: str) -> bool:
+    if not smtp_configured():
         return False
 
     message = EmailMessage()

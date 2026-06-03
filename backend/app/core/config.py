@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = True
     SMTP_USE_SSL: bool = False
     SMTP_TIMEOUT_SECONDS: int = 8
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = ""
     CORS_ORIGINS: str = "http://localhost:3000"
     BARCODE_STORAGE_DIR: str = "/app/storage/barcodes"
     MODEL_FILES_DIR: str = "/app/storage/model_files"
