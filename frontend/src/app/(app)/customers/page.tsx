@@ -90,7 +90,7 @@ export default function CustomersPage() {
           <tbody>
             {data?.map((c) => (
               <tr key={c.id}>
-                <td>{c.name}</td><td>{c.phone}</td><td>{c.email}</td><td>{c.address}</td>
+                <td><Link className="text-brand-600 hover:underline" href={`/customers/${c.id}`}>{c.name}</Link></td><td>{c.phone}</td><td>{c.email}</td><td>{c.address}</td>
                 {isAdmin && (
                   <td className="flex gap-2">
                     <Link className="text-brand-600 hover:underline" href={`/customers/${c.id}`}>{t("btn.edit")}</Link>

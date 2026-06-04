@@ -1,7 +1,9 @@
+from collections import defaultdict
+
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import Customer, Supplier, SalesOrder, Shipment, User
+from app.models import Customer, Supplier, SalesOrder, Shipment, User, Invoice, Payment
 from app.schemas.catalog import PartyIn, PartyOut
 from app.services.audit import log_action
 
@@ -57,16 +59,111 @@ def get_customer_orders(cid: int, db: DbSession, _: CurrentUser):
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
     rows = db.query(SalesOrder).filter(SalesOrder.customer_id == cid).order_by(SalesOrder.id.desc()).all()
+    order_ids = [int(so.id) for so in rows]
+    invoices_by_order: dict[int, list[Invoice]] = defaultdict(list)
+    payments_by_invoice: dict[int, list[Payment]] = defaultdict(list)
+
+    if order_ids:
+        invoices = (
+            db.query(Invoice)
+            .filter(Invoice.sales_order_id.in_(order_ids))
+            .order_by(Invoice.id.asc())
+            .all()
+        )
+        invoice_ids = [int(inv.id) for inv in invoices]
+        for inv in invoices:
+            invoices_by_order[int(inv.sales_order_id)].append(inv)
+
+        if invoice_ids:
+            payments = (
+                db.query(Payment)
+                .filter(Payment.invoice_id.in_(invoice_ids))
+                .order_by(Payment.id.desc())
+                .all()
+            )
+            for payment in payments:
+                payments_by_invoice[int(payment.invoice_id)].append(payment)
+
     return [
-        {
-            "id": so.id,
-            "order_no": so.order_no,
-            "date": so.created_at,
-            "total": float(so.total_amount or 0),
-            "status": so.status,
-        }
+        _serialize_customer_order(so, invoices_by_order[int(so.id)], payments_by_invoice)
         for so in rows
     ]
+
+
+def _serialize_customer_order(
+    so: SalesOrder,
+    invoices: list[Invoice],
+    payments_by_invoice: dict[int, list[Payment]],
+) -> dict:
+    invoice_payloads: list[dict] = []
+    invoice_total = 0.0
+    paid_total = 0.0
+    last_payment_at = None
+
+    for inv in invoices:
+        payments = payments_by_invoice.get(int(inv.id), [])
+        payment_payloads = []
+        paid_amount = 0.0
+        for payment in payments:
+            amount = float(payment.amount or 0)
+            paid_amount += amount
+            if payment.paid_at and (last_payment_at is None or payment.paid_at > last_payment_at):
+                last_payment_at = payment.paid_at
+            payment_payloads.append(
+                {
+                    "id": payment.id,
+                    "amount": amount,
+                    "payment_method": payment.payment_method,
+                    "paid_at": payment.paid_at,
+                    "notes": payment.notes,
+                }
+            )
+
+        amount = float(inv.amount or 0)
+        invoice_total += amount
+        paid_total += paid_amount
+        invoice_payloads.append(
+            {
+                "id": inv.id,
+                "invoice_no": inv.invoice_no,
+                "amount": amount,
+                "status": inv.status,
+                "issued_at": inv.issued_at,
+                "due_date": inv.due_date,
+                "paid_amount": round(paid_amount, 2),
+                "balance_due": round(max(amount - paid_amount, 0), 2),
+                "payments": payment_payloads,
+            }
+        )
+
+    balance_due = max((invoice_total if invoices else float(so.total_amount or 0)) - paid_total, 0)
+
+    def payment_status() -> str:
+        if not invoices:
+            return "no_invoice"
+        if invoice_total <= 0 or paid_total >= invoice_total - 0.01:
+            return "paid"
+        if paid_total > 0.01:
+            return "partial"
+        if any(str(inv.status or "").lower() in {"partial", "partially_paid"} for inv in invoices):
+            return "partial"
+        if all(str(inv.status or "").lower() == "paid" for inv in invoices):
+            return "paid"
+        return "unpaid"
+
+    return {
+        "id": so.id,
+        "order_no": so.order_no,
+        "date": so.created_at,
+        "total": float(so.total_amount or 0),
+        "status": so.status,
+        "invoice_total": round(invoice_total, 2),
+        "paid_total": round(paid_total, 2),
+        "balance_due": round(balance_due, 2),
+        "payment_status": payment_status(),
+        "last_payment_at": last_payment_at,
+        "invoices": invoice_payloads,
+    }
 
 
 @router.patch("/customers/{cid}", response_model=PartyOut)
