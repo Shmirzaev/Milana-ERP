@@ -63,6 +63,16 @@ def _create_payment(client, headers, *, invoice_id: int, amount: float) -> dict:
     return r.json()
 
 
+def _create_customer_payment(client, headers, *, customer_id: int, sales_order_id: int, amount: float) -> dict:
+    r = client.post(
+        f"/api/customers/{customer_id}/payments",
+        json={"sales_order_id": sales_order_id, "amount": amount, "payment_method": "cash"},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
 def test_customer_order_history_includes_invoice_and_payment_status(client, auth_headers):
     model_id = _find_model_id(client, auth_headers)
     customer_id = _create_customer(client, auth_headers)
@@ -133,3 +143,69 @@ def test_customer_order_history_includes_invoice_and_payment_status(client, auth
     assert partial_payment_row["order_no"] == partial_order["order_no"]
     assert partial_payment_row["invoice_no"] == partial_invoice["invoice_no"]
     assert partial_payment_row["amount"] == 40
+
+
+def test_customer_profile_payment_persists_and_updates_order_status(client, auth_headers):
+    model_id = _find_model_id(client, auth_headers)
+    customer_id = _create_customer(client, auth_headers)
+    order = _create_sales_order(
+        client,
+        auth_headers,
+        customer_id=customer_id,
+        model_id=model_id,
+        unit_price=125,
+    )
+
+    payment = _create_customer_payment(
+        client,
+        auth_headers,
+        customer_id=customer_id,
+        sales_order_id=int(order["id"]),
+        amount=50,
+    )
+
+    assert payment["order_id"] == order["id"]
+    assert payment["order_no"] == order["order_no"]
+    assert payment["invoice_no"].startswith("INV-")
+    assert payment["invoice_id"] > 0
+    assert payment["amount"] == 50
+
+    r = client.get(f"/api/customers/{customer_id}/payments", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    payments = r.json()
+    assert any(row["id"] == payment["id"] for row in payments)
+
+    r = client.get(f"/api/customers/{customer_id}/orders", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    saved_order = next(row for row in r.json() if int(row["id"]) == int(order["id"]))
+    assert saved_order["payment_status"] == "partial"
+    assert saved_order["paid_total"] == 50
+    assert saved_order["balance_due"] == 75
+    assert saved_order["invoices"][0]["payments"][0]["id"] == payment["id"]
+
+
+def test_customer_profile_payment_rejects_order_from_another_customer(client, auth_headers):
+    model_id = _find_model_id(client, auth_headers)
+    customer_id = _create_customer(client, auth_headers)
+    other_customer_id = _create_customer(client, auth_headers)
+    other_order = _create_sales_order(
+        client,
+        auth_headers,
+        customer_id=other_customer_id,
+        model_id=model_id,
+        unit_price=80,
+    )
+
+    r = client.post(
+        f"/api/customers/{customer_id}/payments",
+        json={"sales_order_id": other_order["id"], "amount": 80, "payment_method": "cash"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 404, r.text
+
+    r = client.post(
+        f"/api/customers/{customer_id}/payments",
+        json={"amount": 80, "payment_method": "cash"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 422, r.text

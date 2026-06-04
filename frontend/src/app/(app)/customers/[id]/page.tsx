@@ -24,7 +24,9 @@ type PaymentHistoryRow = PaymentRow & {
   row_key: string;
   order_id: number;
   order_no: string;
+  invoice_id?: number;
   invoice_no: string;
+  invoice_amount?: number;
 };
 type InvoiceRow = {
   id: number;
@@ -255,40 +257,38 @@ export default function CustomerDetailPage() {
     setSavingPayment(true);
     setPaymentMsg("");
     try {
-      const openInvoice = targetOrder.invoices?.find((invoice) => Number(invoice.balance_due || 0) > 0);
-      const fallbackInvoice = targetOrder.invoices?.[0];
-      const createdInvoice = openInvoice || fallbackInvoice ? null : await api.post<any>("/api/finance/invoices", {
-        sales_order_id: targetOrder.id,
-      });
-      const invoice: InvoiceRow = openInvoice || fallbackInvoice || {
-        id: Number(createdInvoice.id),
-        invoice_no: createdInvoice.invoice_no,
-        amount: Number(createdInvoice.amount || targetOrder.total || 0),
-        status: createdInvoice.status || "unpaid",
-        issued_at: createdInvoice.issued_at || null,
-        due_date: createdInvoice.due_date || null,
-        paid_amount: 0,
-        balance_due: Number(createdInvoice.amount || targetOrder.total || 0),
-        payments: [],
-      };
       const paidAt = new Date(paymentForm.date).toISOString();
-      const savedPayment = await api.post<PaymentRow>("/api/finance/payments", {
-        invoice_id: Number(invoice.id),
+      const savedPayment = await api.post<PaymentHistoryRow>(`/api/customers/${id}/payments`, {
+        sales_order_id: Number(targetOrder.id),
         amount: Number(paymentForm.amount || 0),
         paid_at: paidAt,
         payment_method: paymentForm.payment_method,
         notes: paymentForm.notes || null,
       });
+      const matchingInvoice = targetOrder.invoices?.find((invoice) => Number(invoice.id) === Number(savedPayment.invoice_id));
+      const invoice: InvoiceRow = matchingInvoice || {
+        id: Number(savedPayment.invoice_id || 0),
+        invoice_no: savedPayment.invoice_no,
+        amount: Number(savedPayment.invoice_amount || targetOrder.total || 0),
+        status: "unpaid",
+        issued_at: null,
+        due_date: null,
+        paid_amount: 0,
+        balance_due: Number(savedPayment.invoice_amount || targetOrder.total || 0),
+        payments: [],
+      };
       const optimisticPayment: PaymentHistoryRow = {
-        id: Number(savedPayment.id || Date.now()),
-        row_key: `payment-${savedPayment.id || Date.now()}`,
+        ...savedPayment,
+        id: Number(savedPayment.id),
+        row_key: savedPayment.row_key || `payment-${savedPayment.id}`,
         amount: Number(savedPayment.amount || paymentForm.amount || 0),
         payment_method: savedPayment.payment_method || paymentForm.payment_method,
         paid_at: savedPayment.paid_at || paidAt,
         notes: savedPayment.notes || paymentForm.notes || null,
         order_id: targetOrder.id,
         order_no: targetOrder.order_no,
-        invoice_no: invoice.invoice_no || `#${invoice.id}`,
+        invoice_id: invoice.id,
+        invoice_no: savedPayment.invoice_no || invoice.invoice_no || `#${invoice.id}`,
       };
       setLocalPaymentHistory((prev) => [optimisticPayment, ...prev.filter((row) => row.row_key !== optimisticPayment.row_key)]);
       const optimisticPaymentRow: PaymentRow = {
@@ -307,6 +307,7 @@ export default function CustomerDetailPage() {
       setPaymentOpen(false);
       setSelectedPaymentOrderId("");
       void mutateCustomerPayments();
+      void mutateOrders();
     } catch (err: any) {
       setPaymentMsg(err.message || "Could not record payment.");
     } finally {

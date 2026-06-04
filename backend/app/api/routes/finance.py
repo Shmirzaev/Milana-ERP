@@ -9,6 +9,7 @@ from app.schemas.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
 from app.services.audit import log_action
 from app.services.finance_1c import sync_from_1c
 from app.services.numbering import next_invoice_no
+from app.services.payments import create_invoice_payment
 from app.services.finance import (
     dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
     list_recent_invoices, revenue_by_period, cost_breakdown,
@@ -86,12 +87,14 @@ def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(re
 def create_payment(payload: PaymentIn, db: DbSession, current: User = Depends(require_permissions("finance.payment", "*"))):
     inv = db.get(Invoice, payload.invoice_id)
     if not inv: raise HTTPException(404, "Invoice not found")
-    p = Payment(
-        invoice_id=inv.id, amount=payload.amount, payment_method=payload.payment_method,
-        paid_at=payload.paid_at or datetime.now(timezone.utc), notes=payload.notes,
+    p = create_invoice_payment(
+        db,
+        inv,
+        amount=payload.amount,
+        payment_method=payload.payment_method,
+        paid_at=payload.paid_at,
+        notes=payload.notes,
     )
-    db.add(p); db.flush()
-    inv.status = "paid"
     log_action(db, current, "create", "Payment", p.id, new_value={"amount": float(p.amount)})
     db.commit(); db.refresh(p)
     return p

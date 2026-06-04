@@ -1,13 +1,25 @@
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import Customer, Supplier, SalesOrder, Shipment, User, Invoice, Payment
 from app.schemas.catalog import PartyIn, PartyOut
 from app.services.audit import log_action
+from app.services.numbering import next_invoice_no
+from app.services.payments import create_invoice_payment, invoice_paid_total
 
 router = APIRouter(tags=["partners"])
+
+
+class CustomerPaymentIn(BaseModel):
+    sales_order_id: int
+    amount: float
+    paid_at: datetime | None = None
+    payment_method: str | None = None
+    notes: str | None = None
 
 
 # ===== Customers =====
@@ -103,19 +115,89 @@ def get_customer_payments(cid: int, db: DbSession, _: CurrentUser):
         .all()
     )
     return [
-        {
-            "id": payment.id,
-            "row_key": f"payment-{payment.id}",
-            "amount": float(payment.amount or 0),
-            "payment_method": payment.payment_method,
-            "paid_at": payment.paid_at,
-            "notes": payment.notes,
-            "order_id": so.id,
-            "order_no": so.order_no,
-            "invoice_no": invoice.invoice_no,
-        }
+        _serialize_customer_payment(payment, invoice, so)
         for payment, invoice, so in rows
     ]
+
+
+@router.post("/customers/{cid}/payments", status_code=201)
+def create_customer_payment(
+    cid: int,
+    payload: CustomerPaymentIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("finance.payment", "*")),
+):
+    if not db.get(Customer, cid):
+        raise HTTPException(404, "Customer not found")
+    if payload.amount <= 0:
+        raise HTTPException(400, "Payment amount must be greater than zero")
+
+    sales_order = db.get(SalesOrder, payload.sales_order_id)
+    if not sales_order or int(sales_order.customer_id or 0) != cid:
+        raise HTTPException(404, "Sales order not found for this customer")
+
+    invoice = _find_payable_invoice(db, sales_order)
+    if not invoice:
+        invoice = Invoice(
+            sales_order_id=sales_order.id,
+            invoice_no=next_invoice_no(db),
+            amount=float(sales_order.total_amount or 0),
+            status="unpaid",
+            issued_at=datetime.now(timezone.utc),
+        )
+        db.add(invoice)
+        db.flush()
+
+    payment = create_invoice_payment(
+        db,
+        invoice,
+        amount=float(payload.amount),
+        payment_method=payload.payment_method,
+        paid_at=payload.paid_at,
+        notes=payload.notes,
+    )
+    log_action(
+        db,
+        current,
+        "create",
+        "Payment",
+        payment.id,
+        new_value={"amount": float(payment.amount), "customer_id": cid, "sales_order_id": sales_order.id},
+    )
+    db.commit()
+    db.refresh(payment)
+    db.refresh(invoice)
+    return _serialize_customer_payment(payment, invoice, sales_order)
+
+
+def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | None:
+    invoices = (
+        db.query(Invoice)
+        .filter(Invoice.sales_order_id == sales_order.id)
+        .order_by(Invoice.id.asc())
+        .all()
+    )
+    for invoice in invoices:
+        balance_due = max(float(invoice.amount or 0) - invoice_paid_total(db, int(invoice.id)), 0)
+        if balance_due > 0.01:
+            return invoice
+    return None
+
+
+def _serialize_customer_payment(payment: Payment, invoice: Invoice, sales_order: SalesOrder) -> dict:
+    return {
+        "id": payment.id,
+        "row_key": f"payment-{payment.id}",
+        "amount": float(payment.amount or 0),
+        "payment_method": payment.payment_method,
+        "paid_at": payment.paid_at,
+        "notes": payment.notes,
+        "order_id": sales_order.id,
+        "order_no": sales_order.order_no,
+        "invoice_id": invoice.id,
+        "invoice_no": invoice.invoice_no,
+        "invoice_amount": float(invoice.amount or 0),
+    }
 
 
 def _serialize_customer_order(
