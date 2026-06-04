@@ -20,6 +20,12 @@ type PaymentRow = {
   paid_at?: string | null;
   notes?: string | null;
 };
+type PaymentHistoryRow = PaymentRow & {
+  row_key: string;
+  order_id: number;
+  order_no: string;
+  invoice_no: string;
+};
 type InvoiceRow = {
   id: number;
   invoice_no: string;
@@ -49,6 +55,16 @@ type PaymentForm = {
   date: string;
   payment_method: string;
   notes: string;
+};
+type FinanceInvoiceRow = {
+  id: number;
+  sales_order_id: number;
+  invoice_no?: string | null;
+  order_no: string;
+  customer?: string | null;
+  amount: number;
+  status: string;
+  date?: string | null;
 };
 
 function money(value: number) {
@@ -82,6 +98,7 @@ export default function CustomerDetailPage() {
   const { t } = useT();
   const { data: customer, mutate } = useSWR<any>(`/api/customers/${id}`, fetcher);
   const { data: orders, mutate: mutateOrders } = useSWR<CustomerOrder[]>(`/api/customers/${id}/orders`, fetcher);
+  const { data: financeInvoices, mutate: mutateFinanceInvoices } = useSWR<FinanceInvoiceRow[]>("/api/finance/invoices?limit=200", fetcher);
   const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [msg, setMsg] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -94,6 +111,7 @@ export default function CustomerDetailPage() {
   });
   const [paymentMsg, setPaymentMsg] = useState("");
   const [savingPayment, setSavingPayment] = useState(false);
+  const [localPaymentHistory, setLocalPaymentHistory] = useState<PaymentHistoryRow[]>([]);
   const orderRows = useMemo(() => orders || [], [orders]);
 
   const summary = useMemo(() => {
@@ -113,20 +131,62 @@ export default function CustomerDetailPage() {
     );
   }, [orderRows]);
 
-  const paymentHistory = useMemo(() => {
-    return orderRows
-      .flatMap((order) =>
+  const orderPaymentHistory = useMemo<PaymentHistoryRow[]>(() => {
+    return orderRows.flatMap((order) =>
         (order.invoices || []).flatMap((invoice) =>
           (invoice.payments || []).map((payment) => ({
             ...payment,
+            row_key: `payment-${payment.id}`,
             order_id: order.id,
             order_no: order.order_no,
             invoice_no: invoice.invoice_no,
           })),
         ),
-      )
-      .sort((a, b) => new Date(b.paid_at || 0).getTime() - new Date(a.paid_at || 0).getTime());
+      );
   }, [orderRows]);
+
+  const financeInvoicePaymentHistory = useMemo<PaymentHistoryRow[]>(() => {
+    const orderMap = new Map(orderRows.map((order) => [Number(order.id), order]));
+    const invoicesWithPayments = new Set(
+      orderRows.flatMap((order) =>
+        (order.invoices || [])
+          .filter((invoice) => (invoice.payments || []).length > 0)
+          .map((invoice) => Number(invoice.id)),
+      ),
+    );
+    return (financeInvoices || [])
+      .filter((invoice) => {
+        const status = String(invoice.status || "").toLowerCase();
+        return orderMap.has(Number(invoice.sales_order_id)) && ["paid", "partial", "partially_paid"].includes(status) && !invoicesWithPayments.has(Number(invoice.id));
+      })
+      .map((invoice) => {
+        const order = orderMap.get(Number(invoice.sales_order_id));
+        return {
+          id: -Number(invoice.id),
+          row_key: `invoice-${invoice.id}`,
+          amount: Number(invoice.amount || 0),
+          payment_method: "recorded",
+          paid_at: invoice.date || null,
+          notes: null,
+          order_id: Number(invoice.sales_order_id),
+          order_no: invoice.order_no || order?.order_no || `#${invoice.sales_order_id}`,
+          invoice_no: invoice.invoice_no || `#${invoice.id}`,
+        };
+      });
+  }, [financeInvoices, orderRows]);
+
+  const paymentHistory = useMemo<PaymentHistoryRow[]>(() => {
+    const rows = [...localPaymentHistory, ...orderPaymentHistory, ...financeInvoicePaymentHistory];
+    const seen = new Set<string>();
+    return rows
+      .filter((row) => {
+        const key = row.id > 0 ? `payment-${row.id}` : row.row_key;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => new Date(b.paid_at || 0).getTime() - new Date(a.paid_at || 0).getTime());
+  }, [financeInvoicePaymentHistory, localPaymentHistory, orderPaymentHistory]);
   const payableOrders = useMemo(() => orderRows.filter((order) => order.payment_status !== "paid"), [orderRows]);
   const nextPayableOrder = payableOrders[0] || null;
 
@@ -192,15 +252,29 @@ export default function CustomerDetailPage() {
       const invoice = openInvoice || fallbackInvoice || await api.post<InvoiceRow>("/api/finance/invoices", {
         sales_order_id: payingOrder.id,
       });
-      await api.post("/api/finance/payments", {
+      const paidAt = new Date(paymentForm.date).toISOString();
+      const savedPayment = await api.post<PaymentRow>("/api/finance/payments", {
         invoice_id: Number(invoice.id),
         amount: Number(paymentForm.amount || 0),
-        paid_at: new Date(paymentForm.date).toISOString(),
+        paid_at: paidAt,
         payment_method: paymentForm.payment_method,
         notes: paymentForm.notes || null,
       });
+      const optimisticPayment: PaymentHistoryRow = {
+        id: Number(savedPayment.id || Date.now()),
+        row_key: `payment-${savedPayment.id || Date.now()}`,
+        amount: Number(savedPayment.amount || paymentForm.amount || 0),
+        payment_method: savedPayment.payment_method || paymentForm.payment_method,
+        paid_at: savedPayment.paid_at || paidAt,
+        notes: savedPayment.notes || paymentForm.notes || null,
+        order_id: payingOrder.id,
+        order_no: payingOrder.order_no,
+        invoice_no: invoice.invoice_no || `#${invoice.id}`,
+      };
+      setLocalPaymentHistory((prev) => [optimisticPayment, ...prev.filter((row) => row.row_key !== optimisticPayment.row_key)]);
       setPayingOrder(null);
-      await mutateOrders();
+      void mutateOrders();
+      void mutateFinanceInvoices();
     } catch (err: any) {
       setPaymentMsg(err.message || "Could not record payment.");
     } finally {
