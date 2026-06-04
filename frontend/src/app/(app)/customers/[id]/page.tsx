@@ -102,7 +102,8 @@ export default function CustomerDetailPage() {
   const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [msg, setMsg] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [payingOrder, setPayingOrder] = useState<CustomerOrder | null>(null);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [selectedPaymentOrderId, setSelectedPaymentOrderId] = useState<number | "">("");
   const [paymentForm, setPaymentForm] = useState<PaymentForm>({
     amount: 0,
     date: new Date().toISOString().slice(0, 10),
@@ -188,7 +189,10 @@ export default function CustomerDetailPage() {
       .sort((a, b) => new Date(b.paid_at || 0).getTime() - new Date(a.paid_at || 0).getTime());
   }, [financeInvoicePaymentHistory, localPaymentHistory, orderPaymentHistory]);
   const payableOrders = useMemo(() => orderRows.filter((order) => order.payment_status !== "paid"), [orderRows]);
-  const nextPayableOrder = payableOrders[0] || null;
+  const selectedPaymentOrder = useMemo(
+    () => orderRows.find((order) => Number(order.id) === Number(selectedPaymentOrderId)) || null,
+    [orderRows, selectedPaymentOrderId],
+  );
 
   useEffect(() => {
     if (!customer) return;
@@ -225,10 +229,11 @@ export default function CustomerDetailPage() {
     return effectiveBalanceDue(order);
   }
 
-  function openPayment(order: CustomerOrder) {
-    setPayingOrder(order);
+  function openPayment(order?: CustomerOrder) {
+    setPaymentOpen(true);
+    setSelectedPaymentOrderId(order?.id ?? "");
     setPaymentForm({
-      amount: defaultPaymentAmount(order),
+      amount: order ? defaultPaymentAmount(order) : 0,
       date: new Date().toISOString().slice(0, 10),
       payment_method: "bank_transfer",
       notes: "",
@@ -236,9 +241,52 @@ export default function CustomerDetailPage() {
     setPaymentMsg("");
   }
 
+  function selectPaymentOrder(rawId: string) {
+    const nextId = rawId ? Number(rawId) : "";
+    const order = orderRows.find((row) => Number(row.id) === Number(nextId));
+    setSelectedPaymentOrderId(nextId);
+    setPaymentForm((prev) => ({ ...prev, amount: order ? defaultPaymentAmount(order) : 0 }));
+    setPaymentMsg("");
+  }
+
+  function applyOptimisticPayment(order: CustomerOrder, invoice: InvoiceRow, payment: PaymentRow): CustomerOrder {
+    const paidAmount = Number(payment.amount || 0);
+    const invoiceAmount = Number(invoice.amount || order.total || 0);
+    const existingInvoices = order.invoices || [];
+    const foundInvoice = existingInvoices.some((row) => Number(row.id) === Number(invoice.id));
+    const updatedInvoice: InvoiceRow = {
+      ...invoice,
+      amount: invoiceAmount,
+      status: Math.max(invoiceAmount - (Number(invoice.paid_amount || 0) + paidAmount), 0) <= 0.01 ? "paid" : "partially_paid",
+      paid_amount: Number(invoice.paid_amount || 0) + paidAmount,
+      balance_due: Math.max(invoiceAmount - (Number(invoice.paid_amount || 0) + paidAmount), 0),
+      payments: [...(invoice.payments || []), payment],
+    };
+    const nextInvoices = foundInvoice
+      ? existingInvoices.map((row) => (Number(row.id) === Number(invoice.id) ? updatedInvoice : row))
+      : [...existingInvoices, updatedInvoice];
+    const invoiceTotal = nextInvoices.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const paidTotal = nextInvoices.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+    const balanceDue = Math.max(invoiceTotal - paidTotal, 0);
+
+    return {
+      ...order,
+      invoices: nextInvoices,
+      invoice_total: invoiceTotal,
+      paid_total: paidTotal,
+      balance_due: balanceDue,
+      payment_status: balanceDue <= 0.01 ? "paid" : paidTotal > 0 ? "partial" : "unpaid",
+      last_payment_at: payment.paid_at || order.last_payment_at,
+    };
+  }
+
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
-    if (!payingOrder) return;
+    const targetOrder = selectedPaymentOrder;
+    if (!targetOrder) {
+      setPaymentMsg("Select an order before saving payment.");
+      return;
+    }
     if (!Number.isFinite(Number(paymentForm.amount)) || Number(paymentForm.amount) <= 0) {
       setPaymentMsg("Amount must be greater than zero.");
       return;
@@ -247,11 +295,22 @@ export default function CustomerDetailPage() {
     setSavingPayment(true);
     setPaymentMsg("");
     try {
-      const openInvoice = payingOrder.invoices?.find((invoice) => Number(invoice.balance_due || 0) > 0);
-      const fallbackInvoice = payingOrder.invoices?.[0];
-      const invoice = openInvoice || fallbackInvoice || await api.post<InvoiceRow>("/api/finance/invoices", {
-        sales_order_id: payingOrder.id,
+      const openInvoice = targetOrder.invoices?.find((invoice) => Number(invoice.balance_due || 0) > 0);
+      const fallbackInvoice = targetOrder.invoices?.[0];
+      const createdInvoice = openInvoice || fallbackInvoice ? null : await api.post<any>("/api/finance/invoices", {
+        sales_order_id: targetOrder.id,
       });
+      const invoice: InvoiceRow = openInvoice || fallbackInvoice || {
+        id: Number(createdInvoice.id),
+        invoice_no: createdInvoice.invoice_no,
+        amount: Number(createdInvoice.amount || targetOrder.total || 0),
+        status: createdInvoice.status || "unpaid",
+        issued_at: createdInvoice.issued_at || null,
+        due_date: createdInvoice.due_date || null,
+        paid_amount: 0,
+        balance_due: Number(createdInvoice.amount || targetOrder.total || 0),
+        payments: [],
+      };
       const paidAt = new Date(paymentForm.date).toISOString();
       const savedPayment = await api.post<PaymentRow>("/api/finance/payments", {
         invoice_id: Number(invoice.id),
@@ -267,13 +326,26 @@ export default function CustomerDetailPage() {
         payment_method: savedPayment.payment_method || paymentForm.payment_method,
         paid_at: savedPayment.paid_at || paidAt,
         notes: savedPayment.notes || paymentForm.notes || null,
-        order_id: payingOrder.id,
-        order_no: payingOrder.order_no,
+        order_id: targetOrder.id,
+        order_no: targetOrder.order_no,
         invoice_no: invoice.invoice_no || `#${invoice.id}`,
       };
       setLocalPaymentHistory((prev) => [optimisticPayment, ...prev.filter((row) => row.row_key !== optimisticPayment.row_key)]);
-      setPayingOrder(null);
-      void mutateOrders();
+      const optimisticPaymentRow: PaymentRow = {
+        id: optimisticPayment.id,
+        amount: optimisticPayment.amount,
+        payment_method: optimisticPayment.payment_method,
+        paid_at: optimisticPayment.paid_at,
+        notes: optimisticPayment.notes,
+      };
+      const nextOrders = orderRows.map((order) => (
+        Number(order.id) === Number(targetOrder.id)
+          ? applyOptimisticPayment(order, invoice, optimisticPaymentRow)
+          : order
+      ));
+      mutateOrders(nextOrders, { revalidate: false });
+      setPaymentOpen(false);
+      setSelectedPaymentOrderId("");
       void mutateFinanceInvoices();
     } catch (err: any) {
       setPaymentMsg(err.message || "Could not record payment.");
@@ -390,8 +462,8 @@ export default function CustomerDetailPage() {
               <button
                 type="button"
                 className="btn h-7 px-2 text-[11px]"
-                onClick={() => nextPayableOrder && openPayment(nextPayableOrder)}
-                disabled={!nextPayableOrder}
+                onClick={() => openPayment()}
+                disabled={!payableOrders.length}
               >
                 <Plus className="h-3.5 w-3.5" />
                 Add payment
@@ -409,7 +481,7 @@ export default function CustomerDetailPage() {
               </thead>
               <tbody>
                 {paymentHistory.map((payment) => (
-                  <tr key={payment.id}>
+                  <tr key={payment.row_key}>
                     <td>{payment.paid_at ? new Date(payment.paid_at).toLocaleDateString() : "-"}</td>
                     <td><Link className="text-brand-600 hover:underline" href={`/sales-orders/${payment.order_id}`}>{payment.order_no}</Link></td>
                     <td>{payment.invoice_no}</td>
@@ -422,8 +494,8 @@ export default function CustomerDetailPage() {
                     <td colSpan={5}>
                       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
                         <span>No payments recorded for this customer yet.</span>
-                        {nextPayableOrder && (
-                          <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment(nextPayableOrder)}>
+                        {payableOrders.length > 0 && (
+                          <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment()}>
                             <Plus className="h-3.5 w-3.5" />
                             Add payment
                           </button>
@@ -438,15 +510,28 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      <Modal open={!!payingOrder} onClose={() => setPayingOrder(null)} title="Add payment">
+      <Modal open={paymentOpen} onClose={() => setPaymentOpen(false)} title="Add payment">
         <form onSubmit={recordPayment} className="space-y-3">
           <div className="rounded-md border border-[#ecebe3] bg-[#f8f7f3] p-3 text-sm">
-            <div className="font-medium">{payingOrder?.order_no || "-"}</div>
+            <div className="font-medium">{selectedPaymentOrder?.order_no || "Select an order"}</div>
             <div className="mt-1 text-slate-600">
-              {payingOrder?.invoices?.length
-                ? `Open balance: ${money(effectiveBalanceDue(payingOrder))}`
-                : `No invoice yet. An invoice for ${money(Number(payingOrder?.total || 0))} will be created first.`}
+              {selectedPaymentOrder
+                ? selectedPaymentOrder.invoices?.length
+                  ? `Open balance: ${money(effectiveBalanceDue(selectedPaymentOrder))}`
+                  : `No invoice yet. An invoice for ${money(Number(selectedPaymentOrder.total || 0))} will be created first.`
+                : "Choose the order this payment belongs to before saving."}
             </div>
+          </div>
+          <div>
+            <label className="label">Order</label>
+            <select className="input" value={selectedPaymentOrderId} onChange={(e) => selectPaymentOrder(e.target.value)} required>
+              <option value="">Select order...</option>
+              {payableOrders.map((order) => (
+                <option key={order.id} value={order.id}>
+                  {order.order_no} - due {money(effectiveBalanceDue(order))}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="label">Amount received</label>
@@ -489,7 +574,7 @@ export default function CustomerDetailPage() {
           </div>
           {paymentMsg && <div className="text-sm text-red-600">{paymentMsg}</div>}
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" className="btn" onClick={() => setPayingOrder(null)} disabled={savingPayment}>Cancel</button>
+            <button type="button" className="btn" onClick={() => setPaymentOpen(false)} disabled={savingPayment}>Cancel</button>
             <button className="btn btn-primary" disabled={savingPayment}>{savingPayment ? "Saving..." : "Save payment"}</button>
           </div>
         </form>
