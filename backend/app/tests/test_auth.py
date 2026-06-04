@@ -14,6 +14,30 @@ def test_admin_login(client):
     assert "access_token" in body
 
 
+def test_seed_synchronizes_configured_admin_password(client):
+    from app.core.security import hash_password
+    from app.db.seed import seed
+    from app.db.session import SessionLocal
+    from app.models import User
+
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.email == "admin@example.com").one()
+        admin.password_hash = hash_password("old-admin-password-123!")
+        admin.is_active = True
+        db.commit()
+    finally:
+        db.close()
+
+    seed()
+
+    r = client.post(
+        "/api/auth/login",
+        data={"username": "admin@example.com", "password": "test-admin-password-123!"},
+    )
+    assert r.status_code == 200
+
+
 def test_legacy_default_admin_login_is_blocked(client):
     r = client.post(
         "/api/auth/login",

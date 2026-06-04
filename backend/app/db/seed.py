@@ -263,6 +263,10 @@ def seed():
             admin.password_hash = hash_password(admin_password)
             admin.is_active = True
             print("Seed security: activated initial admin from INITIAL_ADMIN_PASSWORD.")
+        elif admin_password and not _password_matches(admin_password, admin.password_hash):
+            admin.password_hash = hash_password(admin_password)
+            admin.is_active = True
+            print("Seed security: synchronized initial admin password from INITIAL_ADMIN_PASSWORD.")
 
         # A user per role (for quick demos). Disabled by default so shared
         # demo credentials are not created in secured deployments.
