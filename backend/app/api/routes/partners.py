@@ -90,6 +90,34 @@ def get_customer_orders(cid: int, db: DbSession, _: CurrentUser):
     ]
 
 
+@router.get("/customers/{cid}/payments")
+def get_customer_payments(cid: int, db: DbSession, _: CurrentUser):
+    if not db.get(Customer, cid):
+        raise HTTPException(404, "Customer not found")
+    rows = (
+        db.query(Payment, Invoice, SalesOrder)
+        .join(Invoice, Invoice.id == Payment.invoice_id)
+        .join(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
+        .filter(SalesOrder.customer_id == cid)
+        .order_by(Payment.id.desc())
+        .all()
+    )
+    return [
+        {
+            "id": payment.id,
+            "row_key": f"payment-{payment.id}",
+            "amount": float(payment.amount or 0),
+            "payment_method": payment.payment_method,
+            "paid_at": payment.paid_at,
+            "notes": payment.notes,
+            "order_id": so.id,
+            "order_no": so.order_no,
+            "invoice_no": invoice.invoice_no,
+        }
+        for payment, invoice, so in rows
+    ]
+
+
 def _serialize_customer_order(
     so: SalesOrder,
     invoices: list[Invoice],

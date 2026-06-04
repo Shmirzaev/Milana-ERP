@@ -124,3 +124,12 @@ def test_customer_order_history_includes_invoice_and_payment_status(client, auth
     assert paid_row["payment_status"] == "paid"
     assert paid_row["paid_total"] == 140
     assert paid_row["balance_due"] == 0
+
+    r = client.get(f"/api/customers/{customer_id}/payments", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    payments = r.json()
+    assert any(row["id"] == partial_payment["id"] for row in payments)
+    partial_payment_row = next(row for row in payments if row["id"] == partial_payment["id"])
+    assert partial_payment_row["order_no"] == partial_order["order_no"]
+    assert partial_payment_row["invoice_no"] == partial_invoice["invoice_no"]
+    assert partial_payment_row["amount"] == 40

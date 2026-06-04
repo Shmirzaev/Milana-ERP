@@ -56,16 +56,6 @@ type PaymentForm = {
   payment_method: string;
   notes: string;
 };
-type FinanceInvoiceRow = {
-  id: number;
-  sales_order_id: number;
-  invoice_no?: string | null;
-  order_no: string;
-  customer?: string | null;
-  amount: number;
-  status: string;
-  date?: string | null;
-};
 
 function money(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
@@ -98,7 +88,7 @@ export default function CustomerDetailPage() {
   const { t } = useT();
   const { data: customer, mutate } = useSWR<any>(`/api/customers/${id}`, fetcher);
   const { data: orders, mutate: mutateOrders } = useSWR<CustomerOrder[]>(`/api/customers/${id}/orders`, fetcher);
-  const { data: financeInvoices, mutate: mutateFinanceInvoices } = useSWR<FinanceInvoiceRow[]>("/api/finance/invoices?limit=200", fetcher);
+  const { data: customerPayments, mutate: mutateCustomerPayments } = useSWR<PaymentHistoryRow[]>(`/api/customers/${id}/payments`, fetcher);
   const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [msg, setMsg] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -146,38 +136,8 @@ export default function CustomerDetailPage() {
       );
   }, [orderRows]);
 
-  const financeInvoicePaymentHistory = useMemo<PaymentHistoryRow[]>(() => {
-    const orderMap = new Map(orderRows.map((order) => [Number(order.id), order]));
-    const invoicesWithPayments = new Set(
-      orderRows.flatMap((order) =>
-        (order.invoices || [])
-          .filter((invoice) => (invoice.payments || []).length > 0)
-          .map((invoice) => Number(invoice.id)),
-      ),
-    );
-    return (financeInvoices || [])
-      .filter((invoice) => {
-        const status = String(invoice.status || "").toLowerCase();
-        return orderMap.has(Number(invoice.sales_order_id)) && ["paid", "partial", "partially_paid"].includes(status) && !invoicesWithPayments.has(Number(invoice.id));
-      })
-      .map((invoice) => {
-        const order = orderMap.get(Number(invoice.sales_order_id));
-        return {
-          id: -Number(invoice.id),
-          row_key: `invoice-${invoice.id}`,
-          amount: Number(invoice.amount || 0),
-          payment_method: "recorded",
-          paid_at: invoice.date || null,
-          notes: null,
-          order_id: Number(invoice.sales_order_id),
-          order_no: invoice.order_no || order?.order_no || `#${invoice.sales_order_id}`,
-          invoice_no: invoice.invoice_no || `#${invoice.id}`,
-        };
-      });
-  }, [financeInvoices, orderRows]);
-
   const paymentHistory = useMemo<PaymentHistoryRow[]>(() => {
-    const rows = [...localPaymentHistory, ...orderPaymentHistory, ...financeInvoicePaymentHistory];
+    const rows = [...localPaymentHistory, ...(customerPayments || []), ...orderPaymentHistory];
     const seen = new Set<string>();
     return rows
       .filter((row) => {
@@ -187,7 +147,7 @@ export default function CustomerDetailPage() {
         return true;
       })
       .sort((a, b) => new Date(b.paid_at || 0).getTime() - new Date(a.paid_at || 0).getTime());
-  }, [financeInvoicePaymentHistory, localPaymentHistory, orderPaymentHistory]);
+  }, [customerPayments, localPaymentHistory, orderPaymentHistory]);
   const payableOrders = useMemo(() => orderRows.filter((order) => order.payment_status !== "paid"), [orderRows]);
   const selectedPaymentOrder = useMemo(
     () => orderRows.find((order) => Number(order.id) === Number(selectedPaymentOrderId)) || null,
@@ -346,7 +306,7 @@ export default function CustomerDetailPage() {
       mutateOrders(nextOrders, { revalidate: false });
       setPaymentOpen(false);
       setSelectedPaymentOrderId("");
-      void mutateFinanceInvoices();
+      void mutateCustomerPayments();
     } catch (err: any) {
       setPaymentMsg(err.message || "Could not record payment.");
     } finally {
