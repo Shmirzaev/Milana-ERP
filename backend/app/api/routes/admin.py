@@ -1,3 +1,5 @@
+from datetime import datetime, time
+
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 
@@ -16,6 +18,173 @@ router = APIRouter(tags=["admin"])
 
 class ResetDemoIn(BaseModel):
     confirm: str
+
+
+ACTION_LABELS = {
+    "add_package": "added a package",
+    "add_package_scan": "scanned and added a package",
+    "add_ready_packages": "added ready packages",
+    "admin_repair_totals": "repaired production totals",
+    "approve": "approved",
+    "approve_disposal": "approved disposal",
+    "approve_planning": "approved planning",
+    "block": "blocked",
+    "change_password": "changed password",
+    "complete": "completed",
+    "confirm": "confirmed",
+    "create": "created",
+    "create_work_orders": "created work orders",
+    "delete": "deleted",
+    "delivered": "marked delivered",
+    "deliver": "marked delivered",
+    "damaged": "marked damaged",
+    "generate_invoice": "generated invoice",
+    "mark_disposed": "marked disposed",
+    "mark_shipped": "marked shipped",
+    "receive": "received",
+    "receive_at_printing": "received at printing",
+    "receive_at_sewing": "received at sewing",
+    "receive_storage": "received in storage",
+    "reject_disposal": "rejected disposal",
+    "release_reservation": "released reservation",
+    "request_disposal": "requested disposal",
+    "reserve": "reserved",
+    "reserve_stock": "reserved stock",
+    "sell": "sold",
+    "send_to_printing": "sent to printing",
+    "send_to_sewing": "sent to sewing",
+    "ship": "shipped",
+    "start": "started",
+    "transfer": "transferred",
+    "unblock": "unblocked",
+    "update": "updated",
+    "update_profile": "updated profile",
+    "upload_logo": "uploaded logo",
+}
+
+ENTITY_LABELS = {
+    "Brand": "brand",
+    "Bundle": "bundle",
+    "Collection": "collection",
+    "Customer": "customer",
+    "CuttingRecord": "cutting record",
+    "Department": "department",
+    "Employee": "employee",
+    "FinishedGoodsStock": "finished goods stock",
+    "Invoice": "invoice",
+    "Item": "inventory item",
+    "Model": "model",
+    "ModelBOM": "model BOM",
+    "ModelImage": "model image",
+    "ModelSize": "model size",
+    "Package": "package",
+    "Payment": "payment",
+    "PrintingRecord": "printing record",
+    "ProductionOrder": "production order",
+    "QualityCheck": "quality check",
+    "SalesOrder": "sales order",
+    "SewingAssignment": "sewing assignment",
+    "SewingFlow": "sewing flow",
+    "SewingRecord": "sewing record",
+    "Shipment": "shipment",
+    "StockBatch": "stock batch",
+    "StockMovement": "stock movement",
+    "StockReservation": "stock reservation",
+    "Supplier": "supplier",
+    "SystemSetting": "system setting",
+    "Task": "task",
+    "User": "user",
+    "Warehouse": "warehouse",
+    "WasteDisposalRequest": "waste disposal request",
+    "WasteRecord": "waste record",
+    "WorkOrder": "work order",
+}
+
+DETAIL_KEYS = (
+    "order_no",
+    "production_no",
+    "work_order_no",
+    "bundle_no",
+    "package_no",
+    "shipment_no",
+    "invoice_no",
+    "batch_no",
+    "sku",
+    "code",
+    "name",
+    "title",
+    "full_name",
+    "email",
+)
+
+
+def _sentence(value: str) -> str:
+    return value[:1].upper() + value[1:] if value else value
+
+
+def _label_action(action: str) -> str:
+    return ACTION_LABELS.get(action, action.replace("_", " "))
+
+
+def _label_entity(entity_type: str) -> str:
+    return ENTITY_LABELS.get(entity_type, entity_type.replace("_", " ").lower())
+
+
+def _pick_identifier(value: dict | None) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    for key in DETAIL_KEYS:
+        raw = value.get(key)
+        if raw not in (None, ""):
+            return str(raw)
+    return None
+
+
+def _changed_fields(old_value: dict | None, new_value: dict | None) -> list[dict]:
+    old = old_value if isinstance(old_value, dict) else {}
+    new = new_value if isinstance(new_value, dict) else {}
+    keys = sorted(set(old.keys()) | set(new.keys()))
+    changes = []
+    for key in keys:
+        before = old.get(key)
+        after = new.get(key)
+        if before == after and key in old and key in new:
+            continue
+        changes.append({"field": key, "from": before, "to": after})
+    return changes
+
+
+def _audit_summary(audit: AuditLog, user: User | None) -> tuple[str, str]:
+    actor = user.name if user else "System"
+    action = _label_action(audit.action)
+    entity = _label_entity(audit.entity_type)
+    identifier = _pick_identifier(audit.new_value_json) or _pick_identifier(audit.old_value_json)
+    target = f"{entity} #{audit.entity_id}" if audit.entity_id is not None else entity
+    if identifier:
+        target = f"{target} ({identifier})"
+    summary = _sentence(f"{actor} {action} {target}.")
+    reason = "Check this event and nearby earlier events when investigating the root cause."
+    changes = _changed_fields(audit.old_value_json, audit.new_value_json)
+    if changes:
+        names = ", ".join(c["field"].replace("_", " ") for c in changes[:4])
+        if len(changes) > 4:
+            names += f", plus {len(changes) - 4} more"
+        reason = f"Changed fields: {names}."
+    return summary, reason
+
+
+def _parse_date(value: str | None, end_of_day: bool = False) -> datetime | None:
+    if not value:
+        return None
+    try:
+        if "T" in value:
+            return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
+        if end_of_day:
+            return datetime.combine(parsed.date(), time.max)
+        return datetime.combine(parsed.date(), time.min)
+    except ValueError as e:
+        raise HTTPException(400, f"Invalid date filter: {value}") from e
 
 
 # ===== Users =====
@@ -189,8 +358,38 @@ def list_audit_logs(
     page: int = 1,
     page_size: int = 50,
     include_total: bool = False,
+    user_id: int | None = None,
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    action: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    q: str | None = None,
 ):
     qry = db.query(AuditLog, User).outerjoin(User, User.id == AuditLog.user_id)
+    if user_id:
+        qry = qry.filter(AuditLog.user_id == user_id)
+    if entity_type:
+        qry = qry.filter(AuditLog.entity_type == entity_type.strip())
+    if entity_id is not None:
+        qry = qry.filter(AuditLog.entity_id == entity_id)
+    if action:
+        qry = qry.filter(AuditLog.action == action.strip())
+    parsed_from = _parse_date(date_from)
+    parsed_to = _parse_date(date_to, end_of_day=True)
+    if parsed_from:
+        qry = qry.filter(AuditLog.created_at >= parsed_from)
+    if parsed_to:
+        qry = qry.filter(AuditLog.created_at <= parsed_to)
+    search = (q or "").strip()
+    if search:
+        like = f"%{search}%"
+        qry = qry.filter(
+            (AuditLog.action.ilike(like))
+            | (AuditLog.entity_type.ilike(like))
+            | (User.name.ilike(like))
+            | (User.email.ilike(like))
+        )
     total = qry.count() if include_total else 0
     if include_total:
         safe_page = max(1, page)
@@ -199,21 +398,28 @@ def list_audit_logs(
     else:
         qry = qry.order_by(AuditLog.id.desc()).limit(limit)
     rows = qry.all()
-    out = [
-        {
+    out = []
+    for audit, user in rows:
+        summary, root_cause_hint = _audit_summary(audit, user)
+        out.append(
+            {
             "id": audit.id,
             "user_id": audit.user_id,
             "user_name": user.name if user else None,
-            "user": {"id": user.id, "name": user.name} if user else None,
+            "user": {"id": user.id, "name": user.name, "email": user.email} if user else None,
             "action": audit.action,
+            "action_label": _label_action(audit.action),
             "entity_type": audit.entity_type,
+            "entity_label": _label_entity(audit.entity_type),
             "entity_id": audit.entity_id,
             "new_value": audit.new_value_json,
             "old_value": audit.old_value_json,
+            "changed_fields": _changed_fields(audit.old_value_json, audit.new_value_json),
+            "summary": summary,
+            "root_cause_hint": root_cause_hint,
             "created_at": audit.created_at,
         }
-        for audit, user in rows
-    ]
+        )
     if include_total:
         return {"rows": out, "total": total, "page": max(1, page), "page_size": max(1, min(page_size, 500))}
     return out
