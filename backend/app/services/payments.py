@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import Invoice, Payment
+from app.models import Invoice, Payment, SalesOrder
 
 
 def invoice_paid_total(db: Session, invoice_id: int) -> float:
@@ -27,12 +27,16 @@ def create_invoice_payment(
     invoice: Invoice,
     *,
     amount: float,
+    customer_id: int | None = None,
     payment_method: str | None = None,
     paid_at: datetime | None = None,
     notes: str | None = None,
 ) -> Payment:
+    if customer_id is None and invoice.sales_order_id:
+        customer_id = db.query(SalesOrder.customer_id).filter(SalesOrder.id == invoice.sales_order_id).scalar()
     payment = Payment(
         invoice_id=invoice.id,
+        customer_id=customer_id,
         amount=amount,
         payment_method=payment_method,
         paid_at=paid_at or datetime.now(timezone.utc),
@@ -41,4 +45,26 @@ def create_invoice_payment(
     db.add(payment)
     db.flush()
     refresh_invoice_status(db, invoice)
+    return payment
+
+
+def create_customer_advance_payment(
+    db: Session,
+    *,
+    customer_id: int,
+    amount: float,
+    payment_method: str | None = None,
+    paid_at: datetime | None = None,
+    notes: str | None = None,
+) -> Payment:
+    payment = Payment(
+        invoice_id=None,
+        customer_id=customer_id,
+        amount=amount,
+        payment_method=payment_method,
+        paid_at=paid_at or datetime.now(timezone.utc),
+        notes=notes,
+    )
+    db.add(payment)
+    db.flush()
     return payment

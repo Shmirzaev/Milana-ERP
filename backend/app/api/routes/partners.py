@@ -3,19 +3,20 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+from sqlalchemy import or_
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import Customer, Supplier, SalesOrder, Shipment, User, Invoice, Payment
 from app.schemas.catalog import PartyIn, PartyOut
 from app.services.audit import log_action
 from app.services.numbering import next_invoice_no
-from app.services.payments import create_invoice_payment, invoice_paid_total
+from app.services.payments import create_customer_advance_payment, create_invoice_payment, invoice_paid_total
 
 router = APIRouter(tags=["partners"])
 
 
 class CustomerPaymentIn(BaseModel):
-    sales_order_id: int
+    sales_order_id: int | None = None
     amount: float
     paid_at: datetime | None = None
     payment_method: str | None = None
@@ -108,9 +109,9 @@ def get_customer_payments(cid: int, db: DbSession, _: CurrentUser):
         raise HTTPException(404, "Customer not found")
     rows = (
         db.query(Payment, Invoice, SalesOrder)
-        .join(Invoice, Invoice.id == Payment.invoice_id)
-        .join(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
-        .filter(SalesOrder.customer_id == cid)
+        .outerjoin(Invoice, Invoice.id == Payment.invoice_id)
+        .outerjoin(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
+        .filter(or_(SalesOrder.customer_id == cid, Payment.customer_id == cid))
         .order_by(Payment.id.desc())
         .all()
     )
@@ -132,42 +133,69 @@ def create_customer_payment(
     if payload.amount <= 0:
         raise HTTPException(400, "Payment amount must be greater than zero")
 
-    sales_order = db.get(SalesOrder, payload.sales_order_id)
-    if not sales_order or int(sales_order.customer_id or 0) != cid:
+    sales_order = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
+    if payload.sales_order_id and (not sales_order or int(sales_order.customer_id or 0) != cid):
         raise HTTPException(404, "Sales order not found for this customer")
 
-    invoice = _find_payable_invoice(db, sales_order)
-    if not invoice:
-        invoice = Invoice(
-            sales_order_id=sales_order.id,
-            invoice_no=next_invoice_no(db),
-            amount=float(sales_order.total_amount or 0),
-            status="unpaid",
-            issued_at=datetime.now(timezone.utc),
-        )
-        db.add(invoice)
-        db.flush()
+    payment = None
+    invoice = None
+    amount_remaining = float(payload.amount)
 
-    payment = create_invoice_payment(
-        db,
-        invoice,
-        amount=float(payload.amount),
-        payment_method=payload.payment_method,
-        paid_at=payload.paid_at,
-        notes=payload.notes,
-    )
+    if sales_order:
+        invoice = _find_payable_invoice(db, sales_order)
+        if not invoice and not _order_has_invoices(db, sales_order):
+            invoice = Invoice(
+                sales_order_id=sales_order.id,
+                invoice_no=next_invoice_no(db),
+                amount=float(sales_order.total_amount or 0),
+                status="unpaid",
+                issued_at=datetime.now(timezone.utc),
+            )
+            db.add(invoice)
+            db.flush()
+
+        if invoice:
+            invoice_balance = max(float(invoice.amount or 0) - invoice_paid_total(db, int(invoice.id)), 0)
+            invoice_amount = min(amount_remaining, invoice_balance) if invoice_balance > 0 else 0
+            if invoice_amount > 0:
+                payment = create_invoice_payment(
+                    db,
+                    invoice,
+                    amount=invoice_amount,
+                    customer_id=cid,
+                    payment_method=payload.payment_method,
+                    paid_at=payload.paid_at,
+                    notes=payload.notes,
+                )
+                amount_remaining = round(amount_remaining - invoice_amount, 2)
+
+    if amount_remaining > 0.01:
+        advance_notes = payload.notes
+        if sales_order and invoice and payment:
+            suffix = f"Advance balance from overpayment on {sales_order.order_no}"
+            advance_notes = f"{(advance_notes or '').strip()} {suffix}".strip()
+        payment = create_customer_advance_payment(
+            db,
+            customer_id=cid,
+            amount=amount_remaining,
+            payment_method=payload.payment_method,
+            paid_at=payload.paid_at,
+            notes=advance_notes,
+        )
+        invoice = None
     log_action(
         db,
         current,
         "create",
         "Payment",
         payment.id,
-        new_value={"amount": float(payment.amount), "customer_id": cid, "sales_order_id": sales_order.id},
+        new_value={"amount": float(payment.amount), "customer_id": cid, "sales_order_id": sales_order.id if sales_order else None},
     )
     db.commit()
     db.refresh(payment)
-    db.refresh(invoice)
-    return _serialize_customer_payment(payment, invoice, sales_order)
+    if invoice:
+        db.refresh(invoice)
+    return _serialize_customer_payment(payment, invoice, sales_order if invoice else None)
 
 
 def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | None:
@@ -184,7 +212,11 @@ def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | N
     return None
 
 
-def _serialize_customer_payment(payment: Payment, invoice: Invoice, sales_order: SalesOrder) -> dict:
+def _order_has_invoices(db: DbSession, sales_order: SalesOrder) -> bool:
+    return bool(db.query(Invoice.id).filter(Invoice.sales_order_id == sales_order.id).first())
+
+
+def _serialize_customer_payment(payment: Payment, invoice: Invoice | None, sales_order: SalesOrder | None) -> dict:
     return {
         "id": payment.id,
         "row_key": f"payment-{payment.id}",
@@ -192,11 +224,12 @@ def _serialize_customer_payment(payment: Payment, invoice: Invoice, sales_order:
         "payment_method": payment.payment_method,
         "paid_at": payment.paid_at,
         "notes": payment.notes,
-        "order_id": sales_order.id,
-        "order_no": sales_order.order_no,
-        "invoice_id": invoice.id,
-        "invoice_no": invoice.invoice_no,
-        "invoice_amount": float(invoice.amount or 0),
+        "order_id": sales_order.id if sales_order else None,
+        "order_no": sales_order.order_no if sales_order else None,
+        "invoice_id": invoice.id if invoice else None,
+        "invoice_no": invoice.invoice_no if invoice else None,
+        "invoice_amount": float(invoice.amount or 0) if invoice else None,
+        "is_advance": invoice is None,
     }
 
 
@@ -213,10 +246,10 @@ def _serialize_customer_order(
     for inv in invoices:
         payments = payments_by_invoice.get(int(inv.id), [])
         payment_payloads = []
-        paid_amount = 0.0
+        raw_paid_amount = 0.0
         for payment in payments:
             amount = float(payment.amount or 0)
-            paid_amount += amount
+            raw_paid_amount += amount
             if payment.paid_at and (last_payment_at is None or payment.paid_at > last_payment_at):
                 last_payment_at = payment.paid_at
             payment_payloads.append(
@@ -230,6 +263,8 @@ def _serialize_customer_order(
             )
 
         amount = float(inv.amount or 0)
+        paid_amount = min(raw_paid_amount, amount)
+        advance_amount = max(raw_paid_amount - amount, 0)
         invoice_total += amount
         paid_total += paid_amount
         invoice_payloads.append(
@@ -241,6 +276,8 @@ def _serialize_customer_order(
                 "issued_at": inv.issued_at,
                 "due_date": inv.due_date,
                 "paid_amount": round(paid_amount, 2),
+                "raw_paid_amount": round(raw_paid_amount, 2),
+                "advance_amount": round(advance_amount, 2),
                 "balance_due": round(max(amount - paid_amount, 0), 2),
                 "payments": payment_payloads,
             }

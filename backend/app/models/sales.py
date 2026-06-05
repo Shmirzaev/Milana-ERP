@@ -105,7 +105,8 @@ class Invoice(Base, PkMixin, TimestampMixin):
 
 class Payment(Base, PkMixin, TimestampMixin):
     __tablename__ = "payments"
-    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), nullable=False)
+    invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
     external_source: Mapped[str | None] = mapped_column(String(32))
     external_id: Mapped[str | None] = mapped_column(String(128))
     amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)

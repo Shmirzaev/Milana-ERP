@@ -63,10 +63,13 @@ def _create_payment(client, headers, *, invoice_id: int, amount: float) -> dict:
     return r.json()
 
 
-def _create_customer_payment(client, headers, *, customer_id: int, sales_order_id: int, amount: float) -> dict:
+def _create_customer_payment(client, headers, *, customer_id: int, amount: float, sales_order_id: int | None = None) -> dict:
+    payload = {"amount": amount, "payment_method": "cash"}
+    if sales_order_id is not None:
+        payload["sales_order_id"] = sales_order_id
     r = client.post(
         f"/api/customers/{customer_id}/payments",
-        json={"sales_order_id": sales_order_id, "amount": amount, "payment_method": "cash"},
+        json=payload,
         headers=headers,
     )
     assert r.status_code == 201, r.text
@@ -184,6 +187,72 @@ def test_customer_profile_payment_persists_and_updates_order_status(client, auth
     assert saved_order["invoices"][0]["payments"][0]["id"] == payment["id"]
 
 
+def test_customer_profile_overpayment_becomes_advance_credit(client, auth_headers):
+    model_id = _find_model_id(client, auth_headers)
+    customer_id = _create_customer(client, auth_headers)
+    order = _create_sales_order(
+        client,
+        auth_headers,
+        customer_id=customer_id,
+        model_id=model_id,
+        unit_price=3000,
+    )
+
+    payment = _create_customer_payment(
+        client,
+        auth_headers,
+        customer_id=customer_id,
+        sales_order_id=int(order["id"]),
+        amount=43000,
+    )
+
+    assert payment["is_advance"] is True
+    assert payment["amount"] == 40000
+    assert payment["order_id"] is None
+    assert payment["invoice_id"] is None
+
+    r = client.get(f"/api/customers/{customer_id}/orders", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    saved_order = next(row for row in r.json() if int(row["id"]) == int(order["id"]))
+    assert saved_order["payment_status"] == "paid"
+    assert saved_order["paid_total"] == 3000
+    assert saved_order["balance_due"] == 0
+    assert saved_order["invoices"][0]["paid_amount"] == 3000
+    assert saved_order["invoices"][0]["advance_amount"] == 0
+
+    r = client.get(f"/api/customers/{customer_id}/payments", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    payments = r.json()
+    assert sum(row["amount"] for row in payments) == 43000
+    assert any(row["amount"] == 3000 and row["order_no"] == order["order_no"] for row in payments)
+    assert any(row["amount"] == 40000 and row["is_advance"] is True and row["order_id"] is None for row in payments)
+
+
+def test_customer_profile_accepts_advance_payment_without_order(client, auth_headers):
+    customer_id = _create_customer(client, auth_headers)
+
+    payment = _create_customer_payment(
+        client,
+        auth_headers,
+        customer_id=customer_id,
+        amount=40000,
+    )
+
+    assert payment["is_advance"] is True
+    assert payment["amount"] == 40000
+    assert payment["order_id"] is None
+    assert payment["order_no"] is None
+    assert payment["invoice_id"] is None
+    assert payment["invoice_no"] is None
+
+    r = client.get(f"/api/customers/{customer_id}/payments", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    payments = r.json()
+    assert len(payments) == 1
+    assert payments[0]["id"] == payment["id"]
+    assert payments[0]["is_advance"] is True
+
+
 def test_customer_profile_payment_rejects_order_from_another_customer(client, auth_headers):
     model_id = _find_model_id(client, auth_headers)
     customer_id = _create_customer(client, auth_headers)
@@ -208,4 +277,5 @@ def test_customer_profile_payment_rejects_order_from_another_customer(client, au
         json={"amount": 80, "payment_method": "cash"},
         headers=auth_headers,
     )
-    assert r.status_code == 422, r.text
+    assert r.status_code == 201, r.text
+    assert r.json()["is_advance"] is True

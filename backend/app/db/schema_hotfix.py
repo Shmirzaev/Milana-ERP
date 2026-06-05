@@ -39,6 +39,7 @@ _PATCHES: list[tuple[str, str]] = [
     ("invoices",    "ADD COLUMN IF NOT EXISTS external_id VARCHAR(128)"),
     ("payments",    "ADD COLUMN IF NOT EXISTS external_source VARCHAR(32)"),
     ("payments",    "ADD COLUMN IF NOT EXISTS external_id VARCHAR(128)"),
+    ("payments",    "ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES customers(id)"),
     ("items",       "ADD COLUMN IF NOT EXISTS reorder_level NUMERIC(14,4) NOT NULL DEFAULT 0"),
     ("tasks",       "ADD COLUMN IF NOT EXISTS entity_type VARCHAR(64)"),
     ("tasks",       "ADD COLUMN IF NOT EXISTS entity_id INTEGER"),
@@ -64,6 +65,16 @@ _DATA_FIXES: list[str] = [
     "UPDATE collections SET year = 2024 WHERE year IS NULL",
     "ALTER TABLE collections ALTER COLUMN year SET DEFAULT 2024",
     "ALTER TABLE collections ALTER COLUMN year SET NOT NULL",
+    "ALTER TABLE payments ALTER COLUMN invoice_id DROP NOT NULL",
+    """
+    UPDATE payments p
+    SET customer_id = so.customer_id
+    FROM invoices i
+    JOIN sales_orders so ON so.id = i.sales_order_id
+    WHERE p.invoice_id = i.id
+      AND p.customer_id IS NULL
+      AND so.customer_id IS NOT NULL
+    """,
     """
     WITH ranked AS (
         SELECT

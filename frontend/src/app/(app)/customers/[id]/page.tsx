@@ -22,11 +22,12 @@ type PaymentRow = {
 };
 type PaymentHistoryRow = PaymentRow & {
   row_key: string;
-  order_id: number;
-  order_no: string;
-  invoice_id?: number;
-  invoice_no: string;
+  order_id?: number | null;
+  order_no?: string | null;
+  invoice_id?: number | null;
+  invoice_no?: string | null;
   invoice_amount?: number;
+  is_advance?: boolean;
 };
 type InvoiceRow = {
   id: number;
@@ -36,6 +37,8 @@ type InvoiceRow = {
   issued_at?: string | null;
   due_date?: string | null;
   paid_amount: number;
+  raw_paid_amount?: number;
+  advance_amount?: number;
   balance_due: number;
   payments: PaymentRow[];
 };
@@ -107,23 +110,6 @@ export default function CustomerDetailPage() {
   const [localPaymentHistory, setLocalPaymentHistory] = useState<PaymentHistoryRow[]>([]);
   const orderRows = useMemo(() => orders || [], [orders]);
 
-  const summary = useMemo(() => {
-    return orderRows.reduce(
-      (acc, order) => {
-        acc.orders += 1;
-        acc.orderTotal += Number(order.total || 0);
-        acc.invoiced += Number(order.invoice_total || 0);
-        acc.paid += Number(order.paid_total || 0);
-        acc.balance += effectiveBalanceDue(order);
-        if (order.payment_status === "paid") acc.paidOrders += 1;
-        if (order.payment_status === "partial" || order.payment_status === "unpaid" || order.payment_status === "no_invoice") acc.openOrders += 1;
-        if (order.payment_status === "no_invoice") acc.noInvoiceOrders += 1;
-        return acc;
-      },
-      { orders: 0, orderTotal: 0, invoiced: 0, paid: 0, balance: 0, paidOrders: 0, openOrders: 0, noInvoiceOrders: 0 },
-    );
-  }, [orderRows]);
-
   const orderPaymentHistory = useMemo<PaymentHistoryRow[]>(() => {
     return orderRows.flatMap((order) =>
         (order.invoices || []).flatMap((invoice) =>
@@ -150,7 +136,43 @@ export default function CustomerDetailPage() {
       })
       .sort((a, b) => new Date(b.paid_at || 0).getTime() - new Date(a.paid_at || 0).getTime());
   }, [customerPayments, localPaymentHistory, orderPaymentHistory]);
-  const payableOrders = useMemo(() => orderRows.filter((order) => order.payment_status !== "paid"), [orderRows]);
+  const summary = useMemo(() => {
+    const base = orderRows.reduce(
+      (acc, order) => {
+        acc.orders += 1;
+        acc.orderTotal += Number(order.total || 0);
+        acc.invoiced += Number(order.invoice_total || 0);
+        acc.appliedPaid += Number(order.paid_total || 0);
+        acc.orderBalance += effectiveBalanceDue(order);
+        if (order.payment_status === "paid") acc.paidOrders += 1;
+        if (effectiveBalanceDue(order) > 0.01) acc.openOrders += 1;
+        if (order.payment_status === "no_invoice") acc.noInvoiceOrders += 1;
+        return acc;
+      },
+      {
+        orders: 0,
+        orderTotal: 0,
+        invoiced: 0,
+        appliedPaid: 0,
+        orderBalance: 0,
+        paidOrders: 0,
+        openOrders: 0,
+        noInvoiceOrders: 0,
+      },
+    );
+    const paid = paymentHistory.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const dueBalance = Math.max(base.orderTotal - paid, 0);
+    const advanceCredit = Math.max(paid - base.orderTotal, 0);
+    return {
+      ...base,
+      paid,
+      balance: dueBalance > 0 ? dueBalance : advanceCredit,
+      dueBalance,
+      advanceCredit,
+      balanceKind: advanceCredit > 0 ? "advance" : dueBalance > 0 ? "due" : "settled",
+    };
+  }, [orderRows, paymentHistory]);
+  const payableOrders = useMemo(() => orderRows, [orderRows]);
   const selectedPaymentOrder = useMemo(
     () => orderRows.find((order) => Number(order.id) === Number(selectedPaymentOrderId)) || null,
     [orderRows, selectedPaymentOrderId],
@@ -191,6 +213,13 @@ export default function CustomerDetailPage() {
     return effectiveBalanceDue(order);
   }
 
+  function paymentOrderOptionLabel(order: CustomerOrder) {
+    const due = effectiveBalanceDue(order);
+    return due > 0.01
+      ? `${order.order_no} - due ${money(due)}`
+      : `${order.order_no} - paid, extra becomes advance`;
+  }
+
   function openPayment(order?: CustomerOrder) {
     setPaymentOpen(true);
     setSelectedPaymentOrderId(order?.id ?? "");
@@ -214,14 +243,18 @@ export default function CustomerDetailPage() {
   function applyOptimisticPayment(order: CustomerOrder, invoice: InvoiceRow, payment: PaymentRow): CustomerOrder {
     const paidAmount = Number(payment.amount || 0);
     const invoiceAmount = Number(invoice.amount || order.total || 0);
+    const rawPaidAmount = Number(invoice.raw_paid_amount || invoice.paid_amount || 0) + paidAmount;
+    const appliedPaidAmount = Math.min(rawPaidAmount, invoiceAmount);
     const existingInvoices = order.invoices || [];
     const foundInvoice = existingInvoices.some((row) => Number(row.id) === Number(invoice.id));
     const updatedInvoice: InvoiceRow = {
       ...invoice,
       amount: invoiceAmount,
-      status: Math.max(invoiceAmount - (Number(invoice.paid_amount || 0) + paidAmount), 0) <= 0.01 ? "paid" : "partially_paid",
-      paid_amount: Number(invoice.paid_amount || 0) + paidAmount,
-      balance_due: Math.max(invoiceAmount - (Number(invoice.paid_amount || 0) + paidAmount), 0),
+      status: Math.max(invoiceAmount - appliedPaidAmount, 0) <= 0.01 ? "paid" : "partially_paid",
+      paid_amount: appliedPaidAmount,
+      raw_paid_amount: rawPaidAmount,
+      advance_amount: Math.max(rawPaidAmount - invoiceAmount, 0),
+      balance_due: Math.max(invoiceAmount - appliedPaidAmount, 0),
       payments: [...(invoice.payments || []), payment],
     };
     const nextInvoices = foundInvoice
@@ -245,10 +278,6 @@ export default function CustomerDetailPage() {
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
     const targetOrder = selectedPaymentOrder;
-    if (!targetOrder) {
-      setPaymentMsg("Select an order before saving payment.");
-      return;
-    }
     if (!Number.isFinite(Number(paymentForm.amount)) || Number(paymentForm.amount) <= 0) {
       setPaymentMsg("Amount must be greater than zero.");
       return;
@@ -258,25 +287,16 @@ export default function CustomerDetailPage() {
     setPaymentMsg("");
     try {
       const paidAt = new Date(paymentForm.date).toISOString();
-      const savedPayment = await api.post<PaymentHistoryRow>(`/api/customers/${id}/payments`, {
-        sales_order_id: Number(targetOrder.id),
+      const payload: Record<string, any> = {
         amount: Number(paymentForm.amount || 0),
         paid_at: paidAt,
         payment_method: paymentForm.payment_method,
         notes: paymentForm.notes || null,
-      });
-      const matchingInvoice = targetOrder.invoices?.find((invoice) => Number(invoice.id) === Number(savedPayment.invoice_id));
-      const invoice: InvoiceRow = matchingInvoice || {
-        id: Number(savedPayment.invoice_id || 0),
-        invoice_no: savedPayment.invoice_no,
-        amount: Number(savedPayment.invoice_amount || targetOrder.total || 0),
-        status: "unpaid",
-        issued_at: null,
-        due_date: null,
-        paid_amount: 0,
-        balance_due: Number(savedPayment.invoice_amount || targetOrder.total || 0),
-        payments: [],
       };
+      if (targetOrder) payload.sales_order_id = Number(targetOrder.id);
+      const savedPayment = await api.post<PaymentHistoryRow>(`/api/customers/${id}/payments`, {
+        ...payload,
+      });
       const optimisticPayment: PaymentHistoryRow = {
         ...savedPayment,
         id: Number(savedPayment.id),
@@ -285,25 +305,39 @@ export default function CustomerDetailPage() {
         payment_method: savedPayment.payment_method || paymentForm.payment_method,
         paid_at: savedPayment.paid_at || paidAt,
         notes: savedPayment.notes || paymentForm.notes || null,
-        order_id: targetOrder.id,
-        order_no: targetOrder.order_no,
-        invoice_id: invoice.id,
-        invoice_no: savedPayment.invoice_no || invoice.invoice_no || `#${invoice.id}`,
+        order_id: savedPayment.order_id ?? null,
+        order_no: savedPayment.order_no ?? null,
+        invoice_id: savedPayment.invoice_id ?? null,
+        invoice_no: savedPayment.invoice_no ?? null,
       };
       setLocalPaymentHistory((prev) => [optimisticPayment, ...prev.filter((row) => row.row_key !== optimisticPayment.row_key)]);
-      const optimisticPaymentRow: PaymentRow = {
-        id: optimisticPayment.id,
-        amount: optimisticPayment.amount,
-        payment_method: optimisticPayment.payment_method,
-        paid_at: optimisticPayment.paid_at,
-        notes: optimisticPayment.notes,
-      };
-      const nextOrders = orderRows.map((order) => (
-        Number(order.id) === Number(targetOrder.id)
-          ? applyOptimisticPayment(order, invoice, optimisticPaymentRow)
-          : order
-      ));
-      mutateOrders(nextOrders, { revalidate: false });
+      if (targetOrder && savedPayment.invoice_id) {
+        const matchingInvoice = targetOrder.invoices?.find((invoice) => Number(invoice.id) === Number(savedPayment.invoice_id));
+        const invoice: InvoiceRow = matchingInvoice || {
+          id: Number(savedPayment.invoice_id || 0),
+          invoice_no: savedPayment.invoice_no || `#${savedPayment.invoice_id}`,
+          amount: Number(savedPayment.invoice_amount || targetOrder.total || 0),
+          status: "unpaid",
+          issued_at: null,
+          due_date: null,
+          paid_amount: 0,
+          balance_due: Number(savedPayment.invoice_amount || targetOrder.total || 0),
+          payments: [],
+        };
+        const optimisticPaymentRow: PaymentRow = {
+          id: optimisticPayment.id,
+          amount: optimisticPayment.amount,
+          payment_method: optimisticPayment.payment_method,
+          paid_at: optimisticPayment.paid_at,
+          notes: optimisticPayment.notes,
+        };
+        const nextOrders = orderRows.map((order) => (
+          Number(order.id) === Number(targetOrder.id)
+            ? applyOptimisticPayment(order, invoice, optimisticPaymentRow)
+            : order
+        ));
+        mutateOrders(nextOrders, { revalidate: false });
+      }
       setPaymentOpen(false);
       setSelectedPaymentOrderId("");
       void mutateCustomerPayments();
@@ -350,7 +384,16 @@ export default function CustomerDetailPage() {
             </div>
             <div className="card p-4">
               <div className="label">Open balance</div>
-              <div className="text-2xl font-semibold text-red-700">{money(summary.balance)}</div>
+              <div className={`text-2xl font-semibold ${summary.balanceKind === "advance" ? "text-green-700" : summary.balanceKind === "settled" ? "text-slate-700" : "text-red-700"}`}>
+                {money(summary.balance)}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                {summary.balanceKind === "advance"
+                  ? "Advance credit"
+                  : summary.balanceKind === "settled"
+                    ? "Settled"
+                    : "Amount due"}
+              </div>
               {summary.noInvoiceOrders > 0 && <div className="mt-1 text-xs text-slate-500">{summary.noInvoiceOrders} without invoice</div>}
             </div>
           </div>
@@ -389,6 +432,7 @@ export default function CustomerDetailPage() {
                               <span className="ml-1 text-slate-500">
                                 paid {money(Number(invoice.paid_amount || 0))}
                                 {Number(invoice.balance_due || 0) > 0 ? `, due ${money(Number(invoice.balance_due || 0))}` : ""}
+                                {Number(invoice.advance_amount || 0) > 0 ? `, advance ${money(Number(invoice.advance_amount || 0))}` : ""}
                               </span>
                             </div>
                           ))}
@@ -402,12 +446,10 @@ export default function CustomerDetailPage() {
                     <td>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`badge ${paymentStatusClass(o.payment_status)}`}>{paymentStatusLabel(o.payment_status)}</span>
-                        {o.payment_status !== "paid" && (
-                          <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment(o)}>
-                            <Plus className="h-3.5 w-3.5" />
-                            Add payment
-                          </button>
-                        )}
+                        <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment(o)}>
+                          <Plus className="h-3.5 w-3.5" />
+                          Add payment
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -424,7 +466,6 @@ export default function CustomerDetailPage() {
                 type="button"
                 className="btn h-7 px-2 text-[11px]"
                 onClick={() => openPayment()}
-                disabled={!payableOrders.length}
               >
                 <Plus className="h-3.5 w-3.5" />
                 Add payment
@@ -444,8 +485,14 @@ export default function CustomerDetailPage() {
                 {paymentHistory.map((payment) => (
                   <tr key={payment.row_key}>
                     <td>{payment.paid_at ? new Date(payment.paid_at).toLocaleDateString() : "-"}</td>
-                    <td><Link className="text-brand-600 hover:underline" href={`/sales-orders/${payment.order_id}`}>{payment.order_no}</Link></td>
-                    <td>{payment.invoice_no}</td>
+                    <td>
+                      {payment.order_id ? (
+                        <Link className="text-brand-600 hover:underline" href={`/sales-orders/${payment.order_id}`}>{payment.order_no}</Link>
+                      ) : (
+                        <span className="text-slate-500">Advance</span>
+                      )}
+                    </td>
+                    <td>{payment.invoice_no || (payment.is_advance ? "Advance" : "-")}</td>
                     <td>{payment.payment_method || "-"}</td>
                     <td className="text-right">{money(Number(payment.amount || 0))}</td>
                   </tr>
@@ -455,12 +502,10 @@ export default function CustomerDetailPage() {
                     <td colSpan={5}>
                       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
                         <span>No payments recorded for this customer yet.</span>
-                        {payableOrders.length > 0 && (
-                          <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment()}>
-                            <Plus className="h-3.5 w-3.5" />
-                            Add payment
-                          </button>
-                        )}
+                        <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment()}>
+                          <Plus className="h-3.5 w-3.5" />
+                          Add payment
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -474,22 +519,24 @@ export default function CustomerDetailPage() {
       <Modal open={paymentOpen} onClose={() => setPaymentOpen(false)} title="Add payment">
         <form onSubmit={recordPayment} className="space-y-3">
           <div className="rounded-md border border-[#ecebe3] bg-[#f8f7f3] p-3 text-sm">
-            <div className="font-medium">{selectedPaymentOrder?.order_no || "Select an order"}</div>
+            <div className="font-medium">{selectedPaymentOrder?.order_no || "Advance payment"}</div>
             <div className="mt-1 text-slate-600">
               {selectedPaymentOrder
                 ? selectedPaymentOrder.invoices?.length
-                  ? `Open balance: ${money(effectiveBalanceDue(selectedPaymentOrder))}`
-                  : `No invoice yet. An invoice for ${money(Number(selectedPaymentOrder.total || 0))} will be created first.`
-                : "Choose the order this payment belongs to before saving."}
+                  ? effectiveBalanceDue(selectedPaymentOrder) > 0.01
+                    ? `Open balance: ${money(effectiveBalanceDue(selectedPaymentOrder))}. Extra money will be saved as advance credit.`
+                    : "This order is paid. Extra money will be saved as advance credit."
+                  : `No invoice yet. An invoice for ${money(Number(selectedPaymentOrder.total || 0))} will be created first; extra money becomes advance credit.`
+                : "No order selected. This payment will be saved as advance credit."}
             </div>
           </div>
           <div>
             <label className="label">Order</label>
-            <select className="input" value={selectedPaymentOrderId} onChange={(e) => selectPaymentOrder(e.target.value)} required>
-              <option value="">Select order...</option>
+            <select className="input" value={selectedPaymentOrderId} onChange={(e) => selectPaymentOrder(e.target.value)}>
+              <option value="">No order - advance credit</option>
               {payableOrders.map((order) => (
                 <option key={order.id} value={order.id}>
-                  {order.order_no} - due {money(effectiveBalanceDue(order))}
+                  {paymentOrderOptionLabel(order)}
                 </option>
               ))}
             </select>
