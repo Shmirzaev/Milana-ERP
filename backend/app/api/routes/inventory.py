@@ -7,7 +7,7 @@ from app.schemas.inventory import (
     StockBatchIn, StockBatchOut, StockMovementIn, StockMovementOut, StockLine,
 )
 from app.services.audit import log_action
-from app.services.inventory import stock_summary, current_stock_for_item
+from app.services.inventory import categories_for_group, stock_summary, current_stock_for_item
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -18,12 +18,16 @@ def list_items(
     db: DbSession,
     _: CurrentUser,
     category: str | None = None,
+    group: str | None = None,
     q: str | None = None,
     page: int = 1,
     page_size: int = 50,
     include_total: bool = False,
 ):
     qry = db.query(Item).filter(Item.is_active.is_(True))
+    categories = categories_for_group(group)
+    if categories:
+        qry = qry.filter(Item.category.in_(categories))
     if category: qry = qry.filter(Item.category == category)
     if q: qry = qry.filter((Item.name.ilike(f"%{q}%")) | (Item.sku.ilike(f"%{q}%")))
     total = qry.count() if include_total else 0
@@ -70,11 +74,13 @@ def get_stock(
     db: DbSession,
     _: CurrentUser,
     category: str | None = None,
+    group: str | None = None,
+    q: str | None = None,
     page: int = 1,
     page_size: int = 50,
     include_total: bool = False,
 ):
-    rows = stock_summary(db, category)
+    rows = stock_summary(db, category, group, q)
     total = len(rows)
     if include_total:
         safe_page = max(1, page)

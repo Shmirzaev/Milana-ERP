@@ -3,6 +3,20 @@ from sqlalchemy.orm import Session
 
 from app.models import Item, StockBatch, StockMovement, Warehouse
 
+MATERIAL_CATEGORIES = ("fabric", "semi_finished")
+ACCESSORY_CATEGORIES = ("accessory", "packaging")
+
+
+def categories_for_group(group: str | None) -> tuple[str, ...] | None:
+    if not group:
+        return None
+    normalized = group.strip().lower()
+    if normalized in {"material", "materials"}:
+        return MATERIAL_CATEGORIES
+    if normalized in {"accessory", "accessories"}:
+        return ACCESSORY_CATEGORIES
+    return None
+
 
 def current_stock_for_item(db: Session, item_id: int, warehouse_id: int | None = None) -> float:
     """Compute on-hand stock for an item: sum of batches in warehouse minus issues out.
@@ -35,11 +49,23 @@ def current_stock_for_item(db: Session, item_id: int, warehouse_id: int | None =
     return batch_total + delta
 
 
-def stock_summary(db: Session, category: str | None = None) -> list[dict]:
-    q = db.query(Item)
+def stock_summary(
+    db: Session,
+    category: str | None = None,
+    group: str | None = None,
+    q: str | None = None,
+) -> list[dict]:
+    query = db.query(Item)
+    categories = categories_for_group(group)
+    if categories:
+        query = query.filter(Item.category.in_(categories))
     if category:
-        q = q.filter(Item.category == category)
-    items = q.all()
+        query = query.filter(Item.category == category)
+    search = (q or "").strip()
+    if search:
+        term = f"%{search}%"
+        query = query.filter((Item.sku.ilike(term)) | (Item.name.ilike(term)) | (Item.unit.ilike(term)))
+    items = query.all()
     if not items:
         return []
 

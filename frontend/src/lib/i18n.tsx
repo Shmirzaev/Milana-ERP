@@ -479,6 +479,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.inventory.accessorySubtitle": "On-hand accessory and packaging stock by item",
     "page.inventory.itemTypes": "Item types",
     "page.inventory.linesTracked": "Lines tracked",
+    "page.inventory.searchPlaceholder": "Search SKU, name, or unit...",
 
     // ----- Finished goods -----
     "page.finishedGoods.title": "Finished Goods",
@@ -1503,6 +1504,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.inventory.accessorySubtitle": "Остатки аксессуаров и упаковки по позициям",
     "page.inventory.itemTypes": "Типов позиций",
     "page.inventory.linesTracked": "Строк учитывается",
+    "page.inventory.searchPlaceholder": "Поиск по SKU, названию или единице...",
 
     "page.finishedGoods.title": "Готовая продукция",
     "page.finishedGoods.subtitle": "Остатки по размерам с привязкой к упаковкам",
@@ -2514,6 +2516,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "page.inventory.accessorySubtitle": "Aksessuar va qadoqlash qoldiqlari",
     "page.inventory.itemTypes": "Mahsulot turlari",
     "page.inventory.linesTracked": "Hisobdagi qatorlar",
+    "page.inventory.searchPlaceholder": "SKU, nom yoki birlik bo'yicha qidirish...",
 
     "page.finishedGoods.title": "Tayyor mahsulot",
     "page.finishedGoods.subtitle": "Paketga bogʻlangan oʻlcham boʻyicha qoldiq",
