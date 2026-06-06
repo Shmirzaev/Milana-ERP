@@ -164,11 +164,12 @@ Note: `seed()` must stay idempotent. Never write seed logic that duplicates rows
 
 ## 8. Deployment and Runtime Notes
 
-- Render deploy config: `render.yaml`.
+- Frontend deploy target: Vercel project `milana-erp-web`.
+- Backend deploy target: Hugging Face Docker Space.
 - Backend deploy behavior depends on startup hook + env vars.
 - Frontend and backend communicate via Next API proxy (`/api/...`) from browser.
 - If a deployed change is not visible:
-  1. Wait for Render build finish.
+  1. Wait for the Vercel or Hugging Face build to finish.
   2. Hard refresh browser.
   3. Check backend logs for seed/hotfix errors.
 

@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const defaultApiUrl =
   process.env.NODE_ENV === "production"
-    ? "https://milana-erp.onrender.com"
+    ? "https://shmirzaev-milana-erp-api.hf.space"
     : "http://localhost:8000";
 const envApiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || "";
 const normalizedRawApiUrl = String(envApiUrl || "").trim() || defaultApiUrl;

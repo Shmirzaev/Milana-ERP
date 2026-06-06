@@ -1,7 +1,8 @@
 """Idempotent schema patches that run automatically on backend startup.
 
-Render's free tier doesn't expose a Shell, so we can't run ad-hoc ALTER TABLE
-commands by hand. This module performs those changes via SQLAlchemy on every
+Hosted environments do not always expose an interactive Shell, so we cannot
+count on running ad-hoc ALTER TABLE commands by hand. This module performs
+those changes via SQLAlchemy on every
 boot. Each statement is `ADD COLUMN IF NOT EXISTS`, so it's a no-op once the
 column exists — safe to run on every deploy.
 

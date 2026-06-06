@@ -190,8 +190,8 @@ def _import_legacy_models(db: Session, admin: User) -> tuple[int, int, int]:
 
 def seed():
     Base.metadata.create_all(bind=engine)
-    # Apply column-level patches to existing tables (Render free tier has no
-    # Shell, so we can't run ALTER TABLE by hand).
+    # Apply column-level patches to existing tables for hosted environments
+    # where we cannot run ALTER TABLE by hand.
     try:
         from app.db import schema_hotfix
         schema_hotfix.run(engine)

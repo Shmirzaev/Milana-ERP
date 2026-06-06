@@ -9,7 +9,8 @@ A production-ready MVP ERP for a textile/garment manufacturing company. It imple
 ## Developer documentation
 
 - Codebase walkthrough for new engineers: `docs/DEVELOPER_GUIDE.md`
-- Render deployment notes: `docs/RENDER_DEPLOY.md`
+- Hugging Face backend deployment notes: `docs/HUGGING_FACE_DEPLOY.md`
+- Frontend deployment target: Vercel project `milana-erp-web`
 
 ## Quick start (Docker)
 

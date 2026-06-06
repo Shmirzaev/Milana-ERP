@@ -38,8 +38,8 @@ def _on_startup() -> None:
       2. `schema_hotfix.run` — adds any new COLUMN to existing tables via
          idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
 
-    This makes the backend self-migrating on Render's free tier where we have
-    no Shell access. Safe to run on every boot.
+    This makes the backend self-migrating in hosted environments where we do
+    not have interactive Shell access. Safe to run on every boot.
     """
     try:
         Base.metadata.create_all(bind=engine)
@@ -53,8 +53,8 @@ def _on_startup() -> None:
     # Best-effort: run the seed so new roles/permissions/sewing-flows propagate
     # on every restart. The seed is idempotent (insert-if-missing) and
     # permission-refreshing.
-    # Keep web startup fast in hosted environments (Render health checks can
-    # fail if heavy seed tasks run before the server binds to $PORT).
+    # Keep web startup fast in hosted environments; health checks can fail if
+    # heavy seed tasks run before the server binds to $PORT.
     # Set RUN_SEED_ON_STARTUP=true explicitly where auto-seed is desired.
     if os.environ.get("RUN_SEED_ON_STARTUP", "false").lower() == "true":
         try:
@@ -67,7 +67,7 @@ cors_origins = settings.cors_origins_list
 allow_all_cors = "*" in cors_origins
 safe_default_origins = [
     "http://localhost:3000",
-    "https://milanaerp-frontend.onrender.com",
+    "https://milana-erp-web.vercel.app",
 ]
 merged_cors_origins: list[str] = []
 for origin in [*safe_default_origins, *cors_origins]:
