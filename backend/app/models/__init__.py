@@ -23,6 +23,7 @@ from app.models.waste import WasteRecord, WasteSale, WasteDisposalRequest
 from app.models.tasks import Task
 from app.models.sewing_flow import SewingFlow
 from app.models.sewing_assignment import SewingAssignment
+from app.models.cutting_passport import CuttingPassport
 
 __all__ = [
     "Role", "Department", "User", "Employee", "AuditLog", "Notification", "PasswordResetToken", "SystemSetting",
@@ -38,4 +39,5 @@ __all__ = [
     "Task",
     "SewingFlow",
     "SewingAssignment",
+    "CuttingPassport",
 ]

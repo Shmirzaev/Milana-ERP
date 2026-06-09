@@ -1,7 +1,7 @@
 "use client";
 import type { ComponentType } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   BarChart3,
   Boxes,
@@ -9,6 +9,7 @@ import {
   ClipboardList,
   Coins,
   Factory,
+  FileText,
   Layers3,
   PackageCheck,
   PackageSearch,
@@ -63,7 +64,8 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.inventory",
     items: [
-      { href: "/inventory", labelKey: "nav.inventory", perms: ["storage.items", "storage.receive"], icon: Warehouse },
+      { href: "/inventory?group=materials", labelKey: "nav.materialInventory", perms: ["storage.items", "storage.receive"], icon: Warehouse },
+      { href: "/inventory?group=accessories", labelKey: "nav.accessoryInventory", perms: ["storage.items", "storage.receive"], icon: PackageSearch },
       { href: "/inventory/receive", labelKey: "nav.receive", perms: ["storage.receive"], icon: PackageCheck },
       { href: "/inventory/batches", labelKey: "nav.batches", perms: ["storage.items"], icon: Boxes },
     ],
@@ -73,6 +75,7 @@ const SECTIONS: Section[] = [
     titleKey: "section.cutting",
     items: [
       { href: "/departments/CUT", labelKey: "nav.cuttingFloor", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Scissors },
+      { href: "/cutting-passports", labelKey: "nav.cuttingPassports", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: FileText },
       { href: "/bundles", labelKey: "nav.bundles", perms: ["cutting.bundles", "cutting.records", "planning.production"], icon: PackageSearch },
       { href: "/bundles/scan/cutting", labelKey: "nav.scanBundle", perms: ["cutting.bundles", "cutting.records"], icon: QrCode },
     ],
@@ -104,6 +107,7 @@ const SECTIONS: Section[] = [
     titleKey: "section.storage",
     items: [
       { href: "/departments/FGS", labelKey: "nav.finishedGoods", icon: Building2 },
+      { href: "/warehouse-stock", labelKey: "nav.warehouseStock", perms: ["storage.packages", "storage.shipment"], icon: PackageSearch },
       { href: "/packages/scan", labelKey: "nav.scanPackage", perms: ["storage.packages"], icon: QrCode },
       { href: "/warehouse-map", labelKey: "nav.warehouseMap", perms: ["storage.packages", "storage.shipment"], icon: Warehouse },
       { href: "/shipments", labelKey: "nav.shipments", perms: ["storage.shipment"], icon: Truck },
@@ -136,43 +140,49 @@ export default function Sidebar() {
   const { me } = useMe();
   const { t } = useT();
   const pathname = usePathname() || "";
+  const searchParams = useSearchParams();
+  const inventoryGroup = searchParams.get("group") || "materials";
   return (
-    <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col overflow-hidden border-r border-[#e3dfd3] bg-[#fdfcf8] text-[#2c2920]">
-      <div className="flex h-28 items-center border-b border-[#ecebe3] px-3">
+    <aside className="sticky top-0 z-30 flex max-h-[42vh] w-full shrink-0 flex-col overflow-hidden border-b border-[#e3dfd3] bg-[#fdfcf8] text-[#2c2920] lg:h-screen lg:max-h-none lg:w-60 lg:border-b-0 lg:border-r">
+      <div className="flex h-16 shrink-0 items-center border-b border-[#ecebe3] px-3 lg:h-28">
         <BrandLogo
           alt={t("app.name")}
-          className="h-16 w-full max-w-[220px]"
+          className="h-10 w-auto max-w-[180px] lg:h-16 lg:w-full lg:max-w-[220px]"
         />
       </div>
-      <div className="flex-1 overflow-y-auto px-2 py-4">
+      <div className="flex flex-1 gap-3 overflow-x-auto overflow-y-hidden px-2 py-3 lg:block lg:overflow-x-hidden lg:overflow-y-auto lg:py-4">
       {SECTIONS.map((sec) => {
         const visible = sec.items.filter((i) => !i.perms || can(me, ...i.perms));
         if (!visible.length) return null;
         return (
-          <div key={sec.titleKey} className="mb-4">
+          <div key={sec.titleKey} className="min-w-[150px] shrink-0 lg:mb-4 lg:min-w-0 lg:shrink">
             <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8a8472]">{t(sec.titleKey)}</div>
-            <ul className="space-y-0.5">
+            <ul className="flex gap-1 lg:block lg:space-y-0.5">
               {visible.map((it) => {
                 const basePath = it.href.split("?")[0];
+                const itemGroup = new URLSearchParams(it.href.split("?")[1] || "").get("group") || "";
                 const bundlesScanMismatch = basePath === "/bundles" && pathname.startsWith("/bundles/scan");
                 const packagesScanMismatch = basePath === "/packages" && pathname.startsWith("/packages/scan");
+                const inventoryGroupMismatch = basePath === "/inventory" && (pathname !== "/inventory" || itemGroup !== inventoryGroup);
                 const active =
                   !bundlesScanMismatch &&
                   !packagesScanMismatch &&
+                  !inventoryGroupMismatch &&
                   (pathname === basePath || (basePath !== "/" && pathname?.startsWith(basePath)));
                 const ItemIcon = it.icon;
                 return (
                   <li key={`${sec.titleKey}-${it.href}`}>
                     <Link
                       href={it.href}
-                      className={`flex h-9 items-center gap-2 rounded-md px-2 text-[13px] transition ${
+                      className={`flex h-9 min-w-[42px] items-center justify-center gap-2 rounded-md px-2 text-[13px] transition lg:justify-start ${
                         active
                           ? "bg-[#14110b] text-[#fdfcf8] shadow-sm"
                           : "text-[#56503f] hover:bg-[#f1efe8] hover:text-[#14110b]"
                       }`}
+                      title={t(it.labelKey)}
                     >
                       <ItemIcon className="h-4 w-4 shrink-0" />
-                      <span className="truncate">
+                      <span className="hidden truncate sm:inline">
                       {t(it.labelKey)}
                       </span>
                     </Link>
