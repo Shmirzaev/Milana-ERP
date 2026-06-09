@@ -13,7 +13,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/storage/barcodes /app/storage/model_files /app/storage/sales_order_files
+RUN mkdir -p /app/storage/barcodes /app/storage/model_files /app/storage/sales_order_files \
+    && adduser --disabled-password --gecos "" appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
 
 EXPOSE 8000
 

@@ -14,7 +14,10 @@ RUN if [ -f /app/frontend/package.json ]; then cp -R /app/frontend/. /app/; fi \
  && npm ci --legacy-peer-deps \
  && npm run build
 
-RUN chmod +x /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh \
+ && chown -R node:node /app
+
+USER node
 
 EXPOSE 3000
 

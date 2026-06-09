@@ -151,7 +151,7 @@ export default function PackagesPage() {
             {groups.length === 0 && (
               <tr>
                 <td colSpan={9} className="text-sm text-slate-400">
-                  {data ? "No packages yet." : t("common.loading")}
+                  {data ? t("page.packages.empty") : t("common.loading")}
                 </td>
               </tr>
             )}

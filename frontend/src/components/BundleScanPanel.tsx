@@ -57,6 +57,9 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   if (bundle?.status === "received_printing" && canPrintingScan && includePrinting) {
     availableActions.push({ key: "send-sewing", label: t("btn.sendToSewing"), primary: true });
   }
+  if (bundle?.status === "created" && canSewingScan && includeSewing) {
+    availableActions.push({ key: "receive-sewing", label: t("btn.receiveAtSewing"), primary: true });
+  }
   if (bundle?.status === "sent_to_sewing" && canSewingScan && includeSewing) {
     availableActions.push({ key: "receive-sewing", label: t("btn.receiveAtSewing"), primary: true });
   }

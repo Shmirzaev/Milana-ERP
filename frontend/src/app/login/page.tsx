@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
-import { Lang, LANG_NAMES, useT } from "@/lib/i18n";
+import { Lang, useT } from "@/lib/i18n";
 import BrandLogo from "@/components/BrandLogo";
 
 const LANGS: Lang[] = ["en", "ru", "uz"];
@@ -253,7 +253,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setLang(l)}
-                aria-label={LANG_NAMES[l]}
+                aria-label={t(`language.${l}`)}
                 className={`px-1.5 py-1 text-[11.5px] uppercase tracking-[0.08em] rounded transition ${
                   lang === l ? "text-[#14110b] font-semibold" : "text-[#8a8472] hover:text-[#14110b]"
                 }`}

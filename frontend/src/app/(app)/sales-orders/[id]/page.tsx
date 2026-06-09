@@ -24,7 +24,7 @@ export default function SalesOrderDetail() {
 
   function isImageAttachment(a: PrintingAttachment): boolean {
     const byMime = (a.content_type || "").toLowerCase().startsWith("image/");
-    const byName = /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(a.file_name || a.file_url || "");
+    const byName = /\.(png|jpe?g|webp|gif)$/i.test(a.file_name || a.file_url || "");
     return byMime || byName;
   }
 
@@ -44,28 +44,23 @@ export default function SalesOrderDetail() {
     setMsg(t("page.soDetail.reservationsLine", { res: r.reservations.length, sh: r.shortages.length }));
     mutate();
   }
-  async function approvePlanning() {
-    await api.post(`/api/sales-orders/${id}/approve-planning`);
-    setMsg(t("msg.planningApproved"));
-    mutate();
-  }
   async function generateInvoice() {
     const inv = await api.post("/api/finance/invoices", { sales_order_id: Number(id) });
-    setMsg(`Invoice generated: ${inv.invoice_no}`);
+    setMsg(t("page.salesOrder.invoiceGenerated", { invoiceNo: inv.invoice_no }));
   }
 
   if (!isNumericId) {
     return (
       <div className="card p-4 text-sm text-red-700">
-        Could not load sales order. The detail URL must use the numeric order ID.
+        {t("page.salesOrder.invalidId")}
       </div>
     );
   }
   if (orderError) {
     return (
       <div className="card p-4 text-sm text-red-700">
-        <div>Could not load sales order. Please try again.</div>
-        <button className="btn mt-3" onClick={() => mutate()}>Retry</button>
+        <div>{t("page.salesOrder.loadError")}</div>
+        <button className="btn mt-3" onClick={() => mutate()}>{t("common.retry")}</button>
       </div>
     );
   }
@@ -79,9 +74,8 @@ export default function SalesOrderDetail() {
         actions={
           <div className="flex gap-2">
             {so.status === "draft" && <button className="btn btn-primary" onClick={confirm}>{t("btn.confirm")}</button>}
-            {so.status === "pending_sales_approval" && <button className="btn btn-primary" onClick={approvePlanning}>{t("btn.approvePlanningEstimate")}</button>}
             {["confirmed", "in_production", "cutting", "sewing", "packaging", "storage", "ready", "reserved", "planning", "planning_approved", "production", "shipped", "delivered"].includes(String(so.status || "")) && (
-              <button className="btn" onClick={generateInvoice}>Generate Invoice</button>
+              <button className="btn" onClick={generateInvoice}>{t("page.salesOrder.generateInvoice")}</button>
             )}
             {so.order_type === "branded_stock_sale" && !["ready", "reserved"].includes(String(so.status || "")) && (
               <button className="btn" onClick={reserveStock}>{t("btn.reserveStock")}</button>
@@ -121,7 +115,7 @@ export default function SalesOrderDetail() {
               <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.priceWithProfit20")}</dt><dd>${Number(so.planning_suggested_price_20).toFixed(2)}</dd></div>
             )}
             {so.planning_estimated_lead_time_minutes !== null && so.planning_estimated_lead_time_minutes !== undefined && (
-              <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.planningLeadTime")}</dt><dd>{(Number(so.planning_estimated_lead_time_minutes) / 60).toFixed(2)} h</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.planningLeadTime")}</dt><dd>{(Number(so.planning_estimated_lead_time_minutes) / 60).toFixed(2)} {t("common.hourShort")}</dd></div>
             )}
             {so.planning_estimate_comment && (
               <div className="flex justify-between gap-3"><dt className="text-slate-500">{t("page.soDetail.planningComment")}</dt><dd className="text-right">{so.planning_estimate_comment}</dd></div>
@@ -193,7 +187,7 @@ export default function SalesOrderDetail() {
             {mr?.map((m, i) => (
               <tr key={i}><td>{m.sku} — {m.name}</td><td>{m.required_quantity.toFixed(2)} {m.unit}</td><td>{m.available_quantity.toFixed(2)}</td><td className={m.shortage > 0 ? "text-red-600" : ""}>{m.shortage.toFixed(2)}</td></tr>
             ))}
-            {mr && mr.length === 0 && <tr><td colSpan={4} className="text-sm text-slate-500">No BOM requirements found for this order.</td></tr>}
+            {mr && mr.length === 0 && <tr><td colSpan={4} className="text-sm text-slate-500">{t("page.salesOrder.noBomRequirements")}</td></tr>}
           </tbody>
         </table>
       </div>

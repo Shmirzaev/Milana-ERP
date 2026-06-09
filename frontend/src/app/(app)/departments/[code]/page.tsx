@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
-import { statusLabel } from "@/components/StagePipeline";
+import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
@@ -53,6 +53,9 @@ export default function DepartmentInboxPage() {
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
   const activeWorkOrders = Array.isArray(data?.active_work_orders) ? data.active_work_orders : [];
+  const incomingBundles = Array.isArray(data?.incoming_bundles) ? data.incoming_bundles : [];
+  const incomingWorkOrders = Array.isArray(data?.incoming_work_orders) ? data.incoming_work_orders : [];
+  const incomingCount = incomingBundles.length + incomingWorkOrders.length;
   const pendingPackages = Array.isArray(data?.pending_packages) ? data.pending_packages : [];
   const readyPackages = Array.isArray(data?.ready_packages) ? data.ready_packages : [];
   const splitQueueByStatus = true;
@@ -186,17 +189,52 @@ export default function DepartmentInboxPage() {
         <div className={`grid grid-cols-1 gap-4 ${splitQueueByStatus ? "xl:grid-cols-4" : "lg:grid-cols-3"}`}>
           <section className="card p-4">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.incoming", { count: (data?.incoming_bundles || []).length })}
+              {t("page.deptInbox.incoming", { count: incomingCount })}
             </h3>
             <div className="space-y-2">
-              {(data?.incoming_bundles || []).map((b: any) => (
+              {incomingWorkOrders.map((w: any) => (
+                <div key={`wo-${w.work_order_id}`} className="rounded border border-slate-200 p-2 text-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-medium">{w.production_no || `PO #${w.production_order_id}`}</div>
+                      <div className="text-xs text-slate-500">
+                        {t("page.deptInbox.incomingProcess", {
+                          source: operationLabel(w.source_operation, t),
+                          target: operationLabel(w.target_operation, t),
+                        })}
+                      </div>
+                    </div>
+                    <span className="badge shrink-0">{statusLabel(w.source_status || w.status, t)}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {Number(w.ready_qty || 0) > 0
+                      ? t("page.deptInbox.readyReceived", { ready: w.ready_qty, received: w.received_qty })
+                      : t("page.deptInbox.expectedReceived", { expected: w.expected_qty, received: w.received_qty })}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Link
+                      className="text-xs text-brand-600 hover:underline"
+                      href={woActionLink({
+                        id: w.work_order_id,
+                        operation: w.target_operation,
+                        production_order_id: w.production_order_id,
+                      })}
+                    >
+                      {t("btn.open")}
+                    </Link>
+                    <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${w.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
+                  </div>
+                </div>
+              ))}
+              {incomingBundles.map((b: any) => (
                 <div key={b.id} className="rounded border border-slate-200 p-2 text-sm">
                   <div className="font-medium">{b.bundle_no}</div>
+                  {b.production_no && <div className="text-xs text-slate-500">{b.production_no}</div>}
                   <div className="text-xs text-slate-500">{b.color} / {b.size} / {b.quantity}</div>
                   <Link className="text-xs text-brand-600 hover:underline" href={`/bundles/${b.id}`}>{t("page.deptInbox.openBundle")}</Link>
                 </div>
               ))}
-              {(data?.incoming_bundles || []).length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noIncomingBundles")}</div>}
+              {incomingCount === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noIncomingWork")}</div>}
             </div>
           </section>
 
@@ -211,7 +249,7 @@ export default function DepartmentInboxPage() {
                   {pendingWorkOrders.map((w: any) => (
                     <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
                       <div className="flex items-center justify-between">
-                        <div className="font-medium">WO #{w.id} ({w.operation})</div>
+                        <div className="font-medium">{t("page.deptInbox.workOrderTitle", { id: w.id, operation: operationLabel(w.operation, t) })}</div>
                         <span className="badge">{statusLabel(w.status, t)}</span>
                       </div>
                       <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
@@ -242,7 +280,7 @@ export default function DepartmentInboxPage() {
                   {inProgressWorkOrders.map((w: any) => (
                     <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
                       <div className="flex items-center justify-between">
-                        <div className="font-medium">WO #{w.id} ({w.operation})</div>
+                        <div className="font-medium">{t("page.deptInbox.workOrderTitle", { id: w.id, operation: operationLabel(w.operation, t) })}</div>
                         <span className="badge">{statusLabel(w.status, t)}</span>
                       </div>
                       <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
@@ -265,7 +303,7 @@ export default function DepartmentInboxPage() {
                 {activeWorkOrders.map((w: any) => (
                   <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
                     <div className="flex items-center justify-between">
-                      <div className="font-medium">WO #{w.id} ({w.operation})</div>
+                      <div className="font-medium">{t("page.deptInbox.workOrderTitle", { id: w.id, operation: operationLabel(w.operation, t) })}</div>
                       <span className="badge">{statusLabel(w.status, t)}</span>
                     </div>
                     <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
@@ -287,7 +325,7 @@ export default function DepartmentInboxPage() {
             <div className="space-y-2">
               {(data?.done_today || []).map((w: any) => (
                 <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="font-medium">WO #{w.id} ({w.operation})</div>
+                  <div className="font-medium">{t("page.deptInbox.workOrderTitle", { id: w.id, operation: operationLabel(w.operation, t) })}</div>
                   <div className="text-xs text-slate-500">{t("page.deptInbox.passedOnly", { passed: w.passed_qty })}</div>
                   <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${w.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
                 </div>
@@ -397,7 +435,7 @@ export default function DepartmentInboxPage() {
                   const soLabel = g.sales_order_no || g.sales_order_id || "-";
                   const pendingQty = Number(g.pending_qty || 0);
                   const shipmentType = String(g.shipment_type || g.order_type || "standard").replace(/_/g, " ");
-                  const shipmentLabel = g.shipment_no ? `${g.shipment_no} (${statusLabel(String(g.shipment_status || ""), t)})` : "Not created";
+                  const shipmentLabel = g.shipment_no ? `${g.shipment_no} (${statusLabel(String(g.shipment_status || ""), t)})` : t("page.deptInbox.notCreated");
                   const soId = Number(g.sales_order_id || 0);
                   const rowKey = `so-${soId}`;
                   return (
@@ -413,7 +451,7 @@ export default function DepartmentInboxPage() {
                       <td>{Number(g.packages || 0)}</td>
                       <td>
                         <div>{Number(g.quantity || 0)}</div>
-                        {pendingQty > 0 && <div className="text-[11px] text-amber-700">Pending: {pendingQty}</div>}
+                        {pendingQty > 0 && <div className="text-[11px] text-amber-700">{t("page.deptInbox.pendingQty", { qty: pendingQty })}</div>}
                       </td>
                       <td className="text-right">
                         <div className="flex justify-end gap-2">

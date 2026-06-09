@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Check, Globe2 } from "lucide-react";
-import { LANG_NAMES, Lang, useT } from "@/lib/i18n";
+import { Lang, useT } from "@/lib/i18n";
 
 const SHORT: Record<Lang, string> = { en: "EN", ru: "RU", uz: "UZ" };
 
@@ -36,7 +36,7 @@ export default function LangSwitcher() {
         type="button"
         className="icon-btn relative"
         title={t("top.language")}
-        aria-label={`${t("top.language")}: ${LANG_NAMES[lang]}`}
+        aria-label={`${t("top.language")}: ${t(`language.${lang}`)}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
@@ -69,7 +69,7 @@ export default function LangSwitcher() {
               role="menuitemradio"
               aria-checked={lang === l}
             >
-              <span>{LANG_NAMES[l]}</span>
+              <span>{t(`language.${l}`)}</span>
               <span className="flex items-center gap-2 text-xs font-semibold">
                 {SHORT[l]}
                 {lang === l && <Check className="h-3.5 w-3.5" />}

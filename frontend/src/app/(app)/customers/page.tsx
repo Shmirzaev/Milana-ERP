@@ -129,8 +129,8 @@ export default function CustomersPage() {
       </Modal>
       <ConfirmDialog
         isOpen={!!deleting}
-        title="Confirm delete"
-        message={deleting ? `Are you sure you want to delete customer ${deleting.name}? This action cannot be undone.` : ""}
+        title={t("confirm.deleteTitle")}
+        message={deleting ? t("confirm.deleteCustomer", { name: deleting.name }) : ""}
         onConfirm={confirmDeleteCustomer}
         onCancel={() => setDeleting(null)}
       />

@@ -5,6 +5,7 @@ import useSWR from "swr";
 
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import { useT } from "@/lib/i18n";
 
 type SettingsPayload = {
   company_info: { name: string; logo_url?: string | null; address?: string | null; phone?: string | null; email?: string | null };
@@ -29,6 +30,7 @@ function Section({ title, children, footer }: { title: string; children: React.R
 }
 
 export default function SettingsPage() {
+  const { t } = useT();
   const { data, mutate } = useSWR<SettingsPayload>("/api/settings", fetcher);
   const [company, setCompany] = useState(DEFAULTS.company_info);
   const [financial, setFinancial] = useState(DEFAULTS.financial);
@@ -47,17 +49,17 @@ export default function SettingsPage() {
   function validate(section: string) {
     const next: Record<string, string> = {};
     if (section === "company_info") {
-      if (!company.name.trim()) next.company_name = "Company name is required.";
-      if (company.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(company.email)) next.company_email = "Enter a valid email.";
+      if (!company.name.trim()) next.company_name = t("page.settings.companyNameRequired");
+      if (company.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(company.email)) next.company_email = t("page.settings.validEmail");
     }
     if (section === "financial") {
-      if (!financial.default_currency.trim()) next.currency = "Currency is required.";
-      if (financial.tax_rate_percent < 0 || financial.tax_rate_percent > 100) next.tax = "Tax rate must be 0-100.";
-      if (financial.fiscal_year_start_month < 1 || financial.fiscal_year_start_month > 12) next.fiscal = "Month must be 1-12.";
+      if (!financial.default_currency.trim()) next.currency = t("page.settings.currencyRequired");
+      if (financial.tax_rate_percent < 0 || financial.tax_rate_percent > 100) next.tax = t("page.settings.taxRateRange");
+      if (financial.fiscal_year_start_month < 1 || financial.fiscal_year_start_month > 12) next.fiscal = t("page.settings.monthRange");
     }
     if (section === "preferences") {
-      if (!["en", "ru", "uz"].includes(preferences.default_language)) next.lang = "Choose EN, RU, or UZ.";
-      if (!preferences.timezone.trim()) next.tz = "Timezone is required.";
+      if (!["en", "ru", "uz"].includes(preferences.default_language)) next.lang = t("page.settings.chooseLanguage");
+      if (!preferences.timezone.trim()) next.tz = t("page.settings.timezoneRequired");
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -82,57 +84,63 @@ export default function SettingsPage() {
           ? financial
           : preferences;
     await api.patch(`/api/settings/${section}`, payload);
-    setSaved(`${section.replace("_", " ")} saved.`);
+    setSaved(t("page.settings.sectionSaved", { section: t(
+      section === "company_info"
+        ? "page.settings.companyInfo"
+        : section === "financial"
+          ? "page.settings.financialSettings"
+          : "page.settings.systemPreferences",
+    ) }));
     mutate();
   }
 
   return (
     <div>
-      <PageHeader title="Settings" subtitle="Company, finance, and system defaults" />
+      <PageHeader title={t("page.settings.title")} subtitle={t("page.settings.subtitle")} />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Section
-          title="Company Info"
-          footer={<button className="btn btn-primary" onClick={() => save("company_info")}>Save</button>}
+          title={t("page.settings.companyInfo")}
+          footer={<button className="btn btn-primary" onClick={() => save("company_info")}>{t("common.save")}</button>}
         >
-          <div><label className="label">Name</label><input className="input" value={company.name} onChange={(e) => setCompany({ ...company, name: e.target.value })} /></div>
+          <div><label className="label">{t("common.name")}</label><input className="input" value={company.name} onChange={(e) => setCompany({ ...company, name: e.target.value })} /></div>
           {errors.company_name && <div className="text-xs text-red-600">{errors.company_name}</div>}
-          <div><label className="label">Logo</label><input className="input" type="file" accept="image/*" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} /></div>
-          {company.logo_url && <img src={company.logo_url} alt="Company logo" className="h-12 w-12 rounded-md border border-[#ecebe3] object-contain" />}
-          <div><label className="label">Address</label><input className="input" value={company.address || ""} onChange={(e) => setCompany({ ...company, address: e.target.value })} /></div>
-          <div><label className="label">Phone</label><input className="input" value={company.phone || ""} onChange={(e) => setCompany({ ...company, phone: e.target.value })} /></div>
-          <div><label className="label">Email</label><input className="input" type="email" value={company.email || ""} onChange={(e) => setCompany({ ...company, email: e.target.value })} /></div>
+          <div><label className="label">{t("field.logo")}</label><input className="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} /></div>
+          {company.logo_url && <img src={company.logo_url} alt={t("page.settings.companyLogo")} className="h-12 w-12 rounded-md border border-[#ecebe3] object-contain" />}
+          <div><label className="label">{t("field.address")}</label><input className="input" value={company.address || ""} onChange={(e) => setCompany({ ...company, address: e.target.value })} /></div>
+          <div><label className="label">{t("field.phone")}</label><input className="input" value={company.phone || ""} onChange={(e) => setCompany({ ...company, phone: e.target.value })} /></div>
+          <div><label className="label">{t("field.email")}</label><input className="input" type="email" value={company.email || ""} onChange={(e) => setCompany({ ...company, email: e.target.value })} /></div>
           {errors.company_email && <div className="text-xs text-red-600">{errors.company_email}</div>}
         </Section>
 
         <Section
-          title="Financial Settings"
-          footer={<button className="btn btn-primary" onClick={() => save("financial")}>Save</button>}
+          title={t("page.settings.financialSettings")}
+          footer={<button className="btn btn-primary" onClick={() => save("financial")}>{t("common.save")}</button>}
         >
-          <div><label className="label">Default currency</label><input className="input" value={financial.default_currency} onChange={(e) => setFinancial({ ...financial, default_currency: e.target.value.toUpperCase() })} /></div>
+          <div><label className="label">{t("field.defaultCurrency")}</label><input className="input" value={financial.default_currency} onChange={(e) => setFinancial({ ...financial, default_currency: e.target.value.toUpperCase() })} /></div>
           {errors.currency && <div className="text-xs text-red-600">{errors.currency}</div>}
-          <div><label className="label">Tax rate %</label><input className="input" type="number" step="0.01" value={financial.tax_rate_percent} onChange={(e) => setFinancial({ ...financial, tax_rate_percent: Number(e.target.value) })} /></div>
+          <div><label className="label">{t("field.taxRatePercent")}</label><input className="input" type="number" step="0.01" value={financial.tax_rate_percent} onChange={(e) => setFinancial({ ...financial, tax_rate_percent: Number(e.target.value) })} /></div>
           {errors.tax && <div className="text-xs text-red-600">{errors.tax}</div>}
-          <div><label className="label">Fiscal year start month</label><input className="input" type="number" min={1} max={12} value={financial.fiscal_year_start_month} onChange={(e) => setFinancial({ ...financial, fiscal_year_start_month: Number(e.target.value) })} /></div>
+          <div><label className="label">{t("field.fiscalYearStartMonth")}</label><input className="input" type="number" min={1} max={12} value={financial.fiscal_year_start_month} onChange={(e) => setFinancial({ ...financial, fiscal_year_start_month: Number(e.target.value) })} /></div>
           {errors.fiscal && <div className="text-xs text-red-600">{errors.fiscal}</div>}
         </Section>
 
         <Section
-          title="System Preferences"
-          footer={<button className="btn btn-primary" onClick={() => save("preferences")}>Save</button>}
+          title={t("page.settings.systemPreferences")}
+          footer={<button className="btn btn-primary" onClick={() => save("preferences")}>{t("common.save")}</button>}
         >
           <div>
-            <label className="label">Default language</label>
+            <label className="label">{t("field.defaultLanguage")}</label>
             <select className="input" value={preferences.default_language} onChange={(e) => setPreferences({ ...preferences, default_language: e.target.value })}>
-              <option value="en">English</option>
-              <option value="ru">Russian</option>
-              <option value="uz">Uzbek</option>
+              <option value="en">{t("language.en")}</option>
+              <option value="ru">{t("language.ru")}</option>
+              <option value="uz">{t("language.uz")}</option>
             </select>
           </div>
           {errors.lang && <div className="text-xs text-red-600">{errors.lang}</div>}
-          <div><label className="label">Timezone</label><input className="input" value={preferences.timezone} onChange={(e) => setPreferences({ ...preferences, timezone: e.target.value })} /></div>
+          <div><label className="label">{t("field.timezone")}</label><input className="input" value={preferences.timezone} onChange={(e) => setPreferences({ ...preferences, timezone: e.target.value })} /></div>
           {errors.tz && <div className="text-xs text-red-600">{errors.tz}</div>}
           <div>
-            <label className="label">Model type options</label>
+            <label className="label">{t("field.modelTypeOptions")}</label>
             <textarea
               className="input min-h-24"
               value={preferences.model_types.join("\n")}

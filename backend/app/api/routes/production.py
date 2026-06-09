@@ -8,6 +8,7 @@ from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
     ProductionOrder, WorkOrder, CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord,
     SalesOrder, QualityCheck, User, SewingFlow, SewingAssignment, Package, ProductionBatch, WasteRecord,
+    ProductionOrderItem, Bundle,
 )
 from app.schemas.production import (
     ProductionOrderIn, ProductionOrderOut, ProductionOrderDetail,
@@ -26,6 +27,7 @@ from app.services.workflow import (
     consume_stock_batch,
     create_waste_record,
     notify_department,
+    propagate_cutting_plan_from_output,
     sync_production_order_status,
 )
 
@@ -33,6 +35,16 @@ router = APIRouter(tags=["production"])
 
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
+_PRE_CUTTING_EDIT_STATUSES = ("new", "planning", "pending", "waiting", "ready")
+_PO_PRE_CUTTING_EDIT_FIELDS = {
+    "model_id",
+    "sales_order_id",
+    "planned_quantity",
+    "deadline",
+    "estimated_material_code",
+    "estimated_material_amount",
+    "estimated_material_unit",
+}
 
 
 class PrintingCollectIn(BaseModel):
@@ -194,6 +206,9 @@ def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends
         planned_quantity=payload.planned_quantity,
         start_date=payload.start_date,
         deadline=payload.deadline,
+        estimated_material_code=payload.estimated_material_code,
+        estimated_material_amount=payload.estimated_material_amount,
+        estimated_material_unit=payload.estimated_material_unit,
         destination_warehouse_id=payload.destination_warehouse_id,
         items=[i.model_dump() for i in payload.items],
         created_by=current.id,
@@ -208,6 +223,69 @@ def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends
     return po
 
 
+def _production_order_actuals(db: DbSession, production_order_id: int) -> dict[str, int]:
+    bundle_count, bundle_qty = db.query(
+        func.count(Bundle.id),
+        func.coalesce(func.sum(Bundle.quantity), 0),
+    ).filter(Bundle.production_order_id == production_order_id).one()
+
+    cut_qty, bundled_qty_from_records = (
+        db.query(
+            func.coalesce(func.sum(CuttingRecord.cut_pieces), 0),
+            func.coalesce(func.sum(CuttingRecord.total_bundled_quantity), 0),
+        )
+        .join(WorkOrder, WorkOrder.id == CuttingRecord.work_order_id)
+        .filter(WorkOrder.production_order_id == production_order_id)
+        .one()
+    )
+
+    actual_bundle_quantity = int(bundle_qty or 0)
+    if actual_bundle_quantity <= 0:
+        actual_bundle_quantity = int(bundled_qty_from_records or 0)
+
+    batch_plan_quantity = int(
+        db.query(func.coalesce(func.sum(ProductionBatch.planned_quantity), 0))
+        .filter(ProductionBatch.production_order_id == production_order_id)
+        .scalar()
+        or 0
+    )
+    actual_cut_quantity = int(cut_qty or 0)
+
+    return {
+        "actual_quantity": max(actual_bundle_quantity, actual_cut_quantity, batch_plan_quantity),
+        "actual_bundle_quantity": actual_bundle_quantity,
+        "actual_bundle_count": int(bundle_count or 0),
+        "actual_cut_quantity": actual_cut_quantity,
+    }
+
+
+def _planned_quantity_from_items(db: DbSession, production_order_id: int) -> int:
+    return int(
+        db.query(func.coalesce(func.sum(ProductionOrderItem.planned_quantity), 0))
+        .filter(ProductionOrderItem.production_order_id == production_order_id)
+        .scalar()
+        or 0
+    )
+
+
+def _project_original_plan_for_detail(db: DbSession, production_order_id: int, out: dict) -> dict:
+    item_plan_total = sum(max(0, int(row.get("planned_quantity") or 0)) for row in out.get("items") or [])
+    if item_plan_total <= 0:
+        item_plan_total = _planned_quantity_from_items(db, production_order_id)
+    if item_plan_total <= 0:
+        return out
+
+    if int(out.get("planned_quantity") or 0) > item_plan_total:
+        out["planned_quantity"] = item_plan_total
+
+    for row in out.get("work_orders") or []:
+        if int(row.get("planned_output_qty") or 0) > item_plan_total:
+            row["planned_output_qty"] = item_plan_total
+        if int(row.get("planned_input_qty") or 0) > item_plan_total:
+            row["planned_input_qty"] = item_plan_total
+    return out
+
+
 @router.get("/production-orders/{pid}", response_model=ProductionOrderDetail)
 def get_po(pid: int, db: DbSession, _: CurrentUser):
     po = db.query(ProductionOrder).options(
@@ -216,13 +294,25 @@ def get_po(pid: int, db: DbSession, _: CurrentUser):
         joinedload(ProductionOrder.work_orders),
     ).filter(ProductionOrder.id == pid).first()
     if not po: raise HTTPException(404, "Production order not found")
-    return po
+    out = ProductionOrderDetail.model_validate(po).model_dump()
+    out = _project_original_plan_for_detail(db, pid, out)
+    out.update(_production_order_actuals(db, pid))
+    return out
 
 
 @router.patch("/production-orders/{pid}", response_model=ProductionOrderOut)
 def update_po(pid: int, payload: dict, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     po = db.get(ProductionOrder, pid)
     if not po: raise HTTPException(404, "Production order not found")
+    if _PO_PRE_CUTTING_EDIT_FIELDS.intersection(payload.keys()):
+        cutting_wo = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.production_order_id == pid, WorkOrder.operation == "cutting")
+            .order_by(WorkOrder.id.asc())
+            .first()
+        )
+        if cutting_wo and cutting_wo.status not in _PRE_CUTTING_EDIT_STATUSES:
+            raise HTTPException(409, "Production order planning fields are locked after cutting starts")
     for k, v in payload.items():
         if hasattr(po, k):
             setattr(po, k, v)
@@ -275,7 +365,7 @@ def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_p
 
     model_obj = db.get(ModelEntity, po.model_id)
     sam = float(model_obj.sam_minutes) if model_obj else 0.0
-    qty = int(po.planned_quantity or 0)
+    qty = _planned_quantity_from_items(db, pid) or int(po.planned_quantity or 0)
 
     def _per_op_seconds(total_seconds: float, units: int) -> dict[str, float]:
         if sam > 0 and units > 0:
@@ -346,7 +436,7 @@ def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_p
 @router.post("/production-orders/{pid}/admin-repair-totals")
 def admin_repair_totals(pid: int, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     """Admin recovery tool:
-    Rebuild WO counters from source records and clamp passed/output to planned qty.
+    Rebuild WO counters from source records while preserving the original plan.
     Useful when duplicate submissions inflated stage totals.
     """
     if not is_admin(current):
@@ -357,13 +447,12 @@ def admin_repair_totals(pid: int, db: DbSession, current: User = Depends(require
         raise HTTPException(404, "Production order not found")
 
     work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == pid).all()
-    if any(w.production_batch_id is not None for w in work_orders):
-        raise HTTPException(400, "Admin repair totals is not available for batched production orders yet")
     by_op = {w.operation: w for w in work_orders}
     now = datetime.now(timezone.utc)
+    planned_from_items = _planned_quantity_from_items(db, pid)
 
     def _clamp_pass(planned: int, value: int) -> int:
-        return max(0, min(max(0, int(planned or 0)), max(0, int(value or 0))))
+        return max(0, int(value or 0))
 
     def _set_wo(wo: WorkOrder, *, input_qty: int, output_qty: int, passed_qty: int, failed_qty: int, rework_qty: int | None = None):
         before = {
@@ -405,6 +494,36 @@ def admin_repair_totals(pid: int, db: DbSession, current: User = Depends(require
 
     changes: list[dict] = []
 
+    if planned_from_items > 0 and int(po.planned_quantity or 0) > planned_from_items:
+        before = int(po.planned_quantity or 0)
+        po.planned_quantity = planned_from_items
+        changes.append({
+            "production_order_id": pid,
+            "field": "planned_quantity",
+            "before": before,
+            "after": planned_from_items,
+        })
+        for row in work_orders:
+            before_row = {
+                "planned_input_qty": int(row.planned_input_qty or 0),
+                "planned_output_qty": int(row.planned_output_qty or 0),
+            }
+            if int(row.planned_output_qty or 0) > planned_from_items:
+                row.planned_output_qty = planned_from_items
+            if row.operation != "cutting" and int(row.planned_input_qty or 0) > planned_from_items:
+                row.planned_input_qty = planned_from_items
+            after_row = {
+                "planned_input_qty": int(row.planned_input_qty or 0),
+                "planned_output_qty": int(row.planned_output_qty or 0),
+            }
+            if before_row != after_row:
+                changes.append({
+                    "work_order_id": row.id,
+                    "operation": row.operation,
+                    "before": before_row,
+                    "after": after_row,
+                })
+
     cut_wo = by_op.get("cutting")
     if cut_wo:
         cut_input, cut_passed, cut_failed = db.query(
@@ -412,8 +531,7 @@ def admin_repair_totals(pid: int, db: DbSession, current: User = Depends(require
             func.coalesce(func.sum(CuttingRecord.passed_pieces), 0),
             func.coalesce(func.sum(CuttingRecord.defective_pieces), 0),
         ).filter(CuttingRecord.work_order_id == cut_wo.id).one()
-        planned = int(cut_wo.planned_output_qty or 0)
-        passed = _clamp_pass(planned, int(cut_passed or 0))
+        passed = max(0, int(cut_passed or 0))
         output = passed
         before, after = _set_wo(
             cut_wo,
@@ -425,6 +543,7 @@ def admin_repair_totals(pid: int, db: DbSession, current: User = Depends(require
         )
         if before != after:
             changes.append({"work_order_id": cut_wo.id, "operation": "cutting", "before": before, "after": after})
+        propagate_cutting_plan_from_output(db, cut_wo)
 
     prt_wo = by_op.get("printing")
     if prt_wo:
@@ -695,11 +814,6 @@ def split_cutting_work_order_batches(
     if any(int(row.planned_quantity or 0) <= 0 for row in rows):
         raise HTTPException(400, "Each batch quantity must be greater than zero")
     total = sum(int(row.planned_quantity or 0) for row in rows)
-    if total != int(po.planned_quantity or 0):
-        raise HTTPException(
-            400,
-            f"Batch quantities ({total}) must match production planned quantity ({int(po.planned_quantity or 0)})",
-        )
 
     work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()
     work_order_ids = [w.id for w in work_orders]
@@ -1071,6 +1185,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             else:
                 to_sewing += 1
 
+    propagate_cutting_plan_from_output(db, wo)
     advance_workflow(db, wo, trigger_output_qty=int(payload.passed_pieces or 0))
     if to_printing:
         notify_department(

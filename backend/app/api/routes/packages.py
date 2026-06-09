@@ -7,7 +7,7 @@ import os
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.core.config import settings
-from app.models import Package, Model, User
+from app.models import Package, Model, ProductionOrder, SalesOrder, User
 from app.schemas.tracking import (
     PackageIn,
     PackageBulkIn,
@@ -61,6 +61,24 @@ def _qr_data_uri_for_package(db: DbSession, pkg: Package) -> str:
     with open(qr_path, "rb") as fh:
         png = fh.read()
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
+def _is_preview_model_image(img) -> bool:
+    content_type = str(img.content_type or "").lower()
+    file_name = str(img.file_name or img.file_url or "").lower()
+    return content_type.startswith("image/") or file_name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))
+
+
+def _model_image_url(model: Model | None) -> str | None:
+    if not model:
+        return None
+    images = list(model.images or [])
+    primary = next((img for img in images if img.image_type == "model" and _is_preview_model_image(img)), None)
+    if not primary:
+        primary = next((img for img in images if img.is_primary and _is_preview_model_image(img)), None)
+    if not primary:
+        primary = next((img for img in images if _is_preview_model_image(img)), None)
+    return primary.file_url if primary else None
 
 
 @router.get("")
@@ -143,8 +161,11 @@ def storage_map(
     model_query: str | None = None,
 ):
     query = (
-        db.query(Package, Model)
+        db.query(Package, Model, SalesOrder, ProductionOrder)
         .join(Model, Model.id == Package.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
+        .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
+        .options(selectinload(Model.images))
         .filter(
             Package.storage_cell.isnot(None),
             Package.status.in_(["packed", "received_in_storage", "reserved"]),
@@ -156,24 +177,34 @@ def storage_map(
     placements: list[dict] = []
     matches: list[dict] = []
     by_cell: dict[str, list[dict]] = {}
-    for pkg, model in query.all():
+    for pkg, model, sales_order, production_order in query.all():
         model_code = model.code if model else None
         model_name = model.name if model else None
         fields = [
             model_code or "",
             model_name or "",
+            sales_order.order_no if sales_order else "",
+            production_order.production_no if production_order else "",
             pkg.package_no or "",
             pkg.barcode or "",
+            pkg.storage_cell or "",
+            pkg.storage_shelf or "",
         ]
         matched = bool(q) and any(q in f.lower() for f in fields)
         row = {
             "id": pkg.id,
             "package_no": pkg.package_no,
             "barcode": pkg.barcode,
+            "production_order_id": pkg.production_order_id,
+            "production_no": production_order.production_no if production_order else None,
+            "sales_order_id": pkg.sales_order_id,
+            "sales_order_no": sales_order.order_no if sales_order else None,
             "model_id": pkg.model_id,
             "model_code": model_code,
             "model_name": model_name,
+            "model_image_url": _model_image_url(model),
             "color": pkg.color,
+            "package_type": pkg.package_type,
             "total_quantity": pkg.total_quantity,
             "status": pkg.status,
             "storage_cell": pkg.storage_cell,

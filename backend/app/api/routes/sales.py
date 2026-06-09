@@ -1,7 +1,6 @@
 import os
 from collections import defaultdict
 from datetime import datetime, timezone
-from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -10,6 +9,13 @@ from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.config import settings
+from app.core.uploads import (
+    SAFE_DOCUMENT_EXTENSIONS,
+    SAFE_IMAGE_EXTENSIONS,
+    extension_for_upload,
+    safe_content_type,
+    validated_upload_content,
+)
 from app.models import (
     SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation,
     Customer, Model, User, ProductionOrder, Shipment, Task, Department, Invoice,
@@ -297,22 +303,18 @@ async def upload_printing_attachment(
     current: User = Depends(require_permissions("sales.orders", "*")),
 ):
     _ = current
-    ext = Path(file.filename or "").suffix.lower()
+    ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
     safe_name = f"so_print_{uuid4().hex}{ext}"
     abs_path = os.path.join(settings.SALES_ORDER_FILES_DIR, safe_name)
-    content = await file.read()
-    if len(content) == 0:
-        raise HTTPException(400, "Empty file")
-    if len(content) > 20 * 1024 * 1024:
-        raise HTTPException(400, "File too large (max 20MB)")
+    content = validated_upload_content(await file.read(), ext, 20 * 1024 * 1024)
     with open(abs_path, "wb") as f:
         f.write(content)
     file_url = f"/storage/sales-order-files/{safe_name}"
     return {
         "file_url": file_url,
         "file_name": file.filename or safe_name,
-        "content_type": file.content_type,
+        "content_type": safe_content_type(ext),
     }
 
 
@@ -420,40 +422,12 @@ def confirm_sales_order(sid: int, db: DbSession, current: User = Depends(require
         db,
         department_code="PLN",
         title=f"Sales order {so.order_no} sent to planning",
-        message="Planning should calculate material usage, estimated cost, and lead time.",
+        message="Planning can create the production order now.",
         link=f"/planning?so_id={so.id}",
         exclude_user_id=current.id,
     )
     log_action(db, current, "confirm", "SalesOrder", so.id)
     db.commit(); db.refresh(so)
-    return so
-
-
-@router.post("/{sid}/approve-planning", response_model=SalesOrderOut)
-def approve_planning_estimate(sid: int, db: DbSession, current: User = Depends(require_permissions("sales.orders", "*"))):
-    so = db.get(SalesOrder, sid)
-    if not so:
-        raise HTTPException(404, "Sales order not found")
-    if so.order_type != "client_order":
-        raise HTTPException(400, "Planning approval flow is only for client_order")
-    if so.status != "pending_sales_approval":
-        raise HTTPException(400, f"Cannot approve planning estimate in status '{so.status}'")
-
-    so.status = "planning_approved"
-    note = "[Sales approval] Planning estimate approved. Returned to planning for PO creation."
-    so.notes = f"{so.notes}\n{note}".strip() if so.notes else note
-
-    notify_department(
-        db,
-        department_code="PLN",
-        title=f"Planning estimate approved for {so.order_no}",
-        message="Sales approved the estimate. Create the production order now.",
-        link=f"/planning?so_id={so.id}",
-        exclude_user_id=current.id,
-    )
-    log_action(db, current, "approve_planning", "SalesOrder", so.id)
-    db.commit()
-    db.refresh(so)
     return so
 
 

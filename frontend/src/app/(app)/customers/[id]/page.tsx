@@ -66,11 +66,11 @@ function money(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
-function paymentStatusLabel(status: PaymentStatus) {
-  if (status === "paid") return "Paid";
-  if (status === "partial") return "Partial";
-  if (status === "unpaid") return "Unpaid";
-  return "No invoice";
+function paymentStatusLabel(status: PaymentStatus, t: (key: string) => string) {
+  if (status === "paid") return t("payment.status.paid");
+  if (status === "partial") return t("payment.status.partial");
+  if (status === "unpaid") return t("payment.status.unpaid");
+  return t("payment.status.noInvoice");
 }
 
 function paymentStatusClass(status: PaymentStatus) {
@@ -193,13 +193,13 @@ export default function CustomerDetailPage() {
     e.preventDefault();
     setMsg("");
     const next: Record<string, string> = {};
-    if (!form.name.trim()) next.name = "Name is required.";
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) next.email = "Enter a valid email.";
+    if (!form.name.trim()) next.name = t("page.profile.nameRequired");
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) next.email = t("page.profile.validEmail");
     setErrors(next);
     if (Object.keys(next).length) return;
     try {
       await api.patch(`/api/customers/${id}`, form);
-      setMsg("Saved.");
+      setMsg(t("msg.saved"));
       mutate();
     } catch (err: any) {
       setMsg(err.message);
@@ -216,8 +216,8 @@ export default function CustomerDetailPage() {
   function paymentOrderOptionLabel(order: CustomerOrder) {
     const due = effectiveBalanceDue(order);
     return due > 0.01
-      ? `${order.order_no} - due ${money(due)}`
-      : `${order.order_no} - paid, extra becomes advance`;
+      ? t("page.customerDetail.orderOptionDue", { orderNo: order.order_no, amount: money(due) })
+      : t("page.customerDetail.orderOptionPaidAdvance", { orderNo: order.order_no });
   }
 
   function openPayment(order?: CustomerOrder) {
@@ -279,7 +279,7 @@ export default function CustomerDetailPage() {
     e.preventDefault();
     const targetOrder = selectedPaymentOrder;
     if (!Number.isFinite(Number(paymentForm.amount)) || Number(paymentForm.amount) <= 0) {
-      setPaymentMsg("Amount must be greater than zero.");
+      setPaymentMsg(t("page.customerDetail.amountGreaterThanZero"));
       return;
     }
 
@@ -343,7 +343,7 @@ export default function CustomerDetailPage() {
       void mutateCustomerPayments();
       void mutateOrders();
     } catch (err: any) {
-      setPaymentMsg(err.message || "Could not record payment.");
+      setPaymentMsg(err.message || t("page.customerDetail.couldNotRecordPayment"));
     } finally {
       setSavingPayment(false);
     }
@@ -353,7 +353,7 @@ export default function CustomerDetailPage() {
 
   return (
     <div>
-      <PageHeader title={customer.name} subtitle="Client profile with order history and payment status" />
+      <PageHeader title={customer.name} subtitle={t("page.customerDetail.subtitle")} />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_1fr]">
         <form onSubmit={save} className="card p-4 space-y-3">
           <div><label className="label">{t("common.name")}</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
@@ -363,56 +363,56 @@ export default function CustomerDetailPage() {
           {errors.email && <div className="text-xs text-red-600">{errors.email}</div>}
           <div><label className="label">{t("field.address")}</label><input className="input" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
           <div><label className="label">{t("field.notes")}</label><textarea className="input min-h-24" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
-          {msg && <div className={`text-sm ${msg === "Saved." ? "text-green-700" : "text-red-600"}`}>{msg}</div>}
+          {msg && <div className={`text-sm ${msg === t("msg.saved") ? "text-green-700" : "text-red-600"}`}>{msg}</div>}
           <div className="flex justify-end"><button className="btn btn-primary">{t("btn.save")}</button></div>
         </form>
 
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
             <div className="card p-4">
-              <div className="label">Orders</div>
+              <div className="label">{t("page.customerDetail.orders")}</div>
               <div className="text-2xl font-semibold">{summary.orders}</div>
-              <div className="mt-1 text-xs text-slate-500">{summary.paidOrders} paid, {summary.openOrders} open</div>
+              <div className="mt-1 text-xs text-slate-500">{t("page.customerDetail.paidOpen", { paid: summary.paidOrders, open: summary.openOrders })}</div>
             </div>
             <div className="card p-4">
-              <div className="label">Order value</div>
+              <div className="label">{t("field.orderValue")}</div>
               <div className="text-2xl font-semibold">{money(summary.orderTotal)}</div>
             </div>
             <div className="card p-4">
-              <div className="label">Paid</div>
+              <div className="label">{t("payment.status.paid")}</div>
               <div className="text-2xl font-semibold text-green-700">{money(summary.paid)}</div>
             </div>
             <div className="card p-4">
-              <div className="label">Open balance</div>
+              <div className="label">{t("page.customerDetail.openBalance")}</div>
               <div className={`text-2xl font-semibold ${summary.balanceKind === "advance" ? "text-green-700" : summary.balanceKind === "settled" ? "text-slate-700" : "text-red-700"}`}>
                 {money(summary.balance)}
               </div>
               <div className="mt-1 text-xs text-slate-500">
                 {summary.balanceKind === "advance"
-                  ? "Advance credit"
+                  ? t("page.customerDetail.advanceCredit")
                   : summary.balanceKind === "settled"
-                    ? "Settled"
-                    : "Amount due"}
+                    ? t("page.customerDetail.settled")
+                    : t("page.customerDetail.amountDue")}
               </div>
-              {summary.noInvoiceOrders > 0 && <div className="mt-1 text-xs text-slate-500">{summary.noInvoiceOrders} without invoice</div>}
+              {summary.noInvoiceOrders > 0 && <div className="mt-1 text-xs text-slate-500">{t("page.customerDetail.withoutInvoice", { count: summary.noInvoiceOrders })}</div>}
             </div>
           </div>
 
           <section className="card overflow-x-auto">
             <div className="border-b border-[#ecebe3] px-4 py-3">
-              <h2 className="app-card-title">Order history and payments</h2>
+              <h2 className="app-card-title">{t("page.customerDetail.orderHistoryPayments")}</h2>
             </div>
             <table className="table min-w-[980px]">
               <thead>
                 <tr>
                   <th>{t("field.orderNo")}</th>
-                  <th>Date</th>
+                  <th>{t("field.date")}</th>
                   <th>{t("field.status")}</th>
                   <th className="text-right">{t("field.total")}</th>
-                  <th>Invoices</th>
-                  <th className="text-right">Paid</th>
-                  <th className="text-right">Balance</th>
-                  <th>Payment</th>
+                  <th>{t("field.invoice")}</th>
+                  <th className="text-right">{t("payment.status.paid")}</th>
+                  <th className="text-right">{t("field.balance")}</th>
+                  <th>{t("field.payment")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -430,55 +430,55 @@ export default function CustomerDetailPage() {
                               <span className="font-medium text-[#14110b]">{invoice.invoice_no}</span>
                               <span> - {money(Number(invoice.amount || 0))}</span>
                               <span className="ml-1 text-slate-500">
-                                paid {money(Number(invoice.paid_amount || 0))}
-                                {Number(invoice.balance_due || 0) > 0 ? `, due ${money(Number(invoice.balance_due || 0))}` : ""}
-                                {Number(invoice.advance_amount || 0) > 0 ? `, advance ${money(Number(invoice.advance_amount || 0))}` : ""}
+                                {t("page.customerDetail.paidAmount", { amount: money(Number(invoice.paid_amount || 0)) })}
+                                {Number(invoice.balance_due || 0) > 0 ? `, ${t("page.customerDetail.dueAmount", { amount: money(Number(invoice.balance_due || 0)) })}` : ""}
+                                {Number(invoice.advance_amount || 0) > 0 ? `, ${t("page.customerDetail.advanceAmount", { amount: money(Number(invoice.advance_amount || 0)) })}` : ""}
                               </span>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <span className="text-xs text-slate-500">No invoice</span>
+                        <span className="text-xs text-slate-500">{t("payment.status.noInvoice")}</span>
                       )}
                     </td>
                     <td className="text-right">{money(Number(o.paid_total || 0))}</td>
                     <td className="text-right">{money(effectiveBalanceDue(o))}</td>
                     <td>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className={`badge ${paymentStatusClass(o.payment_status)}`}>{paymentStatusLabel(o.payment_status)}</span>
+                        <span className={`badge ${paymentStatusClass(o.payment_status)}`}>{paymentStatusLabel(o.payment_status, t)}</span>
                         <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment(o)}>
                           <Plus className="h-3.5 w-3.5" />
-                          Add payment
+                          {t("page.customerDetail.addPayment")}
                         </button>
                       </div>
                     </td>
                   </tr>
                 ))}
-                {orders && orders.length === 0 && <tr><td colSpan={8} className="text-sm text-slate-500">No sales orders linked to this customer.</td></tr>}
+                {orders && orders.length === 0 && <tr><td colSpan={8} className="text-sm text-slate-500">{t("page.customerDetail.noSalesOrders")}</td></tr>}
               </tbody>
             </table>
           </section>
 
           <section className="card overflow-x-auto">
             <div className="flex items-center justify-between gap-3 border-b border-[#ecebe3] px-4 py-3">
-              <h2 className="app-card-title">Payment history</h2>
+              <h2 className="app-card-title">{t("page.customerDetail.paymentHistory")}</h2>
               <button
                 type="button"
                 className="btn h-7 px-2 text-[11px]"
                 onClick={() => openPayment()}
               >
                 <Plus className="h-3.5 w-3.5" />
-                Add payment
+                {t("page.customerDetail.addPayment")}
               </button>
             </div>
             <table className="table min-w-[760px]">
               <thead>
                 <tr>
-                  <th>Date</th>
+                  <th>{t("field.date")}</th>
                   <th>{t("field.orderNo")}</th>
-                  <th>Invoice</th>
-                  <th>Method</th>
-                  <th className="text-right">Amount</th>
+                  <th>{t("field.invoice")}</th>
+                  <th>{t("field.paymentMethod")}</th>
+                  <th className="text-right">{t("field.amount")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -489,10 +489,10 @@ export default function CustomerDetailPage() {
                       {payment.order_id ? (
                         <Link className="text-brand-600 hover:underline" href={`/sales-orders/${payment.order_id}`}>{payment.order_no}</Link>
                       ) : (
-                        <span className="text-slate-500">Advance</span>
+                        <span className="text-slate-500">{t("page.customerDetail.advance")}</span>
                       )}
                     </td>
-                    <td>{payment.invoice_no || (payment.is_advance ? "Advance" : "-")}</td>
+                    <td>{payment.invoice_no || (payment.is_advance ? t("page.customerDetail.advance") : "-")}</td>
                     <td>{payment.payment_method || "-"}</td>
                     <td className="text-right">{money(Number(payment.amount || 0))}</td>
                   </tr>
@@ -501,10 +501,10 @@ export default function CustomerDetailPage() {
                   <tr>
                     <td colSpan={5}>
                       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
-                        <span>No payments recorded for this customer yet.</span>
+                        <span>{t("page.customerDetail.noPayments")}</span>
                         <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment()}>
                           <Plus className="h-3.5 w-3.5" />
-                          Add payment
+                          {t("page.customerDetail.addPayment")}
                         </button>
                       </div>
                     </td>
@@ -516,24 +516,24 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      <Modal open={paymentOpen} onClose={() => setPaymentOpen(false)} title="Add payment">
+      <Modal open={paymentOpen} onClose={() => setPaymentOpen(false)} title={t("page.customerDetail.addPayment")}>
         <form onSubmit={recordPayment} className="space-y-3">
           <div className="rounded-md border border-[#ecebe3] bg-[#f8f7f3] p-3 text-sm">
-            <div className="font-medium">{selectedPaymentOrder?.order_no || "Advance payment"}</div>
+            <div className="font-medium">{selectedPaymentOrder?.order_no || t("page.customerDetail.advancePayment")}</div>
             <div className="mt-1 text-slate-600">
               {selectedPaymentOrder
                 ? selectedPaymentOrder.invoices?.length
                   ? effectiveBalanceDue(selectedPaymentOrder) > 0.01
-                    ? `Open balance: ${money(effectiveBalanceDue(selectedPaymentOrder))}. Extra money will be saved as advance credit.`
-                    : "This order is paid. Extra money will be saved as advance credit."
-                  : `No invoice yet. An invoice for ${money(Number(selectedPaymentOrder.total || 0))} will be created first; extra money becomes advance credit.`
-                : "No order selected. This payment will be saved as advance credit."}
+                    ? t("page.customerDetail.openBalanceAdvanceHelp", { amount: money(effectiveBalanceDue(selectedPaymentOrder)) })
+                    : t("page.customerDetail.orderPaidAdvanceHelp")
+                  : t("page.customerDetail.noInvoiceAdvanceHelp", { amount: money(Number(selectedPaymentOrder.total || 0)) })
+                : t("page.customerDetail.noOrderAdvanceHelp")}
             </div>
           </div>
           <div>
-            <label className="label">Order</label>
+            <label className="label">{t("field.order")}</label>
             <select className="input" value={selectedPaymentOrderId} onChange={(e) => selectPaymentOrder(e.target.value)}>
-              <option value="">No order - advance credit</option>
+              <option value="">{t("page.customerDetail.noOrderAdvanceCredit")}</option>
               {payableOrders.map((order) => (
                 <option key={order.id} value={order.id}>
                   {paymentOrderOptionLabel(order)}
@@ -542,7 +542,7 @@ export default function CustomerDetailPage() {
             </select>
           </div>
           <div>
-            <label className="label">Amount received</label>
+            <label className="label">{t("field.amountReceived")}</label>
             <input
               className="input"
               type="number"
@@ -554,7 +554,7 @@ export default function CustomerDetailPage() {
             />
           </div>
           <div>
-            <label className="label">Date</label>
+            <label className="label">{t("field.date")}</label>
             <input
               className="input"
               type="date"
@@ -564,15 +564,15 @@ export default function CustomerDetailPage() {
             />
           </div>
           <div>
-            <label className="label">Payment method</label>
+            <label className="label">{t("field.paymentMethod")}</label>
             <select className="input" value={paymentForm.payment_method} onChange={(e) => setPaymentForm({ ...paymentForm, payment_method: e.target.value })}>
-              <option value="bank_transfer">Bank transfer</option>
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
+              <option value="bank_transfer">{t("payment.method.bankTransfer")}</option>
+              <option value="cash">{t("payment.method.cash")}</option>
+              <option value="card">{t("payment.method.card")}</option>
             </select>
           </div>
           <div>
-            <label className="label">Notes</label>
+            <label className="label">{t("field.notes")}</label>
             <textarea
               className="input"
               rows={3}
@@ -582,8 +582,8 @@ export default function CustomerDetailPage() {
           </div>
           {paymentMsg && <div className="text-sm text-red-600">{paymentMsg}</div>}
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" className="btn" onClick={() => setPaymentOpen(false)} disabled={savingPayment}>Cancel</button>
-            <button className="btn btn-primary" disabled={savingPayment}>{savingPayment ? "Saving..." : "Save payment"}</button>
+            <button type="button" className="btn" onClick={() => setPaymentOpen(false)} disabled={savingPayment}>{t("common.cancel")}</button>
+            <button className="btn btn-primary" disabled={savingPayment}>{savingPayment ? t("common.saving") : t("page.customerDetail.savePayment")}</button>
           </div>
         </form>
       </Modal>

@@ -39,6 +39,10 @@ type ModelDetails = {
   features?: Record<string, boolean>;
 };
 
+type ImageUploadType = "model" | "material";
+
+const IMAGE_UPLOAD_TYPES: ImageUploadType[] = ["model", "material"];
+
 const TAB_KEYS = [
   "page.modelDetail.tab.general",
   "page.modelDetail.tab.materials",
@@ -107,9 +111,15 @@ export default function ModelDetail() {
   const [size, setSize] = useState({ size: "", measurement_json: "" });
   const [measurementFields, setMeasurementFields] = useState({ chest: "", waist: "", hip: "", length: "", sleeve: "" });
   const [sizePreview, setSizePreview] = useState<{ size: string; measurement_json: Record<string, number> | null } | null>(null);
-  const [imageForm, setImageForm] = useState({ file_url: "", is_primary: false });
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [imageForms, setImageForms] = useState<Record<ImageUploadType, { file_url: string }>>({
+    model: { file_url: "" },
+    material: { file_url: "" },
+  });
+  const [imageFiles, setImageFiles] = useState<Record<ImageUploadType, File | null>>({
+    model: null,
+    material: null,
+  });
+  const [uploadingImageType, setUploadingImageType] = useState<ImageUploadType | null>(null);
 
   useEffect(() => {
     if (!m) return;
@@ -185,21 +195,21 @@ export default function ModelDetail() {
   const modelTypeOptions: string[] = appSettings?.preferences?.model_types || [];
   const sizeRows = m?.sizes || [];
   const colorRows = m?.colors || [];
-  const primaryImage = (m?.images || []).find((img: any) => img.is_primary) || (m?.images || [])[0];
+  const primaryImage = (m?.images || []).find((img: any) => img.image_type === "model") || (m?.images || []).find((img: any) => img.is_primary) || (m?.images || [])[0];
   const translatedName = details.translation?.[lang] || (lang === "ru" ? details.translation?.ru : "") || m?.name || "";
 
   if (!isNumericId) {
     return (
       <div className="card p-4 text-sm text-red-700">
-        Could not load model. The detail URL must use the numeric model ID.
+        {t("page.modelDetail.invalidId")}
       </div>
     );
   }
   if (modelError) {
     return (
       <div className="card p-4 text-sm text-red-700">
-        <div>Could not load model. Please try again.</div>
-        <button className="btn mt-3" onClick={() => mutate()}>Retry</button>
+        <div>{t("page.modelDetail.loadError")}</div>
+        <button className="btn mt-3" onClick={() => mutate()}>{t("common.retry")}</button>
       </div>
     );
   }
@@ -307,36 +317,43 @@ export default function ModelDetail() {
     mutateVariants();
   }
 
-  async function addImage(e: React.FormEvent) {
+  async function addImage(e: React.FormEvent, imageType: ImageUploadType) {
     e.preventDefault();
+    const imageFile = imageFiles[imageType];
+    const imageForm = imageForms[imageType];
     if (imageFile) {
-      setIsUploadingImage(true);
+      setUploadingImageType(imageType);
       try {
         const form = new FormData();
         form.append("file", imageFile);
+        form.append("image_type", imageType);
         await api.postForm(`/api/models/${id}/images/upload`, form);
       } finally {
-        setIsUploadingImage(false);
+        setUploadingImageType(null);
       }
-      setImageFile(null);
-      setImageForm({ file_url: "", is_primary: false });
+      setImageFiles((prev) => ({ ...prev, [imageType]: null }));
+      setImageForms((prev) => ({ ...prev, [imageType]: { file_url: "" } }));
       mutate();
       return;
     }
     if (!imageForm.file_url.trim()) return;
-    await api.post(`/api/models/${id}/images`, imageForm);
-    setImageForm({ file_url: "", is_primary: false });
+    await api.post(`/api/models/${id}/images`, {
+      file_url: imageForm.file_url,
+      image_type: imageType,
+      is_primary: imageType === "model",
+    });
+    setImageForms((prev) => ({ ...prev, [imageType]: { file_url: "" } }));
     mutate();
   }
 
   async function deleteImage(imageId: number) {
-    if (!confirm("Delete this pattern file?")) return;
+    if (!confirm(t("page.modelDetail.deletePatternConfirm"))) return;
     await api.del(`/api/models/${id}/images/${imageId}`);
     mutate();
   }
 
   async function deleteSize(sizeId: number) {
-    if (!confirm("Delete this size?")) return;
+    if (!confirm(t("page.modelDetail.deleteSizeConfirm"))) return;
     await api.del(`/api/models/${id}/sizes/${sizeId}`);
     mutate();
     mutateVariants();
@@ -354,6 +371,15 @@ export default function ModelDetail() {
         {label} <span className="badge">{badgeValue}</span>
       </button>
     );
+  }
+
+  function imageTypeLabel(value?: string | null) {
+    const key = `page.workOrder.imageType.${value || "pattern"}`;
+    return t(key);
+  }
+
+  function uploadOptionTitle(type: ImageUploadType) {
+    return type === "model" ? t("page.modelDetail.attachModelPicture") : t("page.modelDetail.attachMaterialPattern");
   }
 
   return (
@@ -534,7 +560,7 @@ export default function ModelDetail() {
               </tbody>
             </table>
             <table className="table">
-              <thead><tr><th>{t("field.size")}</th><th>Chest</th><th>Waist</th><th>Hip</th><th>Length</th><th>Sleeve</th><th>{t("field.actions")}</th></tr></thead>
+              <thead><tr><th>{t("field.size")}</th><th>{t("page.modelDetail.measurement.chest")}</th><th>{t("page.modelDetail.measurement.waist")}</th><th>{t("page.modelDetail.measurement.hip")}</th><th>{t("page.modelDetail.measurement.length")}</th><th>{t("page.modelDetail.measurement.sleeve")}</th><th>{t("field.actions")}</th></tr></thead>
               <tbody>
                 {sizeRows.map((s: any) => {
                   const mm = s.measurement_json || {};
@@ -557,42 +583,59 @@ export default function ModelDetail() {
 
         {tab === 4 && (
           <div className="space-y-3">
-            <form onSubmit={addImage} className="grid grid-cols-1 md:grid-cols-5 gap-2">
-              <input
-                className="input md:col-span-3"
-                type="file"
-                accept="image/*,.pdf,.dxf,.ai,.svg"
-                onChange={(e) => setImageFile(e.target.files?.[0] || null)}
-              />
-              <input
-                className="input"
-                placeholder={t("page.modelDetail.orImageUrl")}
-                value={imageForm.file_url}
-                onChange={(e) => setImageForm({ ...imageForm, file_url: e.target.value })}
-              />
-              <button className="btn btn-primary" disabled={isUploadingImage || (!imageFile && !imageForm.file_url.trim())}>
-                {isUploadingImage ? t("common.uploading") : t("page.modelDetail.attachOrAdd")}
-              </button>
-            </form>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {IMAGE_UPLOAD_TYPES.map((imageType) => {
+                const imageFile = imageFiles[imageType];
+                const imageForm = imageForms[imageType];
+                const isUploading = uploadingImageType === imageType;
+                return (
+                  <form
+                    key={imageType}
+                    onSubmit={(e) => addImage(e, imageType)}
+                    className="rounded-md border border-[#ecebe3] bg-[#fdfcf8] p-3"
+                  >
+                    <div className="mb-2 text-sm font-semibold text-[#14110b]">{uploadOptionTitle(imageType)}</div>
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(180px,0.55fr)_auto]">
+                      <input
+                        className="input"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif,.pdf,.dxf,.ai"
+                        onChange={(e) => setImageFiles((prev) => ({ ...prev, [imageType]: e.target.files?.[0] || null }))}
+                      />
+                      <input
+                        className="input"
+                        placeholder={t("page.modelDetail.orImageUrl")}
+                        value={imageForm.file_url}
+                        onChange={(e) => setImageForms((prev) => ({ ...prev, [imageType]: { file_url: e.target.value } }))}
+                      />
+                      <button className="btn btn-primary" disabled={isUploading || (!imageFile && !imageForm.file_url.trim())}>
+                        {isUploading ? t("common.uploading") : uploadOptionTitle(imageType)}
+                      </button>
+                    </div>
+                  </form>
+                );
+              })}
+            </div>
             <table className="table">
-              <thead><tr><th>Preview</th><th>Filename</th><th>Uploaded</th><th>{t("field.actions")}</th></tr></thead>
+              <thead><tr><th>{t("field.preview")}</th><th>{t("page.workOrder.imageType")}</th><th>{t("field.filename")}</th><th>{t("field.uploaded")}</th><th>{t("field.actions")}</th></tr></thead>
               <tbody>
                 {(m.images || []).map((img: any) => {
                   const name = img.file_name || String(img.file_url || "").split("/").pop() || `file-${img.id}`;
-                  const isImage = String(img.content_type || "").startsWith("image/") || /\.(png|jpe?g|webp|gif|svg)$/i.test(name);
+                  const isImage = String(img.content_type || "").startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(name);
                   return (
                     <tr key={img.id}>
-                      <td>{isImage ? <img src={img.file_url} alt={name} className="h-14 w-14 rounded object-cover" /> : <span className="badge">file</span>}</td>
+                      <td>{isImage ? <img src={img.file_url} alt={name} className="h-14 w-14 rounded object-cover" /> : <span className="badge">{t("page.modelDetail.file")}</span>}</td>
+                      <td><span className="badge">{imageTypeLabel(img.image_type)}</span></td>
                       <td>{name}</td>
                       <td>{img.created_at ? new Date(img.created_at).toLocaleString() : "-"}</td>
                       <td className="flex gap-3">
-                        <a className="text-brand-600 hover:underline" href={img.file_url} download>Download</a>
+                        <a className="text-brand-600 hover:underline" href={img.file_url} download>{t("common.download")}</a>
                         <button className="text-red-600 hover:underline" onClick={() => deleteImage(img.id)}>{t("btn.delete")}</button>
                       </td>
                     </tr>
                   );
                 })}
-                {(m.images || []).length === 0 && <tr><td colSpan={4} className="text-sm text-slate-500">No pattern files uploaded.</td></tr>}
+                {(m.images || []).length === 0 && <tr><td colSpan={5} className="text-sm text-slate-500">{t("page.modelDetail.noPatternFiles")}</td></tr>}
               </tbody>
             </table>
           </div>
@@ -612,7 +655,7 @@ export default function ModelDetail() {
                 {primaryImage ? (
                   <img src={primaryImage.file_url} alt={translatedName} className="h-full w-full rounded-md object-cover" />
                 ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-slate-400">No image</div>
+                  <div className="flex h-full items-center justify-center text-xs text-slate-400">{t("page.models.noPreview")}</div>
                 )}
               </div>
               <div className="space-y-3">
@@ -622,21 +665,21 @@ export default function ModelDetail() {
                   <div className="text-sm text-slate-600">{modelForm.category || "-"} · {modelForm.product_type || "-"}</div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div><span className="text-slate-500">Size range:</span> {sizeRows.map((s: any) => s.size).join(", ") || "-"}</div>
-                  <div><span className="text-slate-500">Colors:</span> {colorRows.map((c: any) => c.color_name).join(", ") || "-"}</div>
+                  <div><span className="text-slate-500">{t("page.modelDetail.sizeRange")}</span> {sizeRows.map((s: any) => s.size).join(", ") || "-"}</div>
+                  <div><span className="text-slate-500">{t("page.modelDetail.colorsLabel")}</span> {colorRows.map((c: any) => c.color_name).join(", ") || "-"}</div>
                 </div>
                 <div>
-                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">BOM Summary</div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("page.modelDetail.bomSummary")}</div>
                   <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
                     <div>
-                      <div className="font-medium">Fabric</div>
+                      <div className="font-medium">{t("page.modelDetail.fabrics")}</div>
                       <ul className="mt-1 space-y-1">
                         {materialRows.map((r: any) => <li key={r.id}>{r.item?.sku || r.item_id} · {n(r.quantity_per_piece).toFixed(4)} {r.unit}</li>)}
                         {materialRows.length === 0 && <li className="text-slate-400">-</li>}
                       </ul>
                     </div>
                     <div>
-                      <div className="font-medium">Accessories</div>
+                      <div className="font-medium">{t("page.modelDetail.accessories")}</div>
                       <ul className="mt-1 space-y-1">
                         {accessoryRows.map((r: any) => <li key={r.id}>{r.item?.sku || r.item_id} · {n(r.quantity_per_piece).toFixed(4)} {r.unit}</li>)}
                         {accessoryRows.length === 0 && <li className="text-slate-400">-</li>}
@@ -661,7 +704,7 @@ export default function ModelDetail() {
               <button className="btn btn-primary" type="submit">{t("btn.add")}</button>
             </form>
             <table className="table">
-              <thead><tr><th>{t("field.size")}</th><th>Chest</th><th>Waist</th><th>Hip</th><th>Length</th><th>Sleeve</th><th>{t("field.actions")}</th></tr></thead>
+              <thead><tr><th>{t("field.size")}</th><th>{t("page.modelDetail.measurement.chest")}</th><th>{t("page.modelDetail.measurement.waist")}</th><th>{t("page.modelDetail.measurement.hip")}</th><th>{t("page.modelDetail.measurement.length")}</th><th>{t("page.modelDetail.measurement.sleeve")}</th><th>{t("field.actions")}</th></tr></thead>
               <tbody>
                 {(m.sizes || []).map((s: any) => (
                   <tr key={s.id}>

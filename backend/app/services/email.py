@@ -3,10 +3,10 @@ from __future__ import annotations
 import smtplib
 import ssl
 import json
-import urllib.error
-import urllib.request
 from email.message import EmailMessage
 from email.utils import formataddr
+
+import httpx
 
 from app.core.config import settings
 
@@ -40,22 +40,21 @@ def _send_resend_email(to_email: str, subject: str, text_body: str) -> bool:
         "subject": subject,
         "text": text_body,
     }).encode("utf-8")
-    request = urllib.request.Request(
-        "https://api.resend.com/emails",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {settings.RESEND_API_KEY}",
-            "Content-Type": "application/json",
-            "User-Agent": "milana-erp/1.0",
-        },
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(request, timeout=settings.SMTP_TIMEOUT_SECONDS) as response:
-            return 200 <= response.status < 300
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Resend API error {exc.code}: {detail}") from exc
+        response = httpx.post(
+            "https://api.resend.com/emails",
+            content=payload,
+            headers={
+                "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                "Content-Type": "application/json",
+                "User-Agent": "milana-erp/1.0",
+            },
+            timeout=settings.SMTP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return True
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(f"Resend API error {exc.response.status_code}: {exc.response.text}") from exc
 
 
 def _send_smtp_email(to_email: str, subject: str, text_body: str) -> bool:

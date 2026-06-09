@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.models import Employee, User
 from app.services.audit import log_action
 from pydantic import BaseModel
@@ -34,13 +34,21 @@ class EmployeeUpdate(BaseModel):
 router = APIRouter(tags=["hr"])
 
 
-def _serialize(r: Employee) -> dict:
-    return {
+def _can_view_private_employee_fields(user: User) -> bool:
+    perms = user_permissions(user)
+    return "*" in perms or "hr.employees" in perms
+
+
+def _serialize(r: Employee, *, include_private: bool = False) -> dict:
+    payload = {
         "id": r.id, "user_id": r.user_id, "full_name": r.full_name,
         "department_id": r.department_id, "position": r.position,
-        "phone": r.phone, "salary": float(r.salary) if r.salary else None,
         "status": r.status, "joined_at": r.joined_at,
     }
+    if include_private:
+        payload["phone"] = r.phone
+        payload["salary"] = float(r.salary) if r.salary else None
+    return payload
 
 
 def _backfill_employees_from_users(db: DbSession) -> int:
@@ -78,17 +86,18 @@ def _backfill_employees_from_users(db: DbSession) -> int:
 
 
 @router.get("/employees")
-def list_employees(db: DbSession, _: CurrentUser):
+def list_employees(db: DbSession, current: CurrentUser):
     _backfill_employees_from_users(db)
     rows = db.query(Employee).order_by(Employee.id.desc()).all()
-    return [_serialize(r) for r in rows]
+    include_private = _can_view_private_employee_fields(current)
+    return [_serialize(r, include_private=include_private) for r in rows]
 
 
 @router.get("/employees/{eid}")
-def get_employee(eid: int, db: DbSession, _: CurrentUser):
+def get_employee(eid: int, db: DbSession, current: CurrentUser):
     e = db.get(Employee, eid)
     if not e: raise HTTPException(404, "Employee not found")
-    return _serialize(e)
+    return _serialize(e, include_private=_can_view_private_employee_fields(current))
 
 
 @router.post("/employees", status_code=201)
@@ -97,7 +106,7 @@ def create_employee(payload: EmployeeIn, db: DbSession, current: User = Depends(
     db.add(e); db.flush()
     log_action(db, current, "create", "Employee", e.id, new_value={"full_name": e.full_name})
     db.commit(); db.refresh(e)
-    return _serialize(e)
+    return _serialize(e, include_private=True)
 
 
 @router.patch("/employees/{eid}")
@@ -109,7 +118,7 @@ def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: U
         setattr(e, k, v)
     log_action(db, current, "update", "Employee", e.id, new_value=changes)
     db.commit(); db.refresh(e)
-    return _serialize(e)
+    return _serialize(e, include_private=True)
 
 
 @router.delete("/employees/{eid}", status_code=204)

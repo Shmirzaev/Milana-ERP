@@ -1,5 +1,6 @@
 "use client";
 import { useEffect } from "react";
+import { useT } from "@/lib/i18n";
 
 export default function Modal({
   open, onClose, title, children, wide = false,
@@ -10,6 +11,8 @@ export default function Modal({
   children: React.ReactNode;
   wide?: boolean;
 }) {
+  const { t } = useT();
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -37,7 +40,7 @@ export default function Modal({
             type="button"
             onClick={onClose}
             className="text-slate-500 hover:text-slate-900 text-xl leading-none w-7 h-7 flex items-center justify-center"
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             ×
           </button>

@@ -1,36 +1,17 @@
 "use client";
-import { useState } from "react";
+import { useId, useMemo, useState } from "react";
 import useSWR from "swr";
-import { Plus, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Plus, Search, Trash2 } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
-type EstimateFormState = {
-  orderId: number;
-  orderNo: string;
-  materialCost: string;
-  accessoryCost: string;
-  laborPercent: string;
-  electricityPercent: string;
-  otherPercent: string;
-  deadline: string;
-  comment: string;
-  materials: EstimateMaterialRow[];
-};
-
-type EstimateMaterialRow = {
-  item_id: number;
+type MaterialItem = {
+  id: number;
   sku: string;
   name: string;
-  category?: string | null;
-  required_quantity: number;
-  available_quantity: number;
-  shortage: number;
-  unit: string;
-  unit_cost: number;
-  estimated_cost: number;
+  unit?: string;
 };
 
 type BrandedLine = {
@@ -47,38 +28,152 @@ type BatchPlanRow = {
   notes: string;
 };
 
+type MaterialEstimateDraft = {
+  materialCode: string;
+  materialAmount: number | "";
+  materialUnit: string;
+};
+
+type MaterialEstimatePayload = {
+  estimated_material_code: string;
+  estimated_material_amount: number;
+  estimated_material_unit: string;
+};
+
+type MaterialEstimateState = MaterialEstimateDraft & {
+  orderId: number;
+  orderNo: string;
+};
+
 type BatchPlanState = {
   orderId: number;
   orderNo: string;
   totalQty: number;
   maxPerBatch: number;
   rows: BatchPlanRow[];
-};
+} & MaterialEstimateDraft;
 
-const DEFAULT_LABOR_PERCENT = 12;
-const DEFAULT_ELECTRICITY_PERCENT = 4;
-const DEFAULT_OTHER_PERCENT = 3;
 const SIZE_OPTIONS = ["44", "46", "48", "50", "52", "54", "56", "58", "60", "62", "64"];
+const DEFAULT_MATERIAL_UNIT = "kg";
+const MATERIAL_ESTIMATE_LABEL_CLASS = "label md:min-h-[32px]";
 
-function num(v: string | number | null | undefined): number {
-  const n = Number(v ?? 0);
-  return Number.isFinite(n) ? n : 0;
+function materialItemSearchText(item: MaterialItem): string {
+  return `${item.sku} ${item.name} ${item.unit || ""}`.toLowerCase();
 }
 
-function round2(v: number): number {
-  return Math.round(v * 100) / 100;
+function MaterialCodeCombobox({
+  value,
+  items,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  items?: MaterialItem[];
+  onChange: (value: string, item?: MaterialItem) => void;
+  placeholder?: string;
+}) {
+  const { t } = useT();
+  const listboxId = useId();
+  const [open, setOpen] = useState(false);
+  const search = value.trim().toLowerCase();
+  const exactSku = search;
+  const filteredItems = useMemo(() => {
+    const source = items || [];
+    const matches = search
+      ? source.filter((item) => materialItemSearchText(item).includes(search))
+      : source;
+    return matches.slice(0, 10);
+  }, [items, search]);
+
+  return (
+    <div
+      className="relative"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a8472]" />
+      <input
+        className="input !pl-9 !pr-10"
+        value={value}
+        onFocus={() => setOpen(true)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setOpen(true);
+        }}
+        placeholder={placeholder}
+        role="combobox"
+        aria-controls={listboxId}
+        aria-expanded={open}
+        aria-autocomplete="list"
+      />
+      <button
+        type="button"
+        className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-[#8a8472] transition hover:bg-[#f1efe8] hover:text-[#14110b]"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => setOpen((prev) => !prev)}
+        title={t("common.search")}
+        aria-label={t("common.search")}
+      >
+        <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div id={listboxId} className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-auto rounded-md border border-[#ded9ca] bg-[#fdfcf8] py-1 shadow-lg" role="listbox">
+          {!items ? (
+            <div className="px-3 py-2 text-sm text-[#8a8472]">{t("common.loading")}</div>
+          ) : filteredItems.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-[#8a8472]">{t("page.search.noMatches")}</div>
+          ) : (
+            filteredItems.map((item) => {
+              const selected = item.sku.toLowerCase() === exactSku;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-[#fdf3eb]"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    onChange(item.sku, item);
+                    setOpen(false);
+                  }}
+                  role="option"
+                  aria-selected={selected}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-[#14110b]">{item.sku}</span>
+                    <span className="block truncate text-xs text-[#6f684f]">
+                      {item.name}{item.unit ? ` - ${item.unit}` : ""}
+                    </span>
+                  </span>
+                  {selected && <Check className="h-4 w-4 shrink-0 text-[#c2410c]" />}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function splitEstimateRows(rows: EstimateMaterialRow[]) {
-  const materialRows = rows.filter((m) => {
-    const c = String(m.category || "").toLowerCase();
-    return c === "fabric" || c === "semi_finished" || c === "";
-  });
-  const accessoryRows = rows.filter((m) => {
-    const c = String(m.category || "").toLowerCase();
-    return c === "accessory" || c === "packaging";
-  });
-  return { materialRows, accessoryRows };
+function emptyMaterialEstimate(): MaterialEstimateDraft {
+  return { materialCode: "", materialAmount: "", materialUnit: DEFAULT_MATERIAL_UNIT };
+}
+
+function validateMaterialEstimate(draft: MaterialEstimateDraft): { payload?: MaterialEstimatePayload; error?: string } {
+  const code = String(draft.materialCode || "").trim();
+  const unit = String(draft.materialUnit || "").trim() || DEFAULT_MATERIAL_UNIT;
+  const amount = Number(draft.materialAmount);
+  if (!code) return { error: "Enter material code for the cutting team." };
+  if (!Number.isFinite(amount) || amount <= 0) return { error: "Enter estimated material amount greater than zero." };
+  return {
+    payload: {
+      estimated_material_code: code,
+      estimated_material_amount: amount,
+      estimated_material_unit: unit,
+    },
+  };
 }
 
 function autoSplitBatchRows(totalQty: number, maxPerBatch: number): BatchPlanRow[] {
@@ -108,8 +203,9 @@ function autoSplitBatchRows(totalQty: number, maxPerBatch: number): BatchPlanRow
 export default function PlanningDashboard() {
   const { t } = useT();
   const { data: dash } = useSWR<any>("/api/dashboard/planning", fetcher);
-  const { data: orders, mutate: mutateOrders } = useSWR<any[]>("/api/sales-orders?order_type=client_order&page_size=200", fetcher);
+  const { data: orders } = useSWR<any[]>("/api/sales-orders?order_type=client_order&page_size=200", fetcher);
   const { data: models } = useSWR<any[]>("/api/models?status=approved", fetcher);
+  const { data: materialItems } = useSWR<MaterialItem[]>("/api/inventory/items?group=materials", fetcher);
   const [brandedForm, setBrandedForm] = useState<{ model_id: number; deadline: string; lines: BrandedLine[] }>({
     model_id: 0,
     deadline: "",
@@ -121,7 +217,8 @@ export default function PlanningDashboard() {
   const [brandedSaving, setBrandedSaving] = useState(false);
   const [brandedErr, setBrandedErr] = useState("");
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
-  const [estimateForm, setEstimateForm] = useState<EstimateFormState | null>(null);
+  const [materialEstimate, setMaterialEstimate] = useState<MaterialEstimateState | null>(null);
+  const [materialEstimateErr, setMaterialEstimateErr] = useState("");
   const [batchPlan, setBatchPlan] = useState<BatchPlanState | null>(null);
   const [batchPlanErr, setBatchPlanErr] = useState("");
 
@@ -178,7 +275,7 @@ export default function PlanningDashboard() {
     setBrandedForm((prev) => ({ ...prev, lines: nextLines }));
   }
 
-  async function createPOForSO(soId: number, batches?: BatchPlanRow[]) {
+  async function createPOForSO(soId: number, batches?: BatchPlanRow[], material?: MaterialEstimatePayload) {
     setBusyOrderId(soId);
     try {
       const so = await api.get(`/api/sales-orders/${soId}`);
@@ -202,6 +299,7 @@ export default function PlanningDashboard() {
         deadline: so.deadline ?? null,
         items,
         batches: normalizedBatches,
+        ...(material || {}),
       });
       // Cascade the deadline into each work-order (cutting/printing/sewing/packaging)
       // unless explicit per-batch planning is used.
@@ -211,6 +309,30 @@ export default function PlanningDashboard() {
       window.location.href = `/production-orders/${po.id}`;
     } finally {
       setBusyOrderId(null);
+    }
+  }
+
+  function openMaterialEstimateForSO(order: any) {
+    setMaterialEstimate({
+      orderId: Number(order.id),
+      orderNo: order.order_no || `#${order.id}`,
+      ...emptyMaterialEstimate(),
+    });
+    setMaterialEstimateErr("");
+  }
+
+  async function createPOFromMaterialEstimate() {
+    if (!materialEstimate) return;
+    const check = validateMaterialEstimate(materialEstimate);
+    if (check.error || !check.payload) {
+      setMaterialEstimateErr(check.error || "Enter material estimate before creating the production order.");
+      return;
+    }
+    setMaterialEstimateErr("");
+    try {
+      await createPOForSO(materialEstimate.orderId, undefined, check.payload);
+    } catch (e: any) {
+      setMaterialEstimateErr(e?.message || "Failed to create production order.");
     }
   }
 
@@ -227,6 +349,7 @@ export default function PlanningDashboard() {
         totalQty,
         maxPerBatch,
         rows: autoSplitBatchRows(totalQty, maxPerBatch),
+        ...emptyMaterialEstimate(),
       });
     } finally {
       setBusyOrderId(null);
@@ -274,87 +397,19 @@ export default function PlanningDashboard() {
       name: String(row.name || "").trim(),
     }));
     if (rows.some((row) => !Number.isFinite(row.planned_quantity) || row.planned_quantity <= 0)) {
-      setBatchPlanErr("Each batch quantity must be greater than zero.");
+      setBatchPlanErr(t("batch.quantityGreaterThanZero"));
       return;
     }
-    const total = rows.reduce((sum, row) => sum + row.planned_quantity, 0);
-    if (total !== batchPlan.totalQty) {
-      setBatchPlanErr(`Batch total must match order quantity (${batchPlan.totalQty}). Current total: ${total}.`);
+    const estimate = validateMaterialEstimate(batchPlan);
+    if (estimate.error || !estimate.payload) {
+      setBatchPlanErr(estimate.error || "Enter material estimate before creating the production order.");
       return;
     }
     setBatchPlanErr("");
-    await createPOForSO(batchPlan.orderId, rows);
-  }
-
-  async function openEstimateDialog(soId: number) {
-    setBusyOrderId(soId);
     try {
-      const order = planningOrders.find((o) => o.id === soId);
-      const estimate = await api.get(`/api/planning/estimate/${soId}`);
-      const baseTotalCost = num(estimate.estimated_material_cost);
-      const materials = Array.isArray(estimate.materials) ? estimate.materials : [];
-      const { materialRows, accessoryRows } = splitEstimateRows(materials);
-      const accessoryRowsCost = round2(accessoryRows.reduce((sum, row) => sum + num(row.estimated_cost), 0));
-      const baseAccessoryCost = accessoryRows.length > 0 ? accessoryRowsCost : 0;
-      const baseMaterialCost = materialRows.length > 0
-        ? round2(Math.max(0, baseTotalCost - baseAccessoryCost))
-        : baseTotalCost;
-      const savedLaborCost = num(estimate.estimated_labor_cost);
-      const savedElectricityCost = num(estimate.estimated_electricity_cost);
-      const savedOtherCost = num(estimate.estimated_other_expenses);
-      const baseCost = baseMaterialCost + baseAccessoryCost;
-      const laborPercent = baseCost > 0 ? (savedLaborCost / baseCost) * 100 : DEFAULT_LABOR_PERCENT;
-      const electricityPercent = baseCost > 0 ? (savedElectricityCost / baseCost) * 100 : DEFAULT_ELECTRICITY_PERCENT;
-      const otherPercent = baseCost > 0 ? (savedOtherCost / baseCost) * 100 : DEFAULT_OTHER_PERCENT;
-      setEstimateForm({
-        orderId: soId,
-        orderNo: order?.order_no || `#${soId}`,
-        materialCost: baseMaterialCost.toFixed(2),
-        accessoryCost: baseAccessoryCost.toFixed(2),
-        laborPercent: round2(laborPercent).toFixed(2),
-        electricityPercent: round2(electricityPercent).toFixed(2),
-        otherPercent: round2(otherPercent).toFixed(2),
-        deadline: order?.deadline ? String(order.deadline).slice(0, 10) : "",
-        comment: "",
-        materials,
-      });
-    } finally {
-      setBusyOrderId(null);
-    }
-  }
-
-  async function submitEstimateToSales() {
-    if (!estimateForm) return;
-    const materialCost = Number(estimateForm.materialCost);
-    const accessoryCost = Number(estimateForm.accessoryCost);
-    const laborPercent = Number(estimateForm.laborPercent);
-    const electricityPercent = Number(estimateForm.electricityPercent);
-    const otherPercent = Number(estimateForm.otherPercent);
-    if (!Number.isFinite(materialCost) || materialCost < 0) return;
-    if (!Number.isFinite(accessoryCost) || accessoryCost < 0) return;
-    if (!Number.isFinite(laborPercent) || laborPercent < 0) return;
-    if (!Number.isFinite(electricityPercent) || electricityPercent < 0) return;
-    if (!Number.isFinite(otherPercent) || otherPercent < 0) return;
-    if (!estimateForm.deadline) return;
-    const baseCost = materialCost + accessoryCost;
-    const laborCost = round2(baseCost * laborPercent / 100);
-    const electricityCost = round2(baseCost * electricityPercent / 100);
-    const otherExpenses = round2(baseCost * otherPercent / 100);
-
-    setBusyOrderId(estimateForm.orderId);
-    try {
-      await api.post(`/api/planning/submit-estimate/${estimateForm.orderId}`, {
-        estimated_material_cost: baseCost,
-        estimated_labor_cost: laborCost,
-        estimated_electricity_cost: electricityCost,
-        estimated_other_expenses: otherExpenses,
-        planned_deadline: estimateForm.deadline,
-        estimate_comment: estimateForm.comment.trim() || null,
-      });
-      setEstimateForm(null);
-      await mutateOrders();
-    } finally {
-      setBusyOrderId(null);
+      await createPOForSO(batchPlan.orderId, rows, estimate.payload);
+    } catch (e: any) {
+      setBatchPlanErr(e?.message || "Failed to create production order.");
     }
   }
 
@@ -404,7 +459,7 @@ export default function PlanningDashboard() {
   return (
     <div>
       <PageHeader title={t("page.planning.title")} subtitle={t("page.planning.subtitle")} />
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
         <div className="card p-4"><div className="text-xs text-slate-500">{t("page.planning.ordersWaiting")}</div><div className="text-2xl font-semibold">{dash?.orders_waiting_planning ?? 0}</div></div>
         <div className="card p-4"><div className="text-xs text-slate-500">{t("page.planning.activeProduction")}</div><div className="text-2xl font-semibold">{dash?.active_production_orders ?? 0}</div></div>
         <div className="card p-4"><div className="text-xs text-slate-500">{t("page.planning.brandedPlans")}</div><div className="text-2xl font-semibold">{dash?.branded_plans ?? 0}</div></div>
@@ -422,21 +477,14 @@ export default function PlanningDashboard() {
                 <td>${Number(o.total_amount).toFixed(2)}</td>
                 <td>{statusLabel(o.status, t)}</td>
                 <td>
-                  {o.status === "confirmed" && (
-                    <button className="btn" disabled={busyOrderId === o.id} onClick={() => openEstimateDialog(o.id)}>
-                      {busyOrderId === o.id ? t("common.loading") : t("btn.sendEstimateToSales")}
-                    </button>
-                  )}
-                  {o.status === "pending_sales_approval" && (
-                    <button className="btn" disabled>
-                      {t("page.planning.waitingSalesApproval")}
-                    </button>
-                  )}
-                  {o.status === "planning_approved" && (
-                    <button className="btn btn-primary" disabled={busyOrderId === o.id} onClick={() => createPOForSO(o.id)}>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="btn btn-primary" disabled={busyOrderId === o.id} onClick={() => openMaterialEstimateForSO(o)}>
                       {busyOrderId === o.id ? t("common.creating") : t("btn.createProductionOrder")}
                     </button>
-                  )}
+                    <button className="btn" disabled={busyOrderId === o.id} onClick={() => openBatchPlannerForSO(o.id)}>
+                      {t("batch.planBatches")}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -447,14 +495,54 @@ export default function PlanningDashboard() {
       {batchPlan && (
         <div className="fixed inset-0 z-40 bg-black/40">
           <div className="absolute inset-0 overflow-y-auto p-4 md:p-6">
-            <div className="card w-full max-w-5xl mx-auto p-5 space-y-4">
-              <div className="text-lg font-semibold">Batch Planning for {batchPlan.orderNo}</div>
+            <div className="card !overflow-visible w-full max-w-5xl mx-auto p-5 space-y-4">
+              <div className="text-lg font-semibold">{t("batch.planningFor", { orderNo: batchPlan.orderNo })}</div>
               <div className="text-sm text-slate-600">
-                Split this order into production batches. Cutting capacity is usually limited per batch, so you can plan today/tomorrow work separately.
+                {t("batch.splitOrderHint")}
+              </div>
+              <div className="rounded-md border border-[#ecebe3] bg-[#fbfaf6] p-4">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold text-[#14110b]">{t("page.planning.materialEstimateTitle")}</div>
+                  <div className="mt-1 text-sm text-slate-600">{t("page.planning.materialEstimateHelp")}</div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_120px]">
+                  <div>
+                    <label className={MATERIAL_ESTIMATE_LABEL_CLASS}>{t("page.planning.materialEstimateCode")}</label>
+                    <MaterialCodeCombobox
+                      value={batchPlan.materialCode}
+                      items={materialItems}
+                      onChange={(materialCode, item) => setBatchPlan((prev) => prev ? {
+                        ...prev,
+                        materialCode,
+                        materialUnit: item?.unit || prev.materialUnit,
+                      } : prev)}
+                      placeholder="FAB-COT-001"
+                    />
+                  </div>
+                  <div>
+                    <label className={MATERIAL_ESTIMATE_LABEL_CLASS}>{t("page.planning.materialEstimateAmount")}</label>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={batchPlan.materialAmount}
+                      onChange={(e) => setBatchPlan((prev) => prev ? { ...prev, materialAmount: e.target.value === "" ? "" : Number(e.target.value) } : prev)}
+                    />
+                  </div>
+                  <div>
+                    <label className={MATERIAL_ESTIMATE_LABEL_CLASS}>{t("page.planning.materialEstimateUnit")}</label>
+                    <input
+                      className="input"
+                      value={batchPlan.materialUnit}
+                      onChange={(e) => setBatchPlan((prev) => prev ? { ...prev, materialUnit: e.target.value } : prev)}
+                    />
+                  </div>
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-[220px_auto] gap-3 items-end">
                 <div>
-                  <label className="label">Max pieces per batch</label>
+                  <label className="label">{t("batch.maxPiecesPerBatch")}</label>
                   <input
                     className="input"
                     type="number"
@@ -469,20 +557,20 @@ export default function PlanningDashboard() {
                     className="btn"
                     onClick={() => setBatchPlan((prev) => prev ? { ...prev, rows: autoSplitBatchRows(prev.totalQty, prev.maxPerBatch) } : prev)}
                   >
-                    Auto split
+                    {t("batch.autoSplit")}
                   </button>
-                  <button type="button" className="btn" onClick={addBatchPlanRow}>Add batch</button>
+                  <button type="button" className="btn" onClick={addBatchPlanRow}>{t("batch.addBatch")}</button>
                 </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="table text-sm">
                   <thead>
                     <tr>
-                      <th>Batch</th>
-                      <th>Quantity</th>
-                      <th>Start date</th>
-                      <th>Deadline</th>
-                      <th>Notes</th>
+                      <th>{t("field.batch")}</th>
+                      <th>{t("batch.quantity")}</th>
+                      <th>{t("batch.startDate")}</th>
+                      <th>{t("field.deadline")}</th>
+                      <th>{t("field.notes")}</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -539,7 +627,7 @@ export default function PlanningDashboard() {
                 </table>
               </div>
               <div className="text-sm">
-                Total in batches: <span className="font-semibold">{batchPlan.rows.reduce((sum, row) => sum + Number(row.planned_quantity || 0), 0)}</span> / {batchPlan.totalQty}
+                {t("batch.totalInBatches")} <span className="font-semibold">{batchPlan.rows.reduce((sum, row) => sum + Number(row.planned_quantity || 0), 0)}</span> / {batchPlan.totalQty}
               </div>
               {batchPlanErr && <div className="text-sm text-red-600">{batchPlanErr}</div>}
               <div className="flex justify-end gap-2">
@@ -560,7 +648,7 @@ export default function PlanningDashboard() {
                   onClick={createPOFromBatchPlan}
                   disabled={busyOrderId === batchPlan.orderId}
                 >
-                  {busyOrderId === batchPlan.orderId ? t("common.creating") : "Create production with batches"}
+                  {busyOrderId === batchPlan.orderId ? t("common.creating") : t("batch.createProductionWithBatches")}
                 </button>
               </div>
             </div>
@@ -568,214 +656,74 @@ export default function PlanningDashboard() {
         </div>
       )}
 
-      {estimateForm && (
+      {materialEstimate && (
         <div className="fixed inset-0 z-40 bg-black/40">
           <div className="absolute inset-0 overflow-y-auto p-4 md:p-6">
-            <div className="card w-full max-w-4xl mx-auto p-5 space-y-4">
-            <div className="text-lg font-semibold">{t("page.planning.estimateFor", { orderNo: estimateForm.orderNo })}</div>
-            {(() => {
-              const materialCost = num(estimateForm.materialCost);
-              const accessoryCost = num(estimateForm.accessoryCost);
-              const baseCost = materialCost + accessoryCost;
-              const laborPercent = num(estimateForm.laborPercent);
-              const electricityPercent = num(estimateForm.electricityPercent);
-              const otherPercent = num(estimateForm.otherPercent);
-              const laborCost = round2(baseCost * laborPercent / 100);
-              const electricityCost = round2(baseCost * electricityPercent / 100);
-              const otherExpenses = round2(baseCost * otherPercent / 100);
-              const netPrice = baseCost + laborCost + electricityCost + otherExpenses;
-              const price15 = netPrice * 1.15;
-              const price20 = netPrice * 1.20;
-              return (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="label">{t("field.estimatedMaterialCost")}</label>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={estimateForm.materialCost}
-                        onChange={(e) => setEstimateForm({ ...estimateForm, materialCost: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className="label">{t("field.accessoryCost")}</label>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={estimateForm.accessoryCost}
-                        onChange={(e) => setEstimateForm({ ...estimateForm, accessoryCost: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="text-xs text-slate-500">
-                      {t("page.planning.overheadHint")}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="card p-3">
-                      <div className="text-xs text-slate-500 uppercase tracking-wide">{t("page.planning.netPrice")}</div>
-                      <div className="text-lg font-semibold">${netPrice.toFixed(2)}</div>
-                    </div>
-                    <div className="card p-3">
-                      <div className="text-xs text-slate-500 uppercase tracking-wide">{t("page.planning.priceWithProfit15")}</div>
-                      <div className="text-lg font-semibold">${price15.toFixed(2)}</div>
-                    </div>
-                    <div className="card p-3">
-                      <div className="text-xs text-slate-500 uppercase tracking-wide">{t("page.planning.priceWithProfit20")}</div>
-                      <div className="text-lg font-semibold">${price20.toFixed(2)}</div>
-                    </div>
-                  </div>
+            <div className="card !overflow-visible w-full max-w-2xl mx-auto p-5 space-y-4">
+              <div>
+                <div className="text-lg font-semibold">
+                  {t("page.planning.materialEstimateTitle")} - {materialEstimate.orderNo}
                 </div>
-              );
-            })()}
-            {(() => {
-              const allRows = estimateForm.materials || [];
-              const { materialRows, accessoryRows } = splitEstimateRows(allRows);
-              const materialCost = num(estimateForm.materialCost);
-              const accessoryCost = num(estimateForm.accessoryCost);
-              const baseCost = materialCost + accessoryCost;
-              const laborPercent = num(estimateForm.laborPercent);
-              const electricityPercent = num(estimateForm.electricityPercent);
-              const otherPercent = num(estimateForm.otherPercent);
-              const laborCost = round2(baseCost * laborPercent / 100);
-              const electricityCost = round2(baseCost * electricityPercent / 100);
-              const otherCost = round2(baseCost * otherPercent / 100);
-              const renderEstimateRows = (rows: EstimateMaterialRow[]) => (
-                <div className="overflow-x-auto">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>{t("field.item")}</th>
-                        <th>{t("field.usage")}</th>
-                        <th>{t("field.unitCost")}</th>
-                        <th>{t("field.totalCost")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr key={row.item_id}>
-                          <td>
-                            <div className="font-medium">{row.name}</div>
-                            <div className="text-xs text-slate-500">{row.sku}</div>
-                          </td>
-                          <td>{Number(row.required_quantity || 0).toFixed(2)} {row.unit}</td>
-                          <td>${Number(row.unit_cost || 0).toFixed(2)}</td>
-                          <td>${Number(row.estimated_cost || 0).toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="mt-1 text-sm text-slate-600">{t("page.planning.materialEstimateHelp")}</div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_120px]">
+                <div>
+                  <label className={MATERIAL_ESTIMATE_LABEL_CLASS}>{t("page.planning.materialEstimateCode")}</label>
+                  <MaterialCodeCombobox
+                    value={materialEstimate.materialCode}
+                    items={materialItems}
+                    onChange={(materialCode, item) => setMaterialEstimate((prev) => prev ? {
+                      ...prev,
+                      materialCode,
+                      materialUnit: item?.unit || prev.materialUnit,
+                    } : prev)}
+                    placeholder="FAB-COT-001"
+                  />
                 </div>
-              );
-
-              return (
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-sm font-semibold mb-2">{t("page.planning.materialUsageCost")}</div>
-                    {materialRows.length > 0 ? renderEstimateRows(materialRows) : <div className="text-sm text-slate-500">{t("page.planning.noMaterialRows")}</div>}
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold mb-2">{t("page.planning.accessoryUsageCost")}</div>
-                    {accessoryRows.length > 0 ? renderEstimateRows(accessoryRows) : <div className="text-sm text-slate-500">{t("page.planning.noAccessoryRows")}</div>}
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold mb-2">{t("page.planning.otherExpensesApprox")}</div>
-                    <div className="overflow-x-auto">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>{t("field.expense")}</th>
-                            <th>{t("field.approxPercent")}</th>
-                            <th>{t("field.baseCost")}</th>
-                            <th>{t("field.approxCost")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td>{t("expense.labor")}</td>
-                            <td>
-                              <input
-                                className="input"
-                                type="number"
-                                min={0}
-                                step="0.1"
-                                value={estimateForm.laborPercent}
-                                onChange={(e) => setEstimateForm({ ...estimateForm, laborPercent: e.target.value })}
-                              />
-                            </td>
-                            <td>${baseCost.toFixed(2)}</td>
-                            <td>${laborCost.toFixed(2)}</td>
-                          </tr>
-                          <tr>
-                            <td>{t("expense.electricity")}</td>
-                            <td>
-                              <input
-                                className="input"
-                                type="number"
-                                min={0}
-                                step="0.1"
-                                value={estimateForm.electricityPercent}
-                                onChange={(e) => setEstimateForm({ ...estimateForm, electricityPercent: e.target.value })}
-                              />
-                            </td>
-                            <td>${baseCost.toFixed(2)}</td>
-                            <td>${electricityCost.toFixed(2)}</td>
-                          </tr>
-                          <tr>
-                            <td>{t("expense.other")}</td>
-                            <td>
-                              <input
-                                className="input"
-                                type="number"
-                                min={0}
-                                step="0.1"
-                                value={estimateForm.otherPercent}
-                                onChange={(e) => setEstimateForm({ ...estimateForm, otherPercent: e.target.value })}
-                              />
-                            </td>
-                            <td>${baseCost.toFixed(2)}</td>
-                            <td>${otherCost.toFixed(2)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                <div>
+                  <label className={MATERIAL_ESTIMATE_LABEL_CLASS}>{t("page.planning.materialEstimateAmount")}</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={materialEstimate.materialAmount}
+                    onChange={(e) => setMaterialEstimate((prev) => prev ? { ...prev, materialAmount: e.target.value === "" ? "" : Number(e.target.value) } : prev)}
+                  />
                 </div>
-              );
-            })()}
-            <div>
-              <label className="label">{t("field.planningDeadline")}</label>
-              <input
-                className="input"
-                type="date"
-                value={estimateForm.deadline}
-                onChange={(e) => setEstimateForm({ ...estimateForm, deadline: e.target.value })}
-                required
-              />
-            </div>
-            <div>
-              <label className="label">{t("field.planningComment")}</label>
-              <textarea
-                className="input min-h-24"
-                placeholder={t("ph.salesApprovalComment")}
-                value={estimateForm.comment}
-                onChange={(e) => setEstimateForm({ ...estimateForm, comment: e.target.value })}
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <button className="btn" onClick={() => setEstimateForm(null)} disabled={busyOrderId === estimateForm.orderId}>{t("btn.cancel")}</button>
-              <button className="btn btn-primary" onClick={submitEstimateToSales} disabled={busyOrderId === estimateForm.orderId || !estimateForm.deadline}>
-                {busyOrderId === estimateForm.orderId ? t("btn.sending") : t("btn.sendToSales")}
-              </button>
+                <div>
+                  <label className={MATERIAL_ESTIMATE_LABEL_CLASS}>{t("page.planning.materialEstimateUnit")}</label>
+                  <input
+                    className="input"
+                    value={materialEstimate.materialUnit}
+                    onChange={(e) => setMaterialEstimate((prev) => prev ? { ...prev, materialUnit: e.target.value } : prev)}
+                  />
+                </div>
+              </div>
+              {materialEstimateErr && <div className="text-sm text-red-600">{materialEstimateErr}</div>}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setMaterialEstimate(null);
+                    setMaterialEstimateErr("");
+                  }}
+                  disabled={busyOrderId === materialEstimate.orderId}
+                >
+                  {t("btn.cancel")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={createPOFromMaterialEstimate}
+                  disabled={busyOrderId === materialEstimate.orderId}
+                >
+                  {busyOrderId === materialEstimate.orderId ? t("common.creating") : t("btn.createProductionOrder")}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
         </div>
       )}
 

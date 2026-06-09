@@ -51,6 +51,9 @@ class ProductionOrderIn(BaseModel):
     planned_quantity: int = 0
     start_date: Optional[datetime] = None
     deadline: Optional[datetime] = None
+    estimated_material_code: Optional[str] = None
+    estimated_material_amount: Optional[float] = None
+    estimated_material_unit: Optional[str] = None
     destination_warehouse_id: Optional[int] = None
     items: list[ProductionOrderItemIn] = []
     batches: list[ProductionBatchIn] = []
@@ -67,8 +70,15 @@ class ProductionOrderOut(ORMModel):
     planned_quantity: int
     start_date: Optional[datetime] = None
     deadline: Optional[datetime] = None
+    estimated_material_code: Optional[str] = None
+    estimated_material_amount: Optional[float] = None
+    estimated_material_unit: Optional[str] = None
     destination_warehouse_id: Optional[int] = None
     created_at: datetime
+    actual_quantity: Optional[int] = None
+    actual_bundle_quantity: Optional[int] = None
+    actual_bundle_count: Optional[int] = None
+    actual_cut_quantity: Optional[int] = None
 
 
 class WorkOrderOut(ORMModel):

@@ -344,7 +344,7 @@ export default function NewSalesOrderPage() {
 
   function isImageAttachment(a: PrintingAttachment): boolean {
     const byMime = (a.content_type || "").toLowerCase().startsWith("image/");
-    const byName = /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(a.file_name || a.file_url || "");
+    const byName = /\.(png|jpe?g|webp|gif)$/i.test(a.file_name || a.file_url || "");
     return byMime || byName;
   }
 
@@ -690,25 +690,26 @@ export default function NewSalesOrderPage() {
           {hasPrintingSelected && (
             <section className="card p-5">
               <div className="mb-4">
-                <h2 className="app-card-title">Printing details</h2>
-                <p className="mt-1 text-sm text-[#8a8472]">Visible to the printing team when this order reaches printing.</p>
+                <h2 className="app-card-title">{t("page.newSO.printingDetails")}</h2>
+                <p className="mt-1 text-sm text-[#8a8472]">{t("page.newSO.printingVisible")}</p>
               </div>
               <div className="space-y-3">
                 <div>
-                  <label className="label">Printing instructions</label>
+                  <label className="label">{t("page.newSO.printingInstructions")}</label>
                   <textarea
                     className="input"
                     rows={3}
                     value={printingInstructions}
                     onChange={(e) => setPrintingInstructions(e.target.value)}
-                    placeholder="Placement, colors, technique, size, references..."
+                    placeholder={t("page.newSO.printingPlaceholder")}
                   />
                 </div>
                 <div>
-                  <label className="label">Attach picture or file</label>
+                  <label className="label">{t("page.newSO.attachPrintingFile")}</label>
                   <input
                     className="input"
                     type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif,.pdf,.dxf,.ai"
                     multiple
                     disabled={uploadingPrintFile}
                     onChange={(e) => {
@@ -716,7 +717,7 @@ export default function NewSalesOrderPage() {
                       e.currentTarget.value = "";
                     }}
                   />
-                  <p className="mt-1 text-xs text-[#8a8472]">You can attach artwork, PDF spec, or sample photo.</p>
+                  <p className="mt-1 text-xs text-[#8a8472]">{t("page.newSO.printingAttachHelp")}</p>
                 </div>
                 {uploadingPrintFile && <div className="text-sm text-[#8a8472]">{t("common.uploading")}</div>}
                 {printingAttachments.length > 0 && (

@@ -5,6 +5,7 @@ and re-runs the seed to restore baseline records.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from sqlalchemy import text
@@ -13,6 +14,8 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.seed import seed
 from app.db.session import engine
+
+log = logging.getLogger(__name__)
 
 
 def _truncate_all_tables() -> int:
@@ -23,16 +26,16 @@ def _truncate_all_tables() -> int:
     with engine.begin() as conn:
         if conn.dialect.name == "postgresql":
             quoted = ", ".join(f'"{name}"' for name in table_names)
-            conn.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
+            conn.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))  # nosec B608 - metadata table names only.
         else:
             # SQLite/tests fallback: delete rows table-by-table.
             for name in reversed(table_names):
-                conn.execute(text(f'DELETE FROM "{name}"'))
+                conn.execute(text(f'DELETE FROM "{name}"'))  # nosec B608 - metadata table names only.
             if conn.dialect.name == "sqlite":
                 try:
                     conn.execute(text("DELETE FROM sqlite_sequence"))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.debug("Could not reset sqlite_sequence during demo reset: %s", exc)
     return len(table_names)
 
 

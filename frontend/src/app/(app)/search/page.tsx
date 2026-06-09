@@ -40,10 +40,10 @@ export default function SearchPage() {
     <div>
       <PageHeader
         title={`${t("common.search")}${q ? `: "${q}"` : ""}`}
-        subtitle="Search across sales orders, bundles, models, and customers"
+        subtitle={t("page.search.subtitle")}
       />
 
-      {!q && <div className="card p-4 text-sm text-slate-600">Type a query in the top search bar to start.</div>}
+      {!q && <div className="card p-4 text-sm text-slate-600">{t("page.search.startHint")}</div>}
       {q && isLoading && <div className="card p-4 text-sm text-slate-600">{t("common.loading")}</div>}
 
       {q && !isLoading && (
@@ -51,7 +51,7 @@ export default function SearchPage() {
           {TYPE_ORDER.map((type) => (
             <section key={type} className="card p-4">
               <div className="mb-2 text-sm font-semibold">
-                {type} ({grouped[type]?.length || 0})
+                {t(`search.type.${type}`)} ({grouped[type]?.length || 0})
               </div>
               {grouped[type]?.length ? (
                 <ul className="space-y-1">
@@ -64,7 +64,7 @@ export default function SearchPage() {
                   ))}
                 </ul>
               ) : (
-                <div className="text-sm text-slate-500">No matches.</div>
+                <div className="text-sm text-slate-500">{t("page.search.noMatches")}</div>
               )}
             </section>
           ))}

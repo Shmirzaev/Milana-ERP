@@ -3,6 +3,7 @@ from datetime import datetime, time
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 
+from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from fastapi import Depends
 from app.core.security import hash_password, normalize_email, validate_password_strength
@@ -29,7 +30,7 @@ ACTION_LABELS = {
     "approve_disposal": "approved disposal",
     "approve_planning": "approved planning",
     "block": "blocked",
-    "change_password": "changed password",
+    "change_password": "changed password",  # nosec B105 - audit action label, not a credential.
     "complete": "completed",
     "confirm": "confirmed",
     "create": "created",
@@ -427,6 +428,8 @@ def list_audit_logs(
 
 @router.post("/admin/reset-test-data")
 def reset_test_data(payload: ResetDemoIn, _: User = Depends(require_permissions("*"))):
+    if settings.is_production or not settings.ALLOW_DEMO_RESET:
+        raise HTTPException(403, "Demo reset is disabled")
     expected = "RESET MILANA ERP"
     if payload.confirm.strip().upper() != expected:
         raise HTTPException(400, f'Invalid confirmation. Send "{expected}" in confirm.')

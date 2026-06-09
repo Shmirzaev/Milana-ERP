@@ -152,8 +152,8 @@ export default function DepartmentsPage() {
       </div>
       <ConfirmDialog
         isOpen={!!deleting}
-        title="Confirm delete"
-        message={deleting ? `Are you sure you want to delete department ${deleting.code} (${deleting.name})? This action cannot be undone.` : ""}
+        title={t("confirm.deleteTitle")}
+        message={deleting ? t("confirm.deleteDepartment", { name: `${deleting.code} (${deleting.name})` }) : ""}
         onConfirm={confirmRemoveDepartment}
         onCancel={() => setDeleting(null)}
       />

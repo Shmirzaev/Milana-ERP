@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.schemas.common import ORMModel
 
@@ -121,3 +121,73 @@ class StockLine(BaseModel):
     warehouse_id: int
     quantity: float
     unit: str
+
+
+class AccessoryIssuePlanRow(BaseModel):
+    item_id: int
+    item_sku: str
+    item_name: str
+    category: str
+    unit: str
+    required_quantity: float
+    issued_quantity: float
+    remaining_quantity: float
+    available_quantity: float
+    shortage: float
+
+
+class AccessoryIssuePlanOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    production_order_id: int
+    production_no: str
+    model_id: int
+    model_code: Optional[str] = None
+    model_name: Optional[str] = None
+    planned_quantity: int
+    rows: list[AccessoryIssuePlanRow]
+
+
+class AccessoryIssueLineIn(BaseModel):
+    item_id: int
+    quantity: float
+    unit: Optional[str] = None
+
+
+class AccessoryIssueIn(BaseModel):
+    production_order_id: int
+    lines: list[AccessoryIssueLineIn]
+    notes: Optional[str] = None
+
+
+class AccessoryIssueLineOut(BaseModel):
+    item_id: int
+    item_sku: str
+    item_name: str
+    quantity: float
+    unit: str
+
+
+class AccessoryIssueOut(BaseModel):
+    production_order_id: int
+    production_no: str
+    issued: list[AccessoryIssueLineOut]
+
+
+class AccessoryIssueSummaryRow(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    production_order_id: int
+    production_no: str
+    model_id: int
+    model_code: Optional[str] = None
+    model_name: Optional[str] = None
+    item_id: int
+    item_sku: str
+    item_name: str
+    category: str
+    unit: str
+    issued_quantity: float
+    movement_count: int
+    first_issued_at: Optional[datetime] = None
+    last_issued_at: Optional[datetime] = None

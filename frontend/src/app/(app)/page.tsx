@@ -137,7 +137,10 @@ export default function HomePage() {
     }
   }, []);
 
-  const { data: mgmt } = useSWR<any>(`/api/dashboard/management?tz=${encodeURIComponent(clientTz)}`, fetcher);
+  const { data: mgmt } = useSWR<any>(
+    can(me, "management.view", "*") ? `/api/dashboard/management?tz=${encodeURIComponent(clientTz)}` : null,
+    fetcher,
+  );
   const { data: fin } = useSWR<any>(can(me, "finance.view", "*") ? "/api/dashboard/finance" : null, fetcher);
   const {
     data: activeProduction = [],
@@ -327,9 +330,9 @@ export default function HomePage() {
                 {activeProductionLoading ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("common.loading")}</td></tr>
                 ) : activeProductionError ? (
-                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-red-600">Could not load active production. Please try again.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-red-600">{t("page.home.activeProductionError")}</td></tr>
                 ) : !activeOrders.length ? (
-                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">No orders match selected filters.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("page.home.noOrdersSelectedFilter")}</td></tr>
                 ) : activeOrders.map((o) => {
                   const pct = Math.max(0, Math.min(100, Number(o.progress || 0)));
                   return (

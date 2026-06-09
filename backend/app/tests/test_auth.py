@@ -165,3 +165,12 @@ def test_admin_user_password_requires_strength(client, auth_headers):
     )
     assert r.status_code == 400
     assert "shared default" in r.text
+
+
+def test_demo_reset_is_disabled_by_default(client, auth_headers):
+    r = client.post(
+        "/api/admin/reset-test-data",
+        json={"confirm": "RESET MILANA ERP"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 403

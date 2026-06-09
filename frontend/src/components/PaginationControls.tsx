@@ -1,4 +1,5 @@
 "use client";
+import { useT } from "@/lib/i18n";
 
 type Props = {
   page: number;
@@ -10,6 +11,7 @@ type Props = {
 };
 
 export default function PaginationControls({ page, pageSize, total, count, onPageChange, onPageSizeChange }: Props) {
+  const { t } = useT();
   const safeTotal = Number(total || 0);
   const start = safeTotal === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = safeTotal === 0 ? 0 : Math.min(safeTotal, start + count - 1);
@@ -19,7 +21,7 @@ export default function PaginationControls({ page, pageSize, total, count, onPag
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#ecebe3] px-4 py-3 text-sm text-[#56503f]">
       <div>
-        Showing {start}-{end} of {safeTotal} results
+        {t("common.showingRange", { start, end, total: safeTotal })}
       </div>
       <div className="flex items-center gap-2">
         <select
@@ -29,8 +31,8 @@ export default function PaginationControls({ page, pageSize, total, count, onPag
         >
           {[25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
         </select>
-        <button className="btn" disabled={!hasPrev} onClick={() => onPageChange(page - 1)}>Previous</button>
-        <button className="btn" disabled={!hasNext} onClick={() => onPageChange(page + 1)}>Next</button>
+        <button className="btn" disabled={!hasPrev} onClick={() => onPageChange(page - 1)}>{t("common.previous")}</button>
+        <button className="btn" disabled={!hasNext} onClick={() => onPageChange(page + 1)}>{t("common.next")}</button>
       </div>
     </div>
   );

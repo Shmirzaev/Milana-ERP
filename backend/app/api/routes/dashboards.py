@@ -3,11 +3,11 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 
-from app.core.deps import DbSession, CurrentUser
+from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.dt import as_utc
 from app.models import (
     SalesOrder, ProductionOrder, WorkOrder, Bundle, Package, WasteRecord, FinishedGoodsStock,
-    Item, StockBatch, CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer,
+    Item, StockBatch, CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer, User,
 )
 from app.services.finance import dashboard_summary, branded_stock_value
 from app.services.inventory import stock_summary
@@ -75,7 +75,7 @@ def active_production(db: DbSession, _: CurrentUser):
 
 
 @router.get("/management")
-def management(db: DbSession, _: CurrentUser, tz: str | None = None):
+def management(db: DbSession, _: User = Depends(require_permissions("management.view", "*")), tz: str | None = None):
     now = datetime.now(timezone.utc)
     try:
         client_tz = ZoneInfo(tz) if tz else timezone.utc
@@ -120,7 +120,7 @@ def management(db: DbSession, _: CurrentUser, tz: str | None = None):
 def planning(db: DbSession, _: CurrentUser):
     return {
         "orders_waiting_planning": db.query(func.count(SalesOrder.id)).filter(
-            SalesOrder.status.in_(["confirmed", "planning_approved"])
+            SalesOrder.status.in_(["confirmed", "pending_sales_approval", "planning_approved"])
         ).scalar() or 0,
         "active_production_orders": db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.status.in_(["new", "planning", "waiting_material", "cutting", "printing", "sewing", "packaging"])).scalar() or 0,
         "branded_plans": db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.production_type == "branded_stock").scalar() or 0,
@@ -161,7 +161,7 @@ def production(
 
 
 @router.get("/finance")
-def finance(db: DbSession, _: CurrentUser):
+def finance(db: DbSession, _: User = Depends(require_permissions("finance.view", "*"))):
     return dashboard_summary(db)
 
 

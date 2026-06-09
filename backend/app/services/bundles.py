@@ -157,9 +157,13 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
 
 
 def receive_at_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
-    if bundle.status != "sent_to_sewing":
+    sew = _dept(db, DEPT_SEW)
+    if bundle.status == "created" and sew and bundle.next_department_id == sew.id:
+        _transition(db, bundle, "received_sewing", "received_sewing", DEPT_CUT, DEPT_SEW, user_id)
+    elif bundle.status == "sent_to_sewing":
+        _transition(db, bundle, "received_sewing", "received_sewing", None, DEPT_SEW, user_id)
+    else:
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be received at sewing")
-    _transition(db, bundle, "received_sewing", "received_sewing", None, DEPT_SEW, user_id)
     wo = db.query(WorkOrder).filter(
         WorkOrder.production_order_id == bundle.production_order_id,
         WorkOrder.operation == "sewing",

@@ -79,6 +79,18 @@ def _complete_if_done(wo: WorkOrder) -> None:
         wo.end_time = datetime.now(timezone.utc)
 
 
+def propagate_cutting_plan_from_output(db: Session, wo: WorkOrder) -> None:
+    """Keep cutting actual output separate from the original production plan."""
+    if wo.operation != "cutting":
+        return
+
+    po = db.get(ProductionOrder, wo.production_order_id)
+    if not po:
+        return
+
+    db.flush()
+
+
 def sync_production_order_status(db: Session, production_order_id: int) -> None:
     po = db.get(ProductionOrder, production_order_id)
     if not po:
@@ -248,14 +260,28 @@ def consume_item_from_batches(
     reference_type: str,
     reference_id: int | None,
     user_id: int | None,
+    warehouse_id: int | None = None,
+    require_available: bool = False,
 ) -> float:
     if quantity <= 0:
         return 0.0
     left = float(quantity)
     consumed = 0.0
+
+    batch_query = db.query(StockBatch).filter(StockBatch.item_id == item_id, StockBatch.quantity > 0)
+    if warehouse_id is not None:
+        batch_query = batch_query.filter(StockBatch.warehouse_id == warehouse_id)
+
+    if require_available:
+        available = sum(float(row.quantity or 0) for row in batch_query.all())
+        if available + 1e-9 < quantity:
+            raise HTTPException(
+                409,
+                f"Insufficient stock for item #{item_id}: available {available}, requested {quantity}",
+            )
+
     batches = (
-        db.query(StockBatch)
-        .filter(StockBatch.item_id == item_id, StockBatch.quantity > 0)
+        batch_query
         .order_by(StockBatch.received_date.asc(), StockBatch.id.asc())
         .all()
     )

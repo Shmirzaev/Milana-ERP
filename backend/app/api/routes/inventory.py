@@ -5,9 +5,17 @@ from app.models import Item, Warehouse, StockBatch, StockMovement, Supplier, Use
 from app.schemas.inventory import (
     ItemIn, ItemOut, WarehouseIn, WarehouseOut,
     StockBatchIn, StockBatchOut, StockMovementIn, StockMovementOut, StockLine,
+    AccessoryIssueIn, AccessoryIssueOut, AccessoryIssuePlanOut, AccessoryIssueSummaryRow,
 )
 from app.services.audit import log_action
-from app.services.inventory import categories_for_group, stock_summary, current_stock_for_item
+from app.services.inventory import (
+    accessory_issue_plan,
+    accessory_issue_summary,
+    categories_for_group,
+    issue_accessories_to_production_order,
+    stock_summary,
+    current_stock_for_item,
+)
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -126,6 +134,66 @@ def receive_stock(payload: StockBatchIn, db: DbSession, current: User = Depends(
     log_action(db, current, "receive", "StockBatch", batch.id, new_value={"batch_no": batch.batch_no, "qty": float(batch.quantity)})
     db.commit(); db.refresh(batch)
     return batch
+
+
+# ===== Accessory issues to production =====
+@router.get("/accessory-issue-plan", response_model=AccessoryIssuePlanOut)
+def get_accessory_issue_plan(
+    production_order_id: int,
+    db: DbSession,
+    _: CurrentUser,
+):
+    return accessory_issue_plan(db, production_order_id)
+
+
+@router.get("/accessory-issues")
+def list_accessory_issues(
+    db: DbSession,
+    _: CurrentUser,
+    production_order_id: int | None = None,
+    model_id: int | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    include_total: bool = False,
+):
+    rows = accessory_issue_summary(db, production_order_id=production_order_id, model_id=model_id, q=q)
+    total = len(rows)
+    if include_total:
+        safe_page = max(1, page)
+        safe_size = max(1, min(page_size, 500))
+        rows = rows[(safe_page - 1) * safe_size : safe_page * safe_size]
+        return {
+            "rows": [AccessoryIssueSummaryRow(**row).model_dump() for row in rows],
+            "total": total,
+            "page": safe_page,
+            "page_size": safe_size,
+        }
+    return [AccessoryIssueSummaryRow(**row).model_dump() for row in rows]
+
+
+@router.post("/accessory-issues", response_model=AccessoryIssueOut, status_code=201)
+def issue_accessories(
+    payload: AccessoryIssueIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("storage.transfer", "*")),
+):
+    result = issue_accessories_to_production_order(
+        db,
+        production_order_id=payload.production_order_id,
+        lines=[line.model_dump() for line in payload.lines],
+        user_id=current.id,
+    )
+    log_action(
+        db,
+        current,
+        "issue_accessories",
+        "ProductionOrder",
+        payload.production_order_id,
+        new_value={"issued": result["issued"], "notes": payload.notes},
+    )
+    db.commit()
+    return result
 
 
 # ===== Transfer =====

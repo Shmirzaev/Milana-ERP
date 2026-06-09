@@ -120,7 +120,7 @@ export default function EmployeesPage() {
       <div className="card overflow-x-auto">
         {(employeesError || deptsError) && (
           <div className="border-b border-[#ecebe3] p-3 text-sm text-red-600">
-            Could not load employees. Please try again.
+            {t("page.hr.loadError")}
           </div>
         )}
         <table className="table">

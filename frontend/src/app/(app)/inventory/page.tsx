@@ -11,6 +11,22 @@ import { useT } from "@/lib/i18n";
 
 type InventoryGroup = "materials" | "accessories";
 
+type AccessoryIssueRow = {
+  production_order_id: number;
+  production_no: string;
+  model_id: number;
+  model_code?: string | null;
+  model_name?: string | null;
+  item_id: number;
+  item_sku: string;
+  item_name: string;
+  category: string;
+  unit: string;
+  issued_quantity: number;
+  movement_count: number;
+  last_issued_at?: string | null;
+};
+
 const GROUPS: { value: InventoryGroup; titleKey: string; subtitleKey: string }[] = [
   { value: "materials", titleKey: "page.inventory.materialTitle", subtitleKey: "page.inventory.materialSubtitle" },
   { value: "accessories", titleKey: "page.inventory.accessoryTitle", subtitleKey: "page.inventory.accessorySubtitle" },
@@ -26,11 +42,35 @@ export default function InventoryPage() {
   const [searchDraft, setSearchDraft] = useState(q);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [issuePage, setIssuePage] = useState(1);
+  const [issuePageSize, setIssuePageSize] = useState(50);
+  const [issuePoFilter, setIssuePoFilter] = useState(0);
+  const [issueModelFilter, setIssueModelFilter] = useState(0);
   const stockUrl = `/api/inventory/stock?group=${group}&include_total=true&page=${page}&page_size=${pageSize}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
   const { data: stockPage } = useSWR<any>(stockUrl, fetcher);
   const stock = useMemo<any[]>(() => stockPage?.rows || [], [stockPage]);
   const { data: items } = useSWR<any[]>(`/api/inventory/items?group=${group}`, fetcher);
+  const { data: productionOrders } = useSWR<any[]>(group === "accessories" ? "/api/production-orders?page_size=500" : null, fetcher);
+  const { data: models } = useSWR<any[]>(group === "accessories" ? "/api/models" : null, fetcher);
+  const issueParams = useMemo(() => {
+    const params = new URLSearchParams({
+      include_total: "true",
+      page: String(issuePage),
+      page_size: String(issuePageSize),
+    });
+    if (q) params.set("q", q);
+    if (issuePoFilter) params.set("production_order_id", String(issuePoFilter));
+    if (issueModelFilter) params.set("model_id", String(issueModelFilter));
+    return params.toString();
+  }, [issueModelFilter, issuePage, issuePageSize, issuePoFilter, q]);
+  const { data: issueData } = useSWR<any>(
+    group === "accessories" ? `/api/inventory/accessory-issues?${issueParams}` : null,
+    fetcher,
+  );
   const activeSearch = searchDraft.trim().toLowerCase();
+  const issueRows = useMemo<AccessoryIssueRow[]>(() => issueData?.rows || [], [issueData]);
+  const issueTotal = Number(issueData?.total || 0);
+  const modelById = useMemo(() => new Map((models || []).map((m) => [Number(m.id), m])), [models]);
   const rows = useMemo(() => {
     if (!activeSearch) return stock;
     return stock.filter((s) => {
@@ -47,7 +87,12 @@ export default function InventoryPage() {
 
   useEffect(() => {
     setPage(1);
+    setIssuePage(1);
   }, [group, q]);
+
+  useEffect(() => {
+    setIssuePage(1);
+  }, [issueModelFilter, issuePoFilter]);
 
   useEffect(() => {
     setSearchDraft(q);
@@ -55,7 +100,7 @@ export default function InventoryPage() {
 
   function inventoryHref(nextGroup: InventoryGroup, query = q) {
     const params = new URLSearchParams();
-    if (nextGroup === "accessories") params.set("group", "accessories");
+    params.set("group", nextGroup);
     const trimmed = query.trim();
     if (trimmed) params.set("q", trimmed);
     const qs = params.toString();
@@ -144,6 +189,92 @@ export default function InventoryPage() {
           onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
         />
       </div>
+      {group === "accessories" && (
+        <div className="card mt-6 overflow-hidden">
+          <div className="border-b border-[#ecebe3] p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="app-card-title">{t("page.inventory.accessoryIssuesTitle")}</div>
+                <div className="mt-1 text-sm text-[#6f684f]">{t("page.inventory.accessoryIssuesSubtitle")}</div>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div>
+                  <label className="label">{t("field.productionNo")}</label>
+                  <select className="input" value={issuePoFilter} onChange={(e) => setIssuePoFilter(Number(e.target.value))}>
+                    <option value={0}>{t("common.all")}</option>
+                    {productionOrders?.map((po) => (
+                      <option key={po.id} value={po.id}>
+                        {po.production_no || `PO #${po.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">{t("field.modelNumber")}</label>
+                  <select className="input" value={issueModelFilter} onChange={(e) => setIssueModelFilter(Number(e.target.value))}>
+                    <option value={0}>{t("common.all")}</option>
+                    {models?.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {[model.code, model.name].filter(Boolean).join(" - ") || `#${model.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t("field.productionNo")}</th>
+                  <th>{t("field.modelNumber")}</th>
+                  <th>{t("field.sku")}</th>
+                  <th>{t("common.name")}</th>
+                  <th>{t("page.inventory.issuedQty")}</th>
+                  <th>{t("field.unit")}</th>
+                  <th>{t("page.inventory.issueMoves")}</th>
+                  <th>{t("page.inventory.lastIssued")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {issueRows.map((row) => {
+                  const model = modelById.get(Number(row.model_id));
+                  const modelLabel = [row.model_code || model?.code, row.model_name || model?.name].filter(Boolean).join(" - ") || `#${row.model_id}`;
+                  return (
+                    <tr key={`${row.production_order_id}-${row.item_id}-${row.unit}`}>
+                      <td className="mono font-semibold text-[#14110b]">{row.production_no}</td>
+                      <td>
+                        <div className="mono font-semibold text-[#14110b]">{row.model_code || model?.code || row.model_id}</div>
+                        <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{modelLabel}</div>
+                      </td>
+                      <td className="mono">{row.item_sku}</td>
+                      <td>{row.item_name}</td>
+                      <td className="mono font-semibold text-[#14110b]">{Number(row.issued_quantity || 0).toFixed(2)}</td>
+                      <td>{row.unit}</td>
+                      <td>{row.movement_count}</td>
+                      <td>{row.last_issued_at ? new Date(row.last_issued_at).toLocaleDateString() : "-"}</td>
+                    </tr>
+                  );
+                })}
+                {issueRows.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="text-sm text-slate-400">{t("page.inventory.noAccessoryIssues")}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <PaginationControls
+            page={issuePage}
+            pageSize={issuePageSize}
+            total={issueTotal}
+            count={issueRows.length}
+            onPageChange={setIssuePage}
+            onPageSizeChange={(size) => { setIssuePageSize(size); setIssuePage(1); }}
+          />
+        </div>
+      )}
     </div>
   );
 }

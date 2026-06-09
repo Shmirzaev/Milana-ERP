@@ -40,7 +40,7 @@ export default function FinishedGoodsPage() {
           <tbody>{data?.map((s) => <tr key={s.id}><td>{s.model_code || s.model_id}</td><td>{s.color}</td><td>{s.size}</td><td>{s.quantity}</td><td>{s.available_qty}</td><td>{s.reserved_qty}</td><td>{s.sold_qty}</td><td>{statusLabel(s.status, t)}</td></tr>)}</tbody>
         </table>
       </div>
-      <h2 className="text-lg font-medium mt-6 mb-2">Ready to Ship</h2>
+      <h2 className="text-lg font-medium mt-6 mb-2">{t("page.finishedGoods.readyToShip")}</h2>
       <div className="card overflow-x-auto">
         <table className="table">
           <thead>
@@ -59,13 +59,13 @@ export default function FinishedGoodsPage() {
                     {row.shipment_no ? (
                       <Link className="text-brand-600 hover:underline" href={`/shipments?so_id=${soId}&shipment_id=${row.shipment_id}`}>{row.shipment_no}</Link>
                     ) : soId ? (
-                      <Link className="text-brand-600 hover:underline" href={`/shipments?so_id=${soId}`}>Not created</Link>
+                      <Link className="text-brand-600 hover:underline" href={`/shipments?so_id=${soId}`}>{t("page.finishedGoods.shipmentNotCreated")}</Link>
                     ) : "-"}
                   </td>
                 </tr>
               );
             })}
-            {readyToShip.length === 0 && <tr><td colSpan={5} className="text-sm text-slate-400">No orders ready to ship.</td></tr>}
+            {readyToShip.length === 0 && <tr><td colSpan={5} className="text-sm text-slate-400">{t("page.finishedGoods.noOrdersReady")}</td></tr>}
           </tbody>
         </table>
       </div>

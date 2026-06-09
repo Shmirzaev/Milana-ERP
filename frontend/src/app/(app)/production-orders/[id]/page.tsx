@@ -63,6 +63,43 @@ type FlowUtil = {
   is_full: boolean;
 };
 
+type ModelSummary = {
+  id: number;
+  code?: string | null;
+  name?: string | null;
+};
+
+type SalesOrderSummary = {
+  id: number;
+  order_no?: string | null;
+  customer_name?: string | null;
+  customer?: { name?: string | null } | null;
+};
+
+const PRE_CUTTING_EDIT_STATUSES = new Set(["new", "planning", "pending", "waiting", "ready"]);
+
+function dateInputValue(value?: string | null) {
+  return value ? value.slice(0, 10) : "";
+}
+
+function formatMaterialUsage(amount?: number | string | null, unit?: string | null) {
+  if (amount === null || amount === undefined || amount === "") return "-";
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed)) return "-";
+  return `${parsed.toLocaleString(undefined, { maximumFractionDigits: 4 })}${unit ? ` ${unit}` : ""}`;
+}
+
+function modelLabel(model: ModelSummary | undefined, id?: number | null) {
+  if (!model) return id ? `#${id}` : "-";
+  return [model.code, model.name].filter(Boolean).join(" - ") || `#${model.id}`;
+}
+
+function salesOrderLabel(order: SalesOrderSummary | undefined, id?: number | null) {
+  if (!order) return id ? `#${id}` : "-";
+  const customer = order.customer?.name || order.customer_name;
+  return [order.order_no || `#${order.id}`, customer].filter(Boolean).join(" - ");
+}
+
 export default function ProductionOrderDetail() {
   const params = useParams<{ id: string }>();
   const { t } = useT();
@@ -75,12 +112,31 @@ export default function ProductionOrderDetail() {
   const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
   const { data: flowUtil } = useSWR<FlowUtil[]>("/api/sewing-flows/utilization-snapshot", fetcher, { refreshInterval: 60_000 });
   const { data: users } = useSWR<any[]>(canPlan ? "/api/users" : null, fetcher);
+  const { data: models } = useSWR<ModelSummary[]>("/api/models", fetcher);
+  const { data: salesOrders } = useSWR<SalesOrderSummary[]>("/api/sales-orders?page_size=500", fetcher);
   const utilByFlow = new Map((flowUtil || []).map((u) => [u.flow_id, u]));
   const batchById = new Map<number, BatchMeta>(((po?.batches || []) as BatchMeta[]).map((b) => [b.id, b]));
+  const modelById = new Map((models || []).map((m) => [m.id, m]));
+  const salesOrderById = new Map((salesOrders || []).map((so) => [so.id, so]));
+  const workOrders = (po?.work_orders || []) as WO[];
+  const cuttingWO = workOrders.find((w) => w.operation === "cutting");
+  const canEditSummary = canPlan && (!cuttingWO || PRE_CUTTING_EDIT_STATUSES.has(String(cuttingWO.status || "")));
 
   const [editing, setEditing] = useState<WO | null>(null);
   const [edit, setEdit] = useState({ deadline: "", sewing_flow_id: 0, assigned_to: 0 });
   const [editMsg, setEditMsg] = useState("");
+  const [summaryEditing, setSummaryEditing] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState({
+    model_id: "",
+    sales_order_id: "",
+    planned_quantity: "",
+    deadline: "",
+    estimated_material_code: "",
+    estimated_material_amount: "",
+    estimated_material_unit: "kg",
+  });
+  const [summaryMsg, setSummaryMsg] = useState("");
+  const [summarySaving, setSummarySaving] = useState(false);
   const [openAssignments, setOpenAssignments] = useState<number | null>(null);
   const [repairing, setRepairing] = useState(false);
   const [repairMsg, setRepairMsg] = useState("");
@@ -140,18 +196,93 @@ export default function ProductionOrderDetail() {
     } catch (e: any) { setEditMsg(e.message); }
   }
 
+  function openSummaryEdit() {
+    if (!canEditSummary) {
+      setSummaryMsg(t("page.poDetail.lockedAfterCuttingStart"));
+      return;
+    }
+    setSummaryDraft({
+      model_id: po?.model_id ? String(po.model_id) : "",
+      sales_order_id: po?.sales_order_id ? String(po.sales_order_id) : "",
+      planned_quantity: po?.planned_quantity === null || po?.planned_quantity === undefined ? "" : String(po.planned_quantity),
+      deadline: dateInputValue(po?.deadline),
+      estimated_material_code: po?.estimated_material_code ?? "",
+      estimated_material_amount: po?.estimated_material_amount === null || po?.estimated_material_amount === undefined
+        ? ""
+        : String(po.estimated_material_amount),
+      estimated_material_unit: po?.estimated_material_unit || "kg",
+    });
+    setSummaryMsg("");
+    setSummaryEditing(true);
+  }
+
+  async function saveSummary(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canEditSummary) {
+      setSummaryMsg(t("page.poDetail.lockedAfterCuttingStart"));
+      return;
+    }
+
+    const modelId = Number(summaryDraft.model_id);
+    if (!Number.isInteger(modelId) || modelId <= 0) {
+      setSummaryMsg(t("page.poDetail.invalidModel"));
+      return;
+    }
+
+    const salesOrderText = summaryDraft.sales_order_id.trim();
+    const salesOrderId = salesOrderText ? Number(salesOrderText) : null;
+    if (salesOrderText && (!Number.isInteger(salesOrderId) || salesOrderId <= 0)) {
+      setSummaryMsg(t("page.poDetail.invalidSalesOrder"));
+      return;
+    }
+
+    const plannedQty = Number(summaryDraft.planned_quantity);
+    if (!Number.isInteger(plannedQty) || plannedQty < 0) {
+      setSummaryMsg(t("page.poDetail.invalidPlannedQty"));
+      return;
+    }
+
+    const materialAmountText = summaryDraft.estimated_material_amount.trim();
+    const materialAmount = materialAmountText ? Number(materialAmountText) : null;
+    if (materialAmountText && (!Number.isFinite(materialAmount) || materialAmount < 0)) {
+      setSummaryMsg(t("page.poDetail.invalidMaterialUsage"));
+      return;
+    }
+
+    setSummarySaving(true);
+    setSummaryMsg("");
+    try {
+      await api.patch(`/api/production-orders/${id}`, {
+        model_id: modelId,
+        sales_order_id: salesOrderId,
+        planned_quantity: plannedQty,
+        deadline: summaryDraft.deadline ? new Date(summaryDraft.deadline).toISOString() : null,
+        estimated_material_code: summaryDraft.estimated_material_code.trim() || null,
+        estimated_material_amount: materialAmount,
+        estimated_material_unit: summaryDraft.estimated_material_unit.trim() || null,
+      });
+      setSummaryEditing(false);
+      setSummaryMsg(t("msg.saved"));
+      mutate();
+    } catch (e: any) {
+      setSummaryMsg(e.message);
+    } finally {
+      setSummarySaving(false);
+    }
+  }
+
   if (!isNumericId) {
     return (
       <div className="card p-4 text-sm text-red-700">
-        Could not load production order. The detail URL must use the numeric production order ID.
+        {t("page.productionOrder.invalidId")}
       </div>
     );
   }
   if (poError) {
     return (
       <div className="card p-4 text-sm text-red-700">
-        <div>Could not load production order. Please try again.</div>
-        <button className="btn mt-3" onClick={() => mutate()}>Retry</button>
+        <div>{t("page.productionOrder.loadError")}</div>
+        <button className="btn mt-3" onClick={() => mutate()}>{t("common.retry")}</button>
       </div>
     );
   }
@@ -189,13 +320,139 @@ export default function ProductionOrderDetail() {
           </table>
         </div>
         <div className="card p-4">
-          <h3 className="font-medium mb-2">{t("page.poDetail.summary")}</h3>
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-medium">{t("page.poDetail.summary")}</h3>
+              {canPlan && !canEditSummary && (
+                <div className="mt-1 text-xs text-slate-500">{t("page.poDetail.lockedAfterCuttingStart")}</div>
+              )}
+            </div>
+            {canEditSummary && !summaryEditing && (
+              <button type="button" className="btn" onClick={openSummaryEdit}>{t("btn.edit")}</button>
+            )}
+          </div>
+
+          {summaryEditing ? (
+            <form onSubmit={saveSummary} className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="label">{t("field.model")}</label>
+                  <select
+                    className="input"
+                    value={summaryDraft.model_id}
+                    onChange={(e) => setSummaryDraft({ ...summaryDraft, model_id: e.target.value })}
+                  >
+                    <option value="">{t("newso.selectModel")}</option>
+                    {po?.model_id && !modelById.has(Number(po.model_id)) && (
+                      <option value={po.model_id}>{modelLabel(undefined, po.model_id)}</option>
+                    )}
+                    {models?.map((m) => (
+                      <option key={m.id} value={m.id}>{modelLabel(m, m.id)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">{t("page.poDetail.salesOrder")}</label>
+                  <select
+                    className="input"
+                    value={summaryDraft.sales_order_id}
+                    onChange={(e) => setSummaryDraft({ ...summaryDraft, sales_order_id: e.target.value })}
+                  >
+                    <option value="">{t("page.poDetail.noSalesOrder")}</option>
+                    {po?.sales_order_id && !salesOrderById.has(Number(po.sales_order_id)) && (
+                      <option value={po.sales_order_id}>{salesOrderLabel(undefined, po.sales_order_id)}</option>
+                    )}
+                    {salesOrders?.map((so) => (
+                      <option key={so.id} value={so.id}>{salesOrderLabel(so, so.id)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">{t("page.poDetail.plannedQty")}</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={summaryDraft.planned_quantity}
+                    onChange={(e) => setSummaryDraft({ ...summaryDraft, planned_quantity: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="label">{t("field.deadline")}</label>
+                  <input
+                    className="input"
+                    type="date"
+                    value={summaryDraft.deadline}
+                    onChange={(e) => setSummaryDraft({ ...summaryDraft, deadline: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="label">{t("page.poDetail.estimatedMaterialCode")}</label>
+                  <input
+                    className="input"
+                    value={summaryDraft.estimated_material_code}
+                    onChange={(e) => setSummaryDraft({ ...summaryDraft, estimated_material_code: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="label">{t("page.poDetail.estimatedMaterialUsage")}</label>
+                  <div className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-2">
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      step="0.0001"
+                      value={summaryDraft.estimated_material_amount}
+                      onChange={(e) => setSummaryDraft({ ...summaryDraft, estimated_material_amount: e.target.value })}
+                    />
+                    <input
+                      className="input"
+                      value={summaryDraft.estimated_material_unit}
+                      onChange={(e) => setSummaryDraft({ ...summaryDraft, estimated_material_unit: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+              {summaryMsg && <div className="text-sm text-red-600">{summaryMsg}</div>}
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" className="btn" onClick={() => { setSummaryEditing(false); setSummaryMsg(""); }}>
+                  {t("btn.cancel")}
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={summarySaving}>
+                  {summarySaving ? t("common.saving") : t("btn.saveChanges")}
+                </button>
+              </div>
+            </form>
+          ) : (
+          <>
           <dl className="text-sm space-y-1">
-            <div className="flex justify-between"><dt className="text-slate-500">{t("field.model")}</dt><dd>{po.model_id}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">{t("page.poDetail.salesOrder")}</dt><dd>{po.sales_order_id || "—"}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-slate-500">{t("field.model")}</dt><dd className="text-right">{modelLabel(modelById.get(Number(po.model_id)), po.model_id)}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-slate-500">{t("page.poDetail.salesOrder")}</dt><dd className="text-right">{salesOrderLabel(salesOrderById.get(Number(po.sales_order_id)), po.sales_order_id)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("page.poDetail.plannedQty")}</dt><dd>{po.planned_quantity}</dd></div>
+            {Number(po.actual_bundle_quantity || 0) > 0 && (
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.poDetail.actualBundleQuantity")}</dt><dd>{po.actual_bundle_quantity}</dd></div>
+            )}
+            {Number(po.actual_bundle_count || 0) > 0 && (
+              <div className="flex justify-between"><dt className="text-slate-500">{t("page.poDetail.actualBundles")}</dt><dd>{po.actual_bundle_count}</dd></div>
+            )}
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.deadline")}</dt><dd>{po.deadline ? new Date(po.deadline).toLocaleDateString() : "—"}</dd></div>
+            <div className="flex justify-between border-t border-[#ecebe3] pt-2">
+              <dt className="text-slate-500">{t("page.poDetail.estimatedMaterialCode")}</dt>
+              <dd>{po.estimated_material_code || "-"}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-slate-500">{t("page.poDetail.estimatedMaterialUsage")}</dt>
+              <dd>{formatMaterialUsage(po.estimated_material_amount, po.estimated_material_unit)}</dd>
+            </div>
           </dl>
+          {summaryMsg && (
+            <div className={`mt-3 text-sm ${summaryMsg === t("msg.saved") ? "text-emerald-700" : "text-red-600"}`}>
+              {summaryMsg}
+            </div>
+          )}
+          </>
+          )}
         </div>
       </div>
 

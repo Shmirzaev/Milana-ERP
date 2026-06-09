@@ -36,6 +36,9 @@ def create_production_order(
     planned_quantity: int = 0,
     start_date: datetime | None = None,
     deadline: datetime | None = None,
+    estimated_material_code: str | None = None,
+    estimated_material_amount: float | None = None,
+    estimated_material_unit: str | None = None,
     destination_warehouse_id: int | None = None,
     items: list[dict] | None = None,
     created_by: int | None = None,
@@ -56,6 +59,15 @@ def create_production_order(
         if not so:
             raise HTTPException(404, "Sales order not found")
 
+    material_code = str(estimated_material_code or "").strip() or None
+    material_unit = str(estimated_material_unit or "").strip() or None
+    material_amount = None
+    if estimated_material_amount is not None:
+        material_amount = float(estimated_material_amount)
+        if material_amount < 0:
+            raise HTTPException(400, "Estimated material amount cannot be negative")
+        material_unit = material_unit or "kg"
+
     po = ProductionOrder(
         production_no=next_production_order_no(db),
         production_type=production_type,
@@ -66,6 +78,9 @@ def create_production_order(
         planned_quantity=planned_quantity or sum(int(i.get("planned_quantity", 0)) for i in (items or [])),
         start_date=start_date,
         deadline=deadline,
+        estimated_material_code=material_code,
+        estimated_material_amount=material_amount,
+        estimated_material_unit=material_unit,
         destination_warehouse_id=destination_warehouse_id,
         created_by=created_by,
     )
@@ -98,12 +113,10 @@ def create_production_batches(db: Session, production_order_id: int, batches: li
 
     used_nos: set[str] = set()
     created: list[ProductionBatch] = []
-    total_qty = 0
     for idx, raw in enumerate(batches, start=1):
         qty = int(raw.get("planned_quantity", 0))
         if qty <= 0:
             raise HTTPException(400, f"Batch #{idx} planned_quantity must be > 0")
-        total_qty += qty
 
         # Dedicated batch serial that is clearly different from WO numbers.
         proposed_no = f"BT-{int(po.id):04d}-{idx:02d}"
@@ -126,12 +139,6 @@ def create_production_batches(db: Session, production_order_id: int, batches: li
         )
         db.add(b)
         created.append(b)
-
-    if total_qty != int(po.planned_quantity or 0):
-        raise HTTPException(
-            400,
-            f"Batch quantities ({total_qty}) must match planned_quantity ({int(po.planned_quantity or 0)})",
-        )
 
     db.flush()
     return created

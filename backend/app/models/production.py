@@ -17,6 +17,9 @@ class ProductionOrder(Base, PkMixin, TimestampMixin):
     planned_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    estimated_material_code: Mapped[str | None] = mapped_column(String(128))
+    estimated_material_amount: Mapped[float | None] = mapped_column(Numeric(14, 4))
+    estimated_material_unit: Mapped[str | None] = mapped_column(String(32))
     destination_warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 

@@ -60,9 +60,9 @@ function WorkOrderMiniRow({
       <Link
         href={`/production-orders/${workOrder.production_order_id}`}
         className="min-w-0 truncate font-medium text-brand-600 hover:underline"
-        title={`PO #${workOrder.production_order_id}`}
+        title={`${t("field.productionOrderShort")} #${workOrder.production_order_id}`}
       >
-        PO #{workOrder.production_order_id}
+        {t("field.productionOrderShort")} #{workOrder.production_order_id}
       </Link>
       <div className="min-w-0">
         <span className="badge max-w-full justify-center truncate px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>

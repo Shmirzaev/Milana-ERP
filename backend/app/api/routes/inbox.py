@@ -21,6 +21,14 @@ from app.models import (
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 _PENDING_WO_STATUSES = ("new", "planning", "ready", "waiting", "pending", "collected", "paused")
 _IN_PROGRESS_WO_STATUSES = ("in_progress",)
+_DEPT_OPERATION = {
+    "CUT": "cutting",
+    "PRT": "printing",
+    "SEW": "sewing",
+    "PKG": "packaging",
+    "FGS": "storage_transfer",
+}
+_WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
 
 
 def _shipment_type_label(order_type: str | None) -> str:
@@ -43,6 +51,80 @@ def _resolve_department(db: DbSession, current: CurrentUser, dept: str | None) -
     if not found:
         raise HTTPException(404, "User department not found")
     return found
+
+
+def _previous_work_order(by_op: dict[str, WorkOrder], operation: str) -> WorkOrder | None:
+    try:
+        idx = _WORKFLOW_SEQUENCE.index(operation)
+    except ValueError:
+        return None
+    for candidate in reversed(_WORKFLOW_SEQUENCE[:idx]):
+        found = by_op.get(candidate)
+        if found:
+            return found
+    return None
+
+
+def _incoming_work_items(db: DbSession, dept_code: str) -> list[dict]:
+    target_operation = _DEPT_OPERATION.get(dept_code)
+    if not target_operation:
+        return []
+
+    target_rows = (
+        db.query(WorkOrder)
+        .filter(
+            WorkOrder.operation == target_operation,
+            WorkOrder.status.notin_(["completed", "rejected", "cancelled"]),
+        )
+        .order_by(WorkOrder.id.desc())
+        .limit(500)
+        .all()
+    )
+    po_ids = [int(w.production_order_id) for w in target_rows]
+    if not po_ids:
+        return []
+
+    all_rows = db.query(WorkOrder).filter(WorkOrder.production_order_id.in_(po_ids)).all()
+    by_po: dict[int, dict[str, WorkOrder]] = {}
+    for row in all_rows:
+        by_po.setdefault(int(row.production_order_id), {})[str(row.operation)] = row
+
+    po_rows = db.query(ProductionOrder).filter(ProductionOrder.id.in_(po_ids)).all()
+    po_by_id = {int(po.id): po for po in po_rows}
+
+    incoming: list[dict] = []
+    for target in target_rows:
+        source = _previous_work_order(by_po.get(int(target.production_order_id), {}), target_operation)
+        if not source:
+            continue
+        source_ready_qty = int(source.passed_qty or source.actual_output_qty or 0)
+        target_received_qty = int(target.actual_input_qty or 0)
+        ready_qty = max(0, source_ready_qty - target_received_qty)
+        expected_qty = max(
+            ready_qty,
+            int(target.planned_input_qty or target.planned_output_qty or 0) - target_received_qty,
+        )
+        if ready_qty <= 0 and expected_qty <= 0:
+            continue
+        po = po_by_id.get(int(target.production_order_id))
+        incoming.append(
+            {
+                "production_order_id": target.production_order_id,
+                "production_no": po.production_no if po else None,
+                "work_order_id": target.id,
+                "source_work_order_id": source.id,
+                "source_operation": source.operation,
+                "source_status": source.status,
+                "target_operation": target.operation,
+                "status": target.status,
+                "ready_qty": ready_qty,
+                "expected_qty": expected_qty,
+                "source_passed_qty": source_ready_qty,
+                "received_qty": target_received_qty,
+                "deadline": target.deadline,
+            }
+        )
+    return sorted(incoming, key=lambda row: (0 if int(row["ready_qty"] or 0) > 0 else 1, -int(row["work_order_id"])))[:200]
 
 
 @router.get("")
@@ -70,6 +152,16 @@ def department_inbox(
         .limit(200)
         .all()
     )
+    bundle_po_ids = [int(b.production_order_id) for b in incoming_bundles]
+    bundle_po_by_id = {
+        int(po.id): po
+        for po in db.query(ProductionOrder).filter(ProductionOrder.id.in_(bundle_po_ids)).all()
+    } if bundle_po_ids else {}
+    bundle_production_no_by_id = {
+        po_id: po.production_no
+        for po_id, po in bundle_po_by_id.items()
+    }
+    incoming_work_orders = _incoming_work_items(db, d.code)
 
     work_orders = (
         db.query(WorkOrder)
@@ -256,6 +348,7 @@ def department_inbox(
                 "id": b.id,
                 "bundle_no": b.bundle_no,
                 "production_order_id": b.production_order_id,
+                "production_no": bundle_production_no_by_id.get(int(b.production_order_id)),
                 "model_id": b.model_id,
                 "color": b.color,
                 "size": b.size,
@@ -264,6 +357,7 @@ def department_inbox(
             }
             for b in incoming_bundles
         ],
+        "incoming_work_orders": incoming_work_orders,
         "active_work_orders": [
             {
                 "id": w.id,

@@ -1,14 +1,20 @@
 from datetime import datetime, timezone
 import os
 from uuid import uuid4
-from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, Form
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.config import settings
+from app.core.uploads import (
+    SAFE_DOCUMENT_EXTENSIONS,
+    SAFE_IMAGE_EXTENSIONS,
+    extension_for_upload,
+    safe_content_type,
+    validated_upload_content,
+)
 from app.models import (
     Brand, Collection, CollectionModel, Model, ModelImage, ModelSize, ModelColor, ModelBOM, User,
     Item, SalesOrderItem, ProductionOrder, ProductionOrderItem, Bundle, Package, PackageItem, FinishedGoodsStock,
@@ -55,7 +61,29 @@ def _collection_payload(c: Collection) -> dict:
 def _is_preview_image(img: ModelImage) -> bool:
     content_type = str(img.content_type or "").lower()
     file_name = str(img.file_name or img.file_url or "").lower()
-    return content_type.startswith("image/") or file_name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"))
+    return content_type.startswith("image/") or file_name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))
+
+
+def _validate_file_url(file_url: str) -> str:
+    value = file_url.strip()
+    lowered = value.lower()
+    if lowered.startswith(("javascript:", "data:", "vbscript:", "file:")):
+        raise HTTPException(400, "Unsupported file URL")
+    if value.startswith("/storage/model-files/") or value.startswith(("https://", "http://")):
+        return value
+    raise HTTPException(400, "File URL must be an uploaded file path or an http(s) URL")
+
+
+def _normalize_image_type(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    allowed = {"model", "material", "pattern"}
+    if normalized not in allowed:
+        raise HTTPException(400, "Image type must be model, material, or pattern")
+    return normalized
 
 
 def _image_payload(img: ModelImage) -> dict:
@@ -65,7 +93,9 @@ def _image_payload(img: ModelImage) -> dict:
 def _model_payload(m: Model) -> dict:
     payload = ModelOut.model_validate(m).model_dump()
     images = list(m.images or [])
-    primary_image = next((img for img in images if img.is_primary and _is_preview_image(img)), None)
+    primary_image = next((img for img in images if img.image_type == "model" and _is_preview_image(img)), None)
+    if not primary_image:
+        primary_image = next((img for img in images if img.is_primary and _is_preview_image(img)), None)
     if not primary_image:
         primary_image = next((img for img in images if _is_preview_image(img)), None)
     primary_payload = _image_payload(primary_image) if primary_image else None
@@ -288,7 +318,10 @@ def approve_model(mid: int, db: DbSession, current: User = Depends(require_permi
 @router.post("/models/{mid}/images", status_code=201)
 def add_image(mid: int, payload: ModelImageIn, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
     if not db.get(Model, mid): raise HTTPException(404, "Model not found")
-    img = ModelImage(model_id=mid, **payload.model_dump())
+    data = payload.model_dump()
+    data["file_url"] = _validate_file_url(data["file_url"])
+    data["image_type"] = _normalize_image_type(data.get("image_type"))
+    img = ModelImage(model_id=mid, **data)
     db.add(img)
     db.flush()
     log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": img.file_url})
@@ -301,21 +334,16 @@ async def upload_image(
     mid: int,
     db: DbSession,
     file: UploadFile = File(...),
+    image_type: str | None = Form(None),
     current: User = Depends(require_permissions("modeling.models", "*")),
 ):
     if not db.get(Model, mid):
         raise HTTPException(404, "Model not found")
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".dxf", ".ai", ".svg"}:
-        raise HTTPException(400, "Unsupported pattern file type")
+    ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
     safe_name = f"model_{mid}_{uuid4().hex}{ext}"
     abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
-    content = await file.read()
-    if len(content) == 0:
-        raise HTTPException(400, "Empty file")
-    if len(content) > 20 * 1024 * 1024:
-        raise HTTPException(400, "File too large (max 20MB)")
+    content = validated_upload_content(await file.read(), ext, 20 * 1024 * 1024)
     with open(abs_path, "wb") as f:
         f.write(content)
     file_url = f"/storage/model-files/{safe_name}"
@@ -323,7 +351,8 @@ async def upload_image(
         model_id=mid,
         file_url=file_url,
         file_name=file.filename or safe_name,
-        content_type=file.content_type,
+        content_type=safe_content_type(ext),
+        image_type=_normalize_image_type(image_type),
         is_primary=False,
     )
     db.add(img)

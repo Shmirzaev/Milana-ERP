@@ -196,7 +196,7 @@ export default function ProcessTrackingPage() {
                   <td>
                     {p.planned_quantity}
                     {(p.batches || []).length > 0 && (
-                      <div className="text-[10px] text-slate-500 mt-0.5">{(p.batches || []).length} batch(es)</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">{t("batch.count", { count: (p.batches || []).length })}</div>
                     )}
                   </td>
                   <td>
@@ -209,7 +209,7 @@ export default function ProcessTrackingPage() {
                     )}
                     {p.is_blocked && p.blocked_by && (
                       <div className="text-xs text-red-700 mt-1" title={p.blocked_by.reason ?? ""}>
-                        Blocked on {operationLabel(p.blocked_by.operation, t)}
+                        {t("page.processes.blockedOn", { operation: operationLabel(p.blocked_by.operation, t) })}
                       </div>
                     )}
                   </td>
@@ -242,7 +242,7 @@ export default function ProcessTrackingPage() {
 
                       {(p.batches || []).length > 0 && (
                         <div className="mt-4 space-y-2">
-                          <div className="text-xs font-medium text-slate-500 uppercase">Batch process tracking</div>
+                          <div className="text-xs font-medium text-slate-500 uppercase">{t("page.processes.batchTracking")}</div>
                           {(p.batches || []).map((batch) => (
                             <details key={batch.id} className="rounded border border-slate-200 bg-white">
                               <summary className="cursor-pointer list-none px-3 py-2">
@@ -250,14 +250,14 @@ export default function ProcessTrackingPage() {
                                   <div className="flex items-center gap-2">
                                     <span className="badge">{formatBatchSerial(batch, p.production_order_id)}</span>
                                     <span className="text-sm font-medium">{batch.name || `Batch ${batch.batch_index}`}</span>
-                                    <span className="text-xs text-slate-500">{batch.planned_quantity} pcs</span>
+                                    <span className="text-xs text-slate-500">{batch.planned_quantity} {t("field.unitPcs")}</span>
                                   </div>
                                   <div className="flex items-center gap-2 text-xs">
                                     <span className={`badge ${STAGE_COLORS[batch.current_stage] || "badge"}`}>
                                       {operationLabel(batch.current_stage, t)}
                                     </span>
                                     {batch.current_stage_status && <span>{statusLabel(batch.current_stage_status, t)}</span>}
-                                    <span>{batch.deadline ? new Date(batch.deadline).toLocaleDateString() : "No deadline"}</span>
+                                    <span>{batch.deadline ? new Date(batch.deadline).toLocaleDateString() : t("page.processes.noDeadline")}</span>
                                   </div>
                                 </div>
                               </summary>

@@ -5,7 +5,8 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
-import { statusLabel } from "@/components/StagePipeline";
+import { operationLabel, statusLabel } from "@/components/StagePipeline";
+import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
 import { useT } from "@/lib/i18n";
 
 type Flow = {
@@ -132,7 +133,7 @@ export default function SewingPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (isAlreadyBatched && !f.production_batch_id) {
-      setMsg("Select a batch before saving the sewing record.");
+      setMsg(t("batch.selectBeforeSaving", { operation: operationLabel("sewing", t).toLowerCase() }));
       return;
     }
     try {
@@ -162,81 +163,34 @@ export default function SewingPage() {
     }
   }
 
-  function d(v?: string | null) {
-    return v ? new Date(v).toLocaleDateString() : "-";
-  }
-
   return (
     <div>
       <PageHeader title={t("page.sewing.title", { id })} subtitle={t("page.sewing.subtitle")} />
-      <div className="card mb-4 p-4">
-        <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.shipments.salesOrder")}</div>
-            <div className="font-medium">{so?.order_no || (po?.sales_order_id ? `#${po.sales_order_id}` : "-")}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.customer")}</div>
-            <div className="font-medium">{so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : "-"}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.model")}</div>
-            <div className="font-medium">{model ? `${model.code} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-")}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.productionOrder")}</div>
-            <div className="font-medium">{po?.production_no || (po?.id ? `#${po.id}` : "-")}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.plannedQty")}</div>
-            <div className="font-medium">{po?.planned_quantity ?? wo?.planned_output_qty ?? 0}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("common.status")}</div>
-            <div className="font-medium">{wo ? statusLabel(wo.status, t) : "-"}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.salesDeadline")}</div>
-            <div className="font-medium">{d(so?.deadline)}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.poDeadline")}</div>
-            <div className="font-medium">{d(po?.deadline)}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.woDeadline")}</div>
-            <div className="font-medium">{d(wo?.deadline)}</div>
-          </div>
-        </div>
-        {Array.isArray(po?.items) && po.items.length > 0 && (
-          <div className="mt-3 border-t border-[#ecebe3] pt-3">
-            <div className="mb-2 text-xs uppercase tracking-wide text-slate-500">{t("page.workOrder.breakdown")}</div>
-            <div className="flex flex-wrap gap-2">
-              {po.items.map((it: any) => (
-                <span key={it.id} className="rounded-full bg-[#f5f2e8] px-3 py-1 text-xs text-[#5d5747]">
-                  {(it.color || "-")} / {(it.size || "-")} / {it.planned_quantity ?? 0}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      <WorkOrderProductInfo
+        t={t}
+        so={so}
+        po={po}
+        wo={wo}
+        model={model}
+        customerName={so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : null}
+        statusText={wo ? statusLabel(wo.status, t) : "-"}
+      />
       {isAlreadyBatched && (
         <div className="card mb-4 p-4">
-          <div className="mb-2 text-base font-semibold">Batches Managed Inside This Work Order</div>
+          <div className="mb-2 text-base font-semibold">{t("batch.managedInsideWorkOrder")}</div>
           <div className="mb-3 text-sm text-slate-600">
-            Record each sewing action against a batch below. This order stays as one WO.
+            {t("batch.recordAction", { operation: operationLabel("sewing", t).toLowerCase() })}
           </div>
           <div className="overflow-x-auto">
             <table className="table text-sm">
               <thead>
                 <tr>
-                  <th>Batch</th>
-                  <th>Planned</th>
-                  <th>Output</th>
-                  <th>Failed</th>
-                  <th>Remaining</th>
-                  <th>Progress</th>
+                  <th>{t("field.batch")}</th>
+                  <th>{t("statusValue.planned")}</th>
+                  <th>{t("field.output")}</th>
+                  <th>{t("field.failed")}</th>
+                  <th>{t("field.remaining")}</th>
+                  <th>{t("page.processes.progress")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -255,7 +209,7 @@ export default function SewingPage() {
                 ))}
                 {batchItems.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-slate-500">No batch progress yet.</td>
+                    <td colSpan={6} className="text-slate-500">{t("batch.noProgressYet")}</td>
                   </tr>
                 )}
               </tbody>
@@ -266,13 +220,13 @@ export default function SewingPage() {
       <form onSubmit={submit} className="card max-w-2xl space-y-3 p-6">
         {isAlreadyBatched && (
           <div>
-            <label className="label">Order batch</label>
+            <label className="label">{t("batch.orderBatch")}</label>
             <select
               className="input"
               value={f.production_batch_id}
               onChange={(e) => setF({ ...f, production_batch_id: Number(e.target.value) })}
             >
-              <option value={0}>Select batch</option>
+              <option value={0}>{t("batch.selectBatch")}</option>
               {(po?.batches || []).map((b: any) => (
                 <option key={b.id} value={b.id}>
                   {formatBatchLabel(b, po?.id)} ({b.planned_quantity})

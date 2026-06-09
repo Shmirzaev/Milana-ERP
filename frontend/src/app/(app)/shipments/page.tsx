@@ -105,7 +105,7 @@ export default function ShipmentsPage() {
     setMsg("");
     try {
       await api.post(`/api/shipments/${activeShip}/add-ready-packages`);
-      setMsg("All ready packages added.");
+      setMsg(t("page.shipments.allReadyAdded"));
       await mutate();
       await mutateScanStatus();
     } catch (error) {
@@ -136,10 +136,10 @@ export default function ShipmentsPage() {
   async function ship() {
     setErr("");
     setMsg("");
-    if (!confirm("Mark this shipment as shipped?")) return;
+    if (!confirm(t("page.shipments.confirmMarkShipped"))) return;
     try {
       await api.post(`/api/shipments/${activeShip}/mark-shipped`);
-      setMsg("Shipment marked as shipped.");
+      setMsg(t("page.shipments.markedShipped"));
       await mutate();
       await mutateScanStatus();
     } catch (error) {
@@ -150,10 +150,10 @@ export default function ShipmentsPage() {
   async function deliver() {
     setErr("");
     setMsg("");
-    if (!confirm("Mark this shipment as delivered?")) return;
+    if (!confirm(t("page.shipments.confirmMarkDelivered"))) return;
     try {
       await api.post(`/api/shipments/${activeShip}/deliver`);
-      setMsg("Shipment marked as delivered.");
+      setMsg(t("page.shipments.markedDelivered"));
       await mutate();
       await mutateScanStatus();
     } catch (error) {
@@ -203,7 +203,7 @@ export default function ShipmentsPage() {
             <>
               <button className="btn" onClick={addAllReady}>{t("page.shipments.addAllReady")}</button>
               <div className="min-w-[320px]">
-                <label className="label">Scan package before shipping</label>
+                <label className="label">{t("page.shipments.scanPackageBeforeShipping")}</label>
                 <div className="flex gap-2">
                   <input
                     className="input w-[230px]"
@@ -234,8 +234,8 @@ export default function ShipmentsPage() {
           {err && <div className="w-full text-sm text-rose-700">{err}</div>}
           {activeShip > 0 && scanStatus && (
             <div className={`w-full text-xs ${scanStatus.remaining_count > 0 ? "text-amber-700" : "text-emerald-700"}`}>
-              Scan check: {scanStatus.scanned_count}/{scanStatus.required_count} verified
-              {scanStatus.remaining_count > 0 ? `, ${scanStatus.remaining_count} remaining.` : "."}
+              {t("page.shipments.scanCheck", { scanned: scanStatus.scanned_count, required: scanStatus.required_count })}
+              {scanStatus.remaining_count > 0 ? `, ${t("page.shipments.remaining", { count: scanStatus.remaining_count })}` : "."}
             </div>
           )}
           {scanResult && (
@@ -254,7 +254,7 @@ export default function ShipmentsPage() {
           )}
           {activeShipment && (
             <div className="w-full text-xs text-slate-600">
-              Active shipment: <span className="font-medium">{activeShipment.shipment_no}</span> ({statusLabel(String(activeShipment.status || ""), t)})
+              {t("page.shipments.activeShipment")} <span className="font-medium">{activeShipment.shipment_no}</span> ({statusLabel(String(activeShipment.status || ""), t)})
             </div>
           )}
         </div>
@@ -291,16 +291,16 @@ export default function ShipmentsPage() {
                   <td>{s.delivered_at ? new Date(s.delivered_at).toLocaleString() : "-"}</td>
                   <td className="flex flex-wrap gap-2">
                     <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); selectShipment(s); }}>
-                      {Number(s.id) === Number(activeShip) ? "Selected" : "Select"}
+                      {Number(s.id) === Number(activeShip) ? t("page.shipments.selected") : t("page.shipments.select")}
                     </button>
                     {String(s.status || "") !== "shipped" && String(s.status || "") !== "delivered" && (
                       <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); markRowShipped(s); }}>
-                        Mark as Shipped
+                        {t("page.shipments.markAsShipped")}
                       </button>
                     )}
                     {String(s.status || "") !== "delivered" && (
                       <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); markRowDelivered(s); }}>
-                        Mark as Delivered
+                        {t("page.shipments.markAsDelivered")}
                       </button>
                     )}
                   </td>

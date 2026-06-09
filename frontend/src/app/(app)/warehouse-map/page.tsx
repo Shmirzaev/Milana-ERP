@@ -804,7 +804,7 @@ export default function WarehouseMapPage() {
               </button>
               <button
                 className={`btn ${selectedPlacementBookmarked ? "border-[#c2410c] text-[#9a3308]" : ""}`}
-                title="bookmark"
+                title={t("page.warehouseMap.bookmark")}
                 onClick={toggleBookmark}
                 disabled={busyAction === "move" || busyAction === "label"}
               >
@@ -812,7 +812,7 @@ export default function WarehouseMapPage() {
               </button>
               <button
                 className="btn"
-                title="history"
+                title={t("page.warehouseMap.history")}
                 onClick={openHistory}
                 disabled={busyAction === "move" || busyAction === "label"}
               >
@@ -820,7 +820,7 @@ export default function WarehouseMapPage() {
               </button>
               <button
                 className="btn disabled:cursor-not-allowed disabled:opacity-60"
-                title="qr"
+                title={t("page.warehouseMap.qr")}
                 onClick={openLabel}
                 disabled={busyAction === "move" || busyAction === "label"}
               >

@@ -71,7 +71,7 @@ export default function ModelsPage() {
     const image = m.primary_image;
     const contentType = String(image?.content_type || "").toLowerCase();
     const fileName = String(image?.file_name || image?.file_url || m.primary_image_url || "").toLowerCase();
-    const looksLikeImage = contentType.startsWith("image/") || /\.(png|jpe?g|webp|gif|svg)$/i.test(fileName);
+    const looksLikeImage = contentType.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(fileName);
     if (image?.file_url && looksLikeImage) return image.file_url;
     return m.primary_image_url || "";
   }
@@ -250,8 +250,8 @@ export default function ModelsPage() {
 
       <ConfirmDialog
         isOpen={!!deleting}
-        title="Confirm delete"
-        message={deleting ? `Are you sure you want to delete model ${deleting.code}? This action cannot be undone.` : ""}
+        title={t("confirm.deleteTitle")}
+        message={deleting ? t("confirm.deleteModel", { name: deleting.code }) : ""}
         onConfirm={confirmRemoveModel}
         onCancel={() => setDeleting(null)}
       />

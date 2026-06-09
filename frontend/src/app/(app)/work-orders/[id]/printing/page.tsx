@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
-import { statusLabel } from "@/components/StagePipeline";
+import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import PageHeader from "@/components/PageHeader";
+import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 
@@ -31,6 +32,7 @@ export default function PrintingPage() {
   const [collect, setCollect] = useState({ deadline: "", notes: "" });
   const { data: wo, mutate: mutateWo } = useSWR<any>(Number.isFinite(id) ? `/api/work-orders/${id}` : null, fetcher);
   const { data: po } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
+  const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
     wo ? `/api/work-orders/${id}/printing-batch-progress` : null,
     fetcher,
@@ -65,7 +67,7 @@ export default function PrintingPage() {
 
   function isImageAttachment(a: PrintingAttachment): boolean {
     const byMime = (a.content_type || "").toLowerCase().startsWith("image/");
-    const byName = /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(a.file_name || a.file_url || "");
+    const byName = /\.(png|jpe?g|webp|gif)$/i.test(a.file_name || a.file_url || "");
     return byMime || byName;
   }
 
@@ -77,7 +79,7 @@ export default function PrintingPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (isAlreadyBatched && !f.production_batch_id) {
-      setMsg("Select a batch before saving the printing record.");
+      setMsg(t("batch.selectBeforeSaving", { operation: operationLabel("printing", t).toLowerCase() }));
       return;
     }
     try {
@@ -118,6 +120,17 @@ export default function PrintingPage() {
   return (
     <div>
       <PageHeader title={t("page.printing.title", { id })} />
+      {(wo || po || so || model) && (
+        <WorkOrderProductInfo
+          t={t}
+          so={so}
+          po={po}
+          wo={wo}
+          model={model}
+          customerName={customerName || null}
+          statusText={wo ? statusLabel(wo.status, t) : "-"}
+        />
+      )}
       {wo && (
         <div className="card mb-4 max-w-2xl space-y-3 p-4">
           <div className="flex flex-wrap items-center gap-3">
@@ -148,10 +161,9 @@ export default function PrintingPage() {
           )}
         </div>
       )}
-      {so && (
+      {so && (orderItemsForPrint.length > 0 || so?.notes) && (
         <div className="card mb-4 max-w-2xl space-y-3 p-4">
-          <div className="label">{t("newso.orderDetails")}</div>
-          <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+          <dl className="hidden">
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.orderNo")}</dt><dd className="font-medium">{so.order_no || "—"}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.productionNo")}</dt><dd className="font-medium">{po?.production_no || "—"}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.customer")}</dt><dd className="font-medium">{customerName || so.customer_id || "—"}</dd></div>
@@ -193,9 +205,9 @@ export default function PrintingPage() {
       {(so?.printing_instructions || printFiles.length > 0) && (
         <div className="card mb-4 max-w-2xl space-y-3 p-4">
           <div>
-            <div className="label">Printing details</div>
+            <div className="label">{t("page.printing.details")}</div>
             <div className="mt-1 text-sm text-[#8a8472]">
-              Sales order {so?.order_no || ""} instructions for print execution.
+              {t("page.printing.executionHelp", { orderNo: so?.order_no || "" })}
             </div>
           </div>
           {so?.printing_instructions && (
@@ -219,20 +231,20 @@ export default function PrintingPage() {
       )}
       {isAlreadyBatched && (
         <div className="card mb-4 p-4">
-          <div className="mb-2 text-base font-semibold">Batches Managed Inside This Work Order</div>
+          <div className="mb-2 text-base font-semibold">{t("batch.managedInsideWorkOrder")}</div>
           <div className="mb-3 text-sm text-slate-600">
-            Record each printing action against a batch below. This order stays as one WO.
+            {t("batch.recordAction", { operation: operationLabel("printing", t).toLowerCase() })}
           </div>
           <div className="overflow-x-auto">
             <table className="table text-sm">
               <thead>
                 <tr>
-                  <th>Batch</th>
-                  <th>Planned</th>
-                  <th>Output</th>
-                  <th>Rejected</th>
-                  <th>Remaining</th>
-                  <th>Progress</th>
+                  <th>{t("field.batch")}</th>
+                  <th>{t("statusValue.planned")}</th>
+                  <th>{t("field.output")}</th>
+                  <th>{t("field.rejected")}</th>
+                  <th>{t("field.remaining")}</th>
+                  <th>{t("page.processes.progress")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -251,7 +263,7 @@ export default function PrintingPage() {
                 ))}
                 {batchItems.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-slate-500">No batch progress yet.</td>
+                    <td colSpan={6} className="text-slate-500">{t("batch.noProgressYet")}</td>
                   </tr>
                 )}
               </tbody>
@@ -263,13 +275,13 @@ export default function PrintingPage() {
         <form onSubmit={submit} className="card max-w-2xl space-y-3 p-6">
           {isAlreadyBatched && (
             <div>
-              <label className="label">Order batch</label>
+              <label className="label">{t("batch.orderBatch")}</label>
               <select
                 className="input"
                 value={f.production_batch_id}
                 onChange={(e) => setF({ ...f, production_batch_id: Number(e.target.value) })}
               >
-                <option value={0}>Select batch</option>
+                <option value={0}>{t("batch.selectBatch")}</option>
                 {(po?.batches || []).map((b: any) => (
                   <option key={b.id} value={b.id}>
                     {formatBatchLabel(b, po?.id)} ({b.planned_quantity})

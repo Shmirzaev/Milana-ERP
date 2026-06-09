@@ -22,14 +22,14 @@ export default function WastePage() {
     catch (e: any) { setMsg(e.message); }
   }
   async function act(id: number, action: string, body?: any) {
-    if (["sell", "request-disposal"].includes(action) && !confirm("Confirm this action?")) return;
+    if (["sell", "request-disposal"].includes(action) && !confirm(t("common.confirmAction"))) return;
     await api.post(`/api/waste/${id}/${action}`, body); mutate();
   }
 
   return (
     <div>
       <PageHeader title={t("page.waste.title")} />
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
         <div className="card p-4"><div className="text-xs text-slate-500">{t("page.waste.sellable")}</div><div className="text-2xl font-semibold">{dash?.sellable_count ?? 0}</div></div>
         <div className="card p-4"><div className="text-xs text-slate-500">{t("page.waste.nonSellable")}</div><div className="text-2xl font-semibold">{dash?.non_sellable_count ?? 0}</div></div>
       </div>

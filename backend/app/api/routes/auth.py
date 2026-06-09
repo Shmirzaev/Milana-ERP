@@ -7,10 +7,8 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
 from fastapi import Depends
-from datetime import datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -26,8 +24,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models import (
-    User, Notification, PasswordResetToken, SalesOrder, Payment, Task,
-    CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord,
+    User, Notification, PasswordResetToken,
 )
 from app.schemas.auth import ForgotPasswordIn, LoginIn, ResetPasswordIn, TokenOut, UserMe
 from app.services.audit import log_action
@@ -39,6 +36,7 @@ log = logging.getLogger(__name__)
 _DUMMY_PASSWORD_HASH = hash_password("dummy-login-password-0")
 _LOGIN_FAILURES: dict[str, list[float]] = {}
 _LOGIN_LOCKS: dict[str, float] = {}
+_RESET_REQUESTS: dict[str, list[float]] = {}
 
 
 class ProfileUpdateIn(BaseModel):
@@ -93,6 +91,22 @@ def _record_login_failure(key: str) -> None:
 def _clear_login_failures(key: str) -> None:
     _LOGIN_FAILURES.pop(key, None)
     _LOGIN_LOCKS.pop(key, None)
+
+
+def _enforce_reset_rate_limit(request: Request, email: str) -> None:
+    now = time_module.monotonic()
+    client = request.client.host if request.client else "unknown"
+    keys = [f"ip:{client}", f"email:{normalize_email(email)}"]
+    window_started = now - 60 * 60
+    for key in keys:
+        requests = [ts for ts in _RESET_REQUESTS.get(key, []) if ts >= window_started]
+        if len(requests) >= 5:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "Too many password reset requests. Try again later.",
+            )
+        requests.append(now)
+        _RESET_REQUESTS[key] = requests
 
 
 def _authenticate(request: Request, db: Session, email: str, password: str) -> User:
@@ -188,8 +202,9 @@ def login_json(request: Request, payload: LoginIn, db: DbSession):
 
 
 @router.post("/forgot-password")
-def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: BackgroundTasks):
+def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: BackgroundTasks, request: Request):
     email = normalize_email(str(payload.email))
+    _enforce_reset_rate_limit(request, email)
     user = db.query(User).filter(User.email == email).first()
     if user and user.is_active:
         raw_token = secrets.token_urlsafe(32)
@@ -297,70 +312,15 @@ def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser)
 
 @router.get("/login-panel")
 def login_panel(db: DbSession, tz: str | None = None):
-    now = datetime.now(timezone.utc)
-    try:
-        client_tz = ZoneInfo(tz) if tz else timezone.utc
-    except Exception:
-        client_tz = timezone.utc
-
-    today_local = now.astimezone(client_tz).date()
-    start_local = datetime.combine(today_local, time.min, tzinfo=client_tz)
-    end_local = start_local + timedelta(days=1)
-    start_utc = start_local.astimezone(timezone.utc)
-    end_utc = end_local.astimezone(timezone.utc)
-
-    active_statuses = ["confirmed", "pending_sales_approval", "planning_approved", "planning", "production", "ready"]
-    active_orders = db.query(func.count(SalesOrder.id)).filter(SalesOrder.status.in_(active_statuses)).scalar() or 0
-    late_orders = db.query(func.count(SalesOrder.id)).filter(
-        SalesOrder.deadline < now,
-        SalesOrder.status.notin_(["delivered", "closed", "cancelled"]),
-    ).scalar() or 0
-    todays_receipts = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
-        Payment.paid_at >= start_utc,
-        Payment.paid_at < end_utc,
-    ).scalar() or 0
-
-    first_local = start_local - timedelta(days=13)
-    first_utc = first_local.astimezone(timezone.utc)
-    buckets: dict = {}
-    for i in range(14):
-        day = (first_local + timedelta(days=i)).date()
-        buckets[day] = 0.0
-
-    def add_rows(model, qty_col) -> None:
-        rows = db.query(model.created_at, qty_col).filter(
-            model.created_at >= first_utc,
-            model.created_at < end_utc,
-        ).all()
-        for created_at, qty in rows:
-            if not created_at:
-                continue
-            day_local = as_utc(created_at).astimezone(client_tz).date()
-            if day_local in buckets:
-                buckets[day_local] += float(qty or 0)
-
-    add_rows(CuttingRecord, CuttingRecord.passed_pieces)
-    add_rows(PrintingRecord, PrintingRecord.passed_qty)
-    add_rows(SewingRecord, SewingRecord.passed_qty)
-    add_rows(PackagingRecord, PackagingRecord.packed_qty)
-
-    priority_rank = case(
-        (Task.priority == "urgent", 0),
-        (Task.priority == "high", 1),
-        (Task.priority == "medium", 2),
-        else_=3,
-    )
-    open_tasks = db.query(Task).filter(
-        Task.status.in_(["pending", "in_progress"]),
-    ).order_by(priority_rank.asc(), Task.created_at.desc()).limit(4).all()
-
+    _ = db, tz
+    # This endpoint is intentionally public for the login screen, so it must
+    # never expose live orders, revenue, tasks, or operational volumes.
     return {
-        "active_orders": int(active_orders),
-        "todays_receipts": float(todays_receipts),
-        "late_orders": int(late_orders),
-        "production_14d": [round(v) for v in buckets.values()],
+        "active_orders": 0,
+        "todays_receipts": 0,
+        "late_orders": 0,
+        "production_14d": [0 for _ in range(14)],
         "open_tasks": [
-            {"title": t.title, "priority": t.priority, "status": t.status}
-            for t in open_tasks
+            {"title": "Secure sign-in required", "priority": "medium", "status": "protected"}
         ],
     }

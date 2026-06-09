@@ -18,6 +18,21 @@ log = logging.getLogger("milana")
 app = FastAPI(title=settings.APP_NAME, version="0.1.0")
 
 
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+    )
+    if request.url.scheme == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
 @app.exception_handler(Exception)
 async def _unhandled_exception(request: Request, exc: Exception):
     """Catch-all so a programming bug returns proper JSON instead of crashing
@@ -41,6 +56,7 @@ def _on_startup() -> None:
     This makes the backend self-migrating in hosted environments where we do
     not have interactive Shell access. Safe to run on every boot.
     """
+    settings.validate_runtime_security()
     try:
         Base.metadata.create_all(bind=engine)
         log.info("startup: create_all complete")

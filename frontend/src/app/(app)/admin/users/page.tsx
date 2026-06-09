@@ -226,8 +226,8 @@ export default function AdminUsersPage() {
       </Modal>
       <ConfirmDialog
         isOpen={!!deleting}
-        title="Confirm delete"
-        message={deleting ? `Are you sure you want to delete user ${deleting.email}? This action cannot be undone.` : ""}
+        title={t("confirm.deleteTitle")}
+        message={deleting ? t("confirm.deleteUser", { name: deleting.email }) : ""}
         onConfirm={confirmDeleteUser}
         onCancel={() => setDeleting(null)}
       />

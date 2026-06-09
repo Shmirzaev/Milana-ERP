@@ -55,13 +55,13 @@ export default function Topbar() {
   }
 
   return (
-    <header className="sticky top-0 z-10 flex h-20 items-center justify-between gap-4 border-b border-[#e3dfd3] bg-[#fdfcf8]/95 px-5 backdrop-blur">
+    <header className="relative z-20 flex min-h-14 items-center justify-between gap-2 border-b border-[#e3dfd3] bg-[#fdfcf8]/95 px-3 py-2 backdrop-blur sm:gap-3 sm:px-4 lg:sticky lg:top-0 lg:h-20 lg:px-5 lg:py-0">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="text-sm text-[#8a8472]">
+        <div className="truncate text-xs text-[#8a8472] sm:text-sm">
           {me?.department ? `${t("top.department")}: ${me.department}` : null}
         </div>
       </div>
-      <div className="flex h-full items-center gap-3">
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2 lg:h-full lg:gap-3">
         <div className="hidden h-16 min-w-[180px] rounded-md border border-[#e3dfd3] bg-[#f8f6ef] px-3 text-right sm:flex sm:flex-col sm:justify-center">
           <div className="text-[10px] uppercase tracking-wide text-[#8a8472]">{t("top.localTime")}</div>
           <div className="text-[11px] font-medium leading-tight text-[#2c2920] whitespace-nowrap">{localDate}</div>
@@ -82,14 +82,14 @@ export default function Topbar() {
         <div className="relative">
           <NotificationBell />
         </div>
-        <button className="icon-btn" title="Settings" onClick={() => router.push("/settings")}><Settings /></button>
-        <button className="hidden text-right text-sm sm:block" onClick={() => router.push("/profile")} title="Profile">
+        <button className="icon-btn" title={t("common.settings")} onClick={() => router.push("/settings")}><Settings /></button>
+        <button className="hidden text-right text-sm sm:block" onClick={() => router.push("/profile")} title={t("common.profile")}>
           <div className="font-medium text-[#14110b]">{me?.name || "-"}</div>
           <div className="text-xs text-[#8a8472]">{me?.role || ""}</div>
         </button>
-        <button className="btn" onClick={() => logout()}>
+        <button className="btn px-2 sm:px-3" onClick={() => logout()} title={t("auth.logout")}>
           <LogOut className="h-4 w-4" />
-          {t("auth.logout")}
+          <span className="hidden sm:inline">{t("auth.logout")}</span>
         </button>
       </div>
     </header>

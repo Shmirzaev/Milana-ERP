@@ -7,10 +7,47 @@ import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
+import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
 import { useT } from "@/lib/i18n";
 
 type BundlePlan = { color: string; size: string; quantity: number; count: number; next: "sewing" | "printing" };
 type SplitRow = { name: string; planned_quantity: number; start_date: string; deadline: string; notes: string };
+
+function itemKey(color: string, size: string) {
+  return `${String(color || "").trim().toLowerCase()}||${String(size || "").trim().toLowerCase()}`;
+}
+
+function distributeBundleTargets(items: any[], totalQty: number): Map<string, number> {
+  const rows = (items || [])
+    .map((it: any, index: number) => ({
+      index,
+      color: String(it?.color || "").trim() || "-",
+      size: String(it?.size || "").trim() || "-",
+      planned: Math.max(0, Number(it?.planned_quantity || 0)),
+      qty: 0,
+      remainder: 0,
+    }))
+    .filter((it) => it.planned > 0);
+  const targetTotal = Math.max(0, Math.floor(Number(totalQty || 0)));
+  const plannedTotal = rows.reduce((sum, it) => sum + it.planned, 0);
+  const out = new Map<string, number>();
+  if (rows.length === 0 || plannedTotal <= 0 || targetTotal <= 0) return out;
+
+  let used = 0;
+  for (const row of rows) {
+    const exact = (targetTotal * row.planned) / plannedTotal;
+    row.qty = Math.floor(exact);
+    row.remainder = exact - row.qty;
+    used += row.qty;
+  }
+  let left = targetTotal - used;
+  const ranked = [...rows].sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+  for (let i = 0; i < left; i += 1) {
+    ranked[i % ranked.length].qty += 1;
+  }
+  for (const row of rows) out.set(itemKey(row.color, row.size), row.qty);
+  return out;
+}
 
 function autoSplitRows(totalQty: number, maxPerBatch: number): SplitRow[] {
   const safeTotal = Math.max(0, Number(totalQty || 0));
@@ -43,14 +80,6 @@ export default function CuttingPage() {
     fetcher,
   );
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
-  const orderQtyByKey = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const it of po?.items || []) {
-      const key = `${String(it?.color || "").trim().toLowerCase()}||${String(it?.size || "").trim().toLowerCase()}`;
-      map.set(key, Number(it?.planned_quantity || 0));
-    }
-    return map;
-  }, [po?.items]);
 
   const [form, setForm] = useState({
     production_batch_id: 0,
@@ -74,6 +103,15 @@ export default function CuttingPage() {
   const [splitBusy, setSplitBusy] = useState(false);
   const [splitErr, setSplitErr] = useState("");
 
+  const plannedItemTotal = useMemo(
+    () => (po?.items || []).reduce((sum: number, it: any) => sum + Math.max(0, Number(it?.planned_quantity || 0)), 0),
+    [po?.items],
+  );
+  const bundleTargetTotal = Number(form.cut_pieces || 0) > 0 ? Number(form.cut_pieces || 0) : plannedItemTotal;
+  const bundleTargetQtyByKey = useMemo(
+    () => distributeBundleTargets(po?.items || [], bundleTargetTotal),
+    [po?.items, bundleTargetTotal],
+  );
   const isAlreadyBatched = Array.isArray(po?.batches) && po.batches.length > 0;
   const canSplitHere = Boolean(
     wo
@@ -82,6 +120,14 @@ export default function CuttingPage() {
     && (wo.production_batch_id === null || wo.production_batch_id === undefined)
   );
   const splitTotal = splitRows.reduce((sum, row) => sum + Number(row.planned_quantity || 0), 0);
+  const splitPlannedQty = Number(wo?.planned_output_qty || po?.planned_quantity || 0);
+  const productInfoPo = useMemo(() => {
+    if (!po || !canSplitHere || splitTotal <= splitPlannedQty) return po;
+    return {
+      ...po,
+      actual_quantity: Math.max(Number(po?.actual_quantity || 0), splitTotal),
+    };
+  }, [canSplitHere, po, splitPlannedQty, splitTotal]);
   const batchItems = Array.isArray(batchProgress?.items) ? batchProgress.items : [];
   const createdBundlesBatch = useMemo(() => {
     const productionBatches = Array.isArray(po?.batches) ? po.batches : [];
@@ -99,25 +145,36 @@ export default function CuttingPage() {
       : t("field.batch");
 
   useEffect(() => {
-    if (bundlesAutofilled) return;
     if (!Array.isArray(po?.items) || po.items.length === 0) return;
     const hasPrintingStage = Array.isArray(po?.work_orders) && po.work_orders.some((w: any) => w.operation === "printing");
     const nextStage: "sewing" | "printing" = hasPrintingStage ? "printing" : "sewing";
     const defaultBundleQty = 50;
-    const prefilled = po.items
-      .filter((it: any) => Number(it?.planned_quantity || 0) > 0)
-      .map((it: any) => ({
-        color: String(it?.color || "").trim() || "-",
-        size: String(it?.size || "").trim() || "-",
-        quantity: defaultBundleQty,
-        count: Math.max(1, Math.ceil(Number(it?.planned_quantity || 0) / defaultBundleQty)),
-        next: nextStage,
-      }));
-    if (prefilled.length > 0) {
-      setBundles(prefilled);
+    const targetMap = distributeBundleTargets(po.items, bundleTargetTotal);
+    setBundles((prev) => {
+      const byKey = new Map(prev.map((row) => [itemKey(row.color, row.size), row]));
+      const recalculated = po.items
+        .filter((it: any) => Number(it?.planned_quantity || 0) > 0)
+        .map((it: any) => {
+          const color = String(it?.color || "").trim() || "-";
+          const size = String(it?.size || "").trim() || "-";
+          const key = itemKey(color, size);
+          const existing = byKey.get(key);
+          const qtyPerBundle = Math.max(1, Number(existing?.quantity || defaultBundleQty));
+          const targetQty = targetMap.get(key) || 0;
+          return {
+            color,
+            size,
+            quantity: qtyPerBundle,
+            count: Math.max(1, Math.ceil(targetQty / qtyPerBundle)),
+            next: existing?.next || nextStage,
+          };
+        });
+      return recalculated.length > 0 ? recalculated : prev;
+    });
+    if (!bundlesAutofilled) {
       setBundlesAutofilled(true);
     }
-  }, [po, bundlesAutofilled]);
+  }, [po?.items, po?.work_orders, bundleTargetTotal, bundlesAutofilled]);
 
   useEffect(() => {
     if (!canSplitHere) return;
@@ -140,8 +197,8 @@ export default function CuttingPage() {
     const nextQty = Math.max(1, Number(nextQtyRaw || 0));
     setBundles((prev) => prev.map((b, j) => {
       if (i !== j) return b;
-      const key = `${String(b.color || "").trim().toLowerCase()}||${String(b.size || "").trim().toLowerCase()}`;
-      const targetQty = orderQtyByKey.get(key) ?? (Number(b.quantity || 0) * Number(b.count || 1));
+      const key = itemKey(b.color, b.size);
+      const targetQty = bundleTargetQtyByKey.get(key) ?? (Number(b.quantity || 0) * Number(b.count || 1));
       const nextCount = Math.max(1, Math.ceil(Number(targetQty || 0) / nextQty));
       return { ...b, quantity: nextQty, count: nextCount };
     }));
@@ -178,22 +235,15 @@ export default function CuttingPage() {
   async function splitIntoBatches() {
     if (!canSplitHere) return;
     setSplitErr("");
-    const plannedQty = Number(wo?.planned_output_qty || po?.planned_quantity || 0);
     const rows = splitRows.map((row) => ({
       ...row,
       name: String(row.name || "").trim(),
       planned_quantity: Number(row.planned_quantity || 0),
     }));
     if (rows.some((row) => !Number.isFinite(row.planned_quantity) || row.planned_quantity <= 0)) {
-      setSplitErr("Each batch quantity must be greater than zero.");
+      setSplitErr(t("batch.quantityGreaterThanZero"));
       return;
     }
-    const total = rows.reduce((sum, row) => sum + row.planned_quantity, 0);
-    if (total !== plannedQty) {
-      setSplitErr(`Batch total must match planned quantity (${plannedQty}). Current total: ${total}.`);
-      return;
-    }
-
     setSplitBusy(true);
     try {
       const payloadRows = rows.map((row) => ({
@@ -205,7 +255,7 @@ export default function CuttingPage() {
       }));
       await api.post(`/api/work-orders/${id}/split-batches`, { batches: payloadRows });
       await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]);
-      setDoneMsg("Batch plan saved in this work order.");
+      setDoneMsg(t("batch.planSaved"));
     } catch (e: any) {
       setSplitErr(e.message || "Failed to split into batches");
     } finally {
@@ -218,7 +268,7 @@ export default function CuttingPage() {
     setErr("");
     setDoneMsg("");
     if (isAlreadyBatched && !form.production_batch_id) {
-      setErr("Select a batch before saving the cutting record.");
+      setErr(t("batch.selectBeforeSaving", { operation: operationLabel("cutting", t).toLowerCase() }));
       return;
     }
     setSubmitting(true);
@@ -244,83 +294,36 @@ export default function CuttingPage() {
     }
   }
 
-  function d(v?: string | null) {
-    return v ? new Date(v).toLocaleDateString() : "-";
-  }
-
   return (
     <div>
       <PageHeader
         title={t("page.cutting.title", { id })}
         subtitle={wo ? t("page.cutting.subtitle", { op: operationLabel(wo.operation, t), status: statusLabel(wo.status, t) }) : ""}
       />
-      <div className="card mb-4 p-4">
-        <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.shipments.salesOrder")}</div>
-            <div className="font-medium">{so?.order_no || (po?.sales_order_id ? `#${po.sales_order_id}` : "-")}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.customer")}</div>
-            <div className="font-medium">{so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : "-"}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.model")}</div>
-            <div className="font-medium">{model ? `${model.code} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-")}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.productionOrder")}</div>
-            <div className="font-medium">{po?.production_no || (po?.id ? `#${po.id}` : "-")}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.plannedQty")}</div>
-            <div className="font-medium">{po?.planned_quantity ?? wo?.planned_output_qty ?? 0}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("common.status")}</div>
-            <div className="font-medium">{wo ? statusLabel(wo.status, t) : "-"}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.salesDeadline")}</div>
-            <div className="font-medium">{d(so?.deadline)}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.poDeadline")}</div>
-            <div className="font-medium">{d(po?.deadline)}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.woDeadline")}</div>
-            <div className="font-medium">{d(wo?.deadline)}</div>
-          </div>
-        </div>
-        {Array.isArray(po?.items) && po.items.length > 0 && (
-          <div className="mt-3 border-t border-[#ecebe3] pt-3">
-            <div className="mb-2 text-xs uppercase tracking-wide text-slate-500">{t("page.workOrder.breakdown")}</div>
-            <div className="flex flex-wrap gap-2">
-              {po.items.map((it: any) => (
-                <span key={it.id} className="rounded-full bg-[#f5f2e8] px-3 py-1 text-xs text-[#5d5747]">
-                  {(it.color || "-")} / {(it.size || "-")} / {it.planned_quantity ?? 0}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      <WorkOrderProductInfo
+        t={t}
+        so={so}
+        po={productInfoPo}
+        wo={wo}
+        model={model}
+        customerName={so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : null}
+        statusText={wo ? statusLabel(wo.status, t) : "-"}
+      />
 
       {isAlreadyBatched && (
         <div className="card mb-4 p-4">
-          <div className="mb-2 text-base font-semibold">Batches Managed Inside This Work Order</div>
+          <div className="mb-2 text-base font-semibold">{t("batch.managedInsideWorkOrder")}</div>
           <div className="mb-3 text-sm text-slate-600">
-            Record each cutting action against a batch below. This order stays as one WO.
+            {t("batch.recordAction", { operation: operationLabel("cutting", t).toLowerCase() })}
           </div>
           <div className="overflow-x-auto">
             <table className="table text-sm">
               <thead>
                 <tr>
-                  <th>Batch</th>
-                  <th>Planned</th>
-                  <th>Remaining</th>
-                  <th>Progress</th>
+                  <th>{t("field.batch")}</th>
+                  <th>{t("statusValue.planned")}</th>
+                  <th>{t("field.remaining")}</th>
+                  <th>{t("page.processes.progress")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -337,7 +340,7 @@ export default function CuttingPage() {
                 ))}
                 {batchItems.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="text-slate-500">No batch progress yet.</td>
+                    <td colSpan={4} className="text-slate-500">{t("batch.noProgressYet")}</td>
                   </tr>
                 )}
               </tbody>
@@ -348,13 +351,13 @@ export default function CuttingPage() {
 
       {canSplitHere && (
         <div className="card mb-4 p-4">
-          <div className="mb-2 text-base font-semibold">Define Internal Batches For This Work Order</div>
+          <div className="mb-2 text-base font-semibold">{t("batch.defineInsideWorkOrder")}</div>
           <div className="mb-3 text-sm text-slate-600">
-            This does not create new WOs. It creates batch lines inside this same WO so you can run 400 today and continue other batches later.
+            {t("batch.defineHint")}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-[220px_auto] gap-3 items-end mb-3">
             <div>
-              <label className="label">Max pieces per batch</label>
+              <label className="label">{t("batch.maxPiecesPerBatch")}</label>
               <input
                 className="input"
                 type="number"
@@ -370,20 +373,20 @@ export default function CuttingPage() {
                 onClick={() => setSplitRows(autoSplitRows(Number(wo?.planned_output_qty || po?.planned_quantity || 0), splitMax))}
                 disabled={splitBusy}
               >
-                Auto split
+                {t("batch.autoSplit")}
               </button>
-              <button type="button" className="btn" onClick={addSplitRow} disabled={splitBusy}>Add batch</button>
+              <button type="button" className="btn" onClick={addSplitRow} disabled={splitBusy}>{t("batch.addBatch")}</button>
             </div>
           </div>
           <div className="overflow-x-auto">
             <table className="table text-sm">
               <thead>
                 <tr>
-                  <th>Batch</th>
-                  <th>Quantity</th>
-                  <th>Start date</th>
-                  <th>Deadline</th>
-                  <th>Notes</th>
+                  <th>{t("field.batch")}</th>
+                  <th>{t("batch.quantity")}</th>
+                  <th>{t("batch.startDate")}</th>
+                  <th>{t("field.deadline")}</th>
+                  <th>{t("field.notes")}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -422,12 +425,12 @@ export default function CuttingPage() {
             </table>
           </div>
           <div className="mt-2 text-sm">
-            Total in batches: <span className="font-semibold">{splitTotal}</span> / {Number(wo?.planned_output_qty || po?.planned_quantity || 0)}
+            {t("batch.totalInBatches")} <span className="font-semibold">{splitTotal}</span> / {Number(wo?.planned_output_qty || po?.planned_quantity || 0)}
           </div>
           {splitErr && <div className="mt-2 text-sm text-red-600">{splitErr}</div>}
           <div className="mt-3">
             <button type="button" className="btn btn-primary" onClick={splitIntoBatches} disabled={splitBusy}>
-              {splitBusy ? "Saving..." : "Save batch plan"}
+              {splitBusy ? t("common.saving") : t("batch.saveBatchPlan")}
             </button>
           </div>
         </div>
@@ -437,13 +440,13 @@ export default function CuttingPage() {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           {isAlreadyBatched && (
             <div>
-              <label className="label">Order batch</label>
+              <label className="label">{t("batch.orderBatch")}</label>
               <select
                 className="input"
                 value={form.production_batch_id}
                 onChange={(e) => setForm({ ...form, production_batch_id: Number(e.target.value) })}
               >
-                <option value={0}>Select batch</option>
+                <option value={0}>{t("batch.selectBatch")}</option>
                 {(po?.batches || []).map((b: any) => (
                   <option key={b.id} value={b.id}>
                     {formatBatchLabel(b, po?.id)} ({b.planned_quantity})
@@ -549,7 +552,7 @@ export default function CuttingPage() {
               <div className="flex shrink-0 items-center gap-3">
                 <span className="badge">{createdBundles.length} {t("nav.bundles").toLowerCase()}</span>
                 <span className="text-xs font-medium text-[#56503f]">
-                  {createdBundlesExpanded ? "Hide labels" : "Show labels"}
+                  {createdBundlesExpanded ? t("btn.hideLabels") : t("btn.showLabels")}
                 </span>
               </div>
             </button>
