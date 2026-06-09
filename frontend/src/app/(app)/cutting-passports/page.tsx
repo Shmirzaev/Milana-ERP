@@ -245,7 +245,7 @@ export default function CuttingPassportsPage() {
     if (!form.passport_no) { setErr("Паспорт № талаб қилинади"); return; }
     try {
       if (editing) {
-        await api.put(`/api/cutting-passports/${editing.id}`, buildPayload());
+        await api.patch(`/api/cutting-passports/${editing.id}`, buildPayload());
       } else {
         await api.post("/api/cutting-passports", buildPayload());
       }
@@ -258,7 +258,7 @@ export default function CuttingPassportsPage() {
 
   async function del(p: Passport) {
     if (!confirm(`Паспорт ${p.passport_no} ни ўчириш?`)) return;
-    await api.delete(`/api/cutting-passports/${p.id}`);
+    await api.del(`/api/cutting-passports/${p.id}`);
     mutate();
   }
 
