@@ -456,7 +456,7 @@ def confirm_sales_order(sid: int, db: DbSession, current: User = Depends(require
     )
     log_action(db, current, "confirm", "SalesOrder", so.id)
     db.commit(); db.refresh(so)
-    return so
+    return _serialize_sales_order(db, so, include_items=False)
 
 
 @router.post("/{sid}/reserve-stock")

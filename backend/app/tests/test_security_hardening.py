@@ -221,3 +221,10 @@ def test_sales_order_persists_bare_path_and_resigns_on_read(client, auth_headers
     assert atts and "sig=" in atts[0]["file_url"]
     # Each read mints a fresh working link.
     assert client.get(atts[0]["file_url"]).status_code == 200
+
+    # Status-change endpoints (confirm) also return signed, loadable URLs.
+    confirmed = client.post(f"/api/sales-orders/{sid}/confirm", headers=auth_headers)
+    assert confirmed.status_code == 200, confirmed.text
+    catts = confirmed.json()["printing_attachments"]
+    assert catts and "sig=" in catts[0]["file_url"]
+    assert client.get(catts[0]["file_url"]).status_code == 200
