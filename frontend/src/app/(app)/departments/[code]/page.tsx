@@ -14,6 +14,8 @@ const DEPT_LABELS: Record<string, string> = {
   CUT: "nav.cuttingFloor",
   PRT: "nav.printingFloor",
   SEW: "nav.sewingFloor",
+  MIL: "nav.milanaSewing",
+  BST: "nav.besttexSewing",
   PKG: "nav.packagingFloor",
   FGS: "nav.finishedGoods",
 };

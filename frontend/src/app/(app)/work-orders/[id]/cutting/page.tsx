@@ -10,7 +10,15 @@ import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
 import { useT } from "@/lib/i18n";
 
-type BundlePlan = { color: string; size: string; quantity: number; count: number; next: "sewing" | "printing" };
+type SewingFactory = "milana" | "besttex";
+type BundlePlan = {
+  color: string;
+  size: string;
+  quantity: number;
+  count: number;
+  next: "sewing" | "printing";
+  sewing_factory: SewingFactory;
+};
 type SplitRow = { name: string; planned_quantity: number; start_date: string; deadline: string; notes: string };
 
 function itemKey(color: string, size: string) {
@@ -167,6 +175,7 @@ export default function CuttingPage() {
             quantity: qtyPerBundle,
             count: Math.max(1, Math.ceil(targetQty / qtyPerBundle)),
             next: existing?.next || nextStage,
+            sewing_factory: existing?.sewing_factory || "milana",
           };
         });
       return recalculated.length > 0 ? recalculated : prev;
@@ -213,11 +222,17 @@ export default function CuttingPage() {
         quantity: first?.quantity || 50,
         count: 1,
         next: first?.next || "sewing",
+        sewing_factory: first?.sewing_factory || "milana",
       },
     ]);
   }
   function remB(i: number) {
     setBundles(bundles.filter((_, j) => j !== i));
+  }
+
+  function factoryLabel(value: string | null | undefined) {
+    const normalized = String(value || "").trim().toLowerCase();
+    return normalized === "bst" || normalized === "besttex" ? t("factory.besttex") : t("factory.milana");
   }
 
   function updateSplitRow(index: number, patch: Partial<SplitRow>) {
@@ -496,6 +511,7 @@ export default function CuttingPage() {
                 <th>{t("field.size")}</th>
                 <th>{t("field.bundleQty")}</th>
                 <th>{t("field.count")}</th>
+                <th>{t("field.sewingFactory")}</th>
                 <th>{t("field.next")}</th>
                 <th>{t("field.actions")}</th>
               </tr>
@@ -508,8 +524,14 @@ export default function CuttingPage() {
                   <td><input className="input" type="number" value={b.quantity} onChange={(e) => setBQty(i, Number(e.target.value))} /></td>
                   <td><input className="input" type="number" value={b.count} onChange={(e) => setB(i, { count: Number(e.target.value) })} /></td>
                   <td>
+                    <select className="input" value={b.sewing_factory || "milana"} onChange={(e) => setB(i, { sewing_factory: e.target.value as SewingFactory })}>
+                      <option value="milana">{t("factory.milana")}</option>
+                      <option value="besttex">{t("factory.besttex")}</option>
+                    </select>
+                  </td>
+                  <td>
                     <select className="input" value={b.next} onChange={(e) => setB(i, { next: e.target.value as any })}>
-                      <option value="sewing">{t("page.cutting.toSewing")}</option>
+                      <option value="sewing">{t("page.cutting.toSewingFactory")}</option>
                       <option value="printing">{t("page.cutting.toPrinting")}</option>
                     </select>
                   </td>
@@ -562,6 +584,7 @@ export default function CuttingPage() {
                   <thead>
                     <tr>
                       <th>{t("field.bundleNo")}</th>
+                      <th>{t("field.sewingFactory")}</th>
                       <th>{t("field.barcode")}</th>
                       <th>{t("field.actions")}</th>
                     </tr>
@@ -570,6 +593,7 @@ export default function CuttingPage() {
                     {createdBundles.map((b) => (
                       <tr key={b.id}>
                         <td>{b.bundle_no}</td>
+                        <td>{factoryLabel(b.sewing_factory_code)}</td>
                         <td><code>{b.barcode}</code></td>
                         <td><button type="button" className="text-brand-600 hover:underline" onClick={() => api.openLabel(`/api/bundles/${b.id}/label`)}>{t("common.print")}</button></td>
                       </tr>

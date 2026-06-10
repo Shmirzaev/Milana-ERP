@@ -1,5 +1,4 @@
-from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models.cutting_passport import CuttingPassport
@@ -9,6 +8,28 @@ from app.schemas.cutting_passport import CuttingPassportIn, CuttingPassportOut
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
+
+
+_IMAGE_FILE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+
+
+def _is_displayable_image(img) -> bool:
+    return (
+        str(img.content_type or "").lower().startswith("image/")
+        or str(img.file_name or img.file_url or "").lower().endswith(_IMAGE_FILE_SUFFIXES)
+    )
+
+
+def _model_preview_image_url(model: CatalogModel | None) -> str | None:
+    if not model:
+        return None
+    images = [img for img in (model.images or []) if _is_displayable_image(img)]
+    primary = (
+        next((img for img in images if img.image_type == "model"), None)
+        or next((img for img in images if img.is_primary), None)
+        or (images[0] if images else None)
+    )
+    return primary.file_url if primary else None
 
 
 def _compute(p: CuttingPassport) -> dict:
@@ -52,13 +73,24 @@ def _compute(p: CuttingPassport) -> dict:
     }
 
 
-def _serialize(p: CuttingPassport, db=None) -> dict:
+def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None) -> dict:
     po = p.production_order
     op = p.operator
+    model_code = p.model_code
     model_name = None
+    model_image_url = None
     if po and po.model_id and db is not None:
-        m = db.get(CatalogModel, po.model_id)
-        model_name = m.name if m else None
+        if model_cache is not None and po.model_id in model_cache:
+            model_code, model_name, model_image_url = model_cache[po.model_id]
+            model_code = model_code or p.model_code
+        else:
+            m = db.get(CatalogModel, po.model_id)
+            if m:
+                model_code = m.code or model_code
+                model_name = m.name
+                model_image_url = _model_preview_image_url(m)
+            if model_cache is not None:
+                model_cache[po.model_id] = (m.code if m else None, model_name, model_image_url)
     d = {
         "id": p.id,
         "passport_no": p.passport_no,
@@ -67,10 +99,14 @@ def _serialize(p: CuttingPassport, db=None) -> dict:
         "updated_at": p.updated_at,
         "production_order_id": p.production_order_id,
         "operator_id": p.operator_id,
+        "model_code": model_code,
         "variant": p.variant,
         "mold_no": p.mold_no,
+        "image_ref": p.image_ref,
+        "operator_name_manual": p.operator_name_manual,
         "fabric_type": p.fabric_type,
         "has_print": p.has_print,
+        "order_no": po.production_no if po else p.order_no,
         "lot_no": p.lot_no,
         "size_range": p.size_range,
         "rolls_count": p.rolls_count,
@@ -88,8 +124,9 @@ def _serialize(p: CuttingPassport, db=None) -> dict:
         "ribana_per_piece_kg": float(p.ribana_per_piece_kg) if p.ribana_per_piece_kg is not None else None,
         "notes": p.notes,
         "production_order_no": po.production_no if po else None,
-        "model_name": model_name,
-        "operator_name": op.name if op else None,
+        "model_name": model_name or model_code,
+        "model_image_url": model_image_url,
+        "operator_name": op.name if op else p.operator_name_manual,
     }
     d.update(_compute(p))
     return d
@@ -100,7 +137,7 @@ def list_passports(
     db: DbSession,
     _: CurrentUser,
     q: str | None = None,
-    limit: int = 200,
+    limit: int = Query(200, ge=1, le=500),
 ):
     qry = db.query(CuttingPassport).order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())
     if q:
@@ -109,9 +146,13 @@ def list_passports(
             CuttingPassport.passport_no.ilike(like)
             | CuttingPassport.lot_no.ilike(like)
             | CuttingPassport.variant.ilike(like)
+            | CuttingPassport.model_code.ilike(like)
+            | CuttingPassport.order_no.ilike(like)
+            | CuttingPassport.operator_name_manual.ilike(like)
         )
     rows = qry.limit(limit).all()
-    return [_serialize(r, db) for r in rows]
+    model_cache: dict = {}
+    return [_serialize(r, db, model_cache) for r in rows]
 
 
 @router.get("/{pid}", response_model=CuttingPassportOut)
@@ -126,7 +167,7 @@ def get_passport(pid: int, db: DbSession, _: CurrentUser):
 def create_passport(
     payload: CuttingPassportIn,
     db: DbSession,
-    current: CurrentUser,
+    current: User = Depends(require_permissions("cutting.records", "*")),
 ):
     p = CuttingPassport(**payload.model_dump())
     db.add(p)
@@ -138,11 +179,12 @@ def create_passport(
 
 
 @router.put("/{pid}", response_model=CuttingPassportOut)
+@router.patch("/{pid}", response_model=CuttingPassportOut)
 def update_passport(
     pid: int,
     payload: CuttingPassportIn,
     db: DbSession,
-    current: CurrentUser,
+    current: User = Depends(require_permissions("cutting.records", "*")),
 ):
     p = db.get(CuttingPassport, pid)
     if not p:
@@ -159,7 +201,7 @@ def update_passport(
 def delete_passport(
     pid: int,
     db: DbSession,
-    current: CurrentUser,
+    current: User = Depends(require_permissions("cutting.records", "*")),
 ):
     p = db.get(CuttingPassport, pid)
     if not p:

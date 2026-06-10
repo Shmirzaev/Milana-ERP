@@ -19,7 +19,11 @@ from app.schemas.production import (
 from app.core.dt import as_utc
 from app.services.audit import log_action
 from app.services.production import create_production_order, create_production_batches, create_work_orders
-from app.services.bundles import create_bundle
+from app.services.bundles import (
+    create_bundle,
+    is_sewing_department_code,
+    resolve_sewing_factory_code,
+)
 from app.services.packages import create_package
 from app.services.workflow import (
     advance_workflow,
@@ -1094,6 +1098,45 @@ def packaging_batch_progress(wid: int, db: DbSession, _: CurrentUser):
 
 
 # ===== Cutting =====
+_MAX_BUNDLES_PER_CUTTING_RECORD = 1000
+
+
+def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
+    parsed: list[dict] = []
+    total = 0
+    for i, spec in enumerate(specs or [], start=1):
+        try:
+            count = int(spec.get("count", 1))
+            qty = int(spec.get("quantity", 0))
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"Bundle plan row {i}: 'count' and 'quantity' must be whole numbers")
+        if count < 0 or qty < 0:
+            raise HTTPException(400, f"Bundle plan row {i}: 'count' and 'quantity' cannot be negative")
+        if count == 0:
+            continue
+        color = str(spec.get("color") or "").strip()
+        size = str(spec.get("size") or "").strip()
+        if not color or not size:
+            raise HTTPException(400, f"Bundle plan row {i}: 'color' and 'size' are required")
+        total += count
+        if total > _MAX_BUNDLES_PER_CUTTING_RECORD:
+            raise HTTPException(400, f"Bundle plan would create more than {_MAX_BUNDLES_PER_CUTTING_RECORD} bundles")
+        raw_next = str(spec.get("next") or "").strip().lower()
+        raw_factory = spec.get("sewing_factory") or spec.get("sewingFactory") or spec.get("factory")
+        if not raw_factory and is_sewing_department_code(raw_next):
+            raw_factory = raw_next
+        factory_code = resolve_sewing_factory_code(str(raw_factory) if raw_factory else None)
+        parsed.append({
+            "count": count,
+            "quantity": qty,
+            "color": color,
+            "size": size,
+            "factory_code": factory_code,
+            "next_code": "PRT" if raw_next == "printing" else factory_code,
+        })
+    return parsed
+
+
 @router.post("/cutting/records", status_code=201)
 def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depends(require_permissions("cutting.records", "*"))):
     wo = db.get(WorkOrder, payload.work_order_id)
@@ -1111,6 +1154,8 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         operation_name="cutting",
     )
 
+    bundle_specs = _parse_cutting_bundle_specs(payload.bundles or [])
+
     rec = CuttingRecord(
         work_order_id=payload.work_order_id,
         production_batch_id=batch_id,
@@ -1122,8 +1167,8 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         defective_pieces=payload.defective_pieces,
         waste_quantity=payload.waste_quantity,
         waste_unit=payload.waste_unit,
-        bundle_count=len(payload.bundles or []),
-        total_bundled_quantity=sum(int(b.get("quantity", 0)) * int(b.get("count", 1)) for b in (payload.bundles or [])),
+        bundle_count=len(bundle_specs),
+        total_bundled_quantity=sum(b["quantity"] * b["count"] for b in bundle_specs),
         operator_id=payload.operator_id or current.id,
         notes=payload.notes,
     )
@@ -1162,28 +1207,33 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     so_id = po.sales_order_id if po else None
     created_bundles = []
     to_printing = 0
-    to_sewing = 0
-    for spec in (payload.bundles or []):
-        count = int(spec.get("count", 1))
-        qty = int(spec.get("quantity", 0))
-        for _ in range(count):
-            next_code = "PRT" if spec.get("next") == "printing" else "SEW"
+    to_sewing_by_code: dict[str, int] = {}
+    for spec in bundle_specs:
+        factory_code = spec["factory_code"]
+        next_code = spec["next_code"]
+        for _ in range(spec["count"]):
             b = create_bundle(
                 db,
                 production_order_id=wo.production_order_id,
                 model_id=po.model_id,
                 color=spec["color"],
                 size=spec["size"],
-                quantity=qty,
+                quantity=spec["quantity"],
                 sales_order_id=so_id,
                 next_department_code=next_code,
+                sewing_factory_code=factory_code,
                 user_id=current.id,
             )
-            created_bundles.append({"id": b.id, "bundle_no": b.bundle_no, "barcode": b.barcode})
+            created_bundles.append({
+                "id": b.id,
+                "bundle_no": b.bundle_no,
+                "barcode": b.barcode,
+                "sewing_factory_code": b.sewing_factory_code,
+            })
             if next_code == "PRT":
                 to_printing += 1
             else:
-                to_sewing += 1
+                to_sewing_by_code[next_code] = to_sewing_by_code.get(next_code, 0) + 1
 
     propagate_cutting_plan_from_output(db, wo)
     advance_workflow(db, wo, trigger_output_qty=int(payload.passed_pieces or 0))
@@ -1195,13 +1245,13 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             message=f"{to_printing} bundle(s) ready from WO #{wo.id}.",
             link="/bundles/scan/printing",
         )
-    if to_sewing:
+    for department_code, to_sewing in to_sewing_by_code.items():
         notify_department(
             db,
-            department_code="SEW",
+            department_code=department_code,
             title="Incoming cutting bundles",
             message=f"{to_sewing} bundle(s) ready from WO #{wo.id}.",
-            link="/bundles/scan/sewing",
+            link=f"/departments/{department_code}",
         )
 
     log_action(db, current, "create", "CuttingRecord", rec.id, new_value={"bundles": len(created_bundles)})

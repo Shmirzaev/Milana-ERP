@@ -10,10 +10,14 @@ class CuttingPassportIn(BaseModel):
     date: datetime
     production_order_id: Optional[int] = None
     operator_id: Optional[int] = None
+    model_code: Optional[str] = None
     variant: Optional[str] = None
     mold_no: Optional[str] = None
+    image_ref: Optional[str] = None
+    operator_name_manual: Optional[str] = None
     fabric_type: Optional[str] = None
     has_print: bool = False
+    order_no: Optional[str] = None
     lot_no: Optional[str] = None
     size_range: Optional[str] = None
     rolls_count: Optional[int] = None
@@ -41,10 +45,14 @@ class CuttingPassportOut(ORMModel):
     updated_at: datetime
     production_order_id: Optional[int] = None
     operator_id: Optional[int] = None
+    model_code: Optional[str] = None
     variant: Optional[str] = None
     mold_no: Optional[str] = None
+    image_ref: Optional[str] = None
+    operator_name_manual: Optional[str] = None
     fabric_type: Optional[str] = None
     has_print: bool
+    order_no: Optional[str] = None
     lot_no: Optional[str] = None
     size_range: Optional[str] = None
     rolls_count: Optional[int] = None
@@ -74,4 +82,5 @@ class CuttingPassportOut(ORMModel):
     # Joined fields
     production_order_no: Optional[str] = None
     model_name: Optional[str] = None
+    model_image_url: Optional[str] = None
     operator_name: Optional[str] = None

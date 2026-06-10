@@ -14,10 +14,40 @@ from app.services.workflow import notify_department, sync_production_order_statu
 DEPT_CUT = "CUT"
 DEPT_PRT = "PRT"
 DEPT_SEW = "SEW"
+DEPT_MILANA = "MIL"
+DEPT_BESTTEX = "BST"
+DEFAULT_SEWING_FACTORY_CODE = DEPT_MILANA
+SEWING_FACTORY_CODES = (DEPT_MILANA, DEPT_BESTTEX)
+SEWING_DEPARTMENT_CODES = (DEPT_SEW, *SEWING_FACTORY_CODES)
+SEWING_FACTORY_ALIASES = {
+    "MIL": DEPT_MILANA,
+    "MILANA": DEPT_MILANA,
+    "SML": DEPT_MILANA,
+    "BST": DEPT_BESTTEX,
+    "BESTTEX": DEPT_BESTTEX,
+    "BTX": DEPT_BESTTEX,
+}
 
 
 def _dept(db: Session, code: str) -> Department | None:
     return db.query(Department).filter(Department.code == code).first()
+
+
+def resolve_sewing_factory_code(value: str | None = None) -> str:
+    normalized = str(value or "").strip().upper()
+    if normalized == DEPT_SEW or not normalized:
+        return DEFAULT_SEWING_FACTORY_CODE
+    return SEWING_FACTORY_ALIASES.get(normalized, DEFAULT_SEWING_FACTORY_CODE)
+
+
+def is_sewing_department_code(code: str | None) -> bool:
+    normalized = str(code or "").strip().upper()
+    return normalized in SEWING_DEPARTMENT_CODES or normalized in SEWING_FACTORY_ALIASES
+
+
+def _sewing_factory_dept(db: Session, code: str | None) -> Department | None:
+    factory_code = resolve_sewing_factory_code(code)
+    return _dept(db, factory_code) or _dept(db, DEPT_SEW)
 
 
 def create_bundle(
@@ -32,6 +62,7 @@ def create_bundle(
     brand_id: int | None = None,
     collection_id: int | None = None,
     next_department_code: str = DEPT_SEW,
+    sewing_factory_code: str | None = None,
     user_id: int | None = None,
     notes: str | None = None,
 ) -> Bundle:
@@ -45,7 +76,13 @@ def create_bundle(
             raise HTTPException(404, "Sales order not found")
 
     cut = _dept(db, DEPT_CUT)
-    nxt = _dept(db, next_department_code)
+    factory_code = resolve_sewing_factory_code(
+        sewing_factory_code if sewing_factory_code else next_department_code if is_sewing_department_code(next_department_code) else None
+    )
+    normalized_next = str(next_department_code or "").strip().upper()
+    if is_sewing_department_code(normalized_next):
+        normalized_next = factory_code
+    nxt = _dept(db, normalized_next)
 
     bundle_no = next_bundle_no(db)
     barcode_value = generate_barcode_value("BND")
@@ -62,6 +99,7 @@ def create_bundle(
         quantity=quantity,
         current_department_id=cut.id if cut else None,
         next_department_id=nxt.id if nxt else None,
+        sewing_factory_code=factory_code,
         status="created",
         created_by=user_id,
         notes=notes,
@@ -137,8 +175,12 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
     if bundle.status not in ("created", "received_printing"):
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be sent to sewing")
     from_code = DEPT_PRT if bundle.status == "received_printing" else DEPT_CUT
-    bundle.next_department_id = _dept(db, DEPT_SEW).id if _dept(db, DEPT_SEW) else None
-    _transition(db, bundle, "sent_sewing", "sent_to_sewing", from_code, DEPT_SEW, user_id)
+    factory_code = resolve_sewing_factory_code(bundle.sewing_factory_code)
+    target = _sewing_factory_dept(db, factory_code)
+    target_code = target.code if target else factory_code
+    bundle.sewing_factory_code = factory_code
+    bundle.next_department_id = target.id if target else None
+    _transition(db, bundle, "sent_sewing", "sent_to_sewing", from_code, target_code, user_id)
     wo = db.query(WorkOrder).filter(
         WorkOrder.production_order_id == bundle.production_order_id,
         WorkOrder.operation == "sewing",
@@ -147,21 +189,26 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
         wo.status = "in_progress"
     notify_department(
         db,
-        department_code=DEPT_SEW,
-        title="Bundle sent to sewing",
-        message=f"{bundle.bundle_no} is ready for sewing receive scan.",
-        link="/bundles/scan/sewing",
+        department_code=target_code,
+        title="Bundle sent to sewing factory",
+        message=f"{bundle.bundle_no} is ready for receive scan at {target.name if target else target_code}.",
+        link=f"/departments/{target_code}",
         exclude_user_id=user_id,
     )
     sync_production_order_status(db, bundle.production_order_id)
 
 
 def receive_at_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
-    sew = _dept(db, DEPT_SEW)
-    if bundle.status == "created" and sew and bundle.next_department_id == sew.id:
-        _transition(db, bundle, "received_sewing", "received_sewing", DEPT_CUT, DEPT_SEW, user_id)
+    target = _sewing_factory_dept(db, bundle.sewing_factory_code)
+    generic = _dept(db, DEPT_SEW)
+    allowed_ids = {d.id for d in (target, generic) if d}
+    target_code = target.code if target else DEPT_SEW
+    if bundle.status == "created" and bundle.next_department_id in allowed_ids:
+        bundle.sewing_factory_code = resolve_sewing_factory_code(bundle.sewing_factory_code)
+        _transition(db, bundle, "received_sewing", "received_sewing", DEPT_CUT, target_code, user_id)
     elif bundle.status == "sent_to_sewing":
-        _transition(db, bundle, "received_sewing", "received_sewing", None, DEPT_SEW, user_id)
+        bundle.sewing_factory_code = resolve_sewing_factory_code(bundle.sewing_factory_code)
+        _transition(db, bundle, "received_sewing", "received_sewing", None, target_code, user_id)
     else:
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be received at sewing")
     wo = db.query(WorkOrder).filter(

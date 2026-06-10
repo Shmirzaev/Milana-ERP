@@ -14,10 +14,14 @@ type Passport = {
   date: string;
   production_order_id: number | null;
   operator_id: number | null;
+  model_code: string | null;
   variant: string | null;
   mold_no: string | null;
+  image_ref: string | null;
+  operator_name_manual: string | null;
   fabric_type: string | null;
   has_print: boolean;
+  order_no: string | null;
   lot_no: string | null;
   size_range: string | null;
   rolls_count: number | null;
@@ -47,6 +51,7 @@ type Passport = {
   // joined
   production_order_no: string | null;
   model_name: string | null;
+  model_image_url: string | null;
   operator_name: string | null;
 };
 
@@ -57,10 +62,14 @@ const EXCEL_EXAMPLE = {
   date: "2026-06-01",
   production_order_id: "" as string | number,
   operator_id: "" as string | number,
+  model_code: "Р-1175",
   variant: "4685",
   mold_no: "",
+  image_ref: "",
+  operator_name_manual: "муси",
   fabric_type: "",
   has_print: false,
+  order_no: "1588",
   lot_no: "D#11C#4",
   size_range: "44-52",
   rolls_count: 7 as string | number,
@@ -84,10 +93,14 @@ const EMPTY_FORM = {
   date: new Date().toISOString().slice(0, 10),
   production_order_id: "" as string | number,
   operator_id: "" as string | number,
+  model_code: "",
   variant: "",
   mold_no: "",
+  image_ref: "",
+  operator_name_manual: "",
   fabric_type: "",
   has_print: false,
+  order_no: "",
   lot_no: "",
   size_range: "",
   rolls_count: "" as string | number,
@@ -144,6 +157,7 @@ function d6(v: number | null | undefined) { return v ? v.toFixed(6) : "—"; }
 export default function CuttingPassportsPage() {
   const { data: passports = [], mutate } = useSWR<Passport[]>("/api/cutting-passports", fetcher);
   const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
+  const { data: models = [] } = useSWR<any[]>("/api/models?page_size=500", fetcher);
   const { data: users = [] } = useSWR<any[]>("/api/admin/users", fetcher);
 
   const [q, setQ] = useState("");
@@ -158,8 +172,11 @@ export default function CuttingPassportsPage() {
     return passports.filter((p) =>
       (p.passport_no || "").toLowerCase().includes(lq) ||
       (p.lot_no || "").toLowerCase().includes(lq) ||
+      (p.model_code || "").toLowerCase().includes(lq) ||
       (p.model_name || "").toLowerCase().includes(lq) ||
+      (p.order_no || "").toLowerCase().includes(lq) ||
       (p.production_order_no || "").toLowerCase().includes(lq) ||
+      (p.operator_name || "").toLowerCase().includes(lq) ||
       (p.variant || "").toLowerCase().includes(lq)
     );
   }, [passports, q]);
@@ -179,10 +196,14 @@ export default function CuttingPassportsPage() {
       date: p.date.slice(0, 10),
       production_order_id: p.production_order_id ?? "",
       operator_id: p.operator_id ?? "",
+      model_code: p.model_code ?? "",
       variant: p.variant ?? "",
       mold_no: p.mold_no ?? "",
+      image_ref: p.image_ref ?? "",
+      operator_name_manual: p.operator_name_manual ?? "",
       fabric_type: p.fabric_type ?? "",
       has_print: p.has_print,
+      order_no: p.order_no ?? p.production_order_no ?? "",
       lot_no: p.lot_no ?? "",
       size_range: p.size_range ?? "",
       rolls_count: p.rolls_count ?? "",
@@ -216,10 +237,14 @@ export default function CuttingPassportsPage() {
       date: new Date(form.date).toISOString(),
       production_order_id: num(form.production_order_id),
       operator_id: num(form.operator_id),
+      model_code: form.model_code || null,
       variant: form.variant || null,
       mold_no: form.mold_no || null,
+      image_ref: form.image_ref || null,
+      operator_name_manual: form.operator_name_manual || null,
       fabric_type: form.fabric_type || null,
       has_print: form.has_print,
+      order_no: form.order_no || null,
       lot_no: form.lot_no || null,
       size_range: form.size_range || null,
       rolls_count: num(form.rolls_count),
@@ -263,10 +288,32 @@ export default function CuttingPassportsPage() {
   }
 
   const prodOrdersArr: any[] = Array.isArray(prodOrders) ? prodOrders : (prodOrders as any)?.rows ?? [];
+  const modelsArr: any[] = Array.isArray(models) ? models : (models as any)?.rows ?? [];
+  const modelMap = new Map(modelsArr.map((m: any) => [m.id, m]));
   const usersArr: any[] = Array.isArray(users) ? users : [];
   const f = form;
   const sf = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) =>
     setForm((prev) => ({ ...prev, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
+
+  function selectProductionOrder(e: React.ChangeEvent<HTMLSelectElement>) {
+    const value = e.target.value;
+    const po = prodOrdersArr.find((row: any) => String(row.id) === value);
+    const model = po ? modelMap.get(po.model_id) : null;
+    setForm((prev) => ({
+      ...prev,
+      production_order_id: value,
+      order_no: po?.production_no || prev.order_no,
+      model_code: model?.code || po?.model_code || prev.model_code,
+    }));
+  }
+
+  function imageValue(p: Passport) {
+    return p.image_ref || p.model_image_url || "";
+  }
+
+  function looksLikeImage(value: string) {
+    return /^https?:\/\//i.test(value) || value.startsWith("/storage/");
+  }
 
   return (
     <div>
@@ -301,7 +348,7 @@ export default function CuttingPassportsPage() {
                 <th colSpan={3} className="sticky left-0 z-30 bg-slate-700 text-white px-3 py-1.5 text-left border-r-2 border-slate-500">
                   Асосий
                 </th>
-                <th colSpan={7} className="bg-slate-600 text-slate-200 px-3 py-1.5 text-left border-r border-slate-500">
+                <th colSpan={8} className="bg-slate-600 text-slate-200 px-3 py-1.5 text-left border-r border-slate-500">
                   Идентификация
                 </th>
                 <th colSpan={6} className="bg-blue-700 text-blue-100 px-3 py-1.5 text-center border-r border-blue-500">
@@ -327,6 +374,7 @@ export default function CuttingPassportsPage() {
                 {/* Scrollable cols */}
                 <th className="px-3 py-2 text-left whitespace-nowrap">Вариант</th>
                 <th className="px-3 py-2 text-left whitespace-nowrap">Қолип №</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">Rasm</th>
                 <th className="px-3 py-2 text-left whitespace-nowrap">Настилчи</th>
                 <th className="px-3 py-2 text-left whitespace-nowrap">МАТО</th>
                 <th className="px-3 py-2 text-left whitespace-nowrap">Печать</th>
@@ -361,7 +409,7 @@ export default function CuttingPassportsPage() {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={33} className="py-10 text-center text-slate-400">
+                  <td colSpan={34} className="py-10 text-center text-slate-400">
                     Паспортлар йўқ. «Янги паспорт» тугмасини босинг.
                   </td>
                 </tr>
@@ -371,14 +419,23 @@ export default function CuttingPassportsPage() {
                   {/* Frozen left */}
                   <td className="sticky left-0 z-10 bg-white group-hover:bg-stone-50 px-3 py-2 font-mono font-semibold whitespace-nowrap min-w-[88px] shadow-[2px_0_0_0_#f1f5f9]">{p.passport_no}</td>
                   <td className="sticky left-[88px] z-10 bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[90px]">{p.date.slice(0, 10)}</td>
-                  <td className="sticky left-[178px] z-10 bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[120px] shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)]">{p.model_name ?? "—"}</td>
+                  <td className="sticky left-[178px] z-10 bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[120px] shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)]" title={p.model_name ?? ""}>{p.model_code ?? p.model_name ?? "—"}</td>
                   {/* Scrollable */}
                   <td className="px-3 py-2">{p.variant ?? "—"}</td>
                   <td className="px-3 py-2">{p.mold_no ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    {imageValue(p) ? (
+                      looksLikeImage(imageValue(p)) ? (
+                        <img src={imageValue(p)} alt="" className="h-10 w-10 rounded object-cover" />
+                      ) : (
+                        <span className="whitespace-nowrap">{imageValue(p)}</span>
+                      )
+                    ) : "—"}
+                  </td>
                   <td className="px-3 py-2">{p.operator_name ?? "—"}</td>
                   <td className="px-3 py-2">{p.fabric_type ?? "—"}</td>
                   <td className="px-3 py-2 text-center">{p.has_print ? "✓" : ""}</td>
-                  <td className="px-3 py-2 font-mono">{p.production_order_no ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono">{p.order_no ?? p.production_order_no ?? "—"}</td>
                   <td className="px-3 py-2 font-mono">{p.lot_no ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{p.rolls_count ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{d3(p.layer_weight_kg)}</td>
@@ -454,15 +511,21 @@ export default function CuttingPassportsPage() {
           {/* Модель ва идентификация */}
           <Sec label="Модель ва идентификация">
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Заказ (Модель)">
-                <select className="input" value={f.production_order_id} onChange={sf("production_order_id")}>
+              <Field label="ERP заказ / модель">
+                <select className="input" value={f.production_order_id} onChange={selectProductionOrder}>
                   <option value="">— танланмаган —</option>
-                  {prodOrdersArr.map((po: any) => (
-                    <option key={po.id} value={po.id}>
-                      {po.production_no}{po.model_name ? ` · ${po.model_name}` : ""}
-                    </option>
-                  ))}
+                  {prodOrdersArr.map((po: any) => {
+                    const model = modelMap.get(po.model_id);
+                    return (
+                      <option key={po.id} value={po.id}>
+                        {po.production_no}{model?.code ? ` · ${model.code}` : ""}
+                      </option>
+                    );
+                  })}
                 </select>
+              </Field>
+              <Field label="Модель">
+                <input className="input" placeholder="мас. Р-1175" value={f.model_code} onChange={sf("model_code")} />
               </Field>
               <Field label="Вариант">
                 <input className="input" placeholder="мас. 4685" value={f.variant} onChange={sf("variant")} />
@@ -470,13 +533,10 @@ export default function CuttingPassportsPage() {
               <Field label="Қолип рақам">
                 <input className="input" placeholder="Қолип №" value={f.mold_no} onChange={sf("mold_no")} />
               </Field>
-            </div>
-          </Sec>
-
-          {/* Оператор ва лот */}
-          <Sec label="Оператор ва лот">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Настилчи">
+              <Field label="Rasm">
+                <input className="input" placeholder="расм URL ёки изоҳ" value={f.image_ref} onChange={sf("image_ref")} />
+              </Field>
+              <Field label="Настилчи (ERP)">
                 <select className="input" value={f.operator_id} onChange={sf("operator_id")}>
                   <option value="">— танланмаган —</option>
                   {usersArr.map((u: any) => (
@@ -484,8 +544,8 @@ export default function CuttingPassportsPage() {
                   ))}
                 </select>
               </Field>
-              <Field label="Партия рақам">
-                <input className="input" placeholder="мас. D#11C#4" value={f.lot_no} onChange={sf("lot_no")} />
+              <Field label="Настилчи (Excel)">
+                <input className="input" placeholder="мас. муси" value={f.operator_name_manual} onChange={sf("operator_name_manual")} />
               </Field>
               <Field label="МАТО">
                 <input className="input" placeholder="Мато тури" value={f.fabric_type} onChange={sf("fabric_type")} />
@@ -495,6 +555,12 @@ export default function CuttingPassportsPage() {
                   <input type="checkbox" className="h-4 w-4" checked={f.has_print} onChange={sf("has_print")} />
                   <span className="text-sm text-slate-600">Босма бор</span>
                 </label>
+              </Field>
+              <Field label="Заказ">
+                <input className="input" placeholder="мас. 1588" value={f.order_no} onChange={sf("order_no")} />
+              </Field>
+              <Field label="Партия рақам">
+                <input className="input" placeholder="мас. D#11C#4" value={f.lot_no} onChange={sf("lot_no")} />
               </Field>
             </div>
           </Sec>
@@ -514,17 +580,15 @@ export default function CuttingPassportsPage() {
               <Field label="Кройга берилган КГ">
                 <input className="input" type="number" step="0.001" placeholder="115" value={f.planned_kg} onChange={sf("planned_kg")} />
               </Field>
-              <Field label="Иш сони (деталлар)">
-                <input className="input" type="number" placeholder="240" value={f.pieces} onChange={sf("pieces")} />
-              </Field>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-3">
               <CalcBox label="Реал холатда КГ" formula="= Бир қақат × Жами қават + Брак + Бейка жами">
                 {calc.P ? calc.P.toFixed(3) : "—"}
               </CalcBox>
               <CalcBox label="Ишланган КГ" formula="= Битта иш ГР × Иш сони + Бейка жами + Брак">
                 {calc.Q ? calc.Q.toFixed(3) : "—"}
               </CalcBox>
+              <Field label="Иш сони (деталлар)">
+                <input className="input" type="number" placeholder="240" value={f.pieces} onChange={sf("pieces")} />
+              </Field>
             </div>
           </Sec>
 
@@ -551,30 +615,28 @@ export default function CuttingPassportsPage() {
 
           {/* Бейка ва рибана */}
           <Sec label="Бейка ва рибана (битта ишга)">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
+              <CalcBox label="Бейка жами" formula="= Иш сони × Битта ишга бейка">
+                {calc.X ? calc.X.toFixed(4) : "—"}
+              </CalcBox>
               <Field label="Битта ишга бейка (кг)">
                 <input className="input" type="number" step="0.0001" placeholder="0.0050" value={f.beka_per_piece_kg} onChange={sf("beka_per_piece_kg")} />
               </Field>
+              <CalcBox label="Бошка мато бейка жами" formula="= Иш сони × Бошка бейка">
+                {calc.Z ? calc.Z.toFixed(4) : "—"}
+              </CalcBox>
               <Field label="Битта ишга бейка — бошка мато (кг)">
                 <input className="input" type="number" step="0.0001" placeholder="0.0000" value={f.other_beka_per_piece_kg} onChange={sf("other_beka_per_piece_kg")} />
               </Field>
               <Field label="Брак бичиш учун (кг)">
                 <input className="input" type="number" step="0.001" placeholder="0.000" value={f.scrap_kg} onChange={sf("scrap_kg")} />
               </Field>
-              <Field label="Битта ишга рибана (кг)">
-                <input className="input" type="number" step="0.0001" placeholder="0.0000" value={f.ribana_per_piece_kg} onChange={sf("ribana_per_piece_kg")} />
-              </Field>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-3">
-              <CalcBox label="Бейка жами" formula="= Иш сони × Битта ишга бейка">
-                {calc.X ? calc.X.toFixed(4) : "—"}
-              </CalcBox>
-              <CalcBox label="Бошка мато бейка жами" formula="= Иш сони × Бошка бейка">
-                {calc.Z ? calc.Z.toFixed(4) : "—"}
-              </CalcBox>
               <CalcBox label="Рибана жами" formula="= Иш сони × Битта ишга рибана">
                 {calc.AC ? calc.AC.toFixed(4) : "—"}
               </CalcBox>
+              <Field label="Битта ишга рибана (кг)">
+                <input className="input" type="number" step="0.0001" placeholder="0.0000" value={f.ribana_per_piece_kg} onChange={sf("ribana_per_piece_kg")} />
+              </Field>
             </div>
           </Sec>
 

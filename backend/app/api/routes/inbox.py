@@ -28,6 +28,7 @@ _DEPT_OPERATION = {
     "PKG": "packaging",
     "FGS": "storage_transfer",
 }
+_SEWING_LOGISTICS_DEPTS = {"SEW", "MIL", "BST"}
 _WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
 
 
@@ -142,11 +143,15 @@ def department_inbox(
         client_tz = timezone.utc
     today_client = now.astimezone(client_tz).date()
 
+    incoming_bundle_statuses = ["sent_to_printing", "sent_to_sewing"]
+    if d.code in _SEWING_LOGISTICS_DEPTS:
+        incoming_bundle_statuses.append("created")
+
     incoming_bundles = (
         db.query(Bundle)
         .filter(
             Bundle.next_department_id == d.id,
-            Bundle.status.in_(["sent_to_printing", "sent_to_sewing"]),
+            Bundle.status.in_(incoming_bundle_statuses),
         )
         .order_by(Bundle.id.desc())
         .limit(200)
@@ -354,6 +359,7 @@ def department_inbox(
                 "size": b.size,
                 "quantity": b.quantity,
                 "status": b.status,
+                "sewing_factory_code": b.sewing_factory_code,
             }
             for b in incoming_bundles
         ],

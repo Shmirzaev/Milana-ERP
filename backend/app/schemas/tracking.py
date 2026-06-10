@@ -33,6 +33,7 @@ class BundleOut(ORMModel):
     quantity: int
     current_department_id: Optional[int] = None
     next_department_id: Optional[int] = None
+    sewing_factory_code: Optional[str] = None
     status: str
     created_at: datetime
     notes: Optional[str] = None

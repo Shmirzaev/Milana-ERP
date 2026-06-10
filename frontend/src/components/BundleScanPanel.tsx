@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { api } from "@/lib/api";
+import { useMemo, useState } from "react";
+import useSWR from "swr";
+import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
@@ -9,16 +10,36 @@ import { can, useMe } from "@/lib/auth";
 
 type BundleAction = "send-printing" | "receive-printing" | "send-sewing" | "receive-sewing";
 type Scope = "all" | "cutting" | "printing" | "sewing";
+type Department = { id: number; name: string; code: string };
+
+const SEWING_DEPARTMENT_CODES = new Set(["SEW", "MIL", "BST"]);
 
 export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const { t } = useT();
   const { me } = useMe();
+  const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
   const [code, setCode] = useState("");
   const [bundle, setBundle] = useState<any>(null);
   const [msg, setMsg] = useState("");
   const canCuttingScan = can(me, "*", "cutting.bundles");
   const canPrintingScan = can(me, "*", "printing.bundles");
   const canSewingScan = can(me, "*", "sewing.bundles");
+  const departmentById = useMemo(
+    () => new Map(departments.map((d) => [Number(d.id), d])),
+    [departments],
+  );
+
+  function departmentLabel(id: number | null | undefined) {
+    if (!id) return "-";
+    const dept = departmentById.get(Number(id));
+    return dept ? `${dept.code} - ${dept.name}` : String(id);
+  }
+
+  function factoryLabel(value: string | null | undefined) {
+    const normalized = String(value || "").trim().toUpperCase();
+    if (normalized === "BST" || normalized === "BESTTEX") return t("factory.besttex");
+    return t("factory.milana");
+  }
 
   async function lookup() {
     setMsg("");
@@ -45,23 +66,30 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const includeCutting = scope === "all" || scope === "cutting";
   const includePrinting = scope === "all" || scope === "printing";
   const includeSewing = scope === "all" || scope === "sewing";
+  const nextDept = bundle?.next_department_id ? departmentById.get(Number(bundle.next_department_id)) : null;
+  const nextDeptCode = String(nextDept?.code || "").toUpperCase();
+  const selectedFactory = factoryLabel(bundle?.sewing_factory_code || nextDeptCode);
+  const nextIsSewingFactory = SEWING_DEPARTMENT_CODES.has(nextDeptCode);
 
   const availableActions: Array<{ key: BundleAction; label: string; primary?: boolean }> = [];
   if (bundle?.status === "created" && canCuttingScan && includeCutting) {
-    availableActions.push({ key: "send-printing", label: t("btn.sendToPrinting") });
-    availableActions.push({ key: "send-sewing", label: t("btn.sendToSewing"), primary: true });
+    if (nextDeptCode === "PRT") {
+      availableActions.push({ key: "send-printing", label: t("btn.sendToPrinting"), primary: true });
+    } else {
+      availableActions.push({ key: "send-sewing", label: t("btn.sendToFactory", { factory: selectedFactory }), primary: true });
+    }
   }
   if (bundle?.status === "sent_to_printing" && canPrintingScan && includePrinting) {
     availableActions.push({ key: "receive-printing", label: t("btn.receiveAtPrinting"), primary: true });
   }
   if (bundle?.status === "received_printing" && canPrintingScan && includePrinting) {
-    availableActions.push({ key: "send-sewing", label: t("btn.sendToSewing"), primary: true });
+    availableActions.push({ key: "send-sewing", label: t("btn.sendToFactory", { factory: selectedFactory }), primary: true });
   }
-  if (bundle?.status === "created" && canSewingScan && includeSewing) {
-    availableActions.push({ key: "receive-sewing", label: t("btn.receiveAtSewing"), primary: true });
+  if (bundle?.status === "created" && canSewingScan && includeSewing && nextIsSewingFactory) {
+    availableActions.push({ key: "receive-sewing", label: t("btn.receiveAtFactory", { factory: selectedFactory }), primary: true });
   }
   if (bundle?.status === "sent_to_sewing" && canSewingScan && includeSewing) {
-    availableActions.push({ key: "receive-sewing", label: t("btn.receiveAtSewing"), primary: true });
+    availableActions.push({ key: "receive-sewing", label: t("btn.receiveAtFactory", { factory: selectedFactory }), primary: true });
   }
 
   return (
@@ -103,10 +131,12 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               <div>
                 <span className="badge">{statusLabel(bundle.status, t)}</span>
               </div>
+              <div className="text-slate-500">{t("field.sewingFactory")}</div>
+              <div>{selectedFactory}</div>
               <div className="text-slate-500">{t("field.currentDept")}</div>
-              <div>{bundle.current_department_id}</div>
+              <div>{departmentLabel(bundle.current_department_id)}</div>
               <div className="text-slate-500">{t("field.nextDept")}</div>
-              <div>{bundle.next_department_id}</div>
+              <div>{departmentLabel(bundle.next_department_id)}</div>
             </div>
             <div className="flex flex-wrap gap-2">
               {availableActions.map((a) => (

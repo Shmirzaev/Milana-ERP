@@ -21,6 +21,7 @@ class Bundle(Base, PkMixin, TimestampMixin):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     current_department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"))
     next_department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"))
+    sewing_factory_code: Mapped[str | None] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32), default="created", nullable=False)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     notes: Mapped[str | None] = mapped_column(Text)

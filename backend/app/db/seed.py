@@ -27,6 +27,7 @@ from app.models import (
 DEPARTMENTS = [
     ("Sales", "SLS"), ("Planning", "PLN"), ("Fabric & Accessories Storage", "STR"),
     ("Cutting", "CUT"), ("Printing", "PRT"), ("Sewing", "SEW"),
+    ("Milana Sewing Factory", "MIL"), ("Besttex Sewing Factory", "BST"),
     ("Packaging", "PKG"), ("Ready Product Storage", "FGS"),
     ("Finance", "FIN"), ("Modeling / PLM", "MOD"), ("HR", "HR"),
     ("Waste Department", "WST"), ("Management / Admin", "ADM"),
@@ -279,6 +280,8 @@ def seed():
                 ("Cutting", "cutting@example.com", "CUT"),
                 ("Printing", "printing@example.com", "PRT"),
                 ("Sewing", "sewing@example.com", "SEW"),
+                ("Sewing", "milana.sewing@example.com", "MIL"),
+                ("Sewing", "besttex.sewing@example.com", "BST"),
                 ("Packaging", "packaging@example.com", "PKG"),
                 ("ReadyStorage", "fgs@example.com", "FGS"),
                 ("Waste", "waste@example.com", "WST"),

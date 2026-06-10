@@ -217,6 +217,172 @@ def test_full_flow(client, auth_headers):
     assert r.json()["status"] == "received_in_storage"
 
 
+def test_cutting_routes_bundles_to_selected_sewing_factories(client, auth_headers):
+    so_id = _create_client_sales_order(client, auth_headers)
+    _prepare_sales_order_for_po(client, auth_headers, so_id)
+
+    r = client.post(
+        "/api/planning/create-production-order",
+        json={
+            "production_type": "client_order",
+            "sales_order_id": so_id,
+            "model_id": 1,
+            "planned_quantity": 100,
+            "items": [
+                {"model_id": 1, "color": "white", "size": "M", "planned_quantity": 50},
+                {"model_id": 1, "color": "white", "size": "L", "planned_quantity": 50},
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    po_id = r.json()["id"]
+
+    r = client.get("/api/departments", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    dept_by_code = {d["code"]: d for d in r.json()}
+    assert "MIL" in dept_by_code
+    assert "BST" in dept_by_code
+
+    r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    cutting_wo = next(w for w in r.json() if w["operation"] == "cutting")
+
+    r = client.post(
+        "/api/cutting/records",
+        json={
+            "work_order_id": cutting_wo["id"],
+            "fabric_batch_id": None,
+            "input_quantity": 140.0,
+            "input_unit": "kg",
+            "cut_pieces": 100,
+            "passed_pieces": 100,
+            "defective_pieces": 0,
+            "waste_quantity": 5.0,
+            "waste_unit": "kg",
+            "bundles": [
+                {"color": "white", "size": "M", "quantity": 50, "count": 1, "next": "sewing", "sewing_factory": "milana"},
+                {"color": "white", "size": "L", "quantity": 50, "count": 1, "next": "sewing", "sewing_factory": "besttex"},
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    milana_bundle, besttex_bundle = r.json()["bundles"]
+    assert milana_bundle["sewing_factory_code"] == "MIL"
+    assert besttex_bundle["sewing_factory_code"] == "BST"
+
+    r = client.get(f"/api/bundles/{milana_bundle['id']}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["next_department_id"] == dept_by_code["MIL"]["id"]
+
+    r = client.get(f"/api/bundles/{besttex_bundle['id']}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["next_department_id"] == dept_by_code["BST"]["id"]
+
+    r = client.get("/api/inbox?dept=MIL", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert any(b["id"] == milana_bundle["id"] for b in r.json()["incoming_bundles"])
+
+    r = client.get("/api/inbox?dept=BST", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert any(b["id"] == besttex_bundle["id"] for b in r.json()["incoming_bundles"])
+
+    r = client.post(f"/api/bundles/{besttex_bundle['id']}/receive-sewing", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "received_sewing"
+    assert r.json()["current_department_id"] == dept_by_code["BST"]["id"]
+
+    r = client.post(f"/api/bundles/{milana_bundle['id']}/send-sewing", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "sent_to_sewing"
+    assert r.json()["next_department_id"] == dept_by_code["MIL"]["id"]
+    assert r.json()["current_department_id"] == dept_by_code["MIL"]["id"]
+
+
+def test_printed_bundle_keeps_cutting_selected_sewing_factory(client, auth_headers):
+    r = client.post(
+        "/api/sales-orders",
+        json={
+            "order_type": "client_order",
+            "items": [
+                {
+                    "model_id": 1,
+                    "color": "white",
+                    "size": "M",
+                    "quantity": 100,
+                    "unit_price": 12.5,
+                    "printing_required": True,
+                },
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    so_id = r.json()["id"]
+    _prepare_sales_order_for_po(client, auth_headers, so_id)
+
+    r = client.post(
+        "/api/planning/create-production-order",
+        json={
+            "production_type": "client_order",
+            "sales_order_id": so_id,
+            "model_id": 1,
+            "planned_quantity": 100,
+            "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 100}],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    po_id = r.json()["id"]
+
+    r = client.get("/api/departments", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    dept_by_code = {d["code"]: d for d in r.json()}
+
+    r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    cutting_wo = next(w for w in r.json() if w["operation"] == "cutting")
+
+    r = client.post(
+        "/api/cutting/records",
+        json={
+            "work_order_id": cutting_wo["id"],
+            "fabric_batch_id": None,
+            "input_quantity": 140.0,
+            "input_unit": "kg",
+            "cut_pieces": 100,
+            "passed_pieces": 100,
+            "defective_pieces": 0,
+            "waste_quantity": 5.0,
+            "waste_unit": "kg",
+            "bundles": [
+                {"color": "white", "size": "M", "quantity": 100, "count": 1, "next": "printing", "sewing_factory": "besttex"},
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    bundle = r.json()["bundles"][0]
+    assert bundle["sewing_factory_code"] == "BST"
+
+    r = client.get(f"/api/bundles/{bundle['id']}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["next_department_id"] == dept_by_code["PRT"]["id"]
+
+    r = client.post(f"/api/bundles/{bundle['id']}/send-printing", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    r = client.post(f"/api/bundles/{bundle['id']}/receive-printing", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    r = client.post(f"/api/bundles/{bundle['id']}/send-sewing", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "sent_to_sewing"
+    assert body["sewing_factory_code"] == "BST"
+    assert body["next_department_id"] == dept_by_code["BST"]["id"]
+    assert body["current_department_id"] == dept_by_code["BST"]["id"]
+
+
 def test_cutting_overproduction_keeps_downstream_stage_plan(client, auth_headers):
     so_id = _create_client_sales_order(client, auth_headers)
     _prepare_sales_order_for_po(client, auth_headers, so_id)

@@ -92,6 +92,8 @@ const SECTIONS: Section[] = [
     items: [
       { href: "/sewing/flows", labelKey: "nav.sewingFlows", perms: ["sewing.records", "sewing.bundles", "planning.production", "sewing.flows"], icon: Layers3 },
       { href: "/departments/SEW", labelKey: "nav.sewingFloor", perms: ["sewing.records", "sewing.bundles", "planning.production"], icon: Shirt },
+      { href: "/departments/MIL", labelKey: "nav.milanaSewing", perms: ["sewing.records", "sewing.bundles", "planning.production"], icon: Factory },
+      { href: "/departments/BST", labelKey: "nav.besttexSewing", perms: ["sewing.records", "sewing.bundles", "planning.production"], icon: Factory },
       { href: "/bundles/scan/sewing", labelKey: "nav.scanBundle", perms: ["sewing.bundles", "sewing.records"], icon: QrCode },
     ],
   },

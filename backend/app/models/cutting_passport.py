@@ -17,10 +17,14 @@ class CuttingPassport(Base, PkMixin, TimestampMixin):
     operator_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     # Identity fields (manual)
+    model_code: Mapped[str | None] = mapped_column(String(128))
     variant: Mapped[str | None] = mapped_column(String(64))
     mold_no: Mapped[str | None] = mapped_column(String(64))        # Қолип рақам
+    image_ref: Mapped[str | None] = mapped_column(String(512))
+    operator_name_manual: Mapped[str | None] = mapped_column(String(128))
     fabric_type: Mapped[str | None] = mapped_column(String(128))   # МАТО
     has_print: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Печать
+    order_no: Mapped[str | None] = mapped_column(String(128))
     lot_no: Mapped[str | None] = mapped_column(String(64))         # Партия рақам
     size_range: Mapped[str | None] = mapped_column(String(32))     # Размер e.g. "44-52"
 
