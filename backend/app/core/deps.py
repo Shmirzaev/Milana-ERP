@@ -24,6 +24,14 @@ def get_current_user(
     user = db.get(User, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive or unknown user")
+    # Reject tokens issued before the user's credentials were last rotated, so a
+    # password change/reset invalidates any previously stolen session.
+    valid_from = getattr(user, "tokens_valid_from", None)
+    issued_at = payload.get("iat")
+    if valid_from is not None and issued_at is not None:
+        from app.core.dt import as_utc
+        if int(issued_at) < int(as_utc(valid_from).timestamp()):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired, please sign in again")
     return user
 
 

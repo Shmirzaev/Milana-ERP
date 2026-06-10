@@ -1,10 +1,10 @@
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 
 from app.core.config import settings
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from fastapi import Depends
 from app.core.security import hash_password, normalize_email, validate_password_strength
 from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
@@ -196,6 +196,37 @@ def _require_strong_password(password: str) -> None:
         raise HTTPException(400, str(e)) from e
 
 
+def _assert_can_grant_role(db: DbSession, actor: User, role_id: int | None) -> None:
+    """Prevent privilege escalation: a user-manager may only assign a role whose
+    permissions are a subset of their own. Holding '*' allows granting anything.
+    Without this guard, anyone with 'admin.users' could mint or self-assign an
+    admin ('*') role and take over the system."""
+    actor_perms = set(user_permissions(actor))
+    if "*" in actor_perms:
+        return
+    if role_id is None:
+        return
+    role = db.get(Role, role_id)
+    if not role:
+        raise HTTPException(404, "Role not found")
+    target_perms = set(role.permissions or [])
+    if "*" in target_perms:
+        raise HTTPException(403, "You cannot assign an administrator role")
+    missing = target_perms - actor_perms
+    if missing:
+        raise HTTPException(403, f"You cannot grant permissions you don't hold: {sorted(missing)}")
+
+
+def _count_active_admins(db: DbSession, exclude_user_id: int | None = None) -> int:
+    count = 0
+    for u in db.query(User).filter(User.is_active.is_(True)).all():
+        if exclude_user_id is not None and u.id == exclude_user_id:
+            continue
+        if "*" in user_permissions(u):
+            count += 1
+    return count
+
+
 @router.get("/users", response_model=list[UserOut])
 def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
     return db.query(User).order_by(User.id).all()
@@ -205,6 +236,7 @@ def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users
 def create_user(payload: UserIn, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
     email = normalize_email(payload.email)
     _require_strong_password(payload.password)
+    _assert_can_grant_role(db, current, payload.role_id)
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(400, "Email already exists")
     u = User(
@@ -237,9 +269,25 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
     if not u:
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)
+    actor_is_admin = "*" in user_permissions(current)
+    # Guard against self-escalation and self-lockout by a non-superadmin manager.
+    if u.id == current.id and not actor_is_admin:
+        if "role_id" in data and data["role_id"] != u.role_id:
+            raise HTTPException(403, "You cannot change your own role")
+        if data.get("is_active") is False:
+            raise HTTPException(403, "You cannot deactivate your own account")
+    # A role change may only grant permissions the actor already holds.
+    if "role_id" in data and data["role_id"] != u.role_id:
+        _assert_can_grant_role(db, current, data["role_id"])
+    # Never let the last active administrator be demoted or deactivated.
+    demoting_admin = "role_id" in data and data["role_id"] != u.role_id and "*" in (user_permissions(u))
+    deactivating = data.get("is_active") is False and u.is_active
+    if (demoting_admin or deactivating) and "*" in user_permissions(u) and _count_active_admins(db, exclude_user_id=u.id) == 0:
+        raise HTTPException(400, "Cannot remove the last active administrator")
     if "password" in data and data["password"]:
         _require_strong_password(data["password"])
         u.password_hash = hash_password(data.pop("password"))
+        u.tokens_valid_from = datetime.now(timezone.utc)
     elif "password" in data:
         data.pop("password")
     if "email" in data and data["email"]:
@@ -257,6 +305,10 @@ def delete_user(user_id: int, db: DbSession, current: User = Depends(require_per
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
+    if u.id == current.id:
+        raise HTTPException(400, "You cannot delete your own account")
+    if "*" in user_permissions(u) and _count_active_admins(db, exclude_user_id=u.id) == 0:
+        raise HTTPException(400, "Cannot delete the last active administrator")
     db.delete(u)
     log_action(db, current, "delete", "User", user_id)
     db.commit()
@@ -270,6 +322,7 @@ def list_roles(db: DbSession, _: CurrentUser):
 
 @router.post("/roles", response_model=RoleOut, status_code=201)
 def create_role(payload: RoleIn, db: DbSession, current: User = Depends(require_permissions("*"))):
+    # Already restricted to superadmins ('*'), so any permission set is allowed.
     r = Role(name=payload.name, permissions=payload.permissions)
     db.add(r)
     db.flush()

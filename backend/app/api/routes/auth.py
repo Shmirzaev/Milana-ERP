@@ -50,9 +50,24 @@ class ChangePasswordIn(BaseModel):
     confirm_new_password: str
 
 
+def _client_ip(request: Request) -> str:
+    """Resolve the real client IP. Behind HF Spaces / Vercel the socket peer is
+    the platform proxy (identical for every user), so rate-limit buckets keyed on
+    it collapse into one global bucket. The platform sets X-Forwarded-For with the
+    originating client as the left-most entry; prefer that."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip and real_ip.strip():
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
+
 def _login_key(request: Request, email: str) -> str:
-    client = request.client.host if request.client else "unknown"
-    return f"{client}:{normalize_email(email)}"
+    return f"{_client_ip(request)}:{normalize_email(email)}"
 
 
 def _enforce_login_rate_limit(key: str) -> None:
@@ -95,7 +110,7 @@ def _clear_login_failures(key: str) -> None:
 
 def _enforce_reset_rate_limit(request: Request, email: str) -> None:
     now = time_module.monotonic()
-    client = request.client.host if request.client else "unknown"
+    client = _client_ip(request)
     keys = [f"ip:{client}", f"email:{normalize_email(email)}"]
     window_started = now - 60 * 60
     for key in keys:
@@ -256,6 +271,7 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
         raise HTTPException(400, "Invalid or expired reset link")
 
     reset_token.user.password_hash = hash_password(payload.new_password)
+    reset_token.user.tokens_valid_from = now
     reset_token.used_at = now
     db.commit()
     return {"message": "password_reset"}
@@ -305,6 +321,7 @@ def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     user.password_hash = hash_password(payload.new_password)
+    user.tokens_valid_from = datetime.now(timezone.utc)
     log_action(db, user, "change_password", "User", user.id)
     db.commit()
     return {"message": "password_updated"}

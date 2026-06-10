@@ -23,6 +23,7 @@ log = logging.getLogger("schema_hotfix")
 # by Base.metadata.create_all (called from `app.main` at startup) must exist
 # first. The schema_hotfix runs AFTER create_all.
 _PATCHES: list[tuple[str, str]] = [
+    ("users",       "ADD COLUMN IF NOT EXISTS tokens_valid_from TIMESTAMPTZ"),
     ("work_orders", "ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE"),
     ("work_orders", "ADD COLUMN IF NOT EXISTS block_reason TEXT"),
     ("work_orders", "ADD COLUMN IF NOT EXISTS deadline TIMESTAMPTZ"),

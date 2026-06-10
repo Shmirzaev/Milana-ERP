@@ -24,6 +24,17 @@ from app.services.notifications import notify
 router = APIRouter(tags=["production_extra"])
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
+# Blocking/unblocking a work order is a planning/management action.
+_WO_BLOCK_PERMS = (
+    "planning.production",
+    "sewing.flows",
+    "cutting.records",
+    "printing.records",
+    "sewing.records",
+    "packaging.records",
+    "management.approve",
+    "*",
+)
 
 
 class BlockIn(BaseModel):
@@ -32,7 +43,7 @@ class BlockIn(BaseModel):
 
 # ===== Block / Unblock =====
 @router.post("/work-orders/{wid}/block")
-def block_wo(wid: int, payload: BlockIn, db: DbSession, current: CurrentUser):
+def block_wo(wid: int, payload: BlockIn, db: DbSession, current: User = Depends(require_permissions(*_WO_BLOCK_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
     reason = (payload.reason or "Blocked").strip()
@@ -52,7 +63,7 @@ def block_wo(wid: int, payload: BlockIn, db: DbSession, current: CurrentUser):
 
 
 @router.post("/work-orders/{wid}/unblock")
-def unblock_wo(wid: int, db: DbSession, current: CurrentUser):
+def unblock_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_WO_BLOCK_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
     wo.is_blocked = False

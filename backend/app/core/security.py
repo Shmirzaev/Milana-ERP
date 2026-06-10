@@ -6,7 +6,10 @@ from passlib.context import CryptContext
 
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt_sha256 pre-hashes the password with SHA-256, sidestepping bcrypt's
+# silent 72-byte truncation. Plain "bcrypt" is kept so existing stored hashes
+# still verify; it's marked deprecated and will rehash on next successful login.
+pwd_context = CryptContext(schemes=["bcrypt_sha256", "bcrypt"], deprecated="auto")
 
 LEGACY_DEFAULT_ADMIN_EMAIL = "admin@example.com"
 LEGACY_DEFAULT_ADMIN_PASSWORD = "admin" + "12345"

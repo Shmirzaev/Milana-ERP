@@ -37,6 +37,20 @@ from app.services.workflow import (
 
 router = APIRouter(tags=["production"])
 
+# Anyone who legitimately runs the production floor: planners plus the four
+# stage operator roles (and admins). Blocks unrelated staff (HR, Finance, Sales)
+# from mutating work orders / quality records that aren't theirs.
+_PRODUCTION_FLOOR_PERMS = (
+    "planning.production",
+    "sewing.flows",
+    "cutting.records",
+    "printing.records",
+    "sewing.records",
+    "packaging.records",
+    "management.approve",
+    "*",
+)
+
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 _PRE_CUTTING_EDIT_STATUSES = ("new", "planning", "pending", "waiting", "ready")
@@ -686,7 +700,7 @@ def get_wo(wid: int, db: DbSession, _: CurrentUser):
 
 
 @router.patch("/work-orders/{wid}", response_model=WorkOrderOut)
-def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: CurrentUser):
+def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
     changes = payload.model_dump(exclude_unset=True)
@@ -730,7 +744,7 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: Curren
 
 
 @router.post("/work-orders/{wid}/start", response_model=WorkOrderOut)
-def start_wo(wid: int, db: DbSession, current: CurrentUser):
+def start_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
     wo.status = "in_progress"
@@ -779,7 +793,7 @@ def collect_printing_wo(
 
 
 @router.post("/work-orders/{wid}/complete", response_model=WorkOrderOut)
-def complete_wo(wid: int, db: DbSession, current: CurrentUser):
+def complete_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
     wo.status = "completed"
@@ -1621,7 +1635,7 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
 
 # ===== Quality =====
 @router.post("/quality/checks", response_model=QualityCheckOut, status_code=201)
-def post_quality(payload: QualityCheckIn, db: DbSession, current: CurrentUser):
+def post_quality(payload: QualityCheckIn, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     if not db.get(WorkOrder, payload.work_order_id):
         raise HTTPException(404, "Work order not found")
     q = QualityCheck(**payload.model_dump(), checked_by=current.id, checked_at=datetime.now(timezone.utc))

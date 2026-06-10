@@ -30,6 +30,12 @@ async def _security_headers(request: Request, call_next):
     )
     if request.url.scheme == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    # Uploaded files under /storage are served unauthenticated (so <img> tags can
+    # render them with bearer-token auth). They have unguessable UUID names; keep
+    # them out of shared caches and search indexes to limit URL-leak exposure.
+    if request.url.path.startswith("/storage/"):
+        response.headers.setdefault("Cache-Control", "private, no-store")
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
     return response
 
 
@@ -40,7 +46,7 @@ async def _unhandled_exception(request: Request, exc: Exception):
     log.exception("Unhandled error on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal server error: {type(exc).__name__}"},
+        content={"detail": "Internal server error"},
     )
 
 
@@ -57,6 +63,15 @@ def _on_startup() -> None:
     not have interactive Shell access. Safe to run on every boot.
     """
     settings.validate_runtime_security()
+    # In production validate_runtime_security() hard-fails on insecure defaults.
+    # Outside production we don't block local dev, but we still surface them
+    # loudly so a misconfigured deploy (e.g. ENV left at "development") can't run
+    # on the default JWT secret silently.
+    if not settings.is_production:
+        if settings.JWT_SECRET.strip() in {"", "dev-secret", "test-secret"} or len(settings.JWT_SECRET.strip()) < 32:
+            log.warning("SECURITY: JWT_SECRET is a weak/default value. Set a unique 32+ char secret before exposing this instance.")
+        if "://erp:erp@" in settings.DATABASE_URL:
+            log.warning("SECURITY: DATABASE_URL uses default development credentials.")
     try:
         Base.metadata.create_all(bind=engine)
         log.info("startup: create_all complete")

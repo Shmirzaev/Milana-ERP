@@ -1,3 +1,4 @@
+import hmac
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 
@@ -109,7 +110,7 @@ def sync_1c_finance(
     expected = settings.INTEGRATION_1C_TOKEN.strip()
     if not expected:
         raise HTTPException(503, "1C integration token is not configured")
-    if x_1c_token != expected:
+    if not hmac.compare_digest(str(x_1c_token or ""), expected):
         raise HTTPException(401, "Invalid 1C token")
     result = sync_from_1c(db, payload)
     db.commit()

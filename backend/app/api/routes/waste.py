@@ -56,7 +56,10 @@ def list_waste(db: DbSession, _: CurrentUser, status: str | None = None, sellabl
 
 
 @router.post("", response_model=WasteOut, status_code=201)
-def create_waste(payload: WasteIn, db: DbSession, current: CurrentUser):
+def create_waste(payload: WasteIn, db: DbSession, current: User = Depends(require_permissions(
+    "cutting.records", "printing.records", "sewing.records", "packaging.records",
+    "waste.receive", "planning.production", "management.approve", "*",
+))):
     data = payload.model_dump()
     data["estimated_value"] = round(float(data.get("quantity") or 0) * _unit_cost_for_waste(db, data.get("item_id"), data.get("batch_id")), 2)
     w = WasteRecord(**data, created_by=current.id, status="recorded")
