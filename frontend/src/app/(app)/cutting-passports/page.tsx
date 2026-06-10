@@ -292,101 +292,132 @@ export default function CuttingPassportsPage() {
       </div>
 
       {/* Table */}
-      <div className="card overflow-x-auto">
-        <table className="min-w-max text-xs">
-          <thead>
-            <tr className="border-b-2 border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-              <th className="px-3 py-2 text-left">Паспорт №</th>
-              <th className="px-3 py-2 text-left">Дата</th>
-              <th className="px-3 py-2 text-left">Модель</th>
-              <th className="px-3 py-2 text-left">Вариант</th>
-              <th className="px-3 py-2 text-left">Қолип №</th>
-              <th className="px-3 py-2 text-left">Настилчи</th>
-              <th className="px-3 py-2 text-left">МАТО</th>
-              <th className="px-3 py-2 text-left">Печать</th>
-              <th className="px-3 py-2 text-left">Заказ</th>
-              <th className="px-3 py-2 text-left">Партия №</th>
-              <th className="px-3 py-2 text-right">Рулон</th>
-              <th className="px-3 py-2 text-right">Бир қақат</th>
-              <th className="px-3 py-2 text-right">Жами қават</th>
-              <th className="px-3 py-2 text-right">Берилган КГ</th>
-              <th className="px-3 py-2 text-right bg-amber-50 text-amber-700">Реал КГ</th>
-              <th className="px-3 py-2 text-right bg-amber-50 text-amber-700">Ишланган КГ</th>
-              <th className="px-3 py-2 text-right">Иш сони</th>
-              <th className="px-3 py-2 text-right">Мато эни</th>
-              <th className="px-3 py-2 text-right">Настил м</th>
-              <th className="px-3 py-2 text-left">Размер</th>
-              <th className="px-3 py-2 text-right">Грамаж</th>
-              <th className="px-3 py-2 text-right">Отход %</th>
-              <th className="px-3 py-2 text-right bg-amber-50 text-amber-700">Бейка жами</th>
-              <th className="px-3 py-2 text-right">Бейка/иш</th>
-              <th className="px-3 py-2 text-right bg-amber-50 text-amber-700">Б.бейка жами</th>
-              <th className="px-3 py-2 text-right">Б.бейка/иш</th>
-              <th className="px-3 py-2 text-right">Брак кг</th>
-              <th className="px-3 py-2 text-right bg-amber-50 text-amber-700">Рибана жами</th>
-              <th className="px-3 py-2 text-right">Рибана/иш</th>
-              <th className="px-3 py-2 text-right bg-green-50 text-green-700">Битта иш ГР</th>
-              <th className="px-3 py-2 text-right bg-green-50 text-green-700">Слой ГР</th>
-              <th className="px-3 py-2 text-right bg-green-50 text-green-700">БРУТТО ГР</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={33} className="py-10 text-center text-slate-400">
-                  Паспортлар йўқ. «Янги паспорт» тугмасини босинг.
-                </td>
+      <div className="card p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-max text-xs border-collapse">
+            <thead>
+              {/* Column group row */}
+              <tr className="text-[10px] font-bold uppercase tracking-widest">
+                <th colSpan={3} className="sticky left-0 z-30 bg-slate-700 text-white px-3 py-1.5 text-left border-r-2 border-slate-500">
+                  Асосий
+                </th>
+                <th colSpan={7} className="bg-slate-600 text-slate-200 px-3 py-1.5 text-left border-r border-slate-500">
+                  Идентификация
+                </th>
+                <th colSpan={6} className="bg-blue-700 text-blue-100 px-3 py-1.5 text-center border-r border-blue-500">
+                  Настил
+                </th>
+                <th colSpan={6} className="bg-violet-700 text-violet-100 px-3 py-1.5 text-center border-r border-violet-500">
+                  Мато
+                </th>
+                <th colSpan={7} className="bg-orange-600 text-orange-100 px-3 py-1.5 text-center border-r border-orange-400">
+                  Бейка / Рибана
+                </th>
+                <th colSpan={3} className="bg-green-700 text-green-100 px-3 py-1.5 text-center border-r border-green-500">
+                  Натижа
+                </th>
+                <th className="sticky right-0 z-30 bg-slate-700 px-2 py-1.5" />
               </tr>
-            )}
-            {rows.map((p) => (
-              <tr key={p.id} className="border-b border-slate-100 hover:bg-stone-50">
-                <td className="px-3 py-2 font-mono font-semibold">{p.passport_no}</td>
-                <td className="px-3 py-2 whitespace-nowrap">{p.date.slice(0, 10)}</td>
-                <td className="px-3 py-2">{p.model_name ?? "—"}</td>
-                <td className="px-3 py-2">{p.variant ?? "—"}</td>
-                <td className="px-3 py-2">{p.mold_no ?? "—"}</td>
-                <td className="px-3 py-2">{p.operator_name ?? "—"}</td>
-                <td className="px-3 py-2">{p.fabric_type ?? "—"}</td>
-                <td className="px-3 py-2 text-center">{p.has_print ? "✓" : ""}</td>
-                <td className="px-3 py-2 font-mono">{p.production_order_no ?? "—"}</td>
-                <td className="px-3 py-2 font-mono">{p.lot_no ?? "—"}</td>
-                <td className="px-3 py-2 text-right">{p.rolls_count ?? "—"}</td>
-                <td className="px-3 py-2 text-right">{d3(p.layer_weight_kg)}</td>
-                <td className="px-3 py-2 text-right">{p.total_layers ?? "—"}</td>
-                <td className="px-3 py-2 text-right">{d2(p.planned_kg)}</td>
-                <td className="px-3 py-2 text-right bg-amber-50 font-medium">{d3(p.actual_kg)}</td>
-                <td className="px-3 py-2 text-right bg-amber-50 font-medium">{d3(p.theoretical_kg)}</td>
-                <td className="px-3 py-2 text-right">{p.pieces ?? "—"}</td>
-                <td className="px-3 py-2 text-right">{p.fabric_width_m ?? "—"}</td>
-                <td className="px-3 py-2 text-right">{p.lay_length_m ?? "—"}</td>
-                <td className="px-3 py-2">{p.size_range ?? "—"}</td>
-                <td className="px-3 py-2 text-right">{p.gramage ?? "—"}</td>
-                <td className="px-3 py-2 text-right">{p.waste_pct ?? "—"}</td>
-                <td className="px-3 py-2 text-right bg-amber-50">{d4(p.total_beka_kg)}</td>
-                <td className="px-3 py-2 text-right">{d6(p.beka_per_piece_kg)}</td>
-                <td className="px-3 py-2 text-right bg-amber-50">{d4(p.other_beka_kg)}</td>
-                <td className="px-3 py-2 text-right">{d6(p.other_beka_per_piece_kg)}</td>
-                <td className="px-3 py-2 text-right">{d3(p.scrap_kg)}</td>
-                <td className="px-3 py-2 text-right bg-amber-50">{d4(p.total_ribana_kg)}</td>
-                <td className="px-3 py-2 text-right">{d6(p.ribana_per_piece_kg)}</td>
-                <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.per_piece_weight_kg)}</td>
-                <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.actual_kg_per_piece)}</td>
-                <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.gross_kg_per_piece)}</td>
-                <td className="px-3 py-2">
-                  <div className="flex gap-1">
-                    <button className="btn btn-ghost p-1" onClick={() => openEdit(p)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <button className="btn btn-ghost p-1 text-red-500" onClick={() => del(p)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </td>
+              {/* Column headers */}
+              <tr className="border-b-2 border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+                {/* Frozen left: Паспорт №, Дата, Модель */}
+                <th className="sticky left-0 z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[88px] shadow-[2px_0_0_0_#e2e8f0]">Паспорт №</th>
+                <th className="sticky left-[88px] z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[90px]">Дата</th>
+                <th className="sticky left-[178px] z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[120px] shadow-[2px_0_6px_-1px_rgba(0,0,0,0.12)]">Модель</th>
+                {/* Scrollable cols */}
+                <th className="px-3 py-2 text-left whitespace-nowrap">Вариант</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">Қолип №</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">Настилчи</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">МАТО</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">Печать</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">Заказ</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">Партия №</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Рулон</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Бир қақат</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Жами қават</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Берилган КГ</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">Реал КГ</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">Ишланган КГ</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Иш сони</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Мато эни</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Настил м</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">Размер</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Грамаж</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Отход %</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">Бейка жами</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Бейка/иш</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">Б.бейка жами</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Б.бейка/иш</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Брак кг</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">Рибана жами</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Рибана/иш</th>
+                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">Битта иш ГР</th>
+                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">Слой ГР</th>
+                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">БРУТТО ГР</th>
+                {/* Frozen right: actions */}
+                <th className="sticky right-0 z-20 bg-slate-50 px-2 py-2 shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.12)]" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={33} className="py-10 text-center text-slate-400">
+                    Паспортлар йўқ. «Янги паспорт» тугмасини босинг.
+                  </td>
+                </tr>
+              )}
+              {rows.map((p) => (
+                <tr key={p.id} className="border-b border-slate-100 hover:bg-stone-50 group">
+                  {/* Frozen left */}
+                  <td className="sticky left-0 z-10 bg-white group-hover:bg-stone-50 px-3 py-2 font-mono font-semibold whitespace-nowrap min-w-[88px] shadow-[2px_0_0_0_#f1f5f9]">{p.passport_no}</td>
+                  <td className="sticky left-[88px] z-10 bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[90px]">{p.date.slice(0, 10)}</td>
+                  <td className="sticky left-[178px] z-10 bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[120px] shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)]">{p.model_name ?? "—"}</td>
+                  {/* Scrollable */}
+                  <td className="px-3 py-2">{p.variant ?? "—"}</td>
+                  <td className="px-3 py-2">{p.mold_no ?? "—"}</td>
+                  <td className="px-3 py-2">{p.operator_name ?? "—"}</td>
+                  <td className="px-3 py-2">{p.fabric_type ?? "—"}</td>
+                  <td className="px-3 py-2 text-center">{p.has_print ? "✓" : ""}</td>
+                  <td className="px-3 py-2 font-mono">{p.production_order_no ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono">{p.lot_no ?? "—"}</td>
+                  <td className="px-3 py-2 text-right">{p.rolls_count ?? "—"}</td>
+                  <td className="px-3 py-2 text-right">{d3(p.layer_weight_kg)}</td>
+                  <td className="px-3 py-2 text-right">{p.total_layers ?? "—"}</td>
+                  <td className="px-3 py-2 text-right">{d2(p.planned_kg)}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50 font-medium">{d3(p.actual_kg)}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50 font-medium">{d3(p.theoretical_kg)}</td>
+                  <td className="px-3 py-2 text-right">{p.pieces ?? "—"}</td>
+                  <td className="px-3 py-2 text-right">{p.fabric_width_m ?? "—"}</td>
+                  <td className="px-3 py-2 text-right">{p.lay_length_m ?? "—"}</td>
+                  <td className="px-3 py-2">{p.size_range ?? "—"}</td>
+                  <td className="px-3 py-2 text-right">{p.gramage ?? "—"}</td>
+                  <td className="px-3 py-2 text-right">{p.waste_pct ?? "—"}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50">{d4(p.total_beka_kg)}</td>
+                  <td className="px-3 py-2 text-right">{d6(p.beka_per_piece_kg)}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50">{d4(p.other_beka_kg)}</td>
+                  <td className="px-3 py-2 text-right">{d6(p.other_beka_per_piece_kg)}</td>
+                  <td className="px-3 py-2 text-right">{d3(p.scrap_kg)}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50">{d4(p.total_ribana_kg)}</td>
+                  <td className="px-3 py-2 text-right">{d6(p.ribana_per_piece_kg)}</td>
+                  <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.per_piece_weight_kg)}</td>
+                  <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.actual_kg_per_piece)}</td>
+                  <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.gross_kg_per_piece)}</td>
+                  {/* Frozen right */}
+                  <td className="sticky right-0 z-10 bg-white group-hover:bg-stone-50 px-2 py-2 shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.08)]">
+                    <div className="flex gap-1">
+                      <button className="btn btn-ghost p-1" onClick={() => openEdit(p)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button className="btn btn-ghost p-1 text-red-500" onClick={() => del(p)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Form modal */}

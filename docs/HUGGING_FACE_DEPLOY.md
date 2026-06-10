@@ -12,11 +12,11 @@ repository. The backend folder includes a Space README with:
 
 ```yaml
 sdk: docker
-app_port: 10000
+app_port: 7860
 ```
 
-The backend Dockerfile still honors the `PORT` environment variable if the
-Space injects one.
+The backend Dockerfile honors the Space `PORT` environment variable. The current
+Space sets `PORT=7860`, so the Space metadata uses `app_port: 7860`.
 
 Set these Space secrets or variables:
 
