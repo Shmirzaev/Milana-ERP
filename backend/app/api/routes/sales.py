@@ -9,6 +9,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.config import settings
+from app.core.signing import sign_path, strip_signature
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
@@ -32,6 +33,26 @@ from app.services.workflow import notify_department
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 
 
+def _attachments_for_storage(attachments) -> list[dict]:
+    """Persist the bare storage path (no signature) so it never expires at rest."""
+    out: list[dict] = []
+    for a in attachments or []:
+        d = a.model_dump() if hasattr(a, "model_dump") else dict(a)
+        if d.get("file_url"):
+            d["file_url"] = strip_signature(d["file_url"])
+        out.append(d)
+    return out
+
+
+def _sign_attachment_urls(payload: dict) -> dict:
+    """Replace stored bare attachment paths with short-lived signed URLs on the
+    way out so the browser can load them in <img> tags."""
+    for a in payload.get("printing_attachments") or []:
+        if isinstance(a, dict) and a.get("file_url"):
+            a["file_url"] = sign_path(a["file_url"])
+    return payload
+
+
 def _serialize_sales_order(
     db: DbSession,
     so: SalesOrder,
@@ -49,6 +70,8 @@ def _serialize_sales_order(
     else:
         payload["customer_name"] = None
         payload["customer"] = None
+
+    _sign_attachment_urls(payload)
 
     if include_items:
         model_ids = {int(item.model_id) for item in (so.items or []) if item.model_id}
@@ -312,7 +335,9 @@ async def upload_printing_attachment(
         f.write(content)
     file_url = f"/storage/sales-order-files/{safe_name}"
     return {
-        "file_url": file_url,
+        # Signed for immediate <img> preview; the bare path is what gets stored
+        # when the order is saved (create/update strip the signature).
+        "file_url": sign_path(file_url),
         "file_name": file.filename or safe_name,
         "content_type": safe_content_type(ext),
     }
@@ -354,7 +379,7 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         status="draft",
         deadline=payload.deadline,
         printing_instructions=payload.printing_instructions,
-        printing_attachments=[a.model_dump() for a in payload.printing_attachments] if payload.printing_attachments else [],
+        printing_attachments=_attachments_for_storage(payload.printing_attachments),
         notes=payload.notes,
         created_by=current.id,
     )
@@ -404,11 +429,14 @@ def get_sales_order(sid: int, db: DbSession, _: CurrentUser):
 def update_sales_order(sid: int, payload: SalesOrderUpdate, db: DbSession, current: User = Depends(require_permissions("sales.orders", "*"))):
     so = db.get(SalesOrder, sid)
     if not so: raise HTTPException(404, "Sales order not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    if "printing_attachments" in updates:
+        updates["printing_attachments"] = _attachments_for_storage(updates["printing_attachments"])
+    for k, v in updates.items():
         setattr(so, k, v)
     log_action(db, current, "update", "SalesOrder", so.id)
     db.commit(); db.refresh(so)
-    return so
+    return _serialize_sales_order(db, so, include_items=False)
 
 
 @router.post("/{sid}/confirm", response_model=SalesOrderOut)

@@ -123,8 +123,32 @@ os.makedirs(settings.BARCODE_STORAGE_DIR, exist_ok=True)
 app.mount("/storage/barcodes", StaticFiles(directory=settings.BARCODE_STORAGE_DIR), name="barcodes")
 os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
 app.mount("/storage/model-files", StaticFiles(directory=settings.MODEL_FILES_DIR), name="model-files")
+
+# Sales-order printing attachments may contain customer-supplied design files, so
+# they are NOT served from a public static mount. Access requires a short-lived
+# signed URL (see app.core.signing); the API hands those out in serialized
+# responses. Path is validated to stay within the storage root.
 os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
-app.mount("/storage/sales-order-files", StaticFiles(directory=settings.SALES_ORDER_FILES_DIR), name="sales-order-files")
+_SALES_ORDER_FILES_ROOT = os.path.realpath(settings.SALES_ORDER_FILES_DIR)
+
+
+@app.get("/storage/sales-order-files/{name}")
+def serve_sales_order_file(name: str, exp: str | None = None, sig: str | None = None):
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+    from app.core.signing import verify_path
+
+    bare_path = f"/storage/sales-order-files/{name}"
+    if not verify_path(bare_path, exp, sig):
+        raise HTTPException(status_code=403, detail="Invalid or expired link")
+    if "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(status_code=404, detail="Not found")
+    abs_path = os.path.realpath(os.path.join(_SALES_ORDER_FILES_ROOT, name))
+    if not (abs_path == _SALES_ORDER_FILES_ROOT or abs_path.startswith(_SALES_ORDER_FILES_ROOT + os.sep)):
+        raise HTTPException(status_code=404, detail="Not found")
+    if not os.path.isfile(abs_path):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(abs_path)
 
 
 @app.get("/health")

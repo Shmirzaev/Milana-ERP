@@ -170,3 +170,54 @@ def test_password_change_invalidates_existing_token(client, auth_headers):
     # A fresh login works.
     new_headers = _login(client, "token.tester@example.com", ESC_PW)
     assert client.get("/api/auth/me", headers=new_headers).status_code == 200
+
+
+# ---------- M1: signed URLs for sensitive sales-order attachments ----------
+
+_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def test_sales_order_attachment_requires_valid_signature(client, auth_headers):
+    r = client.post(
+        "/api/sales-orders/printing-attachments/upload",
+        files={"file": ("design.png", _PNG, "image/png")},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    signed = r.json()["file_url"]
+    assert "sig=" in signed and "exp=" in signed
+
+    # The signed URL serves the file (no auth header needed — that's the point).
+    assert client.get(signed).status_code == 200
+
+    bare = signed.split("?", 1)[0]
+    # Unsigned access is refused.
+    assert client.get(bare).status_code == 403
+    # Tampered / forged signature is refused.
+    assert client.get(bare + "?exp=9999999999&sig=deadbeef").status_code == 403
+
+
+def test_sales_order_persists_bare_path_and_resigns_on_read(client, auth_headers):
+    up = client.post(
+        "/api/sales-orders/printing-attachments/upload",
+        files={"file": ("art.png", _PNG, "image/png")},
+        headers=auth_headers,
+    ).json()
+
+    r = client.post(
+        "/api/sales-orders",
+        json={
+            "order_type": "client_order",
+            "printing_attachments": [up],
+            "items": [{"model_id": 1, "color": "white", "size": "M", "quantity": 5, "unit_price": 10.0}],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    sid = r.json()["id"]
+
+    detail = client.get(f"/api/sales-orders/{sid}", headers=auth_headers).json()
+    atts = detail["printing_attachments"]
+    assert atts and "sig=" in atts[0]["file_url"]
+    # Each read mints a fresh working link.
+    assert client.get(atts[0]["file_url"]).status_code == 200
