@@ -59,7 +59,7 @@ export default function SalesOrdersPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const { data: pageData, isLoading, mutate } = useSWR<any>(`/api/sales-orders?include_total=true&page=${page}&page_size=${pageSize}`, fetcher);
-  const data: SO[] = pageData?.rows || [];
+  const data = useMemo<SO[]>(() => pageData?.rows || [], [pageData?.rows]);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -73,7 +73,7 @@ export default function SalesOrdersPage() {
     setQuery(initialQ);
   }, [initialQ]);
 
-  const customerMap = new Map(customers.map((c) => [c.id, c.name]));
+  const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

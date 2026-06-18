@@ -2,6 +2,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMe } from "@/lib/auth";
+import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
@@ -14,8 +15,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     if (hasToken === false) router.replace("/login");
     if (error) {
       // Token rejected by the API (expired/invalid) -> drop it and bounce to login.
-      if (typeof window !== "undefined") localStorage.removeItem("erp_token");
-      router.replace("/login");
+      api.logout().finally(() => router.replace("/login"));
     }
   }, [hasToken, error, router]);
 

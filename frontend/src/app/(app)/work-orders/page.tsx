@@ -7,6 +7,7 @@ import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 import StagePipeline, { operationLabel, statusLabel } from "@/components/StagePipeline";
+import { orderReference } from "@/lib/orderRef";
 
 export default function WorkOrdersPage() {
   const { t } = useT();
@@ -42,7 +43,7 @@ export default function WorkOrdersPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>{t("field.id")}</th>
+              <th>{t("field.orderNo")}</th>
               <th>{t("field.operation")}</th>
               <th>{t("common.status")}</th>
               <th>{t("page.wo.pipeline")}</th>
@@ -57,7 +58,11 @@ export default function WorkOrdersPage() {
           <tbody>
             {data?.map((w) => (
               <tr key={w.id}>
-                <td>{w.id}</td>
+                <td>
+                  <Link href={`/production-orders/${w.production_order_id}`} className="font-medium text-brand-600 hover:underline">
+                    {orderReference(w, `#${w.production_order_id}`)}
+                  </Link>
+                </td>
                 <td>{operationLabel(w.operation, t)}</td>
                 <td><span className="badge">{statusLabel(w.status, t)}</span></td>
                 <td>

@@ -2,11 +2,13 @@ from datetime import datetime, time, timezone
 
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import delete, update
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from fastapi import Depends
 from app.core.security import hash_password, normalize_email, validate_password_strength
+from app.db.base import Base
 from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
 from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
@@ -227,6 +229,21 @@ def _count_active_admins(db: DbSession, exclude_user_id: int | None = None) -> i
     return count
 
 
+def _detach_user_references(db: DbSession, user_id: int) -> None:
+    """Remove references that would otherwise block deleting a user account."""
+    users_table = User.__table__
+    for table in Base.metadata.sorted_tables:
+        if table is users_table:
+            continue
+        for column in table.c:
+            if not any(fk.column.table is users_table and fk.column.name == "id" for fk in column.foreign_keys):
+                continue
+            if column.nullable:
+                db.execute(update(table).where(column == user_id).values({column.name: None}))
+            else:
+                db.execute(delete(table).where(column == user_id))
+
+
 @router.get("/users", response_model=list[UserOut])
 def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
     return db.query(User).order_by(User.id).all()
@@ -309,6 +326,7 @@ def delete_user(user_id: int, db: DbSession, current: User = Depends(require_per
         raise HTTPException(400, "You cannot delete your own account")
     if "*" in user_permissions(u) and _count_active_admins(db, exclude_user_id=u.id) == 0:
         raise HTTPException(400, "Cannot delete the last active administrator")
+    _detach_user_references(db, user_id)
     db.delete(u)
     log_action(db, current, "delete", "User", user_id)
     db.commit()

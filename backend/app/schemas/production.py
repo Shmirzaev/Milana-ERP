@@ -62,6 +62,8 @@ class ProductionOrderIn(BaseModel):
 class ProductionOrderOut(ORMModel):
     id: int
     production_no: str
+    order_no: Optional[str] = None
+    sales_order_no: Optional[str] = None
     production_type: str
     sales_order_id: Optional[int] = None
     collection_id: Optional[int] = None
@@ -83,6 +85,9 @@ class ProductionOrderOut(ORMModel):
 
 class WorkOrderOut(ORMModel):
     id: int
+    order_no: Optional[str] = None
+    production_no: Optional[str] = None
+    sales_order_no: Optional[str] = None
     production_order_id: int
     production_batch_id: Optional[int] = None
     department_id: int
@@ -95,6 +100,8 @@ class WorkOrderOut(ORMModel):
     passed_qty: int
     failed_qty: int
     rework_qty: int
+    received_bundle_count: int = 0
+    received_bundle_qty: int = 0
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     deadline: Optional[datetime] = None

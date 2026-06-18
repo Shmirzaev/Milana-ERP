@@ -4,12 +4,22 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
+import PackageQrSection from "@/components/PackageQrSection";
 import PageHeader from "@/components/PageHeader";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
 import { useT } from "@/lib/i18n";
+import { orderReference } from "@/lib/orderRef";
 
 type PackagePlanItem = { model_id: number; color: string; size: string; quantity: number };
+type BatchAllocationPlan = { production_batch_id: number; quantity: number; label: string };
+type PackagePlan = { items: PackagePlanItem[]; batch_allocations?: BatchAllocationPlan[] };
+
+function parseOptionalDecimalInput(value: string | number | null | undefined): number | null {
+  const normalized = String(value ?? "").replace(",", ".").trim();
+  if (!normalized) return null;
+  return Number(normalized);
+}
 
 function allocateDemandBySize(items: Array<{ size: string; planned_quantity: number }>, targetQty: number) {
   const target = Math.max(0, Math.floor(Number(targetQty || 0)));
@@ -66,15 +76,22 @@ export default function PackagingPage() {
   const [pkgItems, setPkgItems] = useState<{ size: string; quantity: number }[]>([{ size: "M", quantity: 60 }]);
   const [overrideCap, setOverrideCap] = useState(false);
   const [capacity, setCapacity] = useState(60);
+  const [weightKg, setWeightKg] = useState("");
+  const [packageWeights, setPackageWeights] = useState<string[]>([]);
   const [color, setColor] = useState("white");
   const [copies, setCopies] = useState(1);
   const [copiesTouched, setCopiesTouched] = useState(false);
+  const [mergeAcrossBatches, setMergeAcrossBatches] = useState(false);
+  const [packOnlyFullPackages, setPackOnlyFullPackages] = useState(true);
   const [recMsg, setRecMsg] = useState("");
   const [pkgNotice, setPkgNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [pkg, setPkg] = useState<any>(null);
+  const [packageQrRefreshKey, setPackageQrRefreshKey] = useState(0);
   const isAlreadyBatched = Array.isArray(po?.batches) && po.batches.length > 0;
-  const batchItems = Array.isArray(batchProgress?.items) ? batchProgress.items : [];
+  const batchItems = useMemo(() => (
+    Array.isArray(batchProgress?.items) ? batchProgress.items : []
+  ), [batchProgress?.items]);
   const selectedBatchProgress = useMemo(() => {
     const selectedId = Number(rec.production_batch_id || 0);
     return batchItems.find((row: any) => Number(row?.id || 0) === selectedId) || null;
@@ -103,9 +120,16 @@ export default function PackagingPage() {
   );
 
   const packageableColorQty = useMemo(() => {
+    if (isAlreadyBatched && selectedBatchProgress) {
+      const hasPackageAccounting =
+        Number(selectedBatchProgress.packed_qty || 0) > 0 || Number(selectedBatchProgress.packaged_qty || 0) > 0;
+      if (hasPackageAccounting) {
+        return Math.max(0, Number(selectedBatchProgress.available_to_package ?? selectedBatchProgress.packed_qty ?? 0));
+      }
+    }
     const packedQty = isAlreadyBatched
       ? selectedBatchProgress
-        ? Number(selectedBatchProgress.packed_qty || 0)
+        ? 0
         : Number(rec.packed_qty || 0)
       : Number(wo?.passed_qty || wo?.actual_output_qty || rec.packed_qty || 0);
     if (packedQty > 0) return packedQty;
@@ -297,25 +321,84 @@ export default function PackagingPage() {
       .filter((i) => i.model_id > 0 && i.size && i.quantity > 0)
   ), [color, pkgItems, po?.model_id]);
 
-  const packagePlans = useMemo<PackagePlanItem[][]>(() => {
-    const plans: PackagePlanItem[][] = [];
+  const standardPackagePlans = useMemo<PackagePlan[]>(() => {
+    const plans: PackagePlan[] = [];
     for (let i = 0; i < packingPreview.fullCount; i += 1) {
-      plans.push(basePackageItems);
+      plans.push({ items: basePackageItems });
     }
-    for (const partial of packingPreview.partialPackages) {
-      const items = partial.items
-        .map((i) => ({
-          model_id: Number(po?.model_id || 0),
-          color,
-          size: String(i.size || "").trim(),
-          quantity: Math.max(0, Number(i.qty || 0)),
-        }))
-        .filter((i) => i.model_id > 0 && i.size && i.quantity > 0);
-      if (items.length > 0) plans.push(items);
+    if (!packOnlyFullPackages) {
+      for (const partial of packingPreview.partialPackages) {
+        const items = partial.items
+          .map((i) => ({
+            model_id: Number(po?.model_id || 0),
+            color,
+            size: String(i.size || "").trim(),
+            quantity: Math.max(0, Number(i.qty || 0)),
+          }))
+          .filter((i) => i.model_id > 0 && i.size && i.quantity > 0);
+        if (items.length > 0) plans.push({ items });
+      }
     }
-    if (plans.length === 0 && basePackageItems.length > 0) plans.push(basePackageItems);
+    if (plans.length === 0 && basePackageItems.length > 0 && !packOnlyFullPackages) plans.push({ items: basePackageItems });
     return plans;
-  }, [basePackageItems, color, packingPreview.fullCount, packingPreview.partialPackages, po?.model_id]);
+  }, [basePackageItems, color, packOnlyFullPackages, packingPreview.fullCount, packingPreview.partialPackages, po?.model_id]);
+
+  const batchPackageAvailability = useMemo(() => (
+    batchItems
+      .map((row: any) => {
+        const hasPackageAccounting = row?.available_to_package !== undefined || Number(row?.packaged_qty || 0) > 0;
+        const available = hasPackageAccounting
+          ? Math.max(0, Number(row?.available_to_package || 0))
+          : Math.max(0, Number(row?.packed_qty || 0));
+        return {
+          id: Number(row?.id || 0),
+          label: formatBatchLabel(row, po?.id),
+          available,
+        };
+      })
+      .filter((row: any) => row.id > 0 && row.available > 0)
+  ), [batchItems, po?.id]);
+
+  const mergedPackingPlan = useMemo(() => {
+    const packageTotal = basePackageItems.reduce((s, i) => s + Math.max(0, Number(i.quantity || 0)), 0);
+    const totalAvailable = batchPackageAvailability.reduce((s, b) => s + b.available, 0);
+    if (!isAlreadyBatched || packageTotal <= 0 || basePackageItems.length === 0) {
+      return { plans: [] as PackagePlan[], totalAvailable, pendingQty: totalAvailable, crossBatchCount: 0, previewLines: [] as string[] };
+    }
+
+    const sources = batchPackageAvailability.map((b) => ({ ...b }));
+    const fullCount = Math.floor(totalAvailable / packageTotal);
+    const plans: PackagePlan[] = [];
+    let sourceIndex = 0;
+
+    for (let i = 0; i < fullCount; i += 1) {
+      let left = packageTotal;
+      const allocations: BatchAllocationPlan[] = [];
+      while (left > 0 && sourceIndex < sources.length) {
+        const source = sources[sourceIndex];
+        const take = Math.min(left, source.available);
+        if (take > 0) {
+          allocations.push({ production_batch_id: source.id, quantity: take, label: source.label });
+          source.available -= take;
+          left -= take;
+        }
+        if (source.available <= 0) sourceIndex += 1;
+      }
+      if (left === 0) {
+        plans.push({ items: basePackageItems, batch_allocations: allocations });
+      }
+    }
+
+    const pendingQty = sources.slice(sourceIndex).reduce((s, b) => s + Math.max(0, b.available), 0);
+    const crossBatchPlans = plans.filter((p) => (p.batch_allocations || []).length > 1);
+    const previewLines = crossBatchPlans.slice(0, 3).map((p) => (
+      (p.batch_allocations || []).map((a) => `${a.label}: ${a.quantity}`).join(" + ")
+    ));
+    return { plans, totalAvailable, pendingQty, crossBatchCount: crossBatchPlans.length, previewLines };
+  }, [basePackageItems, batchPackageAvailability, isAlreadyBatched]);
+
+  const packagePlans = mergeAcrossBatches ? mergedPackingPlan.plans : standardPackagePlans;
+  const packageWeightCount = packagePlans.length;
 
   useEffect(() => {
     setPkgItems(autoPackageItems);
@@ -326,12 +409,23 @@ export default function PackagingPage() {
   }, [copiesTouched, suggestedCopies]);
 
   useEffect(() => {
+    setPackageWeights((prev) => (
+      Array.from({ length: packageWeightCount }, (_, index) => prev[index] ?? weightKg ?? "")
+    ));
+  }, [packageWeightCount, weightKg]);
+
+  useEffect(() => {
     if (!isAlreadyBatched || !Array.isArray(po?.batches) || po.batches.length === 0) return;
     setRec((prev) => {
       if (prev.production_batch_id) return prev;
       return { ...prev, production_batch_id: Number(po.batches[0].id || 0) };
     });
   }, [isAlreadyBatched, po?.batches]);
+
+  async function refreshPackagingOutputs() {
+    await Promise.all([mutateBatchProgress(), mutateWo()]);
+    setPackageQrRefreshKey((prev) => prev + 1);
+  }
 
   async function submitRec(e: React.FormEvent) {
     e.preventDefault();
@@ -359,6 +453,13 @@ export default function PackagingPage() {
     setPkgNotice(null);
     setIsCreating(true);
     try {
+      const weightValues = packagePlans.map((_, index) => {
+        return parseOptionalDecimalInput(packageWeights[index]);
+      });
+      const invalidWeight = weightValues.some((value) => value !== null && (!Number.isFinite(value) || value < 0));
+      if (invalidWeight) {
+        throw new Error(t("page.packaging.invalidWeight"));
+      }
       const payloadBase = {
         production_order_id: wo?.production_order_id,
         sales_order_id: po?.sales_order_id || null,
@@ -366,16 +467,22 @@ export default function PackagingPage() {
         color,
         package_type: "bag",
         capacity,
+        weight_kg: null,
         override_capacity: overrideCap,
-        production_batch_id: rec.production_batch_id || null,
+        production_batch_id: mergeAcrossBatches ? null : rec.production_batch_id || null,
       };
       if (packagePlans.length === 0) {
         throw new Error("No package items to create.");
       }
 
-      const hasPartialPackage = packingPreview.partialPackages.some((p) => p.total > 0);
-      if (packagePlans.length > 1 && !hasPartialPackage) {
-        const r = await api.post("/api/packages/bulk", { ...payloadBase, items: packagePlans[0], count: packagePlans.length });
+      const createsPartialPackage = !packOnlyFullPackages && packingPreview.partialPackages.some((p) => p.total > 0);
+      if (!mergeAcrossBatches && packagePlans.length > 1 && !createsPartialPackage) {
+        const r = await api.post("/api/packages/bulk", {
+          ...payloadBase,
+          items: packagePlans[0].items,
+          count: packagePlans.length,
+          weight_kg_values: weightValues,
+        });
         setPkg({ id: r.package_ids?.[0], package_no: r.package_nos?.[0], barcode: "bulk" });
         const createdCount = Number(r?.count || packagePlans.length || 0);
         const firstPackageNo = r?.package_nos?.[0];
@@ -385,13 +492,20 @@ export default function PackagingPage() {
             ? t("page.packaging.bulkCreatedWithFirst", { count: createdCount, no: firstPackageNo })
             : t("page.packaging.bulkCreated", { count: createdCount }),
         });
+        await refreshPackagingOutputs();
         if (r.package_ids?.length) {
           await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${r.package_ids.join(",")}`);
         }
       } else {
         const created = [];
-        for (const items of packagePlans) {
-          created.push(await api.post("/api/packages", { ...payloadBase, items }));
+        for (let index = 0; index < packagePlans.length; index += 1) {
+          const plan = packagePlans[index];
+          created.push(await api.post("/api/packages", {
+            ...payloadBase,
+            weight_kg: weightValues[index],
+            items: plan.items,
+            batch_allocations: plan.batch_allocations || [],
+          }));
         }
         const r = created[0];
         setPkg(packagePlans.length > 1 ? { id: r?.id, package_no: r?.package_no, barcode: "bulk" } : r);
@@ -402,6 +516,7 @@ export default function PackagingPage() {
             : t("page.packaging.singleCreated", { no: r?.package_no || "#" }),
         });
         const ids = created.map((p) => p?.id).filter(Boolean);
+        await refreshPackagingOutputs();
         if (ids.length > 1) {
           await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${ids.join(",")}`);
         }
@@ -413,9 +528,16 @@ export default function PackagingPage() {
     }
   }
 
+  const orderNo = orderReference({
+    order_no: so?.order_no || po?.order_no || wo?.order_no,
+    sales_order_no: po?.sales_order_no || wo?.sales_order_no,
+    production_no: po?.production_no || wo?.production_no,
+    production_order_id: wo?.production_order_id,
+  }, `#${id}`);
+
   return (
     <div>
-      <PageHeader title={t("page.packaging.title", { id })} subtitle={t("page.packaging.subtitle")} />
+      <PageHeader title={t("page.packaging.title", { id, orderNo })} subtitle={t("page.packaging.subtitle")} />
       <WorkOrderProductInfo
         t={t}
         so={so}
@@ -511,7 +633,7 @@ export default function PackagingPage() {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <form onSubmit={createPkg} className="card space-y-3 p-6">
           <h3 className="font-medium">{t("page.packaging.newPackage")}</h3>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div>
               <label className="label">{t("field.color")}</label>
               <input className="input" value={color} onChange={(e) => setColor(e.target.value)} />
@@ -519,6 +641,17 @@ export default function PackagingPage() {
             <div>
               <label className="label">{t("field.capacity")}</label>
               <input className="input" type="number" value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} />
+            </div>
+            <div>
+              <label className="label">{t("page.packaging.defaultWeightKg")}</label>
+              <input
+                className="input"
+                min={0}
+                step="0.001"
+                type="number"
+                value={weightKg}
+                onChange={(e) => setWeightKg(e.target.value)}
+              />
             </div>
             <label className="mb-2 flex items-end gap-2 text-sm">
               <input type="checkbox" checked={overrideCap} onChange={(e) => setOverrideCap(e.target.checked)} />
@@ -541,6 +674,82 @@ export default function PackagingPage() {
           <div className="text-xs text-slate-500">
             {t("page.packaging.autoMixHint")}
           </div>
+          <div className="rounded-md border border-[#ecebe3] bg-[#faf9f4] px-3 py-2 text-sm">
+            <label className="flex items-start gap-2">
+              <input
+                className="mt-1"
+                type="checkbox"
+                checked={packOnlyFullPackages}
+                onChange={(e) => setPackOnlyFullPackages(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">{t("page.packaging.packOnlyFull")}</span>
+                <span className="mt-1 block text-xs text-slate-500">{t("page.packaging.packOnlyFullHint")}</span>
+              </span>
+            </label>
+          </div>
+          {isAlreadyBatched && (
+            <div className="rounded-md border border-[#ecebe3] bg-[#faf9f4] px-3 py-2 text-sm">
+              <label className="flex items-start gap-2">
+                <input
+                  className="mt-1"
+                  type="checkbox"
+                  checked={mergeAcrossBatches}
+                  onChange={(e) => setMergeAcrossBatches(e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium">{t("page.packaging.mergeAcrossBatches")}</span>
+                  <span className="mt-1 block text-xs text-slate-500">{t("page.packaging.mergeHint")}</span>
+                </span>
+              </label>
+              <div className="mt-2 text-xs text-slate-600">
+                {mergedPackingPlan.plans.length > 0
+                  ? `${t("page.packaging.mergeFullPackages", { count: mergedPackingPlan.plans.length })} · ${t("page.packaging.mergePending", { count: mergedPackingPlan.pendingQty })}`
+                  : t("page.packaging.mergeNoPacked")}
+              </div>
+              {mergedPackingPlan.previewLines.length > 0 && (
+                <div className="mt-1 text-xs text-slate-600">
+                  {t("page.packaging.mergeSources")}: {mergedPackingPlan.previewLines.join(" | ")}
+                </div>
+              )}
+            </div>
+          )}
+
+          {packageWeightCount > 0 && (
+            <div className="rounded-md border border-[#ecebe3] p-3">
+              <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h4 className="text-sm font-medium">{t("page.packaging.packageWeights")}</h4>
+                  <div className="text-xs text-slate-500">{t("page.packaging.packageWeightsHint")}</div>
+                </div>
+                <button
+                  type="button"
+                  className="btn shrink-0"
+                  onClick={() => setPackageWeights(Array.from({ length: packageWeightCount }, () => weightKg))}
+                >
+                  {t("page.packaging.applyWeightToAll")}
+                </button>
+              </div>
+              <div className="grid max-h-64 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                {packagePlans.map((plan, index) => {
+                  const qty = plan.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+                  return (
+                    <label key={index} className="block text-xs font-medium uppercase tracking-wide text-slate-500">
+                      {t("page.packaging.packageWeightN", { n: index + 1 })} ({qty})
+                      <input
+                        className="input mt-1"
+                        min={0}
+                        step="0.001"
+                        type="number"
+                        value={packageWeights[index] || ""}
+                        onChange={(e) => setPackageWeights((prev) => prev.map((value, i) => (i === index ? e.target.value : value)))}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <h4 className="text-sm font-medium">{t("page.packaging.sizesInPackage")}</h4>
           <table className="table">
@@ -564,7 +773,7 @@ export default function PackagingPage() {
           <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: 0 }])}>{t("btn.addSize")}</button>
           <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 
-          <button className="btn btn-primary" disabled={isCreating}>
+          <button className="btn btn-primary" disabled={isCreating || packagePlans.length === 0}>
             {isCreating ? t("common.creating") : packagePlans.length > 1 ? t("page.packaging.createCopies", { count: packagePlans.length }) : t("btn.createPackage")}
           </button>
           {pkgNotice && (
@@ -585,11 +794,13 @@ export default function PackagingPage() {
           <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
             <div className="rounded-md border border-[#ecebe3] p-3">
               <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.fullPackages")}</div>
-              <div className="text-xl font-semibold">{packingPreview.fullCount}</div>
+              <div className="text-xl font-semibold">{mergeAcrossBatches ? mergedPackingPlan.plans.length : packingPreview.fullCount}</div>
             </div>
             <div className="rounded-md border border-[#ecebe3] p-3">
               <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.notFullPackages")}</div>
-              <div className="text-xl font-semibold">{packingPreview.notFullCount}</div>
+              <div className="text-xl font-semibold">
+                {mergeAcrossBatches ? (mergedPackingPlan.pendingQty > 0 ? 1 : 0) : packingPreview.notFullCount}
+              </div>
             </div>
             <div className="rounded-md border border-[#ecebe3] p-3">
               <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.packCapacity")}</div>
@@ -600,13 +811,27 @@ export default function PackagingPage() {
             {t("page.packaging.previewHint")}
           </div>
           <div className="mt-3 space-y-2">
-            {packingPreview.partialPackages.length === 0 ? (
+            {mergeAcrossBatches ? (
+              mergedPackingPlan.pendingQty > 0 ? (
+                <div className="rounded-md border border-[#ecebe3] px-3 py-2">
+                  <div className="text-sm font-medium">
+                    {t("page.packaging.pendingLeftover")} - {mergedPackingPlan.pendingQty}/{packingPreview.packageTotal}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-600">{t("page.packaging.pendingLeftoverHint")}</div>
+                </div>
+              ) : (
+                <div className="rounded-md border border-[#ecebe3] px-3 py-2 text-sm text-slate-500">{t("page.packaging.noPartial")}</div>
+              )
+            ) : packingPreview.partialPackages.length === 0 ? (
               <div className="rounded-md border border-[#ecebe3] px-3 py-2 text-sm text-slate-500">{t("page.packaging.noPartial")}</div>
             ) : (
               packingPreview.partialPackages.map((p) => (
                 <div key={p.index} className="rounded-md border border-[#ecebe3] px-3 py-2">
-                  <div className="text-sm font-medium">
-                    {t("page.packaging.packageN", { n: p.index })} - {p.total}/{packingPreview.packageTotal}
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm font-medium">
+                      {t("page.packaging.packageN", { n: p.index })} - {p.total}/{packingPreview.packageTotal}
+                    </div>
+                    {packOnlyFullPackages && <span className="badge">{t("page.packaging.pendingNotCreated")}</span>}
                   </div>
                   <div className="mt-1 text-xs text-slate-600">
                     {p.items.length
@@ -619,6 +844,14 @@ export default function PackagingPage() {
           </div>
         </div>
       </div>
+
+      <PackageQrSection
+        key={`${po?.id || "none"}-${packageQrRefreshKey}`}
+        productionOrderId={po?.id}
+        onChanged={async () => {
+          await Promise.all([mutateBatchProgress(), mutateWo()]);
+        }}
+      />
 
       {pkg && (
         <div className="card mt-6 p-4">

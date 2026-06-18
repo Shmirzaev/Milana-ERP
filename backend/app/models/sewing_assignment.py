@@ -1,9 +1,13 @@
 from __future__ import annotations
 from datetime import datetime
+from typing import TYPE_CHECKING
 from sqlalchemy import String, Integer, ForeignKey, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.production import WorkOrder
 
 
 class SewingAssignment(Base, PkMixin, TimestampMixin):

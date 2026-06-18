@@ -79,7 +79,7 @@ def _stock_row(client, headers, stock_id: int):
 
 def _fgs_headers(client) -> dict[str, str]:
     r = client.post(
-        "/api/auth/login",
+        "/api/auth/token",
         data={"username": "fgs@example.com", "password": "demo12345"},
     )
     assert r.status_code == 200, r.text

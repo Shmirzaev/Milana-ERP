@@ -258,6 +258,7 @@ def accessory_issue_summary(
             existing = {
                 "production_order_id": int(po.id),
                 "production_no": po.production_no,
+                "order_no": po.order_no,
                 "model_id": int(po.model_id),
                 "model_code": model.code if model else None,
                 "model_name": model.name if model else None,
@@ -285,6 +286,7 @@ def accessory_issue_summary(
     if search:
         def matches(row: dict) -> bool:
             fields = [
+                row.get("order_no"),
                 row.get("production_no"),
                 row.get("model_code"),
                 row.get("model_name"),
@@ -385,6 +387,7 @@ def accessory_issue_plan(db: Session, production_order_id: int) -> dict:
     return {
         "production_order_id": int(po.id),
         "production_no": po.production_no,
+        "order_no": po.order_no,
         "model_id": int(po.model_id),
         "model_code": model_code,
         "model_name": model_name,
@@ -453,5 +456,6 @@ def issue_accessories_to_production_order(
     return {
         "production_order_id": int(po.id),
         "production_no": po.production_no,
+        "order_no": po.order_no,
         "issued": issued,
     }

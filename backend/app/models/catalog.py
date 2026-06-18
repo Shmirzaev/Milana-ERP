@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric
+from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -65,6 +65,7 @@ class ModelImage(Base, PkMixin, TimestampMixin):
     file_url: Mapped[str] = mapped_column(String(512), nullable=False)
     file_name: Mapped[str | None] = mapped_column(String(255))
     content_type: Mapped[str | None] = mapped_column(String(128))
+    file_data: Mapped[bytes | None] = mapped_column(LargeBinary)
     image_type: Mapped[str | None] = mapped_column(String(32))
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     model: Mapped["Model"] = relationship("Model", back_populates="images")

@@ -34,3 +34,5 @@ frontend/tmp_*.html
 .DS_Store
 
 .vercel
+.claude/settings.local.json
+.claude/settings.local.*

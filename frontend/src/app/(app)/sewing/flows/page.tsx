@@ -7,6 +7,7 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
+import { orderReference } from "@/lib/orderRef";
 
 type Flow = {
   id: number;
@@ -22,6 +23,9 @@ type Flow = {
 
 type WO = {
   id: number;
+  order_no?: string | null;
+  production_no?: string | null;
+  sales_order_no?: string | null;
   production_order_id: number;
   operation: string;
   status: string;
@@ -60,9 +64,9 @@ function WorkOrderMiniRow({
       <Link
         href={`/production-orders/${workOrder.production_order_id}`}
         className="min-w-0 truncate font-medium text-brand-600 hover:underline"
-        title={`${t("field.productionOrderShort")} #${workOrder.production_order_id}`}
+        title={orderReference(workOrder, `#${workOrder.production_order_id}`)}
       >
-        {t("field.productionOrderShort")} #{workOrder.production_order_id}
+        {orderReference(workOrder, `#${workOrder.production_order_id}`)}
       </Link>
       <div className="min-w-0">
         <span className="badge max-w-full justify-center truncate px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
@@ -96,7 +100,7 @@ function WorkOrderMiniHeader() {
   const { t } = useT();
   return (
     <div className="grid grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
-      <div className="min-w-0">{t("field.productionNo")}</div>
+      <div className="min-w-0">{t("field.orderNo")}</div>
       <div>{t("common.status")}</div>
       <div className="text-right">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</div>
       <div className="text-right">{t("field.deadline2")}</div>
@@ -312,7 +316,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
       <Modal open={!!pick.wo} onClose={() => setPick({ wo: null, qty: 0, maxQty: 0 })} title={t("btn.assign")}>
         <div className="space-y-3">
           <div className="text-xs text-slate-500">
-            {pick.wo ? `PO #${pick.wo.production_order_id}` : ""}
+            {pick.wo ? orderReference(pick.wo, `#${pick.wo.production_order_id}`) : ""}
           </div>
           <div className="text-xs text-slate-500">
             {t("field.passed")}/{t("page.sewingFlows.plannedUnits")}: {pick.wo ? `${pick.wo.passed_qty}/${pick.wo.planned_output_qty}` : "-"}

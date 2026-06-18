@@ -1,11 +1,15 @@
 import os
 import logging
+from io import BytesIO
+from urllib.parse import urlsplit
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.core.config import settings
+from app.core.deps import CurrentUser, DbSession
 from app.api.router import api_router
 from app.db.session import engine
 from app.db.base import Base
@@ -16,6 +20,52 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("milana")
 
 app = FastAPI(title=settings.APP_NAME, version="0.1.0")
+
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _origin_from_url(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+    except Exception:
+        return ""
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+
+def _trusted_csrf_origins(request: Request) -> set[str]:
+    configured = {o.strip().rstrip("/").lower() for o in settings.cors_origins_list if o.strip() and o.strip() != "*"}
+    configured.update({
+        "http://localhost:3000",
+        "https://milana-erp-web.vercel.app",
+    })
+    host = request.headers.get("host", "").strip().lower()
+    if host:
+        configured.add(f"{request.url.scheme}://{host}")
+        proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+        if proto in {"http", "https"}:
+            configured.add(f"{proto}://{host}")
+    return configured
+
+
+def _request_origin_allowed(request: Request) -> bool:
+    origin = request.headers.get("origin")
+    referer = request.headers.get("referer")
+    source = origin or referer
+    if not source:
+        # Non-browser/API clients do not send Origin/Referer. They still need a
+        # valid bearer token or auth cookie at the route dependency layer.
+        return True
+    source_origin = _origin_from_url(source)
+    return bool(source_origin and source_origin in _trusted_csrf_origins(request))
+
+
+@app.middleware("http")
+async def _csrf_origin_guard(request: Request, call_next):
+    if request.method.upper() in _UNSAFE_METHODS and not _request_origin_allowed(request):
+        return JSONResponse(status_code=403, content={"detail": "Untrusted request origin"})
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -34,7 +84,12 @@ async def _security_headers(request: Request, call_next):
     # render them with bearer-token auth). They have unguessable UUID names; keep
     # them out of shared caches and search indexes to limit URL-leak exposure.
     if request.url.path.startswith("/storage/"):
-        response.headers.setdefault("Cache-Control", "private, no-store")
+        if request.url.path.startswith("/storage/model-files/thumb/"):
+            response.headers.setdefault("Cache-Control", "private, max-age=604800")
+        elif request.url.path.startswith("/storage/model-files/"):
+            response.headers.setdefault("Cache-Control", "private, max-age=86400")
+        else:
+            response.headers.setdefault("Cache-Control", "private, no-store")
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
     return response
 
@@ -95,7 +150,6 @@ def _on_startup() -> None:
             log.exception("startup: seed failed: %s", e)
 
 cors_origins = settings.cors_origins_list
-allow_all_cors = "*" in cors_origins
 safe_default_origins = [
     "http://localhost:3000",
     "https://milana-erp-web.vercel.app",
@@ -103,15 +157,18 @@ safe_default_origins = [
 merged_cors_origins: list[str] = []
 for origin in [*safe_default_origins, *cors_origins]:
     o = origin.strip().rstrip("/")
+    if o == "*":
+        log.warning("Ignoring wildcard CORS origin; credentialed ERP API requests require explicit trusted origins.")
+        continue
     if o and o not in merged_cors_origins:
         merged_cors_origins.append(o)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if allow_all_cors else merged_cors_origins,
-    # We use Bearer tokens, not cookies. For wildcard CORS we must disable
-    # credentials, otherwise browsers reject cross-origin requests.
-    allow_credentials=not allow_all_cors,
+    allow_origins=merged_cors_origins,
+    # Auth is cookie-backed, so CORS must never reflect arbitrary origins with
+    # credentials. Add each trusted frontend origin explicitly.
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -122,7 +179,97 @@ app.include_router(api_router)
 os.makedirs(settings.BARCODE_STORAGE_DIR, exist_ok=True)
 app.mount("/storage/barcodes", StaticFiles(directory=settings.BARCODE_STORAGE_DIR), name="barcodes")
 os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
-app.mount("/storage/model-files", StaticFiles(directory=settings.MODEL_FILES_DIR), name="model-files")
+_MODEL_FILES_ROOT = os.path.realpath(settings.MODEL_FILES_DIR)
+_MODEL_THUMBS_ROOT = os.path.realpath(os.path.join(settings.MODEL_FILES_DIR, "_thumbs"))
+
+
+def _model_file_path_if_exists(name: str):
+    from fastapi import HTTPException
+
+    if "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(status_code=404, detail="Not found")
+    abs_path = os.path.realpath(os.path.join(_MODEL_FILES_ROOT, name))
+    if not (abs_path == _MODEL_FILES_ROOT or abs_path.startswith(_MODEL_FILES_ROOT + os.sep)):
+        raise HTTPException(status_code=404, detail="Not found")
+    return abs_path if os.path.isfile(abs_path) else None
+
+
+def _safe_model_file_path(name: str):
+    from fastapi import HTTPException
+
+    abs_path = _model_file_path_if_exists(name)
+    if not abs_path:
+        raise HTTPException(status_code=404, detail="Not found")
+    return abs_path
+
+
+def _model_image_record(name: str, db: DbSession):
+    from app.models import ModelImage
+
+    file_url = f"/storage/model-files/{name}"
+    return (
+        db.query(ModelImage)
+        .filter(ModelImage.file_url == file_url, ModelImage.file_data.isnot(None))
+        .order_by(ModelImage.id.desc())
+        .first()
+    )
+
+
+@app.get("/storage/model-files/{name}")
+def serve_model_file(name: str, _: CurrentUser, db: DbSession):
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+
+    abs_path = _model_file_path_if_exists(name)
+    if abs_path:
+        return FileResponse(abs_path)
+
+    img = _model_image_record(name, db)
+    if not img or not img.file_data:
+        raise HTTPException(status_code=404, detail="Not found")
+    return Response(
+        content=bytes(img.file_data),
+        media_type=img.content_type or "application/octet-stream",
+        headers={"Cache-Control": "private, max-age=604800"},
+    )
+
+
+@app.get("/storage/model-files/thumb/{name}")
+def serve_model_thumbnail(name: str, _: CurrentUser, db: DbSession, size: int = 320):
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    source_path = _model_file_path_if_exists(name)
+    image_record = None if source_path else _model_image_record(name, db)
+    if not source_path and not image_record:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    safe_size = max(96, min(int(size or 320), 640))
+    os.makedirs(_MODEL_THUMBS_ROOT, exist_ok=True)
+    thumb_name = f"{safe_size}_{name}.webp"
+    thumb_path = os.path.realpath(os.path.join(_MODEL_THUMBS_ROOT, thumb_name))
+    if not thumb_path.startswith(_MODEL_THUMBS_ROOT + os.sep):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    source_mtime = os.path.getmtime(source_path) if source_path else 0
+    if not os.path.isfile(thumb_path) or os.path.getmtime(thumb_path) < source_mtime:
+        try:
+            image_source = source_path if source_path else BytesIO(bytes(image_record.file_data or b""))
+            with Image.open(image_source) as img:
+                img = ImageOps.exif_transpose(img)
+                img.thumbnail((safe_size, safe_size), Image.Resampling.LANCZOS)
+                if img.mode not in {"RGB", "RGBA"}:
+                    img = img.convert("RGB")
+                img.save(thumb_path, "WEBP", quality=76, method=4)
+        except (UnidentifiedImageError, OSError):
+            raise HTTPException(status_code=415, detail="File is not a previewable image")
+
+    return FileResponse(
+        thumb_path,
+        media_type="image/webp",
+        headers={"Cache-Control": "private, max-age=604800"},
+    )
 
 # Sales-order printing attachments may contain customer-supplied design files, so
 # they are NOT served from a public static mount. Access requires a short-lived

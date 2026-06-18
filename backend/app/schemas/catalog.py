@@ -53,6 +53,8 @@ class UserOut(ORMModel):
     role_id: Optional[int] = None
     department_id: Optional[int] = None
     is_active: bool
+    last_login_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
     created_at: datetime
 
 

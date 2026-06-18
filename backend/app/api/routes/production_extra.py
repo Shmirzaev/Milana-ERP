@@ -2,6 +2,7 @@
 capacity utilization, PDF/HTML export of the process-tracking view.
 """
 from datetime import datetime, timezone, timedelta
+from html import escape
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -37,6 +38,10 @@ _WO_BLOCK_PERMS = (
 )
 
 
+def _h(value) -> str:
+    return escape(str(value or ""), quote=True)
+
+
 class BlockIn(BaseModel):
     reason: Optional[str] = None
 
@@ -54,7 +59,7 @@ def block_wo(wid: int, payload: BlockIn, db: DbSession, current: User = Depends(
     po = db.get(ProductionOrder, wo.production_order_id)
     if po and po.created_by and po.created_by != current.id:
         notify(db, user_id=po.created_by,
-               title=f"Blocked: {wo.operation} WO #{wo.id}",
+               title=f"Blocked: {wo.operation} order {wo.order_no or wo.id}",
                message=reason,
                link=f"/work-orders/{wo.id}/{wo.operation}")
     db.commit()
@@ -101,7 +106,7 @@ def create_assignment(
     if already + payload.quantity > (wo.planned_input_qty or 0) and not is_admin(current):
         raise HTTPException(
             400,
-            f"Total assignments ({already + payload.quantity}) exceeds planned WO input ({wo.planned_input_qty}). "
+            f"Total assignments ({already + payload.quantity}) exceeds planned work-order input ({wo.planned_input_qty}). "
             "Admin can override.",
         )
 
@@ -163,7 +168,7 @@ def update_assignment(
     if already + next_qty > (wo.planned_input_qty or 0) and not is_admin(current):
         raise HTTPException(
             400,
-            f"Total assignments ({already + next_qty}) exceeds planned WO input ({wo.planned_input_qty}). "
+            f"Total assignments ({already + next_qty}) exceeds planned work-order input ({wo.planned_input_qty}). "
             "Admin can override.",
         )
 
@@ -393,18 +398,18 @@ def export_process_html(db: DbSession, _: CurrentUser):
         model = db.get(Model, po.model_id)
         so = db.get(SalesOrder, po.sales_order_id) if po.sales_order_id else None
         cust = db.get(Customer, so.customer_id) if so and so.customer_id else None
-        stages = " · ".join(
-            f"{w.operation}[{w.status}] {w.passed_qty}/{w.planned_output_qty}"
+        stages = " &middot; ".join(
+            f"{_h(w.operation)}[{_h(w.status)}] {_h(w.passed_qty)}/{_h(w.planned_output_qty)}"
             for w in sorted(po.work_orders, key=lambda x: x.id)
-        ) or "—"
-        dl = po.deadline.strftime("%Y-%m-%d") if po.deadline else "—"
+        ) or "&mdash;"
+        dl = _h(po.deadline.strftime("%Y-%m-%d") if po.deadline else "")
         rows_html += f"""
           <tr>
-            <td><b>{po.production_no}</b><br><span class='sub'>{so.order_no if so else ''}</span></td>
-            <td>{cust.name if cust else '—'}</td>
-            <td>{model.code if model else po.model_id}<br><span class='sub'>{model.name if model else ''}</span></td>
-            <td style='text-align:right'>{po.planned_quantity}</td>
-            <td>{po.status}</td>
+            <td><b>{_h(po.order_no)}</b></td>
+            <td>{_h(cust.name if cust else '')}</td>
+            <td>{_h(model.code if model else po.model_id)}<br><span class='sub'>{_h(model.name if model else '')}</span></td>
+            <td style='text-align:right'>{_h(po.planned_quantity)}</td>
+            <td>{_h(po.status)}</td>
             <td>{dl}</td>
             <td>{stages}</td>
           </tr>
@@ -427,7 +432,7 @@ def export_process_html(db: DbSession, _: CurrentUser):
   <div class='sub'>Generated {now}</div>
   <table>
     <thead><tr>
-      <th>Production</th><th>Customer</th><th>Model</th><th>Qty</th>
+      <th>Order</th><th>Customer</th><th>Model</th><th>Qty</th>
       <th>Status</th><th>Deadline</th><th>Stages</th>
     </tr></thead>
     <tbody>{rows_html or '<tr><td colspan=7>No active production orders.</td></tr>'}</tbody>

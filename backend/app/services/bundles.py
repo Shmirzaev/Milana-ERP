@@ -1,10 +1,11 @@
 """Bundle service: create cutting bundles with QR/barcode, manage scan transitions."""
 from datetime import datetime
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import (
-    Bundle, BundleScanLog, ProductionOrder, Department, SalesOrder, WorkOrder,
+    Bundle, BundleScanLog, ProductionOrder, ProductionBatch, Department, SalesOrder, WorkOrder,
 )
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
 from app.services.numbering import next_bundle_no
@@ -50,10 +51,51 @@ def _sewing_factory_dept(db: Session, code: str | None) -> Department | None:
     return _dept(db, factory_code) or _dept(db, DEPT_SEW)
 
 
+def format_batch_passport(batch: ProductionBatch | None, production_order_id: int | None = None) -> str:
+    if not batch:
+        return ""
+    batch_no = str(batch.batch_no or "").strip()
+    if batch_no:
+        return batch_no
+    idx = max(1, int(batch.batch_index or 1))
+    po_id = max(0, int(production_order_id or batch.production_order_id or 0))
+    if po_id:
+        return f"BT-{po_id:04d}-{idx:02d}"
+    return f"BT-{idx:02d}"
+
+
+def bundle_qr_payload(db: Session, bundle: Bundle) -> str:
+    parts = [f"BUNDLE:{bundle.bundle_no}", str(bundle.barcode or "")]
+    po = db.get(ProductionOrder, bundle.production_order_id)
+    if po and po.production_no:
+        parts.append(f"PO:{po.production_no}")
+    if bundle.production_batch_id:
+        batch = db.get(ProductionBatch, bundle.production_batch_id)
+        if batch:
+            passport = format_batch_passport(batch, bundle.production_order_id)
+            parts.append(f"BATCH:{passport}")
+            parts.append(f"BATCH_ID:{batch.id}")
+    return "|".join(part for part in parts if part)
+
+
+def _work_order_for_bundle(db: Session, bundle: Bundle, operation: str) -> WorkOrder | None:
+    base = db.query(WorkOrder).filter(
+        WorkOrder.production_order_id == bundle.production_order_id,
+        WorkOrder.operation == operation,
+    )
+    if bundle.production_batch_id is not None:
+        batch_wo = base.filter(WorkOrder.production_batch_id == bundle.production_batch_id).first()
+        if batch_wo:
+            return batch_wo
+    generic_wo = base.filter(WorkOrder.production_batch_id.is_(None)).first()
+    return generic_wo or base.first()
+
+
 def create_bundle(
     db: Session,
     *,
     production_order_id: int,
+    production_batch_id: int | None = None,
     model_id: int,
     color: str,
     size: str,
@@ -74,6 +116,11 @@ def create_bundle(
     if sales_order_id:
         if not db.get(SalesOrder, sales_order_id):
             raise HTTPException(404, "Sales order not found")
+    batch_id = int(production_batch_id) if production_batch_id else None
+    if batch_id is not None:
+        batch = db.get(ProductionBatch, batch_id)
+        if not batch or int(batch.production_order_id) != int(production_order_id):
+            raise HTTPException(400, "Production batch does not belong to this production order")
 
     cut = _dept(db, DEPT_CUT)
     factory_code = resolve_sewing_factory_code(
@@ -90,6 +137,7 @@ def create_bundle(
         bundle_no=bundle_no,
         barcode=barcode_value,
         production_order_id=production_order_id,
+        production_batch_id=batch_id,
         sales_order_id=sales_order_id,
         brand_id=brand_id,
         collection_id=collection_id,
@@ -107,8 +155,7 @@ def create_bundle(
     db.add(b)
     db.flush()
 
-    qr_payload = f"BUNDLE:{bundle_no}|{barcode_value}"
-    b.qr_code_url = save_qr_image(qr_payload, f"bundle_qr_{bundle_no}")
+    b.qr_code_url = save_qr_image(bundle_qr_payload(db, b), f"bundle_qr_{bundle_no}")
     # also persist a barcode image for printing labels
     save_barcode_image(barcode_value, f"bundle_bc_{bundle_no}")
 
@@ -137,14 +184,15 @@ def _transition(
 
 
 def send_to_printing(db: Session, bundle: Bundle, user_id: int | None = None):
+    if bundle.status == "sent_to_printing":
+        raise HTTPException(409, "This bundle sticker was already sent to printing")
+    if bundle.status in ("received_printing", "sent_to_sewing", "received_sewing"):
+        raise HTTPException(409, "This bundle sticker was already processed")
     if bundle.status not in ("created",):
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be sent to printing")
     bundle.next_department_id = _dept(db, DEPT_PRT).id if _dept(db, DEPT_PRT) else None
     _transition(db, bundle, "sent_printing", "sent_to_printing", DEPT_CUT, DEPT_PRT, user_id)
-    wo = db.query(WorkOrder).filter(
-        WorkOrder.production_order_id == bundle.production_order_id,
-        WorkOrder.operation == "printing",
-    ).first()
+    wo = _work_order_for_bundle(db, bundle, "printing")
     if wo and wo.status in ("new", "planning", "waiting"):
         wo.status = "pending"
     notify_department(
@@ -159,19 +207,24 @@ def send_to_printing(db: Session, bundle: Bundle, user_id: int | None = None):
 
 
 def receive_at_printing(db: Session, bundle: Bundle, user_id: int | None = None):
+    if bundle.status == "received_printing":
+        raise HTTPException(409, "This bundle sticker was already received at printing")
+    if bundle.status in ("sent_to_sewing", "received_sewing"):
+        raise HTTPException(409, "This bundle sticker was already processed")
     if bundle.status != "sent_to_printing":
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be received at printing")
     _transition(db, bundle, "received_printing", "received_printing", DEPT_CUT, DEPT_PRT, user_id)
-    wo = db.query(WorkOrder).filter(
-        WorkOrder.production_order_id == bundle.production_order_id,
-        WorkOrder.operation == "printing",
-    ).first()
+    wo = _work_order_for_bundle(db, bundle, "printing")
     if wo and wo.status in ("new", "planning", "waiting"):
         wo.status = "pending"
     sync_production_order_status(db, bundle.production_order_id)
 
 
 def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
+    if bundle.status == "sent_to_sewing":
+        raise HTTPException(409, "This bundle sticker was already sent to sewing")
+    if bundle.status == "received_sewing":
+        raise HTTPException(409, "This bundle sticker was already received at sewing")
     if bundle.status not in ("created", "received_printing"):
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be sent to sewing")
     from_code = DEPT_PRT if bundle.status == "received_printing" else DEPT_CUT
@@ -181,10 +234,7 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
     bundle.sewing_factory_code = factory_code
     bundle.next_department_id = target.id if target else None
     _transition(db, bundle, "sent_sewing", "sent_to_sewing", from_code, target_code, user_id)
-    wo = db.query(WorkOrder).filter(
-        WorkOrder.production_order_id == bundle.production_order_id,
-        WorkOrder.operation == "sewing",
-    ).first()
+    wo = _work_order_for_bundle(db, bundle, "sewing")
     if wo and wo.status in ("new", "planning", "waiting"):
         wo.status = "in_progress"
     notify_department(
@@ -199,6 +249,8 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
 
 
 def receive_at_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
+    if bundle.status == "received_sewing":
+        raise HTTPException(409, "This bundle sticker was already received at sewing")
     target = _sewing_factory_dept(db, bundle.sewing_factory_code)
     generic = _dept(db, DEPT_SEW)
     allowed_ids = {d.id for d in (target, generic) if d}
@@ -211,10 +263,21 @@ def receive_at_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
         _transition(db, bundle, "received_sewing", "received_sewing", None, target_code, user_id)
     else:
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be received at sewing")
-    wo = db.query(WorkOrder).filter(
-        WorkOrder.production_order_id == bundle.production_order_id,
-        WorkOrder.operation == "sewing",
-    ).first()
-    if wo and wo.status in ("new", "planning", "waiting"):
-        wo.status = "in_progress"
+    wo = _work_order_for_bundle(db, bundle, "sewing")
+    if wo:
+        qty_filters = [
+            Bundle.production_order_id == bundle.production_order_id,
+            Bundle.status == "received_sewing",
+        ]
+        if wo.production_batch_id is not None:
+            qty_filters.append(Bundle.production_batch_id == wo.production_batch_id)
+        received_qty = int(
+            db.query(func.coalesce(func.sum(Bundle.quantity), 0))
+            .filter(*qty_filters)
+            .scalar()
+            or 0
+        )
+        wo.actual_input_qty = max(int(wo.actual_input_qty or 0), received_qty)
+        if wo.status in ("new", "planning", "waiting"):
+            wo.status = "in_progress"
     sync_production_order_status(db, bundle.production_order_id)

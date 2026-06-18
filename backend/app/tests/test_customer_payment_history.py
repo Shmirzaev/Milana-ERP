@@ -148,6 +148,47 @@ def test_customer_order_history_includes_invoice_and_payment_status(client, auth
     assert partial_payment_row["amount"] == 40
 
 
+def test_sales_order_history_endpoint_returns_order_ledger(client, auth_headers):
+    model_id = _find_model_id(client, auth_headers)
+    customer_id = _create_customer(client, auth_headers)
+    order = _create_sales_order(
+        client,
+        auth_headers,
+        customer_id=customer_id,
+        model_id=model_id,
+        unit_price=100,
+    )
+    invoice = _create_invoice(client, auth_headers, int(order["id"]))
+    payment = _create_payment(client, auth_headers, invoice_id=int(invoice["id"]), amount=35)
+
+    r = client.get(
+        f"/api/sales-orders/history?include_total=true&page_size=10&q={order['order_no']}",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    rows = [row for row in r.json()["rows"] if int(row["id"]) == int(order["id"])]
+    assert rows, r.json()
+    row = rows[0]
+    assert row["customer_name"]
+    assert row["summary"]["ordered_qty"] == 1
+    assert row["summary"]["order_amount"] == 100
+    assert row["summary"]["paid_total"] == 35
+    assert row["summary"]["outstanding_amount"] == 65
+    assert row["summary"]["invoice_count"] == 1
+    assert row["summary"]["payment_count"] == 1
+
+    detail = client.get(f"/api/sales-orders/{order['id']}/history", headers=auth_headers)
+    assert detail.status_code == 200, detail.text
+    payload = detail.json()
+    assert payload["order_no"] == order["order_no"]
+    assert payload["items"][0]["quantity"] == 1
+    assert payload["items"][0]["line_total"] == 100
+    assert payload["invoices"][0]["invoice_no"] == invoice["invoice_no"]
+    assert payload["payments"][0]["id"] == payment["id"]
+    assert any(event["type"] == "order_created" for event in payload["timeline"])
+    assert any(event["type"] == "payment" for event in payload["timeline"])
+
+
 def test_customer_profile_payment_persists_and_updates_order_status(client, auth_headers):
     model_id = _find_model_id(client, auth_headers)
     customer_id = _create_customer(client, auth_headers)

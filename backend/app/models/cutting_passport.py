@@ -1,9 +1,14 @@
 from __future__ import annotations
 from datetime import datetime
+from typing import TYPE_CHECKING
 from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.core import User
+    from app.models.production import ProductionOrder
 
 
 class CuttingPassport(Base, PkMixin, TimestampMixin):
@@ -47,9 +52,9 @@ class CuttingPassport(Base, PkMixin, TimestampMixin):
 
     notes: Mapped[str | None] = mapped_column(Text)
 
-    production_order: Mapped["ProductionOrder | None"] = relationship(  # type: ignore[name-defined]
+    production_order: Mapped["ProductionOrder | None"] = relationship(
         "ProductionOrder", foreign_keys=[production_order_id], lazy="joined"
     )
-    operator: Mapped["User | None"] = relationship(  # type: ignore[name-defined]
+    operator: Mapped["User | None"] = relationship(
         "User", foreign_keys=[operator_id], lazy="joined"
     )

@@ -220,7 +220,7 @@ export default function ShipmentsPage() {
                   <button className="btn" onClick={scanPkg} disabled={!scanCode.trim()}>{t("btn.scan")}</button>
                 </div>
               </div>
-              <button className="btn" onClick={ship}>{t("btn.ship")}</button>
+              <button className="btn" onClick={ship} disabled={shipBlockedByScan}>{t("btn.ship")}</button>
               <button
                 className="btn btn-primary"
                 onClick={deliver}

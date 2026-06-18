@@ -8,6 +8,7 @@ import { formatBatchSerial } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 import StagePipeline, { operationLabel, statusLabel } from "@/components/StagePipeline";
+import { orderReference } from "@/lib/orderRef";
 
 type Stage = {
   work_order_id: number;
@@ -47,6 +48,7 @@ type ProcessBatch = {
 type Process = {
   production_order_id: number;
   production_no: string;
+  order_no?: string | null;
   production_type: string;
   po_status: string;
   po_deadline: string | null;
@@ -101,7 +103,8 @@ export default function ProcessTrackingPage() {
     const q = filter.trim().toLowerCase();
     if (!q) return data;
     return data.filter((p) =>
-      p.production_no?.toLowerCase().includes(q)
+      (p.order_no || "").toLowerCase().includes(q)
+      || p.production_no?.toLowerCase().includes(q)
       || (p.sales_order_no || "").toLowerCase().includes(q)
       || (p.customer_name || "").toLowerCase().includes(q)
       || (p.model_code || "").toLowerCase().includes(q)
@@ -154,7 +157,7 @@ export default function ProcessTrackingPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>{t("field.productionNo")}</th>
+              <th>{t("field.orderNo")}</th>
               <th>{t("field.customer")}</th>
               <th>{t("field.model")}</th>
               <th>{t("field.qty")}</th>
@@ -177,16 +180,9 @@ export default function ProcessTrackingPage() {
                   <td>
                     <div className="font-medium">
                       <Link href={`/production-orders/${p.production_order_id}`} className="text-brand-600 hover:underline">
-                        {p.production_no}
+                        {orderReference(p, p.production_no)}
                       </Link>
                     </div>
-                    {p.sales_order_no && (
-                      <div className="text-xs text-slate-500">
-                        <Link href={`/sales-orders/${p.sales_order_id}`} className="hover:underline">
-                          {p.sales_order_no}
-                        </Link>
-                      </div>
-                    )}
                   </td>
                   <td>{p.customer_name || "-"}</td>
                   <td>

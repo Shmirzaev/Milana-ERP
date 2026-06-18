@@ -93,8 +93,8 @@ export default function CustomersPage() {
                 <td><Link className="text-brand-600 hover:underline" href={`/customers/${c.id}`}>{c.name}</Link></td><td>{c.phone}</td><td>{c.email}</td><td>{c.address}</td>
                 {isAdmin && (
                   <td className="flex gap-2">
-                    <Link className="text-brand-600 hover:underline" href={`/customers/${c.id}`}>{t("btn.edit")}</Link>
-                    <button className="text-red-600 hover:underline" onClick={() => deleteCustomer(c)}>{t("btn.delete")}</button>
+                    <button type="button" className="text-brand-600 hover:underline" onClick={() => openEdit(c)}>{t("btn.edit")}</button>
+                    <button type="button" className="text-red-600 hover:underline" onClick={() => deleteCustomer(c)}>{t("btn.delete")}</button>
                   </td>
                 )}
               </tr>

@@ -1,0 +1,9 @@
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+frontend/tmp_*.html

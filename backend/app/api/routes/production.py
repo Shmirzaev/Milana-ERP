@@ -7,7 +7,8 @@ from sqlalchemy.orm import joinedload
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
     ProductionOrder, WorkOrder, CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord,
-    SalesOrder, QualityCheck, User, SewingFlow, SewingAssignment, Package, ProductionBatch, WasteRecord,
+    SalesOrder, QualityCheck, User, SewingFlow, SewingAssignment, Package, PackageBatchAllocation,
+    ProductionBatch, WasteRecord,
     ProductionOrderItem, Bundle,
 )
 from app.schemas.production import (
@@ -80,6 +81,17 @@ class SplitBatchLineIn(BaseModel):
 
 class SplitWorkOrderBatchesIn(BaseModel):
     batches: list[SplitBatchLineIn]
+
+
+class ProductionOrderBreakdownLineIn(BaseModel):
+    id: int | None = None
+    color: str
+    size: str
+    planned_quantity: int
+
+
+class ProductionOrderBreakdownUpdateIn(BaseModel):
+    items: list[ProductionOrderBreakdownLineIn]
 
 
 def _ordered_batches_for_work_order(db: DbSession, wo: WorkOrder) -> tuple[ProductionOrder, list[ProductionBatch]]:
@@ -207,7 +219,7 @@ def _flow_committed_today(db: DbSession, flow_id: int, now: datetime) -> int:
 # ===== Production Orders =====
 @router.get("/production-orders", response_model=list[ProductionOrderOut])
 def list_pos(db: DbSession, _: CurrentUser, status: str | None = None, production_type: str | None = None, page: int = 1, page_size: int = 50):
-    qry = db.query(ProductionOrder)
+    qry = db.query(ProductionOrder).options(joinedload(ProductionOrder.sales_order))
     if status: qry = qry.filter(ProductionOrder.status == status)
     if production_type: qry = qry.filter(ProductionOrder.production_type == production_type)
     return qry.order_by(ProductionOrder.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
@@ -286,14 +298,59 @@ def _planned_quantity_from_items(db: DbSession, production_order_id: int) -> int
     )
 
 
-def _project_original_plan_for_detail(db: DbSession, production_order_id: int, out: dict) -> dict:
+def _received_bundle_totals_by_po(db: DbSession, po_ids: list[int]) -> dict[int, dict[str, int]]:
+    ids = sorted({int(po_id) for po_id in po_ids if po_id})
+    if not ids:
+        return {}
+
+    rows = (
+        db.query(
+            Bundle.production_order_id,
+            func.count(Bundle.id),
+            func.coalesce(func.sum(Bundle.quantity), 0),
+        )
+        .filter(
+            Bundle.production_order_id.in_(ids),
+            Bundle.status == "received_sewing",
+        )
+        .group_by(Bundle.production_order_id)
+        .all()
+    )
+    return {
+        int(po_id): {
+            "received_bundle_count": int(count or 0),
+            "received_bundle_qty": int(qty or 0),
+        }
+        for po_id, count, qty in rows
+    }
+
+
+def _work_order_payload(wo: WorkOrder, received_by_po: dict[int, dict[str, int]] | None = None) -> dict:
+    out = WorkOrderOut.model_validate(wo).model_dump()
+    if wo.operation == "sewing":
+        received = (received_by_po or {}).get(int(wo.production_order_id), {})
+        out["received_bundle_count"] = int(received.get("received_bundle_count") or 0)
+        out["received_bundle_qty"] = int(received.get("received_bundle_qty") or 0)
+    return out
+
+
+def _project_original_plan_for_detail(
+    db: DbSession,
+    production_order_id: int,
+    out: dict,
+    actual_quantity: int | None = None,
+) -> dict:
     item_plan_total = sum(max(0, int(row.get("planned_quantity") or 0)) for row in out.get("items") or [])
     if item_plan_total <= 0:
         item_plan_total = _planned_quantity_from_items(db, production_order_id)
     if item_plan_total <= 0:
         return out
 
-    if int(out.get("planned_quantity") or 0) > item_plan_total:
+    plan_qty = int(out.get("planned_quantity") or 0)
+    if actual_quantity and actual_quantity != plan_qty:
+        return out
+
+    if plan_qty > item_plan_total:
         out["planned_quantity"] = item_plan_total
 
     for row in out.get("work_orders") or []:
@@ -304,18 +361,36 @@ def _project_original_plan_for_detail(db: DbSession, production_order_id: int, o
     return out
 
 
-@router.get("/production-orders/{pid}", response_model=ProductionOrderDetail)
-def get_po(pid: int, db: DbSession, _: CurrentUser):
+def _production_order_detail_payload(db: DbSession, pid: int) -> dict:
     po = db.query(ProductionOrder).options(
+        joinedload(ProductionOrder.sales_order),
         joinedload(ProductionOrder.batches),
         joinedload(ProductionOrder.items),
         joinedload(ProductionOrder.work_orders),
     ).filter(ProductionOrder.id == pid).first()
     if not po: raise HTTPException(404, "Production order not found")
     out = ProductionOrderDetail.model_validate(po).model_dump()
-    out = _project_original_plan_for_detail(db, pid, out)
-    out.update(_production_order_actuals(db, pid))
+    actuals = _production_order_actuals(db, pid)
+    received_by_po = _received_bundle_totals_by_po(db, [pid])
+    out["work_orders"] = [
+        {
+            **row,
+            **(
+                received_by_po.get(int(row.get("production_order_id") or 0), {})
+                if row.get("operation") == "sewing"
+                else {}
+            ),
+        }
+        for row in out.get("work_orders") or []
+    ]
+    out = _project_original_plan_for_detail(db, pid, out, actuals.get("actual_quantity"))
+    out.update(actuals)
     return out
+
+
+@router.get("/production-orders/{pid}", response_model=ProductionOrderDetail)
+def get_po(pid: int, db: DbSession, _: CurrentUser):
+    return _production_order_detail_payload(db, pid)
 
 
 @router.patch("/production-orders/{pid}", response_model=ProductionOrderOut)
@@ -337,6 +412,91 @@ def update_po(pid: int, payload: dict, db: DbSession, current: User = Depends(re
     log_action(db, current, "update", "ProductionOrder", po.id)
     db.commit(); db.refresh(po)
     return po
+
+
+@router.put("/production-orders/{pid}/breakdown", response_model=ProductionOrderDetail)
+def update_po_breakdown(
+    pid: int,
+    payload: ProductionOrderBreakdownUpdateIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("planning.production", "cutting.records", "*")),
+):
+    po = db.get(ProductionOrder, pid)
+    if not po:
+        raise HTTPException(404, "Production order not found")
+
+    actual_qty = int(_production_order_actuals(db, pid).get("actual_quantity") or 0)
+    planned_qty = int(po.planned_quantity or 0)
+    if actual_qty <= 0 or actual_qty == planned_qty:
+        raise HTTPException(409, "Order breakdown is editable only when actual quantity differs from planned quantity")
+
+    rows = payload.items or []
+    if not rows:
+        raise HTTPException(400, "Provide at least one breakdown row")
+
+    existing_rows = db.query(ProductionOrderItem).filter(ProductionOrderItem.production_order_id == pid).all()
+    existing_by_id = {int(row.id): row for row in existing_rows}
+    normalized: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for idx, row in enumerate(rows, start=1):
+        row_id = int(row.id) if row.id else None
+        if row_id is not None and row_id not in existing_by_id:
+            raise HTTPException(404, f"Breakdown row #{row_id} not found for this production order")
+
+        color = str(row.color or "").strip()
+        size = str(row.size or "").strip()
+        qty = int(row.planned_quantity or 0)
+        if not color or not size:
+            raise HTTPException(400, f"Breakdown row {idx}: color and size are required")
+        if qty <= 0:
+            raise HTTPException(400, f"Breakdown row {idx}: quantity must be greater than zero")
+
+        key = (color.lower(), size.lower())
+        if key in seen:
+            raise HTTPException(400, f"Duplicate breakdown row for {color} / {size}")
+        seen.add(key)
+        normalized.append({"id": row_id, "color": color, "size": size, "planned_quantity": qty})
+
+    total = sum(row["planned_quantity"] for row in normalized)
+    if total != actual_qty:
+        raise HTTPException(400, f"Breakdown total must equal actual quantity ({actual_qty}); got {total}")
+
+    keep_ids: set[int] = set()
+    for row in normalized:
+        row_id = row["id"]
+        if row_id is not None:
+            item = existing_by_id[row_id]
+            item.color = row["color"]
+            item.size = row["size"]
+            item.planned_quantity = row["planned_quantity"]
+            item.model_id = po.model_id
+            keep_ids.add(row_id)
+        else:
+            item = ProductionOrderItem(
+                production_order_id=po.id,
+                model_id=po.model_id,
+                color=row["color"],
+                size=row["size"],
+                planned_quantity=row["planned_quantity"],
+            )
+            db.add(item)
+
+    for row_id, item in existing_by_id.items():
+        if row_id not in keep_ids:
+            if int(item.completed_quantity or 0) > 0:
+                raise HTTPException(409, "Cannot remove breakdown rows with completed quantity")
+            db.delete(item)
+
+    log_action(
+        db,
+        current,
+        "update_breakdown",
+        "ProductionOrder",
+        po.id,
+        new_value={"actual_quantity": actual_qty, "items": normalized},
+    )
+    db.commit()
+    return _production_order_detail_payload(db, pid)
 
 
 @router.post("/production-orders/{pid}/create-work-orders")
@@ -679,7 +839,7 @@ def list_wos(
     only_active: bool = False,
     unassigned_flow: bool = False,
 ):
-    qry = db.query(WorkOrder)
+    qry = db.query(WorkOrder).options(joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order))
     if department_id: qry = qry.filter(WorkOrder.department_id == department_id)
     if status: qry = qry.filter(WorkOrder.status == status)
     if production_order_id: qry = qry.filter(WorkOrder.production_order_id == production_order_id)
@@ -689,14 +849,22 @@ def list_wos(
         if not operation:
             qry = qry.filter(WorkOrder.operation == "sewing")
         qry = qry.filter(WorkOrder.sewing_flow_id.is_(None))
-    return qry.order_by(WorkOrder.id.desc()).all()
+    rows = qry.order_by(WorkOrder.id.desc()).all()
+    received_by_po = _received_bundle_totals_by_po(db, [int(w.production_order_id) for w in rows if w.operation == "sewing"])
+    return [_work_order_payload(w, received_by_po) for w in rows]
 
 
 @router.get("/work-orders/{wid}", response_model=WorkOrderOut)
 def get_wo(wid: int, db: DbSession, _: CurrentUser):
-    wo = db.get(WorkOrder, wid)
+    wo = (
+        db.query(WorkOrder)
+        .options(joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order))
+        .filter(WorkOrder.id == wid)
+        .first()
+    )
     if not wo: raise HTTPException(404, "Work order not found")
-    return wo
+    received_by_po = _received_bundle_totals_by_po(db, [int(wo.production_order_id)]) if wo.operation == "sewing" else {}
+    return _work_order_payload(wo, received_by_po)
 
 
 @router.patch("/work-orders/{wid}", response_model=WorkOrderOut)
@@ -912,6 +1080,8 @@ def cutting_batch_progress(wid: int, db: DbSession, _: CurrentUser):
     for b in batches:
         totals = totals_by_batch.get(int(b.id), {})
         passed = int(totals.get("passed_pieces", 0))
+        defective = int(totals.get("defective_pieces", 0))
+        processed = passed + defective
         planned = int(b.planned_quantity or 0)
         items.append({
             "id": b.id,
@@ -921,9 +1091,9 @@ def cutting_batch_progress(wid: int, db: DbSession, _: CurrentUser):
             "planned_quantity": planned,
             "cut_pieces": int(totals.get("cut_pieces", 0)),
             "passed_pieces": passed,
-            "defective_pieces": int(totals.get("defective_pieces", 0)),
-            "remaining_quantity": max(0, planned - passed),
-            "progress_pct": round((100.0 * passed / planned), 1) if planned > 0 else 0.0,
+            "defective_pieces": defective,
+            "remaining_quantity": max(0, planned - processed),
+            "progress_pct": round((100.0 * processed / planned), 1) if planned > 0 else 0.0,
             "start_date": b.start_date,
             "deadline": b.deadline,
             "notes": b.notes,
@@ -970,6 +1140,8 @@ def printing_batch_progress(wid: int, db: DbSession, _: CurrentUser):
     for b in batches:
         totals = totals_by_batch.get(int(b.id), {})
         passed = int(totals.get("passed_qty", 0))
+        rejected = int(totals.get("rejected_qty", 0))
+        processed = passed + rejected
         planned = int(b.planned_quantity or 0)
         items.append({
             "id": b.id,
@@ -980,9 +1152,9 @@ def printing_batch_progress(wid: int, db: DbSession, _: CurrentUser):
             "input_qty": int(totals.get("input_qty", 0)),
             "printed_qty": int(totals.get("printed_qty", 0)),
             "passed_qty": passed,
-            "rejected_qty": int(totals.get("rejected_qty", 0)),
-            "remaining_quantity": max(0, planned - passed),
-            "progress_pct": round((100.0 * passed / planned), 1) if planned > 0 else 0.0,
+            "rejected_qty": rejected,
+            "remaining_quantity": max(0, planned - processed),
+            "progress_pct": round((100.0 * processed / planned), 1) if planned > 0 else 0.0,
             "start_date": b.start_date,
             "deadline": b.deadline,
             "notes": b.notes,
@@ -1033,6 +1205,9 @@ def sewing_batch_progress(wid: int, db: DbSession, _: CurrentUser):
     for b in batches:
         totals = totals_by_batch.get(int(b.id), {})
         passed = int(totals.get("passed_qty", 0))
+        failed = int(totals.get("failed_qty", 0))
+        rejected = int(totals.get("rejected_qty", 0))
+        processed = passed + failed + rejected
         planned = int(b.planned_quantity or 0)
         items.append({
             "id": b.id,
@@ -1043,11 +1218,11 @@ def sewing_batch_progress(wid: int, db: DbSession, _: CurrentUser):
             "input_qty": int(totals.get("input_qty", 0)),
             "sewn_qty": int(totals.get("sewn_qty", 0)),
             "passed_qty": passed,
-            "failed_qty": int(totals.get("failed_qty", 0)),
+            "failed_qty": failed,
             "rework_qty": int(totals.get("rework_qty", 0)),
-            "rejected_qty": int(totals.get("rejected_qty", 0)),
-            "remaining_quantity": max(0, planned - passed),
-            "progress_pct": round((100.0 * passed / planned), 1) if planned > 0 else 0.0,
+            "rejected_qty": rejected,
+            "remaining_quantity": max(0, planned - processed),
+            "progress_pct": round((100.0 * processed / planned), 1) if planned > 0 else 0.0,
             "start_date": b.start_date,
             "deadline": b.deadline,
             "notes": b.notes,
@@ -1088,11 +1263,68 @@ def packaging_batch_progress(wid: int, db: DbSession, _: CurrentUser):
             "damaged_qty": int(damaged_sum or 0),
         }
 
+    batch_ids = {int(b.id) for b in batches}
+    packaged_by_batch: dict[int, int] = {}
+    allocated_package_ids: set[int] = set()
+    allocation_rows = (
+        db.query(
+            PackageBatchAllocation.package_id,
+            PackageBatchAllocation.production_batch_id,
+            func.coalesce(func.sum(PackageBatchAllocation.quantity), 0),
+        )
+        .join(Package, Package.id == PackageBatchAllocation.package_id)
+        .filter(
+            Package.production_order_id == wo.production_order_id,
+            PackageBatchAllocation.production_batch_id.in_(batch_ids),
+        )
+        .group_by(PackageBatchAllocation.package_id, PackageBatchAllocation.production_batch_id)
+        .all()
+    )
+    for package_id, batch_id, quantity in allocation_rows:
+        allocated_package_ids.add(int(package_id))
+        packaged_by_batch[int(batch_id)] = packaged_by_batch.get(int(batch_id), 0) + int(quantity or 0)
+
+    fallback_qry = db.query(
+        Package.production_batch_id,
+        func.coalesce(func.sum(Package.total_quantity), 0),
+    ).filter(
+        Package.production_order_id == wo.production_order_id,
+        Package.production_batch_id.in_(batch_ids),
+    )
+    if allocated_package_ids:
+        fallback_qry = fallback_qry.filter(~Package.id.in_(allocated_package_ids))
+    for batch_id, quantity in fallback_qry.group_by(Package.production_batch_id).all():
+        if batch_id is None:
+            continue
+        packaged_by_batch[int(batch_id)] = packaged_by_batch.get(int(batch_id), 0) + int(quantity or 0)
+
+    upstream_loss_by_batch: dict[int, int] = {}
+    sew_wo = _context_work_order(db, wo, "sewing")
+    if sew_wo:
+        sewing_rows = (
+            db.query(
+                SewingRecord.production_batch_id,
+                func.coalesce(func.sum(SewingRecord.failed_qty), 0),
+                func.coalesce(func.sum(SewingRecord.rejected_qty), 0),
+            )
+            .filter(SewingRecord.work_order_id == sew_wo.id)
+            .group_by(SewingRecord.production_batch_id)
+            .all()
+        )
+        for batch_id, failed_sum, rejected_sum in sewing_rows:
+            if batch_id is None:
+                continue
+            upstream_loss_by_batch[int(batch_id)] = int(failed_sum or 0) + int(rejected_sum or 0)
+
     items = []
     for b in batches:
         totals = totals_by_batch.get(int(b.id), {})
         packed = int(totals.get("packed_qty", 0))
+        damaged = int(totals.get("damaged_qty", 0))
+        upstream_loss = int(upstream_loss_by_batch.get(int(b.id), 0))
+        packaged = int(packaged_by_batch.get(int(b.id), 0))
         planned = int(b.planned_quantity or 0)
+        processed = min(planned, packed + damaged + upstream_loss)
         items.append({
             "id": b.id,
             "batch_no": b.batch_no,
@@ -1101,9 +1333,11 @@ def packaging_batch_progress(wid: int, db: DbSession, _: CurrentUser):
             "planned_quantity": planned,
             "input_qty": int(totals.get("input_qty", 0)),
             "packed_qty": packed,
-            "damaged_qty": int(totals.get("damaged_qty", 0)),
-            "remaining_quantity": max(0, planned - packed),
-            "progress_pct": round((100.0 * packed / planned), 1) if planned > 0 else 0.0,
+            "packaged_qty": packaged,
+            "available_to_package": max(0, packed - packaged),
+            "damaged_qty": damaged,
+            "remaining_quantity": max(0, planned - processed),
+            "progress_pct": round((100.0 * processed / planned), 1) if planned > 0 else 0.0,
             "start_date": b.start_date,
             "deadline": b.deadline,
             "notes": b.notes,
@@ -1229,6 +1463,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             b = create_bundle(
                 db,
                 production_order_id=wo.production_order_id,
+                production_batch_id=batch_id,
                 model_id=po.model_id,
                 color=spec["color"],
                 size=spec["size"],
@@ -1242,6 +1477,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
                 "id": b.id,
                 "bundle_no": b.bundle_no,
                 "barcode": b.barcode,
+                "production_batch_id": b.production_batch_id,
                 "sewing_factory_code": b.sewing_factory_code,
             })
             if next_code == "PRT":
@@ -1256,7 +1492,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             db,
             department_code="PRT",
             title="Incoming cutting bundles",
-            message=f"{to_printing} bundle(s) ready from WO #{wo.id}.",
+            message=f"{to_printing} bundle(s) ready from order {wo.order_no or wo.id}.",
             link="/bundles/scan/printing",
         )
     for department_code, to_sewing in to_sewing_by_code.items():
@@ -1264,7 +1500,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             db,
             department_code=department_code,
             title="Incoming cutting bundles",
-            message=f"{to_sewing} bundle(s) ready from WO #{wo.id}.",
+            message=f"{to_sewing} bundle(s) ready from order {wo.order_no or wo.id}.",
             link=f"/departments/{department_code}",
         )
 
@@ -1371,7 +1607,7 @@ def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depe
             db,
             department_code="SEW",
             title="Incoming printed pieces",
-            message=f"WO #{wo.id} passed {payload.passed_qty} pcs.",
+            message=f"Order {wo.order_no or wo.id} passed {payload.passed_qty} pcs.",
             link=f"/work-orders/{sew_wo.id}/sewing" if sew_wo else "/bundles/scan/sewing",
         )
     log_action(db, current, "create", "PrintingRecord", rec.id, new_value={"work_order_id": wo.id})
@@ -1522,7 +1758,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
             db,
             department_code="PKG",
             title="Awaiting packaging",
-            message=f"WO #{wo.id} has {payload.passed_qty} pcs ready for packaging.",
+            message=f"Order {wo.order_no or wo.id} has {payload.passed_qty} pcs ready for packaging.",
             link=f"/work-orders/{pkg_wo.id}/packaging" if pkg_wo else "/packages",
         )
     log_action(db, current, "create", "SewingRecord", rec.id, new_value={"work_order_id": wo.id})
@@ -1625,7 +1861,7 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
             db,
             department_code="FGS",
             title="Packed goods ready",
-            message=f"WO #{wo.id} packed {payload.packed_qty} pcs and is ready for storage intake.",
+            message=f"Order {wo.order_no or wo.id} packed {payload.packed_qty} pcs and is ready for storage intake.",
             link="/packages/scan",
         )
     log_action(db, current, "create", "PackagingRecord", rec.id, new_value={"work_order_id": wo.id})

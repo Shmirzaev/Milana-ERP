@@ -12,12 +12,12 @@ from app.models.sales import (
     SalesOrder, SalesOrderItem, Shipment, ShipmentPackage, ShipmentScanLog, Invoice, Payment,
 )
 from app.models.production import (
-    ProductionOrder, ProductionBatch, ProductionOrderItem, WorkOrder,
+    ProductionOrder, ProductionBatch, ProductionOrderItem, WorkOrder, public_production_order_no,
     CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, QualityCheck,
 )
 from app.models.tracking import (
-    Bundle, BundleScanLog, Package, PackageItem, PackageScanLog,
-    FinishedGoodsStock, StockReservation,
+    Bundle, BundleScanLog, Package, PackageItem, PackageBatchAllocation, PackageScanLog,
+    PackageChangeRequest, FinishedGoodsStock, StockReservation,
 )
 from app.models.waste import WasteRecord, WasteSale, WasteDisposalRequest
 from app.models.tasks import Task
@@ -31,9 +31,10 @@ __all__ = [
     "Brand", "Collection", "CollectionModel", "Model", "ModelImage", "ModelSize", "ModelColor", "ModelBOM",
     "Item", "Warehouse", "StockBatch", "StockMovement",
     "SalesOrder", "SalesOrderItem", "Shipment", "ShipmentPackage", "ShipmentScanLog", "Invoice", "Payment",
-    "ProductionOrder", "ProductionBatch", "ProductionOrderItem", "WorkOrder",
+    "ProductionOrder", "ProductionBatch", "ProductionOrderItem", "WorkOrder", "public_production_order_no",
     "CuttingRecord", "PrintingRecord", "SewingRecord", "PackagingRecord", "QualityCheck",
-    "Bundle", "BundleScanLog", "Package", "PackageItem", "PackageScanLog",
+    "Bundle", "BundleScanLog", "Package", "PackageItem", "PackageBatchAllocation", "PackageScanLog",
+    "PackageChangeRequest",
     "FinishedGoodsStock", "StockReservation",
     "WasteRecord", "WasteSale", "WasteDisposalRequest",
     "Task",

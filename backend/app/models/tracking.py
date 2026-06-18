@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import String, Integer, ForeignKey, DateTime, Text, Numeric, func
+from sqlalchemy import String, Integer, ForeignKey, DateTime, Text, Numeric, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -12,6 +12,7 @@ class Bundle(Base, PkMixin, TimestampMixin):
     barcode: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     qr_code_url: Mapped[str | None] = mapped_column(String(512))
     production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False)
+    production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"), index=True)
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
@@ -57,6 +58,7 @@ class Package(Base, PkMixin, TimestampMixin):
     package_type: Mapped[str] = mapped_column(String(16), default="bag", nullable=False)
     total_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     capacity: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    weight_kg: Mapped[float | None] = mapped_column(Numeric(14, 4))
     warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))
     storage_cell: Mapped[str | None] = mapped_column(String(32))
     storage_shelf: Mapped[str | None] = mapped_column(String(8))
@@ -70,6 +72,7 @@ class Package(Base, PkMixin, TimestampMixin):
     notes: Mapped[str | None] = mapped_column(Text)
 
     items: Mapped[list["PackageItem"]] = relationship("PackageItem", back_populates="package", cascade="all, delete-orphan")
+    batch_allocations: Mapped[list["PackageBatchAllocation"]] = relationship("PackageBatchAllocation", back_populates="package", cascade="all, delete-orphan")
     scan_logs: Mapped[list["PackageScanLog"]] = relationship("PackageScanLog", back_populates="package", cascade="all, delete-orphan", order_by="PackageScanLog.scanned_at")
 
 
@@ -84,6 +87,15 @@ class PackageItem(Base, PkMixin, TimestampMixin):
     package: Mapped["Package"] = relationship("Package", back_populates="items")
 
 
+class PackageBatchAllocation(Base, PkMixin, TimestampMixin):
+    __tablename__ = "package_batch_allocations"
+    package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False, index=True)
+    production_batch_id: Mapped[int] = mapped_column(ForeignKey("production_batches.id"), nullable=False, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    package: Mapped["Package"] = relationship("Package", back_populates="batch_allocations")
+
+
 class PackageScanLog(Base, PkMixin):
     __tablename__ = "package_scan_logs"
     package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False)
@@ -93,6 +105,21 @@ class PackageScanLog(Base, PkMixin):
     scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     package: Mapped["Package"] = relationship("Package", back_populates="scan_logs")
+
+
+class PackageChangeRequest(Base, PkMixin, TimestampMixin):
+    __tablename__ = "package_change_requests"
+    package_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    package_no: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    request_type: Mapped[str] = mapped_column(String(16), nullable=False)  # edit, delete
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False, index=True)
+    before_json: Mapped[dict | None] = mapped_column(JSON)
+    payload_json: Mapped[dict | None] = mapped_column(JSON)
+    reason: Mapped[str | None] = mapped_column(Text)
+    requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_notes: Mapped[str | None] = mapped_column(Text)
 
 
 class FinishedGoodsStock(Base, PkMixin, TimestampMixin):

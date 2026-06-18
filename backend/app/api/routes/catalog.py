@@ -13,7 +13,7 @@ from app.core.uploads import (
     SAFE_IMAGE_EXTENSIONS,
     extension_for_upload,
     safe_content_type,
-    validated_upload_content,
+    read_validated_upload_content,
 )
 from app.models import (
     Brand, Collection, CollectionModel, Model, ModelImage, ModelSize, ModelColor, ModelBOM, User,
@@ -321,6 +321,11 @@ def add_image(mid: int, payload: ModelImageIn, db: DbSession, current: User = De
     data = payload.model_dump()
     data["file_url"] = _validate_file_url(data["file_url"])
     data["image_type"] = _normalize_image_type(data.get("image_type"))
+    if data.get("is_primary"):
+        db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
+            {"is_primary": False},
+            synchronize_session=False,
+        )
     img = ModelImage(model_id=mid, **data)
     db.add(img)
     db.flush()
@@ -340,20 +345,28 @@ async def upload_image(
     if not db.get(Model, mid):
         raise HTTPException(404, "Model not found")
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
+    normalized_image_type = _normalize_image_type(image_type)
     os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
     safe_name = f"model_{mid}_{uuid4().hex}{ext}"
     abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
-    content = validated_upload_content(await file.read(), ext, 20 * 1024 * 1024)
+    content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
     with open(abs_path, "wb") as f:
         f.write(content)
     file_url = f"/storage/model-files/{safe_name}"
+    is_primary = normalized_image_type == "model"
+    if is_primary:
+        db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
+            {"is_primary": False},
+            synchronize_session=False,
+        )
     img = ModelImage(
         model_id=mid,
         file_url=file_url,
         file_name=file.filename or safe_name,
         content_type=safe_content_type(ext),
-        image_type=_normalize_image_type(image_type),
-        is_primary=False,
+        file_data=content,
+        image_type=normalized_image_type,
+        is_primary=is_primary,
     )
     db.add(img)
     db.flush()

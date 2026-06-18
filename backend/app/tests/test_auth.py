@@ -11,7 +11,36 @@ def test_admin_login(client):
     r = client.post("/api/auth/login", data={"username": "admin@example.com", "password": "test-admin-password-123!"})
     assert r.status_code == 200
     body = r.json()
-    assert "access_token" in body
+    assert body == {"message": "logged_in"}
+    assert "access_token" not in body
+
+
+def test_login_records_user_activity(client):
+    from app.db.session import SessionLocal
+    from app.models import User
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == "planning@example.com").one()
+        user.last_login_at = None
+        user.last_seen_at = None
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post(
+        "/api/auth/login",
+        data={"username": "planning@example.com", "password": "demo12345"},
+    )
+    assert r.status_code == 200
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == "planning@example.com").one()
+        assert user.last_login_at is not None
+        assert user.last_seen_at is not None
+    finally:
+        db.close()
 
 
 def test_seed_synchronizes_configured_admin_password(client):
@@ -94,7 +123,7 @@ def test_forgot_password_uses_neutral_response_for_unknown_email(client):
     assert r.json()["message"] == "If this account exists, a reset link has been sent."
 
 
-def test_forgot_password_notifies_admin_with_link_when_email_fails(client, auth_headers, monkeypatch):
+def test_forgot_password_notifies_admin_without_reset_link_when_email_fails(client, auth_headers, monkeypatch):
     monkeypatch.setattr("app.api.routes.auth.secrets.token_urlsafe", lambda _: "failed-email-token")
 
     def fail_send(*args, **kwargs):
@@ -107,12 +136,11 @@ def test_forgot_password_notifies_admin_with_link_when_email_fails(client, auth_
 
     r2 = client.get("/api/notifications?limit=20", headers=auth_headers)
     assert r2.status_code == 200
-    assert any(
-        n["title"] == "Password reset email failed"
-        and "failed-email-token" in (n.get("message") or "")
-        and n.get("link", "").endswith("/reset-password?token=failed-email-token")
-        for n in r2.json()
-    )
+    matching = [n for n in r2.json() if n["title"] == "Password reset email failed"]
+    assert matching
+    assert all("failed-email-token" not in (n.get("message") or "") for n in matching)
+    assert all("failed-email-token" not in (n.get("link") or "") for n in matching)
+    assert all(n.get("link") == "/admin/users" for n in matching)
 
 
 def test_reset_password_accepts_valid_token(client, monkeypatch):

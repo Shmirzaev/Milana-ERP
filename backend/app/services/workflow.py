@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, lazyload
 
 from app.models import (
     Department,
@@ -225,7 +225,10 @@ def consume_stock_batch(
 ) -> None:
     if quantity <= 0:
         return
-    batch = db.get(StockBatch, batch_id)
+    qry = db.query(StockBatch).filter(StockBatch.id == batch_id)
+    if db.bind and db.bind.dialect.name == "postgresql":
+        qry = qry.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+    batch = qry.first()
     if not batch:
         raise HTTPException(404, f"Stock batch {batch_id} not found")
     available = float(batch.quantity or 0)
@@ -272,19 +275,18 @@ def consume_item_from_batches(
     if warehouse_id is not None:
         batch_query = batch_query.filter(StockBatch.warehouse_id == warehouse_id)
 
+    locked_batch_query = batch_query.order_by(StockBatch.received_date.asc(), StockBatch.id.asc())
+    if db.bind and db.bind.dialect.name == "postgresql":
+        locked_batch_query = locked_batch_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+    batches = locked_batch_query.all()
+
     if require_available:
-        available = sum(float(row.quantity or 0) for row in batch_query.all())
+        available = sum(float(row.quantity or 0) for row in batches)
         if available + 1e-9 < quantity:
             raise HTTPException(
                 409,
                 f"Insufficient stock for item #{item_id}: available {available}, requested {quantity}",
             )
-
-    batches = (
-        batch_query
-        .order_by(StockBatch.received_date.asc(), StockBatch.id.asc())
-        .all()
-    )
     for b in batches:
         if left <= 0:
             break
@@ -398,7 +400,10 @@ def create_waste_record(
 
 
 def decrement_finished_goods_for_package(db: Session, package: Package) -> None:
-    rows = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == package.id).all()
+    qry = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == package.id)
+    if db.bind and db.bind.dialect.name == "postgresql":
+        qry = qry.with_for_update(of=FinishedGoodsStock)
+    rows = qry.all()
     for s in rows:
         total_available = int(s.available_qty or 0) + int(s.reserved_qty or 0)
         shipped = min(int(s.quantity or 0), total_available)

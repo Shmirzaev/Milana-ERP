@@ -54,7 +54,10 @@ def _send_resend_email(to_email: str, subject: str, text_body: str) -> bool:
         response.raise_for_status()
         return True
     except httpx.HTTPStatusError as exc:
-        raise RuntimeError(f"Resend API error {exc.response.status_code}: {exc.response.text}") from exc
+        # Response bodies from email providers can echo submitted message content
+        # (including password-reset URLs). Do not propagate provider text into
+        # logs, notifications, or error handlers.
+        raise RuntimeError(f"Resend API error {exc.response.status_code}") from exc
 
 
 def _send_smtp_email(to_email: str, subject: str, text_body: str) -> bool:

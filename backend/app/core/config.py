@@ -1,3 +1,5 @@
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 
@@ -7,14 +9,18 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "Milana ERP"
     ENV: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
     DATABASE_URL: str = "postgresql+psycopg2://erp:erp@db:5432/erp"
     JWT_SECRET: str = "dev-secret"
+    FILE_SIGNING_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRES_MINUTES: int = 480
+    AUTH_COOKIE_NAME: str = "erp_access_token"
     INITIAL_ADMIN_EMAIL: str = "admin@example.com"
     INITIAL_ADMIN_PASSWORD: str = ""
     SEED_DEMO_USERS: bool = False
+    SEED_SAMPLE_DATA: bool = False
+    IMPORT_LEGACY_MODELS: bool = False
     PASSWORD_MIN_LENGTH: int = 12
     AUTH_MAX_FAILED_ATTEMPTS: int = 5
     AUTH_WINDOW_SECONDS: int = 15 * 60
@@ -61,14 +67,45 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.ENV.strip().lower() in {"prod", "production", "staging"}
 
+    @property
+    def is_public_deployment(self) -> bool:
+        """Detect hosted/public runtime even when ENV was left at development."""
+        public_markers = (
+            "SPACE_ID",
+            "SPACE_HOST",
+            "HF_SPACE_ID",
+            "HF_SPACE_HOST",
+            "RENDER",
+            "RENDER_EXTERNAL_HOSTNAME",
+            "VERCEL",
+            "PUBLIC_DEPLOYMENT",
+        )
+        return any(str(os.environ.get(name, "")).strip() for name in public_markers)
+
+    @property
+    def strict_security_required(self) -> bool:
+        return self.is_production or self.is_public_deployment
+
+    @property
+    def active_file_signing_secret(self) -> str:
+        # Development/test fallback preserves local ergonomics; production/public
+        # deployments must set FILE_SIGNING_SECRET explicitly (validated below).
+        return self.FILE_SIGNING_SECRET.strip() or self.JWT_SECRET.strip()
+
     def validate_runtime_security(self) -> None:
-        if not self.is_production:
+        if not self.strict_security_required:
             return
         errors: list[str] = []
         if self.DEBUG:
             errors.append("DEBUG must be false")
-        if self.JWT_SECRET.strip() in {"", "dev-secret", "test-secret"} or len(self.JWT_SECRET.strip()) < 32:
+        jwt_secret = self.JWT_SECRET.strip()
+        file_secret = self.FILE_SIGNING_SECRET.strip()
+        if jwt_secret in {"", "dev-secret", "test-secret"} or len(jwt_secret) < 32:
             errors.append("JWT_SECRET must be a unique high-entropy value")
+        if file_secret in {"", "dev-secret", "test-secret"} or len(file_secret) < 32:
+            errors.append("FILE_SIGNING_SECRET must be a unique high-entropy value")
+        if file_secret and file_secret == jwt_secret:
+            errors.append("FILE_SIGNING_SECRET must be different from JWT_SECRET")
         if "://erp:erp@" in self.DATABASE_URL:
             errors.append("DATABASE_URL must not use default development credentials")
         if "*" in self.cors_origins_list:
@@ -78,7 +115,7 @@ class Settings(BaseSettings):
         if self.ALLOW_DEMO_RESET:
             errors.append("ALLOW_DEMO_RESET must be false")
         if errors:
-            raise RuntimeError("Unsafe production configuration: " + "; ".join(errors))
+            raise RuntimeError("Unsafe production/public configuration: " + "; ".join(errors))
 
 
 settings = Settings()

@@ -5,6 +5,7 @@ import { Plus, Search, Pencil, Trash2, BookOpen } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
+import { orderReference } from "@/lib/orderRef";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -302,7 +303,7 @@ export default function CuttingPassportsPage() {
     setForm((prev) => ({
       ...prev,
       production_order_id: value,
-      order_no: po?.production_no || prev.order_no,
+      order_no: po ? orderReference(po, po.production_no || prev.order_no) : prev.order_no,
       model_code: model?.code || po?.model_code || prev.model_code,
     }));
   }
@@ -518,7 +519,7 @@ export default function CuttingPassportsPage() {
                     const model = modelMap.get(po.model_id);
                     return (
                       <option key={po.id} value={po.id}>
-                        {po.production_no}{model?.code ? ` · ${model.code}` : ""}
+                        {orderReference(po, po.production_no)}{model?.code ? ` · ${model.code}` : ""}
                       </option>
                     );
                   })}

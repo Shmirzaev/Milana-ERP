@@ -175,7 +175,7 @@ export default function LoginPage() {
           </div>
           <h1
             className="m-0 text-[48px] leading-[1.05] tracking-[-0.01em]"
-            style={{ fontFamily: "'Instrument Serif', 'Iowan Old Style', Palatino, serif", fontWeight: 400 }}
+            style={{ fontFamily: "var(--font-instrument-serif), 'Iowan Old Style', Palatino, serif", fontWeight: 400 }}
           >
             {t("login.heroPrefix")}{" "}
             <em className="text-[#c2410c] not-italic" style={{ fontStyle: "italic" }}>{t("login.heroAccent")}</em>{" "}
@@ -272,7 +272,7 @@ export default function LoginPage() {
           </div>
           <h2
             className="m-0 mb-2.5 text-[42px] leading-[1.04] tracking-[-0.01em]"
-            style={{ fontFamily: "'Instrument Serif', 'Iowan Old Style', Palatino, serif", fontWeight: 400 }}
+            style={{ fontFamily: "var(--font-instrument-serif), 'Iowan Old Style', Palatino, serif", fontWeight: 400 }}
           >
             {t("login.signInTitle")}
           </h2>
@@ -455,7 +455,7 @@ function KpiPeek({ kicker, value, delta, color }: { kicker: string; value: strin
       <div className="flex items-baseline gap-2 mt-1.5">
         <div
           className="text-[30px] leading-none tracking-[-0.01em]"
-          style={{ fontFamily: "'Instrument Serif', 'Iowan Old Style', Palatino, serif", fontWeight: 400 }}
+          style={{ fontFamily: "var(--font-instrument-serif), 'Iowan Old Style', Palatino, serif", fontWeight: 400 }}
         >
           {value}
         </div>

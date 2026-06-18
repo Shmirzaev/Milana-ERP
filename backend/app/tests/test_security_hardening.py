@@ -4,6 +4,8 @@
 - M2: password change/reset invalidates existing tokens
 """
 
+import base64
+import os
 import time
 
 STRONG_PW = "Str0ngManager!2026"
@@ -11,7 +13,7 @@ ESC_PW = "Esc4lation!Test2026"
 
 
 def _login(client, email, password):
-    r = client.post("/api/auth/login", data={"username": email, "password": password})
+    r = client.post("/api/auth/token", data={"username": email, "password": password})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
@@ -175,6 +177,97 @@ def test_password_change_invalidates_existing_token(client, auth_headers):
 # ---------- M1: signed URLs for sensitive sales-order attachments ----------
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+_VALID_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+)
+
+
+def test_login_sets_httponly_cookie_and_cookie_auth_works(client):
+    r = client.post("/api/auth/login", data={"username": "admin@example.com", "password": "test-admin-password-123!"})
+    assert r.status_code == 200, r.text
+    set_cookie = r.headers.get("set-cookie", "").lower()
+    assert "erp_access_token=" in set_cookie
+    assert "httponly" in set_cookie
+
+    # No Authorization header: TestClient sends the cookie it received above.
+    assert client.get("/api/auth/me").status_code == 200
+
+    logout = client.post("/api/auth/logout")
+    assert logout.status_code == 200, logout.text
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_https_forwarded_login_cookie_is_secure(client):
+    r = client.post(
+        "/api/auth/login",
+        data={"username": "admin@example.com", "password": "test-admin-password-123!"},
+        headers={"x-forwarded-proto": "https"},
+    )
+    assert r.status_code == 200, r.text
+    set_cookie = r.headers.get("set-cookie", "").lower()
+    assert "erp_access_token=" in set_cookie
+    assert "secure" in set_cookie
+
+
+
+
+def test_public_deployment_login_cookie_is_secure(client, monkeypatch):
+    monkeypatch.setenv("PUBLIC_DEPLOYMENT", "1")
+    r = client.post("/api/auth/login", data={"username": "admin@example.com", "password": "test-admin-password-123!"})
+    assert r.status_code == 200, r.text
+    set_cookie = r.headers.get("set-cookie", "").lower()
+    assert "erp_access_token=" in set_cookie
+    assert "secure" in set_cookie
+
+
+def test_password_reset_failure_notification_suppresses_token_like_error_text(client):
+    from app.api.routes.auth import _notify_admins_about_reset_email_failure
+    from app.db.session import SessionLocal
+    from app.models import Notification, User
+
+    raw_url = "https://frontend.example/reset-password?token=raw-reset-token-should-not-persist"
+    provider_error = f"provider echoed body containing {raw_url} and token=raw-reset-token-should-not-persist"
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == "admin@example.com").first()
+        assert user is not None
+        user_id = user.id
+        before = db.query(Notification).filter(Notification.title == "Password reset email failed").count()
+    finally:
+        db.close()
+
+    _notify_admins_about_reset_email_failure(user_id, raw_url, provider_error)
+
+    db = SessionLocal()
+    try:
+        notes = (
+            db.query(Notification)
+            .filter(Notification.title == "Password reset email failed")
+            .order_by(Notification.id.desc())
+            .all()
+        )
+        assert len(notes) > before
+        message = notes[0].message
+    finally:
+        db.close()
+
+    assert raw_url not in message
+    assert "raw-reset-token-should-not-persist" not in message
+    assert "token=" not in message.lower()
+    assert "provider details suppressed" in message
+
+
+def test_cors_rejects_untrusted_credentialed_origin(client):
+    r = client.options(
+        "/api/auth/me",
+        headers={
+            "Origin": "https://evil.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert r.status_code in {400, 403}
+    assert r.headers.get("access-control-allow-origin") != "https://evil.example"
 
 
 def test_sales_order_attachment_requires_valid_signature(client, auth_headers):
@@ -228,3 +321,178 @@ def test_sales_order_persists_bare_path_and_resigns_on_read(client, auth_headers
     catts = confirmed.json()["printing_attachments"]
     assert catts and "sig=" in catts[0]["file_url"]
     assert client.get(catts[0]["file_url"]).status_code == 200
+
+
+def test_printable_package_label_escapes_database_values(client, auth_headers):
+    po = client.post(
+        "/api/production-orders",
+        json={
+            "production_type": "branded_stock",
+            "model_id": 1,
+            "planned_quantity": 10,
+            "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 10}],
+        },
+        headers=auth_headers,
+    )
+    assert po.status_code == 201, po.text
+    payload = {
+        "production_order_id": po.json()["id"],
+        "model_id": 1,
+        "color": "<script>alert(1)</script>",
+        "package_type": "bag",
+        "capacity": 60,
+        "weight_kg": 12.345,
+        "items": [
+            {"model_id": 1, "color": "<script>alert(1)</script>", "size": "<img src=x onerror=alert(2)>", "quantity": 10},
+        ],
+    }
+    r = client.post("/api/packages", json=payload, headers=auth_headers)
+    assert r.status_code == 201, r.text
+    pkg_id = r.json()["id"]
+
+    label = client.get(f"/api/packages/{pkg_id}/label", headers=auth_headers)
+    assert label.status_code == 200, label.text
+    assert "<script>alert(1)</script>" not in label.text
+    assert "<img src=x onerror=alert(2)>" not in label.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in label.text
+    assert "&lt;img src=x onerror=alert(2)&gt;" in label.text
+    assert "12.345 kg" in label.text
+
+
+def test_model_file_storage_requires_authentication(client, auth_headers):
+    up = client.post(
+        "/api/models/1/images/upload",
+        files={"file": ("model.png", _PNG, "image/png")},
+        headers=auth_headers,
+    )
+    assert up.status_code == 201, up.text
+    file_url = up.json()["file_url"]
+
+    client.cookies.clear()
+    assert client.get(file_url).status_code == 401
+    assert client.get(file_url, headers=auth_headers).status_code == 200
+
+
+def test_model_file_thumbnail_is_authenticated_and_cacheable(client, auth_headers):
+    up = client.post(
+        "/api/models/1/images/upload",
+        files={"file": ("model-preview.png", _VALID_PNG, "image/png")},
+        headers=auth_headers,
+    )
+    assert up.status_code == 201, up.text
+    file_url = up.json()["file_url"]
+    thumb_url = file_url.replace("/storage/model-files/", "/storage/model-files/thumb/") + "?size=320"
+
+    client.cookies.clear()
+    assert client.get(thumb_url).status_code == 401
+
+    thumb = client.get(thumb_url, headers=auth_headers)
+    assert thumb.status_code == 200, thumb.text
+    assert thumb.headers["content-type"].startswith("image/webp")
+    assert "max-age" in thumb.headers["cache-control"]
+
+
+def test_model_file_survives_missing_filesystem_copy(client, auth_headers):
+    from app.core.config import settings
+
+    up = client.post(
+        "/api/models/1/images/upload",
+        data={"image_type": "model"},
+        files={"file": ("model-db.png", _VALID_PNG, "image/png")},
+        headers=auth_headers,
+    )
+    assert up.status_code == 201, up.text
+    file_url = up.json()["file_url"]
+    file_name = file_url.rsplit("/", 1)[-1]
+    abs_path = os.path.join(settings.MODEL_FILES_DIR, file_name)
+    assert os.path.exists(abs_path)
+
+    model = client.get("/api/models/1", headers=auth_headers)
+    assert model.status_code == 200, model.text
+    uploaded = next(img for img in model.json()["images"] if img["file_url"] == file_url)
+    assert uploaded["is_primary"] is True
+
+    os.remove(abs_path)
+    original = client.get(file_url, headers=auth_headers)
+    assert original.status_code == 200, original.text
+    assert original.content.startswith(b"\x89PNG")
+
+    thumb_url = file_url.replace("/storage/model-files/", "/storage/model-files/thumb/") + "?size=320"
+    thumb = client.get(thumb_url, headers=auth_headers)
+    assert thumb.status_code == 200, thumb.text
+    assert thumb.headers["content-type"].startswith("image/webp")
+
+# ---------- Additional hardening regressions ----------
+
+def test_browser_login_does_not_return_bearer_token(client):
+    r = client.post("/api/auth/login", data={"username": "admin@example.com", "password": "test-admin-password-123!"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"message": "logged_in"}
+    assert "access_token" not in r.text
+
+
+def test_api_token_endpoint_returns_bearer_token_without_setting_cookie(client):
+    r = client.post("/api/auth/token", data={"username": "admin@example.com", "password": "test-admin-password-123!"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["access_token"]
+    assert body["token_type"] == "bearer"
+    assert "set-cookie" not in {k.lower(): v for k, v in r.headers.items()}
+
+
+def test_untrusted_origin_cannot_make_cookie_authenticated_state_change(client):
+    login = client.post("/api/auth/login", data={"username": "admin@example.com", "password": "test-admin-password-123!"})
+    assert login.status_code == 200, login.text
+
+    r = client.post("/api/auth/logout", headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+
+
+def test_signed_storage_urls_use_file_signing_secret_not_jwt_secret(monkeypatch):
+    from app.core import signing
+
+    monkeypatch.setattr(signing.settings, "FILE_SIGNING_SECRET", "file-signing-secret-abcdefghijklmnopqrstuvwxyz")
+    monkeypatch.setattr(signing.settings, "JWT_SECRET", "jwt-secret-abcdefghijklmnopqrstuvwxyz")
+    signed = signing.sign_path("/storage/sales-order-files/example.png", ttl_seconds=60)
+    assert signed and "sig=" in signed
+    bare, query = signed.split("?", 1)
+    params = dict(part.split("=", 1) for part in query.split("&"))
+
+    monkeypatch.setattr(signing.settings, "JWT_SECRET", "changed-jwt-secret-abcdefghijklmnopqrstuvwxyz")
+    assert signing.verify_path(bare, params["exp"], params["sig"])
+
+    monkeypatch.setattr(signing.settings, "FILE_SIGNING_SECRET", "changed-file-secret-abcdefghijklmnopqrstuvwxyz")
+    assert not signing.verify_path(bare, params["exp"], params["sig"])
+
+
+def test_upload_validation_helper_rejects_oversize_without_unbounded_read(client):
+    import pytest
+    from fastapi import HTTPException
+
+    async def run_case():
+        from app.core.uploads import read_validated_upload_content
+
+        class FakeUpload:
+            def __init__(self, body: bytes):
+                self.body = body
+                self.offset = 0
+                self.read_sizes: list[int] = []
+
+            async def read(self, size: int = -1):
+                self.read_sizes.append(size)
+                if size == -1:
+                    size = len(self.body) - self.offset
+                chunk = self.body[self.offset:self.offset + size]
+                self.offset += len(chunk)
+                return chunk
+
+        upload = FakeUpload(_PNG + b"x" * 64)
+        with pytest.raises(HTTPException) as exc:
+            await read_validated_upload_content(upload, ".png", 16, chunk_size=8)
+        assert exc.value.status_code == 400
+        assert upload.read_sizes
+        assert -1 not in upload.read_sizes
+        assert max(upload.read_sizes) <= 8
+
+    import asyncio
+    asyncio.run(run_case())

@@ -9,6 +9,7 @@ import PageHeader from "@/components/PageHeader";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { orderReference } from "@/lib/orderRef";
 
 const DEPT_LABELS: Record<string, string> = {
   CUT: "nav.cuttingFloor",
@@ -26,6 +27,10 @@ function woActionLink(wo: any) {
   if (wo.operation === "sewing") return `/work-orders/${wo.id}/sewing`;
   if (wo.operation === "packaging") return `/work-orders/${wo.id}/packaging`;
   return `/production-orders/${wo.production_order_id}`;
+}
+
+function workCardTitle(w: any, t: (key: string, vars?: Record<string, string | number>) => string) {
+  return `${orderReference(w, w?.production_order_id ? `#${w.production_order_id}` : "-")} - ${operationLabel(w.operation, t)}`;
 }
 
 export default function DepartmentInboxPage() {
@@ -55,24 +60,43 @@ export default function DepartmentInboxPage() {
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
   const activeWorkOrders = Array.isArray(data?.active_work_orders) ? data.active_work_orders : [];
-  const incomingBundles = Array.isArray(data?.incoming_bundles) ? data.incoming_bundles : [];
-  const incomingWorkOrders = Array.isArray(data?.incoming_work_orders) ? data.incoming_work_orders : [];
-  const incomingCount = incomingBundles.length + incomingWorkOrders.length;
-  const pendingPackages = Array.isArray(data?.pending_packages) ? data.pending_packages : [];
-  const readyPackages = Array.isArray(data?.ready_packages) ? data.ready_packages : [];
+  const incomingWorkOrders = useMemo(
+    () => (Array.isArray(data?.incoming_work_orders) ? data.incoming_work_orders : []),
+    [data?.incoming_work_orders],
+  );
+  const incomingWorkOrderPoIds = useMemo(
+    () => new Set(incomingWorkOrders.map((row: any) => Number(row.production_order_id || 0)).filter((poId: number) => poId > 0)),
+    [incomingWorkOrders],
+  );
+  const incomingBundleGroups = useMemo(
+    () => (Array.isArray(data?.incoming_bundle_groups) ? data.incoming_bundle_groups : [])
+      .filter((row: any) => !incomingWorkOrderPoIds.has(Number(row.production_order_id || 0))),
+    [data?.incoming_bundle_groups, incomingWorkOrderPoIds],
+  );
+  const incomingCount = incomingBundleGroups.length + incomingWorkOrders.length;
+  const pendingPackages = useMemo(() => (
+    Array.isArray(data?.pending_packages) ? data.pending_packages : []
+  ), [data?.pending_packages]);
+  const readyPackages = useMemo(() => (
+    Array.isArray(data?.ready_packages) ? data.ready_packages : []
+  ), [data?.ready_packages]);
   const splitQueueByStatus = true;
   const [expandedPackageGroups, setExpandedPackageGroups] = useState<Record<string, boolean>>({});
 
   const pendingPackagesByOrder = useMemo(() => {
-    const groups = new Map<string, { key: string; sales_order_id: number | null; packages: any[]; total_quantity: number }>();
+    const groups = new Map<string, { key: string; sales_order_id: number | null; order_no: string | null; sales_order_no: string | null; packages: any[]; total_quantity: number }>();
     for (const p of pendingPackages) {
       const key = p.sales_order_id == null ? "no-so" : `so-${p.sales_order_id}`;
       const existing = groups.get(key) ?? {
         key,
         sales_order_id: p.sales_order_id == null ? null : Number(p.sales_order_id),
+        order_no: p.order_no || p.sales_order_no || null,
+        sales_order_no: p.sales_order_no || p.order_no || null,
         packages: [],
         total_quantity: 0,
       };
+      existing.order_no = existing.order_no || p.order_no || p.sales_order_no || null;
+      existing.sales_order_no = existing.sales_order_no || p.sales_order_no || p.order_no || null;
       existing.packages.push(p);
       existing.total_quantity += Number(p.total_quantity || 0);
       groups.set(key, existing);
@@ -89,15 +113,19 @@ export default function DepartmentInboxPage() {
       });
   }, [pendingPackages]);
   const readyPackagesByOrder = useMemo(() => {
-    const groups = new Map<string, { key: string; sales_order_id: number | null; packages: any[]; total_quantity: number }>();
+    const groups = new Map<string, { key: string; sales_order_id: number | null; order_no: string | null; sales_order_no: string | null; packages: any[]; total_quantity: number }>();
     for (const p of readyPackages) {
       const key = p.sales_order_id == null ? "no-so" : `so-${p.sales_order_id}`;
       const existing = groups.get(key) ?? {
         key,
         sales_order_id: p.sales_order_id == null ? null : Number(p.sales_order_id),
+        order_no: p.order_no || p.sales_order_no || null,
+        sales_order_no: p.sales_order_no || p.order_no || null,
         packages: [],
         total_quantity: 0,
       };
+      existing.order_no = existing.order_no || p.order_no || p.sales_order_no || null;
+      existing.sales_order_no = existing.sales_order_no || p.sales_order_no || p.order_no || null;
       existing.packages.push(p);
       existing.total_quantity += Number(p.total_quantity || 0);
       groups.set(key, existing);
@@ -119,7 +147,8 @@ export default function DepartmentInboxPage() {
     }
     return readyPackagesByOrder.map((g) => ({
       sales_order_id: g.sales_order_id,
-      sales_order_no: g.sales_order_id ? `SO-${g.sales_order_id}` : null,
+      order_no: g.order_no,
+      sales_order_no: g.sales_order_no,
       order_type: "standard",
       shipment_type: "standard",
       customer_name: null,
@@ -180,6 +209,17 @@ export default function DepartmentInboxPage() {
     router.push(`/shipments${qs.toString() ? `?${qs.toString()}` : ""}`);
   }
 
+  function sewingReceivedLine(w: any) {
+    if (w?.operation !== "sewing") return null;
+    const bundleCount = Number(w.received_bundle_count || 0);
+    const qty = Number(w.received_bundle_qty || w.actual_input_qty || 0);
+    return (
+      <div className="text-xs text-slate-500">
+        {t("field.received")}: {bundleCount} {t("nav.bundles").toLowerCase()} / {qty} {t("field.qty").toLowerCase()}
+      </div>
+    );
+  }
+
   return (
     <div>
       <PageHeader
@@ -198,7 +238,7 @@ export default function DepartmentInboxPage() {
                 <div key={`wo-${w.work_order_id}`} className="rounded border border-slate-200 p-2 text-sm">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <div className="font-medium">{w.production_no || `PO #${w.production_order_id}`}</div>
+                      <div className="font-medium">{orderReference(w, `#${w.production_order_id}`)}</div>
                       <div className="text-xs text-slate-500">
                         {t("page.deptInbox.incomingProcess", {
                           source: operationLabel(w.source_operation, t),
@@ -228,12 +268,40 @@ export default function DepartmentInboxPage() {
                   </div>
                 </div>
               ))}
-              {incomingBundles.map((b: any) => (
-                <div key={b.id} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="font-medium">{b.bundle_no}</div>
-                  {b.production_no && <div className="text-xs text-slate-500">{b.production_no}</div>}
-                  <div className="text-xs text-slate-500">{b.color} / {b.size} / {b.quantity}</div>
-                  <Link className="text-xs text-brand-600 hover:underline" href={`/bundles/${b.id}`}>{t("page.deptInbox.openBundle")}</Link>
+              {incomingBundleGroups.map((g: any) => (
+                <div key={`bundle-group-${g.production_order_id}`} className="rounded border border-slate-200 p-2 text-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-medium">{orderReference(g, `#${g.production_order_id}`)}</div>
+                      <div className="text-xs text-slate-500">
+                        {t("page.deptInbox.incomingProcess", {
+                          source: operationLabel(g.source_operation || "cutting", t),
+                          target: operationLabel(g.target_operation || "sewing", t),
+                        })}
+                      </div>
+                    </div>
+                    <span className="badge shrink-0">
+                      {Number(g.bundle_count || 0)} {t("nav.bundles").toLowerCase()}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {t("page.deptInbox.readyReceived", { ready: g.ready_qty, received: g.received_qty })}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    {g.work_order_id ? (
+                      <Link
+                        className="text-xs text-brand-600 hover:underline"
+                        href={woActionLink({
+                          id: g.work_order_id,
+                          operation: g.target_operation || "sewing",
+                          production_order_id: g.production_order_id,
+                        })}
+                      >
+                        {t("btn.open")}
+                      </Link>
+                    ) : null}
+                    <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${g.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
+                  </div>
                 </div>
               ))}
               {incomingCount === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noIncomingWork")}</div>}
@@ -251,10 +319,11 @@ export default function DepartmentInboxPage() {
                   {pendingWorkOrders.map((w: any) => (
                     <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
                       <div className="flex items-center justify-between">
-                        <div className="font-medium">{t("page.deptInbox.workOrderTitle", { id: w.id, operation: operationLabel(w.operation, t) })}</div>
+                        <div className="font-medium">{workCardTitle(w, t)}</div>
                         <span className="badge">{statusLabel(w.status, t)}</span>
                       </div>
                       <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
+                      {sewingReceivedLine(w)}
                       {w.deadline && (
                         <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
                       )}
@@ -282,10 +351,11 @@ export default function DepartmentInboxPage() {
                   {inProgressWorkOrders.map((w: any) => (
                     <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
                       <div className="flex items-center justify-between">
-                        <div className="font-medium">{t("page.deptInbox.workOrderTitle", { id: w.id, operation: operationLabel(w.operation, t) })}</div>
+                        <div className="font-medium">{workCardTitle(w, t)}</div>
                         <span className="badge">{statusLabel(w.status, t)}</span>
                       </div>
                       <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
+                      {sewingReceivedLine(w)}
                       {w.deadline && (
                         <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
                       )}
@@ -305,10 +375,11 @@ export default function DepartmentInboxPage() {
                 {activeWorkOrders.map((w: any) => (
                   <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
                     <div className="flex items-center justify-between">
-                      <div className="font-medium">{t("page.deptInbox.workOrderTitle", { id: w.id, operation: operationLabel(w.operation, t) })}</div>
+                      <div className="font-medium">{workCardTitle(w, t)}</div>
                       <span className="badge">{statusLabel(w.status, t)}</span>
                     </div>
                     <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
+                    {sewingReceivedLine(w)}
                     {w.deadline && (
                       <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
                     )}
@@ -327,7 +398,7 @@ export default function DepartmentInboxPage() {
             <div className="space-y-2">
               {(data?.done_today || []).map((w: any) => (
                 <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="font-medium">{t("page.deptInbox.workOrderTitle", { id: w.id, operation: operationLabel(w.operation, t) })}</div>
+                  <div className="font-medium">{workCardTitle(w, t)}</div>
                   <div className="text-xs text-slate-500">{t("page.deptInbox.passedOnly", { passed: w.passed_qty })}</div>
                   <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${w.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
                 </div>
@@ -348,7 +419,7 @@ export default function DepartmentInboxPage() {
             <tbody>
               {data.awaiting_packaging.map((r: any) => (
                 <tr key={r.production_order_id}>
-                  <td>{r.production_no || r.production_order_id}</td>
+                  <td>{orderReference(r, `#${r.production_order_id}`)}</td>
                   <td>{r.ready_qty}</td>
                   <td>{r.sewn_passed}</td>
                   <td>{r.already_packed}</td>
@@ -371,7 +442,7 @@ export default function DepartmentInboxPage() {
                 {pendingPackagesByOrder.map((g) => (
                   <Fragment key={g.key}>
                     <tr key={g.key}>
-                      <td>{g.sales_order_id || "-"}</td>
+                      <td>{orderReference(g, "-")}</td>
                       <td>{g.packages.length}</td>
                       <td>{g.total_quantity}</td>
                       <td className="text-right">
@@ -434,7 +505,7 @@ export default function DepartmentInboxPage() {
               <tbody>
                 {readyToShipOrders.map((g: any) => {
                   const key = `ready-${String(g.sales_order_id ?? "no-so")}`;
-                  const soLabel = g.sales_order_no || g.sales_order_id || "-";
+                  const soLabel = orderReference(g, "-");
                   const pendingQty = Number(g.pending_qty || 0);
                   const shipmentType = String(g.shipment_type || g.order_type || "standard").replace(/_/g, " ");
                   const shipmentLabel = g.shipment_no ? `${g.shipment_no} (${statusLabel(String(g.shipment_status || ""), t)})` : t("page.deptInbox.notCreated");

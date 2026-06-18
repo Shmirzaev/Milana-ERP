@@ -8,7 +8,9 @@ import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
+import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { orderReference } from "@/lib/orderRef";
 
 type SewingFactory = "milana" | "besttex";
 type BundlePlan = {
@@ -23,6 +25,28 @@ type SplitRow = { name: string; planned_quantity: number; start_date: string; de
 
 function itemKey(color: string, size: string) {
   return `${String(color || "").trim().toLowerCase()}||${String(size || "").trim().toLowerCase()}`;
+}
+
+function parseDecimalInput(value: string | number, fallback = 0): number {
+  const normalized = String(value ?? "").replace(",", ".").trim();
+  if (!normalized) return fallback;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseWholeInput(value: string | number, fallback = 0): number {
+  return Math.max(0, Math.floor(parseDecimalInput(value, fallback)));
+}
+
+function mergeBundleRows(...groups: any[][]): any[] {
+  const byId = new Map<number, any>();
+  for (const group of groups) {
+    for (const row of group || []) {
+      const id = Number(row?.id || 0);
+      if (id > 0) byId.set(id, { ...byId.get(id), ...row });
+    }
+  }
+  return [...byId.values()].sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
 }
 
 function distributeBundleTargets(items: any[], totalQty: number): Map<string, number> {
@@ -77,17 +101,23 @@ export default function CuttingPage() {
   const { t } = useT();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
+  const { me } = useMe();
   const { data: wo, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
   const { data: po, mutate: mutatePo } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
   const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
   const { data: batches } = useSWR<any[]>("/api/inventory/batches", fetcher);
+  const { data: bundlePage, mutate: mutateBundles } = useSWR<any>(
+    po?.id ? `/api/bundles?production_order_id=${po.id}&include_total=true&page=1&page_size=2000` : null,
+    fetcher,
+  );
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
     wo ? `/api/work-orders/${id}/cutting-batch-progress` : null,
     fetcher,
   );
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
+  const canEditBreakdown = can(me, "*", "planning.production", "cutting.records");
 
   const [form, setForm] = useState({
     production_batch_id: 0,
@@ -151,6 +181,16 @@ export default function CuttingPage() {
     : form.production_batch_id
       ? `${t("field.batch")} #${form.production_batch_id}`
       : t("field.batch");
+  const savedBundles = Array.isArray(bundlePage?.rows)
+    ? bundlePage.rows
+    : Array.isArray(bundlePage)
+      ? bundlePage
+      : [];
+  const visibleBundles = mergeBundleRows(savedBundles, createdBundles);
+  const visibleBundleIds = visibleBundles
+    .map((b) => Number(b?.id || 0))
+    .filter((bundleId) => bundleId > 0)
+    .join(",");
 
   useEffect(() => {
     if (!Array.isArray(po?.items) || po.items.length === 0) return;
@@ -202,8 +242,8 @@ export default function CuttingPage() {
   function setB(i: number, p: Partial<BundlePlan>) {
     setBundles(bundles.map((b, j) => (i === j ? { ...b, ...p } : b)));
   }
-  function setBQty(i: number, nextQtyRaw: number) {
-    const nextQty = Math.max(1, Number(nextQtyRaw || 0));
+  function setBQty(i: number, nextQtyRaw: string | number) {
+    const nextQty = Math.max(1, parseWholeInput(nextQtyRaw, 1));
     setBundles((prev) => prev.map((b, j) => {
       if (i !== j) return b;
       const key = itemKey(b.color, b.size);
@@ -278,6 +318,12 @@ export default function CuttingPage() {
     }
   }
 
+  async function saveBreakdown(items: Array<{ id?: number | null; color: string; size: string; planned_quantity: number }>) {
+    if (!po?.id) return;
+    await api.put(`/api/production-orders/${po.id}/breakdown`, { items });
+    await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]);
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
@@ -298,10 +344,10 @@ export default function CuttingPage() {
         bundles,
       });
       const created = Array.isArray(r?.bundles) ? r.bundles : [];
-      setCreatedBundles(created);
-      setCreatedBundlesExpanded(false);
+      setCreatedBundles((prev) => mergeBundleRows(prev, created));
+      setCreatedBundlesExpanded(true);
       setDoneMsg(t("msg.cuttingDone", { count: created.length }));
-      await mutateBatchProgress();
+      await Promise.all([mutateBatchProgress(), mutateBundles()]);
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -309,10 +355,17 @@ export default function CuttingPage() {
     }
   }
 
+  const orderNo = orderReference({
+    order_no: so?.order_no || productInfoPo?.order_no || wo?.order_no,
+    sales_order_no: productInfoPo?.sales_order_no || wo?.sales_order_no,
+    production_no: productInfoPo?.production_no || wo?.production_no,
+    production_order_id: wo?.production_order_id,
+  }, `#${id}`);
+
   return (
     <div>
       <PageHeader
-        title={t("page.cutting.title", { id })}
+        title={t("page.cutting.title", { id, orderNo })}
         subtitle={wo ? t("page.cutting.subtitle", { op: operationLabel(wo.operation, t), status: statusLabel(wo.status, t) }) : ""}
       />
       <WorkOrderProductInfo
@@ -323,6 +376,8 @@ export default function CuttingPage() {
         model={model}
         customerName={so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : null}
         statusText={wo ? statusLabel(wo.status, t) : "-"}
+        canEditBreakdown={canEditBreakdown}
+        onSaveBreakdown={saveBreakdown}
       />
 
       {isAlreadyBatched && (
@@ -378,7 +433,7 @@ export default function CuttingPage() {
                 type="number"
                 min={1}
                 value={splitMax}
-                onChange={(e) => setSplitMax(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) => setSplitMax(Math.max(1, parseWholeInput(e.target.value, 1)))}
               />
             </div>
             <div className="flex gap-2">
@@ -417,7 +472,7 @@ export default function CuttingPage() {
                         type="number"
                         min={1}
                         value={row.planned_quantity}
-                        onChange={(e) => updateSplitRow(index, { planned_quantity: Number(e.target.value) || 0 })}
+                        onChange={(e) => updateSplitRow(index, { planned_quantity: parseWholeInput(e.target.value) })}
                       />
                     </td>
                     <td>
@@ -479,7 +534,7 @@ export default function CuttingPage() {
           </div>
           <div>
             <label className="label">{t("field.inputQty")}</label>
-            <input className="input" type="number" step="0.01" value={form.input_quantity} onChange={(e) => setForm({ ...form, input_quantity: Number(e.target.value) })} />
+            <input className="input" type="number" step="0.01" value={form.input_quantity} onChange={(e) => setForm({ ...form, input_quantity: parseDecimalInput(e.target.value) })} />
           </div>
           <div>
             <label className="label">{t("field.inputUnit")}</label>
@@ -487,11 +542,11 @@ export default function CuttingPage() {
           </div>
           <div>
             <label className="label">{t("field.cutPieces")}</label>
-            <input className="input" type="number" value={form.cut_pieces} onChange={(e) => setForm({ ...form, cut_pieces: Number(e.target.value) })} />
+            <input className="input" type="number" value={form.cut_pieces} onChange={(e) => setForm({ ...form, cut_pieces: parseWholeInput(e.target.value) })} />
           </div>
           <div>
             <label className="label">{t("field.wasteQty")}</label>
-            <input className="input" type="number" step="0.01" value={form.waste_quantity} onChange={(e) => setForm({ ...form, waste_quantity: Number(e.target.value) })} />
+            <input className="input" type="number" step="0.01" value={form.waste_quantity} onChange={(e) => setForm({ ...form, waste_quantity: parseDecimalInput(e.target.value) })} />
           </div>
           <div>
             <label className="label">{t("field.wasteUnit")}</label>
@@ -521,8 +576,8 @@ export default function CuttingPage() {
                 <tr key={i}>
                   <td><input className="input" value={b.color} onChange={(e) => setB(i, { color: e.target.value })} /></td>
                   <td><input className="input" value={b.size} onChange={(e) => setB(i, { size: e.target.value })} /></td>
-                  <td><input className="input" type="number" value={b.quantity} onChange={(e) => setBQty(i, Number(e.target.value))} /></td>
-                  <td><input className="input" type="number" value={b.count} onChange={(e) => setB(i, { count: Number(e.target.value) })} /></td>
+                  <td><input className="input" type="number" value={b.quantity} onChange={(e) => setBQty(i, e.target.value)} /></td>
+                  <td><input className="input" type="number" value={b.count} onChange={(e) => setB(i, { count: Math.max(1, parseWholeInput(e.target.value, 1)) })} /></td>
                   <td>
                     <select className="input" value={b.sewing_factory || "milana"} onChange={(e) => setB(i, { sewing_factory: e.target.value as SewingFactory })}>
                       <option value="milana">{t("factory.milana")}</option>
@@ -554,7 +609,7 @@ export default function CuttingPage() {
         </button>
       </form>
 
-      {createdBundles.length > 0 && (
+      {visibleBundles.length > 0 && (
         <div className="card mt-6 p-4">
           <h3 className="mb-2 font-medium">{t("page.cutting.bundlesCreated")}</h3>
           <div className="overflow-hidden rounded-lg border border-[#e3dfd3] bg-[#fdfcf8]">
@@ -567,12 +622,14 @@ export default function CuttingPage() {
               <div className="flex min-w-0 items-center gap-3">
                 {createdBundlesExpanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
                 <div className="min-w-0">
-                  <div className="label !mb-0">{t("field.batchNo")}</div>
-                  <div className="truncate font-medium">{createdBundlesBatchLabel}</div>
+                  <div className="label !mb-0">{t("field.orderNo")}</div>
+                  <div className="truncate font-medium">
+                    {orderReference(po, createdBundlesBatchLabel)}
+                  </div>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                <span className="badge">{createdBundles.length} {t("nav.bundles").toLowerCase()}</span>
+                <span className="badge">{visibleBundles.length} {t("nav.bundles").toLowerCase()}</span>
                 <span className="text-xs font-medium text-[#56503f]">
                   {createdBundlesExpanded ? t("btn.hideLabels") : t("btn.showLabels")}
                 </span>
@@ -580,6 +637,19 @@ export default function CuttingPage() {
             </button>
             {createdBundlesExpanded && (
               <div className="overflow-x-auto border-t border-[#ecebe3]">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ecebe3] bg-white px-4 py-3">
+                  <div className="text-sm font-medium text-[#56503f]">
+                    {visibleBundles.length} {t("nav.bundles").toLowerCase()}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={!visibleBundleIds}
+                    onClick={() => api.openLabel(`/api/bundles/label-sheet/by-ids?ids=${encodeURIComponent(visibleBundleIds)}`)}
+                  >
+                    {t("page.packaging.printAllLabels")}
+                  </button>
+                </div>
                 <table className="table">
                   <thead>
                     <tr>
@@ -590,7 +660,7 @@ export default function CuttingPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {createdBundles.map((b) => (
+                    {visibleBundles.map((b) => (
                       <tr key={b.id}>
                         <td>{b.bundle_no}</td>
                         <td>{factoryLabel(b.sewing_factory_code)}</td>

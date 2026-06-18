@@ -13,13 +13,24 @@ export type Me = {
 };
 
 export function useMe() {
-  // undefined = not yet detected (initial render / SSR), boolean once useEffect has run.
+  // undefined = not yet checked, boolean once /me has confirmed or rejected the HttpOnly cookie.
   const [hasToken, setHasToken] = useState<boolean | undefined>(undefined);
   useEffect(() => {
-    setHasToken(typeof window !== "undefined" && !!localStorage.getItem("erp_token"));
+    setHasToken(true);
   }, []);
-  const { data, error, isLoading, mutate } = useSWR<Me>(hasToken ? "/api/auth/me" : null, fetcher);
-  return { me: data, error, loading: isLoading, refresh: mutate, hasToken };
+  const { data, error, isLoading, mutate } = useSWR<Me>(hasToken ? "/api/auth/me" : null, fetcher, {
+    shouldRetryOnError: false,
+    refreshInterval: 5 * 60 * 1000,
+    refreshWhenHidden: false,
+  });
+  const checked = hasToken !== undefined && !isLoading;
+  return {
+    me: data,
+    error,
+    loading: isLoading,
+    refresh: mutate,
+    hasToken: checked ? Boolean(data && !error) : undefined,
+  };
 }
 
 export function can(me: Me | undefined, ...perms: string[]): boolean {
@@ -29,6 +40,7 @@ export function can(me: Me | undefined, ...perms: string[]): boolean {
 }
 
 export function logout() {
-  api.logout();
-  if (typeof window !== "undefined") window.location.href = "/login";
+  api.logout().finally(() => {
+    if (typeof window !== "undefined") window.location.href = "/login";
+  });
 }

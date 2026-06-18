@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import SewingFlow, WorkOrder, User, SewingAssignment
+from app.models import SewingFlow, WorkOrder, User, SewingAssignment, ProductionOrder
 from app.schemas.sewing_flow import (
     SewingFlowIn, SewingFlowUpdate, SewingFlowOut, SewingFlowWithLoad,
 )
@@ -266,13 +267,15 @@ def flow_work_orders(fid: int, db: DbSession, _: CurrentUser, only_active: bool 
         ).distinct().all()
     }
 
-    direct_qry = db.query(WorkOrder).filter(WorkOrder.sewing_flow_id == fid)
+    order_ref_load = joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order)
+    direct_qry = db.query(WorkOrder).options(order_ref_load).filter(WorkOrder.sewing_flow_id == fid)
     if only_active:
         direct_qry = direct_qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
     direct = [w for w in direct_qry.all() if w.id not in assignment_managed_wo_ids]
 
     split_qry = (
         db.query(WorkOrder)
+        .options(order_ref_load)
         .join(SewingAssignment, SewingAssignment.work_order_id == WorkOrder.id)
         .filter(SewingAssignment.sewing_flow_id == fid)
     )

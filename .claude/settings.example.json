@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest backend/app/tests -q)",
+      "Bash(npm --prefix frontend run lint)",
+      "Bash(npm --prefix frontend exec tsc -- --noEmit)"
+    ]
+  }
+}

@@ -1,9 +1,10 @@
 import time as time_module
 import hashlib
+import ipaddress
 import logging
 import secrets
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
 from fastapi import Depends
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, user_permissions
-from app.core.dt import as_utc
+from app.core.dt import as_utc, utcnow
 from app.db.session import SessionLocal
 from app.core.security import (
     create_access_token,
@@ -26,7 +27,7 @@ from app.core.security import (
 from app.models import (
     User, Notification, PasswordResetToken,
 )
-from app.schemas.auth import ForgotPasswordIn, LoginIn, ResetPasswordIn, TokenOut, UserMe
+from app.schemas.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.services.audit import log_action
 from app.services.email import send_password_reset_email
 
@@ -54,7 +55,20 @@ def _client_ip(request: Request) -> str:
     """Resolve the real client IP. Behind HF Spaces / Vercel the socket peer is
     the platform proxy (identical for every user), so rate-limit buckets keyed on
     it collapse into one global bucket. The platform sets X-Forwarded-For with the
-    originating client as the left-most entry; prefer that."""
+    originating client as the left-most entry. Only trust proxy headers when the
+    socket peer is a private/loopback proxy; otherwise a direct client could
+    spoof X-Forwarded-For and bypass throttling."""
+    peer = request.client.host if request.client else "unknown"
+    peer_is_trusted_proxy = False
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+        peer_is_trusted_proxy = peer_ip.is_private or peer_ip.is_loopback
+    except ValueError:
+        peer_is_trusted_proxy = False
+
+    if not peer_is_trusted_proxy:
+        return peer
+
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         first = forwarded.split(",")[0].strip()
@@ -63,7 +77,7 @@ def _client_ip(request: Request) -> str:
     real_ip = request.headers.get("x-real-ip")
     if real_ip and real_ip.strip():
         return real_ip.strip()
-    return request.client.host if request.client else "unknown"
+    return peer
 
 
 def _login_key(request: Request, email: str) -> str:
@@ -157,7 +171,52 @@ def _password_reset_url(token: str) -> str:
     return f"{base}/reset-password?token={token}"
 
 
+def _is_https_request(request: Request) -> bool:
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    forwarded_ssl = request.headers.get("x-forwarded-ssl", "").strip().lower()
+    host = request.headers.get("host", "").split(":", 1)[0].strip().lower()
+    return (
+        settings.strict_security_required
+        or request.url.scheme == "https"
+        or proto == "https"
+        or forwarded_ssl == "on"
+        or host.endswith(".vercel.app")
+        or host.endswith(".hf.space")
+    )
+
+
+def _set_auth_cookie(request: Request, response: Response, token: str) -> None:
+    response.set_cookie(
+        key=settings.AUTH_COOKIE_NAME,
+        value=token,
+        max_age=settings.JWT_EXPIRES_MINUTES * 60,
+        httponly=True,
+        secure=_is_https_request(request),
+        samesite="lax",
+        path="/",
+    )
+
+
+def _clear_auth_cookie(request: Request, response: Response) -> None:
+    response.delete_cookie(
+        key=settings.AUTH_COOKIE_NAME,
+        httponly=True,
+        secure=_is_https_request(request),
+        samesite="lax",
+        path="/",
+    )
+
+
+def _safe_reset_delivery_error(error: str) -> str:
+    _ = error
+    # Delivery/provider errors can echo the submitted email body, including the
+    # reset URL. Never persist or log raw provider text for reset emails.
+    return "Email delivery failed; provider details suppressed because they may contain reset-token material."
+
+
 def _notify_admins_about_reset_email_failure(user_id: int, reset_url: str, error: str) -> None:
+    _ = reset_url  # Never persist raw reset tokens in notifications or audit trails.
+    safe_error = _safe_reset_delivery_error(error)
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.id == user_id).first()
@@ -173,9 +232,10 @@ def _notify_admins_about_reset_email_failure(user_id: int, reset_url: str, error
                 title="Password reset email failed",
                 message=(
                     f"{user.name} ({user.email}) requested a password reset, but email delivery failed. "
-                    f"Share this link privately: {reset_url}. Error: {error[:180]}"
+                    "Do not share stored links; generate a fresh reset after email delivery is restored. "
+                    f"Error: {safe_error}"
                 ),
-                link=reset_url,
+                link="/admin/users",
             ))
         if recipients:
             db.commit()
@@ -194,26 +254,61 @@ def _send_password_reset_email_safely(email: str, name: str, reset_url: str, use
             log.warning("Password reset email not sent to %s: SMTP is not configured", email)
             _notify_admins_about_reset_email_failure(user_id, reset_url, "SMTP is not configured")
     except Exception as exc:
-        log.exception("Password reset email failed for %s", email)
+        log.warning(
+            "Password reset email failed for %s (%s); details suppressed because they may contain reset-token material",
+            email,
+            type(exc).__name__,
+        )
         _notify_admins_about_reset_email_failure(user_id, reset_url, str(exc))
 
 
-@router.post("/login", response_model=TokenOut)
+def _mark_successful_login(db: Session, user: User) -> None:
+    now = utcnow()
+    user.last_login_at = now
+    user.last_seen_at = now
+    db.commit()
+
+
+@router.post("/login", response_model=LoginOk)
 def login_oauth(
+    request: Request,
+    response: Response,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    db: DbSession,
+):
+    """Browser login: set the HttpOnly auth cookie and do not expose the JWT to JavaScript."""
+    user = _authenticate(request, db, form_data.username, form_data.password)
+    _mark_successful_login(db, user)
+    token = create_access_token(user.id)
+    _set_auth_cookie(request, response, token)
+    return LoginOk()
+
+
+@router.post("/login-json", response_model=LoginOk)
+def login_json(request: Request, response: Response, payload: LoginIn, db: DbSession):
+    user = _authenticate(request, db, str(payload.email), payload.password)
+    _mark_successful_login(db, user)
+    token = create_access_token(user.id)
+    _set_auth_cookie(request, response, token)
+    return LoginOk()
+
+
+@router.post("/token", response_model=TokenOut)
+def token_oauth(
     request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: DbSession,
 ):
-    """OAuth2-compatible login (form: username=email, password)."""
+    """Machine/API-client login: return a bearer token without setting browser cookies."""
     user = _authenticate(request, db, form_data.username, form_data.password)
-    token = create_access_token(user.id)
-    return TokenOut(access_token=token)
-
-
-@router.post("/login-json", response_model=TokenOut)
-def login_json(request: Request, payload: LoginIn, db: DbSession):
-    user = _authenticate(request, db, str(payload.email), payload.password)
+    _mark_successful_login(db, user)
     return TokenOut(access_token=create_access_token(user.id))
+
+
+@router.post("/logout")
+def logout(request: Request, response: Response):
+    _clear_auth_cookie(request, response)
+    return {"message": "logged_out"}
 
 
 @router.post("/forgot-password")
@@ -278,7 +373,9 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
 
 
 @router.get("/me", response_model=UserMe)
-def me(user: CurrentUser):
+def me(user: CurrentUser, db: DbSession):
+    user.last_seen_at = utcnow()
+    db.commit()
     return UserMe(
         id=user.id,
         name=user.name,

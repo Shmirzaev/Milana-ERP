@@ -1,12 +1,13 @@
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel
+from typing import Literal, Optional
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 
 
 class BundleIn(BaseModel):
     production_order_id: int
+    production_batch_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
@@ -24,10 +25,18 @@ class BundleOut(ORMModel):
     qr_code_url: Optional[str] = None
     production_order_id: int
     production_no: Optional[str] = None
+    order_no: Optional[str] = None
+    production_batch_id: Optional[int] = None
+    batch_no: Optional[str] = None
+    batch_name: Optional[str] = None
+    batch_index: Optional[int] = None
+    batch_label: Optional[str] = None
+    tracking_passport_no: Optional[str] = None
     sales_order_id: Optional[int] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
     model_id: int
+    model_code: Optional[str] = None
     color: str
     size: str
     quantity: int
@@ -70,6 +79,18 @@ class PackageItemOut(ORMModel):
     quantity: int
 
 
+class PackageBatchAllocationIn(BaseModel):
+    production_batch_id: int
+    quantity: int
+
+
+class PackageBatchAllocationOut(ORMModel):
+    id: int
+    package_id: int
+    production_batch_id: int
+    quantity: int
+
+
 class PackageIn(BaseModel):
     production_order_id: int
     production_batch_id: Optional[int] = None
@@ -80,14 +101,17 @@ class PackageIn(BaseModel):
     color: str
     package_type: str = "bag"
     capacity: int = 60
+    weight_kg: Optional[float] = None
     warehouse_id: Optional[int] = None
     items: list[PackageItemIn]
+    batch_allocations: list[PackageBatchAllocationIn] = []
     override_capacity: bool = False
     notes: Optional[str] = None
 
 
 class PackageBulkIn(PackageIn):
     count: int = 1
+    weight_kg_values: list[Optional[float]] = Field(default_factory=list)
 
 
 class PackageReceiveStorageIn(BaseModel):
@@ -101,14 +125,49 @@ class PackageStoragePlacementIn(BaseModel):
     storage_shelf: Optional[str] = "S1"
 
 
+class PackageEditItemIn(BaseModel):
+    model_id: Optional[int] = None
+    color: Optional[str] = None
+    size: str
+    quantity: int
+
+
+class PackageEditPayload(BaseModel):
+    color: Optional[str] = None
+    package_type: Optional[str] = None
+    capacity: Optional[int] = None
+    weight_kg: Optional[float] = None
+    warehouse_id: Optional[int] = None
+    storage_cell: Optional[str] = None
+    storage_shelf: Optional[str] = None
+    items: Optional[list[PackageEditItemIn]] = None
+    batch_allocations: Optional[list[PackageBatchAllocationIn]] = None
+    notes: Optional[str] = None
+
+
+class PackageChangeRequestIn(BaseModel):
+    request_type: Literal["edit", "delete"]
+    payload: Optional[PackageEditPayload] = None
+    reason: Optional[str] = None
+
+
+class PackageChangeDecisionIn(BaseModel):
+    notes: Optional[str] = None
+
+
 class PackageOut(ORMModel):
     id: int
     package_no: str
     barcode: str
     qr_code_url: Optional[str] = None
     production_order_id: int
+    production_no: Optional[str] = None
+    order_no: Optional[str] = None
     production_batch_id: Optional[int] = None
     sales_order_id: Optional[int] = None
+    sales_order_no: Optional[str] = None
+    customer_name: Optional[str] = None
+    order_type: Optional[str] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
     model_id: int
@@ -116,6 +175,7 @@ class PackageOut(ORMModel):
     package_type: str
     total_quantity: int
     capacity: int
+    weight_kg: Optional[float] = None
     warehouse_id: Optional[int] = None
     storage_cell: Optional[str] = None
     storage_shelf: Optional[str] = None
@@ -138,7 +198,25 @@ class PackageScanLogOut(ORMModel):
 
 class PackageDetail(PackageOut):
     items: list[PackageItemOut] = []
+    batch_allocations: list[PackageBatchAllocationOut] = []
     scan_logs: list[PackageScanLogOut] = []
+
+
+class PackageChangeRequestOut(ORMModel):
+    id: int
+    package_id: int
+    package_no: str
+    request_type: str
+    status: str
+    before_json: Optional[dict] = None
+    payload_json: Optional[dict] = None
+    reason: Optional[str] = None
+    requested_by: Optional[int] = None
+    reviewed_by: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
+    decision_notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class FinishedGoodsStockOut(ORMModel):

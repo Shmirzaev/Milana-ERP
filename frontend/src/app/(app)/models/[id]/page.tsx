@@ -2,10 +2,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
+import { Plus, Trash2 } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
+import {
+  createPaidOperation,
+  paidOperationsFromDetails,
+  serializePaidOperations,
+  withPaidOperations,
+  type PaidOperation,
+  type SectionCode,
+} from "@/lib/modelPaidOperations";
 
 type ModelDetails = {
   general?: {
@@ -36,6 +45,8 @@ type ModelDetails = {
     other_pct?: number;
     target_margin_pct?: number;
   };
+  paid_operations?: PaidOperation[];
+  paidOperations?: PaidOperation[];
   features?: Record<string, boolean>;
 };
 
@@ -52,6 +63,7 @@ const TAB_KEYS = [
   "page.modelDetail.tab.miniPost",
   "page.modelDetail.tab.sizeChart",
   "page.modelDetail.tab.sewingGuide",
+  "page.modelDetail.tab.paidOperations",
   "page.modelDetail.tab.translation",
   "page.modelDetail.tab.costing",
 ] as const;
@@ -71,6 +83,10 @@ function buildMeasurementJson(fields: { chest: string; waist: string; hip: strin
   return out;
 }
 
+function withoutModelQuantities(rows: PaidOperation[]): PaidOperation[] {
+  return rows.map((row) => ({ ...row, quantityMode: "batch", customQuantity: 0 }));
+}
+
 export default function ModelDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -80,7 +96,6 @@ export default function ModelDetail() {
   const { data: variantsData, mutate: mutateVariants } = useSWR<any[]>(isNumericId ? `/api/models/${id}/variants` : null, fetcher);
   const { data: items } = useSWR<any[]>("/api/inventory/items", fetcher);
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
-  const { data: collections } = useSWR<any[]>("/api/collections", fetcher);
   const { data: seasons } = useSWR<string[]>("/api/collections/seasons", fetcher);
   const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
   const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
@@ -110,7 +125,6 @@ export default function ModelDetail() {
   const [color, setColor] = useState({ color_name: "", color_code: "" });
   const [size, setSize] = useState({ size: "", measurement_json: "" });
   const [measurementFields, setMeasurementFields] = useState({ chest: "", waist: "", hip: "", length: "", sleeve: "" });
-  const [sizePreview, setSizePreview] = useState<{ size: string; measurement_json: Record<string, number> | null } | null>(null);
   const [imageForms, setImageForms] = useState<Record<ImageUploadType, { file_url: string }>>({
     model: { file_url: "" },
     material: { file_url: "" },
@@ -137,17 +151,18 @@ export default function ModelDetail() {
       status: m.status ?? "draft",
       sam_minutes: n(m.sam_minutes),
     });
-    const nextDetails = m.details_json || {};
+    const nextDetails: ModelDetails = { ...(m.details_json || {}) };
     if (!nextDetails.translation?.ru) {
       nextDetails.translation = { ...(nextDetails.translation || {}), ru: m.name ?? "" };
     }
     setDetails(nextDetails);
   }, [m]);
 
+  const measurementJson = useMemo(() => buildMeasurementJson(measurementFields), [measurementFields]);
+
   useEffect(() => {
-    const generated = buildMeasurementJson(measurementFields);
-    setSize((prev) => ({ ...prev, measurement_json: JSON.stringify(generated) }));
-  }, [measurementFields.chest, measurementFields.waist, measurementFields.hip, measurementFields.length, measurementFields.sleeve]);
+    setSize((prev) => ({ ...prev, measurement_json: JSON.stringify(measurementJson) }));
+  }, [measurementJson]);
 
   const itemMap = useMemo(() => {
     const map = new Map<number, any>();
@@ -197,6 +212,7 @@ export default function ModelDetail() {
   const colorRows = m?.colors || [];
   const primaryImage = (m?.images || []).find((img: any) => img.image_type === "model") || (m?.images || []).find((img: any) => img.is_primary) || (m?.images || [])[0];
   const translatedName = details.translation?.[lang] || (lang === "ru" ? details.translation?.ru : "") || m?.name || "";
+  const paidOperations = useMemo(() => withoutModelQuantities(paidOperationsFromDetails(details)), [details]);
 
   if (!isNumericId) {
     return (
@@ -214,6 +230,30 @@ export default function ModelDetail() {
     );
   }
   if (modelLoading || !m) return <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>;
+
+  function updatePaidOperation(id: string, patch: Partial<PaidOperation>) {
+    setDetails((current) => {
+      const rows = withoutModelQuantities(paidOperationsFromDetails(current)).map((operation) => (
+        operation.id === id ? { ...operation, ...patch } : operation
+      ));
+      return withPaidOperations(current, rows);
+    });
+  }
+
+  function addPaidOperation() {
+    setDetails((current) => {
+      const rows = [...withoutModelQuantities(paidOperationsFromDetails(current)), createPaidOperation("model-op")];
+      return withPaidOperations(current, rows);
+    });
+  }
+
+  function removePaidOperation(id: string) {
+    setDetails((current) => {
+      const rows = withoutModelQuantities(paidOperationsFromDetails(current));
+      if (rows.length <= 1) return current;
+      return withPaidOperations(current, rows.filter((operation) => operation.id !== id));
+    });
+  }
 
   async function saveModel() {
     const selectedBrand = (brands || []).find((b) => Number(b.id) === Number(modelForm.brand_id));
@@ -236,6 +276,7 @@ export default function ModelDetail() {
         ...(details.translation || {}),
         ru: details.translation?.ru || modelForm.name,
       },
+      paid_operations: serializePaidOperations(withoutModelQuantities(paidOperations)),
     };
     await api.patch(`/api/models/${id}`, {
       ...modelForm,
@@ -295,24 +336,12 @@ export default function ModelDetail() {
 
   async function addSize(e: React.FormEvent) {
     e.preventDefault();
-    const generated = buildMeasurementJson(measurementFields);
     await api.post(`/api/models/${id}/sizes`, {
       size: size.size,
-      measurement_json: Object.keys(generated).length ? generated : null,
+      measurement_json: Object.keys(measurementJson).length ? measurementJson : null,
     });
     setSize({ size: "", measurement_json: "" });
     setMeasurementFields({ chest: "", waist: "", hip: "", length: "", sleeve: "" });
-    setSizePreview(null);
-    mutate();
-    mutateVariants();
-  }
-
-  async function confirmAddSize() {
-    if (!sizePreview) return;
-    await api.post(`/api/models/${id}/sizes`, { size: sizePreview.size, measurement_json: sizePreview.measurement_json });
-    setSize({ size: "", measurement_json: "" });
-    setMeasurementFields({ chest: "", waist: "", hip: "", length: "", sleeve: "" });
-    setSizePreview(null);
     mutate();
     mutateVariants();
   }
@@ -391,7 +420,7 @@ export default function ModelDetail() {
       <div className="card p-4 space-y-4">
         <div className="flex flex-wrap gap-1 border-b border-[#ecebe3] pb-2">
           {tabs.map((label, i) => {
-            const counts = [0, bomWithItem.length, variants.length, (m.images || []).length, 0, 0, sizeRows.length, 0, 0, 0];
+            const counts = [0, bomWithItem.length, variants.length, (m.images || []).length, 0, 0, sizeRows.length, 0, paidOperations.length, 0, 0];
             return tabButton(i + 1, label, counts[i] || 0);
           })}
         </div>
@@ -735,6 +764,103 @@ export default function ModelDetail() {
         )}
 
         {tab === 9 && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-semibold">{t("page.modelDetail.paidOperations")}</h3>
+              <button type="button" className="btn" onClick={addPaidOperation}>
+                <Plus className="h-4 w-4" />
+                <span>{t("page.modelDetail.addPaidOperation")}</span>
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="table min-w-[760px]">
+                <thead>
+                  <tr>
+                    <th className="w-12">Use</th>
+                    <th>{t("page.modelDetail.operationSection")}</th>
+                    <th>{t("common.code")}</th>
+                    <th>{t("page.modelDetail.operationName")}</th>
+                    <th>{t("page.modelDetail.ratePerPiece")}</th>
+                    <th>{t("page.modelDetail.copies")}</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paidOperations.map((operation) => (
+                    <tr key={operation.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={operation.selected}
+                          onChange={(e) => updatePaidOperation(operation.id, { selected: e.target.checked })}
+                        />
+                      </td>
+                      <td>
+                        <select
+                          className="input min-w-[130px]"
+                          value={operation.section}
+                          onChange={(e) => updatePaidOperation(operation.id, { section: e.target.value as SectionCode })}
+                        >
+                          <option value="sewing">{t("page.modelDetail.sectionSewing")}</option>
+                          <option value="pressing">{t("page.modelDetail.sectionPressing")}</option>
+                          <option value="packaging">{t("page.modelDetail.sectionPackaging")}</option>
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          className="input min-w-[120px] font-mono"
+                          value={operation.code}
+                          onChange={(e) => updatePaidOperation(operation.id, { code: e.target.value.toUpperCase() })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="input min-w-[190px]"
+                          value={operation.name}
+                          onChange={(e) => updatePaidOperation(operation.id, { name: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="input min-w-[110px]"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          placeholder="0"
+                          value={operation.rate}
+                          onChange={(e) => updatePaidOperation(operation.id, { rate: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="input w-20"
+                          type="number"
+                          min={1}
+                          value={operation.copies}
+                          onChange={(e) => updatePaidOperation(operation.id, { copies: n(e.target.value) })}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title={t("page.modelDetail.removePaidOperation")}
+                          onClick={() => removePaidOperation(operation.id)}
+                          disabled={paidOperations.length <= 1}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {tab === 10 && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div><label className="label">{t("page.modelDetail.langUz")}</label><input className="input" value={details.translation?.uz || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, uz: e.target.value } })} /></div>
             <div><label className="label">{t("page.modelDetail.langRu")}</label><input className="input" value={details.translation?.ru || ""} onChange={(e) => setDetails({ ...details, translation: { ...details.translation, ru: e.target.value } })} /></div>
@@ -742,7 +868,7 @@ export default function ModelDetail() {
           </div>
         )}
 
-        {tab === 10 && (
+        {tab === 11 && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <div><label className="label">{t("page.modelDetail.laborPct")}</label><input className="input" type="number" step="0.1" value={laborPct} onChange={(e) => setDetails({ ...details, costing: { ...details.costing, labor_pct: n(e.target.value) } })} /></div>

@@ -19,6 +19,24 @@ DEPT_OPS = [
 ]
 
 
+def _fit_production_no(value: str, suffix: str = "") -> str:
+    max_len = 64
+    if len(value) + len(suffix) <= max_len:
+        return f"{value}{suffix}"
+    return f"{value[: max_len - len(suffix)]}{suffix}"
+
+
+def _production_no_for_sales_order(db: Session, so: SalesOrder) -> str:
+    base = str(so.order_no)
+    index = 1
+    while True:
+        candidate = base if index == 1 else _fit_production_no(base, f"-{index}")
+        existing = db.query(ProductionOrder.id).filter(ProductionOrder.production_no == candidate).first()
+        if not existing:
+            return candidate
+        index += 1
+
+
 def _get_dept(db: Session, code: str) -> Department:
     dept = db.query(Department).filter(Department.code == code).first()
     if not dept:
@@ -54,6 +72,7 @@ def create_production_order(
     if production_type == "client_order" and not sales_order_id:
         raise HTTPException(400, "Client order production requires sales_order_id")
 
+    so = None
     if sales_order_id:
         so = db.get(SalesOrder, sales_order_id)
         if not so:
@@ -68,8 +87,10 @@ def create_production_order(
             raise HTTPException(400, "Estimated material amount cannot be negative")
         material_unit = material_unit or "kg"
 
+    production_no = _production_no_for_sales_order(db, so) if so else next_production_order_no(db)
+
     po = ProductionOrder(
-        production_no=next_production_order_no(db),
+        production_no=production_no,
         production_type=production_type,
         sales_order_id=sales_order_id,
         collection_id=collection_id,

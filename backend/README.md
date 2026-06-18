@@ -16,6 +16,7 @@ Required production settings:
 
 - `DATABASE_URL`
 - `JWT_SECRET`
+- `FILE_SIGNING_SECRET` (different from `JWT_SECRET`)
 - `INITIAL_ADMIN_PASSWORD`
 - `ENV=production`
 - `DEBUG=false`

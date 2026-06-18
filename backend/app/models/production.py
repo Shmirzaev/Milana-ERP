@@ -1,9 +1,23 @@
 from __future__ import annotations
 from datetime import datetime
+from typing import TYPE_CHECKING
 from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.sales import SalesOrder
+    from app.models.sewing_assignment import SewingAssignment
+
+
+def public_production_order_no(production_no: str | None) -> str | None:
+    text = str(production_no or "").strip()
+    if not text:
+        return None
+    if text.upper().startswith("PO-"):
+        return f"SO-{text[3:]}"
+    return text
 
 
 class ProductionOrder(Base, PkMixin, TimestampMixin):
@@ -23,9 +37,18 @@ class ProductionOrder(Base, PkMixin, TimestampMixin):
     destination_warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
+    sales_order: Mapped["SalesOrder | None"] = relationship("SalesOrder")
     batches: Mapped[list["ProductionBatch"]] = relationship("ProductionBatch", back_populates="production_order", cascade="all, delete-orphan")
     items: Mapped[list["ProductionOrderItem"]] = relationship("ProductionOrderItem", back_populates="production_order", cascade="all, delete-orphan")
     work_orders: Mapped[list["WorkOrder"]] = relationship("WorkOrder", back_populates="production_order", cascade="all, delete-orphan")
+
+    @property
+    def sales_order_no(self) -> str | None:
+        return self.sales_order.order_no if self.sales_order else None
+
+    @property
+    def order_no(self) -> str:
+        return self.sales_order_no or public_production_order_no(self.production_no) or self.production_no
 
 
 class ProductionBatch(Base, PkMixin, TimestampMixin):
@@ -84,6 +107,18 @@ class WorkOrder(Base, PkMixin, TimestampMixin):
     sewing_assignments: Mapped[list["SewingAssignment"]] = relationship(
         "SewingAssignment", back_populates="work_order", cascade="all, delete-orphan",
     )
+
+    @property
+    def production_no(self) -> str | None:
+        return self.production_order.production_no if self.production_order else None
+
+    @property
+    def sales_order_no(self) -> str | None:
+        return self.production_order.sales_order_no if self.production_order else None
+
+    @property
+    def order_no(self) -> str | None:
+        return self.production_order.order_no if self.production_order else self.production_no
 
 
 class CuttingRecord(Base, PkMixin, TimestampMixin):

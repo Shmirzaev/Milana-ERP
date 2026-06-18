@@ -8,6 +8,7 @@ import PageHeader from "@/components/PageHeader";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
 import { useT } from "@/lib/i18n";
+import { orderReference } from "@/lib/orderRef";
 
 type Flow = {
   id: number;
@@ -163,9 +164,16 @@ export default function SewingPage() {
     }
   }
 
+  const orderNo = orderReference({
+    order_no: so?.order_no || po?.order_no || wo?.order_no,
+    sales_order_no: po?.sales_order_no || wo?.sales_order_no,
+    production_no: po?.production_no || wo?.production_no,
+    production_order_id: wo?.production_order_id,
+  }, `#${id}`);
+
   return (
     <div>
-      <PageHeader title={t("page.sewing.title", { id })} subtitle={t("page.sewing.subtitle")} />
+      <PageHeader title={t("page.sewing.title", { id, orderNo })} subtitle={t("page.sewing.subtitle")} />
       <WorkOrderProductInfo
         t={t}
         so={so}

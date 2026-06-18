@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi import UploadFile, File
+from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -15,11 +16,13 @@ from app.core.uploads import (
     SAFE_IMAGE_EXTENSIONS,
     extension_for_upload,
     safe_content_type,
-    validated_upload_content,
+    read_validated_upload_content,
 )
 from app.models import (
     SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation,
-    Customer, Model, User, ProductionOrder, Shipment, Task, Department, Invoice,
+    Customer, Model, User, ProductionOrder, WorkOrder,
+    CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, Shipment, ShipmentPackage,
+    Task, Department, Invoice, Payment, StockMovement, Item, StockBatch, Package, AuditLog,
 )
 from app.schemas.sales import (
     SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
@@ -100,6 +103,542 @@ def _serialize_sales_order(
     return payload
 
 
+def _num(value) -> float:
+    return float(value or 0)
+
+
+def _int_qty(value) -> int:
+    return int(_num(value))
+
+
+def _history_event(event_type: str, title: str, at: datetime | None, **meta) -> dict | None:
+    if not at:
+        return None
+    return {
+        "type": event_type,
+        "title": title,
+        "at": at,
+        "meta": {k: v for k, v in meta.items() if v is not None},
+    }
+
+
+def _event_sort_key(row: dict) -> str:
+    at = row.get("at")
+    return at.isoformat() if hasattr(at, "isoformat") else str(at or "")
+
+
+def _latest_datetime(values: list[datetime | None]) -> datetime | None:
+    present = [v for v in values if v]
+    if not present:
+        return None
+    return sorted(present, key=lambda v: v.isoformat())[-1]
+
+
+def _model_refs(db: DbSession, model_ids: set[int]) -> dict[int, dict]:
+    if not model_ids:
+        return {}
+    rows = (
+        db.query(Model.id, Model.code, Model.name, Model.details_json)
+        .filter(Model.id.in_(model_ids))
+        .all()
+    )
+    return {
+        int(mid): {
+            "id": int(mid),
+            "code": code,
+            "name": name,
+            "translations": (details or {}).get("translation") if isinstance(details, dict) else None,
+        }
+        for mid, code, name, details in rows
+    }
+
+
+def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool = False) -> dict:
+    sales_items = (
+        db.query(SalesOrderItem)
+        .filter(SalesOrderItem.sales_order_id == so.id)
+        .order_by(SalesOrderItem.id.asc())
+        .all()
+    )
+    production_orders = (
+        db.query(ProductionOrder)
+        .options(
+            joinedload(ProductionOrder.items),
+            joinedload(ProductionOrder.batches),
+            joinedload(ProductionOrder.work_orders),
+        )
+        .filter(ProductionOrder.sales_order_id == so.id)
+        .order_by(ProductionOrder.id.asc())
+        .all()
+    )
+    po_ids = [int(po.id) for po in production_orders]
+    work_orders = sorted(
+        [wo for po in production_orders for wo in (po.work_orders or [])],
+        key=lambda wo: (int(wo.production_batch_id or 0), str(wo.operation or ""), int(wo.id)),
+    )
+    work_order_ids = [int(wo.id) for wo in work_orders]
+
+    if work_order_ids:
+        cutting_records = (
+            db.query(CuttingRecord)
+            .filter(CuttingRecord.work_order_id.in_(work_order_ids))
+            .order_by(CuttingRecord.id.asc())
+            .all()
+        )
+        printing_records = (
+            db.query(PrintingRecord)
+            .filter(PrintingRecord.work_order_id.in_(work_order_ids))
+            .order_by(PrintingRecord.id.asc())
+            .all()
+        )
+        sewing_records = (
+            db.query(SewingRecord)
+            .filter(SewingRecord.work_order_id.in_(work_order_ids))
+            .order_by(SewingRecord.id.asc())
+            .all()
+        )
+        packaging_records = (
+            db.query(PackagingRecord)
+            .filter(PackagingRecord.work_order_id.in_(work_order_ids))
+            .order_by(PackagingRecord.id.asc())
+            .all()
+        )
+    else:
+        cutting_records = []
+        printing_records = []
+        sewing_records = []
+        packaging_records = []
+
+    package_filters = [Package.sales_order_id == so.id]
+    if po_ids:
+        package_filters.append(Package.production_order_id.in_(po_ids))
+    packages = (
+        db.query(Package)
+        .options(joinedload(Package.items))
+        .filter(or_(*package_filters))
+        .order_by(Package.id.asc())
+        .all()
+    )
+    package_ids = [int(pkg.id) for pkg in packages]
+
+    shipments = (
+        db.query(Shipment)
+        .options(joinedload(Shipment.packages))
+        .filter(Shipment.sales_order_id == so.id)
+        .order_by(Shipment.id.asc())
+        .all()
+    )
+    shipment_ids = {int(sh.id) for sh in shipments}
+    package_shipment_rows = (
+        db.query(ShipmentPackage)
+        .filter(ShipmentPackage.package_id.in_(package_ids))
+        .order_by(ShipmentPackage.id.asc())
+        .all()
+        if package_ids
+        else []
+    )
+    shipment_ids.update(int(row.shipment_id) for row in package_shipment_rows)
+    missing_shipment_ids = shipment_ids - {int(sh.id) for sh in shipments}
+    if missing_shipment_ids:
+        shipments.extend(
+            db.query(Shipment)
+            .options(joinedload(Shipment.packages))
+            .filter(Shipment.id.in_(missing_shipment_ids))
+            .order_by(Shipment.id.asc())
+            .all()
+        )
+    shipment_ids = {int(sh.id) for sh in shipments}
+    if shipment_ids:
+        shipment_package_rows = (
+            db.query(ShipmentPackage)
+            .filter(ShipmentPackage.shipment_id.in_(shipment_ids))
+            .order_by(ShipmentPackage.id.asc())
+            .all()
+        )
+    else:
+        shipment_package_rows = []
+    if package_ids:
+        order_package_ids = set(package_ids)
+        shipment_package_rows = [row for row in shipment_package_rows if int(row.package_id) in order_package_ids]
+
+    invoices = (
+        db.query(Invoice)
+        .filter(Invoice.sales_order_id == so.id)
+        .order_by(Invoice.id.asc())
+        .all()
+    )
+    invoice_ids = [int(inv.id) for inv in invoices]
+    payments = (
+        db.query(Payment)
+        .filter(Payment.invoice_id.in_(invoice_ids))
+        .order_by(Payment.paid_at.desc().nullslast(), Payment.id.desc())
+        .all()
+        if invoice_ids
+        else []
+    )
+
+    movement_filters = []
+    cutting_ids = [int(row.id) for row in cutting_records]
+    packaging_record_ids = [int(row.id) for row in packaging_records]
+    if cutting_ids:
+        movement_filters.append((StockMovement.reference_type == "CuttingRecord") & StockMovement.reference_id.in_(cutting_ids))
+    if packaging_record_ids:
+        movement_filters.append((StockMovement.reference_type == "PackagingRecord") & StockMovement.reference_id.in_(packaging_record_ids))
+    if po_ids:
+        movement_filters.append((StockMovement.reference_type == "ProductionOrder") & StockMovement.reference_id.in_(po_ids))
+    movement_filters.append((StockMovement.reference_type == "SalesOrder") & (StockMovement.reference_id == so.id))
+    movement_rows = (
+        db.query(StockMovement, Item, StockBatch)
+        .join(Item, Item.id == StockMovement.item_id)
+        .outerjoin(StockBatch, StockBatch.id == StockMovement.batch_id)
+        .filter(or_(*movement_filters))
+        .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
+        .all()
+    )
+
+    ordered_qty = sum(_int_qty(item.quantity) for item in sales_items)
+    planned_qty = sum(_int_qty(po.planned_quantity) for po in production_orders)
+    cut_qty = sum(_int_qty(row.cut_pieces) for row in cutting_records)
+    cut_passed_qty = sum(_int_qty(row.passed_pieces) for row in cutting_records)
+    printed_qty = sum(_int_qty(row.printed_qty) for row in printing_records)
+    sewn_qty = sum(_int_qty(row.sewn_qty) for row in sewing_records)
+    sewn_passed_qty = sum(_int_qty(row.passed_qty) for row in sewing_records)
+    packed_record_qty = sum(_int_qty(row.total_packed_quantity or row.packed_qty) for row in packaging_records)
+    packaged_qty = sum(_int_qty(pkg.total_quantity) for pkg in packages)
+    shipped_qty = sum(_int_qty(row.quantity) for row in shipment_package_rows)
+    invoice_total = sum(_num(inv.amount) for inv in invoices)
+    paid_total = sum(_num(payment.amount) for payment in payments)
+
+    material_by_key: dict[tuple[int, str], dict] = {}
+    material_movements: list[dict] = []
+    material_cost_total = 0.0
+    for movement, item, batch in movement_rows:
+        qty = _num(movement.quantity)
+        unit = movement.unit or item.unit
+        unit_cost = _num(batch.cost_per_unit if batch else item.default_cost)
+        cost = qty * unit_cost
+        material_cost_total += cost
+        key = (int(item.id), unit)
+        bucket = material_by_key.setdefault(
+            key,
+            {
+                "item_id": int(item.id),
+                "sku": item.sku,
+                "name": item.name,
+                "category": item.category,
+                "unit": unit,
+                "quantity": 0.0,
+                "estimated_cost": 0.0,
+            },
+        )
+        bucket["quantity"] += qty
+        bucket["estimated_cost"] += cost
+        material_movements.append(
+            {
+                "id": movement.id,
+                "movement_type": movement.movement_type,
+                "quantity": qty,
+                "unit": unit,
+                "estimated_cost": cost,
+                "reference_type": movement.reference_type,
+                "reference_id": movement.reference_id,
+                "created_at": movement.created_at,
+                "item": {
+                    "id": item.id,
+                    "sku": item.sku,
+                    "name": item.name,
+                    "category": item.category,
+                },
+                "batch": {
+                    "id": batch.id,
+                    "batch_no": batch.batch_no,
+                    "cost_per_unit": _num(batch.cost_per_unit),
+                } if batch else None,
+            }
+        )
+    materials_spent = sorted(material_by_key.values(), key=lambda row: (str(row["category"]), str(row["sku"])))
+
+    done_markers = (
+        [sh.delivered_at for sh in shipments]
+        + [sh.shipped_at for sh in shipments]
+        + [pkg.shipped_at or pkg.received_at or pkg.packed_at for pkg in packages]
+        + [wo.end_time for wo in work_orders if str(wo.status or "") in {"completed", "done", "closed"}]
+    )
+    is_done = (
+        str(so.status or "") in {"completed", "closed", "delivered", "shipped"}
+        or (ordered_qty > 0 and max(packaged_qty, shipped_qty) >= ordered_qty)
+    )
+    completed_at = _latest_datetime(done_markers) if is_done else None
+    last_activity_at = _latest_datetime(
+        [so.updated_at, so.created_at, so.planning_estimate_submitted_at]
+        + [po.updated_at or po.created_at for po in production_orders]
+        + [wo.end_time or wo.start_time or wo.updated_at or wo.created_at for wo in work_orders]
+        + [pkg.shipped_at or pkg.received_at or pkg.packed_at or pkg.updated_at or pkg.created_at for pkg in packages]
+        + [sh.delivered_at or sh.shipped_at or sh.updated_at or sh.created_at for sh in shipments]
+        + [inv.issued_at or inv.updated_at or inv.created_at for inv in invoices]
+        + [payment.paid_at or payment.updated_at or payment.created_at for payment in payments]
+    )
+
+    summary = {
+        "ordered_qty": ordered_qty,
+        "planned_qty": planned_qty,
+        "cut_qty": cut_qty,
+        "cut_passed_qty": cut_passed_qty,
+        "printed_qty": printed_qty,
+        "sewn_qty": sewn_qty,
+        "sewn_passed_qty": sewn_passed_qty,
+        "packed_record_qty": packed_record_qty,
+        "packaged_qty": packaged_qty,
+        "shipped_qty": shipped_qty,
+        "package_count": len(packages),
+        "shipment_count": len(shipments),
+        "invoice_count": len(invoices),
+        "payment_count": len(payments),
+        "order_amount": _num(so.total_amount),
+        "invoice_total": invoice_total,
+        "paid_total": paid_total,
+        "outstanding_amount": max(_num(so.total_amount) - paid_total, 0),
+        "material_spent_cost": material_cost_total,
+        "material_spent": materials_spent,
+        "ordered_at": so.created_at,
+        "completed_at": completed_at,
+        "last_activity_at": last_activity_at,
+    }
+
+    row = {
+        "id": so.id,
+        "order_no": so.order_no,
+        "customer_id": so.customer_id,
+        "customer_name": None,
+        "order_type": so.order_type,
+        "status": so.status,
+        "deadline": so.deadline,
+        "created_at": so.created_at,
+        "updated_at": so.updated_at,
+        "completed_at": completed_at,
+        "last_activity_at": last_activity_at,
+        "total_amount": _num(so.total_amount),
+        "summary": summary,
+    }
+    customer = db.get(Customer, so.customer_id) if so.customer_id else None
+    if customer:
+        row["customer_name"] = customer.name
+
+    if not include_detail:
+        return row
+
+    model_ids = {int(item.model_id) for item in sales_items if item.model_id}
+    for po in production_orders:
+        model_ids.add(int(po.model_id))
+        model_ids.update(int(item.model_id) for item in (po.items or []) if item.model_id)
+    for pkg in packages:
+        model_ids.add(int(pkg.model_id))
+        model_ids.update(int(item.model_id) for item in (pkg.items or []) if item.model_id)
+    model_map = _model_refs(db, model_ids)
+
+    audit_rows = (
+        db.query(AuditLog, User)
+        .outerjoin(User, User.id == AuditLog.user_id)
+        .filter(AuditLog.entity_type == "SalesOrder", AuditLog.entity_id == so.id)
+        .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
+        .all()
+    )
+    timeline = [
+        _history_event("order_created", "Order created", so.created_at, order_no=so.order_no),
+        _history_event("planning_estimate", "Planning estimate submitted", so.planning_estimate_submitted_at),
+    ]
+    for po in production_orders:
+        timeline.append(_history_event("production_order", f"Production {so.order_no}", po.created_at, production_order_id=po.id, status=po.status))
+    for wo in work_orders:
+        if wo.start_time:
+            timeline.append(_history_event("work_order_started", f"{wo.operation.title()} started", wo.start_time, work_order_id=wo.id, status=wo.status))
+        if wo.end_time:
+            timeline.append(_history_event("work_order_done", f"{wo.operation.title()} done", wo.end_time, work_order_id=wo.id, status=wo.status))
+    for pkg in packages:
+        timeline.append(_history_event("package_packed", f"Package {pkg.package_no} packed", pkg.packed_at, package_id=pkg.id, quantity=pkg.total_quantity))
+        timeline.append(_history_event("package_received", f"Package {pkg.package_no} received", pkg.received_at, package_id=pkg.id))
+        timeline.append(_history_event("package_shipped", f"Package {pkg.package_no} shipped", pkg.shipped_at, package_id=pkg.id))
+    for sh in shipments:
+        timeline.append(_history_event("shipment_shipped", f"Shipment {sh.shipment_no} shipped", sh.shipped_at, shipment_id=sh.id, status=sh.status))
+        timeline.append(_history_event("shipment_delivered", f"Shipment {sh.shipment_no} delivered", sh.delivered_at, shipment_id=sh.id, status=sh.status))
+    for inv in invoices:
+        timeline.append(_history_event("invoice", f"Invoice {inv.invoice_no}", inv.issued_at or inv.created_at, invoice_id=inv.id, amount=_num(inv.amount), status=inv.status))
+    for payment in payments:
+        timeline.append(_history_event("payment", "Payment received", payment.paid_at or payment.created_at, payment_id=payment.id, amount=_num(payment.amount)))
+    for audit, user in audit_rows:
+        timeline.append(_history_event("audit", f"Sales order {audit.action}", audit.created_at, action=audit.action, user=user.name if user else None))
+    timeline = sorted([event for event in timeline if event], key=_event_sort_key)
+
+    shipment_packages_by_shipment: dict[int, list[ShipmentPackage]] = defaultdict(list)
+    for row_sp in shipment_package_rows:
+        shipment_packages_by_shipment[int(row_sp.shipment_id)].append(row_sp)
+
+    detail = {
+        **row,
+        "order": _serialize_sales_order(db, so, include_items=True),
+        "items": [
+            {
+                "id": item.id,
+                "model_id": item.model_id,
+                "model": model_map.get(int(item.model_id)),
+                "brand_id": item.brand_id,
+                "collection_id": item.collection_id,
+                "color": item.color,
+                "size": item.size,
+                "quantity": _int_qty(item.quantity),
+                "unit_price": _num(item.unit_price),
+                "line_total": _num(item.unit_price) * _int_qty(item.quantity),
+                "source_type": item.source_type,
+                "printing_required": bool(item.printing_required),
+                "notes": item.notes,
+            }
+            for item in sales_items
+        ],
+        "production_orders": [
+            {
+                "id": po.id,
+                "production_no": po.production_no,
+                "order_no": so.order_no,
+                "production_type": po.production_type,
+                "status": po.status,
+                "model_id": po.model_id,
+                "model": model_map.get(int(po.model_id)),
+                "planned_quantity": _int_qty(po.planned_quantity),
+                "start_date": po.start_date,
+                "deadline": po.deadline,
+                "estimated_material_code": po.estimated_material_code,
+                "estimated_material_amount": _num(po.estimated_material_amount),
+                "estimated_material_unit": po.estimated_material_unit,
+                "items": [
+                    {
+                        "id": item.id,
+                        "model_id": item.model_id,
+                        "model": model_map.get(int(item.model_id)),
+                        "color": item.color,
+                        "size": item.size,
+                        "planned_quantity": _int_qty(item.planned_quantity),
+                        "completed_quantity": _int_qty(item.completed_quantity),
+                    }
+                    for item in (po.items or [])
+                ],
+                "batches": [
+                    {
+                        "id": batch.id,
+                        "batch_no": batch.batch_no,
+                        "name": batch.name,
+                        "planned_quantity": _int_qty(batch.planned_quantity),
+                        "start_date": batch.start_date,
+                        "deadline": batch.deadline,
+                        "notes": batch.notes,
+                    }
+                    for batch in (po.batches or [])
+                ],
+                "work_orders": [
+                    {
+                        "id": wo.id,
+                        "order_no": so.order_no,
+                        "production_batch_id": wo.production_batch_id,
+                        "operation": wo.operation,
+                        "status": wo.status,
+                        "planned_input_qty": _int_qty(wo.planned_input_qty),
+                        "planned_output_qty": _int_qty(wo.planned_output_qty),
+                        "actual_input_qty": _int_qty(wo.actual_input_qty),
+                        "actual_output_qty": _int_qty(wo.actual_output_qty),
+                        "passed_qty": _int_qty(wo.passed_qty),
+                        "failed_qty": _int_qty(wo.failed_qty),
+                        "rework_qty": _int_qty(wo.rework_qty),
+                        "start_time": wo.start_time,
+                        "end_time": wo.end_time,
+                        "deadline": wo.deadline,
+                        "notes": wo.notes,
+                    }
+                    for wo in sorted((po.work_orders or []), key=lambda row_wo: (int(row_wo.production_batch_id or 0), str(row_wo.operation or ""), int(row_wo.id)))
+                ],
+            }
+            for po in production_orders
+        ],
+        "materials": {
+            "spent": materials_spent,
+            "movements": material_movements,
+        },
+        "packages": [
+            {
+                "id": pkg.id,
+                "package_no": pkg.package_no,
+                "barcode": pkg.barcode,
+                "qr_code_url": pkg.qr_code_url,
+                "production_order_id": pkg.production_order_id,
+                "production_batch_id": pkg.production_batch_id,
+                "model_id": pkg.model_id,
+                "model": model_map.get(int(pkg.model_id)),
+                "color": pkg.color,
+                "package_type": pkg.package_type,
+                "total_quantity": _int_qty(pkg.total_quantity),
+                "capacity": _int_qty(pkg.capacity),
+                "weight_kg": _num(pkg.weight_kg),
+                "status": pkg.status,
+                "packed_at": pkg.packed_at,
+                "received_at": pkg.received_at,
+                "shipped_at": pkg.shipped_at,
+                "items": [
+                    {
+                        "id": item.id,
+                        "model_id": item.model_id,
+                        "model": model_map.get(int(item.model_id)),
+                        "color": item.color,
+                        "size": item.size,
+                        "quantity": _int_qty(item.quantity),
+                    }
+                    for item in (pkg.items or [])
+                ],
+            }
+            for pkg in packages
+        ],
+        "shipments": [
+            {
+                "id": sh.id,
+                "shipment_no": sh.shipment_no,
+                "status": sh.status,
+                "shipped_at": sh.shipped_at,
+                "delivered_at": sh.delivered_at,
+                "notes": sh.notes,
+                "packages": [
+                    {
+                        "package_id": row_sp.package_id,
+                        "quantity": _int_qty(row_sp.quantity),
+                    }
+                    for row_sp in shipment_packages_by_shipment.get(int(sh.id), [])
+                ],
+            }
+            for sh in sorted(shipments, key=lambda row_sh: int(row_sh.id))
+        ],
+        "invoices": [
+            {
+                "id": inv.id,
+                "invoice_no": inv.invoice_no,
+                "amount": _num(inv.amount),
+                "status": inv.status,
+                "issued_at": inv.issued_at,
+                "due_date": inv.due_date,
+            }
+            for inv in invoices
+        ],
+        "payments": [
+            {
+                "id": payment.id,
+                "invoice_id": payment.invoice_id,
+                "amount": _num(payment.amount),
+                "payment_method": payment.payment_method,
+                "paid_at": payment.paid_at,
+                "notes": payment.notes,
+            }
+            for payment in payments
+        ],
+        "timeline": timeline,
+    }
+    return detail
+
+
 def _is_any_stock_token(value: str | None) -> bool:
     token = str(value or "").strip().lower()
     return token in {"", "*", "any", "mixed", "__any__", "pack60", "bag"}
@@ -128,6 +667,8 @@ def _stock_rows_for_variant(
         qry = qry.filter(FinishedGoodsStock.size == size)
     if brand_id is not None:
         qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
+    if db.bind and db.bind.dialect.name == "postgresql":
+        qry = qry.with_for_update(of=FinishedGoodsStock)
     return qry.order_by(FinishedGoodsStock.id.asc()).all()
 
 
@@ -330,7 +871,7 @@ async def upload_printing_attachment(
     os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
     safe_name = f"so_print_{uuid4().hex}{ext}"
     abs_path = os.path.join(settings.SALES_ORDER_FILES_DIR, safe_name)
-    content = validated_upload_content(await file.read(), ext, 20 * 1024 * 1024)
+    content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
     with open(abs_path, "wb") as f:
         f.write(content)
     file_url = f"/storage/sales-order-files/{safe_name}"
@@ -364,6 +905,58 @@ def list_sales_orders(
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
     return payload
+
+
+@router.get("/history")
+def list_sales_order_history(
+    db: DbSession,
+    _: CurrentUser,
+    status: str | None = None,
+    order_type: str | None = None,
+    customer_id: int | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    include_total: bool = False,
+):
+    qry = db.query(SalesOrder).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+    if status:
+        qry = qry.filter(SalesOrder.status == status)
+    if order_type:
+        qry = qry.filter(SalesOrder.order_type == order_type)
+    if customer_id:
+        qry = qry.filter(SalesOrder.customer_id == customer_id)
+    if q:
+        like = f"%{q.strip()}%"
+        qry = qry.filter(
+            or_(
+                SalesOrder.order_no.ilike(like),
+                SalesOrder.status.ilike(like),
+                SalesOrder.order_type.ilike(like),
+                Customer.name.ilike(like),
+            )
+        )
+    total = qry.count() if include_total else 0
+    safe_page = max(1, page)
+    safe_size = max(1, min(page_size, 200))
+    rows = (
+        qry.order_by(SalesOrder.id.desc())
+        .offset((safe_page - 1) * safe_size)
+        .limit(safe_size)
+        .all()
+    )
+    payload = [_sales_order_history(db, so, include_detail=False) for so in rows]
+    if include_total:
+        return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
+    return payload
+
+
+@router.get("/{sid}/history")
+def get_sales_order_history(sid: int, db: DbSession, _: CurrentUser):
+    so = db.query(SalesOrder).filter(SalesOrder.id == sid).first()
+    if not so:
+        raise HTTPException(404, "Sales order not found")
+    return _sales_order_history(db, so, include_detail=True)
 
 
 @router.post("", response_model=SalesOrderDetail, status_code=201)

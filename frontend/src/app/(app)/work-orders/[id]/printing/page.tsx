@@ -9,6 +9,7 @@ import PageHeader from "@/components/PageHeader";
 import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { orderReference } from "@/lib/orderRef";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
 
@@ -117,9 +118,16 @@ export default function PrintingPage() {
     }
   }
 
+  const orderNo = orderReference({
+    order_no: so?.order_no || po?.order_no || wo?.order_no,
+    sales_order_no: po?.sales_order_no || wo?.sales_order_no,
+    production_no: po?.production_no || wo?.production_no,
+    production_order_id: wo?.production_order_id,
+  }, `#${id}`);
+
   return (
     <div>
-      <PageHeader title={t("page.printing.title", { id })} />
+      <PageHeader title={t("page.printing.title", { id, orderNo })} />
       {(wo || po || so || model) && (
         <WorkOrderProductInfo
           t={t}
@@ -165,7 +173,6 @@ export default function PrintingPage() {
         <div className="card mb-4 max-w-2xl space-y-3 p-4">
           <dl className="hidden">
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.orderNo")}</dt><dd className="font-medium">{so.order_no || "—"}</dd></div>
-            <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.productionNo")}</dt><dd className="font-medium">{po?.production_no || "—"}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.customer")}</dt><dd className="font-medium">{customerName || so.customer_id || "—"}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.deadline")}</dt><dd className="font-medium">{so.deadline ? new Date(so.deadline).toLocaleDateString() : "—"}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2 sm:col-span-2"><dt className="text-[#8a8472]">{t("field.plannedQty")}</dt><dd className="font-medium">{wo?.planned_output_qty ?? po?.planned_quantity ?? "—"}</dd></div>

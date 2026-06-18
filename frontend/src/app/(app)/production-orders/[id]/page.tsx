@@ -10,6 +10,7 @@ import Modal from "@/components/Modal";
 import { operationLabel, productionTypeLabel, statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { useMe, can } from "@/lib/auth";
+import { orderReference } from "@/lib/orderRef";
 
 type WO = {
   id: number;
@@ -287,11 +288,12 @@ export default function ProductionOrderDetail() {
     );
   }
   if (poLoading || !po) return <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>;
+  const orderNo = orderReference(po, po.production_no || `#${po.id}`);
 
   return (
     <div>
       <PageHeader
-        title={t("page.poDetail.title", { productionNo: po.production_no })}
+        title={t("page.poDetail.title", { productionNo: orderNo, orderNo })}
         subtitle={t("page.poDetail.subtitle", { type: productionTypeLabel(po.production_type, t), status: statusLabel(po.status, t) })}
         actions={canPlan ? (
           <div className="flex gap-2">
@@ -428,7 +430,7 @@ export default function ProductionOrderDetail() {
           <>
           <dl className="text-sm space-y-1">
             <div className="flex justify-between gap-3"><dt className="text-slate-500">{t("field.model")}</dt><dd className="text-right">{modelLabel(modelById.get(Number(po.model_id)), po.model_id)}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="text-slate-500">{t("page.poDetail.salesOrder")}</dt><dd className="text-right">{salesOrderLabel(salesOrderById.get(Number(po.sales_order_id)), po.sales_order_id)}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-slate-500">{t("field.orderNo")}</dt><dd className="text-right">{orderNo}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("page.poDetail.plannedQty")}</dt><dd>{po.planned_quantity}</dd></div>
             {Number(po.actual_bundle_quantity || 0) > 0 && (
               <div className="flex justify-between"><dt className="text-slate-500">{t("page.poDetail.actualBundleQuantity")}</dt><dd>{po.actual_bundle_quantity}</dd></div>

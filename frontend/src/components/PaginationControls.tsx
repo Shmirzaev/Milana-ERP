@@ -29,7 +29,7 @@ export default function PaginationControls({ page, pageSize, total, count, onPag
           value={pageSize}
           onChange={(e) => onPageSizeChange(Number(e.target.value))}
         >
-          {[25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
+          {[12, 24, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
         </select>
         <button className="btn" disabled={!hasPrev} onClick={() => onPageChange(page - 1)}>{t("common.previous")}</button>
         <button className="btn" disabled={!hasNext} onClick={() => onPageChange(page + 1)}>{t("common.next")}</button>

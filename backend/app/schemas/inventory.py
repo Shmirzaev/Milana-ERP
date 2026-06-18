@@ -141,6 +141,7 @@ class AccessoryIssuePlanOut(BaseModel):
 
     production_order_id: int
     production_no: str
+    order_no: Optional[str] = None
     model_id: int
     model_code: Optional[str] = None
     model_name: Optional[str] = None
@@ -171,6 +172,7 @@ class AccessoryIssueLineOut(BaseModel):
 class AccessoryIssueOut(BaseModel):
     production_order_id: int
     production_no: str
+    order_no: Optional[str] = None
     issued: list[AccessoryIssueLineOut]
 
 
@@ -179,6 +181,7 @@ class AccessoryIssueSummaryRow(BaseModel):
 
     production_order_id: int
     production_no: str
+    order_no: Optional[str] = None
     model_id: int
     model_code: Optional[str] = None
     model_name: Optional[str] = None

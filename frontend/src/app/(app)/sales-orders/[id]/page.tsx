@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import { useState } from "react";
 import { useT } from "@/lib/i18n";
 import StagePipeline, { operationLabel, productionTypeLabel, statusLabel } from "@/components/StagePipeline";
+import { orderReference } from "@/lib/orderRef";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
 
@@ -145,7 +146,7 @@ export default function SalesOrderDetail() {
         <div className="card mb-6 p-4">
           <h3 className="mb-2 font-medium">{t("page.soDetail.currentProductionStage")}</h3>
           <div className="mb-2 text-sm text-slate-600">
-            {activeProcess.production_no} · {operationLabel(activeProcess.current_stage, t)} · {statusLabel(activeProcess.current_stage_status || "in_progress", t)}
+            {orderReference(activeProcess, so.order_no)} · {operationLabel(activeProcess.current_stage, t)} · {statusLabel(activeProcess.current_stage_status || "in_progress", t)}
           </div>
           <StagePipeline currentStage={activeProcess.current_stage} stages={activeProcess.stages} compact={false} />
           {activeProcess.po_deadline && (

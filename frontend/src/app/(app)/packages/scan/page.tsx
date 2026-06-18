@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -8,9 +8,27 @@ import { useT } from "@/lib/i18n";
 import { can, useMe } from "@/lib/auth";
 import WarehouseMap from "@/components/WarehouseMap";
 
+function latestPackageScan(raw: string) {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+
+  const packagePayloads = text.match(/PACKAGE:[^|\s]+(?:\|(?:(?!PACKAGE:)\S)*)?/gi);
+  if (!packagePayloads?.length) return text;
+  return packagePayloads[packagePayloads.length - 1].trim();
+}
+
+function packageScanError(error: any, t: (key: string) => string) {
+  const message = String(error?.message || "").trim();
+  if (/^404:/i.test(message) || /package not found/i.test(message)) {
+    return t("page.packageScan.notFound");
+  }
+  return message.replace(/^\d{3}:\s*/, "") || t("page.packageScan.lookupFailed");
+}
+
 export default function ScanPackagePage() {
   const { t } = useT();
   const { me } = useMe();
+  const codeInputRef = useRef<HTMLInputElement>(null);
   const [code, setCode] = useState("");
   const [pkg, setPkg] = useState<any>(null);
   const [msg, setMsg] = useState("");
@@ -21,16 +39,29 @@ export default function ScanPackagePage() {
   const canSalesOrders = can(me, "*", "sales.orders");
   const canShipment = can(me, "*", "storage.shipment");
 
-  async function lookup() {
+  function selectCodeInput() {
+    window.requestAnimationFrame(() => {
+      const input = codeInputRef.current;
+      if (!input) return;
+      input.focus();
+      input.select();
+    });
+  }
+
+  async function lookup(rawCode = code) {
+    const scanCode = latestPackageScan(rawCode);
+    setCode(scanCode);
     setMsg("");
     try {
-      const p = await api.get(`/api/packages/barcode/${encodeURIComponent(code.trim())}`);
+      const p = await api.get(`/api/packages/barcode/${encodeURIComponent(scanCode)}`);
       setPkg(p);
       setSelectedCell(p.storage_cell || "");
       setSelectedShelf((p.storage_shelf || "S1") as "S1" | "S2");
     } catch (e: any) {
       setPkg(null);
-      setMsg(e.message);
+      setMsg(packageScanError(e, t));
+    } finally {
+      selectCodeInput();
     }
   }
 
@@ -55,7 +86,7 @@ export default function ScanPackagePage() {
       await mutateMap();
       setMsg(t("msg.saved"));
     } catch (e: any) {
-      setMsg(e.message);
+      setMsg(packageScanError(e, t));
     }
   }
 
@@ -73,7 +104,7 @@ export default function ScanPackagePage() {
       await mutateMap();
       setMsg(t("page.packageScan.locationUpdated"));
     } catch (e: any) {
-      setMsg(e.message);
+      setMsg(packageScanError(e, t));
     }
   }
 
@@ -106,14 +137,21 @@ export default function ScanPackagePage() {
         <div className="card p-6">
           <div className="mb-4 flex gap-2">
             <input
+              ref={codeInputRef}
               className="input"
               autoFocus
               placeholder={t("ph.packageBarcode")}
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") lookup(); }}
+              onFocus={(e) => e.currentTarget.select()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  lookup(e.currentTarget.value);
+                }
+              }}
             />
-            <button className="btn btn-primary" onClick={lookup}>{t("btn.lookup")}</button>
+            <button className="btn btn-primary" onClick={() => lookup()}>{t("btn.lookup")}</button>
           </div>
           {msg && <div className="mb-3 text-sm">{msg}</div>}
           {pkg && (
@@ -123,6 +161,7 @@ export default function ScanPackagePage() {
                 <div className="text-slate-500">{t("field.model")}</div><div>{pkg.model_id}</div>
                 <div className="text-slate-500">{t("field.color")}</div><div>{pkg.color}</div>
                 <div className="text-slate-500">{t("field.totalQty")}</div><div>{pkg.total_quantity}</div>
+                <div className="text-slate-500">{t("field.weightKg")}</div><div>{pkg.weight_kg != null ? `${pkg.weight_kg} kg` : "-"}</div>
                 <div className="text-slate-500">{t("common.status")}</div><div><span className="badge">{statusLabel(pkg.status, t)}</span></div>
                 <div className="text-slate-500">{t("field.cell")}</div><div>{pkg.storage_cell || "-"}</div>
                 <div className="text-slate-500">{t("field.shelf")}</div><div>{pkg.storage_shelf || "-"}</div>

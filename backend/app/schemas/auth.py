@@ -17,6 +17,10 @@ class ResetPasswordIn(BaseModel):
     confirm_new_password: str
 
 
+class LoginOk(BaseModel):
+    message: str = "logged_in"
+
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"

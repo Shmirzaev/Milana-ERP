@@ -1,4 +1,4 @@
-"""Seed initial data: departments, roles, admin user, sample catalog, sample orders."""
+"""Seed initial structure: departments, roles, admin user, and optional sample data."""
 from datetime import datetime, timedelta, timezone
 import csv
 from pathlib import Path
@@ -298,18 +298,6 @@ def seed():
                         department_id=dept_map[dcode].id, is_active=True,
                     ))
 
-        # ----- Customers / Suppliers -----
-        if not db.query(Customer).first():
-            db.add_all([
-                Customer(name="ACME Apparel Co.", phone="+1-555-0100", email="orders@acme.example", address="123 Market St"),
-                Customer(name="Global Fashion Ltd.", phone="+1-555-0200", email="po@global.example", address="89 Trade Blvd"),
-            ])
-        if not db.query(Supplier).first():
-            db.add_all([
-                Supplier(name="TexFab Mills", phone="+1-555-1100", email="sales@texfab.example"),
-                Supplier(name="Accessory World", phone="+1-555-1200", email="info@aworld.example"),
-            ])
-
         # ----- Warehouses (one per relevant department) -----
         wh_specs = [
             ("Fabric Storage", "fabric_storage", "STR"),
@@ -329,67 +317,6 @@ def seed():
                 db.add(w); db.flush()
             wh_map[type_] = w
 
-        # ----- Items -----
-        items_specs = [
-            ("FAB-COT-001", "Cotton Jersey 180gsm", "fabric", "kg", 3.50, True),
-            ("FAB-POL-001", "Polyester Blend 220gsm", "fabric", "kg", 4.20, True),
-            ("ACC-BTN-001", "Plastic Button 12mm", "accessory", "pcs", 0.05, False),
-            ("ACC-ZIP-001", "Metal Zipper 20cm", "accessory", "pcs", 0.35, False),
-            ("ACC-THR-001", "Polyester Thread Black", "accessory", "roll", 1.20, False),
-            ("PKG-BAG-001", "Polybag 30x40cm", "packaging", "pcs", 0.04, False),
-            ("WST-FAB-001", "Fabric Cutting Waste", "waste", "kg", 0.10, False),
-        ]
-        item_map = {}
-        for sku, name, cat, unit, cost, track in items_specs:
-            it = db.query(Item).filter(Item.sku == sku).first()
-            if not it:
-                it = Item(sku=sku, name=name, category=cat, unit=unit, default_cost=cost, track_batch=track)
-                db.add(it); db.flush()
-            item_map[sku] = it
-
-        # ----- Stock batches -----
-        if not db.query(StockBatch).first():
-            db.add(StockBatch(
-                item_id=item_map["FAB-COT-001"].id, batch_no="B-COT-202401",
-                color="white", width=160, gsm=180, quantity=500, unit="kg",
-                cost_per_unit=3.50, warehouse_id=wh_map["fabric_storage"].id, qc_status="passed",
-            ))
-            db.add(StockBatch(
-                item_id=item_map["FAB-POL-001"].id, batch_no="B-POL-202401",
-                color="black", width=150, gsm=220, quantity=300, unit="kg",
-                cost_per_unit=4.20, warehouse_id=wh_map["fabric_storage"].id, qc_status="passed",
-            ))
-
-        # ----- Brand / Collection / Model -----
-        brand = db.query(Brand).filter(Brand.name == "Urban Co.").first()
-        if not brand:
-            brand = Brand(name="Urban Co.", description="Casual urban wear")
-            db.add(brand); db.flush()
-        coll = db.query(Collection).filter(Collection.name == "SS-2025").first()
-        if not coll:
-            coll = Collection(brand_id=brand.id, name="SS-2025", season="Spring/Summer", year=2025, status="approved")
-            db.add(coll); db.flush()
-
-        model = db.query(Model).filter(Model.code == "T-SHIRT-001").first()
-        if not model:
-            model = Model(
-                code="T-SHIRT-001", name="Classic Crew Neck T-Shirt",
-                category="t-shirt", description="180gsm cotton crew neck.",
-                status="approved", created_by=admin.id, approved_by=admin.id,
-                approved_at=datetime.now(timezone.utc),
-            )
-            db.add(model); db.flush()
-            for s in ["S", "M", "L", "XL"]:
-                db.add(ModelSize(model_id=model.id, size=s))
-            for c, code in [("white", "#FFFFFF"), ("black", "#000000")]:
-                db.add(ModelColor(model_id=model.id, color_name=c, color_code=code))
-            db.add(ModelBOM(model_id=model.id, item_id=item_map["FAB-COT-001"].id,
-                            quantity_per_piece=1.4, unit="kg", waste_percent=8.0))
-            db.add(ModelBOM(model_id=model.id, item_id=item_map["ACC-THR-001"].id,
-                            quantity_per_piece=0.02, unit="roll", waste_percent=5.0))
-            db.add(ModelBOM(model_id=model.id, item_id=item_map["PKG-BAG-001"].id,
-                            quantity_per_piece=1, unit="pcs", waste_percent=0.0))
-
         # ----- 30 Sewing Flows -----
         for name, code in SEWING_FLOWS:
             if not db.query(SewingFlow).filter(SewingFlow.code == code).first():
@@ -400,33 +327,108 @@ def seed():
                     is_active=True,
                 ))
 
-        # ----- Sample Sales Order -----
-        if not db.query(SalesOrder).first():
-            customer = db.query(Customer).first()
-            so = SalesOrder(
-                order_no="SO-2025-000001", customer_id=customer.id,
-                order_type="client_order", status="confirmed",
-                deadline=datetime.now(timezone.utc) + timedelta(days=30),
-                total_amount=0, notes="Sample seeded order.", created_by=admin.id,
-            )
-            db.add(so); db.flush()
-            total = 0.0
-            for size, qty, price in [("S", 50, 12.0), ("M", 75, 12.0), ("L", 75, 12.0), ("XL", 50, 12.0)]:
-                db.add(SalesOrderItem(
-                    sales_order_id=so.id, model_id=model.id,
-                    color="white", size=size, quantity=qty,
-                    unit_price=price, printing_required=False,
-                ))
-                total += qty * price
-            so.total_amount = total
+        if settings.SEED_SAMPLE_DATA:
+            # ----- Customers / Suppliers -----
+            if not db.query(Customer).first():
+                db.add_all([
+                    Customer(name="ACME Apparel Co.", phone="+1-555-0100", email="orders@acme.example", address="123 Market St"),
+                    Customer(name="Global Fashion Ltd.", phone="+1-555-0200", email="po@global.example", address="89 Trade Blvd"),
+                ])
+            if not db.query(Supplier).first():
+                db.add_all([
+                    Supplier(name="TexFab Mills", phone="+1-555-1100", email="sales@texfab.example"),
+                    Supplier(name="Accessory World", phone="+1-555-1200", email="info@aworld.example"),
+                ])
 
-        # ----- Legacy models import (if CSV snapshot exists) -----
-        created_models, created_sizes, created_collections = _import_legacy_models(db, admin)
-        if created_models or created_sizes or created_collections:
-            print(
-                "Legacy import: "
-                f"models={created_models}, sizes={created_sizes}, collections={created_collections}"
-            )
+            # ----- Items -----
+            items_specs = [
+                ("FAB-COT-001", "Cotton Jersey 180gsm", "fabric", "kg", 3.50, True),
+                ("FAB-POL-001", "Polyester Blend 220gsm", "fabric", "kg", 4.20, True),
+                ("ACC-BTN-001", "Plastic Button 12mm", "accessory", "pcs", 0.05, False),
+                ("ACC-ZIP-001", "Metal Zipper 20cm", "accessory", "pcs", 0.35, False),
+                ("ACC-THR-001", "Polyester Thread Black", "accessory", "roll", 1.20, False),
+                ("PKG-BAG-001", "Polybag 30x40cm", "packaging", "pcs", 0.04, False),
+                ("WST-FAB-001", "Fabric Cutting Waste", "waste", "kg", 0.10, False),
+            ]
+            item_map = {}
+            for sku, name, cat, unit, cost, track in items_specs:
+                it = db.query(Item).filter(Item.sku == sku).first()
+                if not it:
+                    it = Item(sku=sku, name=name, category=cat, unit=unit, default_cost=cost, track_batch=track)
+                    db.add(it); db.flush()
+                item_map[sku] = it
+
+            # ----- Stock batches -----
+            if not db.query(StockBatch).first():
+                db.add(StockBatch(
+                    item_id=item_map["FAB-COT-001"].id, batch_no="B-COT-202401",
+                    color="white", width=160, gsm=180, quantity=500, unit="kg",
+                    cost_per_unit=3.50, warehouse_id=wh_map["fabric_storage"].id, qc_status="passed",
+                ))
+                db.add(StockBatch(
+                    item_id=item_map["FAB-POL-001"].id, batch_no="B-POL-202401",
+                    color="black", width=150, gsm=220, quantity=300, unit="kg",
+                    cost_per_unit=4.20, warehouse_id=wh_map["fabric_storage"].id, qc_status="passed",
+                ))
+
+            # ----- Brand / Collection / Model -----
+            brand = db.query(Brand).filter(Brand.name == "Urban Co.").first()
+            if not brand:
+                brand = Brand(name="Urban Co.", description="Casual urban wear")
+                db.add(brand); db.flush()
+            coll = db.query(Collection).filter(Collection.name == "SS-2025").first()
+            if not coll:
+                coll = Collection(brand_id=brand.id, name="SS-2025", season="Spring/Summer", year=2025, status="approved")
+                db.add(coll); db.flush()
+
+            model = db.query(Model).filter(Model.code == "T-SHIRT-001").first()
+            if not model:
+                model = Model(
+                    code="T-SHIRT-001", name="Classic Crew Neck T-Shirt",
+                    category="t-shirt", description="180gsm cotton crew neck.",
+                    status="approved", created_by=admin.id, approved_by=admin.id,
+                    approved_at=datetime.now(timezone.utc),
+                )
+                db.add(model); db.flush()
+                for s in ["S", "M", "L", "XL"]:
+                    db.add(ModelSize(model_id=model.id, size=s))
+                for c, code in [("white", "#FFFFFF"), ("black", "#000000")]:
+                    db.add(ModelColor(model_id=model.id, color_name=c, color_code=code))
+                db.add(ModelBOM(model_id=model.id, item_id=item_map["FAB-COT-001"].id,
+                                quantity_per_piece=1.4, unit="kg", waste_percent=8.0))
+                db.add(ModelBOM(model_id=model.id, item_id=item_map["ACC-THR-001"].id,
+                                quantity_per_piece=0.02, unit="roll", waste_percent=5.0))
+                db.add(ModelBOM(model_id=model.id, item_id=item_map["PKG-BAG-001"].id,
+                                quantity_per_piece=1, unit="pcs", waste_percent=0.0))
+
+            # ----- Sample Sales Order -----
+            if not db.query(SalesOrder).first():
+                customer = db.query(Customer).first()
+                so = SalesOrder(
+                    order_no="SO-2025-000001", customer_id=customer.id,
+                    order_type="client_order", status="confirmed",
+                    deadline=datetime.now(timezone.utc) + timedelta(days=30),
+                    total_amount=0, notes="Sample seeded order.", created_by=admin.id,
+                )
+                db.add(so); db.flush()
+                total = 0.0
+                for size, qty, price in [("S", 50, 12.0), ("M", 75, 12.0), ("L", 75, 12.0), ("XL", 50, 12.0)]:
+                    db.add(SalesOrderItem(
+                        sales_order_id=so.id, model_id=model.id,
+                        color="white", size=size, quantity=qty,
+                        unit_price=price, printing_required=False,
+                    ))
+                    total += qty * price
+                so.total_amount = total
+
+        # ----- Legacy models import (explicit opt-in only) -----
+        if settings.IMPORT_LEGACY_MODELS:
+            created_models, created_sizes, created_collections = _import_legacy_models(db, admin)
+            if created_models or created_sizes or created_collections:
+                print(
+                    "Legacy import: "
+                    f"models={created_models}, sizes={created_sizes}, collections={created_collections}"
+                )
 
         db.commit()
         print("Seed completed.")

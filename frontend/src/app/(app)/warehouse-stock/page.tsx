@@ -9,6 +9,7 @@ import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { orderReference } from "@/lib/orderRef";
 
 type StoragePlacement = {
   id: number;
@@ -16,6 +17,7 @@ type StoragePlacement = {
   barcode?: string | null;
   production_order_id?: number | null;
   production_no?: string | null;
+  order_no?: string | null;
   sales_order_id?: number | null;
   sales_order_no?: string | null;
   model_id?: number | null;
@@ -99,6 +101,7 @@ export default function WarehouseStockPage() {
     if (!q) return placements;
     return placements.filter((row) => {
       const fields = [
+        row.order_no,
         row.sales_order_no,
         row.production_no,
         row.model_code,
@@ -166,7 +169,7 @@ export default function WarehouseStockPage() {
       existing.package_count += 1;
       existing.total_quantity += Number(row.total_quantity || 0);
       existing.sections.add(sectionFromCell(row.storage_cell));
-      existing.orders.add(row.sales_order_no || row.production_no || t("page.warehouseStock.unassignedOrder"));
+      existing.orders.add(orderReference(row, t("page.warehouseStock.unassignedOrder")));
       if (row.color) existing.colors.add(row.color);
       if (!existing.model_image_url && row.model_image_url) existing.model_image_url = row.model_image_url;
       map.set(key, existing);
@@ -180,7 +183,7 @@ export default function WarehouseStockPage() {
     for (const row of filtered) {
       const section = sectionFromCell(row.storage_cell);
       const shelf = storageShelf(row.storage_shelf);
-      const orderNo = row.sales_order_no || row.production_no || t("page.warehouseStock.unassignedOrder");
+      const orderNo = orderReference(row, t("page.warehouseStock.unassignedOrder"));
       const key = [
         row.model_id || row.model_code || row.model_name || "-",
         orderNo,

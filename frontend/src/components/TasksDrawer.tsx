@@ -189,18 +189,18 @@ export default function TasksDrawer() {
       {/* ============================================================ */}
       {/* DRAWER — "Ledger" interior                                    */}
       {/* ============================================================ */}
+      {open && (
       <div
-        className={`fixed inset-0 z-40 transition-opacity ${
-          open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
+        className="fixed inset-0 z-40 opacity-100 pointer-events-auto"
         onClick={() => setOpen(false)}
       >
         <div className="absolute inset-0" style={{ background: "rgba(20,17,11,0.32)" }} />
 
         <aside
-          className={`absolute top-0 right-0 h-full w-full max-w-md flex flex-col transition-transform duration-200 ${
-            open ? "translate-x-0" : "translate-x-full"
-          }`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="tasks-drawer-title"
+          className="absolute top-0 right-0 h-full w-full max-w-md flex flex-col translate-x-0 transition-transform duration-200"
           style={{
             background: "#fdfcf8",
             borderLeft: "1px solid #e3dfd3",
@@ -222,6 +222,7 @@ export default function TasksDrawer() {
                   {t("tasks.ledgerEyebrow")}
                 </div>
                 <h2
+                  id="tasks-drawer-title"
                   className="m-0 mt-1.5 leading-none"
                   style={{
                     fontFamily:
@@ -434,6 +435,7 @@ export default function TasksDrawer() {
           </form>
         </aside>
       </div>
+      )}
     </>
   );
 }

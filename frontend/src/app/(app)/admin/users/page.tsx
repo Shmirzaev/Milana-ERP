@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
@@ -17,15 +17,40 @@ type User = {
   role_id: number | null;
   department_id: number | null;
   is_active: boolean;
+  last_login_at: string | null;
+  last_seen_at: string | null;
 };
+
+const RECENT_ACTIVITY_MS = 15 * 60 * 1000;
+const ACTIVE_THIS_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function parseActivityDate(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
 export default function AdminUsersPage() {
   const searchParams = useSearchParams();
   const q = (searchParams.get("q") ?? "").trim().toLowerCase();
-  const { t } = useT();
+  const { t, lang } = useT();
   const { data, mutate } = useSWR<User[]>("/api/users", fetcher);
   const { data: roles } = useSWR<Role[]>("/api/roles", fetcher);
   const { data: depts } = useSWR<Dept[]>("/api/departments", fetcher);
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  const localeByLang: Record<string, string> = {
+    en: "en-US",
+    ru: "ru-RU",
+    uz: "uz-UZ",
+  };
+  const locale = localeByLang[lang] || "en-US";
+
+  useEffect(() => {
+    const updateNow = () => setNowMs(Date.now());
+    updateNow();
+    const id = window.setInterval(updateNow, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const [f, setF] = useState({
     name: "",
@@ -129,6 +154,46 @@ export default function AdminUsersPage() {
     });
   }, [data, roles, depts, q]);
 
+  const activityStats = useMemo(() => {
+    if (nowMs === null) return { onlineRecently: 0, activeThisWeek: 0, notUsing: 0 };
+    return (data ?? []).reduce(
+      (acc, u) => {
+        const seenAt = parseActivityDate(u.last_seen_at ?? u.last_login_at);
+        if (!seenAt) {
+          acc.notUsing += 1;
+          return acc;
+        }
+        const age = nowMs - seenAt.getTime();
+        if (age <= RECENT_ACTIVITY_MS) acc.onlineRecently += 1;
+        if (age <= ACTIVE_THIS_WEEK_MS) acc.activeThisWeek += 1;
+        else acc.notUsing += 1;
+        return acc;
+      },
+      { onlineRecently: 0, activeThisWeek: 0, notUsing: 0 },
+    );
+  }, [data, nowMs]);
+
+  function formatActivityTime(value?: string | null) {
+    const date = parseActivityDate(value);
+    if (!date) return t("field.never");
+    return date.toLocaleString(locale, {
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function activityBadge(u: User) {
+    const seenAt = parseActivityDate(u.last_seen_at ?? u.last_login_at);
+    if (!seenAt) return { className: "badge-red", label: t("status.neverLoggedIn") };
+    if (nowMs === null) return { className: "badge-blue", label: t("status.activeThisWeek") };
+    const age = nowMs - seenAt.getTime();
+    if (age <= RECENT_ACTIVITY_MS) return { className: "badge-green", label: t("status.onlineRecently") };
+    if (age <= ACTIVE_THIS_WEEK_MS) return { className: "badge-blue", label: t("status.activeThisWeek") };
+    return { className: "badge-yellow", label: t("status.notUsing") };
+  }
+
   return (
     <div>
       <PageHeader title={t("page.admin.users")} />
@@ -149,6 +214,21 @@ export default function AdminUsersPage() {
         {createMsg && <div className="text-sm text-red-600 md:col-span-6">{createMsg}</div>}
       </form>
 
+      <dl className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="panel p-4">
+          <dt className="label">{t("page.admin.users.onlineRecently")}</dt>
+          <dd className="mono text-2xl font-semibold text-[#1f7a4d]">{activityStats.onlineRecently}</dd>
+        </div>
+        <div className="panel p-4">
+          <dt className="label">{t("page.admin.users.activeThisWeek")}</dt>
+          <dd className="mono text-2xl font-semibold text-[#1e5fb3]">{activityStats.activeThisWeek}</dd>
+        </div>
+        <div className="panel p-4">
+          <dt className="label">{t("page.admin.users.notUsing")}</dt>
+          <dd className="mono text-2xl font-semibold text-[#9a3308]">{activityStats.notUsing}</dd>
+        </div>
+      </dl>
+
       <div className="card overflow-x-auto">
         <table className="table">
           <thead>
@@ -158,27 +238,42 @@ export default function AdminUsersPage() {
               <th>{t("field.role")}</th>
               <th>{t("field.department")}</th>
               <th>{t("field.active")}</th>
+              <th>{t("field.activity")}</th>
               <th>{t("field.actions")}</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((u) => (
-              <tr key={u.id}>
-                <td>{u.name}</td>
-                <td>{u.email}</td>
-                <td>{roles?.find((r) => r.id === u.role_id)?.name ?? u.role_id ?? "-"}</td>
-                <td>{depts?.find((d) => d.id === u.department_id)?.name ?? u.department_id ?? "-"}</td>
-                <td>
-                  <span className={`badge ${u.is_active ? "badge-green" : "badge-red"}`}>
-                    {u.is_active ? t("field.yes") : t("field.no")}
-                  </span>
-                </td>
-                <td className="flex gap-2">
-                  <button className="text-brand-600 hover:underline" onClick={() => openEdit(u)}>{t("btn.edit")}</button>
-                  <button className="text-red-600 hover:underline" onClick={() => deleteUser(u)}>{t("btn.delete")}</button>
-                </td>
-              </tr>
-            ))}
+            {rows.map((u) => {
+              const badge = activityBadge(u);
+              return (
+                <tr key={u.id}>
+                  <td>{u.name}</td>
+                  <td>{u.email}</td>
+                  <td>{roles?.find((r) => r.id === u.role_id)?.name ?? u.role_id ?? "-"}</td>
+                  <td>{depts?.find((d) => d.id === u.department_id)?.name ?? u.department_id ?? "-"}</td>
+                  <td>
+                    <span className={`badge ${u.is_active ? "badge-green" : "badge-red"}`}>
+                      {u.is_active ? t("field.yes") : t("field.no")}
+                    </span>
+                  </td>
+                  <td className="min-w-[180px]">
+                    <div className="flex flex-col gap-1">
+                      <span className={`badge w-fit ${badge.className}`}>{badge.label}</span>
+                      <span className="text-xs text-[#56503f]">
+                        {t("field.lastSeen")}: {formatActivityTime(u.last_seen_at ?? u.last_login_at)}
+                      </span>
+                      <span className="text-xs text-[#8a8472]">
+                        {t("field.lastLogin")}: {formatActivityTime(u.last_login_at)}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="flex gap-2">
+                    <button className="text-brand-600 hover:underline" onClick={() => openEdit(u)}>{t("btn.edit")}</button>
+                    <button className="text-red-600 hover:underline" onClick={() => deleteUser(u)}>{t("btn.delete")}</button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

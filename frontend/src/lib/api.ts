@@ -4,16 +4,12 @@ function resolveUrl(path: string): string {
   return normalized;
 }
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("erp_token");
-}
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 12_000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetch(url, { credentials: "same-origin", ...init, signal: controller.signal });
   } catch (err: any) {
     if (err?.name === "AbortError") {
       throw new Error(
@@ -43,29 +39,31 @@ function isTransientNetworkError(message: string): boolean {
   );
 }
 
-export function setToken(token: string) {
+function clearLegacyToken() {
   if (typeof window !== "undefined") {
-    localStorage.setItem("erp_token", token);
-  }
-}
-
-export function clearToken() {
-  if (typeof window !== "undefined") {
+    // Auth is cookie-only. Remove any stale pre-migration browser-readable JWT.
     localStorage.removeItem("erp_token");
   }
 }
 
-async function request<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = getToken();
+export function setToken(_token: string) {
+  void _token;
+  clearLegacyToken();
+}
+
+export function clearToken() {
+  clearLegacyToken();
+}
+
+async function request<T = any>(path: string, init: RequestInit = {}, timeoutMs = 12_000): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(init.headers as Record<string, string>),
   };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
   // Use Next.js rewrite proxy: paths starting with /api or /storage are proxied
   const url = resolveUrl(path);
-  const res = await fetchWithTimeout(url, { ...init, headers });
+  const res = await fetchWithTimeout(url, { ...init, headers }, timeoutMs);
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -79,14 +77,11 @@ async function request<T = any>(path: string, init: RequestInit = {}): Promise<T
 }
 
 export const api = {
-  get: <T = any>(p: string) => request<T>(p, { method: "GET" }),
-  post: <T = any>(p: string, body?: any) =>
-    request<T>(p, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
+  get: <T = any>(p: string, timeoutMs?: number) => request<T>(p, { method: "GET" }, timeoutMs),
+  post: <T = any>(p: string, body?: any, timeoutMs?: number) =>
+    request<T>(p, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }, timeoutMs),
   postForm: async <T = any>(p: string, form: FormData): Promise<T> => {
-    const token = getToken();
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetchWithTimeout(resolveUrl(p), { method: "POST", body: form, headers });
+    const res = await fetchWithTimeout(resolveUrl(p), { method: "POST", body: form });
     if (!res.ok) {
       let detail = res.statusText;
       try {
@@ -100,9 +95,11 @@ export const api = {
   },
   patch: <T = any>(p: string, body?: any) =>
     request<T>(p, { method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined }),
+  put: <T = any>(p: string, body?: any) =>
+    request<T>(p, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined }),
   del: <T = any>(p: string) => request<T>(p, { method: "DELETE" }),
 
-  async login(email: string, password: string): Promise<string> {
+  async login(email: string, password: string): Promise<void> {
     const form = new URLSearchParams();
     form.set("username", email);
     form.set("password", password);
@@ -110,6 +107,7 @@ export const api = {
       resolveUrl("/api/auth/login"),
     ];
     const maxAttempts = 3;
+    let lastTransientError = "";
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       for (const endpoint of loginEndpoints) {
         try {
@@ -123,26 +121,33 @@ export const api = {
             20_000,
           );
           if (res.ok) {
-            const body = await res.json();
-            setToken(body.access_token);
-            return body.access_token;
+            clearLegacyToken();
+            return;
           }
 
           let msg = "Login failed";
           try {
-            const b = await res.json();
-            msg = b.detail || msg;
+            const contentType = res.headers.get("content-type") || "";
+            if (contentType.includes("application/json")) {
+              const b = await res.json();
+              msg = b.detail || b.message || JSON.stringify(b) || msg;
+            } else {
+              const text = (await res.text()).trim();
+              if (text) msg = text.slice(0, 300);
+            }
           } catch {}
 
           const shouldRetry =
             res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504;
           if (shouldRetry) {
+            lastTransientError = `${res.status}: ${msg}`;
             continue;
           }
           throw new Error(msg);
         } catch (err: any) {
           const message = String(err?.message || "");
           if (isTransientNetworkError(message)) {
+            lastTransientError = message;
             continue;
           }
           throw err;
@@ -150,7 +155,9 @@ export const api = {
       }
       if (attempt < maxAttempts) await sleep(1200 * attempt);
     }
-    throw new Error("Login failed");
+    throw new Error(
+      lastTransientError ? `Backend is not responding (${lastTransientError})` : "Login failed",
+    );
   },
 
   async forgotPassword(email: string): Promise<{ message: string }> {
@@ -199,21 +206,20 @@ export const api = {
     return res.json();
   },
 
-  logout() {
+  async logout() {
     clearToken();
+    try {
+      await fetchWithTimeout(resolveUrl("/api/auth/logout"), { method: "POST" }, 8_000);
+    } catch {}
   },
 
   /**
-   * Fetches an HTML label endpoint with the auth header attached and opens it
-   * in a new window for printing. Browsers won't send the JWT on a bare
-   * `target="_blank"` link, so we have to pull the HTML ourselves and inject it
-   * into a child window via a Blob URL.
+   * Fetches an HTML label endpoint with the HttpOnly cookie and opens it in a
+   * new window for printing. We pull the HTML ourselves and inject it into a
+   * child window via a Blob URL so the print view does not need bearer tokens.
    */
   async openLabel(path: string): Promise<void> {
-    const token = getToken();
-    const res = await fetchWithTimeout(resolveUrl(path), {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    const res = await fetchWithTimeout(resolveUrl(path));
     if (!res.ok) {
       let detail = res.statusText;
       try {

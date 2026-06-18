@@ -8,9 +8,10 @@ import Modal from "@/components/Modal";
 import { productionTypeLabel, statusLabel } from "@/components/StagePipeline";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { orderReference } from "@/lib/orderRef";
 
 type PO = {
-  id: number; production_no: string; production_type: string;
+  id: number; production_no: string; order_no?: string | null; sales_order_no?: string | null; production_type: string;
   model_id: number; status: string; planned_quantity: number;
   deadline: string | null;
 };
@@ -59,7 +60,7 @@ export default function ProductionOrdersPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>{t("field.productionNo")}</th><th>{t("field.type")}</th><th>{t("field.model")}</th>
+              <th>{t("field.orderNo")}</th><th>{t("field.type")}</th><th>{t("field.model")}</th>
               <th>{t("page.poDetail.planned")}</th><th>{t("field.status")}</th>
               <th>{t("field.deadline")}</th><th>{t("field.actions")}</th>
             </tr>
@@ -67,7 +68,7 @@ export default function ProductionOrdersPage() {
           <tbody>
             {data?.map((p) => (
               <tr key={p.id}>
-                <td className="font-medium">{p.production_no}</td>
+                <td className="font-medium">{orderReference(p, p.production_no)}</td>
                 <td><span className="badge badge-blue">{productionTypeLabel(p.production_type, t)}</span></td>
                 <td>
                   <div className="font-medium text-sm">{modelMap.get(p.model_id)?.code ?? p.model_id}</div>
@@ -88,7 +89,7 @@ export default function ProductionOrdersPage() {
         </table>
       </div>
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={t("page.po.editTitle", { productionNo: editing?.production_no ?? "" })} wide>
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={t("page.po.editTitle", { productionNo: orderReference(editing, editing?.production_no ?? ""), orderNo: orderReference(editing, editing?.production_no ?? "") })} wide>
         <form onSubmit={saveEdit} className="space-y-3">
           <div>
             <label className="label">{t("field.status")}</label>

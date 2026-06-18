@@ -8,12 +8,14 @@ import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import { useT } from "@/lib/i18n";
+import { orderReference } from "@/lib/orderRef";
 
 type InventoryGroup = "materials" | "accessories";
 
 type AccessoryIssueRow = {
   production_order_id: number;
   production_no: string;
+  order_no?: string | null;
   model_id: number;
   model_code?: string | null;
   model_name?: string | null;
@@ -199,12 +201,12 @@ export default function InventoryPage() {
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div>
-                  <label className="label">{t("field.productionNo")}</label>
+                  <label className="label">{t("field.orderNo")}</label>
                   <select className="input" value={issuePoFilter} onChange={(e) => setIssuePoFilter(Number(e.target.value))}>
                     <option value={0}>{t("common.all")}</option>
                     {productionOrders?.map((po) => (
                       <option key={po.id} value={po.id}>
-                        {po.production_no || `PO #${po.id}`}
+                        {orderReference(po, `#${po.id}`)}
                       </option>
                     ))}
                   </select>
@@ -227,7 +229,7 @@ export default function InventoryPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>{t("field.productionNo")}</th>
+                  <th>{t("field.orderNo")}</th>
                   <th>{t("field.modelNumber")}</th>
                   <th>{t("field.sku")}</th>
                   <th>{t("common.name")}</th>
@@ -243,7 +245,7 @@ export default function InventoryPage() {
                   const modelLabel = [row.model_code || model?.code, row.model_name || model?.name].filter(Boolean).join(" - ") || `#${row.model_id}`;
                   return (
                     <tr key={`${row.production_order_id}-${row.item_id}-${row.unit}`}>
-                      <td className="mono font-semibold text-[#14110b]">{row.production_no}</td>
+                      <td className="mono font-semibold text-[#14110b]">{orderReference(row, row.production_no)}</td>
                       <td>
                         <div className="mono font-semibold text-[#14110b]">{row.model_code || model?.code || row.model_id}</div>
                         <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{modelLabel}</div>

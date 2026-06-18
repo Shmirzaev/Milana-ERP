@@ -33,7 +33,7 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
         raise HTTPException(404, "Sales order not found")
     allowed_statuses = {"confirmed", "pending_sales_approval", "planning_approved"}
     if so.status not in allowed_statuses:
-        raise HTTPException(400, f"Sales order must be confirmed before creating PO (current: '{so.status}')")
+        raise HTTPException(400, f"Sales order must be confirmed before creating production (current: '{so.status}')")
     po = create_production_order(
         db,
         production_type="client_order",

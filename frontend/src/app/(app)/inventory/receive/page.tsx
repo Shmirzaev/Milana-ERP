@@ -4,6 +4,7 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+import { orderReference } from "@/lib/orderRef";
 
 type ReceiveFormState = {
   item_id: number;
@@ -57,6 +58,7 @@ type AccessoryIssuePlanRow = {
 type AccessoryIssuePlan = {
   production_order_id: number;
   production_no: string;
+  order_no?: string | null;
   model_id: number;
   model_code?: string | null;
   model_name?: string | null;
@@ -380,7 +382,7 @@ export default function ReceiveStockPage() {
               <div className="mt-1 text-sm text-[#6f684f]">{t("page.receiveStock.accessoryIssueSubtitle")}</div>
             </div>
             <div>
-              <label className="label">{t("field.productionNo")}</label>
+              <label className="label">{t("field.orderNo")}</label>
               <select
                 className="input"
                 value={issueProductionOrderId}
@@ -392,7 +394,7 @@ export default function ReceiveStockPage() {
                   const modelValue = model?.code || po.model_id;
                   const modelText = modelValue ? `Model ${modelValue}` : "";
                   const label = [
-                    po.production_no || `PO #${po.id}`,
+                    orderReference(po, `#${po.id}`),
                     modelText,
                   ].filter(Boolean).join(" - ");
                   return <option key={po.id} value={po.id}>{label}</option>;
@@ -402,7 +404,7 @@ export default function ReceiveStockPage() {
           </div>
           {issuePlan && (
             <div className="mt-3 text-sm text-[#56503f]">
-              <span className="mono font-semibold text-[#14110b]">{issuePlan.production_no}</span>
+              <span className="mono font-semibold text-[#14110b]">{orderReference(issuePlan, issuePlan.production_no)}</span>
               {" · "}
               {[issuePlan.model_code || selectedPoModel?.code, issuePlan.model_name || selectedPoModel?.name].filter(Boolean).join(" - ") || `#${issuePlan.model_id}`}
               {" · "}

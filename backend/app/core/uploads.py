@@ -39,6 +39,22 @@ def validated_upload_content(content: bytes, ext: str, max_bytes: int) -> bytes:
     return content
 
 
+async def read_validated_upload_content(file, ext: str, max_bytes: int, chunk_size: int = 1024 * 1024) -> bytes:
+    """Read and validate an UploadFile without ever issuing an unbounded read()."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            mb = max_bytes // (1024 * 1024)
+            raise HTTPException(400, f"File too large (max {mb}MB)")
+        chunks.append(chunk)
+    return validated_upload_content(b"".join(chunks), ext, max_bytes)
+
+
 def safe_content_type(ext: str) -> str:
     return _CONTENT_TYPES.get(ext, "application/octet-stream")
 

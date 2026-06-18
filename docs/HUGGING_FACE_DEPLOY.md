@@ -23,6 +23,7 @@ Set these Space secrets or variables:
 ```env
 DATABASE_URL=postgresql+psycopg2://...
 JWT_SECRET=<strong random value>
+FILE_SIGNING_SECRET=<different strong random value>
 JWT_ALGORITHM=HS256
 JWT_EXPIRES_MINUTES=480
 INITIAL_ADMIN_EMAIL=admin@example.com

@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.core.deps import DbSession, CurrentUser, is_admin
 from app.models import (
     SalesOrder, ProductionOrder, Customer, Model, SewingFlow, SewingAssignment, User,
-    CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, Package,
+    CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, Package, PackageBatchAllocation,
 )
 from app.core.dt import as_utc
 
@@ -268,7 +268,28 @@ def _internal_batch_stage_rows(db, po: ProductionOrder, base_stages: list[dict])
     if storage_ids:
         storage_statuses = ["received_in_storage", "reserved", "shipped", "delivered"]
         direct_storage_by_batch: dict[int, int] = {}
-        for batch_id, received_sum in (
+        allocated_package_ids: set[int] = set()
+        for package_id, batch_id, received_sum in (
+            db.query(
+                PackageBatchAllocation.package_id,
+                PackageBatchAllocation.production_batch_id,
+                func.coalesce(func.sum(PackageBatchAllocation.quantity), 0),
+            )
+            .join(Package, Package.id == PackageBatchAllocation.package_id)
+            .filter(
+                Package.production_order_id == po.id,
+                PackageBatchAllocation.production_batch_id.in_(batch_ids),
+                Package.status.in_(storage_statuses),
+            )
+            .group_by(PackageBatchAllocation.package_id, PackageBatchAllocation.production_batch_id)
+            .all()
+        ):
+            allocated_package_ids.add(int(package_id))
+            qty = int(received_sum or 0)
+            direct_storage_by_batch[int(batch_id)] = direct_storage_by_batch.get(int(batch_id), 0) + qty
+            add_total(batch_id, "storage_transfer", completed=qty, activity=qty)
+
+        fallback_qry = (
             db.query(
                 Package.production_batch_id,
                 func.coalesce(func.sum(Package.total_quantity), 0),
@@ -278,25 +299,24 @@ def _internal_batch_stage_rows(db, po: ProductionOrder, base_stages: list[dict])
                 Package.production_batch_id.in_(batch_ids),
                 Package.status.in_(storage_statuses),
             )
-            .group_by(Package.production_batch_id)
-            .all()
-        ):
+        )
+        if allocated_package_ids:
+            fallback_qry = fallback_qry.filter(~Package.id.in_(allocated_package_ids))
+        for batch_id, received_sum in fallback_qry.group_by(Package.production_batch_id).all():
             if batch_id is None:
                 continue
             qty = int(received_sum or 0)
-            direct_storage_by_batch[int(batch_id)] = qty
+            direct_storage_by_batch[int(batch_id)] = direct_storage_by_batch.get(int(batch_id), 0) + qty
             add_total(batch_id, "storage_transfer", completed=qty, activity=qty)
 
-        unassigned_received = int(
-            db.query(func.coalesce(func.sum(Package.total_quantity), 0))
-            .filter(
-                Package.production_order_id == po.id,
-                Package.production_batch_id.is_(None),
-                Package.status.in_(storage_statuses),
-            )
-            .scalar()
-            or 0
+        unassigned_qry = db.query(func.coalesce(func.sum(Package.total_quantity), 0)).filter(
+            Package.production_order_id == po.id,
+            Package.production_batch_id.is_(None),
+            Package.status.in_(storage_statuses),
         )
+        if allocated_package_ids:
+            unassigned_qry = unassigned_qry.filter(~Package.id.in_(allocated_package_ids))
+        unassigned_received = int(unassigned_qry.scalar() or 0)
         if unassigned_received > 0:
             remaining = unassigned_received
             for b in sorted(batches, key=lambda x: (int(x.batch_index or 0), int(x.id or 0))):
@@ -486,6 +506,7 @@ def list_processes(
         out.append({
             "production_order_id": po.id,
             "production_no": po.production_no,
+            "order_no": po.order_no,
             "production_type": po.production_type,
             "po_status": po.status,
             "po_deadline": po.deadline,

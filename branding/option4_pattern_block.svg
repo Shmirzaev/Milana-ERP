@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 220" width="640" height="220" role="img" aria-label="Milana ERP — pattern block">
+  <title>Milana ERP — pattern block</title>
+  <defs>
+    <linearGradient id="patA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F43F5E"/>
+      <stop offset="1" stop-color="#E11D48"/>
+    </linearGradient>
+    <linearGradient id="patB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1F2937"/>
+      <stop offset="1" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(20,20)">
+    <!-- three overlapping pattern pieces (sleeve, body, panel) -->
+    <polygon points="20,160 60,20 120,40 100,160"   fill="url(#patB)"/>
+    <polygon points="70,170 120,30 170,60 150,170"  fill="url(#patA)" fill-opacity="0.92"/>
+    <polygon points="120,160 160,40 178,52 170,170" fill="#FBBF24" fill-opacity="0.95"/>
+
+    <!-- stitched dashed seam across all pieces -->
+    <path d="M22,150 L168,150" fill="none" stroke="#ffffff"
+          stroke-width="2.5" stroke-dasharray="6 5" stroke-linecap="round"/>
+
+    <!-- notch marks (pattern notches used in garment cutting) -->
+    <circle cx="40"  cy="40"  r="3" fill="#ffffff"/>
+    <circle cx="115" cy="50"  r="3" fill="#ffffff"/>
+    <circle cx="165" cy="70"  r="3" fill="#ffffff"/>
+  </g>
+
+  <g transform="translate(232,0)" font-family="Inter, Helvetica, Arial, sans-serif">
+    <text x="0" y="115" font-size="62" font-weight="700" letter-spacing="2" fill="#0F172A">MILANA</text>
+    <text x="0" y="160" font-size="22" font-weight="500" letter-spacing="14" fill="#64748B">PATTERN&#8201;ERP</text>
+    <rect x="0" y="128" width="240" height="3" rx="1.5" fill="url(#patA)"/>
+  </g>
+</svg>

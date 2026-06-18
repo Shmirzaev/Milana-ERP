@@ -300,7 +300,7 @@ export default function PlanningDashboard() {
         items,
         batches: normalizedBatches,
         ...(material || {}),
-      });
+      }, 60_000);
       // Cascade the deadline into each work-order (cutting/printing/sewing/packaging)
       // unless explicit per-batch planning is used.
       if (so.deadline && normalizedBatches.length === 0) {
@@ -444,7 +444,7 @@ export default function PlanningDashboard() {
         planned_quantity: plannedQty,
         deadline: brandedForm.deadline || null,
         items,
-      });
+      }, 60_000);
       if (brandedForm.deadline) {
         try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
       }

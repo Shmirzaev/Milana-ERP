@@ -26,6 +26,8 @@ class User(Base, PkMixin, TimestampMixin):
     role_id: Mapped[int | None] = mapped_column(ForeignKey("roles.id"), nullable=True)
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Access tokens issued before this instant are rejected. Bumped on password
     # change/reset so a stolen session dies when the password is rotated.
     tokens_valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -71,29 +71,6 @@ function formatRangeLabel(preset: DatePreset): string {
   return "home.range.all";
 }
 
-function MiniBars({ hot = false }: { hot?: boolean }) {
-  const bars = [22, 35, 48, 54, 62, 70, 58, 78, 83, 92, 88];
-  return (
-    <div className="flex h-14 items-end gap-1">
-      {bars.map((h, i) => (
-        <span
-          key={i}
-          className={`w-1.5 rounded-sm ${hot && i > 8 ? "bg-[#c2410c]" : i > 7 ? "bg-[#14110b]" : "bg-[#ecebe3]"}`}
-          style={{ height: `${h}%` }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function Spark({ accent = false }: { accent?: boolean }) {
-  return (
-    <svg viewBox="0 0 120 34" className={`h-8 w-28 ${accent ? "text-[#c2410c]" : "text-[#14110b]"}`} fill="none">
-      <path d="M2 28 L16 22 L28 24 L42 15 L54 19 L68 10 L82 13 L96 6 L118 4" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
 function Kpi({ label, value, sub, tone = "neutral", visual }: { label: string; value: any; sub?: string; tone?: "neutral" | "bad" | "good"; visual?: React.ReactNode }) {
   return (
     <div className={`card p-5 ${tone === "bad" ? "border-[#d97706] bg-[#fff7df]" : ""}`}>

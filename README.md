@@ -6,8 +6,10 @@ A production-ready MVP ERP for a textile/garment manufacturing company. It imple
 
 ---
 
-## Developer documentation
+## Documentation
 
+- Employee training guide: `docs/EMPLOYEE_TRAINING_GUIDE.md`
+- Printable department training guide: `docs/Milana_ERP_Training_Guide.pdf`
 - Codebase walkthrough for new engineers: `docs/DEVELOPER_GUIDE.md`
 - Hugging Face backend deployment notes: `docs/HUGGING_FACE_DEPLOY.md`
 - Frontend deployment target: Vercel project `milana-erp-web`
@@ -31,13 +33,13 @@ When the stack is up:
 | API (ReDoc)    | http://localhost:8000/redoc      |
 | PostgreSQL     | localhost:5432 (erp / erp / erp) |
 
-The backend container automatically runs `alembic upgrade head`, then starts uvicorn. When `RUN_SEED_ON_STARTUP=true`, it also seeds initial data.
+The backend container automatically runs `alembic upgrade head`, then starts uvicorn. When `RUN_SEED_ON_STARTUP=true`, it seeds the real-use baseline: departments, roles, warehouses, sewing lines, and the first admin user.
 
 ### First admin login
 
 The seed creates an active admin only when `INITIAL_ADMIN_PASSWORD` is set. The email defaults to `admin@example.com`, or you can change it with `INITIAL_ADMIN_EMAIL`. Shared demo/admin passwords are blocked for the admin account.
 
-Demo role users are not created unless `SEED_DEMO_USERS=true`.
+Demo role users are not created unless `SEED_DEMO_USERS=true`. Sample customers, suppliers, materials, model catalog, and sample orders are not created unless `SEED_SAMPLE_DATA=true`. Legacy model CSV import is disabled unless `IMPORT_LEGACY_MODELS=true`.
 
 ---
 
@@ -208,7 +210,7 @@ Full Swagger UI is at **http://localhost:8000/docs** and ReDoc at **/redoc**. Ma
 * **Roles & permissions** — fine-grained permission strings (`sales.orders`, `cutting.bundles`, …) with admin "*" wildcard. Sidebar and route protection use the same source of truth.
 * **All 40+ database tables** (SQLAlchemy 2 typed models) with relationships and constraints
 * **Alembic migrations** (single initial migration creates the full schema from metadata — easy to extend with autogen later)
-* **Seed data**: 13 departments, 14 roles, 14 users (one per role), customers, suppliers, warehouses, items, fabric batches, brand + collection + approved model + BOM, sample sales order with size breakdown
+* **Seed baseline**: departments, roles, admin bootstrap, warehouses, and sewing lines for real use. Demo users, sample catalog/order data, and legacy model imports are explicit opt-ins.
 * **Sales orders** (client + branded stock sale), confirm, reserve stock from FG with shortage report
 * **Planning**: material requirements from BOM × waste, production-order + work-order creation
 * **Cutting** posts a record AND generates `Bundle` rows with QR + Code128 barcode images stored under `/storage/barcodes/...`

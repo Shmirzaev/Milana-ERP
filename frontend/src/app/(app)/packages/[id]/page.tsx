@@ -30,6 +30,7 @@ export default function PackageDetail() {
             <div className="flex justify-between"><dt className="text-slate-500">{t("page.packageDetail.mc")}</dt><dd>{p.model_id} / {p.color}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.totalQty")}</dt><dd>{p.total_quantity}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.capacity")}</dt><dd>{p.capacity}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{t("field.weightKg")}</dt><dd>{p.weight_kg != null ? `${p.weight_kg} kg` : "-"}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.cell")}</dt><dd>{p.storage_cell || "-"}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.shelf")}</dt><dd>{p.storage_shelf || "-"}</dd></div>
           </dl>

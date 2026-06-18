@@ -6,7 +6,7 @@ of serving them publicly, we hand out short-lived signed URLs:
 
     /storage/sales-order-files/<name>?exp=<unix-ts>&sig=<hmac-sha256>
 
-The signature is computed over the bare path + expiry with the app's JWT secret,
+The signature is computed over the bare path + expiry with the app's dedicated file-signing secret,
 so only the server can mint a working link and it stops working after `exp`.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ DEFAULT_TTL_SECONDS = 6 * 60 * 60  # 6h — generous enough for a long-lived pag
 
 
 def _key() -> bytes:
-    return settings.JWT_SECRET.encode("utf-8")
+    return settings.active_file_signing_secret.encode("utf-8")
 
 
 def _signature(bare_path: str, exp: int) -> str:

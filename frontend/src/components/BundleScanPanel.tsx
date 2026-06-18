@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -14,10 +14,35 @@ type Department = { id: number; name: string; code: string };
 
 const SEWING_DEPARTMENT_CODES = new Set(["SEW", "MIL", "BST"]);
 
+function latestBundleScan(rawCode: string): string {
+  const value = rawCode.trimStart();
+  const marker = "BUNDLE:";
+  const lastBundleMarker = value.toUpperCase().lastIndexOf(marker);
+  if (lastBundleMarker > 0) return value.slice(lastBundleMarker);
+  return value;
+}
+
+function bundleLookupCandidates(rawCode: string): string[] {
+  const code = rawCode.trim();
+  if (!code) return [];
+
+  const candidates = [code];
+  if (code.includes("|")) {
+    candidates.push(...code.split("|").map((part) => part.trim()).filter(Boolean));
+  }
+  if (code.toUpperCase().startsWith("BUNDLE:")) {
+    const payload = code.split(":", 2)[1] || "";
+    candidates.push(...payload.split("|").map((part) => part.trim()).filter(Boolean));
+  }
+
+  return Array.from(new Set(candidates.filter(Boolean)));
+}
+
 export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const { t } = useT();
   const { me } = useMe();
   const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [code, setCode] = useState("");
   const [bundle, setBundle] = useState<any>(null);
   const [msg, setMsg] = useState("");
@@ -41,14 +66,39 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     return t("factory.milana");
   }
 
+  function focusScanInput(selectText = false) {
+    window.setTimeout(() => {
+      inputRef.current?.focus();
+      if (selectText) inputRef.current?.select();
+    }, 0);
+  }
+
   async function lookup() {
     setMsg("");
+    const candidates = bundleLookupCandidates(code);
+    if (!candidates.length) return;
+    let lastError = "";
     try {
-      const b = await api.get(`/api/bundles/barcode/${encodeURIComponent(code.trim())}`);
+      for (const candidate of candidates) {
+        try {
+          const b = await api.get(`/api/bundles/lookup?code=${encodeURIComponent(candidate)}`);
+          setBundle(b);
+          setCode(candidate);
+          focusScanInput(true);
+          return;
+        } catch (e: any) {
+          lastError = e.message;
+        }
+      }
+
+      const b = await api.get(`/api/bundles/barcode/${encodeURIComponent(candidates[0])}`);
       setBundle(b);
+      setCode(candidates[0]);
+      focusScanInput(true);
     } catch (e: any) {
       setBundle(null);
-      setMsg(e.message);
+      setMsg(lastError || e.message);
+      focusScanInput(true);
     }
   }
 
@@ -57,9 +107,12 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     try {
       const b = await api.post(`/api/bundles/${bundle.id}/${action}`);
       setBundle(b);
+      setCode("");
       setMsg(t("msg.saved"));
+      focusScanInput();
     } catch (e: any) {
       setMsg(e.message);
+      focusScanInput(true);
     }
   }
 
@@ -98,13 +151,19 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
       <div className="card max-w-2xl p-6">
         <div className="mb-4 flex gap-2">
           <input
+            ref={inputRef}
             className="input"
             autoFocus
             placeholder={t("ph.bundleBarcode")}
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={(e) => setCode(latestBundleScan(e.target.value))}
+            onFocus={(e) => e.currentTarget.select()}
+            onClick={(e) => e.currentTarget.select()}
             onKeyDown={(e) => {
-              if (e.key === "Enter") lookup();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                lookup();
+              }
             }}
           />
           <button className="btn btn-primary" onClick={lookup}>
@@ -117,8 +176,17 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
             <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
               <div className="text-slate-500">{t("field.bundleNo")}</div>
               <div>{bundle.bundle_no}</div>
+              <div className="text-slate-500">{t("field.batch")}</div>
+              <div>
+                <div>{bundle.batch_label || "-"}</div>
+                {bundle.tracking_passport_no && (
+                  <div className="text-xs text-slate-500">
+                    {t("field.trackingPassport")}: {bundle.tracking_passport_no}
+                  </div>
+                )}
+              </div>
               <div className="text-slate-500">{t("field.model")}</div>
-              <div>{bundle.model_id}</div>
+              <div>{bundle.model_code || bundle.model_id}</div>
               <div className="text-slate-500">
                 {t("field.color")} / {t("field.size")}
               </div>

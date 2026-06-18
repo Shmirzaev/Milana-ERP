@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from app.core.config import settings as app_settings
 from app.core.deps import CurrentUser, DbSession, require_permissions
-from app.core.uploads import SAFE_IMAGE_EXTENSIONS, extension_for_upload, validated_upload_content
+from app.core.uploads import SAFE_IMAGE_EXTENSIONS, extension_for_upload, read_validated_upload_content
 from app.models import SystemSetting, User
 from app.services.audit import log_action
 
@@ -93,7 +93,7 @@ async def upload_company_logo(
     os.makedirs(app_settings.MODEL_FILES_DIR, exist_ok=True)
     safe_name = f"company_logo_{uuid4().hex}{ext}"
     abs_path = os.path.join(app_settings.MODEL_FILES_DIR, safe_name)
-    content = validated_upload_content(await file.read(), ext, 5 * 1024 * 1024)
+    content = await read_validated_upload_content(file, ext, 5 * 1024 * 1024)
     with open(abs_path, "wb") as f:
         f.write(content)
     logo_url = f"/storage/model-files/{safe_name}"

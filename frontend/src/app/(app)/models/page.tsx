@@ -36,10 +36,13 @@ export default function ModelsPage() {
   const { t, lang } = useT();
   const isAdmin = can(me, "*");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(12);
+  const [showFilters, setShowFilters] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [expandedActions, setExpandedActions] = useState<number | null>(null);
   const modelsUrl = `/api/models?include_total=true&page=${page}&page_size=${pageSize}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
   const { data: pageData, mutate } = useSWR<any>(modelsUrl, fetcher);
-  const data: Model[] = pageData?.rows || [];
+  const data = useMemo<Model[]>(() => pageData?.rows || [], [pageData?.rows]);
 
   const [filters, setFilters] = useState({ code: "", name: "", category: "" });
   const [form, setForm] = useState({ code: "", name: "", category: "", sam_minutes: 0 });
@@ -72,8 +75,10 @@ export default function ModelsPage() {
     const contentType = String(image?.content_type || "").toLowerCase();
     const fileName = String(image?.file_name || image?.file_url || m.primary_image_url || "").toLowerCase();
     const looksLikeImage = contentType.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(fileName);
-    if (image?.file_url && looksLikeImage) return image.file_url;
-    return m.primary_image_url || "";
+    const imageUrl = image?.file_url && looksLikeImage ? image.file_url : m.primary_image_url || "";
+    const match = imageUrl.match(/^\/storage\/model-files\/([^/?#]+)$/);
+    if (match) return `/storage/model-files/thumb/${match[1]}?size=320`;
+    return imageUrl;
   }
 
   async function create(e: React.FormEvent) {
@@ -115,7 +120,15 @@ export default function ModelsPage() {
   return (
     <div>
       <PageHeader title={t("page.models.title")} subtitle={t("page.models.subtitle")} />
-      <form onSubmit={(e) => e.preventDefault()} className="card p-4 mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="mb-3 flex flex-wrap gap-2 md:hidden">
+        <button type="button" className="btn flex-1 justify-center" onClick={() => setShowFilters((open) => !open)}>
+          {showFilters ? t("page.models.hideFilters") : t("page.models.showFilters")}
+        </button>
+        <button type="button" className="btn btn-primary flex-1 justify-center" onClick={() => setShowCreate((open) => !open)}>
+          {showCreate ? t("page.models.hideCreate") : t("page.models.showCreate")}
+        </button>
+      </div>
+      <form onSubmit={(e) => e.preventDefault()} className={`${showFilters ? "grid" : "hidden"} card mb-4 grid-cols-1 gap-3 p-4 md:grid md:grid-cols-3`}>
         <input
           className="input"
           placeholder={t("common.code")}
@@ -135,7 +148,7 @@ export default function ModelsPage() {
           onChange={(e) => setFilters((prev) => ({ ...prev, category: e.target.value }))}
         />
       </form>
-      <form onSubmit={create} className="card p-4 mb-6 grid grid-cols-1 md:grid-cols-5 gap-3">
+      <form onSubmit={create} className={`${showCreate ? "grid" : "hidden"} card mb-6 grid-cols-1 gap-3 p-4 md:grid md:grid-cols-5`}>
         <input className="input" placeholder={t("common.code")} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} required />
         <input className="input" placeholder={t("common.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
         <input className="input" placeholder={t("field.category")} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
@@ -147,12 +160,22 @@ export default function ModelsPage() {
         {rows.map((m) => {
           const imageUrl = previewImageUrl(m);
           const modelName = displayModelName(m);
+          const hasSecondaryActions = m.status !== "approved" || isAdmin;
+          const actionsOpen = expandedActions === m.id;
           return (
             <article key={m.id} className="overflow-hidden rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm transition hover:border-[#d6ceb9] hover:shadow-md">
               <div className="grid min-h-[172px] grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)]">
                 <Link href={`/models/${m.id}`} className="block h-full bg-[#f1efe8]">
                   {imageUrl ? (
-                    <img src={imageUrl} alt={modelName} className="h-full min-h-[172px] w-full object-cover" loading="lazy" />
+                    <img
+                      src={imageUrl}
+                      alt={modelName}
+                      className="h-full min-h-[172px] w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                      width={320}
+                      height={320}
+                    />
                   ) : (
                     <div className="flex h-full min-h-[172px] flex-col items-center justify-center gap-2 border-r border-[#e3dfd3] px-3 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-full border border-[#ded9ca] bg-[#fdfcf8] text-sm font-semibold text-[#56503f]">
@@ -188,16 +211,32 @@ export default function ModelsPage() {
                     </div>
                   </dl>
 
-                  <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-2 pt-4 text-sm">
-                    <Link href={`/models/${m.id}`} className="font-medium text-brand-600 hover:underline">{t("btn.view")}</Link>
-                    {m.status !== "approved" && (
-                      <button type="button" className="font-medium text-green-700 hover:underline" onClick={() => approve(m.id)}>{t("btn.approve")}</button>
-                    )}
-                    {isAdmin && (
-                      <>
-                        <button type="button" className="font-medium text-slate-700 hover:underline" onClick={() => openEdit(m)}>{t("btn.edit")}</button>
-                        <button type="button" className="font-medium text-red-600 hover:underline" onClick={() => removeModel(m)}>{t("common.delete")}</button>
-                      </>
+                  <div className="mt-auto pt-4 text-sm">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                      <Link href={`/models/${m.id}`} className="font-medium text-brand-600 hover:underline">{t("btn.view")}</Link>
+                      {hasSecondaryActions && (
+                        <button
+                          type="button"
+                          className="font-medium text-[#56503f] hover:underline sm:hidden"
+                          onClick={() => setExpandedActions(actionsOpen ? null : m.id)}
+                          aria-expanded={actionsOpen}
+                        >
+                          {t("common.actions")}
+                        </button>
+                      )}
+                    </div>
+                    {hasSecondaryActions && (
+                      <div className={`${actionsOpen ? "flex" : "hidden"} mt-2 flex-wrap items-center gap-x-3 gap-y-2 sm:flex`}>
+                        {m.status !== "approved" && (
+                          <button type="button" className="font-medium text-green-700 hover:underline" onClick={() => approve(m.id)}>{t("btn.approve")}</button>
+                        )}
+                        {isAdmin && (
+                          <>
+                            <button type="button" className="font-medium text-slate-700 hover:underline" onClick={() => openEdit(m)}>{t("btn.edit")}</button>
+                            <button type="button" className="font-medium text-red-600 hover:underline" onClick={() => removeModel(m)}>{t("common.delete")}</button>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

@@ -12,11 +12,14 @@ os.environ["BARCODE_STORAGE_DIR"] = os.path.join(_tmpdir, "barcodes")
 os.environ["SALES_ORDER_FILES_DIR"] = os.path.join(_tmpdir, "sales_order_files")
 os.environ["MODEL_FILES_DIR"] = os.path.join(_tmpdir, "model_files")
 os.environ["JWT_SECRET"] = "test-secret"
+os.environ["FILE_SIGNING_SECRET"] = "test-file-signing-secret-abcdefghijklmnopqrstuvwxyz"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
 os.environ["INTEGRATION_1C_TOKEN"] = "test-1c-token"
 os.environ["INITIAL_ADMIN_EMAIL"] = "admin@example.com"
 os.environ["INITIAL_ADMIN_PASSWORD"] = "test-admin-password-123!"
 os.environ["SEED_DEMO_USERS"] = "true"
+os.environ["SEED_SAMPLE_DATA"] = "true"
+os.environ["IMPORT_LEGACY_MODELS"] = "false"
 
 from fastapi.testclient import TestClient
 
@@ -67,7 +70,7 @@ def client():
 @pytest.fixture
 def admin_token(client):
     r = client.post(
-        "/api/auth/login",
+        "/api/auth/token",
         data={"username": "admin@example.com", "password": "test-admin-password-123!"},
     )
     assert r.status_code == 200, r.text
