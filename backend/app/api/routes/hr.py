@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 
+from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.models import Employee, User
 from app.services.audit import log_action
@@ -87,7 +88,8 @@ def _backfill_employees_from_users(db: DbSession) -> int:
 
 @router.get("/employees")
 def list_employees(db: DbSession, current: CurrentUser):
-    _backfill_employees_from_users(db)
+    if settings.BACKFILL_EMPLOYEES_FROM_USERS:
+        _backfill_employees_from_users(db)
     rows = db.query(Employee).order_by(Employee.id.desc()).all()
     include_private = _can_view_private_employee_fields(current)
     return [_serialize(r, include_private=include_private) for r in rows]

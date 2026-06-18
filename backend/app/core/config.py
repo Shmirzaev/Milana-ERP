@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     SEED_DEMO_USERS: bool = False
     SEED_SAMPLE_DATA: bool = False
     IMPORT_LEGACY_MODELS: bool = False
+    BACKFILL_EMPLOYEES_FROM_USERS: bool = False
     PASSWORD_MIN_LENGTH: int = 12
     AUTH_MAX_FAILED_ATTEMPTS: int = 5
     AUTH_WINDOW_SECONDS: int = 15 * 60

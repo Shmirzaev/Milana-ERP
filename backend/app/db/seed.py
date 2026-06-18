@@ -227,11 +227,23 @@ def seed():
         admin_email = normalize_email(settings.INITIAL_ADMIN_EMAIL or LEGACY_DEFAULT_ADMIN_EMAIL)
         admin_password = _initial_admin_password()
         admin = db.query(User).filter(User.email == admin_email).first()
+        manage_configured_admin_password = True
         if not admin and admin_email != LEGACY_DEFAULT_ADMIN_EMAIL:
             legacy_admin = db.query(User).filter(User.email == LEGACY_DEFAULT_ADMIN_EMAIL).first()
             if legacy_admin:
                 legacy_admin.email = admin_email
                 admin = legacy_admin
+
+        if not admin:
+            active_admin = (
+                db.query(User)
+                .filter(User.role_id == role_map["Admin"].id, User.is_active.is_(True))
+                .order_by(User.id.asc())
+                .first()
+            )
+            if active_admin:
+                admin = active_admin
+                manage_configured_admin_password = False
 
         if not admin:
             admin_is_active = bool(admin_password)
@@ -249,7 +261,7 @@ def seed():
                     "Seed warning: created inactive admin bootstrap user. "
                     "Set INITIAL_ADMIN_PASSWORD to activate the first admin."
                 )
-        elif _password_matches(LEGACY_DEFAULT_ADMIN_PASSWORD, admin.password_hash):
+        elif manage_configured_admin_password and _password_matches(LEGACY_DEFAULT_ADMIN_PASSWORD, admin.password_hash):
             if admin_password:
                 admin.password_hash = hash_password(admin_password)
                 admin.is_active = True
@@ -260,11 +272,11 @@ def seed():
                     "Seed security: disabled legacy default admin password. "
                     "Set INITIAL_ADMIN_PASSWORD to reactivate the admin user."
                 )
-        elif admin_password and not admin.is_active:
+        elif manage_configured_admin_password and admin_password and not admin.is_active:
             admin.password_hash = hash_password(admin_password)
             admin.is_active = True
             print("Seed security: activated initial admin from INITIAL_ADMIN_PASSWORD.")
-        elif admin_password and not _password_matches(admin_password, admin.password_hash):
+        elif manage_configured_admin_password and admin_password and not _password_matches(admin_password, admin.password_hash):
             admin.password_hash = hash_password(admin_password)
             admin.is_active = True
             print("Seed security: synchronized initial admin password from INITIAL_ADMIN_PASSWORD.")
