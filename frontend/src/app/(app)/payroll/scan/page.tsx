@@ -102,7 +102,8 @@ type PayrollSessionStats = {
   currency: string;
 };
 
-const STORAGE_KEY = "milana_payroll_scan_records_v1";
+const STORAGE_KEY = "milana_payroll_scan_records_v2";
+const LEGACY_STORAGE_KEYS = ["milana_payroll_scan_records_v1"];
 const EMPTY_RECORDS: PayrollRecord[] = [];
 const HISTORY_RENDER_LIMIT = 100;
 const AUTO_SUBMIT_DELAY_MS = 140;
@@ -393,6 +394,9 @@ export default function PayrollScanPage() {
 
   useEffect(() => {
     try {
+      for (const key of LEGACY_STORAGE_KEYS) {
+        localStorage.removeItem(key);
+      }
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
