@@ -382,6 +382,7 @@ def me(user: CurrentUser, db: DbSession):
         email=user.email,
         role=user.role.name if user.role else None,
         department=user.department.name if user.department else None,
+        extra_permissions=user.extra_permissions or [],
         permissions=user_permissions(user),
     )
 
@@ -403,6 +404,7 @@ def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
         email=user.email,
         role=user.role.name if user.role else None,
         department=user.department.name if user.department else None,
+        extra_permissions=user.extra_permissions or [],
         permissions=user_permissions(user),
     )
 

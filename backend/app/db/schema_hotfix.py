@@ -26,6 +26,7 @@ _PATCHES: list[tuple[str, str]] = [
     ("users",       "ADD COLUMN IF NOT EXISTS tokens_valid_from TIMESTAMPTZ"),
     ("users",       "ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ"),
     ("users",       "ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ"),
+    ("users",       "ADD COLUMN IF NOT EXISTS extra_permissions JSON NOT NULL DEFAULT '[]'::json"),
     ("work_orders", "ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE"),
     ("work_orders", "ADD COLUMN IF NOT EXISTS block_reason TEXT"),
     ("work_orders", "ADD COLUMN IF NOT EXISTS deadline TIMESTAMPTZ"),

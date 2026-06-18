@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 
@@ -34,6 +34,7 @@ class UserIn(BaseModel):
     password: str
     role_id: Optional[int] = None
     department_id: Optional[int] = None
+    extra_permissions: list[str] = Field(default_factory=list)
     is_active: bool = True
 
 
@@ -43,6 +44,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     role_id: Optional[int] = None
     department_id: Optional[int] = None
+    extra_permissions: Optional[list[str]] = None
     is_active: Optional[bool] = None
 
 
@@ -52,6 +54,7 @@ class UserOut(ORMModel):
     email: str
     role_id: Optional[int] = None
     department_id: Optional[int] = None
+    extra_permissions: list[str] = Field(default_factory=list)
     is_active: bool
     last_login_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None

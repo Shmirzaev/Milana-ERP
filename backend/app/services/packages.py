@@ -8,6 +8,7 @@ from app.models import (
     ProductionOrder, FinishedGoodsStock, Warehouse, ModelBOM, StockBatch, Model,
     ProductionBatch, StockReservation, ShipmentPackage, User, Notification,
 )
+from app.core.deps import user_permissions
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
 from app.services.finished_goods import infer_brand_and_collection
 from app.services.numbering import next_package_no
@@ -613,7 +614,7 @@ def _ensure_package_can_change(db: Session, pkg: Package) -> list[FinishedGoodsS
 
 def _is_package_change_approver(user: User) -> bool:
     role_name = (user.role.name if user.role else "").lower()
-    perms = set(user.role.permissions or []) if user.role else set()
+    perms = set(user_permissions(user))
     return "*" in perms or "management.approve" in perms or role_name in {"admin", "management"}
 
 

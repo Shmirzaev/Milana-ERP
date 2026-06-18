@@ -43,10 +43,26 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 DbSession = Annotated[Session, Depends(get_db)]
 
 
+def normalize_permissions(values) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        if not isinstance(value, str):
+            continue
+        permission = value.strip()
+        if not permission or permission in seen:
+            continue
+        seen.add(permission)
+        out.append(permission)
+    return out
+
+
 def user_permissions(user: User) -> list[str]:
+    permissions: list[str] = []
     if user.role and user.role.permissions:
-        return list(user.role.permissions)
-    return []
+        permissions.extend(user.role.permissions)
+    permissions.extend(getattr(user, "extra_permissions", None) or [])
+    return normalize_permissions(permissions)
 
 
 def is_admin(user: User) -> bool:

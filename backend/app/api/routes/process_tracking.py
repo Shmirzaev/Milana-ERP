@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import DbSession, CurrentUser, is_admin
+from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
 from app.models import (
     SalesOrder, ProductionOrder, Customer, Model, SewingFlow, SewingAssignment, User,
     CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, Package, PackageBatchAllocation,
@@ -37,7 +37,7 @@ def _can_view(user: User) -> bool:
         return True
     if user.role and user.role.name in ("Admin", "Management", "Sales", "Planning"):
         return True
-    perms = (user.role.permissions if user.role else []) or []
+    perms = user_permissions(user)
     return any(p in perms for p in ("processes.view", "sales.orders", "planning.production"))
 
 

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import or_
 
-from app.core.deps import DbSession, CurrentUser, is_admin
+from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
 from app.models import Task, User
 from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut
 from app.services.audit import log_action
@@ -17,7 +17,7 @@ def _can_manage(user: User) -> bool:
         return True
     if user.role and user.role.name in ("Admin", "Management"):
         return True
-    perms = (user.role.permissions if user.role else []) or []
+    perms = user_permissions(user)
     return "tasks.manage" in perms or "management.approve" in perms
 
 

@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import delete, update
 
 from app.core.config import settings
-from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
+from app.core.deps import DbSession, CurrentUser, normalize_permissions, require_permissions, user_permissions
 from fastapi import Depends
 from app.core.security import hash_password, normalize_email, validate_password_strength
 from app.db.base import Base
@@ -219,6 +219,29 @@ def _assert_can_grant_role(db: DbSession, actor: User, role_id: int | None) -> N
         raise HTTPException(403, f"You cannot grant permissions you don't hold: {sorted(missing)}")
 
 
+def _assert_can_grant_permissions(actor: User, permissions: list[str] | None) -> None:
+    actor_perms = set(user_permissions(actor))
+    if "*" in actor_perms:
+        return
+    target_perms = set(normalize_permissions(permissions))
+    if "*" in target_perms:
+        raise HTTPException(403, "You cannot grant administrator access")
+    missing = target_perms - actor_perms
+    if missing:
+        raise HTTPException(403, f"You cannot grant permissions you don't hold: {sorted(missing)}")
+
+
+def _effective_permissions_for(db: DbSession, role_id: int | None, extra_permissions: list[str] | None) -> list[str]:
+    permissions: list[str] = []
+    if role_id is not None:
+        role = db.get(Role, role_id)
+        if not role:
+            raise HTTPException(404, "Role not found")
+        permissions.extend(role.permissions or [])
+    permissions.extend(extra_permissions or [])
+    return normalize_permissions(permissions)
+
+
 def _count_active_admins(db: DbSession, exclude_user_id: int | None = None) -> int:
     count = 0
     for u in db.query(User).filter(User.is_active.is_(True)).all():
@@ -254,6 +277,8 @@ def create_user(payload: UserIn, db: DbSession, current: User = Depends(require_
     email = normalize_email(payload.email)
     _require_strong_password(payload.password)
     _assert_can_grant_role(db, current, payload.role_id)
+    extra_permissions = normalize_permissions(payload.extra_permissions)
+    _assert_can_grant_permissions(current, extra_permissions)
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(400, "Email already exists")
     u = User(
@@ -262,6 +287,7 @@ def create_user(payload: UserIn, db: DbSession, current: User = Depends(require_
         password_hash=hash_password(payload.password),
         role_id=payload.role_id,
         department_id=payload.department_id,
+        extra_permissions=extra_permissions,
         is_active=payload.is_active,
     )
     db.add(u)
@@ -287,19 +313,29 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)
     actor_is_admin = "*" in user_permissions(current)
+    if "extra_permissions" in data:
+        data["extra_permissions"] = normalize_permissions(data["extra_permissions"])
     # Guard against self-escalation and self-lockout by a non-superadmin manager.
     if u.id == current.id and not actor_is_admin:
         if "role_id" in data and data["role_id"] != u.role_id:
             raise HTTPException(403, "You cannot change your own role")
+        if "extra_permissions" in data and set(data["extra_permissions"]) != set(normalize_permissions(u.extra_permissions)):
+            raise HTTPException(403, "You cannot change your own additional access")
         if data.get("is_active") is False:
             raise HTTPException(403, "You cannot deactivate your own account")
     # A role change may only grant permissions the actor already holds.
     if "role_id" in data and data["role_id"] != u.role_id:
         _assert_can_grant_role(db, current, data["role_id"])
+    if "extra_permissions" in data:
+        _assert_can_grant_permissions(current, data["extra_permissions"])
     # Never let the last active administrator be demoted or deactivated.
-    demoting_admin = "role_id" in data and data["role_id"] != u.role_id and "*" in (user_permissions(u))
+    was_admin = "*" in user_permissions(u)
+    future_role_id = data.get("role_id", u.role_id)
+    future_extra_permissions = data.get("extra_permissions", u.extra_permissions or [])
+    future_admin = "*" in _effective_permissions_for(db, future_role_id, future_extra_permissions)
+    demoting_admin = was_admin and not future_admin
     deactivating = data.get("is_active") is False and u.is_active
-    if (demoting_admin or deactivating) and "*" in user_permissions(u) and _count_active_admins(db, exclude_user_id=u.id) == 0:
+    if (demoting_admin or deactivating) and was_admin and _count_active_admins(db, exclude_user_id=u.id) == 0:
         raise HTTPException(400, "Cannot remove the last active administrator")
     if "password" in data and data["password"]:
         _require_strong_password(data["password"])

@@ -8,7 +8,7 @@ import Modal from "@/components/Modal";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useT } from "@/lib/i18n";
 
-type Role = { id: number; name: string };
+type Role = { id: number; name: string; permissions: string[] };
 type Dept = { id: number; name: string };
 type User = {
   id: number;
@@ -16,10 +16,98 @@ type User = {
   email: string;
   role_id: number | null;
   department_id: number | null;
+  extra_permissions: string[];
   is_active: boolean;
   last_login_at: string | null;
   last_seen_at: string | null;
 };
+
+type PermissionOption = { value: string; label: string };
+type AccessGroup = { title: string; permissions: PermissionOption[] };
+
+const ACCESS_GROUPS: AccessGroup[] = [
+  {
+    title: "Sales",
+    permissions: [
+      { value: "sales.orders", label: "Sales orders" },
+      { value: "sales.customers", label: "Customers" },
+    ],
+  },
+  {
+    title: "Planning",
+    permissions: [
+      { value: "planning.view", label: "Planning dashboard" },
+      { value: "planning.requirements", label: "Planning requirements" },
+      { value: "planning.production", label: "Production orders" },
+      { value: "processes.view", label: "Process tracking" },
+      { value: "sewing.flows", label: "Sewing flows" },
+    ],
+  },
+  {
+    title: "Modeling / PLM",
+    permissions: [
+      { value: "modeling.models", label: "Models" },
+      { value: "modeling.bom", label: "Bill of materials" },
+      { value: "modeling.brands", label: "Brands" },
+      { value: "modeling.collections", label: "Collections" },
+      { value: "modeling.approve", label: "Model approval" },
+    ],
+  },
+  {
+    title: "Production Floor",
+    permissions: [
+      { value: "cutting.records", label: "Cutting records" },
+      { value: "cutting.bundles", label: "Cutting bundles" },
+      { value: "printing.records", label: "Printing records" },
+      { value: "printing.bundles", label: "Printing bundles" },
+      { value: "sewing.records", label: "Sewing records" },
+      { value: "sewing.bundles", label: "Sewing bundles" },
+      { value: "packaging.records", label: "Packaging records" },
+      { value: "packaging.packages", label: "Packaging packages" },
+      { value: "production.override_deadline", label: "Deadline override" },
+    ],
+  },
+  {
+    title: "Storage & Shipment",
+    permissions: [
+      { value: "storage.receive", label: "Receive stock" },
+      { value: "storage.transfer", label: "Transfer stock" },
+      { value: "storage.items", label: "Inventory items" },
+      { value: "storage.suppliers", label: "Suppliers" },
+      { value: "storage.packages", label: "Warehouse packages" },
+      { value: "storage.shipment", label: "Shipments" },
+    ],
+  },
+  {
+    title: "Finance",
+    permissions: [
+      { value: "finance.view", label: "Finance dashboard" },
+      { value: "finance.invoice", label: "Invoices" },
+      { value: "finance.payment", label: "Payments" },
+    ],
+  },
+  {
+    title: "People & Admin",
+    permissions: [
+      { value: "hr.employees", label: "Employees" },
+      { value: "admin.users", label: "Users" },
+      { value: "admin.audit", label: "Audit logs" },
+      { value: "tasks.manage", label: "Manage tasks" },
+      { value: "management.view", label: "Management dashboard" },
+      { value: "management.approve", label: "Management approvals" },
+    ],
+  },
+  {
+    title: "Waste",
+    permissions: [
+      { value: "waste.receive", label: "Receive waste" },
+      { value: "waste.sell", label: "Sell waste" },
+      { value: "waste.disposal", label: "Waste disposal" },
+    ],
+  },
+];
+
+const KNOWN_PERMISSION_VALUES = new Set(ACCESS_GROUPS.flatMap((group) => group.permissions.map((permission) => permission.value)));
 
 const RECENT_ACTIVITY_MS = 15 * 60 * 1000;
 const ACTIVE_THIS_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -28,6 +116,18 @@ function parseActivityDate(value?: string | null) {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function uniquePermissions(values: string[]) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const permission = value.trim();
+    if (!permission || seen.has(permission)) continue;
+    seen.add(permission);
+    out.push(permission);
+  }
+  return out;
 }
 
 export default function AdminUsersPage() {
@@ -85,6 +185,7 @@ export default function AdminUsersPage() {
     password: "",
     role_id: 0,
     department_id: 0,
+    extra_permissions: [] as string[],
     is_active: true,
   });
   const [editMsg, setEditMsg] = useState("");
@@ -98,6 +199,7 @@ export default function AdminUsersPage() {
       password: "",
       role_id: u.role_id ?? 0,
       department_id: u.department_id ?? 0,
+      extra_permissions: uniquePermissions(u.extra_permissions ?? []),
       is_active: u.is_active,
     });
     setEditMsg("");
@@ -113,6 +215,11 @@ export default function AdminUsersPage() {
         email: edit.email,
         role_id: edit.role_id || null,
         department_id: edit.department_id || null,
+        extra_permissions: uniquePermissions(edit.extra_permissions).filter((permission) => {
+          const role = roles?.find((r) => r.id === edit.role_id);
+          const rolePermissions = new Set(role?.permissions ?? []);
+          return !rolePermissions.has("*") && !rolePermissions.has(permission);
+        }),
         is_active: edit.is_active,
       };
       if (edit.password.trim()) payload.password = edit.password;
@@ -153,6 +260,43 @@ export default function AdminUsersPage() {
       );
     });
   }, [data, roles, depts, q]);
+
+  const selectedRole = useMemo(() => roles?.find((r) => r.id === edit.role_id), [roles, edit.role_id]);
+  const selectedRolePermissions = useMemo(() => new Set(selectedRole?.permissions ?? []), [selectedRole]);
+  const roleHasFullAccess = selectedRolePermissions.has("*");
+  const accessGroups = useMemo(() => {
+    const extraKnownPermissions = new Set<string>();
+    roles?.forEach((role) => {
+      (role.permissions ?? []).forEach((permission) => {
+        if (permission !== "*" && !KNOWN_PERMISSION_VALUES.has(permission)) extraKnownPermissions.add(permission);
+      });
+    });
+    edit.extra_permissions.forEach((permission) => {
+      if (permission !== "*" && !KNOWN_PERMISSION_VALUES.has(permission)) extraKnownPermissions.add(permission);
+    });
+    if (!extraKnownPermissions.size) return ACCESS_GROUPS;
+    return [
+      ...ACCESS_GROUPS,
+      {
+        title: t("page.admin.users.accessOther"),
+        permissions: [...extraKnownPermissions].sort().map((permission) => ({ value: permission, label: permission })),
+      },
+    ];
+  }, [edit.extra_permissions, roles, t]);
+  const additionalAccessCount = uniquePermissions(edit.extra_permissions).filter((permission) => {
+    if (roleHasFullAccess) return false;
+    return !selectedRolePermissions.has(permission);
+  }).length;
+
+  function toggleExtraPermission(permission: string, enabled: boolean) {
+    if (roleHasFullAccess || selectedRolePermissions.has(permission)) return;
+    setEdit((current) => ({
+      ...current,
+      extra_permissions: enabled
+        ? uniquePermissions([...current.extra_permissions, permission])
+        : current.extra_permissions.filter((value) => value !== permission),
+    }));
+  }
 
   const activityStats = useMemo(() => {
     if (nowMs === null) return { onlineRecently: 0, activeThisWeek: 0, notUsing: 0 };
@@ -312,6 +456,54 @@ export default function AdminUsersPage() {
             <input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />
             {t("field.active")}
           </label>
+          <section className="rounded-md border border-[#e3dfd3] bg-[#f8f6ef] p-3">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-[#2c2920]">{t("page.admin.users.additionalAccess")}</h3>
+                <p className="mt-1 text-xs text-[#6f6858]">{t("page.admin.users.additionalAccessHelp")}</p>
+              </div>
+              <span className="badge badge-blue">{t("page.admin.users.extraAccessCount", { count: additionalAccessCount })}</span>
+            </div>
+            <div className="max-h-56 space-y-3 overflow-y-auto pr-1">
+              {accessGroups.map((group) => (
+                <div key={group.title}>
+                  <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8a8472]">{group.title}</div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {group.permissions.map((permission) => {
+                      const includedByRole = roleHasFullAccess || selectedRolePermissions.has(permission.value);
+                      const enabled = includedByRole || edit.extra_permissions.includes(permission.value);
+                      return (
+                        <label
+                          key={permission.value}
+                          className={`flex min-h-10 items-center justify-between gap-3 rounded-md border border-[#e3dfd3] bg-[#fffdf7] px-3 py-2 text-sm ${
+                            includedByRole ? "text-[#8a8472]" : "text-[#2c2920]"
+                          }`}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate">{permission.label}</span>
+                            <span className="block truncate text-[11px] text-[#8a8472]">{permission.value}</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            {includedByRole && (
+                              <span className="rounded bg-[#eee9dc] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#6f6858]">
+                                {roleHasFullAccess ? t("page.admin.users.fullRoleAccess") : t("page.admin.users.includedInRole")}
+                              </span>
+                            )}
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              disabled={includedByRole}
+                              onChange={(e) => toggleExtraPermission(permission.value, e.target.checked)}
+                            />
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
           {editMsg && <div className="text-sm text-red-600">{editMsg}</div>}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="btn" onClick={() => setEditing(null)}>{t("btn.cancel")}</button>
