@@ -21,6 +21,8 @@ type User = {
   is_active: boolean;
   last_login_at: string | null;
   last_seen_at: string | null;
+  password_setup_email_sent?: boolean | null;
+  password_setup_email_error?: string | null;
 };
 
 type PermissionOption = { value: string; label: string };
@@ -178,20 +180,33 @@ export default function AdminUsersPage() {
   });
   const [createMsg, setCreateMsg] = useState("");
   const [createError, setCreateError] = useState(false);
+  const [setupSendingUserId, setSetupSendingUserId] = useState<number | null>(null);
+  const [setupMessages, setSetupMessages] = useState<Record<number, string>>({});
+  const [setupErrors, setSetupErrors] = useState<Record<number, boolean>>({});
+
+  function emailDeliveryText(user: User, successKey: string, failedKey: string) {
+    if (user.password_setup_email_sent) return { message: t(successKey), error: false };
+    if (user.password_setup_email_error) {
+      return { message: t(failedKey, { error: user.password_setup_email_error }), error: true };
+    }
+    return { message: t(successKey), error: false };
+  }
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setCreateMsg("");
     setCreateError(false);
     try {
-      await api.post("/api/users", {
+      const created = await api.post<User>("/api/users", {
         ...f,
         role_id: f.role_id || null,
         department_id: f.department_id || null,
       });
       mutate();
       setF({ name: "", email: "", role_id: 0, department_id: 0, is_active: true });
-      setCreateMsg(t("page.admin.users.setupEmailQueued"));
+      const delivery = emailDeliveryText(created, "page.admin.users.setupEmailSent", "page.admin.users.setupEmailFailed");
+      setCreateError(delivery.error);
+      setCreateMsg(delivery.message);
     } catch (e: any) {
       setCreateError(true);
       setCreateMsg(e.message);
@@ -262,6 +277,24 @@ export default function AdminUsersPage() {
       mutate();
     } catch (e: any) {
       alert(e.message);
+    }
+  }
+
+  async function sendSetupLink(u: User) {
+    setSetupSendingUserId(u.id);
+    setSetupMessages((current) => ({ ...current, [u.id]: "" }));
+    setSetupErrors((current) => ({ ...current, [u.id]: false }));
+    try {
+      const result = await api.post<User>(`/api/users/${u.id}/password-setup`);
+      mutate();
+      const delivery = emailDeliveryText(result, "page.admin.users.setupEmailResent", "page.admin.users.setupEmailResendFailed");
+      setSetupErrors((current) => ({ ...current, [u.id]: delivery.error }));
+      setSetupMessages((current) => ({ ...current, [u.id]: delivery.message }));
+    } catch (e: any) {
+      setSetupErrors((current) => ({ ...current, [u.id]: true }));
+      setSetupMessages((current) => ({ ...current, [u.id]: e.message }));
+    } finally {
+      setSetupSendingUserId(null);
     }
   }
 
@@ -439,23 +472,40 @@ export default function AdminUsersPage() {
                       </span>
                     </div>
                   </td>
-                  <td className="flex gap-2">
-                    <button
-                      className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
-                      disabled={restrictedAdminAccount}
-                      title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
-                      onClick={() => openEdit(u)}
-                    >
-                      {t("btn.edit")}
-                    </button>
-                    <button
-                      className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
-                      disabled={adminAccount && !canManageAdmins}
-                      title={adminAccount && !canManageAdmins ? t("page.admin.users.superAdminOnly") : undefined}
-                      onClick={() => deleteUser(u)}
-                    >
-                      {t("btn.delete")}
-                    </button>
+                  <td>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+                        disabled={restrictedAdminAccount}
+                        title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
+                        onClick={() => openEdit(u)}
+                      >
+                        {t("btn.edit")}
+                      </button>
+                      {!u.last_login_at && u.is_active && (
+                        <button
+                          className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+                          disabled={restrictedAdminAccount || setupSendingUserId === u.id}
+                          title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
+                          onClick={() => sendSetupLink(u)}
+                        >
+                          {setupSendingUserId === u.id ? t("page.admin.users.setupEmailSending") : t("page.admin.users.resendSetupLink")}
+                        </button>
+                      )}
+                      <button
+                        className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+                        disabled={adminAccount && !canManageAdmins}
+                        title={adminAccount && !canManageAdmins ? t("page.admin.users.superAdminOnly") : undefined}
+                        onClick={() => deleteUser(u)}
+                      >
+                        {t("btn.delete")}
+                      </button>
+                    </div>
+                    {setupMessages[u.id] && (
+                      <div className={`mt-1 text-xs ${setupErrors[u.id] ? "text-red-600" : "text-green-700"}`}>
+                        {setupMessages[u.id]}
+                      </div>
+                    )}
                   </td>
                 </tr>
               );

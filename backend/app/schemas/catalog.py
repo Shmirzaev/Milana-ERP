@@ -59,6 +59,8 @@ class UserOut(ORMModel):
     last_login_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None
     created_at: datetime
+    password_setup_email_sent: Optional[bool] = None
+    password_setup_email_error: Optional[str] = None
 
 
 # Customers / Suppliers

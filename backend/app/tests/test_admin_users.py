@@ -70,6 +70,8 @@ def test_create_user_without_password_emails_setup_link(client, auth_headers, mo
         headers=auth_headers,
     )
     assert r.status_code == 201, r.text
+    assert r.json()["password_setup_email_sent"] is True
+    assert r.json()["password_setup_email_error"] is None
     assert sent["to_email"] == "setup.link.user@example.com"
     assert sent["display_name"] == "Setup Link User"
     assert sent["setup_url"].endswith("/reset-password?token=new-user-setup-token")
@@ -95,6 +97,55 @@ def test_create_user_without_password_emails_setup_link(client, auth_headers, mo
     me = client.get("/api/auth/me", headers=setup_headers)
     assert me.status_code == 200, me.text
     assert me.json()["email"] == "setup.link.user@example.com"
+
+
+def test_create_user_reports_setup_email_failure(client, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.services.password_reset.send_password_setup_email", lambda *args, **kwargs: False)
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "No Mail Setup User",
+            "email": "no.mail.setup@example.com",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["password_setup_email_sent"] is False
+    assert "Email delivery is not configured" in body["password_setup_email_error"]
+
+
+def test_admin_can_resend_password_setup_link(client, auth_headers, monkeypatch):
+    sent = {}
+
+    def fake_send(to_email, display_name, setup_url):
+        sent["to_email"] = to_email
+        sent["display_name"] = display_name
+        sent["setup_url"] = setup_url
+        return True
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Resend Setup User",
+            "email": "resend.setup.user@example.com",
+            "password": "ResendSetup!2026",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    user_id = r.json()["id"]
+
+    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "resend-setup-token")
+    monkeypatch.setattr("app.services.password_reset.send_password_setup_email", fake_send)
+
+    resend = client.post(f"/api/users/{user_id}/password-setup", headers=auth_headers)
+    assert resend.status_code == 200, resend.text
+    assert resend.json()["password_setup_email_sent"] is True
+    assert sent["to_email"] == "resend.setup.user@example.com"
+    assert sent["display_name"] == "Resend Setup User"
+    assert sent["setup_url"].endswith("/reset-password?token=resend-setup-token")
 
 
 def test_limited_user_manager_cannot_grant_extra_permissions_they_lack(client, auth_headers):

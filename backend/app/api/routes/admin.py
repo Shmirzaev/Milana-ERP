@@ -2,7 +2,7 @@ from datetime import datetime, time, timezone
 import secrets
 
 from pydantic import BaseModel
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import delete, update
 
 from app.core.config import settings
@@ -24,7 +24,7 @@ from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
 from app.services.audit import log_action
-from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
+from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email
 from app.db.reset_demo import reset_to_seed
 
 router = APIRouter(tags=["admin"])
@@ -55,6 +55,7 @@ ACTION_LABELS = {
     "generate_invoice": "generated invoice",
     "mark_disposed": "marked disposed",
     "mark_shipped": "marked shipped",
+    "password_setup": "sent password setup",
     "receive": "received",
     "receive_at_printing": "received at printing",
     "receive_at_sewing": "received at sewing",
@@ -325,7 +326,6 @@ def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users
 def create_user(
     payload: UserIn,
     db: DbSession,
-    background_tasks: BackgroundTasks,
     current: User = Depends(require_permissions("admin.users", "*")),
 ):
     email = normalize_email(payload.email)
@@ -363,7 +363,9 @@ def create_user(
     db.commit()
     db.refresh(u)
     if setup_url:
-        background_tasks.add_task(send_password_email_safely, u.email, u.name, setup_url, u.id, "setup")
+        delivery = send_password_email(u.email, u.name, setup_url, u.id, "setup")
+        u.password_setup_email_sent = delivery.sent
+        u.password_setup_email_error = delivery.error
     return u
 
 
@@ -372,6 +374,37 @@ def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions(
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
+    return u
+
+
+@router.post("/users/{user_id}/password-setup", response_model=UserOut)
+def send_user_password_setup(
+    user_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("admin.users", "*")),
+):
+    u = db.get(User, user_id)
+    if not u:
+        raise HTTPException(404, "User not found")
+    if not u.is_active:
+        raise HTTPException(400, "Cannot send a setup link to an inactive user")
+    if "*" in user_permissions(u) and not is_super_admin(current):
+        raise HTTPException(403, "Only a super admin can manage administrator accounts")
+    setup_token = create_password_reset_token(db, u)
+    setup_url = password_reset_url(setup_token)
+    log_action(
+        db,
+        current,
+        "password_setup",
+        "User",
+        u.id,
+        new_value={"email": u.email, "password_setup_email_requested": True},
+    )
+    db.commit()
+    db.refresh(u)
+    delivery = send_password_email(u.email, u.name, setup_url, u.id, "setup")
+    u.password_setup_email_sent = delivery.sent
+    u.password_setup_email_error = delivery.error
     return u
 
 
