@@ -24,6 +24,7 @@ type User = {
   password_setup_email_sent?: boolean | null;
   password_setup_email_error?: string | null;
 };
+type PasswordSetupLink = { password_setup_url: string };
 
 type PermissionOption = { value: string; label: string };
 type AccessGroup = { title: string; permissions: PermissionOption[] };
@@ -181,6 +182,7 @@ export default function AdminUsersPage() {
   const [createMsg, setCreateMsg] = useState("");
   const [createError, setCreateError] = useState(false);
   const [setupSendingUserId, setSetupSendingUserId] = useState<number | null>(null);
+  const [setupLinkGeneratingUserId, setSetupLinkGeneratingUserId] = useState<number | null>(null);
   const [setupMessages, setSetupMessages] = useState<Record<number, string>>({});
   const [setupErrors, setSetupErrors] = useState<Record<number, boolean>>({});
 
@@ -295,6 +297,27 @@ export default function AdminUsersPage() {
       setSetupMessages((current) => ({ ...current, [u.id]: e.message }));
     } finally {
       setSetupSendingUserId(null);
+    }
+  }
+
+  async function copySetupLink(u: User) {
+    setSetupLinkGeneratingUserId(u.id);
+    setSetupMessages((current) => ({ ...current, [u.id]: "" }));
+    setSetupErrors((current) => ({ ...current, [u.id]: false }));
+    try {
+      const result = await api.post<PasswordSetupLink>(`/api/users/${u.id}/password-setup-link`);
+      try {
+        await navigator.clipboard.writeText(result.password_setup_url);
+      } catch {
+        window.prompt(t("page.admin.users.setupLinkCopyPrompt"), result.password_setup_url);
+      }
+      setSetupMessages((current) => ({ ...current, [u.id]: t("page.admin.users.setupLinkCopied") }));
+      setSetupErrors((current) => ({ ...current, [u.id]: false }));
+    } catch (e: any) {
+      setSetupErrors((current) => ({ ...current, [u.id]: true }));
+      setSetupMessages((current) => ({ ...current, [u.id]: t("page.admin.users.setupLinkFailed", { error: e.message }) }));
+    } finally {
+      setSetupLinkGeneratingUserId(null);
     }
   }
 
@@ -483,14 +506,24 @@ export default function AdminUsersPage() {
                         {t("btn.edit")}
                       </button>
                       {!u.last_login_at && u.is_active && (
-                        <button
-                          className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
-                          disabled={restrictedAdminAccount || setupSendingUserId === u.id}
-                          title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
-                          onClick={() => sendSetupLink(u)}
-                        >
-                          {setupSendingUserId === u.id ? t("page.admin.users.setupEmailSending") : t("page.admin.users.resendSetupLink")}
-                        </button>
+                        <>
+                          <button
+                            className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+                            disabled={restrictedAdminAccount || setupSendingUserId === u.id}
+                            title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
+                            onClick={() => sendSetupLink(u)}
+                          >
+                            {setupSendingUserId === u.id ? t("page.admin.users.setupEmailSending") : t("page.admin.users.resendSetupLink")}
+                          </button>
+                          <button
+                            className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+                            disabled={restrictedAdminAccount || setupLinkGeneratingUserId === u.id}
+                            title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
+                            onClick={() => copySetupLink(u)}
+                          >
+                            {setupLinkGeneratingUserId === u.id ? t("page.admin.users.setupLinkGenerating") : t("page.admin.users.copySetupLink")}
+                          </button>
+                        </>
                       )}
                       <button
                         className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"

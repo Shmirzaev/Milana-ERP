@@ -21,7 +21,7 @@ from app.core.security import hash_password, normalize_email, validate_password_
 from app.db.base import Base
 from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
 from app.schemas.catalog import (
-    UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
+    UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut, PasswordSetupLinkOut,
 )
 from app.services.audit import log_action
 from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email
@@ -56,6 +56,7 @@ ACTION_LABELS = {
     "mark_disposed": "marked disposed",
     "mark_shipped": "marked shipped",
     "password_setup": "sent password setup",
+    "password_setup_link": "generated password setup link",
     "receive": "received",
     "receive_at_printing": "received at printing",
     "receive_at_sewing": "received at sewing",
@@ -406,6 +407,33 @@ def send_user_password_setup(
     u.password_setup_email_sent = delivery.sent
     u.password_setup_email_error = delivery.error
     return u
+
+
+@router.post("/users/{user_id}/password-setup-link", response_model=PasswordSetupLinkOut)
+def create_user_password_setup_link(
+    user_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("admin.users", "*")),
+):
+    u = db.get(User, user_id)
+    if not u:
+        raise HTTPException(404, "User not found")
+    if not u.is_active:
+        raise HTTPException(400, "Cannot create a setup link for an inactive user")
+    if "*" in user_permissions(u) and not is_super_admin(current):
+        raise HTTPException(403, "Only a super admin can manage administrator accounts")
+    setup_token = create_password_reset_token(db, u)
+    setup_url = password_reset_url(setup_token)
+    log_action(
+        db,
+        current,
+        "password_setup_link",
+        "User",
+        u.id,
+        new_value={"email": u.email, "password_setup_link_generated": True},
+    )
+    db.commit()
+    return PasswordSetupLinkOut(password_setup_url=setup_url)
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)

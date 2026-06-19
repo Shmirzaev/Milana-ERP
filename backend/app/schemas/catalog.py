@@ -63,6 +63,10 @@ class UserOut(ORMModel):
     password_setup_email_error: Optional[str] = None
 
 
+class PasswordSetupLinkOut(BaseModel):
+    password_setup_url: str
+
+
 # Customers / Suppliers
 class PartyIn(BaseModel):
     name: str

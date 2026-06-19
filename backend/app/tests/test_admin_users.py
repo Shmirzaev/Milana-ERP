@@ -174,6 +174,44 @@ def test_admin_can_resend_password_setup_link(client, auth_headers, monkeypatch)
     assert sent["setup_url"].endswith("/reset-password?token=resend-setup-token")
 
 
+def test_admin_can_create_password_setup_link_without_audit_token(client, auth_headers, monkeypatch):
+    from app.db.session import SessionLocal
+    from app.models import AuditLog
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Manual Setup User",
+            "email": "manual.setup.user@example.com",
+            "password": "ManualSetup!2026",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    user_id = r.json()["id"]
+
+    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "manual-setup-token")
+
+    link = client.post(f"/api/users/{user_id}/password-setup-link", headers=auth_headers)
+    assert link.status_code == 200, link.text
+    assert link.json()["password_setup_url"].endswith("/reset-password?token=manual-setup-token")
+
+    db = SessionLocal()
+    try:
+        audit = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.action == "password_setup_link",
+                AuditLog.entity_type == "User",
+                AuditLog.entity_id == user_id,
+            )
+            .one()
+        )
+        assert "manual-setup-token" not in str(audit.new_value_json)
+    finally:
+        db.close()
+
+
 def test_limited_user_manager_cannot_grant_extra_permissions_they_lack(client, auth_headers):
     hr_dept_id = _dept_id(client, auth_headers, "HR")
     manager_password = "LimitedManager!2026"
