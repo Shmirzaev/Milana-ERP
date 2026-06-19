@@ -10,6 +10,9 @@ from app.models import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
+SUPER_ADMIN_PERMISSION = "admin.super"
+SUPER_ADMIN_ROLE_NAME = "Super Admin"
+
 
 def get_current_user(
     request: Request,
@@ -67,6 +70,11 @@ def user_permissions(user: User) -> list[str]:
 
 def is_admin(user: User) -> bool:
     return "*" in user_permissions(user) or (user.role and user.role.name.lower() == "admin")
+
+
+def is_super_admin(user: User) -> bool:
+    role_name = (user.role.name if user.role else "").strip().lower()
+    return role_name == SUPER_ADMIN_ROLE_NAME.lower() or SUPER_ADMIN_PERMISSION in user_permissions(user)
 
 
 def require_permissions(*perms: str):

@@ -80,7 +80,9 @@ def test_me(client, auth_headers):
     assert r.status_code == 200
     body = r.json()
     assert body["email"] == "admin@example.com"
+    assert body["role"] == "Super Admin"
     assert "*" in body["permissions"]
+    assert "admin.super" in body["permissions"]
 
 
 def test_login_bad_password(client):

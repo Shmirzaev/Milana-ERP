@@ -113,6 +113,126 @@ def test_admin_can_still_assign_roles(client, auth_headers):
     assert r.status_code == 201, r.text
 
 
+def test_regular_admin_cannot_assign_or_remove_admins(client, auth_headers):
+    admin_role_id = _role_id(client, auth_headers, "Admin")
+    hr_role_id = _role_id(client, auth_headers, "HR")
+    hr_dept = _dept_id(client, auth_headers, "HR")
+    regular_admin_password = "RegularAdmin!2026"
+    protected_admin_password = "ProtectedAdmin!2026"
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Regular Admin",
+            "email": "regular.admin@example.com",
+            "password": regular_admin_password,
+            "role_id": admin_role_id,
+            "department_id": hr_dept,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Protected Admin",
+            "email": "protected.admin@example.com",
+            "password": protected_admin_password,
+            "role_id": admin_role_id,
+            "department_id": hr_dept,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    protected_admin_id = r.json()["id"]
+
+    admin_headers = _login(client, "regular.admin@example.com", regular_admin_password)
+
+    r = client.post(
+        "/api/roles",
+        json={"name": "ShadowFullAdmin", "permissions": ["*"]},
+        headers=admin_headers,
+    )
+    assert r.status_code == 403, r.text
+
+    r = client.post(
+        "/api/roles",
+        json={"name": "ShadowSuperAdmin", "permissions": ["admin.super"]},
+        headers=admin_headers,
+    )
+    assert r.status_code == 403, r.text
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Admin Created By Admin",
+            "email": "admin.created.by.admin@example.com",
+            "password": ESC_PW,
+            "role_id": admin_role_id,
+            "department_id": hr_dept,
+        },
+        headers=admin_headers,
+    )
+    assert r.status_code == 403, r.text
+
+    r = client.patch(f"/api/users/{protected_admin_id}", json={"role_id": hr_role_id}, headers=admin_headers)
+    assert r.status_code == 403, r.text
+
+    r = client.patch(
+        f"/api/users/{protected_admin_id}",
+        json={"password": "ResetProtected!2026"},
+        headers=admin_headers,
+    )
+    assert r.status_code == 403, r.text
+
+    r = client.patch(f"/api/users/{protected_admin_id}", json={"is_active": False}, headers=admin_headers)
+    assert r.status_code == 403, r.text
+
+    r = client.delete(f"/api/users/{protected_admin_id}", headers=admin_headers)
+    assert r.status_code == 403, r.text
+
+
+def test_super_admin_can_assign_and_remove_admin_role(client, auth_headers):
+    admin_role_id = _role_id(client, auth_headers, "Admin")
+    hr_role_id = _role_id(client, auth_headers, "HR")
+    hr_dept = _dept_id(client, auth_headers, "HR")
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Promoted Admin",
+            "email": "promoted.admin@example.com",
+            "password": "PromotedAdmin!2026",
+            "role_id": admin_role_id,
+            "department_id": hr_dept,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    promoted_admin_id = r.json()["id"]
+
+    r = client.patch(f"/api/users/{promoted_admin_id}", json={"role_id": hr_role_id}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["role_id"] == hr_role_id
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Removed Admin",
+            "email": "removed.admin@example.com",
+            "password": "RemovedAdmin!2026",
+            "role_id": admin_role_id,
+            "department_id": hr_dept,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.delete(f"/api/users/{r.json()['id']}", headers=auth_headers)
+    assert r.status_code == 204, r.text
+
+
 # ---------- H2: permission gating on state changes ----------
 
 def test_hr_user_cannot_post_quality_check(client, auth_headers):

@@ -33,8 +33,9 @@ DEPARTMENTS = [
     ("Waste Department", "WST"), ("Management / Admin", "ADM"),
 ]
 
-# Permissions per role (using "*" for full access)
+# Permissions per role (using "*" for full app access)
 ROLES = {
+    "Super Admin": ["*", "admin.super"],
     "Admin": ["*"],
     "Management": [
         "management.view", "management.approve", "finance.view", "admin.audit",
@@ -237,7 +238,10 @@ def seed():
         if not admin:
             active_admin = (
                 db.query(User)
-                .filter(User.role_id == role_map["Admin"].id, User.is_active.is_(True))
+                .filter(
+                    User.role_id.in_([role_map["Super Admin"].id, role_map["Admin"].id]),
+                    User.is_active.is_(True),
+                )
                 .order_by(User.id.asc())
                 .first()
             )
@@ -251,7 +255,7 @@ def seed():
                 name="System Admin",
                 email=admin_email,
                 password_hash=hash_password(admin_password or "inactive-admin-bootstrap-0"),
-                role_id=role_map["Admin"].id,
+                role_id=role_map["Super Admin"].id,
                 department_id=dept_map["ADM"].id,
                 is_active=admin_is_active,
             )
@@ -280,6 +284,9 @@ def seed():
             admin.password_hash = hash_password(admin_password)
             admin.is_active = True
             print("Seed security: synchronized initial admin password from INITIAL_ADMIN_PASSWORD.")
+
+        if admin and admin.role_id != role_map["Super Admin"].id:
+            admin.role_id = role_map["Super Admin"].id
 
         # A user per role (for quick demos). Disabled by default so shared
         # demo credentials are not created in secured deployments.

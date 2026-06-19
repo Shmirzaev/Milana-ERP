@@ -900,6 +900,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "page.admin.users.includedInRole": "Role",
     "page.admin.users.fullRoleAccess": "Full role",
     "page.admin.users.accessOther": "Other",
+    "page.admin.users.superAdminOnly": "Super Admin only",
     "page.admin.depts": "Departments",
     "page.admin.audit.title": "User Activity & Root Cause",
     "page.admin.audit.subtitle": "Manager-friendly history of who changed what, when, and where to investigate",

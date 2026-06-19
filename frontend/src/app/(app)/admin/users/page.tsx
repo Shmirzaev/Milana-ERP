@@ -7,6 +7,7 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useT } from "@/lib/i18n";
+import { useMe } from "@/lib/auth";
 
 type Role = { id: number; name: string; permissions: string[] };
 type Dept = { id: number; name: string };
@@ -24,6 +25,8 @@ type User = {
 
 type PermissionOption = { value: string; label: string };
 type AccessGroup = { title: string; permissions: PermissionOption[] };
+
+const SUPER_ADMIN_PERMISSION = "admin.super";
 
 const ACCESS_GROUPS: AccessGroup[] = [
   {
@@ -92,6 +95,7 @@ const ACCESS_GROUPS: AccessGroup[] = [
       { value: "hr.employees", label: "Employees" },
       { value: "admin.users", label: "Users" },
       { value: "admin.audit", label: "Audit logs" },
+      { value: SUPER_ADMIN_PERMISSION, label: "Super admin control" },
       { value: "tasks.manage", label: "Manage tasks" },
       { value: "management.view", label: "Management dashboard" },
       { value: "management.approve", label: "Management approvals" },
@@ -130,10 +134,22 @@ function uniquePermissions(values: string[]) {
   return out;
 }
 
+function roleIncludesPermission(role: Role | undefined, permission: string) {
+  const permissions = new Set(role?.permissions ?? []);
+  if (permissions.has(permission)) return true;
+  return permission !== SUPER_ADMIN_PERMISSION && permissions.has("*");
+}
+
+function roleIsAdministrator(role: Role | undefined) {
+  const permissions = new Set(role?.permissions ?? []);
+  return permissions.has("*") || permissions.has(SUPER_ADMIN_PERMISSION) || (role?.name ?? "").trim().toLowerCase() === "super admin";
+}
+
 export default function AdminUsersPage() {
   const searchParams = useSearchParams();
   const q = (searchParams.get("q") ?? "").trim().toLowerCase();
   const { t, lang } = useT();
+  const { me } = useMe();
   const { data, mutate } = useSWR<User[]>("/api/users", fetcher);
   const { data: roles } = useSWR<Role[]>("/api/roles", fetcher);
   const { data: depts } = useSWR<Dept[]>("/api/departments", fetcher);
@@ -144,6 +160,7 @@ export default function AdminUsersPage() {
     uz: "uz-UZ",
   };
   const locale = localeByLang[lang] || "en-US";
+  const canManageAdmins = Boolean(me?.permissions.includes(SUPER_ADMIN_PERMISSION));
 
   useEffect(() => {
     const updateNow = () => setNowMs(Date.now());
@@ -217,8 +234,7 @@ export default function AdminUsersPage() {
         department_id: edit.department_id || null,
         extra_permissions: uniquePermissions(edit.extra_permissions).filter((permission) => {
           const role = roles?.find((r) => r.id === edit.role_id);
-          const rolePermissions = new Set(role?.permissions ?? []);
-          return !rolePermissions.has("*") && !rolePermissions.has(permission);
+          return !roleIncludesPermission(role, permission);
         }),
         is_active: edit.is_active,
       };
@@ -284,12 +300,12 @@ export default function AdminUsersPage() {
     ];
   }, [edit.extra_permissions, roles, t]);
   const additionalAccessCount = uniquePermissions(edit.extra_permissions).filter((permission) => {
-    if (roleHasFullAccess) return false;
-    return !selectedRolePermissions.has(permission);
+    return !roleIncludesPermission(selectedRole, permission);
   }).length;
 
   function toggleExtraPermission(permission: string, enabled: boolean) {
-    if (roleHasFullAccess || selectedRolePermissions.has(permission)) return;
+    if (roleIncludesPermission(selectedRole, permission)) return;
+    if (permission === SUPER_ADMIN_PERMISSION && !canManageAdmins) return;
     setEdit((current) => ({
       ...current,
       extra_permissions: enabled
@@ -348,7 +364,14 @@ export default function AdminUsersPage() {
         <input className="input" name="new_user_password" autoComplete="new-password" placeholder={t("auth.password")} type="password" minLength={12} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required />
         <select className="input" value={f.role_id} onChange={(e) => setF({ ...f, role_id: Number(e.target.value) })}>
           <option value={0}>{t("ph.role")}</option>
-          {roles?.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          {roles?.map((r) => {
+            const restricted = roleIsAdministrator(r) && !canManageAdmins;
+            return (
+              <option key={r.id} value={r.id} disabled={restricted}>
+                {r.name}{restricted ? ` (${t("page.admin.users.superAdminOnly")})` : ""}
+              </option>
+            );
+          })}
         </select>
         <select className="input" value={f.department_id} onChange={(e) => setF({ ...f, department_id: Number(e.target.value) })}>
           <option value={0}>{t("ph.dept")}</option>
@@ -389,11 +412,14 @@ export default function AdminUsersPage() {
           <tbody>
             {rows.map((u) => {
               const badge = activityBadge(u);
+              const role = roles?.find((r) => r.id === u.role_id);
+              const adminAccount = roleIsAdministrator(role);
+              const restrictedAdminAccount = adminAccount && !canManageAdmins && u.id !== me?.id;
               return (
                 <tr key={u.id}>
                   <td>{u.name}</td>
                   <td>{u.email}</td>
-                  <td>{roles?.find((r) => r.id === u.role_id)?.name ?? u.role_id ?? "-"}</td>
+                  <td>{role?.name ?? u.role_id ?? "-"}</td>
                   <td>{depts?.find((d) => d.id === u.department_id)?.name ?? u.department_id ?? "-"}</td>
                   <td>
                     <span className={`badge ${u.is_active ? "badge-green" : "badge-red"}`}>
@@ -412,8 +438,22 @@ export default function AdminUsersPage() {
                     </div>
                   </td>
                   <td className="flex gap-2">
-                    <button className="text-brand-600 hover:underline" onClick={() => openEdit(u)}>{t("btn.edit")}</button>
-                    <button className="text-red-600 hover:underline" onClick={() => deleteUser(u)}>{t("btn.delete")}</button>
+                    <button
+                      className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+                      disabled={restrictedAdminAccount}
+                      title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
+                      onClick={() => openEdit(u)}
+                    >
+                      {t("btn.edit")}
+                    </button>
+                    <button
+                      className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+                      disabled={adminAccount && !canManageAdmins}
+                      title={adminAccount && !canManageAdmins ? t("page.admin.users.superAdminOnly") : undefined}
+                      onClick={() => deleteUser(u)}
+                    >
+                      {t("btn.delete")}
+                    </button>
                   </td>
                 </tr>
               );
@@ -441,7 +481,14 @@ export default function AdminUsersPage() {
               <label className="label">{t("field.role")}</label>
               <select className="input" value={edit.role_id} onChange={(e) => setEdit({ ...edit, role_id: Number(e.target.value) })}>
                 <option value={0}>-</option>
-                {roles?.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                {roles?.map((r) => {
+                  const restricted = roleIsAdministrator(r) && !canManageAdmins;
+                  return (
+                    <option key={r.id} value={r.id} disabled={restricted}>
+                      {r.name}{restricted ? ` (${t("page.admin.users.superAdminOnly")})` : ""}
+                    </option>
+                  );
+                })}
               </select>
             </div>
             <div>
@@ -470,7 +517,8 @@ export default function AdminUsersPage() {
                   <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8a8472]">{group.title}</div>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {group.permissions.map((permission) => {
-                      const includedByRole = roleHasFullAccess || selectedRolePermissions.has(permission.value);
+                      const includedByRole = roleIncludesPermission(selectedRole, permission.value);
+                      const restricted = permission.value === SUPER_ADMIN_PERMISSION && !canManageAdmins;
                       const enabled = includedByRole || edit.extra_permissions.includes(permission.value);
                       return (
                         <label
@@ -492,7 +540,8 @@ export default function AdminUsersPage() {
                             <input
                               type="checkbox"
                               checked={enabled}
-                              disabled={includedByRole}
+                              disabled={includedByRole || restricted}
+                              title={restricted ? t("page.admin.users.superAdminOnly") : undefined}
                               onChange={(e) => toggleExtraPermission(permission.value, e.target.checked)}
                             />
                           </span>
