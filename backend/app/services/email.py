@@ -101,6 +101,18 @@ def send_password_reset_email(to_email: str, display_name: str, reset_url: str) 
     return send_email(to_email, "Reset your Milana ERP password", body)
 
 
+def send_password_setup_email(to_email: str, display_name: str, setup_url: str) -> bool:
+    greeting = display_name.strip() or "there"
+    body = (
+        f"Hi {greeting},\n\n"
+        "A Milana ERP account has been created for you.\n\n"
+        f"Set your password here:\n{setup_url}\n\n"
+        f"This link expires in {settings.PASSWORD_RESET_TOKEN_MINUTES} minutes. "
+        "If you were not expecting this account, contact your administrator.\n"
+    )
+    return send_email(to_email, "Set up your Milana ERP password", body)
+
+
 def _login_if_needed(smtp: smtplib.SMTP) -> None:
     if settings.SMTP_USERNAME:
         smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)

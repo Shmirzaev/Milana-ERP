@@ -49,6 +49,54 @@ def test_user_extra_permissions_are_effective(client, auth_headers):
     assert finance.status_code == 200, finance.text
 
 
+def test_create_user_without_password_emails_setup_link(client, auth_headers, monkeypatch):
+    sent = {}
+
+    def fake_send(to_email, display_name, setup_url):
+        sent["to_email"] = to_email
+        sent["display_name"] = display_name
+        sent["setup_url"] = setup_url
+        return True
+
+    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "new-user-setup-token")
+    monkeypatch.setattr("app.services.password_reset.send_password_setup_email", fake_send)
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Setup Link User",
+            "email": "setup.link.user@example.com",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    assert sent["to_email"] == "setup.link.user@example.com"
+    assert sent["display_name"] == "Setup Link User"
+    assert sent["setup_url"].endswith("/reset-password?token=new-user-setup-token")
+
+    login = client.post(
+        "/api/auth/token",
+        data={"username": "setup.link.user@example.com", "password": "UnknownBeforeSetup!2026"},
+    )
+    assert login.status_code == 401
+
+    new_password = "SetupLinkUser!2026"
+    reset = client.post(
+        "/api/auth/reset-password",
+        json={
+            "token": "new-user-setup-token",
+            "new_password": new_password,
+            "confirm_new_password": new_password,
+        },
+    )
+    assert reset.status_code == 200, reset.text
+
+    setup_headers = _login(client, "setup.link.user@example.com", new_password)
+    me = client.get("/api/auth/me", headers=setup_headers)
+    assert me.status_code == 200, me.text
+    assert me.json()["email"] == "setup.link.user@example.com"
+
+
 def test_limited_user_manager_cannot_grant_extra_permissions_they_lack(client, auth_headers):
     hr_dept_id = _dept_id(client, auth_headers, "HR")
     manager_password = "LimitedManager!2026"

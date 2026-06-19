@@ -1,7 +1,8 @@
 from datetime import datetime, time, timezone
+import secrets
 
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from sqlalchemy import delete, update
 
 from app.core.config import settings
@@ -23,6 +24,7 @@ from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
 from app.services.audit import log_action
+from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
 from app.db.reset_demo import reset_to_seed
 
 router = APIRouter(tags=["admin"])
@@ -320,18 +322,26 @@ def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users
 
 
 @router.post("/users", response_model=UserOut, status_code=201)
-def create_user(payload: UserIn, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
+def create_user(
+    payload: UserIn,
+    db: DbSession,
+    background_tasks: BackgroundTasks,
+    current: User = Depends(require_permissions("admin.users", "*")),
+):
     email = normalize_email(payload.email)
-    _require_strong_password(payload.password)
+    password_provided = payload.password is not None and payload.password != ""
+    if password_provided:
+        _require_strong_password(payload.password)
     _assert_can_grant_role(db, current, payload.role_id)
     extra_permissions = normalize_permissions(payload.extra_permissions)
     _assert_can_grant_permissions(current, extra_permissions)
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(400, "Email already exists")
+    setup_url: str | None = None
     u = User(
         name=payload.name,
         email=email,
-        password_hash=hash_password(payload.password),
+        password_hash=hash_password(payload.password if password_provided else secrets.token_urlsafe(48)),
         role_id=payload.role_id,
         department_id=payload.department_id,
         extra_permissions=extra_permissions,
@@ -339,9 +349,21 @@ def create_user(payload: UserIn, db: DbSession, current: User = Depends(require_
     )
     db.add(u)
     db.flush()
-    log_action(db, current, "create", "User", u.id, new_value={"email": u.email})
+    if not password_provided and u.is_active:
+        setup_token = create_password_reset_token(db, u)
+        setup_url = password_reset_url(setup_token)
+    log_action(
+        db,
+        current,
+        "create",
+        "User",
+        u.id,
+        new_value={"email": u.email, "password_setup_email_queued": bool(setup_url)},
+    )
     db.commit()
     db.refresh(u)
+    if setup_url:
+        background_tasks.add_task(send_password_email_safely, u.email, u.name, setup_url, u.id, "setup")
     return u
 
 

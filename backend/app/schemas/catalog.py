@@ -31,7 +31,7 @@ class DepartmentOut(ORMModel):
 class UserIn(BaseModel):
     name: str
     email: str
-    password: str
+    password: Optional[str] = None
     role_id: Optional[int] = None
     department_id: Optional[int] = None
     extra_permissions: list[str] = Field(default_factory=list)

@@ -172,16 +172,17 @@ export default function AdminUsersPage() {
   const [f, setF] = useState({
     name: "",
     email: "",
-    password: "",
     role_id: 0,
     department_id: 0,
     is_active: true,
   });
   const [createMsg, setCreateMsg] = useState("");
+  const [createError, setCreateError] = useState(false);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setCreateMsg("");
+    setCreateError(false);
     try {
       await api.post("/api/users", {
         ...f,
@@ -189,8 +190,10 @@ export default function AdminUsersPage() {
         department_id: f.department_id || null,
       });
       mutate();
-      setF({ name: "", email: "", password: "", role_id: 0, department_id: 0, is_active: true });
+      setF({ name: "", email: "", role_id: 0, department_id: 0, is_active: true });
+      setCreateMsg(t("page.admin.users.setupEmailQueued"));
     } catch (e: any) {
+      setCreateError(true);
       setCreateMsg(e.message);
     }
   }
@@ -358,10 +361,9 @@ export default function AdminUsersPage() {
     <div>
       <PageHeader title={t("page.admin.users")} />
 
-      <form onSubmit={create} autoComplete="off" className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-6">
+      <form onSubmit={create} autoComplete="off" className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-5">
         <input className="input" placeholder={t("common.name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />
         <input className="input" name="new_user_email" autoComplete="off" placeholder={t("auth.email")} type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required />
-        <input className="input" name="new_user_password" autoComplete="new-password" placeholder={t("auth.password")} type="password" minLength={12} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required />
         <select className="input" value={f.role_id} onChange={(e) => setF({ ...f, role_id: Number(e.target.value) })}>
           <option value={0}>{t("ph.role")}</option>
           {roles?.map((r) => {
@@ -378,7 +380,7 @@ export default function AdminUsersPage() {
           {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
         <button className="btn btn-primary">{t("btn.create")}</button>
-        {createMsg && <div className="text-sm text-red-600 md:col-span-6">{createMsg}</div>}
+        {createMsg && <div className={`text-sm ${createError ? "text-red-600" : "text-green-700"} md:col-span-5`}>{createMsg}</div>}
       </form>
 
       <dl className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-3">

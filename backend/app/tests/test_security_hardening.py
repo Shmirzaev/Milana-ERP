@@ -341,7 +341,7 @@ def test_public_deployment_login_cookie_is_secure(client, monkeypatch):
 
 
 def test_password_reset_failure_notification_suppresses_token_like_error_text(client):
-    from app.api.routes.auth import _notify_admins_about_reset_email_failure
+    from app.services.password_reset import notify_admins_about_password_email_failure
     from app.db.session import SessionLocal
     from app.models import Notification, User
 
@@ -357,7 +357,7 @@ def test_password_reset_failure_notification_suppresses_token_like_error_text(cl
     finally:
         db.close()
 
-    _notify_admins_about_reset_email_failure(user_id, raw_url, provider_error)
+    notify_admins_about_password_email_failure(user_id, raw_url, provider_error)
 
     db = SessionLocal()
     try:
