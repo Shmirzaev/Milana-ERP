@@ -330,9 +330,10 @@ def create_user(
     current: User = Depends(require_permissions("admin.users", "*")),
 ):
     email = normalize_email(payload.email)
-    password_provided = payload.password is not None and payload.password != ""
+    raw_password = payload.password
+    password_provided = bool(raw_password)
     if password_provided:
-        _require_strong_password(payload.password)
+        _require_strong_password(raw_password)
     _assert_can_grant_role(db, current, payload.role_id)
     extra_permissions = normalize_permissions(payload.extra_permissions)
     _assert_can_grant_permissions(current, extra_permissions)
@@ -342,7 +343,7 @@ def create_user(
     u = User(
         name=payload.name,
         email=email,
-        password_hash=hash_password(payload.password if password_provided else secrets.token_urlsafe(48)),
+        password_hash=hash_password(raw_password if password_provided else secrets.token_urlsafe(48)),
         role_id=payload.role_id,
         department_id=payload.department_id,
         extra_permissions=extra_permissions,
@@ -359,7 +360,7 @@ def create_user(
         "create",
         "User",
         u.id,
-        new_value={"email": u.email, "password_setup_email_queued": bool(setup_url)},
+        new_value={"email": u.email, "setup_email_queued": bool(setup_url)},
     )
     db.commit()
     db.refresh(u)
@@ -399,7 +400,7 @@ def send_user_password_setup(
         "password_setup",
         "User",
         u.id,
-        new_value={"email": u.email, "password_setup_email_requested": True},
+        new_value={"email": u.email, "setup_email_requested": True},
     )
     db.commit()
     db.refresh(u)
@@ -430,7 +431,7 @@ def create_user_password_setup_link(
         "password_setup_link",
         "User",
         u.id,
-        new_value={"email": u.email, "password_setup_link_generated": True},
+        new_value={"email": u.email, "setup_link_generated": True},
     )
     db.commit()
     return PasswordSetupLinkOut(password_setup_url=setup_url)

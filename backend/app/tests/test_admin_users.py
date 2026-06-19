@@ -208,6 +208,11 @@ def test_admin_can_create_password_setup_link_without_audit_token(client, auth_h
             .one()
         )
         assert "manual-setup-token" not in str(audit.new_value_json)
+        assert audit.new_value_json == {
+            "email": "manual.setup.user@example.com",
+            "setup_link_generated": True,
+        }
+        assert all("password" not in key for key in audit.new_value_json)
     finally:
         db.close()
 
