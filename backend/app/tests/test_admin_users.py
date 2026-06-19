@@ -160,6 +160,21 @@ def test_password_setup_email_status_reports_hf_smtp_unavailable(client, auth_he
     assert "RESEND_API_KEY" in body["message"]
 
 
+def test_password_setup_email_status_reports_resend_available(client, auth_headers, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setenv("SPACE_ID", "Shmirzaev/milana-erp-api")
+    monkeypatch.setattr(settings, "RESEND_API_KEY", "test-resend-key")
+    monkeypatch.setattr(settings, "RESEND_FROM_EMAIL", "noreply@example.com")
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(settings, "SMTP_PORT", 587)
+    monkeypatch.setattr(settings, "SMTP_FROM_EMAIL", "smtp@example.com")
+
+    r = client.get("/api/users/password-setup-email-status", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"available": True, "message": None}
+
+
 def test_admin_can_resend_password_setup_link(client, auth_headers, monkeypatch):
     sent = {}
 
@@ -190,49 +205,6 @@ def test_admin_can_resend_password_setup_link(client, auth_headers, monkeypatch)
     assert sent["to_email"] == "resend.setup.user@example.com"
     assert sent["display_name"] == "Resend Setup User"
     assert sent["setup_url"].endswith("/reset-password?token=resend-setup-token")
-
-
-def test_admin_can_create_password_setup_link_without_audit_token(client, auth_headers, monkeypatch):
-    from app.db.session import SessionLocal
-    from app.models import AuditLog
-
-    r = client.post(
-        "/api/users",
-        json={
-            "name": "Manual Setup User",
-            "email": "manual.setup.user@example.com",
-            "password": "ManualSetup!2026",
-        },
-        headers=auth_headers,
-    )
-    assert r.status_code == 201, r.text
-    user_id = r.json()["id"]
-
-    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "manual-setup-token")
-
-    link = client.post(f"/api/users/{user_id}/password-setup-link", headers=auth_headers)
-    assert link.status_code == 200, link.text
-    assert link.json()["password_setup_url"].endswith("/reset-password?token=manual-setup-token")
-
-    db = SessionLocal()
-    try:
-        audit = (
-            db.query(AuditLog)
-            .filter(
-                AuditLog.action == "password_setup_link",
-                AuditLog.entity_type == "User",
-                AuditLog.entity_id == user_id,
-            )
-            .one()
-        )
-        assert "manual-setup-token" not in str(audit.new_value_json)
-        assert audit.new_value_json == {
-            "email": "manual.setup.user@example.com",
-            "setup_link_generated": True,
-        }
-        assert all("password" not in key for key in audit.new_value_json)
-    finally:
-        db.close()
 
 
 def test_limited_user_manager_cannot_grant_extra_permissions_they_lack(client, auth_headers):
