@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+from app.services.email import EmailDeliveryError
+
 
 def _login(client, email, password):
     r = client.post("/api/auth/token", data={"username": email, "password": password})
@@ -114,6 +116,30 @@ def test_create_user_reports_setup_email_failure(client, auth_headers, monkeypat
     body = r.json()
     assert body["password_setup_email_sent"] is False
     assert "Email delivery is not configured" in body["password_setup_email_error"]
+
+
+def test_create_user_reports_safe_provider_email_error(client, auth_headers, monkeypatch):
+    def fail_send(*args, **kwargs):
+        raise EmailDeliveryError(
+            "raw provider response might include submitted content",
+            "Email delivery failed: SMTP authentication failed. Check SMTP_USERNAME and SMTP_PASSWORD/app password.",
+        )
+
+    monkeypatch.setattr("app.services.password_reset.send_password_setup_email", fail_send)
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Bad SMTP Setup User",
+            "email": "bad.smtp.setup@example.com",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["password_setup_email_sent"] is False
+    assert "SMTP authentication failed" in body["password_setup_email_error"]
+    assert "raw provider response" not in body["password_setup_email_error"]
 
 
 def test_admin_can_resend_password_setup_link(client, auth_headers, monkeypatch):

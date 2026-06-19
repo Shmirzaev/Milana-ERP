@@ -50,8 +50,10 @@ def create_password_reset_token(db: Session, user: User) -> str:
     return raw_token
 
 
-def _safe_reset_delivery_error(error: str) -> str:
-    _ = error
+def _safe_reset_delivery_error(error: object) -> str:
+    safe_message = getattr(error, "safe_message", None)
+    if isinstance(safe_message, str) and safe_message.strip():
+        return safe_message
     # Delivery/provider errors can echo the submitted email body, including the
     # reset URL. Never persist or log raw provider text for reset emails.
     return "Email delivery failed; provider details suppressed because they may contain reset-token material."
@@ -136,12 +138,12 @@ def send_password_email(
             )
             return PasswordEmailDelivery(sent=False, error=EMAIL_NOT_CONFIGURED_MESSAGE)
     except Exception as exc:
-        safe_error = _safe_reset_delivery_error(str(exc))
+        safe_error = _safe_reset_delivery_error(exc)
         log.warning(
             "Password %s email failed for %s (%s); details suppressed because they may contain reset-token material",
             email_kind,
             email,
             type(exc).__name__,
         )
-        notify_admins_about_password_email_failure(user_id, reset_url, str(exc), email_kind=email_kind)
+        notify_admins_about_password_email_failure(user_id, reset_url, exc, email_kind=email_kind)
         return PasswordEmailDelivery(sent=False, error=safe_error)
