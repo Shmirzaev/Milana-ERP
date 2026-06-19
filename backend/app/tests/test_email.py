@@ -1,5 +1,14 @@
+import pytest
+
 from app.core.config import settings
-from app.services.email import EmailDeliveryError, resend_configured, send_email
+from app.services.email import (
+    EmailDeliveryError,
+    email_configured,
+    email_unavailable_reason,
+    resend_configured,
+    send_email,
+    smtp_available,
+)
 
 
 def test_resend_requires_resend_from_email(monkeypatch):
@@ -38,3 +47,22 @@ def test_send_email_falls_back_to_smtp_when_resend_fails(monkeypatch):
         "subject": "Subject",
         "text_body": "Body",
     }
+
+
+def test_hugging_face_smtp_is_reported_unavailable(monkeypatch):
+    monkeypatch.setenv("SPACE_ID", "Shmirzaev/milana-erp-api")
+    monkeypatch.setattr(settings, "RESEND_API_KEY", "")
+    monkeypatch.setattr(settings, "RESEND_FROM_EMAIL", "")
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(settings, "SMTP_PORT", 587)
+    monkeypatch.setattr(settings, "SMTP_FROM_EMAIL", "smtp@example.com")
+
+    assert smtp_available() is False
+    assert email_configured() is False
+    assert "Hugging Face" in (email_unavailable_reason() or "")
+
+    with pytest.raises(EmailDeliveryError) as exc:
+        send_email("user@example.com", "Subject", "Body")
+
+    assert "Hugging Face" in exc.value.safe_message
+    assert "RESEND_API_KEY" in exc.value.safe_message

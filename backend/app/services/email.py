@@ -16,8 +16,26 @@ class EmailDeliveryError(RuntimeError):
         self.safe_message = safe_message
 
 
+HF_SMTP_UNAVAILABLE_MESSAGE = (
+    "Automatic email is unavailable on Hugging Face because SMTP ports are blocked. "
+    "Configure RESEND_API_KEY and RESEND_FROM_EMAIL to send email from this host."
+)
+EMAIL_NOT_CONFIGURED_MESSAGE = (
+    "Automatic email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL, "
+    "or configure SMTP on a host that allows SMTP ports."
+)
+
+
 def email_configured() -> bool:
-    return resend_configured() or smtp_configured()
+    return resend_configured() or smtp_available()
+
+
+def email_unavailable_reason() -> str | None:
+    if resend_configured() or smtp_available():
+        return None
+    if smtp_configured() and smtp_blocked_by_host():
+        return HF_SMTP_UNAVAILABLE_MESSAGE
+    return EMAIL_NOT_CONFIGURED_MESSAGE
 
 
 def resend_configured() -> bool:
@@ -28,15 +46,25 @@ def smtp_configured() -> bool:
     return bool(settings.SMTP_HOST and settings.SMTP_FROM_EMAIL)
 
 
+def smtp_blocked_by_host() -> bool:
+    return settings.is_hugging_face_space and settings.SMTP_PORT not in {80, 443, 8080}
+
+
+def smtp_available() -> bool:
+    return smtp_configured() and not smtp_blocked_by_host()
+
+
 def send_email(to_email: str, subject: str, text_body: str) -> bool:
     if resend_configured():
         try:
             return _send_resend_email(to_email, subject, text_body)
         except EmailDeliveryError:
-            if not smtp_configured():
+            if not smtp_available():
                 raise
-    if smtp_configured():
+    if smtp_available():
         return _send_smtp_email(to_email, subject, text_body)
+    if smtp_configured() and smtp_blocked_by_host():
+        raise EmailDeliveryError("SMTP blocked by host", HF_SMTP_UNAVAILABLE_MESSAGE)
     return False
 
 

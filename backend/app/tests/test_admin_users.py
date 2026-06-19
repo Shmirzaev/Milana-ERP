@@ -142,6 +142,24 @@ def test_create_user_reports_safe_provider_email_error(client, auth_headers, mon
     assert "raw provider response" not in body["password_setup_email_error"]
 
 
+def test_password_setup_email_status_reports_hf_smtp_unavailable(client, auth_headers, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setenv("SPACE_ID", "Shmirzaev/milana-erp-api")
+    monkeypatch.setattr(settings, "RESEND_API_KEY", "")
+    monkeypatch.setattr(settings, "RESEND_FROM_EMAIL", "")
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(settings, "SMTP_PORT", 587)
+    monkeypatch.setattr(settings, "SMTP_FROM_EMAIL", "smtp@example.com")
+
+    r = client.get("/api/users/password-setup-email-status", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is False
+    assert "Hugging Face" in body["message"]
+    assert "RESEND_API_KEY" in body["message"]
+
+
 def test_admin_can_resend_password_setup_link(client, auth_headers, monkeypatch):
     sent = {}
 

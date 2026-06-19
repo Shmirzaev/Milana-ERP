@@ -25,6 +25,7 @@ type User = {
   password_setup_email_error?: string | null;
 };
 type PasswordSetupLink = { password_setup_url: string };
+type PasswordSetupEmailStatus = { available: boolean; message?: string | null };
 
 type PermissionOption = { value: string; label: string };
 type AccessGroup = { title: string; permissions: PermissionOption[] };
@@ -154,6 +155,7 @@ export default function AdminUsersPage() {
   const { t, lang } = useT();
   const { me } = useMe();
   const { data, mutate } = useSWR<User[]>("/api/users", fetcher);
+  const { data: setupEmailStatus } = useSWR<PasswordSetupEmailStatus>("/api/users/password-setup-email-status", fetcher);
   const { data: roles } = useSWR<Role[]>("/api/roles", fetcher);
   const { data: depts } = useSWR<Dept[]>("/api/departments", fetcher);
   const [nowMs, setNowMs] = useState<number | null>(null);
@@ -164,6 +166,7 @@ export default function AdminUsersPage() {
   };
   const locale = localeByLang[lang] || "en-US";
   const canManageAdmins = Boolean(me?.permissions.includes(SUPER_ADMIN_PERMISSION));
+  const setupEmailAvailable = setupEmailStatus?.available === true;
 
   useEffect(() => {
     const updateNow = () => setNowMs(Date.now());
@@ -188,6 +191,9 @@ export default function AdminUsersPage() {
 
   function emailDeliveryText(user: User, successKey: string, failedKey: string) {
     if (user.password_setup_email_sent) return { message: t(successKey), error: false };
+    if (user.password_setup_email_error && setupEmailStatus?.available === false) {
+      return { message: t("page.admin.users.setupEmailUnavailableAfterCreate"), error: false };
+    }
     if (user.password_setup_email_error) {
       return { message: t(failedKey, { error: user.password_setup_email_error }), error: true };
     }
@@ -417,6 +423,12 @@ export default function AdminUsersPage() {
     <div>
       <PageHeader title={t("page.admin.users")} />
 
+      {setupEmailStatus?.available === false && (
+        <div className="mb-4 rounded-md border border-[#e6d8b8] bg-[#fff9eb] p-3 text-sm text-[#5f4a1f]">
+          {t("page.admin.users.setupEmailUnavailable", { message: setupEmailStatus.message || "" })}
+        </div>
+      )}
+
       <form onSubmit={create} autoComplete="off" className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-5">
         <input className="input" placeholder={t("common.name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />
         <input className="input" name="new_user_email" autoComplete="off" placeholder={t("auth.email")} type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required />
@@ -507,14 +519,16 @@ export default function AdminUsersPage() {
                       </button>
                       {!u.last_login_at && u.is_active && (
                         <>
-                          <button
-                            className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
-                            disabled={restrictedAdminAccount || setupSendingUserId === u.id}
-                            title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
-                            onClick={() => sendSetupLink(u)}
-                          >
-                            {setupSendingUserId === u.id ? t("page.admin.users.setupEmailSending") : t("page.admin.users.resendSetupLink")}
-                          </button>
+                          {setupEmailAvailable && (
+                            <button
+                              className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+                              disabled={restrictedAdminAccount || setupSendingUserId === u.id}
+                              title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
+                              onClick={() => sendSetupLink(u)}
+                            >
+                              {setupSendingUserId === u.id ? t("page.admin.users.setupEmailSending") : t("page.admin.users.resendSetupLink")}
+                            </button>
+                          )}
                           <button
                             className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
                             disabled={restrictedAdminAccount || setupLinkGeneratingUserId === u.id}

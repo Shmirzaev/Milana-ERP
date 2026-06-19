@@ -21,9 +21,11 @@ from app.core.security import hash_password, normalize_email, validate_password_
 from app.db.base import Base
 from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
 from app.schemas.catalog import (
-    UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut, PasswordSetupLinkOut,
+    UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
+    PasswordSetupLinkOut, PasswordSetupEmailStatusOut,
 )
 from app.services.audit import log_action
+from app.services.email import email_configured, email_unavailable_reason
 from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email
 from app.db.reset_demo import reset_to_seed
 
@@ -369,6 +371,14 @@ def create_user(
         u.password_setup_email_sent = delivery.sent
         u.password_setup_email_error = delivery.error
     return u
+
+
+@router.get("/users/password-setup-email-status", response_model=PasswordSetupEmailStatusOut)
+def password_setup_email_status(_: User = Depends(require_permissions("admin.users", "*"))):
+    return PasswordSetupEmailStatusOut(
+        available=email_configured(),
+        message=email_unavailable_reason(),
+    )
 
 
 @router.get("/users/{user_id}", response_model=UserOut)

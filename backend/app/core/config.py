@@ -84,6 +84,13 @@ class Settings(BaseSettings):
         return any(str(os.environ.get(name, "")).strip() for name in public_markers)
 
     @property
+    def is_hugging_face_space(self) -> bool:
+        return any(
+            str(os.environ.get(name, "")).strip()
+            for name in ("SPACE_ID", "SPACE_HOST", "HF_SPACE_ID", "HF_SPACE_HOST")
+        )
+
+    @property
     def strict_security_required(self) -> bool:
         return self.is_production or self.is_public_deployment
 

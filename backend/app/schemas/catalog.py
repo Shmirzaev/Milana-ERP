@@ -67,6 +67,11 @@ class PasswordSetupLinkOut(BaseModel):
     password_setup_url: str
 
 
+class PasswordSetupEmailStatusOut(BaseModel):
+    available: bool
+    message: Optional[str] = None
+
+
 # Customers / Suppliers
 class PartyIn(BaseModel):
     name: str
