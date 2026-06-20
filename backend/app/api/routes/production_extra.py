@@ -331,58 +331,6 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
     }
 
 
-@router.get("/sewing-flows/utilization-snapshot")
-def utilization_snapshot(db: DbSession, _: CurrentUser):
-    flows = db.query(SewingFlow).filter(SewingFlow.is_active.is_(True)).order_by(SewingFlow.code).all()
-    out = []
-    for f in flows:
-        now = datetime.now(timezone.utc)
-        rows = db.query(SewingAssignment).join(
-            WorkOrder, WorkOrder.id == SewingAssignment.work_order_id
-        ).filter(
-            SewingAssignment.sewing_flow_id == f.id,
-            SewingAssignment.status.in_(["planned", "in_progress"]),
-            WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
-        ).all()
-        committed_today = 0
-        for a in rows:
-            remaining_qty = max(0, int(a.quantity or 0) - int(a.completed_qty or 0))
-            if remaining_qty <= 0:
-                continue
-            a_start = as_utc(a.planned_start)
-            a_end = as_utc(a.planned_end)
-            if not a_start or not a_end:
-                continue
-            if a_start <= now <= a_end:
-                days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
-                committed_today += round(remaining_qty / days)
-        direct_wos = db.query(WorkOrder).filter(
-            WorkOrder.sewing_flow_id == f.id,
-            WorkOrder.operation == "sewing",
-            WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
-        ).all()
-        for w in direct_wos:
-            has_split = db.query(SewingAssignment.id).filter(
-                SewingAssignment.work_order_id == w.id,
-                SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
-            ).first()
-            if has_split:
-                continue
-            committed_today += max(0, int(w.planned_output_qty or 0) - int(w.passed_qty or 0))
-        pct = (committed_today / f.capacity_per_day * 100) if f.capacity_per_day else 0
-        out.append(
-            {
-                "flow_id": f.id,
-                "code": f.code,
-                "capacity_per_day": f.capacity_per_day,
-                "committed_today": committed_today,
-                "utilization_pct": round(pct, 1),
-                "is_full": pct >= 100.0,
-            }
-        )
-    return out
-
-
 # ===== PDF (HTML) export of process tracking =====
 @router.get("/process-tracking/export", response_class=HTMLResponse)
 def export_process_html(db: DbSession, _: CurrentUser):

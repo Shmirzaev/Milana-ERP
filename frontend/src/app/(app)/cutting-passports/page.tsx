@@ -159,7 +159,7 @@ export default function CuttingPassportsPage() {
   const { data: passports = [], mutate } = useSWR<Passport[]>("/api/cutting-passports", fetcher);
   const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
   const { data: models = [] } = useSWR<any[]>("/api/models?page_size=500", fetcher);
-  const { data: users = [] } = useSWR<any[]>("/api/admin/users", fetcher);
+  const { data: users = [] } = useSWR<any[]>("/api/users", fetcher);
 
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
