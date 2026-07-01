@@ -9,13 +9,13 @@ import { useT } from "@/lib/i18n";
 
 type SettingsPayload = {
   company_info: { name: string; logo_url?: string | null; address?: string | null; phone?: string | null; email?: string | null };
-  financial: { default_currency: string; tax_rate_percent: number; fiscal_year_start_month: number };
+  financial: { default_currency: string; fiscal_year_start_month: number };
   preferences: { default_language: string; timezone: string; model_types: string[] };
 };
 
 const DEFAULTS: SettingsPayload = {
   company_info: { name: "Milana Ecosystem", logo_url: "", address: "", phone: "", email: "" },
-  financial: { default_currency: "USD", tax_rate_percent: 0, fiscal_year_start_month: 1 },
+  financial: { default_currency: "USD", fiscal_year_start_month: 1 },
   preferences: { default_language: "en", timezone: "UTC", model_types: ["Dress", "Top", "Skirt", "Pants", "Outerwear"] },
 };
 
@@ -42,7 +42,10 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!data) return;
     setCompany({ ...DEFAULTS.company_info, ...(data.company_info || {}) });
-    setFinancial({ ...DEFAULTS.financial, ...(data.financial || {}) });
+    setFinancial({
+      default_currency: data.financial?.default_currency || DEFAULTS.financial.default_currency,
+      fiscal_year_start_month: Number(data.financial?.fiscal_year_start_month || DEFAULTS.financial.fiscal_year_start_month),
+    });
     setPreferences({ ...DEFAULTS.preferences, ...(data.preferences || {}) });
   }, [data]);
 
@@ -54,7 +57,6 @@ export default function SettingsPage() {
     }
     if (section === "financial") {
       if (!financial.default_currency.trim()) next.currency = t("page.settings.currencyRequired");
-      if (financial.tax_rate_percent < 0 || financial.tax_rate_percent > 100) next.tax = t("page.settings.taxRateRange");
       if (financial.fiscal_year_start_month < 1 || financial.fiscal_year_start_month > 12) next.fiscal = t("page.settings.monthRange");
     }
     if (section === "preferences") {
@@ -118,8 +120,6 @@ export default function SettingsPage() {
         >
           <div><label className="label">{t("field.defaultCurrency")}</label><input className="input" value={financial.default_currency} onChange={(e) => setFinancial({ ...financial, default_currency: e.target.value.toUpperCase() })} /></div>
           {errors.currency && <div className="text-xs text-red-600">{errors.currency}</div>}
-          <div><label className="label">{t("field.taxRatePercent")}</label><input className="input" type="number" step="0.01" value={financial.tax_rate_percent} onChange={(e) => setFinancial({ ...financial, tax_rate_percent: Number(e.target.value) })} /></div>
-          {errors.tax && <div className="text-xs text-red-600">{errors.tax}</div>}
           <div><label className="label">{t("field.fiscalYearStartMonth")}</label><input className="input" type="number" min={1} max={12} value={financial.fiscal_year_start_month} onChange={(e) => setFinancial({ ...financial, fiscal_year_start_month: Number(e.target.value) })} /></div>
           {errors.fiscal && <div className="text-xs text-red-600">{errors.fiscal}</div>}
         </Section>

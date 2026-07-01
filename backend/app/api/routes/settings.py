@@ -25,7 +25,6 @@ class CompanyInfo(BaseModel):
 
 class FinancialSettings(BaseModel):
     default_currency: str = "USD"
-    tax_rate_percent: float = Field(default=0, ge=0, le=100)
     fiscal_year_start_month: int = Field(default=1, ge=1, le=12)
 
 
@@ -49,8 +48,7 @@ def _default_payload() -> dict:
 def _get_or_default(db: DbSession, key: str) -> dict:
     row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
     if row and isinstance(row.value_json, dict):
-        defaults = _SCHEMAS[key]().model_dump()
-        return {**defaults, **row.value_json}
+        return _SCHEMAS[key](**row.value_json).model_dump()
     return _SCHEMAS[key]().model_dump()
 
 

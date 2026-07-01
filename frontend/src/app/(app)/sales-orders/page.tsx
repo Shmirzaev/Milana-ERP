@@ -277,9 +277,7 @@ export default function SalesOrdersPage() {
                 <section>
                   <div className="label">{t("sales.financials")}</div>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span>{t("sales.subtotal")}</span><Money value={Number(selected.total_amount || 0)} /></div>
-                    <div className="flex justify-between"><span>{t("sales.tax12")}</span><Money value={Number(selected.total_amount || 0) * 0.12} /></div>
-                    <div className="flex justify-between border-t border-[#ecebe3] pt-2"><span>{t("common.total")}</span><Money value={Number(selected.total_amount || 0) * 1.12} /></div>
+                    <div className="flex justify-between text-base font-semibold"><span>{t("field.totalAmount")}</span><Money value={Number(selected.total_amount || 0)} /></div>
                   </div>
                 </section>
               </div>

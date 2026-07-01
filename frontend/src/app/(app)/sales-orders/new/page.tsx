@@ -767,9 +767,7 @@ export default function NewSalesOrderPage() {
               </div>
             </div>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-[#8a8472]">{t("sales.subtotal")}</span><span className="mono">${subtotal.toFixed(2)}</span></div>
-              <div className="flex justify-between"><span className="text-[#8a8472]">{t("newso.estimatedTax")}</span><span className="mono">${(subtotal * 0.12).toFixed(2)}</span></div>
-              <div className="border-t border-[#ecebe3] pt-3 flex justify-between text-base font-semibold"><span>{t("common.total")}</span><span className="mono">${(subtotal * 1.12).toFixed(2)}</span></div>
+              <div className="flex justify-between text-base font-semibold"><span>{t("field.totalAmount")}</span><span className="mono">${subtotal.toFixed(2)}</span></div>
             </div>
             {err && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{err}</div>}
             <button className="btn btn-primary w-full" disabled={saving}>{saving ? t("newso.creating") : t("newso.createOrder")}</button>
