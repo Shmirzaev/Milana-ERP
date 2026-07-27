@@ -4,8 +4,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import (
-    SalesOrder, SalesOrderItem, ProductionOrder, FinishedGoodsStock,
-    WasteRecord, WasteSale, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
+    SalesOrder, ProductionOrder, FinishedGoodsStock,
+    WasteRecord, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
 )
 
 

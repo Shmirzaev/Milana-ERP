@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import or_
 
 from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
 from app.models import Task, User

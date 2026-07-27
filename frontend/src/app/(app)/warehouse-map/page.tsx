@@ -6,6 +6,7 @@ import { Bookmark, Clock3, MoveHorizontal, QrCode } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { api, fetcher } from "@/lib/api";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 
@@ -128,15 +129,15 @@ function normalizeShelf(shelf?: string | null): "S1" | "S2" {
 function colorToHex(color?: string | null) {
   if (!color) return "#a8a395";
   const value = color.toLowerCase();
-  if (value.includes("mint") || value.includes("мят")) return "#8fcdb3";
-  if (value.includes("navy") || value.includes("син")) return "#5b6b96";
-  if (value.includes("black") || value.includes("чер")) return "#45423a";
-  if (value.includes("white") || value.includes("бел")) return "#e6e1d5";
-  if (value.includes("rose") || value.includes("роз")) return "#d89cae";
-  if (value.includes("beige") || value.includes("беж")) return "#ccb796";
-  if (value.includes("grey") || value.includes("сер")) return "#9f9fa7";
-  if (value.includes("blue") || value.includes("гол")) return "#8ab1d7";
-  if (value.includes("olive") || value.includes("олив")) return "#94905e";
+  if (value.includes("mint") || value.includes("\u043c\u044f\u0442")) return "#8fcdb3";
+  if (value.includes("navy") || value.includes("\u0441\u0438\u043d")) return "#5b6b96";
+  if (value.includes("black") || value.includes("\u0447\u0435\u0440")) return "#45423a";
+  if (value.includes("white") || value.includes("\u0431\u0435\u043b")) return "#e6e1d5";
+  if (value.includes("rose") || value.includes("\u0440\u043e\u0437")) return "#d89cae";
+  if (value.includes("beige") || value.includes("\u0431\u0435\u0436")) return "#ccb796";
+  if (value.includes("grey") || value.includes("\u0441\u0435\u0440")) return "#9f9fa7";
+  if (value.includes("blue") || value.includes("\u0433\u043e\u043b")) return "#8ab1d7";
+  if (value.includes("olive") || value.includes("\u043e\u043b\u0438\u0432")) return "#94905e";
   return "#b6b09e";
 }
 
@@ -165,7 +166,11 @@ export default function WarehouseMapPage() {
   const mapQueryPath = modelQuery.trim()
     ? `/api/packages/storage-map?model_query=${encodeURIComponent(modelQuery.trim())}`
     : "/api/packages/storage-map";
-  const { data: mapData, mutate: mutateMap } = useSWR<any>(mapQueryPath, fetcher);
+  const { data: mapData, mutate: mutateMap } = useSWR<any>(
+    mapQueryPath,
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
 
   const normalizedCells = useMemo(() => {
     const source = (mapData?.cells || []) as StorageMapCell[];

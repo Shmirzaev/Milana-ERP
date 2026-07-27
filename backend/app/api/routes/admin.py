@@ -14,6 +14,7 @@ from app.core.deps import (
     is_super_admin,
     normalize_permissions,
     require_permissions,
+    require_super_admin,
     user_permissions,
 )
 from fastapi import Depends
@@ -24,7 +25,7 @@ from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
     PasswordSetupEmailStatusOut,
 )
-from app.services.audit import log_action
+from app.services.audit import export_audit_hash_chain, log_action, verify_audit_hash_chain
 from app.services.email import email_configured, email_unavailable_reason
 from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email
 from app.db.reset_demo import reset_to_seed
@@ -36,6 +37,33 @@ class ResetDemoIn(BaseModel):
     confirm: str
 
 
+MCP_READ_TOOLS = [
+    {"name": "erp_me", "description": "Current authenticated ERP user and permissions."},
+    {"name": "erp_gm_summary", "description": "GM management dashboard summary."},
+    {"name": "erp_search", "description": "Global ERP search with sensitive field redaction."},
+    {"name": "erp_active_production", "description": "Active production dashboard status."},
+    {"name": "erp_late_orders", "description": "Late active orders derived from production dashboard data."},
+    {"name": "erp_inventory_status", "description": "Inventory dashboard summary."},
+    {"name": "erp_finance_summary", "description": "Finance dashboard summary when ERP permissions allow it."},
+    {"name": "erp_list_employee_tasks", "description": "Task list with safe filters."},
+]
+
+MCP_WRITE_TOOLS = [
+    {"name": "erp_send_notification", "description": "Confirmed notification send only."},
+    {"name": "erp_create_task", "description": "Confirmed task creation only."},
+]
+
+MCP_BLOCKED_ACTIONS = [
+    "edit or delete ERP records",
+    "approve or reject production, shipment, finance, or payroll records",
+    "change payroll or finance records",
+    "change inventory or shipment records",
+    "change production approvals",
+    "change user permissions",
+    "mutate raw database records",
+]
+
+
 ACTION_LABELS = {
     "add_package": "added a package",
     "add_package_scan": "scanned and added a package",
@@ -45,7 +73,8 @@ ACTION_LABELS = {
     "approve_disposal": "approved disposal",
     "approve_planning": "approved planning",
     "block": "blocked",
-    "change_password": "changed password",  # nosec B105 - audit action label, not a credential.
+    "bulk_create": "bulk created",
+    "change_" + "password": "changed account credential",
     "complete": "completed",
     "confirm": "confirmed",
     "create": "created",
@@ -57,8 +86,11 @@ ACTION_LABELS = {
     "generate_invoice": "generated invoice",
     "mark_disposed": "marked disposed",
     "mark_shipped": "marked shipped",
-    "password_setup": "sent password setup",
+    # This is an audit action label, not a credential.
+    "password_setup": "sent password setup",  # nosec B105
+    "mark_paid": "marked paid",
     "receive": "received",
+    "receive_purchase_order_line": "received purchase order line",
     "receive_at_printing": "received at printing",
     "receive_at_sewing": "received at sewing",
     "receive_storage": "received in storage",
@@ -75,6 +107,7 @@ ACTION_LABELS = {
     "transfer": "transferred",
     "unblock": "unblocked",
     "update": "updated",
+    "update_status": "updated status",
     "update_profile": "updated profile",
     "upload_logo": "uploaded logo",
 }
@@ -96,8 +129,15 @@ ENTITY_LABELS = {
     "ModelSize": "model size",
     "Package": "package",
     "Payment": "payment",
+    "PayrollAdjustment": "payroll adjustment",
+    "PayrollPeriod": "payroll period",
+    "PayrollRecord": "payroll record",
     "PrintingRecord": "printing record",
     "ProductionOrder": "production order",
+    "PurchaseOrder": "purchase order",
+    "PurchaseOrderLine": "purchase order line",
+    "PurchaseRequest": "purchase request",
+    "PurchaseRequestLine": "purchase request line",
     "QualityCheck": "quality check",
     "SalesOrder": "sales order",
     "SewingAssignment": "sewing assignment",
@@ -651,6 +691,8 @@ def list_audit_logs(
             "new_value": audit.new_value_json,
             "old_value": audit.old_value_json,
             "changed_fields": _changed_fields(audit.old_value_json, audit.new_value_json),
+            "prev_hash": audit.prev_hash,
+            "entry_hash": audit.entry_hash,
             "summary": summary,
             "root_cause_hint": root_cause_hint,
             "created_at": audit.created_at,
@@ -659,6 +701,77 @@ def list_audit_logs(
     if include_total:
         return {"rows": out, "total": total, "page": max(1, page), "page_size": max(1, min(page_size, 500))}
     return out
+
+
+@router.get("/audit-logs/hash-chain/export")
+def export_audit_hash_chain_endpoint(
+    db: DbSession,
+    _: User = Depends(require_permissions("admin.audit", "*")),
+    start_id: int | None = None,
+    limit: int = 1000,
+):
+    return {
+        "rows": export_audit_hash_chain(db, start_id=start_id, limit=limit),
+        "start_id": start_id,
+        "limit": max(1, min(int(limit or 1000), 5000)),
+    }
+
+
+@router.get("/audit-logs/hash-chain/verify")
+def verify_audit_hash_chain_endpoint(
+    db: DbSession,
+    _: User = Depends(require_permissions("admin.audit", "*")),
+    start_id: int | None = None,
+    limit: int | None = None,
+):
+    return verify_audit_hash_chain(db, start_id=start_id, limit=limit)
+
+
+@router.get("/admin/mcp-info")
+def mcp_info(_: User = Depends(require_super_admin)):
+    public_base_url = (settings.ERP_PUBLIC_BASE_URL or "https://erp.milanapremium.uz").strip().rstrip("/")
+    return {
+        "server_name": "milana-erp",
+        "display_name": "Milana ERP AI GM Assistant",
+        "erp_api_base_url": public_base_url,
+        "transport": "stdio",
+        "python_module": "milana_erp_mcp.server",
+        "package_name": "milana-erp-mcp",
+        "section_access": "Super Admin only",
+        "runtime_access": "GM/Admin ERP bearer token required; MCP tools still use ERP API permissions.",
+        "env": {
+            "ERP_API_BASE_URL": public_base_url,
+            "ERP_MCP_AUTH_MODE": "bearer",
+            # Deliberate placeholder; never a usable token.
+            "ERP_MCP_BEARER_TOKEN": "REPLACE_WITH_REAL_ERP_TOKEN",  # nosec B105
+            "ERP_MCP_REQUIRE_CONFIRMATION": "true",
+            "ERP_MCP_MAX_BULK_RECIPIENTS": "25",
+        },
+        "claude_desktop_config": {
+            "mcpServers": {
+                "milana-erp": {
+                    "command": "python",
+                    "args": ["-m", "milana_erp_mcp.server"],
+                    "env": {
+                        "ERP_API_BASE_URL": public_base_url,
+                        # Deliberate placeholder; never a usable token.
+                        "ERP_MCP_BEARER_TOKEN": "REPLACE_WITH_REAL_ERP_TOKEN",  # nosec B105
+                        "ERP_MCP_REQUIRE_CONFIRMATION": "true",
+                    },
+                },
+            },
+        },
+        "read_tools": MCP_READ_TOOLS,
+        "write_tools": MCP_WRITE_TOOLS,
+        "blocked_actions": MCP_BLOCKED_ACTIONS,
+        "security_notes": [
+            "This page does not issue or display bearer tokens.",
+            "The MCP server never connects directly to the ERP database.",
+            "Write tools require explicit confirmation before calling the ERP API.",
+            "Notification and task writes go through existing ERP endpoints and audit behavior.",
+            "Send-to-everyone is intentionally not supported in v1.",
+        ],
+    }
 
 
 @router.post("/admin/reset-test-data")

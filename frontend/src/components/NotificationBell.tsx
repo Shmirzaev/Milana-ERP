@@ -1,7 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
+import { BellRing, Play, Volume2, VolumeX } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
@@ -13,6 +14,32 @@ type N = {
   is_read: boolean;
   created_at: string;
 };
+
+type BrowserNotificationPermission = NotificationPermission | "unsupported";
+type AudioWindow = Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
+type AlertSound = "ding" | "chime" | "bell" | "alert";
+
+const ALERTS_ENABLED_KEY = "milana_notification_alerts_enabled";
+const LAST_ALERTED_ID_KEY = "milana_notification_last_alerted_id";
+const ALERT_SOUND_KEY = "milana_notification_sound";
+const ALERT_VOLUME_KEY = "milana_notification_volume";
+const ALERT_ICON = "/branding/font_A_inter.png";
+const DEFAULT_ALERT_VOLUME = 0.9;
+const SOUND_OPTIONS: Array<{ value: AlertSound; labelKey: string }> = [
+  { value: "ding", labelKey: "notif.sound.ding" },
+  { value: "chime", labelKey: "notif.sound.chime" },
+  { value: "bell", labelKey: "notif.sound.bell" },
+  { value: "alert", labelKey: "notif.sound.alert" },
+];
+
+function clampVolume(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_ALERT_VOLUME;
+  return Math.max(0.2, Math.min(1, value));
+}
+
+function isAlertSound(value: string | null): value is AlertSound {
+  return SOUND_OPTIONS.some((option) => option.value === value);
+}
 
 /**
  * Fallback link derivation for notifications created before the backend
@@ -75,16 +102,250 @@ export default function NotificationBell() {
   const { t } = useT();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [alertsEnabled, setAlertsEnabled] = useState(false);
+  const [permission, setPermission] = useState<BrowserNotificationPermission>("default");
+  const [alertSound, setAlertSound] = useState<AlertSound>("chime");
+  const [alertVolume, setAlertVolume] = useState(DEFAULT_ALERT_VOLUME);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const notificationRegistrationRef = useRef<ServiceWorkerRegistration | null>(null);
+  const initializedAlertsRef = useRef(false);
+  const lastAlertedIdRef = useRef(0);
+  const alertsActive = alertsEnabled && permission === "granted";
 
   const { data: count, mutate: mutateCount } = useSWR<{ count: number }>(
     "/api/notifications/unread-count",
     fetcher,
-    { refreshInterval: 20_000 },
+    { refreshInterval: 20_000, refreshWhenHidden: true },
   );
   const { data: list, mutate: mutateList } = useSWR<N[]>(
     open ? "/api/notifications?limit=20" : null,
     fetcher,
   );
+  const { data: alertList } = useSWR<N[]>(
+    alertsActive ? "/api/notifications?only_unread=true&limit=10" : null,
+    fetcher,
+    {
+      refreshInterval: 15_000,
+      refreshWhenHidden: true,
+      refreshWhenOffline: false,
+      revalidateOnFocus: true,
+    },
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setAlertsEnabled(localStorage.getItem(ALERTS_ENABLED_KEY) === "1");
+    const savedSound = localStorage.getItem(ALERT_SOUND_KEY);
+    if (isAlertSound(savedSound)) setAlertSound(savedSound);
+    const savedVolume = Number(localStorage.getItem(ALERT_VOLUME_KEY));
+    if (Number.isFinite(savedVolume)) setAlertVolume(clampVolume(savedVolume));
+    const rawLastId = Number(localStorage.getItem(LAST_ALERTED_ID_KEY) || "0");
+    lastAlertedIdRef.current = Number.isFinite(rawLastId) ? rawLastId : 0;
+    setPermission("Notification" in window ? window.Notification.permission : "unsupported");
+  }, []);
+
+  function getAudioContext() {
+    if (typeof window === "undefined") return null;
+    if (audioContextRef.current) return audioContextRef.current;
+    const audioWindow = window as AudioWindow;
+    const AudioCtor = audioWindow.AudioContext || audioWindow.webkitAudioContext;
+    if (!AudioCtor) return null;
+    audioContextRef.current = new AudioCtor();
+    return audioContextRef.current;
+  }
+
+  async function primeNotificationAudio() {
+    try {
+      const ctx = getAudioContext();
+      if (ctx?.state === "suspended") await ctx.resume();
+    } catch {}
+  }
+
+  function playTone(
+    ctx: AudioContext,
+    frequency: number,
+    offset: number,
+    duration: number,
+    type: OscillatorType = "triangle",
+    gainScale = 1,
+  ) {
+    const startedAt = ctx.currentTime + offset;
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const peak = Math.max(0.001, Math.min(0.34, alertVolume * 0.34 * gainScale));
+
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, startedAt);
+    gain.gain.setValueAtTime(0.0001, startedAt);
+    gain.gain.exponentialRampToValueAtTime(peak, startedAt + 0.018);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + duration);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start(startedAt);
+    oscillator.stop(startedAt + duration + 0.02);
+  }
+
+  async function playNotificationSound() {
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      if (ctx.state === "suspended") await ctx.resume();
+
+      if (alertSound === "ding") {
+        playTone(ctx, 880, 0.01, 0.18, "sine");
+        playTone(ctx, 1175, 0.12, 0.2, "sine", 0.72);
+      } else if (alertSound === "bell") {
+        playTone(ctx, 988, 0.01, 0.42, "triangle");
+        playTone(ctx, 1319, 0.04, 0.36, "sine", 0.46);
+      } else if (alertSound === "alert") {
+        playTone(ctx, 740, 0.01, 0.16, "square", 0.62);
+        playTone(ctx, 740, 0.22, 0.16, "square", 0.62);
+      } else {
+        playTone(ctx, 659, 0.01, 0.18, "triangle", 0.78);
+        playTone(ctx, 880, 0.12, 0.2, "triangle");
+        playTone(ctx, 1175, 0.25, 0.22, "sine", 0.74);
+      }
+    } catch {}
+  }
+
+  async function getNotificationRegistration() {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null;
+    if (notificationRegistrationRef.current) return notificationRegistrationRef.current;
+    try {
+      const existing = await navigator.serviceWorker.getRegistration("/");
+      const registration = existing || await navigator.serviceWorker.register("/notification-sw.js");
+      notificationRegistrationRef.current = registration;
+      return await navigator.serviceWorker.ready;
+    } catch {
+      return null;
+    }
+  }
+
+  async function showDesktopNotification(title: string, body: string, notification: N) {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (window.Notification.permission !== "granted") return;
+
+    try {
+      const dest = deriveLink(notification);
+      const options: NotificationOptions = {
+        body,
+        icon: ALERT_ICON,
+        badge: ALERT_ICON,
+        tag: `milana-notification-${notification.id}`,
+        data: dest ? { url: dest } : undefined,
+        silent: false,
+      };
+      const registration = await getNotificationRegistration();
+      if (registration?.showNotification) {
+        await registration.showNotification(title, options);
+        return;
+      }
+
+      const notice = new window.Notification(title, options);
+      notice.onclick = () => {
+        window.focus();
+        if (dest) router.push(dest);
+        notice.close();
+      };
+    } catch {}
+  }
+
+  async function enableAlerts() {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setPermission("unsupported");
+      return;
+    }
+
+    const nextPermission =
+      window.Notification.permission === "default"
+        ? await window.Notification.requestPermission()
+        : window.Notification.permission;
+    setPermission(nextPermission);
+
+    if (nextPermission === "granted") {
+      localStorage.setItem(ALERTS_ENABLED_KEY, "1");
+      setAlertsEnabled(true);
+      await primeNotificationAudio();
+      void getNotificationRegistration();
+    }
+  }
+
+  async function testAlerts() {
+    await enableAlerts();
+    if (typeof window !== "undefined" && "Notification" in window && window.Notification.permission === "granted") {
+      const testNotification: N = {
+        id: Date.now(),
+        title: t("notif.testTitle"),
+        message: t("notif.testBody"),
+        link: null,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      };
+      await showDesktopNotification(testNotification.title, testNotification.message || "", testNotification);
+    }
+    await playNotificationSound();
+  }
+
+  function changeAlertSound(value: string) {
+    if (!isAlertSound(value)) return;
+    setAlertSound(value);
+    if (typeof window !== "undefined") localStorage.setItem(ALERT_SOUND_KEY, value);
+    void playNotificationSound();
+  }
+
+  function changeAlertVolume(value: number) {
+    const nextVolume = clampVolume(value);
+    setAlertVolume(nextVolume);
+    if (typeof window !== "undefined") localStorage.setItem(ALERT_VOLUME_KEY, String(nextVolume));
+  }
+
+  useEffect(() => {
+    if (!alertsActive || typeof window === "undefined") return;
+    const prime = () => {
+      void primeNotificationAudio();
+    };
+    window.addEventListener("pointerdown", prime, { once: true });
+    window.addEventListener("keydown", prime, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", prime);
+      window.removeEventListener("keydown", prime);
+    };
+  }, [alertsActive]);
+
+  useEffect(() => {
+    if (!alertsActive || !alertList) return;
+
+    if (!initializedAlertsRef.current) {
+      initializedAlertsRef.current = true;
+      if (lastAlertedIdRef.current <= 0 && alertList.length > 0) {
+        const maxSeenId = Math.max(...alertList.map((n) => n.id));
+        lastAlertedIdRef.current = maxSeenId;
+        localStorage.setItem(LAST_ALERTED_ID_KEY, String(maxSeenId));
+        return;
+      }
+    }
+    if (!alertList.length) return;
+
+    const fresh = alertList
+      .filter((n) => !n.is_read && n.id > lastAlertedIdRef.current)
+      .sort((a, b) => a.id - b.id);
+    if (!fresh.length) return;
+
+    const latest = fresh[fresh.length - 1];
+    if (fresh.length === 1) {
+      void showDesktopNotification(latest.title, latest.message || t("notif.title"), latest);
+    } else {
+      void showDesktopNotification(
+        t("notif.newMany", { count: fresh.length }),
+        t("notif.latestPrefix", { title: latest.title }),
+        latest,
+      );
+    }
+    void playNotificationSound();
+
+    lastAlertedIdRef.current = Math.max(lastAlertedIdRef.current, ...fresh.map((n) => n.id));
+    localStorage.setItem(LAST_ALERTED_ID_KEY, String(lastAlertedIdRef.current));
+  }, [alertList, alertsActive, router, t]);
 
   async function readOne(n: N) {
     // Mark-as-read in the background; don't block navigation on the request.
@@ -110,12 +371,16 @@ export default function NotificationBell() {
   }
 
   const unread = count?.count ?? 0;
+  const canEnableAlerts = permission === "default" || permission === "granted";
 
   return (
     <div className="relative">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          setOpen(!open);
+          if (alertsEnabled) void primeNotificationAudio();
+        }}
         className="relative w-9 h-9 grid place-items-center rounded-md text-[#56503f] transition hover:bg-[#f1efe8] hover:text-[#14110b]"
         aria-label={t("notif.ariaLabel")}
         title={t("notif.title")}
@@ -145,8 +410,8 @@ export default function NotificationBell() {
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: "#c2410c",
-                boxShadow: "0 0 0 2px #fdfcf8",
+                background: "var(--erp-accent)",
+                boxShadow: "0 0 0 2px var(--erp-surface)",
               }}
               aria-hidden
             />
@@ -159,7 +424,7 @@ export default function NotificationBell() {
                 width: 13,
                 height: 13,
                 borderRadius: "50%",
-                background: "#c2410c",
+                background: "var(--erp-accent)",
                 opacity: 0.5,
                 animation: "mil-ping 1.8s ease-out infinite",
               }}
@@ -174,12 +439,12 @@ export default function NotificationBell() {
           {/* click-outside layer */}
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
           <div
-            className="absolute right-0 top-11 z-40 w-80 max-h-96 rounded-lg shadow-xl flex flex-col"
+            className="absolute right-0 top-11 z-40 flex max-h-96 w-[calc(100vw-1.5rem)] max-w-80 flex-col rounded-lg shadow-lg"
             style={{
-              background: "#fdfcf8",
-              border: "1px solid #e3dfd3",
+              background: "var(--erp-surface)",
+              border: "1px solid var(--erp-border)",
               boxShadow:
-                "0 20px 40px -16px rgba(20,17,11,0.18), 0 2px 4px rgba(20,17,11,0.06)",
+                "0 20px 40px -16px var(--erp-shadow-strong), 0 2px 4px var(--erp-shadow)",
             }}
           >
             <div className="px-4 py-2.5 flex items-center justify-between border-b border-[#e3dfd3]">
@@ -194,8 +459,8 @@ export default function NotificationBell() {
                       minWidth: 18,
                       height: 18,
                       padding: "0 5px",
-                      background: "#fbe9dd",
-                      color: "#9a3308",
+                      background: "var(--erp-accent-soft)",
+                      color: "var(--erp-accent)",
                       borderRadius: 9,
                     }}
                   >
@@ -213,6 +478,89 @@ export default function NotificationBell() {
               )}
             </div>
 
+            <div className="border-b border-[#e3dfd3] px-3 py-2">
+              {permission === "unsupported" && (
+                <div className="flex items-center gap-2 rounded-md bg-[#f8f6ef] px-2.5 py-2 text-[11.5px] text-[#8a8472]">
+                  <VolumeX className="h-3.5 w-3.5 shrink-0" />
+                  <span>{t("notif.alertsUnsupported")}</span>
+                </div>
+              )}
+              {permission === "denied" && (
+                <div className="flex items-center gap-2 rounded-md bg-[#fff7ed] px-2.5 py-2 text-[11.5px] text-[#9a3412]">
+                  <VolumeX className="h-3.5 w-3.5 shrink-0" />
+                  <span>{t("notif.alertsBlocked")}</span>
+                </div>
+              )}
+              {canEnableAlerts && (
+                <button
+                  type="button"
+                  onClick={enableAlerts}
+                  className="flex w-full items-center justify-between gap-3 rounded-md border border-[#e3dfd3] bg-[#fdfcf8] px-2.5 py-2 text-left transition hover:border-[#d4cabc] hover:bg-[#f8f6ef]"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    {alertsActive ? (
+                      <Volume2 className="h-3.5 w-3.5 shrink-0 text-[#15803d]" />
+                    ) : (
+                      <BellRing className="h-3.5 w-3.5 shrink-0 text-[#c2410c]" />
+                    )}
+                    <span className="min-w-0">
+                      <span className="block truncate text-[12px] font-medium text-[#2c2920]">
+                        {alertsActive ? t("notif.alertsEnabled") : t("notif.enableAlerts")}
+                      </span>
+                      <span className="block truncate text-[10.5px] text-[#8a8472]">
+                        {t("notif.alertsHint")}
+                      </span>
+                    </span>
+                  </span>
+                </button>
+              )}
+              {alertsActive && (
+                <div className="mt-2 space-y-2">
+                  <div className="grid grid-cols-[1fr_36px] gap-2">
+                    <label className="sr-only" htmlFor="notification-sound">
+                      {t("notif.soundLabel")}
+                    </label>
+                    <select
+                      id="notification-sound"
+                      value={alertSound}
+                      onChange={(event) => changeAlertSound(event.target.value)}
+                      className="h-9 rounded-md border border-[#e3dfd3] bg-[#fdfcf8] px-2 text-[12px] text-[#2c2920] focus:outline-none focus:ring-2 focus:ring-[#e7c9b7]"
+                    >
+                      {SOUND_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={testAlerts}
+                      className="grid h-9 w-9 place-items-center rounded-md border border-[#e3dfd3] bg-[#fdfcf8] text-[#56503f] transition hover:bg-[#f8f6ef] hover:text-[#14110b]"
+                      aria-label={t("notif.testAlerts")}
+                      title={t("notif.testAlerts")}
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <label className="grid grid-cols-[48px_1fr_36px] items-center gap-2 text-[10.5px] text-[#8a8472]">
+                    <span>{t("notif.volume")}</span>
+                    <input
+                      type="range"
+                      min={20}
+                      max={100}
+                      step={5}
+                      value={Math.round(alertVolume * 100)}
+                      onChange={(event) => changeAlertVolume(Number(event.target.value) / 100)}
+                      onMouseUp={() => void playNotificationSound()}
+                      onTouchEnd={() => void playNotificationSound()}
+                      aria-label={t("notif.volume")}
+                    />
+                    <span className="text-right font-mono">{Math.round(alertVolume * 100)}%</span>
+                  </label>
+                </div>
+              )}
+            </div>
+
             <div className="flex-1 overflow-y-auto">
               {(!list || list.length === 0) && (
                 <div className="px-4 py-8 text-center text-[13px] text-[#8a8472]">
@@ -226,7 +574,7 @@ export default function NotificationBell() {
                   onClick={() => readOne(n)}
                   className="w-full text-left px-4 py-3 border-b border-[#ecebe3] transition hover:bg-[#fdf3eb]"
                   style={{
-                    background: n.is_read ? "transparent" : "rgba(251,233,221,0.45)",
+                    background: n.is_read ? "transparent" : "var(--erp-accent-soft)",
                   }}
                 >
                   <div className="flex items-start gap-2.5">
@@ -238,7 +586,7 @@ export default function NotificationBell() {
                           height: 6,
                           marginTop: 7,
                           borderRadius: "50%",
-                          background: "#c2410c",
+                          background: "var(--erp-accent)",
                         }}
                       />
                     )}

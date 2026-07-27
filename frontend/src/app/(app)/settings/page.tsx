@@ -6,17 +6,19 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+import { numberOrFallback, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
 type SettingsPayload = {
   company_info: { name: string; logo_url?: string | null; address?: string | null; phone?: string | null; email?: string | null };
   financial: { default_currency: string; fiscal_year_start_month: number };
-  preferences: { default_language: string; timezone: string; model_types: string[] };
+  preferences: { default_language: string; timezone: string; model_types: string[]; require_material_reservation_before_cutting: boolean };
 };
+type FinancialForm = { default_currency: string; fiscal_year_start_month: NumberInputValue };
 
 const DEFAULTS: SettingsPayload = {
   company_info: { name: "Milana Ecosystem", logo_url: "", address: "", phone: "", email: "" },
   financial: { default_currency: "USD", fiscal_year_start_month: 1 },
-  preferences: { default_language: "en", timezone: "UTC", model_types: ["Dress", "Top", "Skirt", "Pants", "Outerwear"] },
+  preferences: { default_language: "en", timezone: "UTC", model_types: ["Dress", "Top", "Skirt", "Pants", "Outerwear"], require_material_reservation_before_cutting: false },
 };
 
 function Section({ title, children, footer }: { title: string; children: React.ReactNode; footer: React.ReactNode }) {
@@ -33,7 +35,7 @@ export default function SettingsPage() {
   const { t } = useT();
   const { data, mutate } = useSWR<SettingsPayload>("/api/settings", fetcher);
   const [company, setCompany] = useState(DEFAULTS.company_info);
-  const [financial, setFinancial] = useState(DEFAULTS.financial);
+  const [financial, setFinancial] = useState<FinancialForm>(DEFAULTS.financial);
   const [preferences, setPreferences] = useState(DEFAULTS.preferences);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState("");
@@ -57,7 +59,8 @@ export default function SettingsPage() {
     }
     if (section === "financial") {
       if (!financial.default_currency.trim()) next.currency = t("page.settings.currencyRequired");
-      if (financial.fiscal_year_start_month < 1 || financial.fiscal_year_start_month > 12) next.fiscal = t("page.settings.monthRange");
+      const fiscalMonth = numberOrFallback(financial.fiscal_year_start_month, 0);
+      if (fiscalMonth < 1 || fiscalMonth > 12) next.fiscal = t("page.settings.monthRange");
     }
     if (section === "preferences") {
       if (!["en", "ru", "uz"].includes(preferences.default_language)) next.lang = t("page.settings.chooseLanguage");
@@ -83,7 +86,7 @@ export default function SettingsPage() {
       section === "company_info"
         ? { ...company, logo_url: await uploadLogoIfNeeded() }
         : section === "financial"
-          ? financial
+          ? { ...financial, fiscal_year_start_month: numberOrFallback(financial.fiscal_year_start_month, DEFAULTS.financial.fiscal_year_start_month) }
           : preferences;
     await api.patch(`/api/settings/${section}`, payload);
     setSaved(t("page.settings.sectionSaved", { section: t(
@@ -120,7 +123,7 @@ export default function SettingsPage() {
         >
           <div><label className="label">{t("field.defaultCurrency")}</label><input className="input" value={financial.default_currency} onChange={(e) => setFinancial({ ...financial, default_currency: e.target.value.toUpperCase() })} /></div>
           {errors.currency && <div className="text-xs text-red-600">{errors.currency}</div>}
-          <div><label className="label">{t("field.fiscalYearStartMonth")}</label><input className="input" type="number" min={1} max={12} value={financial.fiscal_year_start_month} onChange={(e) => setFinancial({ ...financial, fiscal_year_start_month: Number(e.target.value) })} /></div>
+          <div><label className="label">{t("field.fiscalYearStartMonth")}</label><input className="input" type="number" min={1} max={12} value={financial.fiscal_year_start_month} onChange={(e) => setFinancial({ ...financial, fiscal_year_start_month: parseNumberInput(e.target.value) })} /></div>
           {errors.fiscal && <div className="text-xs text-red-600">{errors.fiscal}</div>}
         </Section>
 
@@ -147,6 +150,18 @@ export default function SettingsPage() {
               onChange={(e) => setPreferences({ ...preferences, model_types: e.target.value.split("\n").map((v) => v.trim()).filter(Boolean) })}
             />
           </div>
+          <label className="flex items-start gap-2 rounded-md border border-[#ecebe3] p-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={preferences.require_material_reservation_before_cutting}
+              onChange={(e) => setPreferences({ ...preferences, require_material_reservation_before_cutting: e.target.checked })}
+            />
+            <span>
+              <span className="block font-medium text-[#14110b]">{t("field.requireMaterialReservation")}</span>
+              <span className="block text-[#6f684f]">{t("page.settings.requireMaterialReservationHint")}</span>
+            </span>
+          </label>
         </Section>
       </div>
       {saved && <div className="mt-4 text-sm text-green-700">{saved}</div>}

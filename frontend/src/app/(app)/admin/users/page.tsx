@@ -8,6 +8,7 @@ import Modal from "@/components/Modal";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useT } from "@/lib/i18n";
 import { useMe } from "@/lib/auth";
+import { useDialogs } from "@/components/DialogProvider";
 
 type Role = { id: number; name: string; permissions: string[] };
 type Dept = { id: number; name: string };
@@ -152,6 +153,7 @@ export default function AdminUsersPage() {
   const searchParams = useSearchParams();
   const q = (searchParams.get("q") ?? "").trim().toLowerCase();
   const { t, lang } = useT();
+  const dialogs = useDialogs();
   const { me } = useMe();
   const { data, mutate } = useSWR<User[]>("/api/users", fetcher);
   const { data: setupEmailStatus } = useSWR<PasswordSetupEmailStatus>("/api/users/password-setup-email-status", fetcher);
@@ -282,7 +284,7 @@ export default function AdminUsersPage() {
       setDeleting(null);
       mutate();
     } catch (e: any) {
-      alert(e.message);
+      await dialogs.notify(e.message);
     }
   }
 

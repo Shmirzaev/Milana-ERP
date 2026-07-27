@@ -233,6 +233,61 @@ def test_super_admin_can_assign_and_remove_admin_role(client, auth_headers):
     assert r.status_code == 204, r.text
 
 
+def test_super_data_console_requires_true_super_admin(client, auth_headers):
+    r = client.get("/api/admin/super-data/tables", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert any(table["name"] == "users" for table in r.json())
+
+    admin_role_id = _role_id(client, auth_headers, "Admin")
+    hr_dept = _dept_id(client, auth_headers, "HR")
+    password = "DataConsoleAdmin!2026"
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Data Console Regular Admin",
+            "email": "data.console.regular.admin@example.com",
+            "password": password,
+            "role_id": admin_role_id,
+            "department_id": hr_dept,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+    regular_admin_headers = _login(client, "data.console.regular.admin@example.com", password)
+    r = client.get("/api/admin/super-data/tables", headers=regular_admin_headers)
+    assert r.status_code == 403, r.text
+
+
+def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, auth_headers):
+    r = client.post(
+        "/api/departments",
+        json={"name": "Super Data Temporary", "code": "SDC"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    department_id = r.json()["id"]
+
+    r = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{department_id}",
+        json={"values": {"name": "Super Data Edited"}},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "Super Data Edited"
+
+    r = client.get("/api/admin/super-data/tables/departments?q=Super%20Data%20Edited", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert any(row["id"] == department_id for row in r.json()["rows"])
+
+    r = client.delete(f"/api/admin/super-data/tables/departments/rows/{department_id}", headers=auth_headers)
+    assert r.status_code == 204, r.text
+
+    r = client.get("/api/admin/super-data/tables/departments?q=Super%20Data%20Edited", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert not any(row["id"] == department_id for row in r.json()["rows"])
+
+
 # ---------- H2: permission gating on state changes ----------
 
 def test_hr_user_cannot_post_quality_check(client, auth_headers):
@@ -250,6 +305,52 @@ def test_hr_user_cannot_start_work_order(client, auth_headers):
     hr_headers = _login(client, "hr@example.com", "demo12345")
     r = client.post("/api/work-orders/999999/start", headers=hr_headers)
     assert r.status_code == 403, r.text
+
+
+def test_hr_user_cannot_read_protected_domain_endpoints(client):
+    hr_headers = _login(client, "hr@example.com", "demo12345")
+    endpoints = [
+        "/api/inventory/items",
+        "/api/production-orders",
+        "/api/packages/999999/label",
+        "/api/packages/label-sheet/by-ids?ids=999999",
+        "/api/bundles/999999/label",
+        "/api/bundles/label-sheet/by-ids?ids=999999",
+        "/api/bundles/label-sheet/by-production-order/999999",
+        "/api/bundles/label-sheet/by-batch/999999",
+        "/api/traceability/export/package/999999",
+        "/api/finance/waste-report",
+        "/api/audit-logs/hash-chain/export",
+        "/api/dashboard/inventory",
+        "/api/customers",
+        "/api/suppliers",
+    ]
+
+    for endpoint in endpoints:
+        r = client.get(endpoint, headers=hr_headers)
+        assert r.status_code == 403, endpoint
+
+    post_endpoints = [
+        "/api/barcode/generate-bundle-label/999999",
+        "/api/barcode/generate-package-label/999999",
+    ]
+    for endpoint in post_endpoints:
+        r = client.post(endpoint, headers=hr_headers)
+        assert r.status_code == 403, endpoint
+
+
+def test_hr_user_can_read_process_tracking(client):
+    hr_headers = _login(client, "hr@example.com", "demo12345")
+
+    listing = client.get("/api/process-tracking", headers=hr_headers)
+    assert listing.status_code == 200, listing.text
+
+    summary = client.get("/api/process-tracking/summary", headers=hr_headers)
+    assert summary.status_code == 200, summary.text
+
+    exported = client.get("/api/process-tracking/export", headers=hr_headers)
+    assert exported.status_code == 200, exported.text
+    assert "text/html" in exported.headers.get("content-type", "")
 
 
 # ---------- M2: token invalidation on password change ----------
@@ -512,8 +613,10 @@ def test_model_file_thumbnail_is_authenticated_and_cacheable(client, auth_header
     assert "max-age" in thumb.headers["cache-control"]
 
 
-def test_model_file_survives_missing_filesystem_copy(client, auth_headers):
+def test_model_file_uses_database_fallback_when_available(client, auth_headers):
     from app.core.config import settings
+    from app.db.session import SessionLocal
+    from app.models import ModelImage
 
     up = client.post(
         "/api/models/1/images/upload",
@@ -531,6 +634,17 @@ def test_model_file_survives_missing_filesystem_copy(client, auth_headers):
     assert model.status_code == 200, model.text
     uploaded = next(img for img in model.json()["images"] if img["file_url"] == file_url)
     assert uploaded["is_primary"] is True
+
+    # New uploads are stored once on the persistent filesystem. Legacy rows
+    # that still contain file_data must remain readable as a recovery fallback.
+    db = SessionLocal()
+    try:
+        image = db.query(ModelImage).filter(ModelImage.file_url == file_url).one()
+        assert image.file_data is None
+        image.file_data = _VALID_PNG
+        db.commit()
+    finally:
+        db.close()
 
     os.remove(abs_path)
     original = client.get(file_url, headers=auth_headers)
@@ -616,3 +730,22 @@ def test_upload_validation_helper_rejects_oversize_without_unbounded_read(client
 
     import asyncio
     asyncio.run(run_case())
+
+
+def test_global_rate_limit_rejects_excess_requests(client, monkeypatch):
+    from app.core.config import settings
+    from app.core.shared_store import reset_shared_counter_store_for_tests
+
+    reset_shared_counter_store_for_tests()
+    monkeypatch.setattr(settings, "GLOBAL_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr(settings, "GLOBAL_RATE_LIMIT_PER_MINUTE", 2)
+    monkeypatch.setattr(settings, "GLOBAL_RATE_LIMIT_WINDOW_SECONDS", 60)
+
+    headers = {"x-forwarded-for": "203.0.113.10"}
+    assert client.get("/api/auth/login-panel", headers=headers).status_code == 200
+    assert client.get("/api/auth/login-panel", headers=headers).status_code == 200
+    limited = client.get("/api/auth/login-panel", headers=headers)
+    assert limited.status_code == 429
+    assert limited.headers.get("retry-after")
+
+    reset_shared_counter_store_for_tests()

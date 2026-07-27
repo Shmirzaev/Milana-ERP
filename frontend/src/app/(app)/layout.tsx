@@ -10,7 +10,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar />
-          <main className="min-w-0 flex-1 px-3 py-4 sm:px-4 md:px-5 lg:p-8">{children}</main>
+          <main className="min-w-0 flex-1 px-3 pb-24 pt-4 sm:px-4 md:px-5 lg:p-8">{children}</main>
         </div>
         <TasksDrawer />
       </div>

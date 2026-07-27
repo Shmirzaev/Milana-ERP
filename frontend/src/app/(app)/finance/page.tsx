@@ -7,6 +7,8 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
+import { useDialogs } from "@/components/DialogProvider";
+import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
 type RevenueRow = { period: string; amount: number };
 type InvoiceRow = {
@@ -41,10 +43,11 @@ function Card({ title, value }: { title: string; value: string }) {
 
 export default function FinancePage() {
   const { t } = useT();
+  const dialogs = useDialogs();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [paying, setPaying] = useState<InvoiceRow | null>(null);
-  const [payment, setPayment] = useState({ amount: 0, date: new Date().toISOString().slice(0, 10), payment_method: "bank_transfer" });
+  const [payment, setPayment] = useState<{ amount: NumberInputValue; date: string; payment_method: string }>({ amount: "", date: new Date().toISOString().slice(0, 10), payment_method: "bank_transfer" });
   const [paymentMsg, setPaymentMsg] = useState("");
 
   const revenueUrl = useMemo(() => {
@@ -76,12 +79,12 @@ export default function FinancePage() {
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
     if (!paying) return;
-    if (!confirm(t("page.finance.recordPaymentConfirm", { invoice: paying.invoice_no || paying.order_no }))) return;
+    if (!(await dialogs.ask({ message: t("page.finance.recordPaymentConfirm", { invoice: paying.invoice_no || paying.order_no }) }))) return;
     setPaymentMsg("");
     try {
       await api.post("/api/finance/payments", {
         invoice_id: paying.id,
-        amount: Number(payment.amount || 0),
+        amount: numberOrZero(payment.amount),
         paid_at: new Date(payment.date).toISOString(),
         payment_method: payment.payment_method,
       });
@@ -155,7 +158,7 @@ export default function FinancePage() {
           <div className="text-sm text-slate-600">
             {paying?.invoice_no || "-"} - {paying?.order_no || "-"} - {money(Number(paying?.amount || 0))}
           </div>
-          <div><label className="label">{t("field.amountReceived")}</label><input className="input" type="number" step="0.01" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: Number(e.target.value) })} required /></div>
+          <div><label className="label">{t("field.amountReceived")}</label><input className="input" type="number" step="0.01" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: parseNumberInput(e.target.value) })} required /></div>
           <div><label className="label">{t("field.date")}</label><input className="input" type="date" value={payment.date} onChange={(e) => setPayment({ ...payment, date: e.target.value })} required /></div>
           <div>
             <label className="label">{t("field.paymentMethod")}</label>

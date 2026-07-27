@@ -1,15 +1,17 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.schemas.common import ORMModel
+from app.schemas.common import ORMModel, SchemaModel
+from app.schemas.inventory import ItemComposition
 
 
-class ProductionOrderItemIn(BaseModel):
+class ProductionOrderItemIn(SchemaModel):
     model_id: int
     color: str
     size: str
     planned_quantity: int
+    printing_required: bool = False
 
 
 class ProductionOrderItemOut(ORMModel):
@@ -20,6 +22,13 @@ class ProductionOrderItemOut(ORMModel):
     size: str
     planned_quantity: int
     completed_quantity: int
+    printing_required: bool
+
+
+class ProductionOrderPrintingAttachment(BaseModel):
+    file_url: str
+    file_name: Optional[str] = None
+    content_type: Optional[str] = None
 
 
 class ProductionBatchIn(BaseModel):
@@ -43,18 +52,24 @@ class ProductionBatchOut(ORMModel):
     notes: str | None = None
 
 
-class ProductionOrderIn(BaseModel):
+class ProductionOrderIn(SchemaModel):
     production_type: str  # client_order | branded_stock
+    planning_order_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     collection_id: Optional[int] = None
     model_id: int
+    brand_id: Optional[int] = None
+    fabric_batch_id: Optional[int] = None
     planned_quantity: int = 0
     start_date: Optional[datetime] = None
     deadline: Optional[datetime] = None
     estimated_material_code: Optional[str] = None
     estimated_material_amount: Optional[float] = None
     estimated_material_unit: Optional[str] = None
+    printing_instructions: Optional[str] = None
+    printing_attachments: list[ProductionOrderPrintingAttachment] = Field(default_factory=list)
     destination_warehouse_id: Optional[int] = None
+    cutting_department_code: str = "CUT"
     items: list[ProductionOrderItemIn] = []
     batches: list[ProductionBatchIn] = []
 
@@ -65,9 +80,12 @@ class ProductionOrderOut(ORMModel):
     order_no: Optional[str] = None
     sales_order_no: Optional[str] = None
     production_type: str
+    planning_order_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     collection_id: Optional[int] = None
     model_id: int
+    brand_id: Optional[int] = None
+    fabric_batch_id: Optional[int] = None
     status: str
     planned_quantity: int
     start_date: Optional[datetime] = None
@@ -75,6 +93,12 @@ class ProductionOrderOut(ORMModel):
     estimated_material_code: Optional[str] = None
     estimated_material_amount: Optional[float] = None
     estimated_material_unit: Optional[str] = None
+    printing_instructions: Optional[str] = None
+    printing_attachments: Optional[list[ProductionOrderPrintingAttachment]] = Field(default_factory=list)
+    estimated_material_composition: list[ItemComposition] = Field(default_factory=list)
+    model_image_url: Optional[str] = None
+    variant_picture_url: Optional[str] = None
+    material_image_url: Optional[str] = None
     destination_warehouse_id: Optional[int] = None
     created_at: datetime
     actual_quantity: Optional[int] = None
@@ -83,13 +107,38 @@ class ProductionOrderOut(ORMModel):
     actual_cut_quantity: Optional[int] = None
 
 
+class BrandedPlanningOrderIn(SchemaModel):
+    ordered_for_type: str = "milana"
+    customer_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class BrandedPlanningOrderOut(ORMModel):
+    id: int
+    order_no: str
+    ordered_for_type: str
+    customer_id: Optional[int] = None
+    ordered_for_name: str
+    status: str
+    notes: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class WorkOrderOut(ORMModel):
     id: int
+    sewing_assignment_id: Optional[int] = None
     order_no: Optional[str] = None
     production_no: Optional[str] = None
     sales_order_no: Optional[str] = None
     production_order_id: int
     production_batch_id: Optional[int] = None
+    assignment_batch_id: Optional[int] = None
+    batch_no: Optional[str] = None
+    batch_name: Optional[str] = None
+    batch_index: Optional[int] = None
+    batch_planned_quantity: Optional[int] = None
     department_id: int
     operation: str
     status: str
@@ -102,6 +151,11 @@ class WorkOrderOut(ORMModel):
     rework_qty: int
     received_bundle_count: int = 0
     received_bundle_qty: int = 0
+    assigned_qty: int = 0
+    assignable_qty: int = 0
+    model_image_url: Optional[str] = None
+    variant_picture_url: Optional[str] = None
+    material_image_url: Optional[str] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     deadline: Optional[datetime] = None
@@ -142,6 +196,9 @@ class CuttingRecordIn(BaseModel):
     defective_pieces: int = 0
     waste_quantity: float = 0
     waste_unit: str = "kg"
+    layer_material_kg: float = Field(default=0, ge=0)
+    beika_kg: float = Field(default=0, ge=0)
+    material_rolls_used: float = Field(default=0, ge=0)
     operator_id: Optional[int] = None
     notes: Optional[str] = None
     # Bundle plan: list of {color, size, quantity, count}
@@ -216,6 +273,7 @@ class MaterialRequirement(BaseModel):
     item_id: int
     sku: str
     name: str
+    composition: list[ItemComposition] = Field(default_factory=list)
     required_quantity: float
     available_quantity: float
     shortage: float
@@ -227,6 +285,7 @@ class PlanningEstimateMaterial(BaseModel):
     sku: str
     name: str
     category: str | None = None
+    composition: list[ItemComposition] = Field(default_factory=list)
     required_quantity: float
     available_quantity: float
     shortage: float

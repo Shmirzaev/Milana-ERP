@@ -4,7 +4,7 @@ import os
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.core.config import settings as app_settings
 from app.core.deps import CurrentUser, DbSession, require_permissions
@@ -29,9 +29,12 @@ class FinancialSettings(BaseModel):
 
 
 class SystemPreferences(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     default_language: str = "en"
     timezone: str = "UTC"
     model_types: list[str] = ["Dress", "Top", "Skirt", "Pants", "Outerwear"]
+    require_material_reservation_before_cutting: bool = False
 
 
 _SCHEMAS = {

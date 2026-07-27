@@ -2,15 +2,24 @@
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
 export default function FinishedGoodsPage() {
   const { t } = useT();
-  const { data } = useSWR<any[]>("/api/finished-goods", fetcher);
-  const { data: branded } = useSWR<any[]>("/api/finished-goods/branded-stock", fetcher);
-  const { data: inbox } = useSWR<any>("/api/inbox?dept=FGS", fetcher);
+  const { data } = useSWR<any[]>("/api/finished-goods", fetcher, LIVE_DATA_SWR_OPTIONS);
+  const { data: branded } = useSWR<any[]>(
+    "/api/finished-goods/branded-stock",
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
+  const { data: inbox } = useSWR<any>(
+    "/api/inbox?dept=FGS",
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
   const readyToShip = Array.isArray(inbox?.ready_to_ship) ? inbox.ready_to_ship : [];
   return (
     <div>

@@ -1,8 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import RedirectResponse
 
-from app.core.deps import DbSession, CurrentUser
-from app.models import Bundle, Package
+from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions
+from app.models import Bundle, Package, User
 
 router = APIRouter(prefix="/barcode", tags=["barcode"])
 
@@ -22,10 +22,10 @@ def package_qr(package_no: str, db: DbSession, _: CurrentUser):
 
 
 @router.post("/generate-bundle-label/{bundle_id}")
-def gen_bundle_label(bundle_id: int, _: CurrentUser):
+def gen_bundle_label(bundle_id: int, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
     return RedirectResponse(url=f"/api/bundles/{bundle_id}/label", status_code=303)
 
 
 @router.post("/generate-package-label/{package_id}")
-def gen_package_label(package_id: int, _: CurrentUser):
+def gen_package_label(package_id: int, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
     return RedirectResponse(url=f"/api/packages/{package_id}/label", status_code=303)

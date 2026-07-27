@@ -9,7 +9,16 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { credentials: "same-origin", ...init, signal: controller.signal });
+    const cacheOptions =
+      (init.method || "GET").toUpperCase() === "GET" && init.cache === undefined
+        ? { cache: "no-store" as RequestCache }
+        : {};
+    return await fetch(url, {
+      credentials: "same-origin",
+      ...cacheOptions,
+      ...init,
+      signal: controller.signal,
+    });
   } catch (err: any) {
     if (err?.name === "AbortError") {
       throw new Error(

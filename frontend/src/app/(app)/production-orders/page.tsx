@@ -8,7 +8,9 @@ import Modal from "@/components/Modal";
 import { productionTypeLabel, statusLabel } from "@/components/StagePipeline";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { orderReference } from "@/lib/orderRef";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 type PO = {
   id: number; production_no: string; order_no?: string | null; sales_order_no?: string | null; production_type: string;
@@ -25,12 +27,16 @@ export default function ProductionOrdersPage() {
   const { me } = useMe();
   const { t } = useT();
   const isAdmin = can(me, "*");
-  const { data, mutate } = useSWR<PO[]>("/api/production-orders", fetcher);
+  const { data, mutate } = useSWR<PO[]>(
+    "/api/production-orders",
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
   const { data: models } = useSWR<any[]>("/api/models", fetcher);
   const modelMap = new Map((models ?? []).map((m) => [m.id, m]));
 
   const [editing, setEditing] = useState<PO | null>(null);
-  const [edit, setEdit] = useState({ status: "new", planned_quantity: 0, deadline: "" });
+  const [edit, setEdit] = useState<{ status: string; planned_quantity: NumberInputValue; deadline: string }>({ status: "new", planned_quantity: "", deadline: "" });
   const [editMsg, setEditMsg] = useState("");
 
   function openEdit(p: PO) {
@@ -45,7 +51,7 @@ export default function ProductionOrdersPage() {
     try {
       await api.patch(`/api/production-orders/${editing.id}`, {
         status: edit.status,
-        planned_quantity: edit.planned_quantity,
+        planned_quantity: numberOrZero(edit.planned_quantity),
         deadline: edit.deadline ? new Date(edit.deadline).toISOString() : null,
       });
       setEditing(null);
@@ -99,7 +105,7 @@ export default function ProductionOrdersPage() {
           </div>
           <div>
             <label className="label">{t("field.plannedQty")}</label>
-            <input className="input" type="number" value={edit.planned_quantity} onChange={(e) => setEdit({ ...edit, planned_quantity: Number(e.target.value) })} />
+            <input className="input" type="number" value={edit.planned_quantity} onChange={(e) => setEdit({ ...edit, planned_quantity: parseNumberInput(e.target.value) })} />
           </div>
           <div>
             <label className="label">{t("field.deadline")}</label>

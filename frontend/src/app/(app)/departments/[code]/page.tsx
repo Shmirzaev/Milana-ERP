@@ -9,15 +9,21 @@ import PageHeader from "@/components/PageHeader";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
+import { FAST_LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { orderReference } from "@/lib/orderRef";
 
 const DEPT_LABELS: Record<string, string> = {
   CUT: "nav.cuttingFloor",
+  ECT: "nav.ecoCottonCutting",
   PRT: "nav.printingFloor",
   SEW: "nav.sewingFloor",
   MIL: "nav.milanaSewing",
   BST: "nav.besttexSewing",
+  ECO: "nav.ecoCottonSewing",
   PKG: "nav.packagingFloor",
+  BPK: "nav.besttexPackaging",
+  ECP: "nav.ecoCottonPackaging",
   FGS: "nav.finishedGoods",
 };
 
@@ -33,11 +39,55 @@ function workCardTitle(w: any, t: (key: string, vars?: Record<string, string | n
   return `${orderReference(w, w?.production_order_id ? `#${w.production_order_id}` : "-")} - ${operationLabel(w.operation, t)}`;
 }
 
+function MaterialThumb({ row }: { row: any }) {
+  const imageUrl = row?.material_image_url || row?.model_image_url;
+  const src = storageThumbnailUrl(imageUrl, 160);
+  if (!src) return null;
+  const label = row?.material_item_name || row?.material_item_sku || row?.model_name || row?.model_no || row?.model_code || "Material";
+  return (
+    <a href={imagePreviewHref(imageUrl, label)} target="_blank" rel="noreferrer" className="h-12 w-12 shrink-0 overflow-hidden rounded-md border border-[#ecebe3] bg-[#f8f7f3]">
+      <img src={src} alt={label} className="h-full w-full object-cover" loading="lazy" />
+    </a>
+  );
+}
+
+function materialLine(row: any) {
+  const name = String(row?.material_item_name || "").trim();
+  const sku = String(row?.material_item_sku || "").trim();
+  const label = [sku, name].filter(Boolean).join(" - ");
+  if (!label) return null;
+  return <div className="truncate text-[11px] text-slate-500">{label}</div>;
+}
+
+function orderContextLine(row: any, t: (key: string, vars?: Record<string, string | number>) => string) {
+  const modelNo = String(row?.model_no || "").trim();
+  const variantNo = String(row?.variant_no || "").trim();
+  const size = String(row?.size_summary || row?.size || "").trim();
+  const parts = [
+    modelNo ? { label: t("field.modelNo"), value: modelNo } : null,
+    variantNo ? { label: t("field.variantNo"), value: variantNo } : null,
+    size ? { label: t("field.size"), value: size } : null,
+  ].filter(Boolean) as { label: string; value: string }[];
+
+  if (parts.length === 0) return null;
+
+  return (
+    <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] leading-4 text-[#56503f]">
+      {parts.map((part) => (
+        <span key={part.label} className="min-w-0 max-w-full">
+          <span className="text-[#8a8472]">{part.label}:</span> {part.value}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function DepartmentInboxPage() {
   const { t } = useT();
   const params = useParams<{ code: string }>();
   const router = useRouter();
   const code = String(params.code || "").toUpperCase();
+  const isFinishedGoods = code === "FGS";
   const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
   const [clientTz, setClientTz] = useState("UTC");
   const [startingWoId, setStartingWoId] = useState<number | null>(null);
@@ -54,12 +104,16 @@ export default function DepartmentInboxPage() {
     }
   }, []);
 
-  const { data, isLoading, mutate } = useSWR<any>(code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null, fetcher, {
-    refreshInterval: 10_000,
-  });
+  const { data, isLoading, mutate } = useSWR<any>(
+    code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null,
+    fetcher,
+    FAST_LIVE_DATA_SWR_OPTIONS,
+  );
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
   const activeWorkOrders = Array.isArray(data?.active_work_orders) ? data.active_work_orders : [];
+  const replacementCuttingWork = Array.isArray(data?.replacement_cutting_work) ? data.replacement_cutting_work : [];
+  const replacementSewingWork = Array.isArray(data?.replacement_sewing_work) ? data.replacement_sewing_work : [];
   const incomingWorkOrders = useMemo(
     () => (Array.isArray(data?.incoming_work_orders) ? data.incoming_work_orders : []),
     [data?.incoming_work_orders],
@@ -220,14 +274,91 @@ export default function DepartmentInboxPage() {
     );
   }
 
+  function textileLine(row: any) {
+    const textileName = String(row?.textile_name || "").trim();
+    if (!textileName) return null;
+    return <div className="text-[11px] text-slate-500">{t("field.textile")}: {textileName}</div>;
+  }
+
   return (
     <div>
       <PageHeader
         title={t("page.deptInbox.title", { dept: deptLabel })}
-        subtitle={t("page.deptInbox.subtitle")}
+        subtitle={t(isFinishedGoods ? "page.deptInbox.finishedGoodsSubtitle" : "page.deptInbox.subtitle")}
       />
       {isLoading && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
-      {!isLoading && (
+      {!isLoading && (code === "CUT" || code === "ECT") && (
+        <section className="card mb-4 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">
+            {t("replacement.cuttingSection", { count: replacementCuttingWork.length })}
+          </h2>
+          {replacementCuttingWork.length > 0 ? (
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+              {replacementCuttingWork.map((row: any) => (
+                <div key={row.id} className="rounded border border-amber-200 bg-amber-50/60 p-2 text-sm">
+                  <div className="flex items-start gap-2">
+                    <MaterialThumb row={row} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{orderReference(row, `#${row.production_order_id}`)}</div>
+                      {orderContextLine(row, t)}
+                      {materialLine(row)}
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs font-medium text-amber-900">
+                    {t("replacement.cuttingRemaining", { count: Number(row.remaining_qty || 0).toLocaleString() })}
+                  </div>
+                  <div className="text-xs text-slate-600">{t("replacement.failedSource")}</div>
+                  {row.defect_reason && (
+                    <div className="mt-1 text-xs text-slate-600">
+                      {t("replacement.reason")}: {row.defect_reason}
+                    </div>
+                  )}
+                  <Link className="mt-2 inline-block text-xs text-brand-600 hover:underline" href={`/work-orders/${row.cutting_work_order_id}/cutting`}>
+                    {t("btn.open")}
+                  </Link>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-slate-400">{t("replacement.noCuttingWork")}</div>
+          )}
+        </section>
+      )}
+      {!isLoading && replacementSewingWork.length > 0 && (
+        <section className="card mb-4 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">
+            {t("replacement.sewingSection", { count: replacementSewingWork.length })}
+          </h2>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+            {replacementSewingWork.map((row: any) => (
+              <div key={row.id} className="rounded border border-amber-200 bg-amber-50/60 p-2 text-sm">
+                <div className="flex items-start gap-2">
+                  <MaterialThumb row={row} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{orderReference(row, `#${row.production_order_id}`)}</div>
+                    {orderContextLine(row, t)}
+                    {materialLine(row)}
+                    {textileLine(row)}
+                  </div>
+                </div>
+                <div className="mt-2 text-xs font-medium text-amber-900">
+                  {t("replacement.sewingRemaining", { count: Number(row.remaining_qty || 0).toLocaleString() })}
+                </div>
+                <div className="text-xs text-slate-600">{t("replacement.cutReadySource")}</div>
+                {row.defect_reason && (
+                  <div className="mt-1 text-xs text-slate-600">
+                    {t("replacement.reason")}: {row.defect_reason}
+                  </div>
+                )}
+                <Link className="mt-2 inline-block text-xs text-brand-600 hover:underline" href={`/work-orders/${row.sewing_work_order_id}/sewing`}>
+                  {t("btn.open")}
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      {!isLoading && !isFinishedGoods && (
         <div className={`grid grid-cols-1 gap-4 ${splitQueueByStatus ? "xl:grid-cols-4" : "lg:grid-cols-3"}`}>
           <section className="card p-4">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -236,17 +367,25 @@ export default function DepartmentInboxPage() {
             <div className="space-y-2">
               {incomingWorkOrders.map((w: any) => (
                 <div key={`wo-${w.work_order_id}`} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="font-medium">{orderReference(w, `#${w.production_order_id}`)}</div>
-                      <div className="text-xs text-slate-500">
-                        {t("page.deptInbox.incomingProcess", {
-                          source: operationLabel(w.source_operation, t),
-                          target: operationLabel(w.target_operation, t),
-                        })}
+                  <div className="flex items-start gap-2">
+                    <MaterialThumb row={w} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{orderReference(w, `#${w.production_order_id}`)}</div>
+                          <div className="text-xs text-slate-500">
+                            {t("page.deptInbox.incomingProcess", {
+                              source: operationLabel(w.source_operation, t),
+                              target: operationLabel(w.target_operation, t),
+                            })}
+                          </div>
+                          {orderContextLine(w, t)}
+                          {materialLine(w)}
+                          {textileLine(w)}
+                        </div>
+                        <span className="badge shrink-0">{statusLabel(w.source_status || w.status, t)}</span>
                       </div>
                     </div>
-                    <span className="badge shrink-0">{statusLabel(w.source_status || w.status, t)}</span>
                   </div>
                   <div className="mt-1 text-xs text-slate-500">
                     {Number(w.ready_qty || 0) > 0
@@ -269,20 +408,28 @@ export default function DepartmentInboxPage() {
                 </div>
               ))}
               {incomingBundleGroups.map((g: any) => (
-                <div key={`bundle-group-${g.production_order_id}`} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="font-medium">{orderReference(g, `#${g.production_order_id}`)}</div>
-                      <div className="text-xs text-slate-500">
-                        {t("page.deptInbox.incomingProcess", {
-                          source: operationLabel(g.source_operation || "cutting", t),
-                          target: operationLabel(g.target_operation || "sewing", t),
-                        })}
+                <div key={`bundle-group-${g.production_order_id}-${g.textile_code || "all"}`} className="rounded border border-slate-200 p-2 text-sm">
+                  <div className="flex items-start gap-2">
+                    <MaterialThumb row={g} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{orderReference(g, `#${g.production_order_id}`)}</div>
+                          <div className="text-xs text-slate-500">
+                            {t("page.deptInbox.incomingProcess", {
+                              source: operationLabel(g.source_operation || "cutting", t),
+                              target: operationLabel(g.target_operation || "sewing", t),
+                            })}
+                          </div>
+                          {orderContextLine(g, t)}
+                          {materialLine(g)}
+                          {textileLine(g)}
+                        </div>
+                        <span className="badge shrink-0">
+                          {Number(g.bundle_count || 0)} {t("nav.bundles").toLowerCase()}
+                        </span>
                       </div>
                     </div>
-                    <span className="badge shrink-0">
-                      {Number(g.bundle_count || 0)} {t("nav.bundles").toLowerCase()}
-                    </span>
                   </div>
                   <div className="mt-1 text-xs text-slate-500">
                     {t("page.deptInbox.readyReceived", { ready: g.ready_qty, received: g.received_qty })}
@@ -318,9 +465,19 @@ export default function DepartmentInboxPage() {
                 <div className="space-y-2">
                   {pendingWorkOrders.map((w: any) => (
                     <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium">{workCardTitle(w, t)}</div>
-                        <span className="badge">{statusLabel(w.status, t)}</span>
+                      <div className="flex items-start gap-2">
+                        <MaterialThumb row={w} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">{workCardTitle(w, t)}</div>
+                              {orderContextLine(w, t)}
+                              {materialLine(w)}
+                              {textileLine(w)}
+                            </div>
+                            <span className="badge shrink-0">{statusLabel(w.status, t)}</span>
+                          </div>
+                        </div>
                       </div>
                       <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
                       {sewingReceivedLine(w)}
@@ -350,9 +507,19 @@ export default function DepartmentInboxPage() {
                 <div className="space-y-2">
                   {inProgressWorkOrders.map((w: any) => (
                     <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium">{workCardTitle(w, t)}</div>
-                        <span className="badge">{statusLabel(w.status, t)}</span>
+                      <div className="flex items-start gap-2">
+                        <MaterialThumb row={w} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">{workCardTitle(w, t)}</div>
+                              {orderContextLine(w, t)}
+                              {materialLine(w)}
+                              {textileLine(w)}
+                            </div>
+                            <span className="badge shrink-0">{statusLabel(w.status, t)}</span>
+                          </div>
+                        </div>
                       </div>
                       <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
                       {sewingReceivedLine(w)}
@@ -374,9 +541,19 @@ export default function DepartmentInboxPage() {
               <div className="space-y-2">
                 {activeWorkOrders.map((w: any) => (
                   <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="font-medium">{workCardTitle(w, t)}</div>
-                      <span className="badge">{statusLabel(w.status, t)}</span>
+                    <div className="flex items-start gap-2">
+                      <MaterialThumb row={w} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{workCardTitle(w, t)}</div>
+                            {orderContextLine(w, t)}
+                            {materialLine(w)}
+                            {textileLine(w)}
+                          </div>
+                          <span className="badge shrink-0">{statusLabel(w.status, t)}</span>
+                        </div>
+                      </div>
                     </div>
                     <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
                     {sewingReceivedLine(w)}
@@ -398,7 +575,15 @@ export default function DepartmentInboxPage() {
             <div className="space-y-2">
               {(data?.done_today || []).map((w: any) => (
                 <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="font-medium">{workCardTitle(w, t)}</div>
+                  <div className="flex items-start gap-2">
+                    <MaterialThumb row={w} />
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{workCardTitle(w, t)}</div>
+                      {orderContextLine(w, t)}
+                      {materialLine(w)}
+                      {textileLine(w)}
+                    </div>
+                  </div>
                   <div className="text-xs text-slate-500">{t("page.deptInbox.passedOnly", { passed: w.passed_qty })}</div>
                   <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${w.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
                 </div>
@@ -409,7 +594,7 @@ export default function DepartmentInboxPage() {
         </div>
       )}
 
-      {code === "PKG" && data?.awaiting_packaging?.length > 0 && (
+      {(code === "PKG" || code === "BPK" || code === "ECP") && data?.awaiting_packaging?.length > 0 && (
         <div className="card mt-4 p-4">
           <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")}</h3>
           <table className="table">

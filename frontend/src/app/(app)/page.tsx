@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { CalendarDays, Download, Factory, Plus, TrendingDown, TrendingUp } from "lucide-react";
 import { fetcher } from "@/lib/api";
+import { DASHBOARD_SWR_OPTIONS } from "@/lib/liveData";
 import PageHeader from "@/components/PageHeader";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -117,13 +118,24 @@ export default function HomePage() {
   const { data: mgmt } = useSWR<any>(
     can(me, "management.view", "*") ? `/api/dashboard/management?tz=${encodeURIComponent(clientTz)}` : null,
     fetcher,
+    DASHBOARD_SWR_OPTIONS,
   );
-  const { data: fin } = useSWR<any>(can(me, "finance.view", "*") ? "/api/dashboard/finance" : null, fetcher);
+  const { data: fin } = useSWR<any>(
+    can(me, "finance.view", "*") ? "/api/dashboard/finance" : null,
+    fetcher,
+    DASHBOARD_SWR_OPTIONS,
+  );
   const {
-    data: activeProduction = [],
+    data: activeProductionData,
     error: activeProductionError,
     isLoading: activeProductionLoading,
-  } = useSWR<ActiveProductionOrder[]>("/api/dashboard/active-production", fetcher);
+  } = useSWR<ActiveProductionOrder[]>(
+    "/api/dashboard/active-production",
+    fetcher,
+    DASHBOARD_SWR_OPTIONS,
+  );
+  const activeProduction = useMemo(() => activeProductionData ?? [], [activeProductionData]);
+  const showActiveProductionError = Boolean(activeProductionError && !activeProductionData);
 
   const [kind, setKind] = useState<FilterKind>("all");
   const [datePreset, setDatePreset] = useState<DatePreset>("this_week");
@@ -169,7 +181,7 @@ export default function HomePage() {
     const qs = params.toString();
     return qs ? `/api/dashboard/production?${qs}` : "/api/dashboard/production";
   }, [dateRange.start, dateRange.end]);
-  const { data: prod } = useSWR<any>(prodUrl, fetcher);
+  const { data: prod } = useSWR<any>(prodUrl, fetcher, DASHBOARD_SWR_OPTIONS);
 
   const activeOrders = useMemo(() => {
     return activeProduction
@@ -286,17 +298,66 @@ export default function HomePage() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.55fr_1fr]">
         <div className="card">
-          <div className="flex items-center gap-3 border-b border-[#ecebe3] px-4 py-3">
-            <h2 className="app-card-title">{t("home.activeProduction")}</h2>
-            <span className="text-xs text-[#8a8472]">{t("home.ordersInFlight", { count: activeOrders.length, value: activeOrders.length })}</span>
-            <div className="ml-auto rounded-md border border-[#ded9ca] bg-[#f1efe8] p-0.5 text-xs">
-              <button className={`px-3 py-1 ${kind === "all" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("all")}>{t("sales.tab.all")}</button>
-              <button className={`px-3 py-1 ${kind === "client_order" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("client_order")}>{t("orderType.client")}</button>
-              <button className={`px-3 py-1 ${kind === "branded_stock_sale" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("branded_stock_sale")}>{t("orderType.branded")}</button>
+          <div className="flex flex-col items-start gap-3 border-b border-[#ecebe3] px-4 py-3 sm:flex-row sm:items-center">
+            <div className="min-w-0">
+              <h2 className="app-card-title">{t("home.activeProduction")}</h2>
+              <span className="text-xs text-[#8a8472]">{t("home.ordersInFlight", { count: activeOrders.length, value: activeOrders.length })}</span>
             </div>
-            <a href="/sales-orders" className="btn btn-ghost">{t("home.viewAll")} -&gt;</a>
+            <div className="flex w-full flex-col items-stretch gap-2 sm:ml-auto sm:w-auto sm:flex-row sm:items-center sm:overflow-x-auto">
+              <div className="shrink-0 rounded-md border border-[#ded9ca] bg-[#f1efe8] p-0.5 text-xs">
+                <button className={`px-3 py-1 ${kind === "all" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("all")}>{t("sales.tab.all")}</button>
+                <button className={`px-3 py-1 ${kind === "client_order" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("client_order")}>{t("orderType.client")}</button>
+                <button className={`px-3 py-1 ${kind === "branded_stock_sale" ? "rounded bg-[#fdfcf8] shadow-sm" : "text-[#56503f]"}`} onClick={() => setKind("branded_stock_sale")}>{t("orderType.branded")}</button>
+              </div>
+              <a href="/sales-orders" className="btn btn-ghost shrink-0">{t("home.viewAll")} -&gt;</a>
+            </div>
           </div>
-          <div className="overflow-x-auto">
+          <div className="divide-y divide-[#ecebe3] md:hidden">
+            {activeProductionLoading ? (
+              <div className="p-4 text-sm text-[#8a8472]">{t("common.loading")}</div>
+            ) : showActiveProductionError ? (
+              <div className="p-4 text-sm text-red-600">{t("page.home.activeProductionError")}</div>
+            ) : !activeOrders.length ? (
+              <div className="p-4 text-sm text-[#8a8472]">{t("page.home.noOrdersSelectedFilter")}</div>
+            ) : activeOrders.map((o) => {
+              const pct = Math.max(0, Math.min(100, Number(o.progress || 0)));
+              return (
+                <article key={o.id} className="p-4">
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <a href={`/sales-orders/${o.id}`} className="mono block truncate font-semibold text-[#14110b]">{o.order_no}</a>
+                      <div className="mt-1 truncate text-sm font-medium text-[#14110b]">{o.customer || t("sales.unknownCustomer")}</div>
+                    </div>
+                    <span className="badge shrink-0 bg-[#fbe9dd] text-[#c2410c]">{statusLabel(o.status, t)}</span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <div className="label">{t("field.qty")}</div>
+                      <div className="mono font-semibold">{Number(o.qty || 0).toLocaleString()}</div>
+                    </div>
+                    <div>
+                      <div className="label">{t("field.value")}</div>
+                      <div className="font-semibold"><Money value={Number(o.value || 0)} /></div>
+                    </div>
+                    <div>
+                      <div className="label">{t("field.deadline")}</div>
+                      <div className="mono text-[#56503f]">
+                        {o.deadline_label || (o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-")}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="label">{t("page.processes.progress")}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="mini-bar flex-1"><span style={{ width: `${pct}%` }} /></div>
+                        <span className="mono text-xs text-[#8a8472]">{pct}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="table">
               <thead>
                 <tr>
@@ -306,7 +367,7 @@ export default function HomePage() {
               <tbody>
                 {activeProductionLoading ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("common.loading")}</td></tr>
-                ) : activeProductionError ? (
+                ) : showActiveProductionError ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-red-600">{t("page.home.activeProductionError")}</td></tr>
                 ) : !activeOrders.length ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("page.home.noOrdersSelectedFilter")}</td></tr>
@@ -369,11 +430,13 @@ export default function HomePage() {
             <h3 className="app-card-title">{t("page.processes.title")}</h3>
             <p className="mt-1 text-sm text-[#8a8472]">{t("home.liveProcessTrackerDesc")}</p>
           </a>
-          <a href="/sewing/flows" className="card p-4 transition hover:border-[#c2410c]">
-            <Factory className="mb-3 h-5 w-5 text-[#1f7a4d]" />
-            <h3 className="app-card-title">{t("nav.sewingFloor")}</h3>
-            <p className="mt-1 text-sm text-[#8a8472]">{t("home.sewingFloorDesc")}</p>
-          </a>
+          {can(me, "sewing.workspace") && (
+            <a href="/sewing/flows" className="card p-4 transition hover:border-[#c2410c]">
+              <Factory className="mb-3 h-5 w-5 text-[#1f7a4d]" />
+              <h3 className="app-card-title">{t("nav.sewingFloor")}</h3>
+              <p className="mt-1 text-sm text-[#8a8472]">{t("home.sewingFloorDesc")}</p>
+            </a>
+          )}
         </div>
       )}
     </div>

@@ -1,5 +1,4 @@
 """Bundle service: create cutting bundles with QR/barcode, manage scan transitions."""
-from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -15,10 +14,15 @@ from app.services.workflow import notify_department, sync_production_order_statu
 DEPT_CUT = "CUT"
 DEPT_PRT = "PRT"
 DEPT_SEW = "SEW"
+DEPT_PKG = "PKG"
 DEPT_MILANA = "MIL"
 DEPT_BESTTEX = "BST"
+DEPT_BESTTEX_PACKAGING = "BPK"
+DEPT_ECO_COTTON = "ECO"
+DEPT_ECO_COTTON_PACKAGING = "ECP"
+DEPT_ECO_COTTON_CUTTING = "ECT"
 DEFAULT_SEWING_FACTORY_CODE = DEPT_MILANA
-SEWING_FACTORY_CODES = (DEPT_MILANA, DEPT_BESTTEX)
+SEWING_FACTORY_CODES = (DEPT_MILANA, DEPT_BESTTEX, DEPT_ECO_COTTON)
 SEWING_DEPARTMENT_CODES = (DEPT_SEW, *SEWING_FACTORY_CODES)
 SEWING_FACTORY_ALIASES = {
     "MIL": DEPT_MILANA,
@@ -27,6 +31,10 @@ SEWING_FACTORY_ALIASES = {
     "BST": DEPT_BESTTEX,
     "BESTTEX": DEPT_BESTTEX,
     "BTX": DEPT_BESTTEX,
+    "ECO": DEPT_ECO_COTTON,
+    "ECO COTTON": DEPT_ECO_COTTON,
+    "ECO_COTTON": DEPT_ECO_COTTON,
+    "ECOCOTTON": DEPT_ECO_COTTON,
 }
 
 
@@ -51,17 +59,135 @@ def _sewing_factory_dept(db: Session, code: str | None) -> Department | None:
     return _dept(db, factory_code) or _dept(db, DEPT_SEW)
 
 
+def _factory_codes_for_scope(
+    db: Session,
+    production_order_id: int,
+    production_batch_id: int | None = None,
+) -> set[str]:
+    qry = db.query(Bundle.sewing_factory_code).filter(Bundle.production_order_id == production_order_id)
+    if production_batch_id is not None:
+        qry = qry.filter(Bundle.production_batch_id == production_batch_id)
+    return {
+        resolve_sewing_factory_code(code)
+        for (code,) in qry.all()
+        if code is not None
+    }
+
+
+def sewing_department_code_for_bundle_route(
+    db: Session,
+    production_order_id: int,
+    production_batch_id: int | None = None,
+) -> str:
+    codes = _factory_codes_for_scope(db, production_order_id, production_batch_id)
+    if codes == {DEPT_MILANA}:
+        return DEPT_MILANA
+    if codes == {DEPT_BESTTEX}:
+        return DEPT_BESTTEX
+    if codes == {DEPT_ECO_COTTON}:
+        return DEPT_ECO_COTTON
+    return DEPT_SEW
+
+
+def packaging_department_code_for_bundle_route(
+    db: Session,
+    production_order_id: int,
+    production_batch_id: int | None = None,
+) -> str:
+    codes = _factory_codes_for_scope(db, production_order_id, production_batch_id)
+    if codes == {DEPT_BESTTEX}:
+        return DEPT_BESTTEX_PACKAGING
+    if codes == {DEPT_ECO_COTTON}:
+        return DEPT_ECO_COTTON_PACKAGING
+    return DEPT_PKG
+
+
+def _work_orders_for_route(
+    db: Session,
+    production_order_id: int,
+    production_batch_id: int | None,
+    operation: str,
+) -> list[WorkOrder]:
+    base = db.query(WorkOrder).filter(
+        WorkOrder.production_order_id == production_order_id,
+        WorkOrder.operation == operation,
+    )
+    if production_batch_id is not None:
+        rows = base.filter(WorkOrder.production_batch_id == production_batch_id).all()
+        if rows:
+            return rows
+    rows = base.filter(WorkOrder.production_batch_id.is_(None)).all()
+    return rows or base.all()
+
+
+def _assign_work_order_department(
+    db: Session,
+    production_order_id: int,
+    production_batch_id: int | None,
+    operation: str,
+    department_code: str,
+    fallback_code: str,
+) -> str:
+    target = _dept(db, department_code) or _dept(db, fallback_code)
+    if not target:
+        return fallback_code
+    for wo in _work_orders_for_route(db, production_order_id, production_batch_id, operation):
+        if wo.department_id != target.id:
+            wo.department_id = target.id
+    return target.code
+
+
+def sync_sewing_department_for_bundle_route(
+    db: Session,
+    production_order_id: int,
+    production_batch_id: int | None = None,
+) -> str:
+    return _assign_work_order_department(
+        db,
+        production_order_id,
+        production_batch_id,
+        "sewing",
+        sewing_department_code_for_bundle_route(db, production_order_id, production_batch_id),
+        DEPT_SEW,
+    )
+
+
+def sync_packaging_department_for_bundle_route(
+    db: Session,
+    production_order_id: int,
+    production_batch_id: int | None = None,
+) -> str:
+    return _assign_work_order_department(
+        db,
+        production_order_id,
+        production_batch_id,
+        "packaging",
+        packaging_department_code_for_bundle_route(db, production_order_id, production_batch_id),
+        DEPT_PKG,
+    )
+
+
+def sync_textile_departments_for_bundle_route(
+    db: Session,
+    production_order_id: int,
+    production_batch_id: int | None = None,
+) -> tuple[str, str]:
+    sewing_code = sync_sewing_department_for_bundle_route(db, production_order_id, production_batch_id)
+    packaging_code = sync_packaging_department_for_bundle_route(db, production_order_id, production_batch_id)
+    return sewing_code, packaging_code
+
+
 def format_batch_passport(batch: ProductionBatch | None, production_order_id: int | None = None) -> str:
     if not batch:
         return ""
     batch_no = str(batch.batch_no or "").strip()
     if batch_no:
-        return batch_no
+        return batch_no[3:] if batch_no.upper().startswith("BT-") else batch_no
     idx = max(1, int(batch.batch_index or 1))
     po_id = max(0, int(production_order_id or batch.production_order_id or 0))
     if po_id:
-        return f"BT-{po_id:04d}-{idx:02d}"
-    return f"BT-{idx:02d}"
+        return f"{po_id:04d}-{idx:02d}"
+    return f"{idx:02d}"
 
 
 def bundle_qr_payload(db: Session, bundle: Bundle) -> str:
@@ -227,6 +353,9 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
         raise HTTPException(409, "This bundle sticker was already received at sewing")
     if bundle.status not in ("created", "received_printing"):
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be sent to sewing")
+    from app.services.inventory import ensure_accessories_issued_for_sewing
+
+    ensure_accessories_issued_for_sewing(db, int(bundle.production_order_id))
     from_code = DEPT_PRT if bundle.status == "received_printing" else DEPT_CUT
     factory_code = resolve_sewing_factory_code(bundle.sewing_factory_code)
     target = _sewing_factory_dept(db, factory_code)
@@ -234,6 +363,7 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
     bundle.sewing_factory_code = factory_code
     bundle.next_department_id = target.id if target else None
     _transition(db, bundle, "sent_sewing", "sent_to_sewing", from_code, target_code, user_id)
+    sync_textile_departments_for_bundle_route(db, bundle.production_order_id, bundle.production_batch_id)
     wo = _work_order_for_bundle(db, bundle, "sewing")
     if wo and wo.status in ("new", "planning", "waiting"):
         wo.status = "in_progress"
@@ -251,6 +381,9 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
 def receive_at_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
     if bundle.status == "received_sewing":
         raise HTTPException(409, "This bundle sticker was already received at sewing")
+    from app.services.inventory import ensure_accessories_issued_for_sewing
+
+    ensure_accessories_issued_for_sewing(db, int(bundle.production_order_id))
     target = _sewing_factory_dept(db, bundle.sewing_factory_code)
     generic = _dept(db, DEPT_SEW)
     allowed_ids = {d.id for d in (target, generic) if d}
@@ -263,6 +396,7 @@ def receive_at_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
         _transition(db, bundle, "received_sewing", "received_sewing", None, target_code, user_id)
     else:
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be received at sewing")
+    sync_textile_departments_for_bundle_route(db, bundle.production_order_id, bundle.production_batch_id)
     wo = _work_order_for_bundle(db, bundle, "sewing")
     if wo:
         qty_filters = [

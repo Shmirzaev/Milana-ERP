@@ -6,12 +6,23 @@ import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import PageHeader from "@/components/PageHeader";
+import DefectReasonSelect from "@/components/DefectReasonSelect";
 import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { orderReference } from "@/lib/orderRef";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
+type PrintingForm = {
+  production_batch_id: number;
+  input_qty: NumberInputValue;
+  printed_qty: NumberInputValue;
+  rejected_qty: NumberInputValue;
+  defect_reason: string;
+  print_type: string;
+  notes: string;
+};
 
 export default function PrintingPage() {
   const { t } = useT();
@@ -19,11 +30,11 @@ export default function PrintingPage() {
   const id = Number(params.id);
   const { me } = useMe();
   const canCollect = can(me, "*", "printing.records", "planning.production");
-  const [f, setF] = useState({
+  const [f, setF] = useState<PrintingForm>({
     production_batch_id: 0,
-    input_qty: 0,
-    printed_qty: 0,
-    rejected_qty: 0,
+    input_qty: "",
+    printed_qty: "",
+    rejected_qty: "",
     defect_reason: "",
     print_type: "",
     notes: "",
@@ -40,12 +51,17 @@ export default function PrintingPage() {
   );
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
   const { data: customers } = useSWR<any[]>(so?.customer_id ? "/api/customers" : null, fetcher);
-  const { data: models } = useSWR<any[]>((so?.items?.length ?? 0) > 0 ? "/api/models" : null, fetcher);
-  const printFiles: PrintingAttachment[] = Array.isArray(so?.printing_attachments) ? so.printing_attachments : [];
-  const customerName = customers?.find((c) => Number(c.id) === Number(so?.customer_id))?.name;
   const soItems = Array.isArray(so?.items) ? so.items : [];
-  const printingItems = soItems.filter((item: any) => Boolean(item?.printing_required));
-  const orderItemsForPrint = printingItems.length > 0 ? printingItems : soItems;
+  const poItems = Array.isArray(po?.items)
+    ? po.items.map((item: any) => ({ ...item, quantity: item.quantity ?? item.planned_quantity }))
+    : [];
+  const orderItems = so ? soItems : poItems;
+  const { data: models } = useSWR<any[]>(orderItems.length > 0 ? "/api/models" : null, fetcher);
+  const printSource = so || po;
+  const printFiles: PrintingAttachment[] = Array.isArray(printSource?.printing_attachments) ? printSource.printing_attachments : [];
+  const customerName = customers?.find((c) => Number(c.id) === Number(so?.customer_id))?.name;
+  const printingItems = orderItems.filter((item: any) => Boolean(item?.printing_required));
+  const orderItemsForPrint = printingItems.length > 0 ? printingItems : orderItems;
   const woStatus = String(wo?.status || "").toLowerCase();
   const needsCollection = ["new", "planning", "waiting", "ready", "pending", "paused"].includes(woStatus);
   const canCollectNow = canCollect && ["new", "planning", "waiting", "ready", "pending", "paused", "collected"].includes(woStatus);
@@ -84,10 +100,13 @@ export default function PrintingPage() {
       return;
     }
     try {
-      const outputQty = Math.max(0, Number(f.printed_qty || 0));
+      const outputQty = Math.max(0, numberOrZero(f.printed_qty));
       await api.post("/api/printing/records", {
         work_order_id: id,
         ...f,
+        input_qty: numberOrZero(f.input_qty),
+        printed_qty: outputQty,
+        rejected_qty: numberOrZero(f.rejected_qty),
         passed_qty: outputQty,
         production_batch_id: f.production_batch_id || null,
       });
@@ -169,14 +188,14 @@ export default function PrintingPage() {
           )}
         </div>
       )}
-      {so && (orderItemsForPrint.length > 0 || so?.notes) && (
+      {printSource && (orderItemsForPrint.length > 0 || so?.notes) && (
         <div className="card mb-4 max-w-2xl space-y-3 p-4">
-          <dl className="hidden">
+          {so && <dl className="hidden">
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.orderNo")}</dt><dd className="font-medium">{so.order_no || "—"}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.customer")}</dt><dd className="font-medium">{customerName || so.customer_id || "—"}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.deadline")}</dt><dd className="font-medium">{so.deadline ? new Date(so.deadline).toLocaleDateString() : "—"}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2 sm:col-span-2"><dt className="text-[#8a8472]">{t("field.plannedQty")}</dt><dd className="font-medium">{wo?.planned_output_qty ?? po?.planned_quantity ?? "—"}</dd></div>
-          </dl>
+          </dl>}
           {orderItemsForPrint.length > 0 && (
             <div className="overflow-x-auto">
               <table className="table">
@@ -209,17 +228,17 @@ export default function PrintingPage() {
           )}
         </div>
       )}
-      {(so?.printing_instructions || printFiles.length > 0) && (
+      {(printSource?.printing_instructions || printFiles.length > 0) && (
         <div className="card mb-4 max-w-2xl space-y-3 p-4">
           <div>
             <div className="label">{t("page.printing.details")}</div>
             <div className="mt-1 text-sm text-[#8a8472]">
-              {t("page.printing.executionHelp", { orderNo: so?.order_no || "" })}
+              {t("page.printing.executionHelp", { orderNo: so?.order_no || po?.order_no || orderNo || "" })}
             </div>
           </div>
-          {so?.printing_instructions && (
+          {printSource?.printing_instructions && (
             <div className="rounded-md bg-[#f8f7f3] p-3 text-sm whitespace-pre-wrap">
-              {so.printing_instructions}
+              {printSource.printing_instructions}
             </div>
           )}
           {printFiles.length > 0 && (
@@ -299,23 +318,28 @@ export default function PrintingPage() {
           )}
           <div>
             <label className="label">{t("field.inputQty")}</label>
-            <input className="input" type="number" value={f.input_qty} onChange={(e) => setF({ ...f, input_qty: Number(e.target.value) })} />
+            <input className="input" type="number" value={f.input_qty} onChange={(e) => setF({ ...f, input_qty: parseNumberInput(e.target.value) })} />
           </div>
           <div>
             <label className="label">{t("field.output")}</label>
-            <input className="input" type="number" value={f.printed_qty} onChange={(e) => setF({ ...f, printed_qty: Number(e.target.value) })} />
+            <input className="input" type="number" value={f.printed_qty} onChange={(e) => setF({ ...f, printed_qty: parseNumberInput(e.target.value) })} />
           </div>
           <div>
             <label className="label">{t("field.rejected")}</label>
-            <input className="input" type="number" value={f.rejected_qty} onChange={(e) => setF({ ...f, rejected_qty: Number(e.target.value) })} />
+            <input className="input" type="number" value={f.rejected_qty} onChange={(e) => setF({ ...f, rejected_qty: parseNumberInput(e.target.value) })} />
           </div>
           <div>
             <label className="label">{t("field.printType")}</label>
             <input className="input" value={f.print_type} onChange={(e) => setF({ ...f, print_type: e.target.value })} />
           </div>
           <div>
-            <label className="label">{t("field.defectReason")}</label>
-            <input className="input" value={f.defect_reason} onChange={(e) => setF({ ...f, defect_reason: e.target.value })} />
+            <label className="label" htmlFor="printing-defect-reason">{t("field.defectReason")}</label>
+            <DefectReasonSelect
+              id="printing-defect-reason"
+              value={f.defect_reason}
+              onChange={(defect_reason) => setF({ ...f, defect_reason })}
+              required={numberOrZero(f.rejected_qty) > 0}
+            />
           </div>
           <div>
             <label className="label">{t("common.notes")}</label>

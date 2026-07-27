@@ -7,6 +7,7 @@ from app.schemas.common import ORMModel
 
 class SewingAssignmentIn(BaseModel):
     work_order_id: int
+    production_batch_id: Optional[int] = None
     sewing_flow_id: int
     quantity: int
     planned_start: Optional[datetime] = None
@@ -15,6 +16,7 @@ class SewingAssignmentIn(BaseModel):
 
 
 class SewingAssignmentUpdate(BaseModel):
+    production_batch_id: Optional[int] = None
     sewing_flow_id: Optional[int] = None
     quantity: Optional[int] = None
     completed_qty: Optional[int] = None
@@ -29,6 +31,7 @@ class SewingAssignmentUpdate(BaseModel):
 class SewingAssignmentOut(ORMModel):
     id: int
     work_order_id: int
+    production_batch_id: Optional[int] = None
     sewing_flow_id: int
     quantity: int
     completed_qty: int

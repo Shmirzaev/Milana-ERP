@@ -2,6 +2,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from app.schemas.common import ORMModel
+from app.schemas.production import WorkOrderOut
 
 
 class SewingFlowIn(BaseModel):
@@ -37,3 +38,9 @@ class SewingFlowWithLoad(SewingFlowOut):
     active_work_orders: int = 0
     planned_units: int = 0
     completed_units: int = 0
+
+
+class SewingFlowWorkOrderOut(WorkOrderOut):
+    """A sewing-flow work order with the model shown on the line."""
+
+    model_no: Optional[str] = None

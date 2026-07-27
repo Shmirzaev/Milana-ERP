@@ -8,7 +8,10 @@ import { Boxes, Grid2X2, ImageOff, PackageSearch, Search, Warehouse } from "luci
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { fetcher } from "@/lib/api";
+import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
+import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { orderReference } from "@/lib/orderRef";
 
 type StoragePlacement = {
@@ -27,9 +30,11 @@ type StoragePlacement = {
   color?: string | null;
   package_type?: string | null;
   total_quantity: number;
+  package_count?: number;
   status: string;
   storage_cell?: string | null;
   storage_shelf?: string | null;
+  created_at?: string | null;
   location?: string | null;
 };
 
@@ -71,6 +76,10 @@ function storageShelf(value?: string | null) {
   return value || "S1";
 }
 
+function isUnresolvedLegacyModel(code?: string | null) {
+  return String(code || "").trim().toUpperCase().startsWith("LEGACY-");
+}
+
 function colorToHex(color?: string | null) {
   if (!color) return "#a8a395";
   const value = color.toLowerCase();
@@ -84,16 +93,33 @@ function colorToHex(color?: string | null) {
   return "#b6b09e";
 }
 
-function packageListText(packages: DetailRow["packages"]) {
+function packageListText(packages: DetailRow["packages"], packageCount: number) {
   const names = packages.map((p) => p.package_no).filter(Boolean);
-  if (names.length <= 3) return names.join(", ");
-  return `${names.slice(0, 3).join(", ")} +${names.length - 3}`;
+  const visible = names.slice(0, 3);
+  const remaining = Math.max(0, packageCount - visible.length);
+  return remaining > 0 ? `${visible.join(", ")} +${remaining}` : visible.join(", ");
 }
 
 export default function WarehouseStockPage() {
   const { t } = useT();
+  const { me } = useMe();
+  const canTraceability = can(me, "traceability.view");
   const [query, setQuery] = useState("");
-  const { data, isLoading } = useSWR<StorageMapResponse>("/api/packages/storage-map", fetcher);
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
+  const stockUrl = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("include_unplaced", "true");
+    if (createdFrom) params.set("created_from", createdFrom);
+    if (createdTo) params.set("created_to", createdTo);
+    const qs = params.toString();
+    return `/api/packages/storage-map${qs ? `?${qs}` : ""}`;
+  }, [createdFrom, createdTo]);
+  const { data, isLoading } = useSWR<StorageMapResponse>(
+    stockUrl,
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
 
   const placements = useMemo(() => data?.placements || [], [data?.placements]);
   const filtered = useMemo(() => {
@@ -129,7 +155,7 @@ export default function WarehouseStockPage() {
     sectionKeys.delete("-");
     return {
       models: modelKeys.size,
-      packages: filtered.length,
+      packages: filtered.reduce((sum, row) => sum + Number(row.package_count || 1), 0),
       quantity: totalQty,
       sections: sectionKeys.size,
     };
@@ -166,7 +192,7 @@ export default function WarehouseStockPage() {
         orders: new Set<string>(),
         colors: new Set<string>(),
       };
-      existing.package_count += 1;
+      existing.package_count += Number(row.package_count || 1);
       existing.total_quantity += Number(row.total_quantity || 0);
       existing.sections.add(sectionFromCell(row.storage_cell));
       existing.orders.add(orderReference(row, t("page.warehouseStock.unassignedOrder")));
@@ -175,7 +201,13 @@ export default function WarehouseStockPage() {
       map.set(key, existing);
     }
 
-    return Array.from(map.values()).sort((a, b) => b.total_quantity - a.total_quantity);
+    return Array.from(map.values()).sort((a, b) => {
+      const unresolvedOrder =
+        Number(isUnresolvedLegacyModel(b.model_code)) -
+        Number(isUnresolvedLegacyModel(a.model_code));
+      if (unresolvedOrder !== 0) return unresolvedOrder;
+      return b.total_quantity - a.total_quantity;
+    });
   }, [filtered, t]);
 
   const detailRows = useMemo<DetailRow[]>(() => {
@@ -210,12 +242,16 @@ export default function WarehouseStockPage() {
         packages: [],
       };
       existing.total_quantity += Number(row.total_quantity || 0);
-      existing.package_count += 1;
+      existing.package_count += Number(row.package_count || 1);
       existing.packages.push({ id: row.id, package_no: row.package_no });
       if (!existing.model_image_url && row.model_image_url) existing.model_image_url = row.model_image_url;
       map.set(key, existing);
     }
     return Array.from(map.values()).sort((a, b) => {
+      const unresolvedOrder =
+        Number(isUnresolvedLegacyModel(b.model_code)) -
+        Number(isUnresolvedLegacyModel(a.model_code));
+      if (unresolvedOrder !== 0) return unresolvedOrder;
       const byModel = String(a.model_code || "").localeCompare(String(b.model_code || ""));
       if (byModel !== 0) return byModel;
       const byOrder = a.order_no.localeCompare(b.order_no);
@@ -268,15 +304,27 @@ export default function WarehouseStockPage() {
       </div>
 
       <div className="card mb-5 p-4">
-        <label className="label">{t("common.search")}</label>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a8472]" />
-          <input
-            className="input pl-9"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("page.warehouseStock.searchPlaceholder")}
-          />
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(280px,1fr)_12rem_12rem]">
+          <div>
+            <label className="label">{t("common.search")}</label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a8472]" />
+              <input
+                className="input pl-9"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("page.warehouseStock.searchPlaceholder")}
+              />
+            </div>
+          </div>
+          <label className="block">
+            <span className="label">{t("common.createdFrom")}</span>
+            <input className="input" type="date" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="label">{t("common.createdTo")}</span>
+            <input className="input" type="date" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} />
+          </label>
         </div>
       </div>
 
@@ -291,7 +339,9 @@ export default function WarehouseStockPage() {
               <div className="grid min-h-[132px] grid-cols-[104px_minmax(0,1fr)]">
                 <div className="bg-[#f1efe8]">
                   {group.model_image_url ? (
-                    <img src={group.model_image_url} alt={group.model_name || group.model_code || ""} className="h-full min-h-[132px] w-full object-cover" loading="lazy" />
+                    <a href={imagePreviewHref(group.model_image_url, group.model_name || group.model_code || "")} target="_blank" rel="noreferrer" className="block h-full min-h-[132px] w-full">
+                      <img src={storageThumbnailUrl(group.model_image_url, 320)} alt={group.model_name || group.model_code || ""} className="h-full min-h-[132px] w-full object-cover" loading="lazy" />
+                    </a>
                   ) : (
                     <div className="flex h-full min-h-[132px] items-center justify-center border-r border-[#e3dfd3] text-[#8a8472]">
                       <ImageOff className="h-6 w-6" />
@@ -351,7 +401,9 @@ export default function WarehouseStockPage() {
                 <tr key={row.key}>
                   <td>
                     {row.model_image_url ? (
-                      <img src={row.model_image_url} alt={row.model_name || row.model_code || ""} className="h-12 w-12 rounded-md border border-[#e3dfd3] object-cover" loading="lazy" />
+                      <a href={imagePreviewHref(row.model_image_url, row.model_name || row.model_code || "")} target="_blank" rel="noreferrer" className="block h-12 w-12 overflow-hidden rounded-md border border-[#e3dfd3]">
+                        <img src={storageThumbnailUrl(row.model_image_url, 160)} alt={row.model_name || row.model_code || ""} className="h-full w-full object-cover" loading="lazy" />
+                      </a>
                     ) : (
                       <div className="flex h-12 w-12 items-center justify-center rounded-md border border-[#e3dfd3] bg-[#f1efe8] text-[#8a8472]">
                         <ImageOff className="h-4 w-4" />
@@ -376,11 +428,18 @@ export default function WarehouseStockPage() {
                     <div className="mono font-semibold text-[#14110b]">{row.package_count}</div>
                     <div className="max-w-[260px] truncate text-xs text-[#8a8472]">
                       {row.packages.length === 1 ? (
-                        <Link href={`/packages/${row.packages[0].id}`} className="hover:underline">
-                          {row.packages[0].package_no}
-                        </Link>
+                        <>
+                          <Link href={`/packages/${row.packages[0].id}`} className="hover:underline">
+                            {row.packages[0].package_no}
+                          </Link>
+                          {canTraceability && (
+                            <Link href={`/traceability?package=${encodeURIComponent(row.packages[0].package_no)}`} className="ml-2 text-brand-600 hover:underline">
+                              {t("page.traceability.passport")}
+                            </Link>
+                          )}
+                        </>
                       ) : (
-                        packageListText(row.packages)
+                        packageListText(row.packages, row.package_count)
                       )}
                     </div>
                   </td>

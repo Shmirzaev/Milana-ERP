@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import Link from "next/link";
+import { PackageCheck, RotateCcw } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
@@ -11,6 +12,11 @@ import { operationLabel, productionTypeLabel, statusLabel } from "@/components/S
 import { useT } from "@/lib/i18n";
 import { useMe, can } from "@/lib/auth";
 import { orderReference } from "@/lib/orderRef";
+import { useDialogs } from "@/components/DialogProvider";
+import { formatComposition, type MaterialComposition } from "@/lib/materialComposition";
+import { formatModelComposition } from "@/lib/modelComposition";
+import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
+import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
 type WO = {
   id: number;
@@ -68,6 +74,8 @@ type ModelSummary = {
   id: number;
   code?: string | null;
   name?: string | null;
+  details_json?: { composition?: MaterialComposition[] | null } | null;
+  material_composition?: MaterialComposition[] | null;
 };
 
 type SalesOrderSummary = {
@@ -75,6 +83,57 @@ type SalesOrderSummary = {
   order_no?: string | null;
   customer_name?: string | null;
   customer?: { name?: string | null } | null;
+};
+
+type ReservationPlanRow = {
+  item_id: number;
+  item_sku: string;
+  item_name: string;
+  composition?: MaterialComposition[] | null;
+  unit: string;
+  required_quantity: number;
+  already_reserved_quantity: number;
+  remaining_to_reserve: number;
+  available_stock: number;
+  shortage: number;
+  status: string;
+};
+
+type ReservationRow = {
+  id: number;
+  reservation_no: string;
+  item_id: number;
+  item_sku?: string | null;
+  item_name?: string | null;
+  batch_no?: string | null;
+  reserved_quantity: number;
+  consumed_quantity: number;
+  released_quantity: number;
+  unit: string;
+  status: string;
+};
+
+type ReservationSummary = {
+  required_quantity: number;
+  already_reserved_quantity: number;
+  remaining_to_reserve: number;
+  shortage: number;
+  active_reserved_quantity?: number;
+  consumed_quantity?: number;
+  released_quantity?: number;
+  reservation_count?: number;
+};
+
+type ReservationStatus = {
+  plan: {
+    status: string;
+    is_complete: boolean;
+    warning?: string | null;
+    summary: ReservationSummary;
+    rows: ReservationPlanRow[];
+  };
+  summary: ReservationSummary;
+  reservations: ReservationRow[];
 };
 
 const PRE_CUTTING_EDIT_STATUSES = new Set(["new", "planning", "pending", "waiting", "ready"]);
@@ -90,6 +149,25 @@ function formatMaterialUsage(amount?: number | string | null, unit?: string | nu
   return `${parsed.toLocaleString(undefined, { maximumFractionDigits: 4 })}${unit ? ` ${unit}` : ""}`;
 }
 
+function fmtQty(value: number | string | null | undefined) {
+  const parsed = Number(value || 0);
+  return parsed.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+function reservationStatusLabel(status: string, t: (key: string) => string) {
+  if (status === "no_bom") return t("reservation.status.noBom");
+  if (status === "ready") return t("reservation.status.ready");
+  if (status === "shortage") return t("reservation.status.shortage");
+  return t("reservation.status.partial");
+}
+
+function reservationStatusClass(status: string) {
+  if (status === "no_bom") return "border-slate-200 bg-slate-50 text-slate-700";
+  if (status === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "shortage") return "border-red-200 bg-red-50 text-red-700";
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
 function modelLabel(model: ModelSummary | undefined, id?: number | null) {
   if (!model) return id ? `#${id}` : "-";
   return [model.code, model.name].filter(Boolean).join(" - ") || `#${model.id}`;
@@ -101,15 +179,40 @@ function salesOrderLabel(order: SalesOrderSummary | undefined, id?: number | nul
   return [order.order_no || `#${order.id}`, customer].filter(Boolean).join(" - ");
 }
 
+function SummaryImage({ label, imageUrl }: { label: string; imageUrl?: string | null }) {
+  const src = storageThumbnailUrl(imageUrl, 480);
+  if (!src) return null;
+  return (
+    <a
+      href={imagePreviewHref(imageUrl, label)}
+      target="_blank"
+      rel="noreferrer"
+      className="block min-w-0 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2a211c] focus:ring-offset-2"
+    >
+      <span className="mb-1 block text-xs text-slate-500">{label}</span>
+      <span className="flex aspect-[4/3] max-h-64 min-h-40 items-center justify-center overflow-hidden rounded-md border border-[#ecebe3] bg-[#fbfaf7] p-2">
+        <img src={src} alt={label} className="h-full w-full object-contain" loading="lazy" />
+      </span>
+    </a>
+  );
+}
+
 export default function ProductionOrderDetail() {
   const params = useParams<{ id: string }>();
   const { t } = useT();
+  const dialogs = useDialogs();
   const { me } = useMe();
   const canPlan = can(me, "*", "planning.production");
+  const canReserveMaterials = can(me, "*", "planning.reserve_materials", "inventory.reservations.create");
+  const canReleaseReservations = can(me, "*", "inventory.reservations.release");
   const isAdmin = can(me, "*");
   const id = params.id;
   const isNumericId = /^\d+$/.test(String(id || ""));
   const { data: po, error: poError, isLoading: poLoading, mutate } = useSWR<any>(isNumericId ? `/api/production-orders/${id}` : null, fetcher);
+  const { data: reservationStatus, mutate: mutateReservationStatus } = useSWR<ReservationStatus>(
+    isNumericId ? `/api/production-orders/${id}/material-reservation-status` : null,
+    fetcher,
+  );
   const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
   const { data: flowUtil } = useSWR<FlowUtil[]>("/api/sewing-flows/utilization-snapshot", fetcher, { refreshInterval: 60_000 });
   const { data: users } = useSWR<any[]>(canPlan ? "/api/users" : null, fetcher);
@@ -119,6 +222,8 @@ export default function ProductionOrderDetail() {
   const batchById = new Map<number, BatchMeta>(((po?.batches || []) as BatchMeta[]).map((b) => [b.id, b]));
   const modelById = new Map((models || []).map((m) => [m.id, m]));
   const salesOrderById = new Map((salesOrders || []).map((so) => [so.id, so]));
+  const selectedModel = modelById.get(Number(po?.model_id));
+  const selectedModelComposition = formatModelComposition(selectedModel);
   const workOrders = (po?.work_orders || []) as WO[];
   const cuttingWO = workOrders.find((w) => w.operation === "cutting");
   const canEditSummary = canPlan && (!cuttingWO || PRE_CUTTING_EDIT_STATUSES.has(String(cuttingWO.status || "")));
@@ -141,24 +246,26 @@ export default function ProductionOrderDetail() {
   const [openAssignments, setOpenAssignments] = useState<number | null>(null);
   const [repairing, setRepairing] = useState(false);
   const [repairMsg, setRepairMsg] = useState("");
+  const [reservationBusy, setReservationBusy] = useState("");
+  const [reservationMsg, setReservationMsg] = useState("");
 
   async function cascade() {
     try { await api.post(`/api/production-orders/${id}/cascade-deadlines`); mutate(); }
-    catch (e: any) { alert(e.message); }
+    catch (e: any) { await dialogs.notify(e.message); }
   }
   async function blockWO(wid: number) {
     const reason = prompt(t("page.poDetail.blockReasonPrompt"));
     if (!reason) return;
     try { await api.post(`/api/work-orders/${wid}/block`, { reason }); mutate(); }
-    catch (e: any) { alert(e.message); }
+    catch (e: any) { await dialogs.notify(e.message); }
   }
   async function unblockWO(wid: number) {
     try { await api.post(`/api/work-orders/${wid}/unblock`); mutate(); }
-    catch (e: any) { alert(e.message); }
+    catch (e: any) { await dialogs.notify(e.message); }
   }
 
   async function repairTotals() {
-    if (!confirm(t("page.poDetail.confirmRepairTotals"))) return;
+    if (!(await dialogs.ask({ message: t("page.poDetail.confirmRepairTotals") }))) return;
     setRepairing(true);
     setRepairMsg("");
     try {
@@ -169,6 +276,39 @@ export default function ProductionOrderDetail() {
       setRepairMsg(e.message || t("page.poDetail.repairFailed"));
     } finally {
       setRepairing(false);
+    }
+  }
+
+  async function autoReserveMaterials() {
+    setReservationBusy("auto");
+    setReservationMsg("");
+    try {
+      const result = await api.post(`/api/production-orders/${id}/reserve-materials`, {
+        mode: "full_remaining",
+        reserve_accessories: true,
+        reserve_materials: true,
+        reserve_packaging: true,
+      });
+      setReservationMsg(t("reservation.createdCount", { count: Number(result?.created_count || 0) }));
+      mutateReservationStatus();
+    } catch (e: any) {
+      setReservationMsg(e?.message || t("reservation.actionFailed"));
+    } finally {
+      setReservationBusy("");
+    }
+  }
+
+  async function releaseReservation(reservationId: number) {
+    setReservationBusy(`release-${reservationId}`);
+    setReservationMsg("");
+    try {
+      await api.post(`/api/inventory/reservations/${reservationId}/release`, {});
+      setReservationMsg(t("reservation.released"));
+      mutateReservationStatus();
+    } catch (e: any) {
+      setReservationMsg(e?.message || t("reservation.actionFailed"));
+    } finally {
+      setReservationBusy("");
     }
   }
 
@@ -428,8 +568,22 @@ export default function ProductionOrderDetail() {
             </form>
           ) : (
           <>
+          {(po.model_image_url || po.variant_picture_url) && (
+            <div className="mb-3 grid grid-cols-2 gap-3">
+              <SummaryImage label={t("page.workOrder.modelPicture")} imageUrl={po.model_image_url} />
+              <SummaryImage label={t("page.workOrder.variantPicture")} imageUrl={po.variant_picture_url} />
+            </div>
+          )}
           <dl className="text-sm space-y-1">
-            <div className="flex justify-between gap-3"><dt className="text-slate-500">{t("field.model")}</dt><dd className="text-right">{modelLabel(modelById.get(Number(po.model_id)), po.model_id)}</dd></div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">{t("field.model")}</dt>
+              <dd className="text-right">
+                <div>{modelLabel(selectedModel, po.model_id)}</div>
+                {selectedModelComposition && (
+                  <div className="mt-1 max-w-[320px] text-xs text-[#56503f]">{selectedModelComposition}</div>
+                )}
+              </dd>
+            </div>
             <div className="flex justify-between gap-3"><dt className="text-slate-500">{t("field.orderNo")}</dt><dd className="text-right">{orderNo}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("page.poDetail.plannedQty")}</dt><dd>{po.planned_quantity}</dd></div>
             {Number(po.actual_bundle_quantity || 0) > 0 && (
@@ -457,6 +611,141 @@ export default function ProductionOrderDetail() {
           )}
         </div>
       </div>
+
+      <section className="card mb-6 overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-[#ecebe3] p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="app-card-title">{t("reservation.title")}</h3>
+              {reservationStatus && (
+                <span className={`rounded-md border px-2 py-0.5 text-xs font-medium ${reservationStatusClass(reservationStatus.plan.status)}`}>
+                  {reservationStatusLabel(reservationStatus.plan.status, t)}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 text-sm text-[#6f684f]">{t("reservation.productionSubtitle")}</div>
+          </div>
+          {canReserveMaterials && (
+            <button type="button" className="btn btn-primary" onClick={autoReserveMaterials} disabled={reservationBusy === "auto"}>
+              <PackageCheck className="h-4 w-4" />
+              {reservationBusy === "auto" ? t("common.saving") : t("reservation.autoReserve")}
+            </button>
+          )}
+        </div>
+        {reservationStatus ? (
+          <div className="space-y-4 p-4">
+            <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+              <div>
+                <div className="text-[#8a8472]">{t("field.required")}</div>
+                <div className="mono font-semibold">{fmtQty(reservationStatus.summary.required_quantity)}</div>
+              </div>
+              <div>
+                <div className="text-[#8a8472]">{t("field.reserved")}</div>
+                <div className="mono font-semibold">{fmtQty(reservationStatus.summary.already_reserved_quantity)}</div>
+              </div>
+              <div>
+                <div className="text-[#8a8472]">{t("field.remaining")}</div>
+                <div className="mono font-semibold">{fmtQty(reservationStatus.summary.remaining_to_reserve)}</div>
+              </div>
+              <div>
+                <div className="text-[#8a8472]">{t("field.shortage")}</div>
+                <div className={`mono font-semibold ${Number(reservationStatus.summary.shortage || 0) > 0 ? "text-red-700" : ""}`}>
+                  {fmtQty(reservationStatus.summary.shortage)}
+                </div>
+              </div>
+            </div>
+            {reservationStatus.plan.warning && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {t("reservation.cuttingWarning")}
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="table text-sm">
+                <thead>
+                  <tr>
+                    <th>{t("field.item")}</th>
+                    <th>{t("field.required")}</th>
+                    <th>{t("field.reserved")}</th>
+                    <th>{t("field.available")}</th>
+                    <th>{t("field.shortage")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reservationStatus.plan.rows.map((row) => (
+                    <tr key={`${row.item_id}-${row.unit}`}>
+                      <td>
+                        <div className="mono font-semibold text-[#14110b]">{row.item_sku}</div>
+                        <div className="max-w-[260px] truncate text-xs text-[#8a8472]">{row.item_name}</div>
+                        {formatComposition(row.composition) && (
+                          <div className="max-w-[260px] truncate text-xs text-[#56503f]">{formatComposition(row.composition)}</div>
+                        )}
+                      </td>
+                      <td className="mono">{fmtQty(row.required_quantity)} {row.unit}</td>
+                      <td className="mono">{fmtQty(row.already_reserved_quantity)} {row.unit}</td>
+                      <td className="mono">{fmtQty(row.available_stock)} {row.unit}</td>
+                      <td className={`mono ${Number(row.shortage || 0) > 0 ? "text-red-700" : ""}`}>{fmtQty(row.shortage)} {row.unit}</td>
+                    </tr>
+                  ))}
+                  {reservationStatus.plan.rows.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="text-sm text-[#8a8472]">{t("reservation.noBomRows")}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="overflow-x-auto border-t border-[#ecebe3] pt-4">
+              <div className="mb-2 text-sm font-semibold text-[#14110b]">{t("reservation.reservedBatches")}</div>
+              <table className="table text-sm">
+                <thead>
+                  <tr>
+                    <th>{t("field.batch")}</th>
+                    <th>{t("field.item")}</th>
+                    <th>{t("field.reserved")}</th>
+                    <th>{t("reservation.consumed")}</th>
+                    <th>{t("reservation.releasedQty")}</th>
+                    <th>{t("common.status")}</th>
+                    <th>{t("field.actions")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reservationStatus.reservations.map((reservation) => (
+                    <tr key={reservation.id}>
+                      <td className="mono">{reservation.batch_no || "-"}</td>
+                      <td>{reservation.item_sku || reservation.item_id}</td>
+                      <td className="mono">{fmtQty(reservation.reserved_quantity)} {reservation.unit}</td>
+                      <td className="mono">{fmtQty(reservation.consumed_quantity)} {reservation.unit}</td>
+                      <td className="mono">{fmtQty(reservation.released_quantity)} {reservation.unit}</td>
+                      <td><span className="badge">{statusLabel(reservation.status, t)}</span></td>
+                      <td>
+                        {canReleaseReservations && ["reserved", "partially_consumed"].includes(reservation.status) ? (
+                          <button
+                            type="button"
+                            className="btn h-8 px-2 text-xs"
+                            onClick={() => releaseReservation(reservation.id)}
+                            disabled={reservationBusy === `release-${reservation.id}`}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            {t("btn.releaseReservation")}
+                          </button>
+                        ) : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                  {reservationStatus.reservations.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="text-sm text-[#8a8472]">{t("reservation.noReservations")}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {reservationMsg && <div className="text-sm text-[#56503f]">{reservationMsg}</div>}
+          </div>
+        ) : (
+          <div className="p-4 text-sm text-[#8a8472]">{t("common.loading")}</div>
+        )}
+      </section>
 
       <div className="card p-4">
         <h3 className="font-medium mb-2">{t("page.poDetail.workOrders")}</h3>
@@ -498,7 +787,7 @@ export default function ProductionOrderDetail() {
                     <td>{w.actual_output_qty}</td>
                     <td>{w.failed_qty}</td>
                     <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "—"}</td>
-                    <td>{flows?.find((f) => f.id === w.sewing_flow_id)?.code ?? "—"}</td>
+                    <td>{flows?.find((f) => f.id === w.sewing_flow_id)?.name ?? "—"}</td>
                     <td className="flex gap-2 flex-wrap">
                       {canPlan && w.operation === "sewing" && (
                         <button className="text-slate-700 hover:underline" onClick={() => openEdit(w)}>{t("btn.assign")}</button>
@@ -547,7 +836,7 @@ export default function ProductionOrderDetail() {
                   const isFull = !!u?.is_full;
                   return (
                     <option key={f.id} value={f.id} disabled={isFull}>
-                      {f.code} — {f.name}{isFull ? ` (FULL ${u?.utilization_pct ?? 100}%)` : ""}
+                      {f.name} ({f.code}){isFull ? ` (FULL ${u?.utilization_pct ?? 100}%)` : ""}
                     </option>
                   );
                 })}
@@ -588,8 +877,9 @@ function SewingAssignmentsPanel({
   utilByFlow: Map<number, FlowUtil>;
 }) {
   const { t } = useT();
+  const dialogs = useDialogs();
   const { data, mutate } = useSWR<Assignment[]>(`/api/work-orders/${woId}/assignments`, fetcher);
-  const [draft, setDraft] = useState({ sewing_flow_id: 0, quantity: 0, planned_start: "", planned_end: "" });
+  const [draft, setDraft] = useState<{ sewing_flow_id: number; quantity: NumberInputValue; planned_start: string; planned_end: string }>({ sewing_flow_id: 0, quantity: "", planned_start: "", planned_end: "" });
   const [msg, setMsg] = useState("");
   const committed = (data || []).reduce((s, a) => s + a.quantity, 0);
   const remaining = Math.max(0, plannedQty - committed);
@@ -605,18 +895,18 @@ function SewingAssignmentsPanel({
       await api.post(`/api/work-orders/${woId}/assignments`, {
         work_order_id: woId,
         sewing_flow_id: draft.sewing_flow_id,
-        quantity: draft.quantity,
+        quantity: numberOrZero(draft.quantity),
         planned_start: draft.planned_start ? new Date(draft.planned_start).toISOString() : null,
         planned_end: draft.planned_end ? new Date(draft.planned_end).toISOString() : null,
       });
-      setDraft({ sewing_flow_id: 0, quantity: 0, planned_start: "", planned_end: "" });
+      setDraft({ sewing_flow_id: 0, quantity: "", planned_start: "", planned_end: "" });
       mutate();
     } catch (e: any) { setMsg(e.message); }
   }
   async function del(aid: number) {
-    if (!confirm(t("confirm.deleteAssignment"))) return;
+    if (!(await dialogs.ask({ message: t("confirm.deleteAssignment"), tone: "danger" }))) return;
     try { await api.del(`/api/sewing-assignments/${aid}`); mutate(); }
-    catch (e: any) { alert(e.message); }
+    catch (e: any) { await dialogs.notify(e.message); }
   }
 
   return (
@@ -631,7 +921,7 @@ function SewingAssignmentsPanel({
         <tbody>
           {(data || []).map((a) => (
             <tr key={a.id}>
-              <td>{flows.find((f) => f.id === a.sewing_flow_id)?.code ?? a.sewing_flow_id}</td>
+              <td>{flows.find((f) => f.id === a.sewing_flow_id)?.name ?? a.sewing_flow_id}</td>
               <td>{a.quantity}</td>
               <td>{a.completed_qty}</td>
               <td>{a.planned_start ? new Date(a.planned_start).toLocaleDateString() : "—"}</td>
@@ -650,12 +940,12 @@ function SewingAssignmentsPanel({
             const isFull = !!u?.is_full;
             return (
               <option key={f.id} value={f.id} disabled={isFull}>
-                {f.code} — {f.name}{isFull ? ` (FULL ${u?.utilization_pct ?? 100}%)` : ""}
+                {f.name} ({f.code}){isFull ? ` (FULL ${u?.utilization_pct ?? 100}%)` : ""}
               </option>
             );
           })}
         </select>
-        <input className="input" type="number" placeholder={t("field.qty")} value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: Number(e.target.value) })} required />
+        <input className="input" type="number" placeholder={t("field.qty")} value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: parseNumberInput(e.target.value) })} required />
         <input className="input" type="date" value={draft.planned_start} onChange={(e) => setDraft({ ...draft, planned_start: e.target.value })} />
         <input className="input" type="date" value={draft.planned_end} onChange={(e) => setDraft({ ...draft, planned_end: e.target.value })} />
         <button className="btn btn-primary md:col-span-2" disabled={draft.sewing_flow_id > 0 && !!utilByFlow.get(draft.sewing_flow_id)?.is_full}>

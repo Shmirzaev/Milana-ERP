@@ -13,6 +13,75 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=Fals
 SUPER_ADMIN_PERMISSION = "admin.super"
 SUPER_ADMIN_ROLE_NAME = "Super Admin"
 
+READ_PERMISSIONS = {
+    "inventory": (
+        "storage.items",
+        "storage.receive",
+        "storage.transfer",
+        "inventory.reservations.view",
+        "purchasing.view",
+        "planning.production",
+        "*",
+    ),
+    "warehouse": (
+        "storage.items",
+        "storage.receive",
+        "storage.transfer",
+        "storage.packages",
+        "storage.shipment",
+        "inventory.reservations.view",
+        "*",
+    ),
+    "production": (
+        "planning.view",
+        "planning.production",
+        "processes.view",
+        "management.view",
+        "cutting.records",
+        "printing.records",
+        "sewing.records",
+        "packaging.records",
+        "sewing.flows",
+        "storage.packages",
+        "storage.shipment",
+        "*",
+    ),
+    "customers": (
+        "sales.customers",
+        "sales.orders",
+        "finance.view",
+        "*",
+    ),
+    "suppliers": (
+        "storage.suppliers",
+        "storage.items",
+        "purchasing.view",
+        "*",
+    ),
+    "dashboard_planning": (
+        "planning.view",
+        "planning.production",
+        "management.view",
+        "*",
+    ),
+    "dashboard_waste": (
+        "waste.receive",
+        "waste.sell",
+        "waste.disposal",
+        "management.view",
+        "finance.view",
+        "*",
+    ),
+}
+
+INVENTORY_READ_PERMISSIONS = READ_PERMISSIONS["inventory"]
+WAREHOUSE_READ_PERMISSIONS = READ_PERMISSIONS["warehouse"]
+PRODUCTION_READ_PERMISSIONS = READ_PERMISSIONS["production"]
+CUSTOMER_READ_PERMISSIONS = READ_PERMISSIONS["customers"]
+SUPPLIER_READ_PERMISSIONS = READ_PERMISSIONS["suppliers"]
+DASHBOARD_PLANNING_READ_PERMISSIONS = READ_PERMISSIONS["dashboard_planning"]
+DASHBOARD_WASTE_READ_PERMISSIONS = READ_PERMISSIONS["dashboard_waste"]
+
 
 def get_current_user(
     request: Request,
@@ -75,6 +144,12 @@ def is_admin(user: User) -> bool:
 def is_super_admin(user: User) -> bool:
     role_name = (user.role.name if user.role else "").strip().lower()
     return role_name == SUPER_ADMIN_ROLE_NAME.lower() or SUPER_ADMIN_PERMISSION in user_permissions(user)
+
+
+def require_super_admin(user: CurrentUser) -> User:
+    if not is_super_admin(user):
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    return user
 
 
 def require_permissions(*perms: str):

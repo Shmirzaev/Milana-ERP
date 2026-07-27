@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -14,7 +17,8 @@
     "qrcode": "^1.5.4",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "swr": "2.2.5"
+    "swr": "2.2.5",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@types/node": "20.16.5",

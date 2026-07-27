@@ -1,3 +1,5 @@
+import type { NumberInputValue } from "@/lib/numberInput";
+
 export type SectionCode = "sewing" | "pressing" | "packaging";
 
 export type QuantityMode = "batch" | "custom";
@@ -10,11 +12,17 @@ export type PaidOperation = {
   code: string;
   name: string;
   rate: string;
+  sourceOrder?: number;
+  duration?: string;
+  currency?: string;
+  sourceStage?: string;
+  changeDirection?: string;
+  finalOperation?: boolean;
   quantityMode: QuantityMode;
-  customQuantity: number;
-  copies: number;
+  customQuantity: NumberInputValue;
+  copies: NumberInputValue;
   splitMode: SplitMode;
-  splitQuantities: number[];
+  splitQuantities: NumberInputValue[];
 };
 
 export const SECTION_LABELS: Record<SectionCode, string> = {
@@ -106,6 +114,27 @@ function numberOrZero(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function optionalNumber(value: unknown): number | undefined {
+  if (value === "" || value === null || value === undefined) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  return String(value);
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "1", "yes"].includes(normalized)) return true;
+  if (["false", "0", "no"].includes(normalized)) return false;
+  return undefined;
+}
+
 function cleanId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -152,6 +181,27 @@ export function createPaidOperation(prefix = "op", customQuantity = 0): PaidOper
 
 export function normalizePaidOperation(row: any, index = 0): PaidOperation {
   const fallback = DEFAULT_PAID_OPERATIONS[index] || DEFAULT_PAID_OPERATIONS[0];
+  const sourceOrder = optionalNumber(row?.sourceOrder ?? row?.source_order ?? row?.sequence);
+  const duration = optionalString(row?.duration ?? row?.operation_duration);
+  const currency = optionalString(row?.currency);
+  const sourceStage = optionalString(
+    row?.sourceStage
+      ?? row?.source_stage
+      ?? row?.originalStage
+      ?? row?.original_stage
+      ?? row?.stage,
+  );
+  const changeDirection = optionalString(
+    row?.changeDirection
+      ?? row?.change_direction
+      ?? row?.controlChangeDirection
+      ?? row?.control_change_direction,
+  );
+  const finalOperation = optionalBoolean(
+    row?.finalOperation
+      ?? row?.final_operation
+      ?? row?.final,
+  );
   return {
     id: String(row?.id || fallback?.id || cleanId("op")),
     selected: row?.selected !== false,
@@ -159,6 +209,12 @@ export function normalizePaidOperation(row: any, index = 0): PaidOperation {
     code: String(row?.code || fallback?.code || "").toUpperCase(),
     name: String(row?.name || row?.operation_name || fallback?.name || ""),
     rate: row?.rate === null || row?.rate === undefined ? String(fallback?.rate || "") : String(row.rate),
+    ...(sourceOrder === undefined ? {} : { sourceOrder }),
+    ...(duration === undefined ? {} : { duration }),
+    ...(currency === undefined ? {} : { currency }),
+    ...(sourceStage === undefined ? {} : { sourceStage }),
+    ...(changeDirection === undefined ? {} : { changeDirection }),
+    ...(finalOperation === undefined ? {} : { finalOperation }),
     quantityMode: normalizeQuantityMode(row?.quantityMode || row?.quantity_mode || fallback?.quantityMode),
     customQuantity: numberOrZero(row?.customQuantity ?? row?.custom_quantity ?? fallback?.customQuantity),
     copies: Math.max(1, Math.floor(numberOrZero(row?.copies ?? fallback?.copies) || 1)),
@@ -168,29 +224,50 @@ export function normalizePaidOperation(row: any, index = 0): PaidOperation {
 }
 
 export function normalizePaidOperations(value: unknown): PaidOperation[] {
-  if (!Array.isArray(value) || value.length === 0) return clonePaidOperations();
+  if (!Array.isArray(value)) return clonePaidOperations();
+  if (value.length === 0) return [];
   const rows = value.map((row, index) => normalizePaidOperation(row, index));
-  return rows.length ? rows : clonePaidOperations();
+  return rows;
 }
 
 export function paidOperationsFromDetails(details: any): PaidOperation[] {
-  return normalizePaidOperations(details?.paid_operations || details?.paidOperations);
+  if (details && Object.prototype.hasOwnProperty.call(details, "paid_operations")) {
+    return normalizePaidOperations(details.paid_operations);
+  }
+  if (details && Object.prototype.hasOwnProperty.call(details, "paidOperations")) {
+    return normalizePaidOperations(details.paidOperations);
+  }
+  return clonePaidOperations();
 }
 
 export function serializePaidOperations(rows: PaidOperation[]): PaidOperation[] {
-  return normalizePaidOperations(rows).map((row) => ({
-    id: row.id,
-    selected: row.selected,
-    section: row.section,
-    code: row.code.trim().toUpperCase(),
-    name: row.name.trim(),
-    rate: String(row.rate ?? "").trim(),
-    quantityMode: row.quantityMode,
-    customQuantity: numberOrZero(row.customQuantity),
-    copies: Math.max(1, Math.floor(numberOrZero(row.copies) || 1)),
-    splitMode: row.splitMode,
-    splitQuantities: normalizeSplitQuantities(row.splitQuantities),
-  }));
+  return normalizePaidOperations(rows).map((row) => {
+    const sourceOrder = optionalNumber(row.sourceOrder);
+    const duration = optionalString(row.duration)?.trim();
+    const currency = optionalString(row.currency)?.trim();
+    const sourceStage = optionalString(row.sourceStage)?.trim();
+    const changeDirection = optionalString(row.changeDirection)?.trim();
+    const finalOperation = optionalBoolean(row.finalOperation);
+    return {
+      id: row.id,
+      selected: row.selected,
+      section: row.section,
+      code: row.code.trim().toUpperCase(),
+      name: row.name.trim(),
+      rate: String(row.rate ?? "").trim(),
+      ...(sourceOrder === undefined ? {} : { sourceOrder }),
+      ...(duration ? { duration } : {}),
+      ...(currency ? { currency } : {}),
+      ...(sourceStage ? { sourceStage } : {}),
+      ...(changeDirection ? { changeDirection } : {}),
+      ...(finalOperation === undefined ? {} : { finalOperation }),
+      quantityMode: row.quantityMode,
+      customQuantity: numberOrZero(row.customQuantity),
+      copies: Math.max(1, Math.floor(numberOrZero(row.copies) || 1)),
+      splitMode: row.splitMode,
+      splitQuantities: normalizeSplitQuantities(row.splitQuantities),
+    };
+  });
 }
 
 export function withPaidOperations<T extends Record<string, any> | undefined | null>(

@@ -2,11 +2,12 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 
-from app.schemas.common import ORMModel
+from app.schemas.common import ORMModel, SchemaModel
 
 
-class SalesOrderItemIn(BaseModel):
-    model_id: int
+class SalesOrderItemIn(SchemaModel):
+    model_id: Optional[int] = None
+    finished_goods_stock_id: Optional[int] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
     color: str
@@ -33,9 +34,12 @@ class SalesOrderCustomerRef(BaseModel):
 class SalesOrderItemOut(ORMModel):
     id: int
     sales_order_id: int
-    model_id: int
+    model_id: Optional[int] = None
+    finished_goods_stock_id: Optional[int] = None
     model_code: Optional[str] = None
     model_name: Optional[str] = None
+    source_model_code: Optional[str] = None
+    source_model_name: Optional[str] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
     color: str
