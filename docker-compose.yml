@@ -28,6 +28,8 @@ services:
       DATABASE_URL: postgresql+psycopg2://erp:erp@db:5432/erp
       PORT: "8000"
       RUN_SEED_ON_STARTUP: "true"
+      FRONTEND_BASE_URL: http://localhost:3000
+      ERP_PUBLIC_BASE_URL: http://localhost:8000
     ports:
       - "8000:8000"
     volumes:
@@ -38,13 +40,12 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: "http://backend:8000"
         API_URL: "http://backend:8000"
     restart: unless-stopped
     depends_on:
       - backend
     environment:
-      NEXT_PUBLIC_API_URL: "http://backend:8000"
+      API_URL: "http://backend:8000"
     ports:
       - "3000:3000"
 

@@ -20,7 +20,7 @@ jobs:
         run: python -m compileall -q backend/app
       - name: Run backend tests
         working-directory: backend
-        run: python -m pytest -q
+        run: python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=50 -q
       - name: Run Bandit
         working-directory: backend
         run: python -m bandit -r app -x app/tests -q
@@ -51,7 +51,12 @@ jobs:
         run: npm run lint
       - name: Typecheck
         working-directory: frontend
-        run: npm exec tsc -- --noEmit
+        run: npm run typecheck
+      - name: Focused strict typecheck
+        working-directory: frontend
+        run: npm run typecheck:strict
       - name: Build
         working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: https://api.example.invalid
         run: npm run build

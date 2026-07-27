@@ -11,8 +11,13 @@ A production-ready MVP ERP for a textile/garment manufacturing company. It imple
 - Employee training guide: `docs/EMPLOYEE_TRAINING_GUIDE.md`
 - Printable department training guide: `docs/Milana_ERP_Training_Guide.pdf`
 - Codebase walkthrough for new engineers: `docs/DEVELOPER_GUIDE.md`
-- Hugging Face backend deployment notes: `docs/HUGGING_FACE_DEPLOY.md`
-- Frontend deployment target: Vercel project `milana-erp-web`
+- Architecture diagrams and trust boundaries: `docs/ARCHITECTURE.md`
+- Production readiness checklist: `docs/PRODUCTION_READINESS.md`
+- Security runbook: `docs/SECURITY_RUNBOOK.md`
+- Disaster recovery plan: `docs/DISASTER_RECOVERY.md`
+- Privacy and retention decisions: `docs/PRIVACY_RETENTION.md`
+- Code review standard: `docs/CODE_REVIEW.md`
+- Production deployment rule: `DEPLOYMENT.md`
 
 ## Quick start (Docker)
 

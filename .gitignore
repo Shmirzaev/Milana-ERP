@@ -21,6 +21,8 @@ dist/
 *.db-journal
 *.log
 *.tsbuildinfo
+.coverage
+htmlcov/
 backend/storage/
 frontend/tmp_*.html
 .tmp/
@@ -28,6 +30,17 @@ tmp-snappymail/
 .VSCodeCounter/
 .claude/launch.json
 .claude/worktrees/
+.codex-work/
+local-backups/
+outputs/
+/--exclude=.git
+/index.js
+/package.json
+/uv.lock
+frontend/scan-ux-final.png
+mobile/ios-app/preview-*.png
+mobile/ios-app/final-*.png
+mcp_server/*.mcpb
 
 # Editor / OS
 .idea/
