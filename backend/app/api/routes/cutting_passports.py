@@ -2,34 +2,39 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models.cutting_passport import CuttingPassport
-from app.models import User
+from app.models import Item, ModelBOM, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
 from app.models.catalog import Model as CatalogModel
 from app.schemas.cutting_passport import CuttingPassportIn, CuttingPassportOut
 from app.services.audit import log_action
+from app.services.model_images import model_display_image_url
 
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
+_MATERIAL_CATEGORIES = ("fabric", "semi_finished")
 
 
-_IMAGE_FILE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
-
-
-def _is_displayable_image(img) -> bool:
-    return (
-        str(img.content_type or "").lower().startswith("image/")
-        or str(img.file_name or img.file_url or "").lower().endswith(_IMAGE_FILE_SUFFIXES)
-    )
-
-
-def _model_preview_image_url(model: CatalogModel | None) -> str | None:
-    if not model:
-        return None
-    images = [img for img in (model.images or []) if _is_displayable_image(img)]
-    primary = (
-        next((img for img in images if img.image_type == "model"), None)
-        or next((img for img in images if img.is_primary), None)
-        or (images[0] if images else None)
-    )
-    return primary.file_url if primary else None
+def _size_count_from_range(value: str | None) -> int:
+    text = str(value or "").strip()
+    if not text:
+        return 0
+    if "," in text:
+        return len({part.strip() for part in text.split(",") if part.strip()})
+    if "-" not in text:
+        return 1
+    start_text, end_text = [part.strip() for part in text.split("-", 1)]
+    try:
+        start = float(start_text)
+        end = float(end_text)
+    except ValueError:
+        return 1
+    if start >= end:
+        return 1
+    step = 2 if start.is_integer() and end.is_integer() and end - start >= 2 else 1
+    count = 0
+    current = start
+    while current <= end:
+        count += 1
+        current += step
+    return count
 
 
 def _compute(p: CuttingPassport) -> dict:
@@ -51,12 +56,13 @@ def _compute(p: CuttingPassport) -> dict:
     actual_kg = round(layer_weight * total_layers + scrap + total_beka, 6)
 
     pieces_per_layer = round(pieces / total_layers, 4) if total_layers else None
+    size_count = _size_count_from_range(p.size_range)
     per_piece_weight = None
-    if pieces_per_layer:
+    if size_count:
         per_piece_weight = round(
-            width * length * gramage / pieces_per_layer + beka_per + other_beka_per, 6
+            width * length * gramage / size_count + beka_per + other_beka_per, 6
         )
-    theoretical_kg = round(per_piece_weight * pieces + total_beka + scrap, 6) if per_piece_weight is not None else None
+    theoretical_kg = round(per_piece_weight * pieces + scrap, 6) if per_piece_weight is not None else None
     actual_kg_per_piece = round(actual_kg / pieces, 6) if pieces else None
     gross_kg_per_piece = round(planned_kg / pieces, 6) if pieces else None
 
@@ -66,6 +72,7 @@ def _compute(p: CuttingPassport) -> dict:
         "total_ribana_kg": total_ribana,
         "actual_kg": actual_kg,
         "pieces_per_layer": pieces_per_layer,
+        "size_count": size_count or None,
         "per_piece_weight_kg": per_piece_weight,
         "theoretical_kg": theoretical_kg,
         "actual_kg_per_piece": actual_kg_per_piece,
@@ -88,7 +95,7 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None) -> 
             if m:
                 model_code = m.code or model_code
                 model_name = m.name
-                model_image_url = _model_preview_image_url(m)
+                model_image_url = model_display_image_url(m)
             if model_cache is not None:
                 model_cache[po.model_id] = (m.code if m else None, model_name, model_image_url)
     d = {
@@ -132,14 +139,231 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None) -> 
     return d
 
 
+def _order_reference_set(po: ProductionOrder) -> set[str]:
+    refs = {
+        po.production_no,
+        po.order_no,
+        po.sales_order_no,
+    }
+    out = {str(ref).strip().lower() for ref in refs if str(ref or "").strip()}
+    if po.production_no and po.production_no.upper().startswith("PO-"):
+        out.add(f"so-{po.production_no[3:]}".lower())
+    return out
+
+
+def _text(value) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _split_model_code(code: str | None) -> tuple[str | None, str | None]:
+    value = str(code or "").strip()
+    dash_index = value.rfind("-")
+    if 0 < dash_index < len(value) - 1:
+        return _text(value[:dash_index]), _text(value[dash_index + 1:])
+    return _text(value), None
+
+
+def _model_general(model: CatalogModel | None) -> dict:
+    details = model.details_json if model else None
+    if not isinstance(details, dict):
+        return {}
+    general = details.get("general")
+    return general if isinstance(general, dict) else {}
+
+
+def _first_general_text(general: dict, *keys: str) -> str | None:
+    for key in keys:
+        value = _text(general.get(key))
+        if value:
+            return value
+    return None
+
+
+def _model_code_parts(model: CatalogModel | None) -> tuple[str | None, str | None]:
+    model_no, variant_no = _split_model_code(model.code if model else None)
+    general = _model_general(model)
+    return (
+        _first_general_text(general, "model_no", "modelNo") or model_no,
+        _first_general_text(general, "variant_no", "variantNo") or variant_no,
+    )
+
+
+def _model_mold_no(model: CatalogModel | None, batch: StockBatch | None = None) -> str | None:
+    general = _model_general(model)
+    return (
+        _first_general_text(
+            general,
+            "mold_no",
+            "moldNo",
+            "pattern_no",
+            "patternNo",
+            "qolip_no",
+            "qolipNo",
+            "qolip",
+            "pattern",
+        )
+        or _text(batch.old_code if batch else None)
+    )
+
+
+def _size_options(db: DbSession, po: ProductionOrder, model: CatalogModel | None) -> list[str]:
+    sizes: list[str] = []
+    for (size,) in (
+        db.query(ProductionOrderItem.size)
+        .filter(ProductionOrderItem.production_order_id == po.id)
+        .order_by(ProductionOrderItem.id.asc())
+        .all()
+    ):
+        value = str(size or "").strip()
+        if value:
+            sizes.append(value)
+    if not sizes and model:
+        sizes = [str(row.size or "").strip() for row in (model.sizes or []) if str(row.size or "").strip()]
+    return list(dict.fromkeys(sizes))
+
+
+def _size_range_from_options(sizes: list[str]) -> str | None:
+    unique = list(dict.fromkeys(str(size or "").strip() for size in sizes if str(size or "").strip()))
+    if not unique:
+        return None
+    numeric = []
+    for value in unique:
+        try:
+            numeric.append(float(value))
+        except (TypeError, ValueError):
+            numeric = []
+            break
+    if numeric:
+        first = min(numeric)
+        last = max(numeric)
+        fmt = lambda n: str(int(n)) if float(n).is_integer() else f"{n:g}"
+        return fmt(first) if first == last else f"{fmt(first)}-{fmt(last)}"
+    return ", ".join(unique)
+
+
+def _size_range(db: DbSession, po: ProductionOrder, model: CatalogModel | None) -> str | None:
+    return _size_range_from_options(_size_options(db, po, model))
+
+
+def _passport_defaults_payload(
+    *,
+    db: DbSession,
+    po: ProductionOrder,
+    model: CatalogModel | None,
+    item: Item | None,
+    batch: StockBatch | None,
+) -> dict:
+    model_no, variant_no = _model_code_parts(model)
+    has_print = bool(
+        db.query(WorkOrder.id)
+        .filter(WorkOrder.production_order_id == po.id, WorkOrder.operation == "printing")
+        .first()
+    )
+    planned_kg = (
+        float(po.estimated_material_amount)
+        if po.estimated_material_amount is not None
+        and str(po.estimated_material_unit or "").strip().lower() in {"", "kg", "kgs", "kilogram", "kilograms"}
+        else None
+    )
+    sizes = _size_options(db, po, model)
+    return {
+        "production_order_id": int(po.id),
+        "production_order_no": po.production_no,
+        "order_no": po.order_no,
+        "sales_order_no": po.sales_order_no,
+        "model_id": int(po.model_id),
+        "model_code": model.code if model else model_no,
+        "model_no": model_no,
+        "model_name": model.name if model else None,
+        "variant": variant_no,
+        "mold_no": _model_mold_no(model, batch),
+        "image_ref": model_display_image_url(model),
+        "has_print": has_print,
+        "size_range": _size_range_from_options(sizes),
+        "sizes": sizes,
+        "size_count": len(sizes),
+        "pieces": int(po.planned_quantity or 0) or None,
+        "planned_kg": planned_kg,
+        "fabric_type": item.name if item else None,
+        "material_item_id": int(item.id) if item else None,
+        "material_item_sku": item.sku if item else None,
+        "material_item_name": item.name if item else None,
+        "batch_id": int(batch.id) if batch else None,
+        "batch_no": batch.batch_no if batch else None,
+        "lot_no": batch.batch_no if batch else None,
+        "material_order_no": batch.order_no if batch else None,
+        "gramage": float(batch.gsm) if batch and batch.gsm is not None else None,
+        "width": float(batch.width) if batch and batch.width is not None else None,
+        "fabric_width_m": float(batch.width) if batch and batch.width is not None else None,
+    }
+
+
+@router.get("/material-defaults")
+def material_defaults(
+    production_order_id: int,
+    db: DbSession,
+    _: CurrentUser,
+):
+    po = db.get(ProductionOrder, production_order_id)
+    if not po:
+        raise HTTPException(404, "Production order not found")
+    model = db.get(CatalogModel, po.model_id)
+
+    bom_rows = (
+        db.query(ModelBOM, Item)
+        .join(Item, Item.id == ModelBOM.item_id)
+        .filter(
+            ModelBOM.model_id == po.model_id,
+            Item.category.in_(_MATERIAL_CATEGORIES),
+        )
+        .order_by(ModelBOM.id.asc())
+        .all()
+    )
+    if not bom_rows:
+        return _passport_defaults_payload(db=db, po=po, model=model, item=None, batch=None)
+
+    item_priority = {int(bom.item_id): idx for idx, (bom, _) in enumerate(bom_rows)}
+    item_ids = sorted(item_priority.keys())
+    candidates = (
+        db.query(StockBatch, Item)
+        .join(Item, Item.id == StockBatch.item_id)
+        .filter(
+            StockBatch.item_id.in_(item_ids),
+            StockBatch.quantity > 0,
+        )
+        .order_by(StockBatch.id.desc())
+        .limit(200)
+        .all()
+    )
+    if not candidates:
+        bom, item = bom_rows[0]
+        return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=None)
+
+    order_refs = _order_reference_set(po)
+
+    def score(row: tuple[StockBatch, Item]) -> tuple[int, int, int, int]:
+        batch, _item = row
+        order_no = str(batch.order_no or "").strip().lower()
+        order_match = 0 if order_no and order_no in order_refs else 1
+        has_gramage = 0 if batch.gsm is not None else 1
+        return (order_match, item_priority.get(int(batch.item_id), 999), has_gramage, -int(batch.id))
+
+    batch, item = min(candidates, key=score)
+    return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch)
+
+
 @router.get("", response_model=list[CuttingPassportOut])
 def list_passports(
     db: DbSession,
     _: CurrentUser,
     q: str | None = None,
+    production_order_id: int | None = None,
     limit: int = Query(200, ge=1, le=500),
 ):
     qry = db.query(CuttingPassport).order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())
+    if production_order_id:
+        qry = qry.filter(CuttingPassport.production_order_id == production_order_id)
     if q:
         like = f"%{q}%"
         qry = qry.filter(

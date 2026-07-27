@@ -1,6 +1,143 @@
 from datetime import datetime, timedelta, timezone
 
 
+def _login(client, email, password):
+    r = client.post("/api/auth/token", data={"username": email, "password": password})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def _role_id(client, auth_headers, name):
+    r = client.get("/api/roles", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    return next(role["id"] for role in r.json() if role["name"] == name)
+
+
+def _dept_id(client, auth_headers, code):
+    r = client.get("/api/departments", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    return next(dept["id"] for dept in r.json() if dept["code"] == code)
+
+
+def test_user_extra_permissions_are_effective(client, auth_headers):
+    hr_role_id = _role_id(client, auth_headers, "HR")
+    hr_dept_id = _dept_id(client, auth_headers, "HR")
+    password = "ExtraAccess!2026"
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Finance Helper",
+            "email": "finance.helper@example.com",
+            "password": password,
+            "role_id": hr_role_id,
+            "department_id": hr_dept_id,
+            "extra_permissions": ["finance.view"],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["extra_permissions"] == ["finance.view"]
+
+    helper_headers = _login(client, "finance.helper@example.com", password)
+    me = client.get("/api/auth/me", headers=helper_headers)
+    assert me.status_code == 200, me.text
+    assert "hr.employees" in me.json()["permissions"]
+    assert "finance.view" in me.json()["permissions"]
+
+    finance = client.get("/api/finance/dashboard", headers=helper_headers)
+    assert finance.status_code == 200, finance.text
+
+
+def test_create_user_without_password_emails_setup_link(client, auth_headers, monkeypatch):
+    sent = {}
+
+    def fake_send(to_email, display_name, setup_url):
+        sent["to_email"] = to_email
+        sent["display_name"] = display_name
+        sent["setup_url"] = setup_url
+        return True
+
+    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "new-user-setup-token")
+    monkeypatch.setattr("app.services.password_reset.send_password_setup_email", fake_send)
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Setup Link User",
+            "email": "setup.link.user@example.com",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    assert sent["to_email"] == "setup.link.user@example.com"
+    assert sent["display_name"] == "Setup Link User"
+    assert sent["setup_url"].endswith("/reset-password?token=new-user-setup-token")
+
+    login = client.post(
+        "/api/auth/token",
+        data={"username": "setup.link.user@example.com", "password": "UnknownBeforeSetup!2026"},
+    )
+    assert login.status_code == 401
+
+    new_password = "SetupLinkUser!2026"
+    reset = client.post(
+        "/api/auth/reset-password",
+        json={
+            "token": "new-user-setup-token",
+            "new_password": new_password,
+            "confirm_new_password": new_password,
+        },
+    )
+    assert reset.status_code == 200, reset.text
+
+    setup_headers = _login(client, "setup.link.user@example.com", new_password)
+    me = client.get("/api/auth/me", headers=setup_headers)
+    assert me.status_code == 200, me.text
+    assert me.json()["email"] == "setup.link.user@example.com"
+
+
+def test_limited_user_manager_cannot_grant_extra_permissions_they_lack(client, auth_headers):
+    hr_dept_id = _dept_id(client, auth_headers, "HR")
+    manager_password = "LimitedManager!2026"
+    target_password = "TargetUser!2026"
+
+    r = client.post(
+        "/api/roles",
+        json={"name": "LimitedExtraManager", "permissions": ["admin.users"]},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    manager_role_id = r.json()["id"]
+
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Limited Extra Manager",
+            "email": "limited.extra.manager@example.com",
+            "password": manager_password,
+            "role_id": manager_role_id,
+            "department_id": hr_dept_id,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+
+    manager_headers = _login(client, "limited.extra.manager@example.com", manager_password)
+    r = client.post(
+        "/api/users",
+        json={
+            "name": "Extra Target",
+            "email": "extra.target@example.com",
+            "password": target_password,
+            "department_id": hr_dept_id,
+            "extra_permissions": ["finance.view"],
+        },
+        headers=manager_headers,
+    )
+    assert r.status_code == 403, r.text
+
+
 def test_delete_user_detaches_existing_references(client, auth_headers):
     from app.db.session import SessionLocal
     from app.models import AuditLog, Employee, Notification, PasswordResetToken, User

@@ -6,6 +6,11 @@ import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { orderReference } from "@/lib/orderRef";
+import { modelCodeParts } from "@/lib/modelCode";
+import { useDialogs } from "@/components/DialogProvider";
+import { storageThumbnailUrl } from "@/lib/modelImages";
+import { useT } from "@/lib/i18n";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -45,6 +50,7 @@ type Passport = {
   total_ribana_kg: number | null;
   actual_kg: number | null;
   pieces_per_layer: number | null;
+  size_count: number | null;
   per_piece_weight_kg: number | null;
   theoretical_kg: number | null;
   actual_kg_per_piece: number | null;
@@ -56,6 +62,35 @@ type Passport = {
   operator_name: string | null;
 };
 
+type MaterialDefault = {
+  production_order_no: string | null;
+  order_no: string | null;
+  sales_order_no: string | null;
+  model_code: string | null;
+  model_no: string | null;
+  model_name: string | null;
+  variant: string | null;
+  mold_no: string | null;
+  image_ref: string | null;
+  has_print: boolean | null;
+  size_range: string | null;
+  sizes: string[];
+  size_count: number | null;
+  pieces: number | null;
+  planned_kg: number | null;
+  fabric_type: string | null;
+  material_item_id: number | null;
+  material_item_sku: string | null;
+  material_item_name: string | null;
+  batch_id: number | null;
+  batch_no: string | null;
+  lot_no: string | null;
+  material_order_no: string | null;
+  gramage: number | null;
+  width: number | null;
+  fabric_width_m: number | null;
+};
+
 // ─── Example from Excel row 2 ─────────────────────────────────────────────────
 
 const EXCEL_EXAMPLE = {
@@ -63,11 +98,11 @@ const EXCEL_EXAMPLE = {
   date: "2026-06-01",
   production_order_id: "" as string | number,
   operator_id: "" as string | number,
-  model_code: "Р-1175",
+  model_code: "R-1175",
   variant: "4685",
   mold_no: "",
   image_ref: "",
-  operator_name_manual: "муси",
+  operator_name_manual: "musi",
   fabric_type: "",
   has_print: false,
   order_no: "1588",
@@ -122,7 +157,7 @@ const EMPTY_FORM = {
 
 // ─── Calculations (mirrors Excel formulas) ────────────────────────────────────
 
-function compute(f: typeof EMPTY_FORM) {
+function compute(f: typeof EMPTY_FORM, sizeCount: number) {
   const R = Number(f.pieces) || 0;
   const Y = Number(f.beka_per_piece_kg) || 0;
   const AA = Number(f.other_beka_per_piece_kg) || 0;
@@ -140,12 +175,12 @@ function compute(f: typeof EMPTY_FORM) {
   const AC = R * AD;
   const P = M * N + AB + X;
   const piecesPerLayer = N ? R / N : 0;
-  const AE = piecesPerLayer ? S * T * V / piecesPerLayer + Y + AA : 0;
-  const Q = AE ? AE * R + X + AB : 0;
+  const AE = sizeCount ? S * T * V / sizeCount + Y + AA : 0;
+  const Q = AE ? AE * R + AB : 0;
   const AF = R ? P / R : 0;
   const AG = R ? O / R : 0;
 
-  return { X, Z, AC, P, Q, AE, AF, AG };
+  return { X, Z, AC, P, Q, AE, AF, AG, piecesPerLayer };
 }
 
 function d2(v: number | null | undefined) { return v ? v.toFixed(2) : "—"; }
@@ -155,16 +190,85 @@ function d6(v: number | null | undefined) { return v ? v.toFixed(6) : "—"; }
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
+function cleanSize(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function uniqueSizes(values: unknown[]) {
+  return Array.from(new Set(values.map(cleanSize).filter(Boolean)));
+}
+
+function expandSizeSelection(value: string | null | undefined) {
+  const raw = cleanSize(value);
+  if (!raw) return [];
+  const rangeMatch = raw.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
+  if (!rangeMatch) return uniqueSizes(raw.split(","));
+
+  const start = Number(rangeMatch[1]);
+  const end = Number(rangeMatch[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return [raw];
+
+  const step = Number.isInteger(start) && Number.isInteger(end) && end - start >= 2 ? 2 : 1;
+  const sizes: string[] = [];
+  for (let size = start; size <= end; size += step) {
+    sizes.push(Number.isInteger(size) ? String(size) : String(Number(size.toFixed(3))));
+  }
+  return sizes;
+}
+
+function sizeRangeLabel(sizes: string[]) {
+  const unique = uniqueSizes(sizes);
+  if (unique.length === 0) return "";
+  const numeric = unique.map((size) => Number(size));
+  if (numeric.every(Number.isFinite)) {
+    const min = Math.min(...numeric);
+    const max = Math.max(...numeric);
+    const fmt = (n: number) => (Number.isInteger(n) ? String(n) : String(n));
+    return min === max ? fmt(min) : `${fmt(min)}-${fmt(max)}`;
+  }
+  return unique.join(", ");
+}
+
+function sizeCountForSelection(value: string | number, sizes: string[]) {
+  const selected = cleanSize(value);
+  if (!selected) return 0;
+  const choices = uniqueSizes(sizes);
+  if (choices.length === 1 && selected === choices[0]) return 1;
+  if (selected === sizeRangeLabel(choices)) return choices.length;
+  return expandSizeSelection(selected).length || (choices.includes(selected) ? 1 : 0);
+}
+
+function modelQolipNo(model: any): string {
+  const general = model?.details_json?.general;
+  if (!general || typeof general !== "object") return "";
+  return String(
+    general.qolip_no
+      ?? general.qolipNo
+      ?? general.mold_no
+      ?? general.moldNo
+      ?? general.pattern_no
+      ?? general.patternNo
+      ?? "",
+  ).trim();
+}
+
 export default function CuttingPassportsPage() {
-  const { data: passports = [], mutate } = useSWR<Passport[]>("/api/cutting-passports", fetcher);
+  const dialogs = useDialogs();
+  const { t } = useT();
+  const { data: passports = [], mutate } = useSWR<Passport[]>(
+    "/api/cutting-passports?formula_version=20260706_ishlangan_kg",
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
   const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
   const { data: models = [] } = useSWR<any[]>("/api/models?page_size=500", fetcher);
-  const { data: users = [] } = useSWR<any[]>("/api/admin/users", fetcher);
+  const { data: users = [] } = useSWR<any[]>("/api/users", fetcher);
 
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Passport | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [sizeChoices, setSizeChoices] = useState<string[]>([]);
   const [err, setErr] = useState("");
 
   const rows = useMemo(() => {
@@ -182,16 +286,48 @@ export default function CuttingPassportsPage() {
     );
   }, [passports, q]);
 
-  const calc = compute(form);
+  const selectedSizeCount = useMemo(
+    () => sizeCountForSelection(form.size_range, sizeChoices),
+    [form.size_range, sizeChoices],
+  );
+  const calc = compute(form, selectedSizeCount);
+  const sizeSelectOptions = useMemo(() => {
+    const choices = uniqueSizes(sizeChoices);
+    const range = sizeRangeLabel(choices);
+    const options: { value: string; label: string }[] = [];
+
+    if (range) {
+      options.push({
+        value: range,
+        label: choices.length > 1 ? t("page.cuttingPassports.sizeUnit", { count: choices.length, size: range }) : range,
+      });
+    }
+    for (const size of choices) {
+      if (size !== range) options.push({ value: size, label: size });
+    }
+
+    const current = cleanSize(form.size_range);
+    if (current && !options.some((option) => option.value === current)) {
+      const count = sizeCountForSelection(current, choices);
+      options.unshift({
+        value: current,
+        label: count > 1 ? t("page.cuttingPassports.sizeUnit", { count, size: current }) : current,
+      });
+    }
+
+    return options;
+  }, [form.size_range, sizeChoices, t]);
 
   function openCreate() {
     setForm({ ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10) });
+    setSizeChoices([]);
     setEditing(null);
     setErr("");
     setShowForm(true);
   }
 
   function openEdit(p: Passport) {
+    setSizeChoices(expandSizeSelection(p.size_range));
     setForm({
       passport_no: p.passport_no,
       date: p.date.slice(0, 10),
@@ -268,7 +404,7 @@ export default function CuttingPassportsPage() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
-    if (!form.passport_no) { setErr("Паспорт № талаб қилинади"); return; }
+    if (!form.passport_no) { setErr(t("page.cuttingPassports.error.passportRequired")); return; }
     try {
       if (editing) {
         await api.patch(`/api/cutting-passports/${editing.id}`, buildPayload());
@@ -278,12 +414,12 @@ export default function CuttingPassportsPage() {
       await mutate();
       setShowForm(false);
     } catch (e: any) {
-      setErr(e.message || "Сақлашда хатолик");
+      setErr(e.message || t("page.cuttingPassports.error.saveFailed"));
     }
   }
 
   async function del(p: Passport) {
-    if (!confirm(`Паспорт ${p.passport_no} ни ўчириш?`)) return;
+    if (!(await dialogs.ask({ message: t("page.cuttingPassports.confirm.delete", { passport: p.passport_no }), tone: "danger" }))) return;
     await api.del(`/api/cutting-passports/${p.id}`);
     mutate();
   }
@@ -296,20 +432,53 @@ export default function CuttingPassportsPage() {
   const sf = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) =>
     setForm((prev) => ({ ...prev, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
 
-  function selectProductionOrder(e: React.ChangeEvent<HTMLSelectElement>) {
+  async function selectProductionOrder(e: React.ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
+    setSizeChoices([]);
     const po = prodOrdersArr.find((row: any) => String(row.id) === value);
     const model = po ? modelMap.get(po.model_id) : null;
+    const parts = model ? modelCodeParts(model) : null;
+    const qolipNo = modelQolipNo(model);
     setForm((prev) => ({
       ...prev,
       production_order_id: value,
-      order_no: po ? orderReference(po, po.production_no || prev.order_no) : prev.order_no,
-      model_code: model?.code || po?.model_code || prev.model_code,
+      order_no: po ? orderReference(po, po.production_no || prev.order_no) : "",
+      model_code: parts?.code || model?.code || po?.model_code || "",
+      variant: parts?.variantNo || "",
+      mold_no: qolipNo,
+      pieces: po?.planned_quantity ?? prev.pieces,
+      planned_kg: po?.estimated_material_amount ?? prev.planned_kg,
     }));
+    if (!value) return;
+    try {
+      const defaults = await api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${value}`);
+      setSizeChoices(defaults.sizes?.length ? defaults.sizes : expandSizeSelection(defaults.size_range));
+      setForm((prev) => {
+        if (String(prev.production_order_id) !== value) return prev;
+        return {
+          ...prev,
+          order_no: defaults.order_no || defaults.sales_order_no || defaults.production_order_no || prev.order_no,
+          model_code: defaults.model_code || defaults.model_no || prev.model_code,
+          variant: defaults.variant || prev.variant,
+          mold_no: defaults.mold_no || qolipNo,
+          image_ref: defaults.image_ref || prev.image_ref,
+          fabric_type: defaults.fabric_type || defaults.material_item_name || prev.fabric_type,
+          has_print: defaults.has_print ?? prev.has_print,
+          lot_no: defaults.lot_no || defaults.batch_no || prev.lot_no,
+          size_range: defaults.size_range || prev.size_range,
+          pieces: defaults.pieces ?? prev.pieces,
+          planned_kg: defaults.planned_kg ?? prev.planned_kg,
+          gramage: defaults.gramage ?? prev.gramage,
+          fabric_width_m: defaults.fabric_width_m ?? defaults.width ?? prev.fabric_width_m,
+        };
+      });
+    } catch {
+      // Some older orders may not have a received material batch yet; keep manual entry available.
+    }
   }
 
   function imageValue(p: Passport) {
-    return p.image_ref || p.model_image_url || "";
+    return p.image_ref || storageThumbnailUrl(p.model_image_url, 160) || "";
   }
 
   function looksLikeImage(value: string) {
@@ -319,8 +488,8 @@ export default function CuttingPassportsPage() {
   return (
     <div>
       <PageHeader
-        title="Кроёк паспортлари"
-        subtitle="Layup log with material consumption calculations"
+        title={t("page.cuttingPassports.title")}
+        subtitle={t("page.cuttingPassports.subtitle")}
       />
 
       {/* Toolbar */}
@@ -329,13 +498,13 @@ export default function CuttingPassportsPage() {
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
           <input
             className="input pl-8"
-            placeholder="Паспорт №, партия, модель…"
+            placeholder={t("page.cuttingPassports.searchPlaceholder")}
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
         <button className="btn btn-primary flex items-center gap-1.5" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> Янги паспорт
+          <Plus className="h-4 w-4" /> {t("page.cuttingPassports.newPassport")}
         </button>
       </div>
 
@@ -347,62 +516,62 @@ export default function CuttingPassportsPage() {
               {/* Column group row */}
               <tr className="text-[10px] font-bold uppercase tracking-widest">
                 <th colSpan={3} className="sticky left-0 z-30 bg-slate-700 text-white px-3 py-1.5 text-left border-r-2 border-slate-500">
-                  Асосий
+                  {t("page.cuttingPassports.group.basic")}
                 </th>
                 <th colSpan={8} className="bg-slate-600 text-slate-200 px-3 py-1.5 text-left border-r border-slate-500">
-                  Идентификация
+                  {t("page.cuttingPassports.group.identification")}
                 </th>
                 <th colSpan={6} className="bg-blue-700 text-blue-100 px-3 py-1.5 text-center border-r border-blue-500">
-                  Настил
+                  {t("page.cuttingPassports.group.layup")}
                 </th>
                 <th colSpan={6} className="bg-violet-700 text-violet-100 px-3 py-1.5 text-center border-r border-violet-500">
-                  Мато
+                  {t("page.cuttingPassports.group.fabric")}
                 </th>
                 <th colSpan={7} className="bg-orange-600 text-orange-100 px-3 py-1.5 text-center border-r border-orange-400">
-                  Бейка / Рибана
+                  {t("page.cuttingPassports.group.bindingRibana")}
                 </th>
                 <th colSpan={3} className="bg-green-700 text-green-100 px-3 py-1.5 text-center border-r border-green-500">
-                  Натижа
+                  {t("page.cuttingPassports.group.result")}
                 </th>
                 <th className="sticky right-0 z-30 bg-slate-700 px-2 py-1.5" />
               </tr>
               {/* Column headers */}
               <tr className="border-b-2 border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-                {/* Frozen left: Паспорт №, Дата, Модель */}
-                <th className="sticky left-0 z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[88px] shadow-[2px_0_0_0_#e2e8f0]">Паспорт №</th>
-                <th className="sticky left-[88px] z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[90px]">Дата</th>
-                <th className="sticky left-[178px] z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[120px] shadow-[2px_0_6px_-1px_rgba(0,0,0,0.12)]">Модель</th>
+                {/* Frozen left */}
+                <th className="sticky left-0 z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[88px] shadow-[2px_0_0_0_#e2e8f0]">{t("page.cuttingPassports.field.passportNo")}</th>
+                <th className="sticky left-[88px] z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[90px]">{t("page.cuttingPassports.field.date")}</th>
+                <th className="sticky left-[178px] z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[120px] shadow-[2px_0_6px_-1px_rgba(0,0,0,0.12)]">{t("page.cuttingPassports.field.model")}</th>
                 {/* Scrollable cols */}
-                <th className="px-3 py-2 text-left whitespace-nowrap">Вариант</th>
-                <th className="px-3 py-2 text-left whitespace-nowrap">Қолип №</th>
-                <th className="px-3 py-2 text-left whitespace-nowrap">Rasm</th>
-                <th className="px-3 py-2 text-left whitespace-nowrap">Настилчи</th>
-                <th className="px-3 py-2 text-left whitespace-nowrap">МАТО</th>
-                <th className="px-3 py-2 text-left whitespace-nowrap">Печать</th>
-                <th className="px-3 py-2 text-left whitespace-nowrap">Заказ</th>
-                <th className="px-3 py-2 text-left whitespace-nowrap">Партия №</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Рулон</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Бир қақат</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Жами қават</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Берилган КГ</th>
-                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">Реал КГ</th>
-                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">Ишланган КГ</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Иш сони</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Мато эни</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Настил м</th>
-                <th className="px-3 py-2 text-left whitespace-nowrap">Размер</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Грамаж</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Отход %</th>
-                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">Бейка жами</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Бейка/иш</th>
-                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">Б.бейка жами</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Б.бейка/иш</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Брак кг</th>
-                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">Рибана жами</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Рибана/иш</th>
-                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">Битта иш ГР</th>
-                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">Слой ГР</th>
-                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">БРУТТО ГР</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.variant")}</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.moldNo")}</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.image")}</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.layupOperator")}</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.fabric")}</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.printing")}</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.order")}</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.lotNo")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.rolls")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.layerWeight")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.totalLayers")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.plannedKg")}</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.actualKg")}</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.processedKg")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.piecesCount")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.fabricWidth")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.layLength")}</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.size")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.gramage")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.wastePct")}</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.bindingTotal")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.bindingPerPiece")}</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.otherBindingTotal")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.otherBindingPerPiece")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.scrapKg")}</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.ribanaTotal")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.ribanaPerPiece")}</th>
+                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.perPieceGr")}</th>
+                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.layerGr")}</th>
+                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.grossGr")}</th>
                 {/* Frozen right: actions */}
                 <th className="sticky right-0 z-20 bg-slate-50 px-2 py-2 shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.12)]" />
               </tr>
@@ -411,7 +580,7 @@ export default function CuttingPassportsPage() {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={34} className="py-10 text-center text-slate-400">
-                    Паспортлар йўқ. «Янги паспорт» тугмасини босинг.
+                    {t("page.cuttingPassports.empty")}
                   </td>
                 </tr>
               )}
@@ -443,11 +612,14 @@ export default function CuttingPassportsPage() {
                   <td className="px-3 py-2 text-right">{p.total_layers ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{d2(p.planned_kg)}</td>
                   <td className="px-3 py-2 text-right bg-amber-50 font-medium">{d3(p.actual_kg)}</td>
-                  <td className="px-3 py-2 text-right bg-amber-50 font-medium">{d3(p.theoretical_kg)}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50 font-medium" title={t("page.cuttingPassports.formula.processedKg")}>{d3(p.theoretical_kg)}</td>
                   <td className="px-3 py-2 text-right">{p.pieces ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{p.fabric_width_m ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{p.lay_length_m ?? "—"}</td>
-                  <td className="px-3 py-2">{p.size_range ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    {p.size_range ?? "—"}
+                    {p.size_count ? <span className="ml-1 text-[11px] text-slate-500">{t("page.cuttingPassports.sizeCount", { count: p.size_count })}</span> : null}
+                  </td>
                   <td className="px-3 py-2 text-right">{p.gramage ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{p.waste_pct ?? "—"}</td>
                   <td className="px-3 py-2 text-right bg-amber-50">{d4(p.total_beka_kg)}</td>
@@ -482,7 +654,7 @@ export default function CuttingPassportsPage() {
       <Modal
         open={showForm}
         onClose={() => setShowForm(false)}
-        title={editing ? `Паспорт ${editing.passport_no} — таҳрир` : "Янги кроёк паспорти"}
+        title={editing ? t("page.cuttingPassports.editTitle", { passport: editing.passport_no }) : t("page.cuttingPassports.createTitle")}
         wide
       >
         <form onSubmit={save} className="max-h-[80vh] overflow-y-auto pr-1 space-y-5">
@@ -490,31 +662,29 @@ export default function CuttingPassportsPage() {
           {!editing && (
             <div className="flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
               <BookOpen className="h-3.5 w-3.5 shrink-0" />
-              <span>Мисол маълумот:</span>
+              <span>{t("page.cuttingPassports.exampleLabel")}</span>
               <button type="button" className="font-semibold underline" onClick={() => setForm({ ...EXCEL_EXAMPLE })}>
-                Excel мисолини юклаш (паспорт 6770)
+                {t("page.cuttingPassports.exampleLoad")}
               </button>
             </div>
           )}
 
-          {/* Асосий маълумот */}
-          <Sec label="Асосий маълумот">
+          <Sec label={t("page.cuttingPassports.section.basicInfo")}>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Паспорт № *">
-                <input className="input" placeholder="мас. 6770" value={f.passport_no} onChange={sf("passport_no")} required />
+              <Field label={t("page.cuttingPassports.field.passportNoRequired")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleNumber")} value={f.passport_no} onChange={sf("passport_no")} required />
               </Field>
-              <Field label="Дата">
+              <Field label={t("page.cuttingPassports.field.date")}>
                 <input className="input" type="date" value={f.date} onChange={sf("date")} />
               </Field>
             </div>
           </Sec>
 
-          {/* Модель ва идентификация */}
-          <Sec label="Модель ва идентификация">
+          <Sec label={t("page.cuttingPassports.section.modelIdentification")}>
             <div className="grid grid-cols-3 gap-3">
-              <Field label="ERP заказ / модель">
+              <Field label={t("page.cuttingPassports.field.erpOrderModel")}>
                 <select className="input" value={f.production_order_id} onChange={selectProductionOrder}>
-                  <option value="">— танланмаган —</option>
+                  <option value="">{t("page.cuttingPassports.placeholder.chooseNone")}</option>
                   {prodOrdersArr.map((po: any) => {
                     const model = modelMap.get(po.model_id);
                     return (
@@ -525,148 +695,153 @@ export default function CuttingPassportsPage() {
                   })}
                 </select>
               </Field>
-              <Field label="Модель">
-                <input className="input" placeholder="мас. Р-1175" value={f.model_code} onChange={sf("model_code")} />
+              <Field label={t("page.cuttingPassports.field.model")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleModel")} value={f.model_code} onChange={sf("model_code")} />
               </Field>
-              <Field label="Вариант">
-                <input className="input" placeholder="мас. 4685" value={f.variant} onChange={sf("variant")} />
+              <Field label={t("page.cuttingPassports.field.variant")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleVariant")} value={f.variant} onChange={sf("variant")} />
               </Field>
-              <Field label="Қолип рақам">
-                <input className="input" placeholder="Қолип №" value={f.mold_no} onChange={sf("mold_no")} />
+              <Field label={t("page.cuttingPassports.field.moldNumber")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.moldNo")} value={f.mold_no} onChange={sf("mold_no")} />
               </Field>
-              <Field label="Rasm">
-                <input className="input" placeholder="расм URL ёки изоҳ" value={f.image_ref} onChange={sf("image_ref")} />
+              <Field label={t("page.cuttingPassports.field.image")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.imageRef")} value={f.image_ref} onChange={sf("image_ref")} />
               </Field>
-              <Field label="Настилчи (ERP)">
+              <Field label={t("page.cuttingPassports.field.operatorErp")}>
                 <select className="input" value={f.operator_id} onChange={sf("operator_id")}>
-                  <option value="">— танланмаган —</option>
+                  <option value="">{t("page.cuttingPassports.placeholder.chooseNone")}</option>
                   {usersArr.map((u: any) => (
                     <option key={u.id} value={u.id}>{u.name}</option>
                   ))}
                 </select>
               </Field>
-              <Field label="Настилчи (Excel)">
-                <input className="input" placeholder="мас. муси" value={f.operator_name_manual} onChange={sf("operator_name_manual")} />
+              <Field label={t("page.cuttingPassports.field.operatorExcel")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleOperator")} value={f.operator_name_manual} onChange={sf("operator_name_manual")} />
               </Field>
-              <Field label="МАТО">
-                <input className="input" placeholder="Мато тури" value={f.fabric_type} onChange={sf("fabric_type")} />
+              <Field label={t("page.cuttingPassports.field.fabric")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.fabricType")} value={f.fabric_type} onChange={sf("fabric_type")} />
               </Field>
-              <Field label="Печать">
+              <Field label={t("page.cuttingPassports.field.printing")}>
                 <label className="flex h-9 items-center gap-2">
                   <input type="checkbox" className="h-4 w-4" checked={f.has_print} onChange={sf("has_print")} />
-                  <span className="text-sm text-slate-600">Босма бор</span>
+                  <span className="text-sm text-slate-600">{t("page.cuttingPassports.field.hasPrint")}</span>
                 </label>
               </Field>
-              <Field label="Заказ">
-                <input className="input" placeholder="мас. 1588" value={f.order_no} onChange={sf("order_no")} />
+              <Field label={t("page.cuttingPassports.field.order")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleOrder")} value={f.order_no} onChange={sf("order_no")} />
               </Field>
-              <Field label="Партия рақам">
-                <input className="input" placeholder="мас. D#11C#4" value={f.lot_no} onChange={sf("lot_no")} />
+              <Field label={t("page.cuttingPassports.field.lotNumber")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleLot")} value={f.lot_no} onChange={sf("lot_no")} />
               </Field>
             </div>
           </Sec>
 
-          {/* Настил маълумотлари */}
-          <Sec label="Настил маълумотлари">
+          <Sec label={t("page.cuttingPassports.section.layupInfo")}>
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Рулон сони">
+              <Field label={t("page.cuttingPassports.field.rollsCount")}>
                 <input className="input" type="number" placeholder="0" value={f.rolls_count} onChange={sf("rolls_count")} />
               </Field>
-              <Field label="Бир қақат (кг)">
+              <Field label={t("page.cuttingPassports.field.layerWeightKg")}>
                 <input className="input" type="number" step="0.001" placeholder="2.400" value={f.layer_weight_kg} onChange={sf("layer_weight_kg")} />
               </Field>
-              <Field label="Жами қават">
+              <Field label={t("page.cuttingPassports.field.totalLayers")}>
                 <input className="input" type="number" placeholder="48" value={f.total_layers} onChange={sf("total_layers")} />
               </Field>
-              <Field label="Кройга берилган КГ">
+              <Field label={t("page.cuttingPassports.field.plannedKgLong")}>
                 <input className="input" type="number" step="0.001" placeholder="115" value={f.planned_kg} onChange={sf("planned_kg")} />
               </Field>
-              <CalcBox label="Реал холатда КГ" formula="= Бир қақат × Жами қават + Брак + Бейка жами">
+              <CalcBox label={t("page.cuttingPassports.field.actualKgLong")} formula={t("page.cuttingPassports.formula.actualKg")}>
                 {calc.P ? calc.P.toFixed(3) : "—"}
               </CalcBox>
-              <CalcBox label="Ишланган КГ" formula="= Битта иш ГР × Иш сони + Бейка жами + Брак">
+              <CalcBox label={t("page.cuttingPassports.field.processedKg")} formula={t("page.cuttingPassports.formula.processedKg")}>
                 {calc.Q ? calc.Q.toFixed(3) : "—"}
               </CalcBox>
-              <Field label="Иш сони (деталлар)">
+              <Field label={t("page.cuttingPassports.field.piecesDetails")}>
                 <input className="input" type="number" placeholder="240" value={f.pieces} onChange={sf("pieces")} />
               </Field>
             </div>
           </Sec>
 
-          {/* Мато ўлчовлари */}
-          <Sec label="Мато ўлчовлари">
+          <Sec label={t("page.cuttingPassports.section.fabricMeasurements")}>
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Мато эни (м)">
+              <Field label={t("page.cuttingPassports.field.fabricWidthM")}>
                 <input className="input" type="number" step="0.01" placeholder="1.80" value={f.fabric_width_m} onChange={sf("fabric_width_m")} />
               </Field>
-              <Field label="Настил узунлиги (м)">
+              <Field label={t("page.cuttingPassports.field.layLengthM")}>
                 <input className="input" type="number" step="0.01" placeholder="3.37" value={f.lay_length_m} onChange={sf("lay_length_m")} />
               </Field>
-              <Field label="Размер">
-                <input className="input" placeholder="44-52" value={f.size_range} onChange={sf("size_range")} />
+              <Field label={t("page.cuttingPassports.field.size")}>
+                <select className="input" value={f.size_range} onChange={sf("size_range")} disabled={sizeSelectOptions.length === 0}>
+                  <option value="">{sizeSelectOptions.length ? t("page.cuttingPassports.placeholder.selectSize") : t("page.cuttingPassports.placeholder.selectOrderModel")}</option>
+                  {sizeSelectOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                {selectedSizeCount > 0 && (
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    {t("page.cuttingPassports.sizeSelectedCount", { count: selectedSizeCount })}
+                  </div>
+                )}
               </Field>
-              <Field label="Грамаж (кг/м²)">
+              <Field label={t("page.cuttingPassports.field.gramageKgM2")}>
                 <input className="input" type="number" step="0.001" placeholder="0.191" value={f.gramage} onChange={sf("gramage")} />
               </Field>
-              <Field label="Отход %">
+              <Field label={t("page.cuttingPassports.field.wastePct")}>
                 <input className="input" type="number" step="0.1" placeholder="15" value={f.waste_pct} onChange={sf("waste_pct")} />
               </Field>
             </div>
           </Sec>
 
-          {/* Бейка ва рибана */}
-          <Sec label="Бейка ва рибана (битта ишга)">
+          <Sec label={t("page.cuttingPassports.section.bindingRibanaPerPiece")}>
             <div className="grid grid-cols-3 gap-3">
-              <CalcBox label="Бейка жами" formula="= Иш сони × Битта ишга бейка">
+              <CalcBox label={t("page.cuttingPassports.field.bindingTotal")} formula={t("page.cuttingPassports.formula.bindingTotal")}>
                 {calc.X ? calc.X.toFixed(4) : "—"}
               </CalcBox>
-              <Field label="Битта ишга бейка (кг)">
+              <Field label={t("page.cuttingPassports.field.bindingPerPieceKg")}>
                 <input className="input" type="number" step="0.0001" placeholder="0.0050" value={f.beka_per_piece_kg} onChange={sf("beka_per_piece_kg")} />
               </Field>
-              <CalcBox label="Бошка мато бейка жами" formula="= Иш сони × Бошка бейка">
+              <CalcBox label={t("page.cuttingPassports.field.otherBindingTotal")} formula={t("page.cuttingPassports.formula.otherBindingTotal")}>
                 {calc.Z ? calc.Z.toFixed(4) : "—"}
               </CalcBox>
-              <Field label="Битта ишга бейка — бошка мато (кг)">
+              <Field label={t("page.cuttingPassports.field.otherBindingPerPieceKg")}>
                 <input className="input" type="number" step="0.0001" placeholder="0.0000" value={f.other_beka_per_piece_kg} onChange={sf("other_beka_per_piece_kg")} />
               </Field>
-              <Field label="Брак бичиш учун (кг)">
+              <Field label={t("page.cuttingPassports.field.scrapCuttingKg")}>
                 <input className="input" type="number" step="0.001" placeholder="0.000" value={f.scrap_kg} onChange={sf("scrap_kg")} />
               </Field>
-              <CalcBox label="Рибана жами" formula="= Иш сони × Битта ишга рибана">
+              <CalcBox label={t("page.cuttingPassports.field.ribanaTotal")} formula={t("page.cuttingPassports.formula.ribanaTotal")}>
                 {calc.AC ? calc.AC.toFixed(4) : "—"}
               </CalcBox>
-              <Field label="Битта ишга рибана (кг)">
+              <Field label={t("page.cuttingPassports.field.ribanaPerPieceKg")}>
                 <input className="input" type="number" step="0.0001" placeholder="0.0000" value={f.ribana_per_piece_kg} onChange={sf("ribana_per_piece_kg")} />
               </Field>
             </div>
           </Sec>
 
-          {/* Натижалар */}
-          <Sec label="Ҳисоблаш натижалари">
+          <Sec label={t("page.cuttingPassports.section.results")}>
             <div className="grid grid-cols-3 gap-3">
-              <CalcBox label="Битта иш ГР" formula="= Эни × Узунлик × Грамаж ÷ (Иш/Қават) + Бейка + Б.бейка" highlight>
+              <CalcBox label={t("page.cuttingPassports.field.perPieceGr")} formula={t("page.cuttingPassports.formula.perPieceGr")} highlight>
                 {calc.AE ? calc.AE.toFixed(6) : "—"}
               </CalcBox>
-              <CalcBox label="Слой қават ГР" formula="= Реал КГ ÷ Иш сони" highlight>
+              <CalcBox label={t("page.cuttingPassports.field.layerGrLong")} formula={t("page.cuttingPassports.formula.layerGr")} highlight>
                 {calc.AF ? calc.AF.toFixed(6) : "—"}
               </CalcBox>
-              <CalcBox label="БРУТТО ГР" formula="= Берилган КГ ÷ Иш сони" highlight>
+              <CalcBox label={t("page.cuttingPassports.field.grossGr")} formula={t("page.cuttingPassports.formula.grossGr")} highlight>
                 {calc.AG ? calc.AG.toFixed(6) : "—"}
               </CalcBox>
             </div>
           </Sec>
 
-          {/* Изоҳ */}
-          <Field label="Изоҳ">
-            <textarea className="input" rows={2} placeholder="Қўшимча изоҳлар…" value={f.notes} onChange={sf("notes")} />
+          <Field label={t("page.cuttingPassports.field.notes")}>
+            <textarea className="input" rows={2} placeholder={t("page.cuttingPassports.placeholder.notes")} value={f.notes} onChange={sf("notes")} />
           </Field>
 
           {err && <p className="text-sm text-red-600">{err}</p>}
 
           <div className="flex justify-end gap-2 pt-1">
-            <button type="button" className="btn" onClick={() => setShowForm(false)}>Бекор қилиш</button>
+            <button type="button" className="btn" onClick={() => setShowForm(false)}>{t("common.cancel")}</button>
             <button type="submit" className="btn btn-primary">
-              {editing ? "Сақлаш" : "Яратиш"}
+              {editing ? t("common.save") : t("common.create")}
             </button>
           </div>
         </form>

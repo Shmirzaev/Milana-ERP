@@ -1,16 +1,34 @@
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
 from sqlalchemy import or_
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import Customer, Supplier, SalesOrder, Shipment, User, Invoice, Payment
+from app.core.dt import date_filter_bounds
+from app.core.deps import (
+    CUSTOMER_READ_PERMISSIONS,
+    DbSession,
+    SUPPLIER_READ_PERMISSIONS,
+    require_permissions,
+)
+from app.models import (
+    Customer,
+    Invoice,
+    Payment,
+    PurchaseOrder,
+    PurchaseRequestLine,
+    SalesOrder,
+    Shipment,
+    StockBatch,
+    Supplier,
+    User,
+)
 from app.schemas.catalog import PartyIn, PartyOut
 from app.services.audit import log_action
 from app.services.numbering import next_invoice_no
 from app.services.payments import create_customer_advance_payment, create_invoice_payment, invoice_paid_total
+from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 
 router = APIRouter(tags=["partners"])
 
@@ -27,8 +45,10 @@ class CustomerPaymentIn(BaseModel):
 @router.get("/customers")
 def list_customers(
     db: DbSession,
-    _: CurrentUser,
+    _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS)),
     q: str | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
     page: int = 1,
     page_size: int = 50,
     include_total: bool = False,
@@ -36,6 +56,11 @@ def list_customers(
     qry = db.query(Customer)
     if q:
         qry = qry.filter(Customer.name.ilike(f"%{q}%"))
+    start, end = date_filter_bounds(created_from, created_to)
+    if start:
+        qry = qry.filter(Customer.created_at >= start)
+    if end:
+        qry = qry.filter(Customer.created_at <= end)
     total = qry.count() if include_total else 0
     qry = qry.order_by(Customer.id.desc())
     if include_total:
@@ -60,7 +85,7 @@ def create_customer(payload: PartyIn, db: DbSession, current: User = Depends(req
 
 
 @router.get("/customers/{cid}", response_model=PartyOut)
-def get_customer(cid: int, db: DbSession, _: CurrentUser):
+def get_customer(cid: int, db: DbSession, _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS))):
     c = db.get(Customer, cid)
     if not c:
         raise HTTPException(404, "Customer not found")
@@ -68,7 +93,7 @@ def get_customer(cid: int, db: DbSession, _: CurrentUser):
 
 
 @router.get("/customers/{cid}/orders")
-def get_customer_orders(cid: int, db: DbSession, _: CurrentUser):
+def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS))):
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
     rows = db.query(SalesOrder).filter(SalesOrder.customer_id == cid).order_by(SalesOrder.id.desc()).all()
@@ -104,7 +129,7 @@ def get_customer_orders(cid: int, db: DbSession, _: CurrentUser):
 
 
 @router.get("/customers/{cid}/payments")
-def get_customer_payments(cid: int, db: DbSession, _: CurrentUser):
+def get_customer_payments(cid: int, db: DbSession, _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS))):
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
     rows = (
@@ -127,7 +152,13 @@ def create_customer_payment(
     payload: CustomerPaymentIn,
     db: DbSession,
     current: User = Depends(require_permissions("finance.payment", "*")),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    fingerprint_payload = {"customer_id": cid, **payload.model_dump(mode="json")}
+    replay = replay_idempotent_response(db, scope="customers.payments", key=idempotency_key, payload=fingerprint_payload)
+    if replay:
+        return replay
+
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
     if payload.amount <= 0:
@@ -191,11 +222,21 @@ def create_customer_payment(
         payment.id,
         new_value={"amount": float(payment.amount), "customer_id": cid, "sales_order_id": sales_order.id if sales_order else None},
     )
+    response = _serialize_customer_payment(payment, invoice, sales_order if invoice else None)
+    store_idempotent_response(
+        db,
+        scope="customers.payments",
+        key=idempotency_key,
+        payload=fingerprint_payload,
+        response=response,
+        user=current,
+        status_code=201,
+    )
     db.commit()
     db.refresh(payment)
     if invoice:
         db.refresh(invoice)
-    return _serialize_customer_payment(payment, invoice, sales_order if invoice else None)
+    return response
 
 
 def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | None:
@@ -342,7 +383,7 @@ def delete_customer(cid: int, db: DbSession, current: User = Depends(require_per
 
 # ===== Suppliers =====
 @router.get("/suppliers", response_model=list[PartyOut])
-def list_suppliers(db: DbSession, _: CurrentUser):
+def list_suppliers(db: DbSession, _: User = Depends(require_permissions(*SUPPLIER_READ_PERMISSIONS))):
     return db.query(Supplier).order_by(Supplier.id.desc()).all()
 
 
@@ -358,7 +399,7 @@ def create_supplier(payload: PartyIn, db: DbSession, current: User = Depends(req
 
 
 @router.get("/suppliers/{sid}", response_model=PartyOut)
-def get_supplier(sid: int, db: DbSession, _: CurrentUser):
+def get_supplier(sid: int, db: DbSession, _: User = Depends(require_permissions(*SUPPLIER_READ_PERMISSIONS))):
     s = db.get(Supplier, sid)
     if not s:
         raise HTTPException(404, "Supplier not found")
@@ -376,3 +417,20 @@ def update_supplier(sid: int, payload: PartyIn, db: DbSession, current: User = D
     db.commit()
     db.refresh(s)
     return s
+
+
+@router.delete("/suppliers/{sid}", status_code=204)
+def delete_supplier(sid: int, db: DbSession, current: User = Depends(require_permissions("storage.suppliers", "*"))):
+    s = db.get(Supplier, sid)
+    if not s:
+        raise HTTPException(404, "Supplier not found")
+    linked = (
+        db.query(StockBatch.id).filter(StockBatch.supplier_id == sid).first()
+        or db.query(PurchaseRequestLine.id).filter(PurchaseRequestLine.preferred_supplier_id == sid).first()
+        or db.query(PurchaseOrder.id).filter(PurchaseOrder.supplier_id == sid).first()
+    )
+    if linked:
+        raise HTTPException(409, "Supplier is linked to stock batches or purchasing records")
+    db.delete(s)
+    log_action(db, current, "delete", "Supplier", sid, new_value={"name": s.name})
+    db.commit()

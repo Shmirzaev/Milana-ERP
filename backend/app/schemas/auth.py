@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 
 
@@ -32,4 +32,5 @@ class UserMe(BaseModel):
     email: EmailStr
     role: Optional[str] = None
     department: Optional[str] = None
-    permissions: list[str] = []
+    extra_permissions: list[str] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list)

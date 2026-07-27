@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import Brand, FinishedGoodsStock, Model, StockReservation, User
+from app.models import Brand, FinishedGoodsStock, Model, Package, ProductionOrder, StockReservation, User
 from app.schemas.tracking import FinishedGoodsStockOut
 from app.services.audit import log_action
 from app.services.finished_goods import repair_missing_brand_metadata
+from app.services.legacy_stock import package_legacy_identity
 
 router = APIRouter(prefix="/finished-goods", tags=["finished_goods"])
 
@@ -12,14 +13,16 @@ router = APIRouter(prefix="/finished-goods", tags=["finished_goods"])
 def _stock_payload(db: DbSession, stock: FinishedGoodsStock) -> dict:
     model = db.get(Model, stock.model_id) if stock.model_id else None
     brand = db.get(Brand, stock.brand_id) if stock.brand_id else None
+    package = db.get(Package, stock.package_id) if stock.package_id else None
+    legacy_identity = package_legacy_identity(db, package) if not model else {}
     return {
         "id": stock.id,
         "production_order_id": stock.production_order_id,
         "sales_order_id": stock.sales_order_id,
         "package_id": stock.package_id,
         "model_id": stock.model_id,
-        "model_code": model.code if model else None,
-        "model_name": model.name if model else None,
+        "model_code": model.code if model else legacy_identity.get("model_code"),
+        "model_name": model.name if model else legacy_identity.get("model_name"),
         "brand_id": stock.brand_id,
         "brand_name": brand.name if brand else None,
         "collection_id": stock.collection_id,
@@ -51,10 +54,23 @@ def list_branded(db: DbSession, _: CurrentUser):
     repaired = repair_missing_brand_metadata(db)
     if repaired:
         db.commit()
-    rows = db.query(FinishedGoodsStock).filter(
-        FinishedGoodsStock.brand_id.isnot(None),
-        FinishedGoodsStock.available_qty > 0,
-    ).order_by(FinishedGoodsStock.id.desc()).all()
+    rows = (
+        db.query(FinishedGoodsStock)
+        .outerjoin(ProductionOrder, ProductionOrder.id == FinishedGoodsStock.production_order_id)
+        .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
+        .filter(
+            FinishedGoodsStock.available_qty > 0,
+            FinishedGoodsStock.status == "available",
+            (
+                FinishedGoodsStock.brand_id.isnot(None)
+                | (ProductionOrder.production_type == "branded_stock")
+                | (Package.brand_id.isnot(None))
+                | (Package.legacy_receipt_id.isnot(None))
+            ),
+        )
+        .order_by(FinishedGoodsStock.id.desc())
+        .all()
+    )
     return [_stock_payload(db, row) for row in rows]
 
 
@@ -63,6 +79,7 @@ def reserve(stock_id: int, quantity: int, sales_order_id: int, db: DbSession,
             current: User = Depends(require_permissions("sales.orders", "*"))):
     s = db.get(FinishedGoodsStock, stock_id)
     if not s: raise HTTPException(404, "Stock not found")
+    if quantity <= 0: raise HTTPException(400, "Quantity must be > 0")
     if quantity > s.available_qty: raise HTTPException(400, "Not enough available")
     s.available_qty -= quantity
     s.reserved_qty += quantity

@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/lib/**/*.ts",
+    "src/lib/**/*.tsx",
+    "src/components/AuthGate.tsx",
+    "src/components/DialogProvider.tsx",
+    "src/components/Modal.tsx",
+    "src/components/ConfirmDialog.tsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

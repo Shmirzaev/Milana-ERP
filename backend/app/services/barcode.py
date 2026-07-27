@@ -4,7 +4,6 @@ Stores PNG files on the local filesystem under settings.BARCODE_STORAGE_DIR and
 returns a URL path served by FastAPI (mounted at /storage/barcodes).
 """
 from __future__ import annotations
-import io
 import os
 import uuid
 

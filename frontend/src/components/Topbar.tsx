@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LogOut, Search, Settings } from "lucide-react";
+import { LogOut, Moon, Search, Settings, Sun } from "lucide-react";
 import { useMe, logout } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { useTheme } from "@/lib/theme";
 import LangSwitcher from "@/components/LangSwitcher";
 import NotificationBell from "@/components/NotificationBell";
 
@@ -12,6 +13,7 @@ export default function Topbar() {
   const searchParams = useSearchParams();
   const { me } = useMe();
   const { t, lang } = useT();
+  const { isNight, toggleTheme } = useTheme();
   const [search, setSearch] = useState("");
   const [now, setNow] = useState<Date>(new Date());
 
@@ -55,7 +57,7 @@ export default function Topbar() {
 
   return (
     <header className="relative z-20 flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-[#e3dfd3] bg-[#fdfcf8]/95 px-3 py-2 backdrop-blur sm:gap-3 sm:px-4 lg:sticky lg:top-0 lg:min-h-20 lg:px-5">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="flex min-w-0 flex-1 items-center gap-3 md:hidden lg:flex">
         <div className="truncate text-xs text-[#8a8472] sm:text-sm">
           {me?.department ? `${t("top.department")}: ${me.department}` : null}
         </div>
@@ -69,7 +71,7 @@ export default function Topbar() {
           onChange={(e) => setSearch(e.target.value)}
           aria-label={t("common.search")}
         />
-        <button type="submit" className="shrink-0 rounded border border-[#ded9ca] bg-[#fdfcf8] px-2 py-1 text-[11px] font-medium text-[#3b3528]">{t("top.searchSubmit")}</button>
+        <button type="submit" className="hidden shrink-0 rounded border border-[#ded9ca] bg-[#fdfcf8] px-2 py-1 text-[11px] font-medium text-[#3b3528] sm:inline-flex">{t("top.searchSubmit")}</button>
       </form>
       <div className="flex min-w-0 items-center justify-end gap-1.5 sm:gap-2 lg:h-full lg:gap-3">
         <div className="hidden h-16 min-w-[180px] rounded-md border border-[#e3dfd3] bg-[#f8f6ef] px-3 text-right xl:flex xl:flex-col xl:justify-center">
@@ -78,18 +80,28 @@ export default function Topbar() {
           <div className="text-[11px] font-semibold leading-tight text-[#14110b] whitespace-nowrap">{localTime}</div>
           <div className="text-[10px] leading-tight text-[#8a8472] whitespace-nowrap">{tzName}</div>
         </div>
+        <button
+          type="button"
+          className="icon-btn"
+          title={isNight ? t("theme.switchToDay") : t("theme.switchToNight")}
+          aria-label={isNight ? t("theme.switchToDay") : t("theme.switchToNight")}
+          aria-pressed={isNight}
+          onClick={toggleTheme}
+        >
+          {isNight ? <Sun /> : <Moon />}
+        </button>
         <LangSwitcher />
         <div className="relative">
           <NotificationBell />
         </div>
         <button className="icon-btn" title={t("common.settings")} onClick={() => router.push("/settings")}><Settings /></button>
-        <button className="hidden text-right text-sm sm:block" onClick={() => router.push("/profile")} title={t("common.profile")}>
+        <button className="hidden text-right text-sm lg:block" onClick={() => router.push("/profile")} title={t("common.profile")}>
           <div className="font-medium text-[#14110b]">{me?.name || "-"}</div>
           <div className="text-xs text-[#8a8472]">{me?.role || ""}</div>
         </button>
         <button className="btn px-2 sm:px-3" onClick={() => logout()} title={t("auth.logout")}>
           <LogOut className="h-4 w-4" />
-          <span className="hidden sm:inline">{t("auth.logout")}</span>
+          <span className="hidden lg:inline">{t("auth.logout")}</span>
         </button>
       </div>
     </header>

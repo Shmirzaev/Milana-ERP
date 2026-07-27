@@ -1,13 +1,16 @@
 """Package service: build packages of finished goods with QR/barcode."""
 from datetime import datetime, timezone
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import (
     Package, PackageItem, PackageBatchAllocation, PackageScanLog, PackageChangeRequest,
-    ProductionOrder, FinishedGoodsStock, Warehouse, ModelBOM, StockBatch, Model,
+    ProductionOrder, FinishedGoodsStock, Warehouse, ModelBOM, StockBatch,
     ProductionBatch, StockReservation, ShipmentPackage, User, Notification,
+    PackagingRecord, WorkOrder,
 )
+from app.core.deps import user_permissions
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
 from app.services.finished_goods import infer_brand_and_collection
 from app.services.numbering import next_package_no
@@ -41,6 +44,14 @@ VALID_STORAGE_CELLS = {
 VALID_STORAGE_SHELVES = {"S1", "S2"}
 PACKAGE_CHANGE_ALLOWED_STATUSES = {"packed", "received_in_storage"}
 PACKAGE_CHANGE_PENDING_STATUS = "pending"
+
+
+def _sync_package_production(db: Session, production_order_id: int | None) -> None:
+    """Sync production workflow only for production-backed packages."""
+    if production_order_id is None:
+        return
+    sync_storage_transfer_work_order(db, production_order_id)
+    sync_production_order_status(db, production_order_id)
 
 
 def normalize_storage_cell(cell: str | None) -> str | None:
@@ -146,6 +157,96 @@ def _compute_cost(db: Session, model_id: int) -> float:
     return round(cost, 4)
 
 
+def _packaging_record_totals_by_batch(db: Session, production_order_id: int) -> dict[int | None, int]:
+    rows = (
+        db.query(PackagingRecord.production_batch_id, func.coalesce(func.sum(PackagingRecord.packed_qty), 0))
+        .join(WorkOrder, WorkOrder.id == PackagingRecord.work_order_id)
+        .filter(WorkOrder.production_order_id == production_order_id)
+        .group_by(PackagingRecord.production_batch_id)
+        .all()
+    )
+    return {int(batch_id) if batch_id is not None else None: int(qty or 0) for batch_id, qty in rows}
+
+
+def _existing_package_totals_by_batch(
+    db: Session,
+    production_order_id: int,
+    *,
+    exclude_package_id: int | None = None,
+) -> dict[int | None, int]:
+    totals: dict[int | None, int] = {}
+    allocated_ids: set[int] = set()
+
+    allocation_qry = (
+        db.query(
+            PackageBatchAllocation.package_id,
+            PackageBatchAllocation.production_batch_id,
+            func.coalesce(func.sum(PackageBatchAllocation.quantity), 0),
+        )
+        .join(Package, Package.id == PackageBatchAllocation.package_id)
+        .filter(Package.production_order_id == production_order_id)
+    )
+    if exclude_package_id:
+        allocation_qry = allocation_qry.filter(Package.id != exclude_package_id)
+    for package_id, batch_id, qty in allocation_qry.group_by(
+        PackageBatchAllocation.package_id,
+        PackageBatchAllocation.production_batch_id,
+    ).all():
+        allocated_ids.add(int(package_id))
+        key = int(batch_id) if batch_id is not None else None
+        totals[key] = totals.get(key, 0) + int(qty or 0)
+
+    fallback_qry = (
+        db.query(Package.production_batch_id, func.coalesce(func.sum(Package.total_quantity), 0))
+        .filter(Package.production_order_id == production_order_id)
+    )
+    if exclude_package_id:
+        fallback_qry = fallback_qry.filter(Package.id != exclude_package_id)
+    if allocated_ids:
+        fallback_qry = fallback_qry.filter(~Package.id.in_(allocated_ids))
+    for batch_id, qty in fallback_qry.group_by(Package.production_batch_id).all():
+        key = int(batch_id) if batch_id is not None else None
+        totals[key] = totals.get(key, 0) + int(qty or 0)
+    return totals
+
+
+def _enforce_packaged_quantity_available(
+    db: Session,
+    *,
+    production_order_id: int,
+    allocations: list[dict[str, int]],
+    total: int,
+    exclude_package_id: int | None = None,
+) -> None:
+    packed_by_batch = _packaging_record_totals_by_batch(db, production_order_id)
+    if not packed_by_batch:
+        return
+
+    existing_by_batch = _existing_package_totals_by_batch(
+        db,
+        production_order_id,
+        exclude_package_id=exclude_package_id,
+    )
+    requested_by_batch: dict[int | None, int] = {}
+    if allocations:
+        for alloc in allocations:
+            batch_id = int(alloc["production_batch_id"])
+            requested_by_batch[batch_id] = requested_by_batch.get(batch_id, 0) + int(alloc["quantity"])
+    else:
+        requested_by_batch[None] = int(total)
+
+    for batch_id, requested in requested_by_batch.items():
+        packed = int(packed_by_batch.get(batch_id, 0))
+        existing = int(existing_by_batch.get(batch_id, 0))
+        available = max(0, packed - existing)
+        if requested > available:
+            label = f"batch #{batch_id}" if batch_id is not None else "this production order"
+            raise HTTPException(
+                400,
+                f"Package quantity {requested} exceeds available packed quantity {available} for {label}",
+            )
+
+
 def create_package(
     db: Session,
     *,
@@ -170,7 +271,22 @@ def create_package(
     if not items:
         raise HTTPException(400, "Package must contain at least one size line")
 
-    total = sum(int(it.get("quantity", 0)) for it in items)
+    total = 0
+    for item in items:
+        try:
+            item_model_id = int(item.get("model_id", model_id))
+            quantity = int(item.get("quantity", 0))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Package item model and quantity must be numbers")
+        if item_model_id <= 0:
+            raise HTTPException(400, "Package item model is required")
+        if not str(item.get("color") or "").strip():
+            raise HTTPException(400, "Package item color is required")
+        if not str(item.get("size") or "").strip():
+            raise HTTPException(400, "Package item size is required")
+        if quantity <= 0:
+            raise HTTPException(400, "Package item quantity must be > 0")
+        total += quantity
     if total <= 0:
         raise HTTPException(400, "Total package quantity must be > 0")
     if total > capacity and not (override_capacity and is_admin):
@@ -233,6 +349,13 @@ def create_package(
         normalized_allocations = [{"production_batch_id": batch_id, "quantity": total}]
     elif has_batches:
         raise HTTPException(400, "Select a production batch for this package")
+
+    _enforce_packaged_quantity_available(
+        db,
+        production_order_id=production_order_id,
+        allocations=normalized_allocations,
+        total=total,
+    )
 
     resolved_sales_order_id = sales_order_id if sales_order_id is not None else po.sales_order_id
     resolved_brand_id, resolved_collection_id = infer_brand_and_collection(
@@ -514,6 +637,11 @@ def _normalize_package_batch_allocations(
     payload: dict,
     total: int,
 ) -> list[dict]:
+    if pkg.production_order_id is None:
+        raw_allocations = payload.get("batch_allocations") or []
+        if raw_allocations:
+            raise HTTPException(400, "Legacy stock packages cannot use production batch allocations")
+        return []
     has_batches = _package_has_production_batches(db, pkg.production_order_id)
     if "batch_allocations" in payload:
         raw_allocations = payload.get("batch_allocations") or []
@@ -575,9 +703,19 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
     total = sum(int(row["quantity"] or 0) for row in items)
     if total <= 0:
         raise HTTPException(400, "Total package quantity must be > 0")
+    if total > capacity:
+        raise HTTPException(400, f"Package quantity {total} exceeds capacity {capacity}")
 
     batch_allocations = _normalize_package_batch_allocations(db, pkg, payload, total)
     production_batch_id = batch_allocations[0]["production_batch_id"] if len(batch_allocations) == 1 else None
+    if pkg.production_order_id is not None:
+        _enforce_packaged_quantity_available(
+            db,
+            production_order_id=int(pkg.production_order_id),
+            allocations=batch_allocations,
+            total=total,
+            exclude_package_id=int(pkg.id),
+        )
 
     notes = payload.get("notes", pkg.notes)
     return {
@@ -613,7 +751,7 @@ def _ensure_package_can_change(db: Session, pkg: Package) -> list[FinishedGoodsS
 
 def _is_package_change_approver(user: User) -> bool:
     role_name = (user.role.name if user.role else "").lower()
-    perms = set(user.role.permissions or []) if user.role else set()
+    perms = set(user_permissions(user))
     return "*" in perms or "management.approve" in perms or role_name in {"admin", "management"}
 
 
@@ -748,6 +886,14 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
     allocations = list(target.get("batch_allocations") or [])
     if not items:
         raise HTTPException(400, "Edit request has no package items")
+    if pkg.production_order_id is not None:
+        _enforce_packaged_quantity_available(
+            db,
+            production_order_id=int(pkg.production_order_id),
+            allocations=allocations,
+            total=int(target["total_quantity"]),
+            exclude_package_id=int(pkg.id),
+        )
 
     previous_location = (pkg.storage_cell, pkg.storage_shelf)
     pkg.color = target["color"]
@@ -801,8 +947,7 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
         )
     )
     db.flush()
-    sync_storage_transfer_work_order(db, pkg.production_order_id)
-    sync_production_order_status(db, pkg.production_order_id)
+    _sync_package_production(db, pkg.production_order_id)
     return pkg
 
 
@@ -820,8 +965,7 @@ def _apply_package_delete_request(db: Session, request: PackageChangeRequest) ->
     db.flush()
     db.delete(pkg)
     db.flush()
-    sync_storage_transfer_work_order(db, production_order_id)
-    sync_production_order_status(db, production_order_id)
+    _sync_package_production(db, production_order_id)
 
 
 def approve_package_change_request(
@@ -909,8 +1053,7 @@ def receive_at_storage(
             location=format_storage_location(cell, shelf),
         )
     )
-    sync_storage_transfer_work_order(db, pkg.production_order_id)
-    sync_production_order_status(db, pkg.production_order_id)
+    _sync_package_production(db, pkg.production_order_id)
     db.flush()
 
 
@@ -949,8 +1092,7 @@ def reserve_package(db: Session, pkg: Package, user_id: int | None):
         raise HTTPException(400, f"Package cannot be reserved from status '{pkg.status}'")
     pkg.status = "reserved"
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="reserved"))
-    sync_storage_transfer_work_order(db, pkg.production_order_id)
-    sync_production_order_status(db, pkg.production_order_id)
+    _sync_package_production(db, pkg.production_order_id)
     db.flush()
 
 
@@ -964,8 +1106,7 @@ def ship_package(db: Session, pkg: Package, user_id: int | None):
     pkg.storage_placed_at = None
     decrement_finished_goods_for_package(db, pkg)
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="shipped"))
-    sync_storage_transfer_work_order(db, pkg.production_order_id)
-    sync_production_order_status(db, pkg.production_order_id)
+    _sync_package_production(db, pkg.production_order_id)
     db.flush()
 
 
@@ -974,8 +1115,7 @@ def mark_delivered(db: Session, pkg: Package, user_id: int | None):
         raise HTTPException(400, f"Package not in 'shipped' status (was '{pkg.status}')")
     pkg.status = "delivered"
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="delivered"))
-    sync_storage_transfer_work_order(db, pkg.production_order_id)
-    sync_production_order_status(db, pkg.production_order_id)
+    _sync_package_production(db, pkg.production_order_id)
     db.flush()
 
 
@@ -985,6 +1125,5 @@ def mark_damaged(db: Session, pkg: Package, user_id: int | None):
     pkg.storage_shelf = None
     pkg.storage_placed_at = None
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="audit_check", location="damaged"))
-    sync_storage_transfer_work_order(db, pkg.production_order_id)
-    sync_production_order_status(db, pkg.production_order_id)
+    _sync_package_production(db, pkg.production_order_id)
     db.flush()

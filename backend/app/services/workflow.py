@@ -21,11 +21,15 @@ from app.models import (
     User,
     WasteRecord,
     WorkOrder,
+    Bundle,
+    CuttingRecord,
+    SewingReplacementRequest,
 )
 from app.services.numbering import next_invoice_no
 
 WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
 _OP_INDEX = {op: idx for idx, op in enumerate(WORKFLOW_SEQUENCE)}
+_STARTED_WORK_ORDER_STATUSES = {"in_progress", "pending", "collected", "ready"}
 
 
 def _work_orders_by_op(
@@ -71,16 +75,86 @@ def _queue_printing_if_waiting(wo: WorkOrder) -> None:
         wo.status = "pending"
 
 
-def _complete_if_done(wo: WorkOrder) -> None:
+def _upstream_failed_qty(db: Session, wo: WorkOrder) -> int:
+    op_index = _OP_INDEX.get(str(wo.operation), -1)
+    if op_index <= 0:
+        return 0
+    prior_operations = WORKFLOW_SEQUENCE[:op_index]
+    # Sewing failures are replacement demand, not accepted production loss.
+    # They must not make packaging or storage appear complete while the
+    # replacement pieces are still moving through cutting and sewing.
+    if "sewing" in prior_operations:
+        prior_operations = [operation for operation in prior_operations if operation != "sewing"]
+    qry = (
+        db.query(func.coalesce(func.sum(WorkOrder.failed_qty), 0))
+        .filter(
+            WorkOrder.production_order_id == wo.production_order_id,
+            WorkOrder.operation.in_(prior_operations),
+        )
+    )
+    if wo.production_batch_id is None:
+        qry = qry.filter(WorkOrder.production_batch_id.is_(None))
+    else:
+        qry = qry.filter(WorkOrder.production_batch_id == wo.production_batch_id)
+    return int(qry.scalar() or 0)
+
+
+def processed_work_order_qty(db: Session, wo: WorkOrder) -> int:
+    planned = max(0, int(wo.planned_output_qty or 0))
+    own_failed = 0 if wo.operation == "sewing" else int(wo.failed_qty or 0)
+    processed = int(wo.passed_qty or 0) + own_failed + _upstream_failed_qty(db, wo)
+    return min(planned, processed) if planned > 0 else max(0, processed)
+
+
+def _complete_if_done(db: Session, wo: WorkOrder) -> None:
+    replacement_qry = db.query(SewingReplacementRequest.id).filter(
+        SewingReplacementRequest.production_order_id == wo.production_order_id,
+    )
+    if wo.production_batch_id is not None:
+        replacement_qry = replacement_qry.filter(
+            SewingReplacementRequest.production_batch_id == wo.production_batch_id,
+        )
+    if wo.operation == "cutting":
+        replacement_qry = replacement_qry.filter(
+            SewingReplacementRequest.cut_qty < SewingReplacementRequest.requested_qty,
+        )
+    elif wo.operation in {"sewing", "packaging", "storage_transfer"}:
+        replacement_qry = replacement_qry.filter(
+            SewingReplacementRequest.replaced_qty < SewingReplacementRequest.requested_qty,
+        )
+    else:
+        replacement_qry = replacement_qry.filter(False)
+    if replacement_qry.first():
+        return
     planned = int(wo.planned_output_qty or 0)
-    passed = int(wo.passed_qty or 0)
-    if planned > 0 and passed >= planned and wo.status != "completed":
+    processed = processed_work_order_qty(db, wo)
+    if planned > 0 and processed >= planned and wo.status != "completed":
         wo.status = "completed"
         wo.end_time = datetime.now(timezone.utc)
 
 
+def _work_order_has_started(wo: WorkOrder) -> bool:
+    if wo.operation == "storage_transfer":
+        for value in (wo.actual_output_qty, wo.passed_qty, wo.failed_qty, wo.rework_qty):
+            try:
+                if int(value or 0) > 0:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
+    if str(wo.status or "") in _STARTED_WORK_ORDER_STATUSES:
+        return True
+    for value in (wo.actual_input_qty, wo.actual_output_qty, wo.passed_qty, wo.failed_qty, wo.rework_qty):
+        try:
+            if int(value or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def propagate_cutting_plan_from_output(db: Session, wo: WorkOrder) -> None:
-    """Keep cutting actual output separate from the original production plan."""
+    """Raise downstream work plans when cutting creates more pieces than planned."""
     if wo.operation != "cutting":
         return
 
@@ -89,6 +163,48 @@ def propagate_cutting_plan_from_output(db: Session, wo: WorkOrder) -> None:
         return
 
     db.flush()
+    bundle_qry = db.query(func.coalesce(func.sum(Bundle.quantity), 0)).filter(
+        Bundle.production_order_id == wo.production_order_id,
+    )
+    if wo.production_batch_id is not None:
+        bundle_qry = bundle_qry.filter(Bundle.production_batch_id == wo.production_batch_id)
+
+    replacement_cut_qty = int(
+        db.query(func.coalesce(func.sum(SewingReplacementRequest.cut_qty), 0))
+        .filter(SewingReplacementRequest.cutting_work_order_id == wo.id)
+        .scalar()
+        or 0
+    )
+    output_qty = max(
+        0,
+        int(wo.actual_output_qty or 0) - replacement_cut_qty,
+        int(wo.passed_qty or 0) - replacement_cut_qty,
+        int(
+            db.query(func.coalesce(func.sum(CuttingRecord.total_bundled_quantity), 0))
+            .filter(CuttingRecord.work_order_id == wo.id)
+            .scalar()
+            or 0
+        ) - replacement_cut_qty,
+        int(bundle_qry.scalar() or 0) - replacement_cut_qty,
+    )
+    if output_qty <= 0:
+        return
+
+    downstream_ops = WORKFLOW_SEQUENCE[WORKFLOW_SEQUENCE.index("cutting") + 1 :]
+    qry = db.query(WorkOrder).filter(
+        WorkOrder.production_order_id == wo.production_order_id,
+        WorkOrder.operation.in_(downstream_ops),
+    )
+    if wo.production_batch_id is None:
+        qry = qry.filter(WorkOrder.production_batch_id.is_(None))
+    else:
+        qry = qry.filter(WorkOrder.production_batch_id == wo.production_batch_id)
+
+    for row in qry.all():
+        if int(row.planned_input_qty or 0) < output_qty:
+            row.planned_input_qty = output_qty
+        if int(row.planned_output_qty or 0) < output_qty:
+            row.planned_output_qty = output_qty
 
 
 def sync_production_order_status(db: Session, production_order_id: int) -> None:
@@ -104,8 +220,12 @@ def sync_production_order_status(db: Session, production_order_id: int) -> None:
     if not active:
         po.status = "finished_storage"
         return
-    first_active = min(active, key=lambda w: (_OP_INDEX.get(w.operation, 999), w.id))
-    po.status = first_active.operation
+    started = [w for w in active if _work_order_has_started(w)]
+    if started:
+        current = max(started, key=lambda w: (_OP_INDEX.get(w.operation, -1), w.id))
+    else:
+        current = min(active, key=lambda w: (_OP_INDEX.get(w.operation, 999), w.id))
+    po.status = current.operation
 
 
 def sync_storage_transfer_work_order(db: Session, production_order_id: int) -> None:
@@ -143,24 +263,37 @@ def sync_storage_transfer_work_order(db: Session, production_order_id: int) -> N
     )
     planned = max(0, int(wo.planned_output_qty or 0))
     passed = moved_total if planned <= 0 else min(moved_total, planned)
+    upstream_failed = _upstream_failed_qty(db, wo) if planned > 0 else 0
+    processed = passed + min(upstream_failed, max(0, planned - passed)) if planned > 0 else passed
+    has_open_replacements = bool(
+        db.query(SewingReplacementRequest.id)
+        .filter(
+            SewingReplacementRequest.production_order_id == production_order_id,
+            SewingReplacementRequest.replaced_qty < SewingReplacementRequest.requested_qty,
+        )
+        .first()
+    )
 
     wo.actual_input_qty = passed
     wo.actual_output_qty = passed
     wo.passed_qty = passed
-    if wo.failed_qty is None:
-        wo.failed_qty = 0
+    wo.failed_qty = 0
 
     if wo.status not in ("cancelled", "rejected"):
         now = datetime.now(timezone.utc)
-        if planned > 0 and passed >= planned:
+        if planned > 0 and processed >= planned and not has_open_replacements:
             if wo.status != "completed":
                 wo.status = "completed"
             if not wo.end_time:
                 wo.end_time = now
-        elif passed > 0 and wo.status in ("new", "planning", "ready", "waiting", "pending", "collected", "paused"):
+        elif processed > 0 and wo.status in ("new", "planning", "ready", "waiting", "pending", "collected", "paused"):
             wo.status = "in_progress"
             if not wo.start_time:
                 wo.start_time = now
+        elif processed <= 0 and wo.status in ("in_progress", "ready", "pending", "collected", "paused"):
+            wo.status = "waiting"
+            wo.start_time = None
+            wo.end_time = None
 
 
 def advance_workflow(
@@ -171,7 +304,7 @@ def advance_workflow(
     allow_next_stage_start: bool = True,
 ) -> None:
     _start_if_waiting(wo)
-    _complete_if_done(wo)
+    _complete_if_done(db, wo)
 
     if allow_next_stage_start and trigger_output_qty > 0:
         by_op = _work_orders_by_op(

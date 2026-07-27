@@ -1,16 +1,10 @@
----
-title: Milana ERP API
-sdk: docker
-app_port: 7860
----
-
 # Milana ERP API
 
 FastAPI backend for Milana ERP.
 
-This folder is intended to be deployed as a Hugging Face Docker Space. Configure
-the runtime secrets below, then point the Vercel frontend at the Space URL with
-`NEXT_PUBLIC_API_URL` and `API_URL`.
+This backend is deployed as a release-tagged Docker image on the production
+backend VM. Follow the repository root `DEPLOYMENT.md`; no other production
+deployment process is supported.
 
 Required production settings:
 
@@ -20,5 +14,10 @@ Required production settings:
 - `INITIAL_ADMIN_PASSWORD`
 - `ENV=production`
 - `DEBUG=false`
-- `CORS_ORIGINS=https://milana-erp-web.vercel.app`
-- `FRONTEND_BASE_URL=https://milana-erp-web.vercel.app`
+- `CORS_ORIGINS=https://erp.milanapremium.uz`
+- `FRONTEND_BASE_URL=https://erp.milanapremium.uz`
+- `SHARED_STORE_URL=sqlite:////app/storage/shared-store.db`
+
+Use Redis instead of SQLite for multi-replica deployments:
+
+- `REDIS_URL=redis://...`

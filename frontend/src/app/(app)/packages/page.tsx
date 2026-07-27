@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Fragment, useMemo, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { can, useMe } from "@/lib/auth";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Modal from "@/components/Modal";
@@ -30,10 +31,19 @@ export default function PackagesPage() {
   const { t } = useT();
   const { me } = useMe();
   const canApprovePackageChange = can(me, "management.approve");
+  const canTraceability = can(me, "traceability.view");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: pageData, mutate } = useSWR<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}`, fetcher);
-  const { data: pendingRequests, mutate: mutatePendingRequests } = useSWR<any[]>("/api/packages/change-requests?status=pending", fetcher);
+  const { data: pageData, mutate } = useSWR<any>(
+    `/api/packages?include_total=true&page=${page}&page_size=${pageSize}`,
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
+  const { data: pendingRequests, mutate: mutatePendingRequests } = useSWR<any[]>(
+    "/api/packages/change-requests?status=pending",
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
   const data = useMemo<any[]>(() => pageData?.rows || [], [pageData?.rows]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<any | null>(null);
@@ -290,7 +300,7 @@ export default function PackagesPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.packages.title")} subtitle={t("page.packages.subtitle")} actions={<Link href="/packages/scan" className="btn">{t("btn.scan")}</Link>} />
+      <PageHeader title={t("page.packages.title")} subtitle={t("page.packages.subtitle")} actions={<Link href="/packaging/receive" className="btn">{t("nav.receiveFromSewing")}</Link>} />
       {message && <div className="mb-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div>}
       {error && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <div className="card overflow-x-auto">
@@ -392,6 +402,11 @@ export default function PackagesPage() {
                         <td><span className="badge">{statusLabel(p.status, t)}</span></td>
                         <td className="flex flex-wrap gap-2">
                           <Link href={`/packages/${p.id}`} className="text-brand-600 hover:underline">{t("btn.view")}</Link>
+                          {canTraceability && (
+                            <Link href={`/traceability?package=${encodeURIComponent(p.package_no || p.barcode || p.id)}`} className="text-brand-600 hover:underline">
+                              {t("page.traceability.passport")}
+                            </Link>
+                          )}
                           <button type="button" className="text-slate-600 hover:underline" onClick={() => api.openLabel(`/api/packages/${p.id}/label`)}>{t("btn.label")}</button>
                           <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy} onClick={() => openEdit(p)}>{t("common.edit")}</button>
                           <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy} onClick={() => setDeleting(p)}>{t("common.delete")}</button>

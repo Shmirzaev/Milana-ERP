@@ -1,15 +1,17 @@
 "use client";
 import { useEffect } from "react";
+import { X } from "lucide-react";
 import { useT } from "@/lib/i18n";
 
 export default function Modal({
-  open, onClose, title, children, wide = false,
+  open, onClose, title, children, wide = false, full = false,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
   wide?: boolean;
+  full?: boolean;
 }) {
   const { t } = useT();
 
@@ -31,18 +33,18 @@ export default function Modal({
       onClick={onClose}
     >
       <div
-        className={`bg-white rounded-lg w-full ${wide ? "max-w-2xl" : "max-w-md"} p-6 shadow-xl`}
+        className={`max-h-[calc(100vh-2rem)] w-full overflow-y-auto rounded-lg bg-[var(--erp-surface)] ${full ? "max-w-[1400px]" : wide ? "max-w-2xl" : "max-w-md"} p-6 shadow-sm`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-[var(--erp-text)]">{title}</h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-500 hover:text-slate-900 text-xl leading-none w-7 h-7 flex items-center justify-center"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--erp-text-muted)] hover:bg-[var(--erp-subtle)] hover:text-[var(--erp-text)]"
             aria-label={t("common.close")}
           >
-            ×
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
         {children}

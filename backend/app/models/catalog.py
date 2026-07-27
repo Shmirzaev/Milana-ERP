@@ -52,6 +52,31 @@ class Model(Base, PkMixin, TimestampMixin):
     colors: Mapped[list["ModelColor"]] = relationship("ModelColor", back_populates="model", cascade="all, delete-orphan")
     bom: Mapped[list["ModelBOM"]] = relationship("ModelBOM", back_populates="model", cascade="all, delete-orphan")
 
+    @property
+    def material_composition(self) -> list[dict]:
+        for bom_row in self.bom or []:
+            item = getattr(bom_row, "item", None)
+            if not item or str(item.category or "").lower() not in {"fabric", "semi_finished"}:
+                continue
+            rows = item.composition_json or []
+            if not isinstance(rows, list):
+                return []
+            out: list[dict] = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                name = str(row.get("name") or "").strip()
+                if not name:
+                    continue
+                try:
+                    percentage = float(row.get("percentage") or 0)
+                except (TypeError, ValueError):
+                    percentage = 0.0
+                out.append({"name": name, "percentage": percentage})
+            if out:
+                return out
+        return []
+
 
 class CollectionModel(Base, PkMixin, TimestampMixin):
     __tablename__ = "collection_models"
@@ -91,9 +116,25 @@ class ModelBOM(Base, PkMixin, TimestampMixin):
     __tablename__ = "model_bom"
     model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), nullable=False)
+    stock_batch_id: Mapped[int | None] = mapped_column(ForeignKey("stock_batches.id"))
     size: Mapped[str | None] = mapped_column(String(32))
     color: Mapped[str | None] = mapped_column(String(64))
+    photo_url: Mapped[str | None] = mapped_column(String(512))
     quantity_per_piece: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     waste_percent: Mapped[float] = mapped_column(Numeric(6, 2), default=0, nullable=False)
     model: Mapped["Model"] = relationship("Model", back_populates="bom")
+    item: Mapped["Item"] = relationship("Item", lazy="joined")
+    stock_batch: Mapped["StockBatch | None"] = relationship("StockBatch", lazy="joined")
+
+    @property
+    def stock_batch_no(self) -> str | None:
+        return self.stock_batch.batch_no if self.stock_batch else None
+
+    @property
+    def stock_batch_image_url(self) -> str | None:
+        return self.stock_batch.image_url if self.stock_batch else None
+
+    @property
+    def stock_batch_color(self) -> str | None:
+        return self.stock_batch.color if self.stock_batch else None

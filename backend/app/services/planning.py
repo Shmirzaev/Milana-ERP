@@ -2,7 +2,28 @@
 from sqlalchemy.orm import Session
 
 from app.models import Model, ModelBOM, Item, SalesOrder, SalesOrderItem
-from app.services.inventory import current_stock_for_item
+from app.services.inventory import available_stock_for_item
+
+
+def _item_composition(item: Item | None) -> list[dict]:
+    if not item:
+        return []
+    rows = item.composition_json or []
+    if not isinstance(rows, list):
+        return []
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            percentage = float(row.get("percentage") or 0)
+        except (TypeError, ValueError):
+            percentage = 0.0
+        out.append({"name": name, "percentage": percentage})
+    return out
 
 
 def material_requirements_for_sales_order(db: Session, sales_order_id: int) -> list[dict]:
@@ -31,6 +52,7 @@ def material_requirements_for_sales_order(db: Session, sales_order_id: int) -> l
                     "item_id": b.item_id,
                     "sku": item.sku if item else "",
                     "name": item.name if item else "",
+                    "composition": _item_composition(item),
                     "unit": b.unit,
                     "required_quantity": 0.0,
                     "available_quantity": 0.0,
@@ -39,7 +61,7 @@ def material_requirements_for_sales_order(db: Session, sales_order_id: int) -> l
             agg[b.item_id]["required_quantity"] += required
 
     for item_id, row in agg.items():
-        avail = current_stock_for_item(db, item_id)
+        avail = available_stock_for_item(db, item_id)
         row["available_quantity"] = avail
         row["shortage"] = max(0.0, row["required_quantity"] - avail)
 
@@ -63,6 +85,7 @@ def material_requirements_for_quantity(db: Session, model_id: int, items: list[d
                     "item_id": b.item_id,
                     "sku": item.sku if item else "",
                     "name": item.name if item else "",
+                    "composition": _item_composition(item),
                     "unit": b.unit,
                     "required_quantity": 0.0,
                     "available_quantity": 0.0,
@@ -71,7 +94,7 @@ def material_requirements_for_quantity(db: Session, model_id: int, items: list[d
             agg[b.item_id]["required_quantity"] += required
 
     for item_id, row in agg.items():
-        avail = current_stock_for_item(db, item_id)
+        avail = available_stock_for_item(db, item_id)
         row["available_quantity"] = avail
         row["shortage"] = max(0.0, row["required_quantity"] - avail)
 

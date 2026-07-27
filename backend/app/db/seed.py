@@ -28,45 +28,86 @@ DEPARTMENTS = [
     ("Sales", "SLS"), ("Planning", "PLN"), ("Fabric & Accessories Storage", "STR"),
     ("Cutting", "CUT"), ("Printing", "PRT"), ("Sewing", "SEW"),
     ("Milana Sewing Factory", "MIL"), ("Besttex Sewing Factory", "BST"),
-    ("Packaging", "PKG"), ("Ready Product Storage", "FGS"),
-    ("Finance", "FIN"), ("Modeling / PLM", "MOD"), ("HR", "HR"),
+    ("Eco Cotton Sewing Factory", "ECO"),
+    ("Eco Cotton Cutting", "ECT"),
+    ("Packaging", "PKG"), ("Besttex Textile Packaging", "BPK"),
+    ("Eco Cotton Packaging", "ECP"), ("Ready Product Storage", "FGS"),
+    ("Payroll", "PAY"), ("Finance", "FIN"), ("Modeling / PLM", "MOD"), ("HR", "HR"),
     ("Waste Department", "WST"), ("Management / Admin", "ADM"),
 ]
 
-# Permissions per role (using "*" for full access)
+PAYROLL_ROLE_NAME = "Payroll"
+PAYROLL_SCAN_PERMISSION = "payroll.scan"
+PAYROLL_PERMISSION_PREFIX = "payroll."
+ADMIN_ROLE_NAMES = {"Admin", "Super Admin"}
+AI_MONITOR_ROLE_NAME = "AI Monitor"
+AI_MONITOR_PERMISSIONS = [
+    "admin.audit",
+    "management.view",
+    "finance.view",
+    "processes.view",
+    "planning.view",
+    "traceability.view",
+    "traceability.export",
+    "forecasting.view",
+    "purchasing.view",
+    "inventory.reservations.view",
+]
+
+# Permissions per role (using "*" for full app access)
 ROLES = {
+    "Super Admin": ["*", "admin.super"],
     "Admin": ["*"],
     "Management": [
         "management.view", "management.approve", "finance.view", "admin.audit",
         "tasks.manage", "processes.view", "sewing.flows",
+        "traceability.view", "traceability.export", "forecasting.view", "forecasting.manage",
+        "purchasing.view", "purchasing.approve", "purchasing.order",
         "production.override_deadline",
+        "inventory.reservations.view", "inventory.reservations.create", "inventory.reservations.release",
         # Management can also act on behalf of the floor in emergencies
         # (e.g. recording output after a deadline override). They don't
         # normally do this, but the permission unblocks the path.
         "cutting.records", "printing.records", "sewing.records", "packaging.records",
         "cutting.bundles", "printing.bundles", "sewing.bundles", "packaging.packages",
     ],
-    "Sales": ["sales.orders", "sales.customers", "processes.view"],
+    "Sales": ["sales.orders", "sales.customers", "processes.view", "traceability.view", "traceability.export", "forecasting.view"],
     "Planning": [
         "planning.requirements", "planning.production", "planning.view",
-        "processes.view", "sewing.flows",
+        "planning.reserve_materials", "inventory.reservations.view", "inventory.reservations.create",
+        "purchasing.view", "purchasing.request", "purchasing.order",
+        "processes.view", "sewing.flows", "traceability.view", "forecasting.view", "forecasting.manage",
     ],
     "Modeling": ["modeling.models", "modeling.bom", "modeling.brands", "modeling.collections", "modeling.approve"],
-    "Storage": ["storage.receive", "storage.transfer", "storage.items", "storage.suppliers", "storage.packages", "storage.shipment"],
-    "Cutting": ["cutting.records", "cutting.bundles"],
-    "Printing": ["printing.records", "printing.bundles"],
-    "Sewing": ["sewing.records", "sewing.bundles"],
-    "Packaging": ["packaging.records", "packaging.packages"],
-    "ReadyStorage": ["storage.packages", "storage.shipment"],
+    "Storage": [
+        "storage.receive", "storage.transfer", "storage.items", "storage.suppliers", "storage.packages", "storage.shipment",
+        "inventory.reservations.view", "inventory.reservations.create", "inventory.reservations.release", "inventory.reservations.consume",
+        "purchasing.view", "purchasing.receive", "traceability.view", "traceability.export",
+    ],
+    "Cutting": ["cutting.records", "cutting.bundles", "inventory.reservations.view", "traceability.view"],
+    "Printing": ["printing.records", "printing.bundles", "traceability.view"],
+    "Sewing": ["sewing.workspace", "sewing.records", "sewing.bundles", "traceability.view"],
+    "Packaging": ["packaging.records", "packaging.packages", "traceability.view"],
+    "ReadyStorage": ["storage.packages", "storage.shipment", "traceability.view", "traceability.export"],
     "Waste": ["waste.receive", "waste.sell", "waste.disposal"],
-    "Finance": ["finance.view", "finance.invoice", "finance.payment"],
+    PAYROLL_ROLE_NAME: [PAYROLL_SCAN_PERMISSION],
+    "Finance": ["finance.view", "finance.invoice", "finance.payment", "inventory.reservations.view", "purchasing.view", "forecasting.view"],
     "HR": ["hr.employees"],
+    AI_MONITOR_ROLE_NAME: AI_MONITOR_PERMISSIONS,
 }
 
 
 SEWING_FLOWS = [
-    # 30 production lines. Naming: Line 01 .. Line 30
-    (f"Line {i:02d}", f"SEW-{i:02d}") for i in range(1, 31)
+    # Canonical production lines after the 2026-07 consolidation. Capacities
+    # for merged lines retain the combined capacity of the original 200/day
+    # lines so planning is not artificially constrained on fresh installs.
+    ("Bozorova", "SEW-01", 600),       # former lines 01, 02, 08
+    ("Shaxnoza opa", "SEW-06", 200),
+    ("Jalilova", "SEW-07", 800),       # former lines 03, 04, 05, 07
+    ("Dilafruz opa", "SEW-09", 200),
+    ("Nargiza opa", "SEW-10", 400),  # former lines 10 and 11
+    ("Muxlisa", "SEW-12", 200),
+    ("Sevara", "SEW-13", 200),
 ]
 
 LEGACY_MODELS_CSV = Path(__file__).resolve().parents[2] / "data" / "legacy_models.csv"
@@ -87,6 +128,14 @@ def _initial_admin_password() -> str | None:
     return password
 
 
+def _ai_monitor_password() -> str | None:
+    password = settings.AI_MONITOR_PASSWORD
+    if not password:
+        return None
+    validate_password_strength(password)
+    return password
+
+
 def _clean_text(value) -> str:
     if value is None:
         return ""
@@ -100,6 +149,45 @@ def _infer_season(name: str) -> str | None:
     if "kuz" in lower or "qish" in lower:
         return "Autumn/Winter"
     return None
+
+
+def _role_has_admin_access(role: Role | None) -> bool:
+    if role is None:
+        return False
+    role_name = role.name.strip().lower()
+    admin_role_names = {name.lower() for name in ADMIN_ROLE_NAMES}
+    return role_name in admin_role_names or "*" in (role.permissions or [])
+
+
+def _payroll_limited_permissions(values, *, allow_scan: bool) -> list[str]:
+    permissions: list[str] = []
+    for permission in values or []:
+        if not isinstance(permission, str):
+            continue
+        if permission.startswith(PAYROLL_PERMISSION_PREFIX):
+            if allow_scan and permission == PAYROLL_SCAN_PERMISSION:
+                permissions.append(permission)
+            continue
+        permissions.append(permission)
+    return permissions
+
+
+def _remove_payroll_access_from_non_admins(db: Session) -> None:
+    for role in db.query(Role).all():
+        if _role_has_admin_access(role):
+            continue
+        allow_scan = role.name == PAYROLL_ROLE_NAME
+        permissions = _payroll_limited_permissions(role.permissions or [], allow_scan=allow_scan)
+        if permissions != (role.permissions or []):
+            role.permissions = permissions
+
+    for user in db.query(User).all():
+        if _role_has_admin_access(user.role):
+            continue
+        allow_scan = user.role is not None and user.role.name == PAYROLL_ROLE_NAME
+        extra_permissions = _payroll_limited_permissions(user.extra_permissions or [], allow_scan=allow_scan)
+        if extra_permissions != (user.extra_permissions or []):
+            user.extra_permissions = extra_permissions
 
 
 def _import_legacy_models(db: Session, admin: User) -> tuple[int, int, int]:
@@ -189,15 +277,20 @@ def _import_legacy_models(db: Session, admin: User) -> tuple[int, int, int]:
     return (created_models, created_sizes, created_collections)
 
 
-def seed():
-    Base.metadata.create_all(bind=engine)
-    # Apply column-level patches to existing tables for hosted environments
-    # where we cannot run ALTER TABLE by hand.
-    try:
-        from app.db import schema_hotfix
-        schema_hotfix.run(engine)
-    except Exception as e:
-        print(f"seed: schema_hotfix skipped — {e}")
+def seed(*, ensure_schema: bool | None = None):
+    if ensure_schema is None:
+        ensure_schema = bool(settings.STARTUP_SCHEMA_SYNC and not settings.strict_security_required)
+    if ensure_schema:
+        if settings.strict_security_required:
+            raise RuntimeError("Schema bootstrap is disabled for production/public deployments; run Alembic migrations instead.")
+        Base.metadata.create_all(bind=engine)
+        # Local/dev fallback for disposable databases. Production startup relies
+        # on Alembic and calls seed with ensure_schema=False.
+        try:
+            from app.db import schema_hotfix
+            schema_hotfix.run(engine)
+        except Exception as e:
+            print(f"seed: schema_hotfix skipped - {e}")
     db: Session = SessionLocal()
     try:
         # ----- Departments -----
@@ -223,6 +316,8 @@ def seed():
                     r.permissions = perms
             role_map[name] = r
 
+        _remove_payroll_access_from_non_admins(db)
+
         # ----- Admin user -----
         admin_email = normalize_email(settings.INITIAL_ADMIN_EMAIL or LEGACY_DEFAULT_ADMIN_EMAIL)
         admin_password = _initial_admin_password()
@@ -237,7 +332,10 @@ def seed():
         if not admin:
             active_admin = (
                 db.query(User)
-                .filter(User.role_id == role_map["Admin"].id, User.is_active.is_(True))
+                .filter(
+                    User.role_id.in_([role_map["Super Admin"].id, role_map["Admin"].id]),
+                    User.is_active.is_(True),
+                )
                 .order_by(User.id.asc())
                 .first()
             )
@@ -251,7 +349,7 @@ def seed():
                 name="System Admin",
                 email=admin_email,
                 password_hash=hash_password(admin_password or "inactive-admin-bootstrap-0"),
-                role_id=role_map["Admin"].id,
+                role_id=role_map["Super Admin"].id,
                 department_id=dept_map["ADM"].id,
                 is_active=admin_is_active,
             )
@@ -281,6 +379,36 @@ def seed():
             admin.is_active = True
             print("Seed security: synchronized initial admin password from INITIAL_ADMIN_PASSWORD.")
 
+        if admin and admin.role_id != role_map["Super Admin"].id:
+            admin.role_id = role_map["Super Admin"].id
+
+        monitor_password = _ai_monitor_password()
+        if monitor_password:
+            monitor_email = normalize_email(settings.AI_MONITOR_EMAIL or "ai.monitor@erp.milanapremium.uz")
+            monitor = db.query(User).filter(User.email == monitor_email).first()
+            monitor_department_id = dept_map["ADM"].id if "ADM" in dept_map else None
+            if not monitor:
+                monitor = User(
+                    name="AI Monitor",
+                    email=monitor_email,
+                    password_hash=hash_password(monitor_password),
+                    role_id=role_map[AI_MONITOR_ROLE_NAME].id,
+                    department_id=monitor_department_id,
+                    extra_permissions=[],
+                    is_active=True,
+                )
+                db.add(monitor)
+                db.flush()
+                print("Seed: created AI Monitor read-only account.")
+            else:
+                monitor.name = "AI Monitor"
+                monitor.password_hash = hash_password(monitor_password)
+                monitor.role_id = role_map[AI_MONITOR_ROLE_NAME].id
+                monitor.department_id = monitor_department_id
+                monitor.extra_permissions = []
+                monitor.is_active = True
+                print("Seed: synchronized AI Monitor read-only account.")
+
         # A user per role (for quick demos). Disabled by default so shared
         # demo credentials are not created in secured deployments.
         if settings.SEED_DEMO_USERS:
@@ -290,12 +418,17 @@ def seed():
                 ("Modeling", "modeling@example.com", "MOD"),
                 ("Storage", "storage@example.com", "STR"),
                 ("Cutting", "cutting@example.com", "CUT"),
+                ("Cutting", "eco.cotton.cutting@example.com", "ECT"),
                 ("Printing", "printing@example.com", "PRT"),
                 ("Sewing", "sewing@example.com", "SEW"),
                 ("Sewing", "milana.sewing@example.com", "MIL"),
                 ("Sewing", "besttex.sewing@example.com", "BST"),
+                ("Sewing", "eco.cotton.sewing@example.com", "ECO"),
                 ("Packaging", "packaging@example.com", "PKG"),
+                ("Packaging", "besttex.packaging@example.com", "BPK"),
+                ("Packaging", "eco.cotton.packaging@example.com", "ECP"),
                 ("ReadyStorage", "fgs@example.com", "FGS"),
+                ("Payroll", "payroll@example.com", "PAY"),
                 ("Waste", "waste@example.com", "WST"),
                 ("Finance", "finance@example.com", "FIN"),
                 ("HR", "hr@example.com", "HR"),
@@ -316,8 +449,11 @@ def seed():
             ("Accessory Storage", "accessory_storage", "STR"),
             ("Packaging Storage", "packaging", "PKG"),
             ("Cutting Floor", "cutting", "CUT"),
+            ("Eco Cotton Cutting Floor", "eco_cotton_cutting", "ECT"),
             ("Printing Floor", "printing", "PRT"),
             ("Sewing Floor", "sewing", "SEW"),
+            ("Besttex Packaging Floor", "besttex_packaging", "BPK"),
+            ("Eco Cotton Packaging Floor", "eco_cotton_packaging", "ECP"),
             ("Finished Goods", "finished_goods", "FGS"),
             ("Waste Yard", "waste", "WST"),
         ]
@@ -329,13 +465,13 @@ def seed():
                 db.add(w); db.flush()
             wh_map[type_] = w
 
-        # ----- 30 Sewing Flows -----
-        for name, code in SEWING_FLOWS:
+        # ----- Canonical Sewing Flows -----
+        for name, code, capacity_per_day in SEWING_FLOWS:
             if not db.query(SewingFlow).filter(SewingFlow.code == code).first():
                 db.add(SewingFlow(
                     name=name, code=code,
                     description=f"Sewing flow {name}",
-                    capacity_per_day=200,
+                    capacity_per_day=capacity_per_day,
                     is_active=True,
                 ))
 

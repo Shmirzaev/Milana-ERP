@@ -1,21 +1,17 @@
-import time as time_module
-import hashlib
 import ipaddress
-import logging
-import secrets
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
 from fastapi import Depends
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, user_permissions
 from app.core.dt import as_utc, utcnow
-from app.db.session import SessionLocal
+from app.core.shared_store import get_shared_counter_store
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -29,15 +25,16 @@ from app.models import (
 )
 from app.schemas.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.services.audit import log_action
-from app.services.email import send_password_reset_email
+from app.services.password_reset import (
+    create_password_reset_token,
+    password_reset_hash,
+    password_reset_url,
+    send_password_email_safely,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-log = logging.getLogger(__name__)
 
 _DUMMY_PASSWORD_HASH = hash_password("dummy-login-password-0")
-_LOGIN_FAILURES: dict[str, list[float]] = {}
-_LOGIN_LOCKS: dict[str, float] = {}
-_RESET_REQUESTS: dict[str, list[float]] = {}
 
 
 class ProfileUpdateIn(BaseModel):
@@ -85,57 +82,45 @@ def _login_key(request: Request, email: str) -> str:
 
 
 def _enforce_login_rate_limit(key: str) -> None:
-    now = time_module.monotonic()
-    locked_until = _LOGIN_LOCKS.get(key)
-    if locked_until and locked_until > now:
+    store = get_shared_counter_store()
+    locked_ttl = store.ttl(f"auth:login-lock:{key}")
+    if locked_ttl:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Too many failed login attempts. Try again later.",
+            headers={"Retry-After": str(locked_ttl)},
         )
-    if locked_until:
-        _LOGIN_LOCKS.pop(key, None)
-
-    window_started = now - settings.AUTH_WINDOW_SECONDS
-    failures = [ts for ts in _LOGIN_FAILURES.get(key, []) if ts >= window_started]
-    if failures:
-        _LOGIN_FAILURES[key] = failures
-    else:
-        _LOGIN_FAILURES.pop(key, None)
 
 
 def _record_login_failure(key: str) -> None:
     if settings.AUTH_MAX_FAILED_ATTEMPTS <= 0:
         return
-    now = time_module.monotonic()
-    window_started = now - settings.AUTH_WINDOW_SECONDS
-    failures = [ts for ts in _LOGIN_FAILURES.get(key, []) if ts >= window_started]
-    failures.append(now)
-    if len(failures) >= settings.AUTH_MAX_FAILED_ATTEMPTS:
-        _LOGIN_LOCKS[key] = now + settings.AUTH_LOCKOUT_SECONDS
-        _LOGIN_FAILURES.pop(key, None)
-    else:
-        _LOGIN_FAILURES[key] = failures
+    store = get_shared_counter_store()
+    failure_key = f"auth:login-fail:{key}"
+    attempts = store.increment(failure_key, settings.AUTH_WINDOW_SECONDS)
+    if attempts >= settings.AUTH_MAX_FAILED_ATTEMPTS:
+        store.set(f"auth:login-lock:{key}", "1", settings.AUTH_LOCKOUT_SECONDS)
+        store.delete(failure_key)
 
 
 def _clear_login_failures(key: str) -> None:
-    _LOGIN_FAILURES.pop(key, None)
-    _LOGIN_LOCKS.pop(key, None)
+    store = get_shared_counter_store()
+    store.delete(f"auth:login-fail:{key}", f"auth:login-lock:{key}")
 
 
 def _enforce_reset_rate_limit(request: Request, email: str) -> None:
-    now = time_module.monotonic()
+    store = get_shared_counter_store()
     client = _client_ip(request)
     keys = [f"ip:{client}", f"email:{normalize_email(email)}"]
-    window_started = now - 60 * 60
     for key in keys:
-        requests = [ts for ts in _RESET_REQUESTS.get(key, []) if ts >= window_started]
-        if len(requests) >= 5:
+        requests = store.increment(f"auth:reset:{key}", 60 * 60)
+        if requests > 5:
+            retry_after = store.ttl(f"auth:reset:{key}") or 60 * 60
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
                 "Too many password reset requests. Try again later.",
+                headers={"Retry-After": str(retry_after)},
             )
-        requests.append(now)
-        _RESET_REQUESTS[key] = requests
 
 
 def _authenticate(request: Request, db: Session, email: str, password: str) -> User:
@@ -160,15 +145,6 @@ def _authenticate(request: Request, db: Session, email: str, password: str) -> U
 
     _clear_login_failures(key)
     return user
-
-
-def _password_reset_hash(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def _password_reset_url(token: str) -> str:
-    base = settings.FRONTEND_BASE_URL.rstrip("/")
-    return f"{base}/reset-password?token={token}"
 
 
 def _is_https_request(request: Request) -> bool:
@@ -205,61 +181,6 @@ def _clear_auth_cookie(request: Request, response: Response) -> None:
         samesite="lax",
         path="/",
     )
-
-
-def _safe_reset_delivery_error(error: str) -> str:
-    _ = error
-    # Delivery/provider errors can echo the submitted email body, including the
-    # reset URL. Never persist or log raw provider text for reset emails.
-    return "Email delivery failed; provider details suppressed because they may contain reset-token material."
-
-
-def _notify_admins_about_reset_email_failure(user_id: int, reset_url: str, error: str) -> None:
-    _ = reset_url  # Never persist raw reset tokens in notifications or audit trails.
-    safe_error = _safe_reset_delivery_error(error)
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            return
-        recipients = [
-            admin for admin in db.query(User).filter(User.is_active.is_(True)).all()
-            if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
-        ]
-        for admin in recipients:
-            db.add(Notification(
-                user_id=admin.id,
-                title="Password reset email failed",
-                message=(
-                    f"{user.name} ({user.email}) requested a password reset, but email delivery failed. "
-                    "Do not share stored links; generate a fresh reset after email delivery is restored. "
-                    f"Error: {safe_error}"
-                ),
-                link="/admin/users",
-            ))
-        if recipients:
-            db.commit()
-    except Exception:
-        db.rollback()
-        log.exception("Could not create password reset failure notification for user_id=%s", user_id)
-    finally:
-        db.close()
-
-
-def _send_password_reset_email_safely(email: str, name: str, reset_url: str, user_id: int) -> None:
-    try:
-        if send_password_reset_email(email, name, reset_url):
-            log.info("Password reset email sent to %s", email)
-        else:
-            log.warning("Password reset email not sent to %s: SMTP is not configured", email)
-            _notify_admins_about_reset_email_failure(user_id, reset_url, "SMTP is not configured")
-    except Exception as exc:
-        log.warning(
-            "Password reset email failed for %s (%s); details suppressed because they may contain reset-token material",
-            email,
-            type(exc).__name__,
-        )
-        _notify_admins_about_reset_email_failure(user_id, reset_url, str(exc))
 
 
 def _mark_successful_login(db: Session, user: User) -> None:
@@ -317,15 +238,9 @@ def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: 
     _enforce_reset_rate_limit(request, email)
     user = db.query(User).filter(User.email == email).first()
     if user and user.is_active:
-        raw_token = secrets.token_urlsafe(32)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_MINUTES)
-        db.add(PasswordResetToken(
-            user_id=user.id,
-            token_hash=_password_reset_hash(raw_token),
-            expires_at=expires_at,
-        ))
-        reset_url = _password_reset_url(raw_token)
-        background_tasks.add_task(_send_password_reset_email_safely, user.email, user.name, reset_url, user.id)
+        raw_token = create_password_reset_token(db, user)
+        reset_url = password_reset_url(raw_token)
+        background_tasks.add_task(send_password_email_safely, user.email, user.name, reset_url, user.id)
         recipients = [
             admin for admin in db.query(User).filter(User.is_active.is_(True)).all()
             if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
@@ -353,7 +268,7 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
-    token_hash = _password_reset_hash(payload.token.strip())
+    token_hash = password_reset_hash(payload.token.strip())
     reset_token = db.query(PasswordResetToken).filter(PasswordResetToken.token_hash == token_hash).first()
     now = datetime.now(timezone.utc)
     if (
@@ -382,6 +297,7 @@ def me(user: CurrentUser, db: DbSession):
         email=user.email,
         role=user.role.name if user.role else None,
         department=user.department.name if user.department else None,
+        extra_permissions=user.extra_permissions or [],
         permissions=user_permissions(user),
     )
 
@@ -403,6 +319,7 @@ def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
         email=user.email,
         role=user.role.name if user.role else None,
         department=user.department.name if user.department else None,
+        extra_permissions=user.extra_permissions or [],
         permissions=user_permissions(user),
     )
 

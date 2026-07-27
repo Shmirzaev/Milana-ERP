@@ -1,4 +1,5 @@
 ﻿"use client";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
@@ -91,6 +92,10 @@ export default function LoginPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!email.trim() || !password) {
+      setError(t("auth.requiredFields"));
+      return;
+    }
     setLoading(true);
     try {
       await api.login(email, password);
@@ -113,6 +118,10 @@ export default function LoginPage() {
     e.preventDefault();
     setForgotMsg("");
     setForgotError("");
+    if (!forgotEmail.trim()) {
+      setForgotError(t("auth.emailRequired"));
+      return;
+    }
     setForgotLoading(true);
     try {
       await api.forgotPassword(forgotEmail);
@@ -159,13 +168,17 @@ export default function LoginPage() {
         </svg>
 
         <header className="relative flex items-center justify-between mb-9">
-          <div className="flex items-center">
+          <Link
+            href="/presentation"
+            aria-label={t("login.presentationAria")}
+            className="-m-2 inline-flex items-center rounded-md p-2 transition hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c2410c]"
+          >
             <BrandLogo alt={t("app.name")} className="h-14 w-auto max-w-[240px]" />
+          </Link>
+          <div className="text-[11px] tracking-wider text-[#8a8472] text-right leading-tight">
+            <div>{dateStr}</div>
+            <div>{timeStr} · {clientTz}</div>
           </div>
-	          <div className="text-[11px] tracking-wider text-[#8a8472] text-right leading-tight">
-	            <div>{dateStr}</div>
-	            <div>{timeStr} · {clientTz}</div>
-	          </div>
         </header>
 
         <div className="relative mb-7 max-w-[540px]">
@@ -247,7 +260,14 @@ export default function LoginPage() {
       </aside>
 
       <section className="relative flex items-center justify-center px-6 py-12 lg:p-14 bg-[#fdfcf8]">
-        <div className="absolute top-6 right-6 flex items-center gap-1">
+        <div className="absolute left-6 right-6 top-6 flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+          <Link
+            href="/presentation"
+            aria-label={t("login.presentationAria")}
+            className="rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-2.5 py-1 text-[11.5px] font-medium text-[#56503f] transition hover:border-[#c2410c] hover:text-[#14110b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c2410c]"
+          >
+            {t("login.presentation")}
+          </Link>
           {LANGS.map((l, i) => (
             <span key={l} className="flex items-center gap-1">
               <button
@@ -278,8 +298,10 @@ export default function LoginPage() {
           </h2>
           <p className="m-0 mb-8 text-sm text-[#56503f]">{t("login.subtitle")}</p>
 
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
             <Field
+              id="login-email"
+              name="email"
               label={t("auth.email")}
               type="email"
               value={email}
@@ -288,6 +310,8 @@ export default function LoginPage() {
               autoComplete="email"
             />
             <Field
+              id="login-password"
+              name="password"
               label={t("auth.password")}
               type="password"
               value={password}
@@ -347,10 +371,12 @@ export default function LoginPage() {
               </button>
             </div>
 
-            <form onSubmit={submitForgotPassword} className="mt-5 space-y-3">
+            <form onSubmit={submitForgotPassword} className="mt-5 space-y-3" noValidate>
               <div>
-                <label className="label">{t("auth.email")}</label>
+                <label className="label" htmlFor="forgot-password-email">{t("auth.email")}</label>
                 <input
+                  id="forgot-password-email"
+                  name="email"
                   className="input"
                   type="email"
                   data-testid="forgot-password-email"
@@ -390,6 +416,8 @@ export default function LoginPage() {
 }
 
 function Field({
+  id,
+  name,
   label,
   type,
   value,
@@ -399,6 +427,8 @@ function Field({
   onTrailingClick,
   autoComplete,
 }: {
+  id: string;
+  name: string;
   label: string;
   type: string;
   value: string;
@@ -411,7 +441,7 @@ function Field({
   return (
     <div>
       <div className="flex justify-between items-baseline">
-        <label className="label">{label}</label>
+        <label className="label" htmlFor={id}>{label}</label>
         {trailing && (
           <button
             type="button"
@@ -435,6 +465,8 @@ function Field({
           <path d={iconPath} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <input
+          id={id}
+          name={name}
           className="input"
           type={type}
           value={value}

@@ -4,6 +4,7 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { useDialogs } from "@/components/DialogProvider";
 
 type Task = {
   id: number;
@@ -20,23 +21,24 @@ type User = { id: number; name: string; email: string };
 
 // Warm-palette priority colors — replace the rainbow Tailwind badges.
 const PRIORITY_COLOR: Record<Task["priority"], string> = {
-  urgent: "#c2410c", // terra
-  high: "#b45309",   // amber
-  medium: "#1e5fb3", // slate-blue
-  low: "#8a8472",    // muted-2
+  urgent: "var(--erp-accent)",
+  high: "var(--erp-warning)",
+  medium: "var(--erp-blue)",
+  low: "var(--erp-text-muted)",
 };
 
 // Same colors, used for the row checkbox / status accent.
 const STATUS_COLOR: Record<Task["status"], string> = {
-  pending: "#8a8472",
-  in_progress: "#b45309",
-  completed: "#1f7a4d",
-  cancelled: "#ded9ca",
+  pending: "var(--erp-text-muted)",
+  in_progress: "var(--erp-warning)",
+  completed: "var(--erp-success)",
+  cancelled: "var(--erp-border-strong)",
 };
 
 export default function TasksDrawer() {
   const { me } = useMe();
   const { t } = useT();
+  const dialogs = useDialogs();
   const isManager = can(me, "*", "tasks.manage", "management.approve");
 
   const [open, setOpen] = useState(false);
@@ -89,18 +91,18 @@ export default function TasksDrawer() {
       mutate();
       mutateCount();
     } catch (e: any) {
-      alert(e.message);
+      await dialogs.notify(e.message);
     }
   }
 
   async function del(tk: Task) {
-    if (!confirm(t("tasks.deleteConfirm", { title: tk.title }))) return;
+    if (!(await dialogs.ask({ message: t("tasks.deleteConfirm", { title: tk.title }), tone: "danger" }))) return;
     try {
       await api.del(`/api/tasks/${tk.id}`);
       mutate();
       mutateCount();
     } catch (e: any) {
-      alert(e.message);
+      await dialogs.notify(e.message);
     }
   }
 
@@ -123,16 +125,14 @@ export default function TasksDrawer() {
         onClick={() => setOpen(true)}
         title={t("tasks.openButton")}
         aria-label={t("tasks.openButton")}
-        className="fixed bottom-6 right-6 z-30 grid place-items-center transition"
+        className="fixed bottom-2 right-2 z-30 grid h-10 w-10 place-items-center transition sm:bottom-6 sm:right-6 sm:h-[60px] sm:w-[60px]"
         style={{
-          width: 60,
-          height: 60,
           borderRadius: "50%",
-          background: "#14110b",
-          color: "#f7f6f1",
-          border: "1px solid #2c2920",
+          background: "var(--erp-primary)",
+          color: "var(--erp-primary-text)",
+          border: "1px solid var(--erp-primary-hover)",
           boxShadow:
-            "0 12px 28px -10px rgba(20,17,11,0.45), inset 0 -2px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.06)",
+            "0 12px 28px -10px var(--erp-shadow-strong), inset 0 -2px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.06)",
           cursor: "pointer",
         }}
       >
@@ -143,7 +143,7 @@ export default function TasksDrawer() {
             position: "absolute",
             inset: 5,
             borderRadius: "50%",
-            border: "1px dashed rgba(247,246,241,0.18)",
+            border: "1px dashed color-mix(in srgb, var(--erp-primary-text) 18%, transparent)",
             pointerEvents: "none",
           }}
         />
@@ -170,14 +170,14 @@ export default function TasksDrawer() {
               minWidth: 22,
               height: 22,
               padding: "0 6px",
-              background: "#c2410c",
+              background: "var(--erp-accent)",
               color: "#fff",
               borderRadius: 11,
               fontSize: 11,
               fontWeight: 700,
               display: "grid",
               placeItems: "center",
-              border: "2px solid #f7f6f1",
+              border: "2px solid var(--erp-bg)",
               boxShadow: "0 2px 4px rgba(122,40,6,0.4)",
             }}
           >
@@ -194,7 +194,7 @@ export default function TasksDrawer() {
         className="fixed inset-0 z-40 opacity-100 pointer-events-auto"
         onClick={() => setOpen(false)}
       >
-        <div className="absolute inset-0" style={{ background: "rgba(20,17,11,0.32)" }} />
+        <div className="absolute inset-0" style={{ background: "color-mix(in srgb, var(--erp-bg) 66%, transparent)" }} />
 
         <aside
           role="dialog"
@@ -202,22 +202,22 @@ export default function TasksDrawer() {
           aria-labelledby="tasks-drawer-title"
           className="absolute top-0 right-0 h-full w-full max-w-md flex flex-col translate-x-0 transition-transform duration-200"
           style={{
-            background: "#fdfcf8",
-            borderLeft: "1px solid #e3dfd3",
-            boxShadow: "-24px 0 60px -16px rgba(20,17,11,0.35)",
+            background: "var(--erp-surface)",
+            borderLeft: "1px solid var(--erp-border)",
+            boxShadow: "-24px 0 60px -16px var(--erp-shadow-strong)",
           }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
           <header
             className="px-7 pt-6 pb-4"
-            style={{ borderBottom: "1px solid #e3dfd3", position: "relative" }}
+            style={{ borderBottom: "1px solid var(--erp-border)", position: "relative" }}
           >
             <div className="flex items-start justify-between">
               <div>
                 <div
                   className="text-[10.5px] font-semibold uppercase"
-                  style={{ letterSpacing: "0.22em", color: "#8a8472" }}
+                  style={{ letterSpacing: "0.22em", color: "var(--erp-text-muted)" }}
                 >
                   {t("tasks.ledgerEyebrow")}
                 </div>
@@ -230,12 +230,12 @@ export default function TasksDrawer() {
                     fontWeight: 400,
                     fontSize: 34,
                     letterSpacing: "-0.01em",
-                    color: "#14110b",
+                    color: "var(--erp-text)",
                   }}
                 >
                   {t("tasks.heading")}
                 </h2>
-                <p className="m-0 mt-2 text-[12.5px]" style={{ color: "#56503f" }}>
+                <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--erp-text-soft)" }}>
                   {isManager ? t("tasks.subtitleManager") : t("tasks.subtitleUser")}
                 </p>
               </div>
@@ -249,7 +249,7 @@ export default function TasksDrawer() {
                   height: 32,
                   border: "none",
                   background: "transparent",
-                  color: "#56503f",
+                  color: "var(--erp-text-soft)",
                   cursor: "pointer",
                 }}
               >
@@ -286,11 +286,11 @@ export default function TasksDrawer() {
                         border: "none",
                         padding: "8px 0 12px",
                         borderBottom: active
-                          ? "2px solid #14110b"
+                          ? "2px solid var(--erp-primary)"
                           : "2px solid transparent",
                         fontSize: 13,
                         fontWeight: active ? 600 : 500,
-                        color: active ? "#14110b" : "#8a8472",
+                        color: active ? "var(--erp-text)" : "var(--erp-text-muted)",
                         cursor: "pointer",
                       }}
                     >
@@ -311,7 +311,7 @@ export default function TasksDrawer() {
                 position: "absolute",
                 inset: 0,
                 backgroundImage:
-                  "repeating-linear-gradient(to bottom, transparent 0, transparent 71px, #f1efe8 71px, #f1efe8 72px)",
+                  "repeating-linear-gradient(to bottom, transparent 0, transparent 71px, var(--erp-surface-muted) 71px, var(--erp-surface-muted) 72px)",
                 pointerEvents: "none",
               }}
             />
@@ -338,8 +338,8 @@ export default function TasksDrawer() {
             onSubmit={addTask}
             className="px-7 pt-4 pb-5"
             style={{
-              borderTop: "2px solid #14110b",
-              background: "#f1efe8",
+              borderTop: "2px solid var(--erp-primary)",
+              background: "var(--erp-surface-muted)",
             }}
           >
             <div
@@ -348,7 +348,7 @@ export default function TasksDrawer() {
                 fontSize: 10.5,
                 letterSpacing: "0.22em",
                 textTransform: "uppercase",
-                color: "#8a8472",
+                color: "var(--erp-text-muted)",
                 fontWeight: 600,
               }}
             >
@@ -375,7 +375,10 @@ export default function TasksDrawer() {
               style={{ resize: "none" }}
             />
 
-            <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: isManager ? "1fr 1fr 1fr" : "1fr 1fr" }}>
+            <div
+              className="grid gap-2 mb-3"
+              style={{ gridTemplateColumns: isManager ? "repeat(auto-fit, minmax(8.25rem, 1fr))" : "repeat(2, minmax(0, 1fr))" }}
+            >
               <select
                 className="input"
                 value={draft.priority}
@@ -417,9 +420,9 @@ export default function TasksDrawer() {
               <div
                 className="mb-2 text-[12.5px] px-3 py-2 rounded-md"
                 style={{
-                  background: "#fef2f2",
-                  color: "#b91c1c",
-                  border: "1px solid #fecaca",
+                  background: "var(--erp-danger-soft)",
+                  color: "var(--erp-danger)",
+                  border: "1px solid color-mix(in srgb, var(--erp-danger) 35%, var(--erp-danger-soft))",
                 }}
               >
                 {createMsg}
@@ -494,7 +497,7 @@ function LedgerRow({
           left: 16,
           top: 18,
           fontSize: 11,
-          color: "#8a8472",
+          color: "var(--erp-text-muted)",
           letterSpacing: "0.04em",
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
         }}
@@ -514,7 +517,7 @@ function LedgerRow({
           width: 18,
           height: 18,
           borderRadius: "50%",
-          border: "1.5px solid " + (done ? stColor : "#ded9ca"),
+          border: "1.5px solid " + (done ? stColor : "var(--erp-border-strong)"),
           background: done ? stColor : "transparent",
           cursor: "pointer",
           padding: 0,
@@ -534,7 +537,7 @@ function LedgerRow({
         style={{
           fontSize: 13.5,
           fontWeight: 500,
-          color: done ? "#8a8472" : "#14110b",
+          color: done ? "var(--erp-text-muted)" : "var(--erp-text)",
           textDecoration: done ? "line-through" : "none",
           marginBottom: 4,
           lineHeight: 1.35,
@@ -547,7 +550,7 @@ function LedgerRow({
         <div
           style={{
             fontSize: 12,
-            color: "#56503f",
+            color: "var(--erp-text-soft)",
             lineHeight: 1.45,
             marginBottom: 6,
             whiteSpace: "pre-line",
@@ -560,7 +563,7 @@ function LedgerRow({
       {/* meta row */}
       <div
         className="flex items-center gap-2 flex-wrap"
-        style={{ fontSize: 11, color: "#8a8472" }}
+        style={{ fontSize: 11, color: "var(--erp-text-muted)" }}
       >
         <span
           style={{
@@ -579,7 +582,7 @@ function LedgerRow({
 
         {task.due_date && (
           <>
-            <span style={{ color: "#ded9ca" }}>·</span>
+            <span style={{ color: "var(--erp-border-strong)" }}>·</span>
             <span style={{ letterSpacing: "0.04em" }}>
               {new Date(task.due_date).toLocaleDateString()}
             </span>
@@ -588,15 +591,15 @@ function LedgerRow({
 
         {assigneeName && (
           <>
-            <span style={{ color: "#ded9ca" }}>·</span>
+            <span style={{ color: "var(--erp-border-strong)" }}>·</span>
             <span>{assigneeName}</span>
           </>
         )}
 
         {inProgress && (
           <>
-            <span style={{ color: "#ded9ca" }}>·</span>
-            <span style={{ color: "#b45309", fontWeight: 600 }}>
+            <span style={{ color: "var(--erp-border-strong)" }}>·</span>
+            <span style={{ color: "var(--erp-warning)", fontWeight: 600 }}>
               {t("tasks.status.in_progress")}
             </span>
           </>
@@ -611,7 +614,7 @@ function LedgerRow({
             type="button"
             onClick={() => setStatus(task, "in_progress")}
             className="text-[11px] hover:underline"
-            style={{ color: "#1e5fb3", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+            style={{ color: "var(--erp-blue)", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
           >
             {t("tasks.start")}
           </button>
@@ -621,7 +624,7 @@ function LedgerRow({
             type="button"
             onClick={() => del(task)}
             className="text-[11px] hover:underline"
-            style={{ color: "#b91c1c", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+            style={{ color: "var(--erp-danger)", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
           >
             {t("tasks.delete")}
           </button>
@@ -642,15 +645,15 @@ function EmptyState({ t }: { t: (k: string) => string }) {
     >
       <div style={{ position: "relative", maxWidth: 280 }}>
         <svg width="68" height="68" viewBox="0 0 68 68" style={{ marginBottom: 18 }} aria-hidden>
-          <circle cx="34" cy="34" r="32" fill="none" stroke="#c2410c" strokeWidth="1" strokeDasharray="2 3" opacity="0.5" />
-          <circle cx="34" cy="34" r="22" fill="#f1efe8" stroke="#ded9ca" />
+          <circle cx="34" cy="34" r="32" fill="none" stroke="var(--erp-accent)" strokeWidth="1" strokeDasharray="2 3" opacity="0.5" />
+          <circle cx="34" cy="34" r="22" fill="var(--erp-surface-muted)" stroke="var(--erp-border-strong)" />
           <text
             x="34"
             y="41"
             textAnchor="middle"
             fontFamily="'Instrument Serif', serif"
             fontSize="22"
-            fill="#8a8472"
+            fill="var(--erp-text-muted)"
             fontStyle="italic"
           >
             ∅
@@ -663,12 +666,12 @@ function EmptyState({ t }: { t: (k: string) => string }) {
             fontSize: 22,
             lineHeight: 1.2,
             marginBottom: 8,
-            color: "#14110b",
+            color: "var(--erp-text)",
           }}
         >
           {t("tasks.emptyTitle")}
         </div>
-        <p style={{ fontSize: 13, color: "#56503f", margin: 0, lineHeight: 1.5 }}>
+        <p style={{ fontSize: 13, color: "var(--erp-text-soft)", margin: 0, lineHeight: 1.5 }}>
           {t("tasks.emptyHint")}
         </p>
       </div>

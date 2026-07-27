@@ -80,7 +80,9 @@ def test_me(client, auth_headers):
     assert r.status_code == 200
     body = r.json()
     assert body["email"] == "admin@example.com"
+    assert body["role"] == "Super Admin"
     assert "*" in body["permissions"]
+    assert "admin.super" in body["permissions"]
 
 
 def test_login_bad_password(client):
@@ -97,8 +99,8 @@ def test_forgot_password_sends_reset_link_for_known_user(client, auth_headers, m
         sent["reset_url"] = reset_url
         return True
 
-    monkeypatch.setattr("app.api.routes.auth.secrets.token_urlsafe", lambda _: "known-reset-token")
-    monkeypatch.setattr("app.api.routes.auth.send_password_reset_email", fake_send)
+    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "known-reset-token")
+    monkeypatch.setattr("app.services.password_reset.send_password_reset_email", fake_send)
 
     r = client.post("/api/auth/forgot-password", json={"email": "planning@example.com"})
     assert r.status_code == 200
@@ -124,12 +126,12 @@ def test_forgot_password_uses_neutral_response_for_unknown_email(client):
 
 
 def test_forgot_password_notifies_admin_without_reset_link_when_email_fails(client, auth_headers, monkeypatch):
-    monkeypatch.setattr("app.api.routes.auth.secrets.token_urlsafe", lambda _: "failed-email-token")
+    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "failed-email-token")
 
     def fail_send(*args, **kwargs):
         raise RuntimeError("smtp blocked")
 
-    monkeypatch.setattr("app.api.routes.auth.send_password_reset_email", fail_send)
+    monkeypatch.setattr("app.services.password_reset.send_password_reset_email", fail_send)
 
     r = client.post("/api/auth/forgot-password", json={"email": "planning@example.com"})
     assert r.status_code == 200
@@ -144,8 +146,8 @@ def test_forgot_password_notifies_admin_without_reset_link_when_email_fails(clie
 
 
 def test_reset_password_accepts_valid_token(client, monkeypatch):
-    monkeypatch.setattr("app.api.routes.auth.secrets.token_urlsafe", lambda _: "reset-login-token")
-    monkeypatch.setattr("app.api.routes.auth.send_password_reset_email", lambda *args, **kwargs: True)
+    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "reset-login-token")
+    monkeypatch.setattr("app.services.password_reset.send_password_reset_email", lambda *args, **kwargs: True)
 
     r = client.post("/api/auth/forgot-password", json={"email": "planning@example.com"})
     assert r.status_code == 200

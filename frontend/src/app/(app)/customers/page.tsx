@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -10,6 +10,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import PaginationControls from "@/components/PaginationControls";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { useDialogs } from "@/components/DialogProvider";
 
 type Customer = { id: number; name: string; phone: string | null; email: string | null; address: string | null; notes?: string | null };
 const EMPTY = { name: "", phone: "", email: "", address: "", notes: "" };
@@ -19,10 +20,21 @@ export default function CustomersPage() {
   const q = searchParams.get("q")?.trim() ?? "";
   const { me } = useMe();
   const { t } = useT();
+  const dialogs = useDialogs();
   const isAdmin = can(me, "*");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const customersUrl = `/api/customers?include_total=true&page=${page}&page_size=${pageSize}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
+  const customersParams = new URLSearchParams({
+    include_total: "true",
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  if (q) customersParams.set("q", q);
+  if (createdFrom) customersParams.set("created_from", createdFrom);
+  if (createdTo) customersParams.set("created_to", createdTo);
+  const customersUrl = `/api/customers?${customersParams.toString()}`;
   const { data: pageData, mutate } = useSWR<any>(customersUrl, fetcher);
   const data: Customer[] = pageData?.rows || [];
   const [form, setForm] = useState(EMPTY);
@@ -32,6 +44,10 @@ export default function CustomersPage() {
   const [edit, setEdit] = useState(EMPTY);
   const [editMsg, setEditMsg] = useState("");
   const [deleting, setDeleting] = useState<Customer | null>(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [createdFrom, createdTo, q]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -63,7 +79,7 @@ export default function CustomersPage() {
       setDeleting(null);
       mutate();
     } catch (e: any) {
-      alert(e.message);
+      await dialogs.notify(e.message);
     }
   }
 
@@ -78,6 +94,16 @@ export default function CustomersPage() {
         <button className="btn btn-primary">{t("btn.add")}</button>
         {err && <div className="md:col-span-5 text-sm text-red-600">{err}</div>}
       </form>
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:w-[480px]">
+        <label className="block">
+          <span className="label">{t("common.createdFrom")}</span>
+          <input className="input" type="date" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} />
+        </label>
+        <label className="block">
+          <span className="label">{t("common.createdTo")}</span>
+          <input className="input" type="date" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} />
+        </label>
+      </div>
       <div className="card overflow-x-auto">
         <table className="table">
           <thead>

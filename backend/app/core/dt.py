@@ -10,7 +10,7 @@ This module gives us one source of truth for normalising every datetime to
 tz-aware UTC before any comparison or serialisation.
 """
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Optional
 
 
@@ -26,3 +26,10 @@ def as_utc(dt: Optional[datetime]) -> Optional[datetime]:
 def utcnow() -> datetime:
     """Tz-aware current time in UTC."""
     return datetime.now(timezone.utc)
+
+
+def date_filter_bounds(date_from: Optional[date], date_to: Optional[date]) -> tuple[Optional[datetime], Optional[datetime]]:
+    """Return inclusive day bounds for date-only list filters."""
+    start = datetime.combine(date_from, time.min) if date_from else None
+    end = datetime.combine(date_to, time.max) if date_to else None
+    return start, end

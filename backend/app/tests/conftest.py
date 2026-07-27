@@ -53,7 +53,7 @@ app.dependency_overrides[get_db] = override_get_db
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
-    import app.models  # register all models
+    import app.models  # noqa: F401 - register all models
     Base.metadata.create_all(bind=test_engine)
     # Seed minimal data
     from app.db.seed import seed
@@ -65,6 +65,15 @@ def setup_db():
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def reset_shared_counter_store():
+    from app.core.shared_store import reset_shared_counter_store_for_tests
+
+    reset_shared_counter_store_for_tests()
+    yield
+    reset_shared_counter_store_for_tests()
 
 
 @pytest.fixture

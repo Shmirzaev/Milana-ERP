@@ -7,6 +7,8 @@ import { useState } from "react";
 import { useT } from "@/lib/i18n";
 import StagePipeline, { operationLabel, productionTypeLabel, statusLabel } from "@/components/StagePipeline";
 import { orderReference } from "@/lib/orderRef";
+import { formatComposition } from "@/lib/materialComposition";
+import { formatModelComposition } from "@/lib/modelComposition";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
 
@@ -36,7 +38,7 @@ export default function SalesOrderDetail() {
     return code && translated ? `${code} - ${translated}` : code || translated || item.model_id;
   }
 
-  async function confirm() {
+  async function confirmOrder() {
     await api.post(`/api/sales-orders/${id}/confirm`);
     mutate();
   }
@@ -74,7 +76,7 @@ export default function SalesOrderDetail() {
         subtitle={t("page.soDetail.subtitle", { type: productionTypeLabel(so.order_type, t), status: statusLabel(so.status, t) })}
         actions={
           <div className="flex gap-2">
-            {so.status === "draft" && <button className="btn btn-primary" onClick={confirm}>{t("btn.confirm")}</button>}
+            {so.status === "draft" && <button className="btn btn-primary" onClick={confirmOrder}>{t("btn.confirm")}</button>}
             {["confirmed", "in_production", "cutting", "sewing", "packaging", "storage", "ready", "reserved", "planning", "planning_approved", "production", "shipped", "delivered"].includes(String(so.status || "")) && (
               <button className="btn" onClick={generateInvoice}>{t("page.salesOrder.generateInvoice")}</button>
             )}
@@ -130,7 +132,12 @@ export default function SalesOrderDetail() {
             <tbody>
               {so.items?.map((i: any) => (
                 <tr key={i.id}>
-                  <td>{modelLabel(i)}</td>
+                  <td>
+                    <div>{modelLabel(i)}</div>
+                    {formatModelComposition(i.model) && (
+                      <div className="mt-1 max-w-[260px] text-xs text-[#56503f]">{formatModelComposition(i.model)}</div>
+                    )}
+                  </td>
                   <td>{i.color}</td>
                   <td>{i.size}</td>
                   <td>{i.quantity}</td>
@@ -182,6 +189,22 @@ export default function SalesOrderDetail() {
 
       <div className="card p-4">
         <h3 className="font-medium mb-2">{t("page.soDetail.materialReq")}</h3>
+        {mr?.some((row) => formatComposition(row.composition)) && (
+          <div className="mb-3 rounded-md border border-[#ecebe3] bg-[#fbfaf6] p-3 text-sm">
+            <div className="mb-1 font-medium text-[#14110b]">{t("field.composition")}</div>
+            <div className="space-y-1 text-xs text-[#56503f]">
+              {mr.map((row, index) => {
+                const composition = formatComposition(row.composition);
+                if (!composition) return null;
+                return (
+                  <div key={`${row.item_id}-${index}`}>
+                    <span className="font-mono text-[#14110b]">{row.sku}</span> {composition}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <table className="table">
           <thead><tr><th>{t("field.item")}</th><th>{t("field.required")}</th><th>{t("field.available")}</th><th>{t("field.shortage")}</th></tr></thead>
           <tbody>

@@ -8,6 +8,10 @@ import Modal from "@/components/Modal";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
 import { orderReference } from "@/lib/orderRef";
+import { formatBatchLabel } from "@/lib/batchSerial";
+import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
+import { FAST_LIVE_DATA_SWR_OPTIONS, LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
+import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
 type Flow = {
   id: number;
@@ -27,20 +31,63 @@ type WO = {
   production_no?: string | null;
   sales_order_no?: string | null;
   production_order_id: number;
+  production_batch_id?: number | null;
+  assignment_batch_id?: number | null;
+  batch_no?: string | null;
+  batch_name?: string | null;
+  batch_index?: number | null;
+  batch_planned_quantity?: number | null;
+  sewing_assignment_id?: number | null;
   operation: string;
   status: string;
   planned_input_qty: number;
   planned_output_qty: number;
   passed_qty: number;
+  received_bundle_count?: number;
+  received_bundle_qty?: number;
+  assigned_qty?: number;
+  assignable_qty?: number;
+  model_no?: string | null;
+  model_image_url?: string | null;
+  material_image_url?: string | null;
   deadline: string | null;
   sewing_flow_id: number | null;
 };
 
-type Util = {
-  committed_today: number;
-  capacity_per_day: number;
-  utilization_pct: number;
-};
+function effectiveSewingQty(workOrder: WO | null | undefined) {
+  if (!workOrder) return 0;
+  return Math.max(
+    0,
+    Number(workOrder.batch_planned_quantity || 0),
+    Number(workOrder.planned_input_qty || 0),
+    Number(workOrder.planned_output_qty || 0),
+    Number(workOrder.received_bundle_qty || 0),
+  );
+}
+
+function assignmentBatchId(workOrder: WO | null | undefined) {
+  if (!workOrder) return null;
+  const raw = workOrder.assignment_batch_id ?? workOrder.production_batch_id ?? null;
+  const id = Number(raw || 0);
+  return id > 0 ? id : null;
+}
+
+function sewingBatchLabel(workOrder: WO | null | undefined) {
+  const batchId = assignmentBatchId(workOrder);
+  if (!workOrder || !batchId) return "";
+  return formatBatchLabel(
+    {
+      batch_no: workOrder.batch_no,
+      name: workOrder.batch_name,
+      batch_index: workOrder.batch_index,
+    },
+    workOrder.production_order_id,
+  );
+}
+
+function workOrderRowKey(workOrder: WO) {
+  return `${workOrder.id}:${workOrder.sewing_assignment_id || "wo"}:${assignmentBatchId(workOrder) || "order"}`;
+}
 
 function formatDeadline(value: string | null) {
   if (!value) return "-";
@@ -52,27 +99,81 @@ function WorkOrderMiniRow({
   showActions = false,
   isBusy = false,
   onAssign,
+  showImage = false,
+  showReceivedQty = false,
 }: {
   workOrder: WO;
   showActions?: boolean;
   isBusy?: boolean;
   onAssign?: (wo: WO) => void;
+  showImage?: boolean;
+  showReceivedQty?: boolean;
 }) {
   const { t } = useT();
+  const batchLabel = sewingBatchLabel(workOrder);
+  const qtyDone = showReceivedQty ? Number(workOrder.received_bundle_qty || 0) : Number(workOrder.passed_qty || 0);
+  const qtyPlanned = showReceivedQty ? effectiveSewingQty(workOrder) : Number(workOrder.planned_output_qty || workOrder.planned_input_qty || 0);
+  if (showImage) {
+    return (
+      <div className="grid grid-cols-[48px_minmax(74px,1fr)_minmax(68px,0.7fr)_minmax(70px,0.7fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
+        <FabricThumb workOrder={workOrder} />
+        <div className="min-w-0">
+          <Link
+            href={`/production-orders/${workOrder.production_order_id}`}
+            className="block min-w-0 truncate font-medium text-brand-600 hover:underline"
+            title={orderReference(workOrder, `#${workOrder.production_order_id}`)}
+          >
+            {orderReference(workOrder, `#${workOrder.production_order_id}`)}
+          </Link>
+          {workOrder.model_no && (
+            <div className="mt-1 truncate text-[11px] font-medium text-[#494538]">
+              {t("field.modelNo")}: {workOrder.model_no}
+            </div>
+          )}
+          {batchLabel && <div className="mt-1 truncate text-[11px] text-[#6d6655]">{batchLabel}</div>}
+          <span className="badge mt-1 max-w-full justify-center truncate px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
+        </div>
+        <div className="text-right tabular-nums text-[#14110b]">
+          {qtyDone} / {qtyPlanned}
+        </div>
+        <div className="text-right tabular-nums text-[#14110b]">
+          {formatDeadline(workOrder.deadline)}
+        </div>
+        <div className="flex flex-col gap-1">
+          {showActions && (
+            <button
+              type="button"
+              className="btn h-7 w-full px-2 text-[11px]"
+              onClick={() => onAssign?.(workOrder)}
+              disabled={isBusy}
+            >
+              {isBusy ? t("common.loading") : t("btn.assign")}
+            </button>
+          )}
+          <Link href={`/work-orders/${workOrder.id}/sewing`} className="btn h-7 w-full px-2 text-[11px]">
+            {t("btn.open")}
+          </Link>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="grid grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
-      <Link
-        href={`/production-orders/${workOrder.production_order_id}`}
-        className="min-w-0 truncate font-medium text-brand-600 hover:underline"
-        title={orderReference(workOrder, `#${workOrder.production_order_id}`)}
-      >
-        {orderReference(workOrder, `#${workOrder.production_order_id}`)}
-      </Link>
+      <div className="min-w-0">
+        <Link
+          href={`/production-orders/${workOrder.production_order_id}`}
+          className="block min-w-0 truncate font-medium text-brand-600 hover:underline"
+          title={orderReference(workOrder, `#${workOrder.production_order_id}`)}
+        >
+          {orderReference(workOrder, `#${workOrder.production_order_id}`)}
+        </Link>
+        {batchLabel && <div className="mt-1 min-w-0 truncate text-[11px] text-[#6d6655]">{batchLabel}</div>}
+      </div>
       <div className="min-w-0">
         <span className="badge max-w-full justify-center truncate px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
       </div>
       <div className="text-right tabular-nums text-[#14110b]">
-        {workOrder.passed_qty} / {workOrder.planned_output_qty}
+        {qtyDone} / {qtyPlanned}
       </div>
       <div className="text-right tabular-nums text-[#14110b]">
         {formatDeadline(workOrder.deadline)}
@@ -96,8 +197,38 @@ function WorkOrderMiniRow({
   );
 }
 
-function WorkOrderMiniHeader() {
+function FabricThumb({ workOrder }: { workOrder: WO }) {
   const { t } = useT();
+  const imageUrl = workOrder.material_image_url || "";
+  const src = storageThumbnailUrl(imageUrl, 160);
+  const label = orderReference(workOrder, `#${workOrder.production_order_id}`);
+  if (!src) {
+    return (
+      <div className="flex h-12 w-12 items-center justify-center rounded-md border border-dashed border-[#d8d1bf] bg-[#faf9f5] text-center text-[9px] leading-3 text-slate-400">
+        {t("page.workOrder.noImage")}
+      </div>
+    );
+  }
+  return (
+    <a href={imagePreviewHref(imageUrl, label)} target="_blank" rel="noreferrer" className="h-12 w-12 overflow-hidden rounded-md border border-[#ecebe3] bg-[#f8f7f3]">
+      <img src={src} alt={label} className="h-full w-full object-contain" loading="lazy" />
+    </a>
+  );
+}
+
+function WorkOrderMiniHeader({ showImage = false, showReceivedQty = false }: { showImage?: boolean; showReceivedQty?: boolean }) {
+  const { t } = useT();
+  if (showImage) {
+    return (
+      <div className="grid grid-cols-[48px_minmax(74px,1fr)_minmax(68px,0.7fr)_minmax(70px,0.7fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
+        <div>{t("field.picture")}</div>
+        <div className="min-w-0">{t("field.orderNo")}</div>
+        <div className="text-right">{showReceivedQty ? t("field.received") : t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</div>
+        <div className="text-right">{t("field.deadline2")}</div>
+        <div className="text-right">{t("field.actions")}</div>
+      </div>
+    );
+  }
   return (
     <div className="grid grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
       <div className="min-w-0">{t("field.orderNo")}</div>
@@ -111,14 +242,19 @@ function WorkOrderMiniHeader() {
 
 export default function SewingFlowsPage() {
   const { t } = useT();
-  const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher, { refreshInterval: 10_000 });
+  const { data: flows } = useSWR<Flow[]>(
+    "/api/sewing-flows",
+    fetcher,
+    FAST_LIVE_DATA_SWR_OPTIONS,
+  );
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const visibleFlows = flows || [];
 
   return (
     <div>
       <PageHeader title={t("page.sewingFlows.title")} subtitle={t("page.sewingFlows.subtitle")} />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {flows?.map((f) => {
+        {visibleFlows.map((f) => {
           const isExpanded = !!expanded[f.id];
           const pctDone = f.planned_units > 0 ? Math.min(100, Math.round((100 * f.completed_units) / f.planned_units)) : 0;
           return (
@@ -145,15 +281,10 @@ export default function SewingFlowsPage() {
                   <dt className="text-slate-500">{t("page.sewingFlows.completedUnits")}</dt>
                   <dd>{f.completed_units}</dd>
                 </div>
-                <div className="flex justify-between">
-                  <dt className="text-slate-500">{t("page.sewingFlows.capacityPerDay")}</dt>
-                  <dd>{f.capacity_per_day}</dd>
-                </div>
               </dl>
               <div className="mb-2 h-2 w-full overflow-hidden rounded bg-slate-100" title={`${pctDone}% done`}>
                 <div className="h-full bg-brand-500" style={{ width: `${pctDone}%` }} />
               </div>
-              <FlowUtilization flowId={f.id} />
               <button
                 type="button"
                 className="btn w-full justify-center"
@@ -172,63 +303,66 @@ export default function SewingFlowsPage() {
   );
 }
 
-function FlowUtilization({ flowId }: { flowId: number }) {
-  const { t } = useT();
-  const { data } = useSWR<Util>(
-    `/api/sewing-flows/${flowId}/utilization`,
-    fetcher,
-    { refreshInterval: 10_000 },
-  );
-  if (!data) return null;
-  const pct = Math.min(100, data.utilization_pct);
-  const color = pct < 70 ? "bg-green-500" : pct < 100 ? "bg-amber-500" : "bg-red-600";
-  return (
-    <div className="mb-2">
-      <div className="mb-0.5 flex justify-between text-[10px] text-slate-500">
-        <span>{t("page.sewingFlows.utilizationToday")}</span>
-        <span>{data.committed_today}/{data.capacity_per_day} ({data.utilization_pct}%)</span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded bg-slate-100">
-        <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
 function FlowDetail({ flowId }: { flowId: number }) {
   const { t } = useT();
   const { mutate: mutateGlobal } = useSWRConfig();
-  const { data: wos, mutate: mutateAssigned } = useSWR<WO[]>(`/api/sewing-flows/${flowId}/work-orders?only_active=true`, fetcher);
-  const { data: availableWos, mutate: mutateAvailableWos } = useSWR<WO[]>(
-    "/api/work-orders?operation=sewing&only_active=true",
+  const { data: wos, mutate: mutateAssigned } = useSWR<WO[]>(
+    `/api/sewing-flows/${flowId}/work-orders?only_active=true`,
     fetcher,
+    LIVE_DATA_SWR_OPTIONS,
   );
-  const { data: util } = useSWR<Util>(`/api/sewing-flows/${flowId}/utilization`, fetcher, { refreshInterval: 10_000 });
-  const [claimingId, setClaimingId] = useState<number | null>(null);
-  const [loadingPickId, setLoadingPickId] = useState<number | null>(null);
+  const { data: availableWos, mutate: mutateAvailableWos } = useSWR<WO[]>(
+    "/api/work-orders?operation=sewing&only_active=true&only_received_sewing=true",
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
+  const [claimingKey, setClaimingKey] = useState<string | null>(null);
+  const [loadingPickKey, setLoadingPickKey] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
-  const [pick, setPick] = useState<{ wo: WO | null; qty: number; maxQty: number }>({ wo: null, qty: 0, maxQty: 0 });
-  const showReadyPicker = !!wos && wos.length === 0;
-  const freeCapacity = Math.max(0, (util?.capacity_per_day || 0) - (util?.committed_today || 0));
+  const [pick, setPick] = useState<{
+    wo: WO | null;
+    qty: NumberInputValue;
+    maxQty: number;
+    productionBatchId: number | null;
+    batchLabel: string;
+  }>({ wo: null, qty: "", maxQty: 0, productionBatchId: null, batchLabel: "" });
 
   async function openPick(wo: WO) {
-    setLoadingPickId(wo.id);
+    const rowKey = workOrderRowKey(wo);
+    const batchId = assignmentBatchId(wo);
+    setLoadingPickKey(rowKey);
     setMsg("");
     try {
-      const assignments = await api.get<any[]>(`/api/work-orders/${wo.id}/assignments`);
-      const assignedTotal = (assignments || []).reduce((sum, a) => sum + Number(a?.quantity || 0), 0);
-      const planned = Number(wo.planned_input_qty || wo.planned_output_qty || 0);
-      const remainingAssignable = Math.max(0, planned - assignedTotal);
+      let remainingAssignable = Math.max(0, Number(wo.assignable_qty || 0));
+      if (remainingAssignable <= 0) {
+        const assignments = await api.get<any[]>(`/api/work-orders/${wo.id}/assignments`);
+        const assignedTotal = (assignments || []).reduce((sum, a) => {
+          const assignmentStatus = String(a?.status || "");
+          if (!["planned", "in_progress", "completed"].includes(assignmentStatus)) return sum;
+          const assignmentBatchId = Number(a?.production_batch_id || 0) || null;
+          if ((assignmentBatchId || null) !== (batchId || null)) return sum;
+          return sum + Number(a?.quantity || 0);
+        }, 0);
+        const planned = Number(wo.batch_planned_quantity || wo.planned_input_qty || wo.planned_output_qty || 0);
+        const receivedQty = Math.max(0, Number(wo.received_bundle_qty || 0));
+        const availableFromReceived = receivedQty > 0 ? receivedQty : planned;
+        remainingAssignable = Math.max(0, availableFromReceived - assignedTotal);
+      }
       if (remainingAssignable <= 0) {
         setMsg(`${t("field.qty")} <= 0`);
         return;
       }
-      const suggested = freeCapacity > 0 ? Math.min(remainingAssignable, freeCapacity) : remainingAssignable;
-      setPick({ wo, qty: suggested > 0 ? suggested : 1, maxQty: remainingAssignable });
+      setPick({
+        wo,
+        qty: remainingAssignable > 0 ? remainingAssignable : 1,
+        maxQty: remainingAssignable,
+        productionBatchId: batchId,
+        batchLabel: sewingBatchLabel(wo),
+      });
     } catch (e: any) {
       setMsg(e.message);
     } finally {
-      setLoadingPickId(null);
+      setLoadingPickKey(null);
     }
   }
 
@@ -236,11 +370,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
     if (!pick.wo) return;
     const wid = pick.wo.id;
     const remainingWo = Math.max(0, Number(pick.maxQty || 0));
-    const qty = Number(pick.qty || 0);
-    if (util && freeCapacity <= 0) {
-      setMsg(t("msg.lineFull"));
-      return;
-    }
+    const qty = numberOrZero(pick.qty);
     if (qty <= 0) {
       setMsg(t("field.qty") + " > 0");
       return;
@@ -249,29 +379,25 @@ function FlowDetail({ flowId }: { flowId: number }) {
       setMsg(`${t("field.qty")} <= ${remainingWo}`);
       return;
     }
-    if (freeCapacity > 0 && qty > freeCapacity) {
-      setMsg(`${t("field.qty")} <= ${freeCapacity}`);
-      return;
-    }
-
     setMsg("");
-    setClaimingId(wid);
+    setClaimingKey(workOrderRowKey(pick.wo));
     try {
       const now = new Date();
       const nextDay = new Date(now.getTime() + 24 * 60 * 60 * 1000);
       await api.post(`/api/work-orders/${wid}/assignments`, {
         work_order_id: wid,
+        production_batch_id: pick.productionBatchId,
         sewing_flow_id: flowId,
         quantity: qty,
         planned_start: now.toISOString(),
         planned_end: nextDay.toISOString(),
       });
-      setPick({ wo: null, qty: 0, maxQty: 0 });
+      setPick({ wo: null, qty: "", maxQty: 0, productionBatchId: null, batchLabel: "" });
       await Promise.all([mutateAssigned(), mutateAvailableWos(), mutateGlobal("/api/sewing-flows")]);
     } catch (e: any) {
       setMsg(e.message);
     } finally {
-      setClaimingId(null);
+      setClaimingKey(null);
     }
   }
 
@@ -281,51 +407,56 @@ function FlowDetail({ flowId }: { flowId: number }) {
     <div className="mt-3 space-y-3">
       {wos.length > 0 ? (
         <div className="overflow-hidden rounded-md border border-[#e3dfd3]">
-          <WorkOrderMiniHeader />
+          <WorkOrderMiniHeader showImage />
           {wos.map((w) => (
-            <WorkOrderMiniRow key={w.id} workOrder={w} />
+            <WorkOrderMiniRow key={workOrderRowKey(w)} workOrder={w} showImage />
           ))}
         </div>
       ) : (
         <div className="text-xs text-slate-500">{t("page.sewingFlows.empty")}</div>
       )}
 
-      {showReadyPicker && (
-        <div className="rounded-md border border-[#e3dfd3] p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("page.sewingFlows.assignableWork")}</div>
-          {availableWos.length === 0 ? (
-            <div className="text-xs text-slate-400">{t("page.sewingFlows.noUnassignedWork")}</div>
-          ) : (
-            <div className="overflow-hidden rounded-md border border-[#e3dfd3]">
-              <WorkOrderMiniHeader />
-              {availableWos.map((w) => (
+      <div className="rounded-md border border-[#e3dfd3] p-3">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("page.sewingFlows.assignableWork")}</div>
+        {availableWos.length === 0 ? (
+          <div className="text-xs text-slate-400">{t("page.sewingFlows.noUnassignedWork")}</div>
+        ) : (
+          <div className="overflow-hidden rounded-md border border-[#e3dfd3]">
+            <WorkOrderMiniHeader showImage showReceivedQty />
+            {availableWos.map((w) => {
+              const rowKey = workOrderRowKey(w);
+              return (
                 <WorkOrderMiniRow
-                  key={w.id}
+                  key={rowKey}
                   workOrder={w}
                   showActions
-                  isBusy={claimingId === w.id || loadingPickId === w.id}
+                  showImage
+                  showReceivedQty
+                  isBusy={claimingKey === rowKey || loadingPickKey === rowKey}
                   onAssign={openPick}
                 />
-              ))}
-            </div>
-          )}
-          {msg && <div className="mt-2 text-xs text-red-600">{msg}</div>}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+        {msg && <div className="mt-2 text-xs text-red-600">{msg}</div>}
+      </div>
 
-      <Modal open={!!pick.wo} onClose={() => setPick({ wo: null, qty: 0, maxQty: 0 })} title={t("btn.assign")}>
+      <Modal open={!!pick.wo} onClose={() => setPick({ wo: null, qty: "", maxQty: 0, productionBatchId: null, batchLabel: "" })} title={t("btn.assign")}>
         <div className="space-y-3">
           <div className="text-xs text-slate-500">
             {pick.wo ? orderReference(pick.wo, `#${pick.wo.production_order_id}`) : ""}
           </div>
+          {pick.batchLabel && (
+            <div className="text-xs text-slate-500">
+              {t("field.batch")}: {pick.batchLabel}
+            </div>
+          )}
           <div className="text-xs text-slate-500">
-            {t("field.passed")}/{t("page.sewingFlows.plannedUnits")}: {pick.wo ? `${pick.wo.passed_qty}/${pick.wo.planned_output_qty}` : "-"}
+            {t("field.passed")}/{t("page.sewingFlows.plannedUnits")}: {pick.wo ? `${pick.wo.passed_qty}/${effectiveSewingQty(pick.wo)}` : "-"}
           </div>
           <div className="text-xs text-slate-500">
             {t("field.available")}: {pick.maxQty}
-          </div>
-          <div className="text-xs text-slate-500">
-            {t("page.sewingFlows.capacityPerDay")}: {util?.capacity_per_day || 0}, {t("page.sewingFlows.utilizationToday")}: {util?.committed_today || 0}, {t("field.available")}: {freeCapacity}
           </div>
           <div>
             <label className="label">{t("field.qty")}</label>
@@ -334,14 +465,14 @@ function FlowDetail({ flowId }: { flowId: number }) {
               type="number"
               min={1}
               value={pick.qty}
-              onChange={(e) => setPick((prev) => ({ ...prev, qty: Number(e.target.value) }))}
+              onChange={(e) => setPick((prev) => ({ ...prev, qty: parseNumberInput(e.target.value) }))}
             />
           </div>
           {msg && <div className="text-xs text-red-600">{msg}</div>}
           <div className="flex justify-end gap-2 pt-1">
-            <button type="button" className="btn" onClick={() => setPick({ wo: null, qty: 0, maxQty: 0 })}>{t("btn.cancel")}</button>
-            <button type="button" className="btn btn-primary" onClick={takeWork} disabled={!!claimingId}>
-              {claimingId ? t("common.loading") : t("btn.assign")}
+            <button type="button" className="btn" onClick={() => setPick({ wo: null, qty: "", maxQty: 0, productionBatchId: null, batchLabel: "" })}>{t("btn.cancel")}</button>
+            <button type="button" className="btn btn-primary" onClick={takeWork} disabled={!!claimingKey}>
+              {claimingKey ? t("common.loading") : t("btn.assign")}
             </button>
           </div>
         </div>
