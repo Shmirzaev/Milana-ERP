@@ -1,6 +1,7 @@
 "use client";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { dict } from "./i18n/dict";
+import { supplemental } from "./i18n/supplemental";
 import type { Lang } from "./i18n/types";
 
 export type { Lang } from "./i18n/types";
@@ -47,7 +48,11 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
     setLang,
     ready,
     t(key, vars) {
-      let v = dict[lang]?.[key] ?? dict.en[key] ?? key;
+      let v = supplemental[lang]?.[key]
+        ?? dict[lang]?.[key]
+        ?? supplemental.en[key]
+        ?? dict.en[key]
+        ?? key;
       if (vars) {
         for (const k of Object.keys(vars)) {
           v = v.replace(new RegExp(`\\{${k}\\}`, "g"), String(vars[k]));

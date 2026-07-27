@@ -1,3 +1,4 @@
+import re
 from uuid import uuid4
 
 
@@ -6,7 +7,9 @@ def _find_model_id(client, headers) -> int:
     assert r.status_code == 200, r.text
     rows = r.json()
     assert rows, "Seed data should include at least one model"
-    return int(rows[0]["id"])
+    approved = next((row for row in rows if row.get("status") == "approved"), None)
+    assert approved, "Seed data should include at least one approved model"
+    return int(approved["id"])
 
 
 def _create_customer(client, headers) -> int:
@@ -187,6 +190,119 @@ def test_sales_order_history_endpoint_returns_order_ledger(client, auth_headers)
     assert payload["payments"][0]["id"] == payment["id"]
     assert any(event["type"] == "order_created" for event in payload["timeline"])
     assert any(event["type"] == "payment" for event in payload["timeline"])
+
+
+def test_order_history_includes_planning_created_stock_orders(client, auth_headers):
+    model_id = _find_model_id(client, auth_headers)
+    created = client.post(
+        "/api/planning/create-branded-production",
+        headers=auth_headers,
+        json={
+            "production_type": "branded_stock",
+            "model_id": model_id,
+            "planned_quantity": 12,
+            "estimated_material_code": "FAB-STOCK",
+            "estimated_material_amount": 4.5,
+            "estimated_material_unit": "kg",
+            "printing_instructions": "Front logo",
+            "items": [
+                {
+                    "model_id": model_id,
+                    "color": "Black",
+                    "size": "M",
+                    "planned_quantity": 12,
+                    "printing_required": True,
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    production = created.json()
+
+    history = client.get(
+        f"/api/sales-orders/history?include_total=true&q={production['production_no']}",
+        headers=auth_headers,
+    )
+    assert history.status_code == 200, history.text
+    row = next(item for item in history.json()["rows"] if item["history_key"] == f"production:{production['id']}")
+    assert row["record_type"] == "production_order"
+    assert row["order_type"] == "branded_stock"
+    assert row["summary"]["ordered_qty"] == 12
+
+    detail = client.get(f"/api/sales-orders/history/production/{production['id']}", headers=auth_headers)
+    assert detail.status_code == 200, detail.text
+    payload = detail.json()
+    assert payload["production_orders"][0]["estimated_material_code"] == "FAB-STOCK"
+    assert payload["production_orders"][0]["printing_instructions"] == "Front logo"
+    assert payload["items"][0]["color"] == "Black"
+    assert payload["production_orders"][0]["work_orders"]
+    assert "cutting" in payload["step_records"]
+    assert "material_reservations" in payload["step_records"]
+
+
+def test_branded_planning_order_groups_multiple_productions_and_is_searchable(client, auth_headers):
+    model_id = _find_model_id(client, auth_headers)
+    created_order = client.post(
+        "/api/planning/branded-orders",
+        headers=auth_headers,
+        json={"ordered_for_type": "besttex"},
+    )
+    assert created_order.status_code == 201, created_order.text
+    planning_order = created_order.json()
+    assert re.fullmatch(r"\d{4,}", planning_order["order_no"])
+    assert planning_order["ordered_for_name"] == "Besttex"
+
+    next_order = client.post(
+        "/api/planning/branded-orders",
+        headers=auth_headers,
+        json={},
+    )
+    assert next_order.status_code == 201, next_order.text
+    assert int(next_order.json()["order_no"]) == int(planning_order["order_no"]) + 1
+    assert next_order.json()["ordered_for_name"] == "Milana"
+
+    production_ids = []
+    for color in ("Black", "White"):
+        created = client.post(
+            "/api/planning/create-branded-production",
+            headers=auth_headers,
+            json={
+                "production_type": "branded_stock",
+                "planning_order_id": planning_order["id"],
+                "model_id": model_id,
+                "planned_quantity": 10,
+                "items": [
+                    {
+                        "model_id": model_id,
+                        "color": color,
+                        "size": "M",
+                        "planned_quantity": 10,
+                    }
+                ],
+            },
+        )
+        assert created.status_code == 201, created.text
+        production_ids.append(int(created.json()["id"]))
+
+    grouped = client.get("/api/planning/branded-orders", headers=auth_headers)
+    assert grouped.status_code == 200, grouped.text
+    group = next(row for row in grouped.json() if int(row["id"]) == int(planning_order["id"]))
+    assert group["production_count"] == 2
+    assert group["total_quantity"] == 20
+
+    history = client.get(
+        f"/api/sales-orders/history?include_total=true&q={planning_order['order_no']}",
+        headers=auth_headers,
+    )
+    assert history.status_code == 200, history.text
+    assert all(row["group_order_no"] == planning_order["order_no"] for row in history.json()["rows"])
+    rows = [
+        row for row in history.json()["rows"]
+        if row["record_type"] == "production_order" and int(row["id"]) in production_ids
+    ]
+    assert len(rows) == 2
+    assert all(row["group_order_no"] == planning_order["order_no"] for row in rows)
+    assert all(row["ordered_for"] == "Besttex" for row in rows)
 
 
 def test_customer_profile_payment_persists_and_updates_order_status(client, auth_headers):

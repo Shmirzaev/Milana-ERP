@@ -1,4 +1,3 @@
-import time as time_module
 import ipaddress
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
@@ -12,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, user_permissions
 from app.core.dt import as_utc, utcnow
+from app.core.shared_store import get_shared_counter_store
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -35,9 +35,6 @@ from app.services.password_reset import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _DUMMY_PASSWORD_HASH = hash_password("dummy-login-password-0")
-_LOGIN_FAILURES: dict[str, list[float]] = {}
-_LOGIN_LOCKS: dict[str, float] = {}
-_RESET_REQUESTS: dict[str, list[float]] = {}
 
 
 class ProfileUpdateIn(BaseModel):
@@ -85,57 +82,45 @@ def _login_key(request: Request, email: str) -> str:
 
 
 def _enforce_login_rate_limit(key: str) -> None:
-    now = time_module.monotonic()
-    locked_until = _LOGIN_LOCKS.get(key)
-    if locked_until and locked_until > now:
+    store = get_shared_counter_store()
+    locked_ttl = store.ttl(f"auth:login-lock:{key}")
+    if locked_ttl:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Too many failed login attempts. Try again later.",
+            headers={"Retry-After": str(locked_ttl)},
         )
-    if locked_until:
-        _LOGIN_LOCKS.pop(key, None)
-
-    window_started = now - settings.AUTH_WINDOW_SECONDS
-    failures = [ts for ts in _LOGIN_FAILURES.get(key, []) if ts >= window_started]
-    if failures:
-        _LOGIN_FAILURES[key] = failures
-    else:
-        _LOGIN_FAILURES.pop(key, None)
 
 
 def _record_login_failure(key: str) -> None:
     if settings.AUTH_MAX_FAILED_ATTEMPTS <= 0:
         return
-    now = time_module.monotonic()
-    window_started = now - settings.AUTH_WINDOW_SECONDS
-    failures = [ts for ts in _LOGIN_FAILURES.get(key, []) if ts >= window_started]
-    failures.append(now)
-    if len(failures) >= settings.AUTH_MAX_FAILED_ATTEMPTS:
-        _LOGIN_LOCKS[key] = now + settings.AUTH_LOCKOUT_SECONDS
-        _LOGIN_FAILURES.pop(key, None)
-    else:
-        _LOGIN_FAILURES[key] = failures
+    store = get_shared_counter_store()
+    failure_key = f"auth:login-fail:{key}"
+    attempts = store.increment(failure_key, settings.AUTH_WINDOW_SECONDS)
+    if attempts >= settings.AUTH_MAX_FAILED_ATTEMPTS:
+        store.set(f"auth:login-lock:{key}", "1", settings.AUTH_LOCKOUT_SECONDS)
+        store.delete(failure_key)
 
 
 def _clear_login_failures(key: str) -> None:
-    _LOGIN_FAILURES.pop(key, None)
-    _LOGIN_LOCKS.pop(key, None)
+    store = get_shared_counter_store()
+    store.delete(f"auth:login-fail:{key}", f"auth:login-lock:{key}")
 
 
 def _enforce_reset_rate_limit(request: Request, email: str) -> None:
-    now = time_module.monotonic()
+    store = get_shared_counter_store()
     client = _client_ip(request)
     keys = [f"ip:{client}", f"email:{normalize_email(email)}"]
-    window_started = now - 60 * 60
     for key in keys:
-        requests = [ts for ts in _RESET_REQUESTS.get(key, []) if ts >= window_started]
-        if len(requests) >= 5:
+        requests = store.increment(f"auth:reset:{key}", 60 * 60)
+        if requests > 5:
+            retry_after = store.ttl(f"auth:reset:{key}") or 60 * 60
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
                 "Too many password reset requests. Try again later.",
+                headers={"Retry-After": str(retry_after)},
             )
-        requests.append(now)
-        _RESET_REQUESTS[key] = requests
 
 
 def _authenticate(request: Request, db: Session, email: str, password: str) -> User:

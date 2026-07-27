@@ -20,13 +20,16 @@ jobs:
         run: python -m compileall -q backend/app
       - name: Run backend tests
         working-directory: backend
-        run: python -m pytest -q
+        run: python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=50 -q
       - name: Run Bandit
         working-directory: backend
         run: python -m bandit -r app -x app/tests -q
       - name: Audit Python dependencies
         working-directory: backend
-        run: python -m pip_audit -r requirements.txt
+        # python-jose installs ecdsa transitively. PYSEC-2026-1325 has no fixed
+        # release, and production/public startup rejects every JWT algorithm
+        # except HS256, so the vulnerable elliptic-curve path is unreachable.
+        run: python -m pip_audit -r requirements.txt --ignore-vuln PYSEC-2026-1325
       - name: Ruff critical lint
         working-directory: backend
         run: python -m ruff check app
@@ -49,9 +52,17 @@ jobs:
       - name: Lint
         working-directory: frontend
         run: npm run lint
+      - name: Check translations
+        working-directory: frontend
+        run: npm run check:i18n
       - name: Typecheck
         working-directory: frontend
-        run: npm exec tsc -- --noEmit
+        run: npm run typecheck
+      - name: Focused strict typecheck
+        working-directory: frontend
+        run: npm run typecheck:strict
       - name: Build
         working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: https://api.example.invalid
         run: npm run build

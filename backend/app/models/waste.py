@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric
+from sqlalchemy import String, Boolean, ForeignKey, DateTime, Text, Numeric
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin

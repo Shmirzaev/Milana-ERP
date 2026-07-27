@@ -1,34 +1,33 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
 import { api, fetcher } from "@/lib/api";
+import { can, useMe } from "@/lib/auth";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
-
-const SHIPMENT_ORDER_STATUSES = new Set([
-  "confirmed",
-  "planning",
-  "planning_approved",
-  "in_production",
-  "production",
-  "cutting",
-  "sewing",
-  "packaging",
-  "storage",
-  "ready_to_ship",
-  "ready",
-  "reserved",
-]);
+import { useDialogs } from "@/components/DialogProvider";
 
 export default function ShipmentsPage() {
   const { t } = useT();
+  const dialogs = useDialogs();
+  const { me } = useMe();
+  const canTraceability = can(me, "traceability.view");
   const searchParams = useSearchParams();
-  const { data, mutate } = useSWR<any[]>("/api/shipments", fetcher);
-  const { data: orders } = useSWR<any[]>("/api/shipments/eligible-orders", fetcher);
-  const { data: salesOrders } = useSWR<any[]>("/api/sales-orders?page_size=500", fetcher);
+  const { data, mutate } = useSWR<any[]>(
+    "/api/shipments",
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
+  const { data: orders, mutate: mutateOrders } = useSWR<any[]>(
+    "/api/shipments/eligible-orders",
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
 
   const [salesOrderId, setSoId] = useState(0);
   const [activeShip, setActive] = useState(0);
@@ -45,20 +44,16 @@ export default function ShipmentsPage() {
   }, [searchParams]);
 
   const shipmentCandidateOrders = useMemo(
-    () => {
-      const byId = new Map<number, any>();
-      for (const order of salesOrders || []) {
-        if (SHIPMENT_ORDER_STATUSES.has(String(order.status || ""))) {
-          byId.set(Number(order.id), order);
-        }
-      }
-      for (const order of orders || []) {
-        byId.set(Number(order.id), { ...byId.get(Number(order.id)), ...order });
-      }
-      return Array.from(byId.values()).sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
-    },
-    [orders, salesOrders],
+    () => (orders || []).slice().sort((a, b) => Number(b.id || 0) - Number(a.id || 0)),
+    [orders],
   );
+
+  useEffect(() => {
+    if (!orders || !salesOrderId) return;
+    const stillEligible = shipmentCandidateOrders.some((order) => Number(order.id) === Number(salesOrderId));
+    if (!stillEligible) setSoId(0);
+  }, [orders, salesOrderId, shipmentCandidateOrders]);
+
   const activeShipment = useMemo(
     () => (data || []).find((s) => Number(s.id) === Number(activeShip)) || null,
     [data, activeShip],
@@ -75,6 +70,7 @@ export default function ShipmentsPage() {
   const { data: scanStatus, mutate: mutateScanStatus } = useSWR<any>(
     activeShip > 0 ? `/api/shipments/${activeShip}/scan-status` : null,
     fetcher,
+    LIVE_DATA_SWR_OPTIONS,
   );
   const shipBlockedByScan = Number(scanStatus?.remaining_count || 0) > 0;
 
@@ -90,10 +86,12 @@ export default function ShipmentsPage() {
     try {
       const sh = await api.post("/api/shipments", { sales_order_id: salesOrderId || null });
       setActive(sh.id);
+      setSoId(0);
       setMsg(`Shipment ${sh.shipment_no} created with ${sh.packages_count || 0} package(s).`);
       setScanResult(null);
       setScanCode("");
       await mutate();
+      await mutateOrders();
       await mutateScanStatus();
     } catch (error) {
       setErr(messageFromError(error));
@@ -136,7 +134,7 @@ export default function ShipmentsPage() {
   async function ship() {
     setErr("");
     setMsg("");
-    if (!confirm(t("page.shipments.confirmMarkShipped"))) return;
+    if (!(await dialogs.ask({ message: t("page.shipments.confirmMarkShipped") }))) return;
     try {
       await api.post(`/api/shipments/${activeShip}/mark-shipped`);
       setMsg(t("page.shipments.markedShipped"));
@@ -150,7 +148,7 @@ export default function ShipmentsPage() {
   async function deliver() {
     setErr("");
     setMsg("");
-    if (!confirm(t("page.shipments.confirmMarkDelivered"))) return;
+    if (!(await dialogs.ask({ message: t("page.shipments.confirmMarkDelivered") }))) return;
     try {
       await api.post(`/api/shipments/${activeShip}/deliver`);
       setMsg(t("page.shipments.markedDelivered"));
@@ -166,21 +164,19 @@ export default function ShipmentsPage() {
     setScanResult(null);
     setScanCode("");
     setErr("");
-    if (sh.sales_order_id) {
-      setSoId(Number(sh.sales_order_id));
-    }
+    setSoId(0);
     setMsg(`Selected ${sh.shipment_no}`);
   }
 
   async function markRowShipped(sh: any) {
-    if (!confirm(`Mark ${sh.shipment_no} as shipped?`)) return;
+    if (!(await dialogs.ask({ message: `Mark ${sh.shipment_no} as shipped?` }))) return;
     await api.post(`/api/shipments/${sh.id}/mark-shipped`);
     mutate();
     if (Number(activeShip) === Number(sh.id)) mutateScanStatus();
   }
 
   async function markRowDelivered(sh: any) {
-    if (!confirm(`Mark ${sh.shipment_no} as delivered?`)) return;
+    if (!(await dialogs.ask({ message: `Mark ${sh.shipment_no} as delivered?` }))) return;
     await api.post(`/api/shipments/${sh.id}/deliver`);
     mutate();
     if (Number(activeShip) === Number(sh.id)) mutateScanStatus();
@@ -293,6 +289,15 @@ export default function ShipmentsPage() {
                     <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); selectShipment(s); }}>
                       {Number(s.id) === Number(activeShip) ? t("page.shipments.selected") : t("page.shipments.select")}
                     </button>
+                    {canTraceability && (
+                      <Link
+                        className="btn h-7 px-2 text-[11px]"
+                        href={`/traceability?shipment=${encodeURIComponent(s.shipment_no || s.id)}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {t("page.shipments.traceability")}
+                      </Link>
+                    )}
                     {String(s.status || "") !== "shipped" && String(s.status || "") !== "delivered" && (
                       <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); markRowShipped(s); }}>
                         {t("page.shipments.markAsShipped")}

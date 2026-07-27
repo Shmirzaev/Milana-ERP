@@ -11,6 +11,7 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
 type PaymentStatus = "paid" | "partial" | "unpaid" | "no_invoice";
 type PaymentRow = {
@@ -56,7 +57,7 @@ type CustomerOrder = {
   invoices: InvoiceRow[];
 };
 type PaymentForm = {
-  amount: number;
+  amount: NumberInputValue;
   date: string;
   payment_method: string;
   notes: string;
@@ -100,7 +101,7 @@ export default function CustomerDetailPage() {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [selectedPaymentOrderId, setSelectedPaymentOrderId] = useState<number | "">("");
   const [paymentForm, setPaymentForm] = useState<PaymentForm>({
-    amount: 0,
+    amount: "",
     date: new Date().toISOString().slice(0, 10),
     payment_method: "bank_transfer",
     notes: "",
@@ -224,7 +225,7 @@ export default function CustomerDetailPage() {
     setPaymentOpen(true);
     setSelectedPaymentOrderId(order?.id ?? "");
     setPaymentForm({
-      amount: order ? defaultPaymentAmount(order) : 0,
+      amount: order ? defaultPaymentAmount(order) : "",
       date: new Date().toISOString().slice(0, 10),
       payment_method: "bank_transfer",
       notes: "",
@@ -236,7 +237,7 @@ export default function CustomerDetailPage() {
     const nextId = rawId ? Number(rawId) : "";
     const order = orderRows.find((row) => Number(row.id) === Number(nextId));
     setSelectedPaymentOrderId(nextId);
-    setPaymentForm((prev) => ({ ...prev, amount: order ? defaultPaymentAmount(order) : 0 }));
+    setPaymentForm((prev) => ({ ...prev, amount: order ? defaultPaymentAmount(order) : "" }));
     setPaymentMsg("");
   }
 
@@ -278,7 +279,8 @@ export default function CustomerDetailPage() {
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
     const targetOrder = selectedPaymentOrder;
-    if (!Number.isFinite(Number(paymentForm.amount)) || Number(paymentForm.amount) <= 0) {
+    const amount = numberOrZero(paymentForm.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
       setPaymentMsg(t("page.customerDetail.amountGreaterThanZero"));
       return;
     }
@@ -288,7 +290,7 @@ export default function CustomerDetailPage() {
     try {
       const paidAt = new Date(paymentForm.date).toISOString();
       const payload: Record<string, any> = {
-        amount: Number(paymentForm.amount || 0),
+        amount,
         paid_at: paidAt,
         payment_method: paymentForm.payment_method,
         notes: paymentForm.notes || null,
@@ -301,7 +303,7 @@ export default function CustomerDetailPage() {
         ...savedPayment,
         id: Number(savedPayment.id),
         row_key: savedPayment.row_key || `payment-${savedPayment.id}`,
-        amount: Number(savedPayment.amount || paymentForm.amount || 0),
+        amount: Number(savedPayment.amount || amount || 0),
         payment_method: savedPayment.payment_method || paymentForm.payment_method,
         paid_at: savedPayment.paid_at || paidAt,
         notes: savedPayment.notes || paymentForm.notes || null,
@@ -549,7 +551,7 @@ export default function CustomerDetailPage() {
               min="0.01"
               step="0.01"
               value={paymentForm.amount}
-              onChange={(e) => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) })}
+              onChange={(e) => setPaymentForm({ ...paymentForm, amount: parseNumberInput(e.target.value) })}
               required
             />
           </div>

@@ -3,14 +3,15 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 
 from app.core.config import settings
-from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import Invoice, Payment, SalesOrder, User
+from app.core.deps import DbSession, require_permissions
+from app.models import Invoice, SalesOrder, User
 from app.schemas.integrations import OneCSyncIn
 from app.schemas.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
 from app.services.audit import log_action
 from app.services.finance_1c import sync_from_1c
 from app.services.numbering import next_invoice_no
 from app.services.payments import create_invoice_payment
+from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.finance import (
     dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
     list_recent_invoices, revenue_by_period, cost_breakdown,
@@ -85,7 +86,16 @@ def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(re
 
 
 @router.post("/payments", response_model=PaymentOut, status_code=201)
-def create_payment(payload: PaymentIn, db: DbSession, current: User = Depends(require_permissions("finance.payment", "*"))):
+def create_payment(
+    payload: PaymentIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("finance.payment", "*")),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    fingerprint_payload = payload.model_dump(mode="json")
+    replay = replay_idempotent_response(db, scope="finance.payments", key=idempotency_key, payload=fingerprint_payload)
+    if replay:
+        return replay
     inv = db.get(Invoice, payload.invoice_id)
     if not inv: raise HTTPException(404, "Invoice not found")
     p = create_invoice_payment(
@@ -97,8 +107,18 @@ def create_payment(payload: PaymentIn, db: DbSession, current: User = Depends(re
         notes=payload.notes,
     )
     log_action(db, current, "create", "Payment", p.id, new_value={"amount": float(p.amount)})
+    response = PaymentOut.model_validate(p).model_dump(mode="json")
+    store_idempotent_response(
+        db,
+        scope="finance.payments",
+        key=idempotency_key,
+        payload=fingerprint_payload,
+        response=response,
+        user=current,
+        status_code=201,
+    )
     db.commit(); db.refresh(p)
-    return p
+    return response
 
 
 @router.post("/integrations/1c/sync")

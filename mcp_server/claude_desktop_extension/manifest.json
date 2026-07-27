@@ -1,0 +1,81 @@
+{
+  "manifest_version": "0.3",
+  "name": "milana-erp",
+  "display_name": "Milana ERP",
+  "version": "0.1.0",
+  "description": "Safe Milana ERP GM assistant tools for Claude Desktop.",
+  "long_description": "Provides controlled read-only ERP tools and confirmation-gated notification/task actions through the Milana ERP backend. The extension reads the ERP token already configured on this computer and does not bundle credentials.",
+  "author": {
+    "name": "Milana Premium"
+  },
+  "server": {
+    "type": "python",
+    "entry_point": "server/milana_erp_mcpb.py",
+    "mcp_config": {
+      "command": "C:\\ERP\\mcp_server\\.venv\\Scripts\\python.exe",
+      "args": [
+        "${__dirname}/server/milana_erp_mcpb.py"
+      ],
+      "env": {
+        "ERP_API_BASE_URL": "https://erp.milanapremium.uz",
+        "ERP_MCP_REQUIRE_CONFIRMATION": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "erp_me",
+      "description": "Return the current authenticated ERP user, role, department, and permissions."
+    },
+    {
+      "name": "erp_gm_summary",
+      "description": "Return the management dashboard summary for the authenticated GM user."
+    },
+    {
+      "name": "erp_search",
+      "description": "Search safe ERP entities through the existing global search endpoint."
+    },
+    {
+      "name": "erp_active_production",
+      "description": "Return active production status from the ERP dashboard endpoint."
+    },
+    {
+      "name": "erp_late_orders",
+      "description": "Return late active orders by filtering active production dashboard data."
+    },
+    {
+      "name": "erp_inventory_status",
+      "description": "Return the GM-facing inventory dashboard summary."
+    },
+    {
+      "name": "erp_finance_summary",
+      "description": "Return the finance dashboard summary if the ERP user has finance permission."
+    },
+    {
+      "name": "erp_list_employee_tasks",
+      "description": "List employee tasks through the ERP task API with safe filtering."
+    },
+    {
+      "name": "erp_send_notification",
+      "description": "Preview or send a confirmed ERP notification to a controlled target."
+    },
+    {
+      "name": "erp_create_task",
+      "description": "Preview or create a confirmed ERP task through the existing task API."
+    }
+  ],
+  "keywords": [
+    "erp",
+    "operations",
+    "milana",
+    "business"
+  ],
+  "compatibility": {
+    "platforms": [
+      "win32"
+    ],
+    "runtimes": {
+      "python": ">=3.11"
+    }
+  }
+}

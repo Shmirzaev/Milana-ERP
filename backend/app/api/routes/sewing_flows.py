@@ -4,18 +4,73 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import SewingFlow, WorkOrder, User, SewingAssignment, ProductionOrder
+from app.models import Model, ModelBOM, SewingFlow, StockBatch, WorkOrder, User, SewingAssignment, ProductionOrder, ProductionBatch
 from app.schemas.sewing_flow import (
-    SewingFlowIn, SewingFlowUpdate, SewingFlowOut, SewingFlowWithLoad,
+    SewingFlowIn, SewingFlowUpdate, SewingFlowOut, SewingFlowWithLoad, SewingFlowWorkOrderOut,
 )
 from app.schemas.production import WorkOrderOut
 from app.services.audit import log_action
+from app.services.model_images import material_preview_image_url
 
 router = APIRouter(prefix="/sewing-flows", tags=["sewing-flows"])
 
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
+
+
+def _model_no(model: Model | None) -> str | None:
+    if not model:
+        return None
+    code = str(model.code or "").strip()
+    code_model_no, separator, _ = code.rpartition("-")
+    if not separator:
+        code_model_no = code
+    details = model.details_json if isinstance(model.details_json, dict) else {}
+    general = details.get("general") if isinstance(details.get("general"), dict) else {}
+    value = str(general.get("model_no") or general.get("modelNo") or code_model_no or "").strip()
+    return value or None
+
+
+def _work_order_model_context(db, production_order_ids: list[int]) -> dict[int, dict[str, str | None]]:
+    po_ids = sorted({int(po_id) for po_id in production_order_ids if po_id})
+    if not po_ids:
+        return {}
+    po_rows = db.query(
+        ProductionOrder.id,
+        ProductionOrder.model_id,
+        ProductionOrder.fabric_batch_id,
+    ).filter(ProductionOrder.id.in_(po_ids)).all()
+    model_ids = sorted({int(model_id) for _, model_id, _ in po_rows if model_id})
+    fabric_batch_ids = sorted({int(batch_id) for _, _, batch_id in po_rows if batch_id})
+    models = (
+        db.query(Model)
+        .options(
+            joinedload(Model.images),
+            joinedload(Model.bom).joinedload(ModelBOM.item),
+            joinedload(Model.bom).joinedload(ModelBOM.stock_batch),
+        )
+        .filter(Model.id.in_(model_ids))
+        .all()
+        if model_ids
+        else []
+    )
+    models_by_id = {int(model.id): model for model in models}
+    fabric_batches_by_id = {
+        int(batch.id): batch
+        for batch in (db.query(StockBatch).filter(StockBatch.id.in_(fabric_batch_ids)).all() if fabric_batch_ids else [])
+    }
+    return {
+        int(po_id): {
+            "model_no": _model_no(models_by_id.get(int(model_id or 0))),
+            "material_image_url": (
+                fabric_batches_by_id.get(int(fabric_batch_id or 0)).image_url
+                if fabric_batches_by_id.get(int(fabric_batch_id or 0))
+                else None
+            ) or material_preview_image_url(models_by_id.get(int(model_id or 0))),
+        }
+        for po_id, model_id, fabric_batch_id in po_rows
+    }
 
 
 def _bulk_load(db) -> dict[int, dict]:
@@ -59,7 +114,6 @@ def _bulk_load(db) -> dict[int, dict]:
         .all()
     )
     split_by_flow: dict[int, dict] = {}
-    split_wo_by_flow: dict[int, set[int]] = {}
     for fid, wid, qty, done in split_assignments:
         if not fid:
             continue
@@ -68,11 +122,9 @@ def _bulk_load(db) -> dict[int, dict]:
             continue
         fid_i = int(fid)
         bucket = split_by_flow.setdefault(fid_i, {"active_work_orders": 0, "planned_units": 0, "completed_units": 0})
+        bucket["active_work_orders"] += 1
         bucket["planned_units"] += int(qty or 0)
         bucket["completed_units"] += int(done or 0)
-        split_wo_by_flow.setdefault(fid_i, set()).add(int(wid))
-    for fid, wo_ids in split_wo_by_flow.items():
-        split_by_flow[fid]["active_work_orders"] = len(wo_ids)
 
     out: dict[int, dict] = {}
     for fid, vals in direct_by_flow.items():
@@ -119,18 +171,18 @@ def _single_load(db, flow_id: int) -> dict:
         .filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
         .all()
     )
-    split_wo_ids: set[int] = set()
     split_planned = 0
     split_done = 0
+    split_active = 0
     for wid, qty, done in split_rows:
         remaining = max(0, int(qty or 0) - int(done or 0))
         if remaining <= 0:
             continue
-        split_wo_ids.add(int(wid))
+        split_active += 1
         split_planned += int(qty or 0)
         split_done += int(done or 0)
     return {
-        "active_work_orders": int(direct_active + len(split_wo_ids)),
+        "active_work_orders": int(direct_active + split_active),
         "planned_units": int(direct_planned + split_planned),
         "completed_units": int(direct_done + split_done),
     }
@@ -256,7 +308,7 @@ def update_flow(fid: int, payload: SewingFlowUpdate, db: DbSession, current: Use
     return f
 
 
-@router.get("/{fid}/work-orders", response_model=list[WorkOrderOut])
+@router.get("/{fid}/work-orders", response_model=list[SewingFlowWorkOrderOut])
 def flow_work_orders(fid: int, db: DbSession, _: CurrentUser, only_active: bool = False):
     if not db.get(SewingFlow, fid):
         raise HTTPException(404, "Sewing flow not found")
@@ -274,18 +326,59 @@ def flow_work_orders(fid: int, db: DbSession, _: CurrentUser, only_active: bool 
     direct = [w for w in direct_qry.all() if w.id not in assignment_managed_wo_ids]
 
     split_qry = (
-        db.query(WorkOrder)
-        .options(order_ref_load)
-        .join(SewingAssignment, SewingAssignment.work_order_id == WorkOrder.id)
+        db.query(SewingAssignment)
+        .options(
+            joinedload(SewingAssignment.work_order)
+            .joinedload(WorkOrder.production_order)
+            .joinedload(ProductionOrder.sales_order)
+        )
+        .join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id)
         .filter(SewingAssignment.sewing_flow_id == fid)
     )
     if only_active:
         split_qry = split_qry.filter(SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES))
         split_qry = split_qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
         split_qry = split_qry.filter(SewingAssignment.completed_qty < SewingAssignment.quantity)
-    split = split_qry.all()
+    split = split_qry.order_by(SewingAssignment.id.desc()).all()
 
-    uniq: dict[int, WorkOrder] = {w.id: w for w in direct}
-    for w in split:
-        uniq[w.id] = w
-    return sorted(uniq.values(), key=lambda w: w.id, reverse=True)
+    batch_ids = sorted({int(a.production_batch_id) for a in split if a.production_batch_id})
+    batches = {int(b.id): b for b in db.query(ProductionBatch).filter(ProductionBatch.id.in_(batch_ids)).all()} if batch_ids else {}
+    model_context = _work_order_model_context(
+        db,
+        [int(w.production_order_id) for w in direct]
+        + [int(a.work_order.production_order_id) for a in split if a.work_order],
+    )
+
+    out: list[dict] = []
+    for w in direct:
+        row = WorkOrderOut.model_validate(w).model_dump()
+        row.update(model_context.get(int(w.production_order_id), {}))
+        out.append(row)
+
+    for assignment in split:
+        w = assignment.work_order
+        if not w:
+            continue
+        batch = batches.get(int(assignment.production_batch_id or 0))
+        planned = int(assignment.quantity or 0)
+        completed = int(assignment.completed_qty or 0)
+        row = WorkOrderOut.model_validate(w).model_dump()
+        row.update(model_context.get(int(w.production_order_id), {}))
+        row.update({
+            "sewing_assignment_id": int(assignment.id),
+            "production_batch_id": int(assignment.production_batch_id) if assignment.production_batch_id else w.production_batch_id,
+            "assignment_batch_id": int(assignment.production_batch_id) if assignment.production_batch_id else None,
+            "batch_no": batch.batch_no if batch else None,
+            "batch_name": batch.name if batch else None,
+            "batch_index": batch.batch_index if batch else None,
+            "batch_planned_quantity": int(batch.planned_quantity or 0) if batch else None,
+            "planned_input_qty": planned,
+            "planned_output_qty": planned,
+            "passed_qty": completed,
+            "assigned_qty": planned,
+            "assignable_qty": max(0, planned - completed),
+            "sewing_flow_id": int(assignment.sewing_flow_id),
+        })
+        out.append(row)
+
+    return sorted(out, key=lambda row: (int(row.get("sewing_assignment_id") or 0), int(row.get("id") or 0)), reverse=True)

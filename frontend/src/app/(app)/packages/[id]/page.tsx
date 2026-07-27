@@ -1,16 +1,25 @@
 "use client";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { can, useMe } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 export default function PackageDetail() {
   const { t } = useT();
+  const { me } = useMe();
   const params = useParams<{ id: string }>();
   const id = params.id;
-  const { data: p } = useSWR<any>(`/api/packages/${id}`, fetcher);
+  const { data: p } = useSWR<any>(
+    `/api/packages/${id}`,
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
+  const canTraceability = can(me, "traceability.view");
 
   if (!p) return <div>{t("common.loading")}</div>;
 
@@ -19,7 +28,16 @@ export default function PackageDetail() {
       <PageHeader
         title={t("page.packageDetail.title", { no: p.package_no })}
         subtitle={t("page.packageDetail.subtitle", { status: statusLabel(p.status, t) })}
-        actions={<button type="button" className="btn" onClick={() => api.openLabel(`/api/packages/${p.id}/label`)}>{t("btn.printLabel")}</button>}
+        actions={(
+          <>
+            <button type="button" className="btn" onClick={() => api.openLabel(`/api/packages/${p.id}/label`)}>{t("btn.printLabel")}</button>
+            {canTraceability && (
+              <Link className="btn" href={`/traceability?package=${encodeURIComponent(p.package_no || p.barcode || p.id)}`}>
+                {t("nav.traceability")}
+              </Link>
+            )}
+          </>
+        )}
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="card p-4">

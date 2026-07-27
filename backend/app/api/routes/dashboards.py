@@ -3,11 +3,18 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import (
+    DASHBOARD_PLANNING_READ_PERMISSIONS,
+    DASHBOARD_WASTE_READ_PERMISSIONS,
+    DbSession,
+    INVENTORY_READ_PERMISSIONS,
+    PRODUCTION_READ_PERMISSIONS,
+    require_permissions,
+)
 from app.core.dt import as_utc
 from app.models import (
-    SalesOrder, ProductionOrder, WorkOrder, Bundle, Package, WasteRecord, FinishedGoodsStock,
-    Item, StockBatch, CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer, User,
+    SalesOrder, ProductionOrder, WorkOrder, WasteRecord, FinishedGoodsStock,
+    CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer, User,
 )
 from app.services.finance import dashboard_summary, branded_stock_value
 from app.services.inventory import stock_summary
@@ -27,7 +34,7 @@ _ACTIVE_ORDER_STATUSES = (
 
 
 @router.get("/active-production")
-def active_production(db: DbSession, _: CurrentUser):
+def active_production(db: DbSession, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
     """Return active sales orders with production progress for the dashboard table."""
     orders = (
         db.query(SalesOrder)
@@ -117,12 +124,12 @@ def management(db: DbSession, _: User = Depends(require_permissions("management.
 
 
 @router.get("/planning")
-def planning(db: DbSession, _: CurrentUser):
+def planning(db: DbSession, _: User = Depends(require_permissions(*DASHBOARD_PLANNING_READ_PERMISSIONS))):
     return {
         "orders_waiting_planning": db.query(func.count(SalesOrder.id)).filter(
             SalesOrder.status.in_(["confirmed", "pending_sales_approval", "planning_approved"])
         ).scalar() or 0,
-        "active_production_orders": db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.status.in_(["new", "planning", "waiting_material", "cutting", "printing", "sewing", "packaging"])).scalar() or 0,
+        "active_production_orders": db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.status.in_(["new", "planning", "waiting_material", "cutting", "printing", "sewing", "packaging", "storage_transfer"])).scalar() or 0,
         "branded_plans": db.query(func.count(ProductionOrder.id)).filter(ProductionOrder.production_type == "branded_stock").scalar() or 0,
     }
 
@@ -130,7 +137,7 @@ def planning(db: DbSession, _: CurrentUser):
 @router.get("/production")
 def production(
     db: DbSession,
-    _: CurrentUser,
+    _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     start: datetime | None = None,
     end: datetime | None = None,
 ):
@@ -166,7 +173,7 @@ def finance(db: DbSession, _: User = Depends(require_permissions("finance.view",
 
 
 @router.get("/waste")
-def waste(db: DbSession, _: CurrentUser):
+def waste(db: DbSession, _: User = Depends(require_permissions(*DASHBOARD_WASTE_READ_PERMISSIONS))):
     rows = db.query(WasteRecord.status, func.coalesce(func.sum(WasteRecord.quantity), 0)).group_by(WasteRecord.status).all()
     by_status = {s: float(q or 0) for s, q in rows}
     return {
@@ -177,8 +184,8 @@ def waste(db: DbSession, _: CurrentUser):
 
 
 @router.get("/inventory")
-def inventory(db: DbSession, _: CurrentUser):
-    summary = stock_summary(db)
+def inventory(db: DbSession, _: User = Depends(require_permissions(*INVENTORY_READ_PERMISSIONS))):
+    summary = stock_summary(db, page=1, page_size=50)
     fg_total = int(db.query(func.coalesce(func.sum(FinishedGoodsStock.available_qty), 0)).scalar() or 0)
     return {
         "items": summary[:50],

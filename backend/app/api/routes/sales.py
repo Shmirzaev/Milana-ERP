@@ -1,15 +1,16 @@
 import os
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
 from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.config import settings
+from app.core.dt import date_filter_bounds
 from app.core.signing import sign_path, strip_signature
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
@@ -20,9 +21,10 @@ from app.core.uploads import (
 )
 from app.models import (
     SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation,
-    Customer, Model, User, ProductionOrder, WorkOrder,
-    CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, Shipment, ShipmentPackage,
-    Task, Department, Invoice, Payment, StockMovement, Item, StockBatch, Package, AuditLog,
+    BrandedPlanningOrder, Customer, Model, User, ProductionOrder,
+    CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, QualityCheck, Shipment, ShipmentPackage,
+    Task, Department, Invoice, Payment, StockMovement, Item, StockBatch, MaterialReservation,
+    Package, Bundle, FinishedGoodsStock, AuditLog,
 )
 from app.schemas.sales import (
     SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
@@ -32,6 +34,9 @@ from app.services.finished_goods import repair_missing_brand_metadata
 from app.services.numbering import next_sales_order_no
 from app.services.numbering import next_invoice_no
 from app.services.workflow import notify_department
+from app.services.idempotency import replay_idempotent_response, store_idempotent_response
+from app.services.legacy_stock import package_legacy_identity
+from app.services.model_images import material_preview_image_url, model_display_image_url
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 
@@ -91,13 +96,18 @@ def _serialize_sales_order(
                 "code": code,
                 "name": name,
                 "translations": (details or {}).get("translation") if isinstance(details, dict) else None,
+                "composition": (details or {}).get("composition") if isinstance(details, dict) else None,
             }
             for mid, code, name, details in model_rows
         }
         for item in payload.get("items", []):
             model_ref = model_map.get(int(item.get("model_id") or 0))
-            item["model_code"] = model_ref["code"] if model_ref else None
-            item["model_name"] = model_ref["name"] if model_ref else None
+            item["model_code"] = (
+                model_ref["code"] if model_ref else item.get("source_model_code")
+            )
+            item["model_name"] = (
+                model_ref["name"] if model_ref else item.get("source_model_name")
+            )
             item["model"] = model_ref
 
     return payload
@@ -148,8 +158,210 @@ def _model_refs(db: DbSession, model_ids: set[int]) -> dict[int, dict]:
             "code": code,
             "name": name,
             "translations": (details or {}).get("translation") if isinstance(details, dict) else None,
+            "composition": (details or {}).get("composition") if isinstance(details, dict) else None,
         }
         for mid, code, name, details in rows
+    }
+
+
+def _history_products(db: DbSession, model_ids: set[int]) -> list[dict]:
+    if not model_ids:
+        return []
+    models = (
+        db.query(Model)
+        .options(joinedload(Model.images), joinedload(Model.bom))
+        .filter(Model.id.in_(model_ids))
+        .order_by(Model.code.asc())
+        .all()
+    )
+    products: list[dict] = []
+    for model in models:
+        details = model.details_json if isinstance(model.details_json, dict) else {}
+        general = details.get("general") if isinstance(details.get("general"), dict) else {}
+        code = str(model.code or "").strip()
+        code_parts = code.rsplit("-", 1)
+        model_no = str(general.get("model_no") or general.get("modelNo") or code_parts[0] or "").strip()
+        variant_no = str(
+            general.get("variant_no")
+            or general.get("variantNo")
+            or (code_parts[1] if len(code_parts) > 1 else "")
+        ).strip()
+        picture_url = material_preview_image_url(model) or model_display_image_url(model)
+        if picture_url and str(picture_url).startswith("/storage/"):
+            picture_url = sign_path(picture_url)
+        products.append(
+            {
+                "model_id": int(model.id),
+                "model_no": model_no,
+                "variant_no": variant_no,
+                "code": code,
+                "name": model.name,
+                "picture_url": picture_url,
+            }
+        )
+    return products
+
+
+def _production_step_records(db: DbSession, production_orders: list[ProductionOrder]) -> dict:
+    """Return the entered values from every production step for the history ledger."""
+    po_ids = [int(po.id) for po in production_orders]
+    work_orders = sorted(
+        [wo for po in production_orders for wo in (po.work_orders or [])],
+        key=lambda wo: (int(wo.production_batch_id or 0), str(wo.operation or ""), int(wo.id)),
+    )
+    work_order_ids = [int(wo.id) for wo in work_orders]
+
+    def records(model):
+        if not work_order_ids:
+            return []
+        return db.query(model).filter(model.work_order_id.in_(work_order_ids)).order_by(model.id.asc()).all()
+
+    cutting = records(CuttingRecord)
+    printing = records(PrintingRecord)
+    sewing = records(SewingRecord)
+    packaging = records(PackagingRecord)
+    quality = records(QualityCheck)
+    reservations = (
+        db.query(MaterialReservation)
+        .filter(MaterialReservation.production_order_id.in_(po_ids))
+        .order_by(MaterialReservation.id.asc())
+        .all()
+        if po_ids else []
+    )
+    bundles = (
+        db.query(Bundle)
+        .options(joinedload(Bundle.scan_logs))
+        .filter(Bundle.production_order_id.in_(po_ids))
+        .order_by(Bundle.id.asc())
+        .all()
+        if po_ids else []
+    )
+    finished_goods = (
+        db.query(FinishedGoodsStock)
+        .filter(FinishedGoodsStock.production_order_id.in_(po_ids))
+        .order_by(FinishedGoodsStock.id.asc())
+        .all()
+        if po_ids else []
+    )
+    audit_filters = []
+    if po_ids:
+        audit_filters.append((AuditLog.entity_type == "ProductionOrder") & AuditLog.entity_id.in_(po_ids))
+    if work_order_ids:
+        audit_filters.append((AuditLog.entity_type == "WorkOrder") & AuditLog.entity_id.in_(work_order_ids))
+    audits = (
+        db.query(AuditLog, User)
+        .outerjoin(User, User.id == AuditLog.user_id)
+        .filter(or_(*audit_filters))
+        .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
+        .all()
+        if audit_filters else []
+    )
+
+    return {
+        "material_reservations": [
+            {
+                "id": row.id, "reservation_no": row.reservation_no, "production_order_id": row.production_order_id,
+                "sales_order_id": row.sales_order_id, "item_id": row.item_id,
+                "item_sku": row.item.sku if row.item else None, "item_name": row.item.name if row.item else None,
+                "stock_batch_id": row.stock_batch_id,
+                "batch_no": row.stock_batch.batch_no if row.stock_batch else None,
+                "warehouse_id": row.warehouse_id, "warehouse_name": row.warehouse.name if row.warehouse else None,
+                "reserved_quantity": _num(row.reserved_quantity), "consumed_quantity": _num(row.consumed_quantity),
+                "released_quantity": _num(row.released_quantity), "unit": row.unit, "status": row.status,
+                "reservation_type": row.reservation_type, "source": row.source, "reserved_by": row.reserved_by,
+                "reserved_at": row.reserved_at, "notes": row.notes,
+            }
+            for row in reservations
+        ],
+        "cutting": [
+            {
+                "id": row.id, "work_order_id": row.work_order_id, "production_batch_id": row.production_batch_id,
+                "fabric_batch_id": row.fabric_batch_id, "input_quantity": _num(row.input_quantity),
+                "input_unit": row.input_unit, "cut_pieces": row.cut_pieces, "passed_pieces": row.passed_pieces,
+                "defective_pieces": row.defective_pieces, "waste_quantity": _num(row.waste_quantity),
+                "waste_unit": row.waste_unit, "layer_material_kg": _num(row.layer_material_kg),
+                "beika_kg": _num(row.beika_kg), "material_rolls_used": _num(row.material_rolls_used),
+                "bundle_count": row.bundle_count, "total_bundled_quantity": row.total_bundled_quantity,
+                "operator_id": row.operator_id, "notes": row.notes, "created_at": row.created_at,
+            }
+            for row in cutting
+        ],
+        "printing": [
+            {
+                "id": row.id, "work_order_id": row.work_order_id, "production_batch_id": row.production_batch_id,
+                "input_qty": row.input_qty, "printed_qty": row.printed_qty, "passed_qty": row.passed_qty,
+                "rejected_qty": row.rejected_qty, "defect_reason": row.defect_reason, "print_type": row.print_type,
+                "operator_id": row.operator_id, "notes": row.notes, "created_at": row.created_at,
+            }
+            for row in printing
+        ],
+        "sewing": [
+            {
+                "id": row.id, "work_order_id": row.work_order_id, "production_batch_id": row.production_batch_id,
+                "input_qty": row.input_qty, "sewn_qty": row.sewn_qty, "passed_qty": row.passed_qty,
+                "failed_qty": row.failed_qty, "rework_qty": row.rework_qty, "rejected_qty": row.rejected_qty,
+                "defect_reason": row.defect_reason, "line_name": row.line_name, "operator_id": row.operator_id,
+                "notes": row.notes, "created_at": row.created_at,
+            }
+            for row in sewing
+        ],
+        "quality_checks": [
+            {
+                "id": row.id, "work_order_id": row.work_order_id, "department_id": row.department_id,
+                "checked_qty": row.checked_qty, "passed_qty": row.passed_qty, "failed_qty": row.failed_qty,
+                "defect_type": row.defect_type, "defect_reason": row.defect_reason, "severity": row.severity,
+                "checked_by": row.checked_by, "checked_at": row.checked_at,
+            }
+            for row in quality
+        ],
+        "packaging": [
+            {
+                "id": row.id, "work_order_id": row.work_order_id, "production_batch_id": row.production_batch_id,
+                "input_qty": row.input_qty, "packed_qty": row.packed_qty, "damaged_qty": row.damaged_qty,
+                "package_count": row.package_count, "total_packed_quantity": row.total_packed_quantity,
+                "packaging_material_used": row.packaging_material_used, "operator_id": row.operator_id,
+                "notes": row.notes, "created_at": row.created_at,
+            }
+            for row in packaging
+        ],
+        "bundles": [
+            {
+                "id": row.id, "bundle_no": row.bundle_no, "barcode": row.barcode,
+                "production_order_id": row.production_order_id, "production_batch_id": row.production_batch_id,
+                "sales_order_id": row.sales_order_id, "model_id": row.model_id, "color": row.color,
+                "size": row.size, "quantity": row.quantity, "current_department_id": row.current_department_id,
+                "next_department_id": row.next_department_id, "sewing_factory_code": row.sewing_factory_code,
+                "status": row.status, "created_by": row.created_by, "notes": row.notes, "created_at": row.created_at,
+                "scan_logs": [
+                    {
+                        "id": scan.id, "scan_type": scan.scan_type, "from_department_id": scan.from_department_id,
+                        "to_department_id": scan.to_department_id, "location": scan.location,
+                        "scanned_by": scan.scanned_by, "scanned_at": scan.scanned_at,
+                    }
+                    for scan in (row.scan_logs or [])
+                ],
+            }
+            for row in bundles
+        ],
+        "finished_goods": [
+            {
+                "id": row.id, "production_order_id": row.production_order_id, "sales_order_id": row.sales_order_id,
+                "package_id": row.package_id, "model_id": row.model_id, "collection_id": row.collection_id,
+                "brand_id": row.brand_id, "color": row.color, "size": row.size, "quantity": row.quantity,
+                "available_qty": row.available_qty, "reserved_qty": row.reserved_qty, "sold_qty": row.sold_qty,
+                "cost_per_piece": _num(row.cost_per_piece), "selling_price": _num(row.selling_price),
+                "warehouse_id": row.warehouse_id, "status": row.status, "created_at": row.created_at,
+            }
+            for row in finished_goods
+        ],
+        "audit": [
+            {
+                "id": audit.id, "entity_type": audit.entity_type, "entity_id": audit.entity_id,
+                "action": audit.action, "user_id": audit.user_id, "user_name": user.name if user else None,
+                "old_value": audit.old_value_json, "new_value": audit.new_value_json, "created_at": audit.created_at,
+            }
+            for audit, user in audits
+        ],
     }
 
 
@@ -209,9 +421,24 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         sewing_records = []
         packaging_records = []
 
+    reserved_package_ids = [
+        int(package_id)
+        for (package_id,) in (
+            db.query(StockReservation.package_id)
+            .filter(
+                StockReservation.sales_order_id == so.id,
+                StockReservation.package_id.isnot(None),
+            )
+            .distinct()
+            .all()
+        )
+        if package_id is not None
+    ]
     package_filters = [Package.sales_order_id == so.id]
     if po_ids:
         package_filters.append(Package.production_order_id.in_(po_ids))
+    if reserved_package_ids:
+        package_filters.append(Package.id.in_(reserved_package_ids))
     packages = (
         db.query(Package)
         .options(joinedload(Package.items))
@@ -405,8 +632,38 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         "last_activity_at": last_activity_at,
     }
 
+    product_model_ids = {int(item.model_id) for item in sales_items if item.model_id}
+    for production_order in production_orders:
+        if production_order.model_id:
+            product_model_ids.add(int(production_order.model_id))
+        product_model_ids.update(int(item.model_id) for item in (production_order.items or []) if item.model_id)
+
+    history_products = _history_products(db, product_model_ids)
+    legacy_product_keys: set[tuple[int | None, str]] = set()
+    for item in sales_items:
+        code = str(item.source_model_code or "").strip()
+        if item.model_id is not None or not code:
+            continue
+        key = (item.finished_goods_stock_id, code)
+        if key in legacy_product_keys:
+            continue
+        legacy_product_keys.add(key)
+        history_products.append(
+            {
+                "model_id": None,
+                "finished_goods_stock_id": item.finished_goods_stock_id,
+                "model_no": code,
+                "variant_no": None,
+                "code": code,
+                "name": item.source_model_name,
+                "picture_url": None,
+            }
+        )
+
     row = {
         "id": so.id,
+        "record_type": "sales_order",
+        "history_key": f"sales:{so.id}",
         "order_no": so.order_no,
         "customer_id": so.customer_id,
         "customer_name": None,
@@ -418,6 +675,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         "completed_at": completed_at,
         "last_activity_at": last_activity_at,
         "total_amount": _num(so.total_amount),
+        "products": history_products,
         "summary": summary,
     }
     customer = db.get(Customer, so.customer_id) if so.customer_id else None
@@ -432,7 +690,8 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         model_ids.add(int(po.model_id))
         model_ids.update(int(item.model_id) for item in (po.items or []) if item.model_id)
     for pkg in packages:
-        model_ids.add(int(pkg.model_id))
+        if pkg.model_id:
+            model_ids.add(int(pkg.model_id))
         model_ids.update(int(item.model_id) for item in (pkg.items or []) if item.model_id)
     model_map = _model_refs(db, model_ids)
 
@@ -480,7 +739,20 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             {
                 "id": item.id,
                 "model_id": item.model_id,
-                "model": model_map.get(int(item.model_id)),
+                "finished_goods_stock_id": item.finished_goods_stock_id,
+                "model": model_map.get(int(item.model_id)) if item.model_id else None,
+                "model_code": (
+                    model_map[int(item.model_id)]["code"]
+                    if item.model_id and int(item.model_id) in model_map
+                    else item.source_model_code
+                ),
+                "model_name": (
+                    model_map[int(item.model_id)]["name"]
+                    if item.model_id and int(item.model_id) in model_map
+                    else item.source_model_name
+                ),
+                "source_model_code": item.source_model_code,
+                "source_model_name": item.source_model_name,
                 "brand_id": item.brand_id,
                 "collection_id": item.collection_id,
                 "color": item.color,
@@ -506,9 +778,23 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "planned_quantity": _int_qty(po.planned_quantity),
                 "start_date": po.start_date,
                 "deadline": po.deadline,
+                "collection_id": po.collection_id,
                 "estimated_material_code": po.estimated_material_code,
                 "estimated_material_amount": _num(po.estimated_material_amount),
                 "estimated_material_unit": po.estimated_material_unit,
+                "printing_instructions": po.printing_instructions,
+                "printing_attachments": [
+                    {
+                        **attachment,
+                        "file_url": sign_path(attachment.get("file_url")) if attachment.get("file_url") else None,
+                    }
+                    for attachment in (po.printing_attachments or [])
+                    if isinstance(attachment, dict)
+                ],
+                "destination_warehouse_id": po.destination_warehouse_id,
+                "created_by": po.created_by,
+                "created_at": po.created_at,
+                "updated_at": po.updated_at,
                 "items": [
                     {
                         "id": item.id,
@@ -550,6 +836,11 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                         "start_time": wo.start_time,
                         "end_time": wo.end_time,
                         "deadline": wo.deadline,
+                        "department_id": wo.department_id,
+                        "assigned_to": wo.assigned_to,
+                        "sewing_flow_id": wo.sewing_flow_id,
+                        "is_blocked": wo.is_blocked,
+                        "block_reason": wo.block_reason,
                         "notes": wo.notes,
                     }
                     for wo in sorted((po.work_orders or []), key=lambda row_wo: (int(row_wo.production_batch_id or 0), str(row_wo.operation or ""), int(row_wo.id)))
@@ -570,21 +861,45 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "production_order_id": pkg.production_order_id,
                 "production_batch_id": pkg.production_batch_id,
                 "model_id": pkg.model_id,
-                "model": model_map.get(int(pkg.model_id)),
+                "model": model_map.get(int(pkg.model_id)) if pkg.model_id else None,
+                "model_code": (
+                    model_map[int(pkg.model_id)]["code"]
+                    if pkg.model_id and int(pkg.model_id) in model_map
+                    else package_legacy_identity(db, pkg).get("model_code")
+                ),
+                "model_name": (
+                    model_map[int(pkg.model_id)]["name"]
+                    if pkg.model_id and int(pkg.model_id) in model_map
+                    else package_legacy_identity(db, pkg).get("model_name")
+                ),
                 "color": pkg.color,
                 "package_type": pkg.package_type,
                 "total_quantity": _int_qty(pkg.total_quantity),
                 "capacity": _int_qty(pkg.capacity),
                 "weight_kg": _num(pkg.weight_kg),
+                "warehouse_id": pkg.warehouse_id,
+                "storage_cell": pkg.storage_cell,
+                "storage_shelf": pkg.storage_shelf,
+                "storage_placed_at": pkg.storage_placed_at,
                 "status": pkg.status,
+                "packed_by": pkg.packed_by,
                 "packed_at": pkg.packed_at,
+                "received_by": pkg.received_by,
                 "received_at": pkg.received_at,
                 "shipped_at": pkg.shipped_at,
+                "notes": pkg.notes,
+                "scan_logs": [
+                    {
+                        "id": scan.id, "scan_type": scan.scan_type, "location": scan.location,
+                        "scanned_by": scan.scanned_by, "scanned_at": scan.scanned_at,
+                    }
+                    for scan in (pkg.scan_logs or [])
+                ],
                 "items": [
                     {
                         "id": item.id,
                         "model_id": item.model_id,
-                        "model": model_map.get(int(item.model_id)),
+                        "model": model_map.get(int(item.model_id)) if item.model_id else None,
                         "color": item.color,
                         "size": item.size,
                         "quantity": _int_qty(item.quantity),
@@ -634,9 +949,223 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             }
             for payment in payments
         ],
+        "step_records": _production_step_records(db, production_orders),
         "timeline": timeline,
     }
     return detail
+
+
+def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_detail: bool = False) -> dict:
+    """Build the same ledger shape for a Planning-created stock production order."""
+    production_orders = [po]
+    work_orders = sorted(
+        list(po.work_orders or []),
+        key=lambda wo: (int(wo.production_batch_id or 0), str(wo.operation or ""), int(wo.id)),
+    )
+    work_order_ids = [int(wo.id) for wo in work_orders]
+    cutting = db.query(CuttingRecord).filter(CuttingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
+    printing = db.query(PrintingRecord).filter(PrintingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
+    sewing = db.query(SewingRecord).filter(SewingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
+    packaging = db.query(PackagingRecord).filter(PackagingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
+    packages = (
+        db.query(Package)
+        .options(joinedload(Package.items), joinedload(Package.scan_logs))
+        .filter(Package.production_order_id == po.id)
+        .order_by(Package.id.asc())
+        .all()
+    )
+    movement_filters = [
+        (StockMovement.reference_type == "ProductionOrder") & (StockMovement.reference_id == po.id),
+    ]
+    cutting_ids = [int(row.id) for row in cutting]
+    packaging_ids = [int(row.id) for row in packaging]
+    if cutting_ids:
+        movement_filters.append((StockMovement.reference_type == "CuttingRecord") & StockMovement.reference_id.in_(cutting_ids))
+    if packaging_ids:
+        movement_filters.append((StockMovement.reference_type == "PackagingRecord") & StockMovement.reference_id.in_(packaging_ids))
+    movement_rows = (
+        db.query(StockMovement, Item, StockBatch)
+        .join(Item, Item.id == StockMovement.item_id)
+        .outerjoin(StockBatch, StockBatch.id == StockMovement.batch_id)
+        .filter(or_(*movement_filters))
+        .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
+        .all()
+    )
+
+    material_by_key: dict[tuple[int, str], dict] = {}
+    material_movements: list[dict] = []
+    material_cost_total = 0.0
+    for movement, item, batch in movement_rows:
+        quantity = _num(movement.quantity)
+        unit = movement.unit or item.unit
+        unit_cost = _num(batch.cost_per_unit if batch else item.default_cost)
+        cost = quantity * unit_cost
+        material_cost_total += cost
+        bucket = material_by_key.setdefault(
+            (int(item.id), unit),
+            {
+                "item_id": int(item.id), "sku": item.sku, "name": item.name,
+                "category": item.category, "unit": unit, "quantity": 0.0, "estimated_cost": 0.0,
+            },
+        )
+        bucket["quantity"] += quantity
+        bucket["estimated_cost"] += cost
+        material_movements.append(
+            {
+                "id": movement.id, "movement_type": movement.movement_type, "quantity": quantity,
+                "unit": unit, "estimated_cost": cost, "reference_type": movement.reference_type,
+                "reference_id": movement.reference_id, "created_at": movement.created_at,
+                "item": {"id": item.id, "sku": item.sku, "name": item.name, "category": item.category},
+                "batch": {
+                    "id": batch.id, "batch_no": batch.batch_no, "cost_per_unit": _num(batch.cost_per_unit),
+                } if batch else None,
+            }
+        )
+    materials_spent = sorted(material_by_key.values(), key=lambda row: (str(row["category"]), str(row["sku"])))
+
+    planned_qty = _int_qty(po.planned_quantity)
+    cut_qty = sum(_int_qty(row.cut_pieces) for row in cutting)
+    printed_qty = sum(_int_qty(row.printed_qty) for row in printing)
+    sewn_qty = sum(_int_qty(row.sewn_qty) for row in sewing)
+    packaged_qty = sum(_int_qty(pkg.total_quantity) for pkg in packages)
+    shipped_qty = sum(_int_qty(pkg.total_quantity) for pkg in packages if pkg.status in {"shipped", "delivered"})
+    completed_at = _latest_datetime(
+        [pkg.shipped_at or pkg.received_at or pkg.packed_at for pkg in packages]
+        + [wo.end_time for wo in work_orders if wo.status == "completed"]
+    ) if str(po.status or "") in {"completed", "closed", "done"} or (planned_qty and packaged_qty >= planned_qty) else None
+    last_activity_at = _latest_datetime(
+        [po.updated_at, po.created_at]
+        + [wo.end_time or wo.start_time or wo.updated_at or wo.created_at for wo in work_orders]
+        + [row.created_at for row in cutting + printing + sewing + packaging]
+        + [pkg.shipped_at or pkg.received_at or pkg.packed_at or pkg.updated_at or pkg.created_at for pkg in packages]
+    )
+    summary = {
+        "ordered_qty": planned_qty, "planned_qty": planned_qty, "cut_qty": cut_qty,
+        "cut_passed_qty": sum(_int_qty(row.passed_pieces) for row in cutting),
+        "printed_qty": printed_qty, "sewn_qty": sewn_qty,
+        "sewn_passed_qty": sum(_int_qty(row.passed_qty) for row in sewing),
+        "packed_record_qty": sum(_int_qty(row.total_packed_quantity or row.packed_qty) for row in packaging),
+        "packaged_qty": packaged_qty, "shipped_qty": shipped_qty, "package_count": len(packages),
+        "shipment_count": 0, "invoice_count": 0, "payment_count": 0, "order_amount": 0.0,
+        "invoice_total": 0.0, "paid_total": 0.0, "outstanding_amount": 0.0,
+        "material_spent_cost": material_cost_total, "material_spent": materials_spent,
+        "ordered_at": po.created_at, "completed_at": completed_at, "last_activity_at": last_activity_at,
+    }
+    product_model_ids = {int(po.model_id)} if po.model_id else set()
+    product_model_ids.update(int(item.model_id) for item in (po.items or []) if item.model_id)
+    planning_order = po.planning_order
+    row = {
+        "id": po.id, "record_type": "production_order", "history_key": f"production:{po.id}",
+        "order_no": po.order_no, "customer_id": None, "customer_name": "Stock",
+        "group_order_no": planning_order.order_no if planning_order else None,
+        "ordered_for": planning_order.ordered_for_name if planning_order else None,
+        "order_type": po.production_type, "status": po.status, "deadline": po.deadline,
+        "created_at": po.created_at, "updated_at": po.updated_at, "completed_at": completed_at,
+        "last_activity_at": last_activity_at, "total_amount": 0.0,
+        "products": _history_products(db, product_model_ids), "summary": summary,
+    }
+    if not include_detail:
+        return row
+
+    model_ids = {int(po.model_id)}
+    model_ids.update(int(item.model_id) for item in (po.items or []) if item.model_id)
+    model_ids.update(int(pkg.model_id) for pkg in packages if pkg.model_id)
+    model_map = _model_refs(db, model_ids)
+    timeline = [_history_event("production_order", f"Stock production {po.order_no} created", po.created_at, production_order_id=po.id, status=po.status)]
+    for wo in work_orders:
+        timeline.append(_history_event("work_order_started", f"{wo.operation.title()} started", wo.start_time, work_order_id=wo.id, status=wo.status))
+        timeline.append(_history_event("work_order_done", f"{wo.operation.title()} done", wo.end_time, work_order_id=wo.id, status=wo.status))
+    for pkg in packages:
+        timeline.append(_history_event("package_packed", f"Package {pkg.package_no} packed", pkg.packed_at, package_id=pkg.id, quantity=pkg.total_quantity))
+        timeline.append(_history_event("package_received", f"Package {pkg.package_no} received", pkg.received_at, package_id=pkg.id))
+        timeline.append(_history_event("package_shipped", f"Package {pkg.package_no} shipped", pkg.shipped_at, package_id=pkg.id))
+    timeline = sorted([event for event in timeline if event], key=_event_sort_key)
+    production_payload = {
+        "id": po.id, "production_no": po.production_no, "order_no": po.order_no,
+        "planning_order_id": po.planning_order_id,
+        "group_order_no": planning_order.order_no if planning_order else None,
+        "ordered_for": planning_order.ordered_for_name if planning_order else None,
+        "production_type": po.production_type, "status": po.status, "model_id": po.model_id,
+        "model": model_map.get(int(po.model_id)), "planned_quantity": planned_qty,
+        "start_date": po.start_date, "deadline": po.deadline, "collection_id": po.collection_id,
+        "estimated_material_code": po.estimated_material_code,
+        "estimated_material_amount": _num(po.estimated_material_amount),
+        "estimated_material_unit": po.estimated_material_unit,
+        "printing_instructions": po.printing_instructions,
+        "printing_attachments": [
+            {**attachment, "file_url": sign_path(attachment.get("file_url")) if attachment.get("file_url") else None}
+            for attachment in (po.printing_attachments or []) if isinstance(attachment, dict)
+        ],
+        "destination_warehouse_id": po.destination_warehouse_id, "created_by": po.created_by,
+        "created_at": po.created_at, "updated_at": po.updated_at,
+        "items": [
+            {
+                "id": item.id, "model_id": item.model_id, "model": model_map.get(int(item.model_id)),
+                "color": item.color, "size": item.size, "planned_quantity": item.planned_quantity,
+                "completed_quantity": item.completed_quantity, "printing_required": item.printing_required,
+            }
+            for item in (po.items or [])
+        ],
+        "batches": [
+            {
+                "id": batch.id, "batch_no": batch.batch_no, "name": batch.name,
+                "planned_quantity": batch.planned_quantity, "start_date": batch.start_date,
+                "deadline": batch.deadline, "notes": batch.notes,
+            }
+            for batch in (po.batches or [])
+        ],
+        "work_orders": [
+            {
+                "id": wo.id, "order_no": po.order_no, "production_batch_id": wo.production_batch_id,
+                "department_id": wo.department_id, "operation": wo.operation, "status": wo.status,
+                "planned_input_qty": wo.planned_input_qty, "planned_output_qty": wo.planned_output_qty,
+                "actual_input_qty": wo.actual_input_qty, "actual_output_qty": wo.actual_output_qty,
+                "passed_qty": wo.passed_qty, "failed_qty": wo.failed_qty, "rework_qty": wo.rework_qty,
+                "start_time": wo.start_time, "end_time": wo.end_time, "deadline": wo.deadline,
+                "assigned_to": wo.assigned_to, "sewing_flow_id": wo.sewing_flow_id,
+                "is_blocked": wo.is_blocked, "block_reason": wo.block_reason, "notes": wo.notes,
+            }
+            for wo in work_orders
+        ],
+    }
+    return {
+        **row,
+        "order": production_payload,
+        "items": [
+            {
+                "id": item.id, "model_id": item.model_id, "model": model_map.get(int(item.model_id)),
+                "color": item.color, "size": item.size, "quantity": item.planned_quantity,
+                "unit_price": 0.0, "line_total": 0.0, "printing_required": item.printing_required,
+            }
+            for item in (po.items or [])
+        ],
+        "production_orders": [production_payload],
+        "materials": {"spent": materials_spent, "movements": material_movements},
+        "packages": [
+            {
+                "id": pkg.id, "package_no": pkg.package_no, "barcode": pkg.barcode,
+                "production_order_id": pkg.production_order_id, "production_batch_id": pkg.production_batch_id,
+                "model_id": pkg.model_id, "model": model_map.get(int(pkg.model_id)), "color": pkg.color,
+                "package_type": pkg.package_type, "total_quantity": pkg.total_quantity, "capacity": pkg.capacity,
+                "weight_kg": _num(pkg.weight_kg), "warehouse_id": pkg.warehouse_id,
+                "storage_cell": pkg.storage_cell, "storage_shelf": pkg.storage_shelf,
+                "storage_placed_at": pkg.storage_placed_at, "status": pkg.status, "packed_by": pkg.packed_by,
+                "packed_at": pkg.packed_at, "received_by": pkg.received_by, "received_at": pkg.received_at,
+                "shipped_at": pkg.shipped_at, "notes": pkg.notes,
+                "items": [
+                    {"id": item.id, "model_id": item.model_id, "model": model_map.get(int(item.model_id)), "color": item.color, "size": item.size, "quantity": item.quantity}
+                    for item in (pkg.items or [])
+                ],
+                "scan_logs": [
+                    {"id": scan.id, "scan_type": scan.scan_type, "location": scan.location, "scanned_by": scan.scanned_by, "scanned_at": scan.scanned_at}
+                    for scan in (pkg.scan_logs or [])
+                ],
+            }
+            for pkg in packages
+        ],
+        "shipments": [], "invoices": [], "payments": [],
+        "step_records": _production_step_records(db, production_orders), "timeline": timeline,
+    }
 
 
 def _is_any_stock_token(value: str | None) -> bool:
@@ -644,29 +1173,51 @@ def _is_any_stock_token(value: str | None) -> bool:
     return token in {"", "*", "any", "mixed", "__any__", "pack60", "bag"}
 
 
-def _stock_variant_key(model_id: int, color: str, size: str, brand_id: int | None) -> tuple[int, str, str, int | None]:
-    return (int(model_id), str(color or "").strip(), str(size or "").strip(), brand_id)
+def _stock_variant_key(
+    model_id: int | None,
+    color: str,
+    size: str,
+    brand_id: int | None,
+    finished_goods_stock_id: int | None = None,
+) -> tuple[str, int, str, str, int | None]:
+    if finished_goods_stock_id is not None:
+        return ("stock", int(finished_goods_stock_id), "", "", None)
+    if model_id is None:
+        raise HTTPException(400, "A model or ready-stock product is required")
+    return (
+        "model",
+        int(model_id),
+        str(color or "").strip(),
+        str(size or "").strip(),
+        brand_id,
+    )
 
 
 def _stock_rows_for_variant(
     db: DbSession,
     *,
-    model_id: int,
+    model_id: int | None,
     color: str,
     size: str,
     brand_id: int | None,
+    finished_goods_stock_id: int | None = None,
 ) -> list[FinishedGoodsStock]:
     qry = db.query(FinishedGoodsStock).filter(
-        FinishedGoodsStock.model_id == model_id,
         FinishedGoodsStock.status == "available",
         FinishedGoodsStock.available_qty > 0,
     )
-    if not _is_any_stock_token(color):
-        qry = qry.filter(FinishedGoodsStock.color == color)
-    if not _is_any_stock_token(size):
-        qry = qry.filter(FinishedGoodsStock.size == size)
-    if brand_id is not None:
-        qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
+    if finished_goods_stock_id is not None:
+        qry = qry.filter(FinishedGoodsStock.id == finished_goods_stock_id)
+    else:
+        if model_id is None:
+            return []
+        qry = qry.filter(FinishedGoodsStock.model_id == model_id)
+        if not _is_any_stock_token(color):
+            qry = qry.filter(FinishedGoodsStock.color == color)
+        if not _is_any_stock_token(size):
+            qry = qry.filter(FinishedGoodsStock.size == size)
+        if brand_id is not None:
+            qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
     if db.bind and db.bind.dialect.name == "postgresql":
         qry = qry.with_for_update(of=FinishedGoodsStock)
     return qry.order_by(FinishedGoodsStock.id.asc()).all()
@@ -691,7 +1242,14 @@ def _notify_planning_shortage(
         else None
     )
     if planning_user:
-        summary = ", ".join(f"M{r['model_id']} {r['color']}/{r['size']}: {r['shortage']}" for r in shortages[:6])
+        summary = ", ".join(
+            (
+                f"S{r['finished_goods_stock_id']}: {r['shortage']}"
+                if r.get("finished_goods_stock_id")
+                else f"M{r['model_id']} {r['color']}/{r['size']}: {r['shortage']}"
+            )
+            for r in shortages[:6]
+        )
         if len(shortages) > 6:
             summary += f" (+{len(shortages) - 6} more)"
         db.add(
@@ -727,9 +1285,15 @@ def _reserve_branded_stock(
 ) -> tuple[list[dict], list[dict]]:
     repair_missing_brand_metadata(db)
     line_rows = lines if lines is not None else db.query(SalesOrderItem).filter(SalesOrderItem.sales_order_id == so.id).all()
-    requested_by_variant: dict[tuple[int, str, str, int | None], int] = defaultdict(int)
+    requested_by_variant: dict[tuple[str, int, str, str, int | None], int] = defaultdict(int)
     for line in line_rows:
-        key = _stock_variant_key(line.model_id, line.color, line.size, line.brand_id)
+        key = _stock_variant_key(
+            line.model_id,
+            line.color,
+            line.size,
+            line.brand_id,
+            line.finished_goods_stock_id,
+        )
         requested_by_variant[key] += int(line.quantity or 0)
 
     existing_rows = (
@@ -739,21 +1303,25 @@ def _reserve_branded_stock(
         .all()
     )
 
-    outstanding_by_variant: dict[tuple[int, str, str, int | None], int] = {}
+    outstanding_by_variant: dict[tuple[str, int, str, str, int | None], int] = {}
     for key, requested_qty in requested_by_variant.items():
-        model_id, color, size, brand_id = key
+        reference_type, reference_id, color, size, brand_id = key
         any_color = _is_any_stock_token(color)
         any_size = _is_any_stock_token(size)
         already_reserved = 0
         for reservation, stock in existing_rows:
-            if int(stock.model_id) != int(model_id):
-                continue
-            if not any_color and str(stock.color or "").strip() != color:
-                continue
-            if not any_size and str(stock.size or "").strip() != size:
-                continue
-            if brand_id is not None and int(stock.brand_id or 0) != int(brand_id):
-                continue
+            if reference_type == "stock":
+                if int(stock.id) != int(reference_id):
+                    continue
+            else:
+                if stock.model_id is None or int(stock.model_id) != int(reference_id):
+                    continue
+                if not any_color and str(stock.color or "").strip() != color:
+                    continue
+                if not any_size and str(stock.size or "").strip() != size:
+                    continue
+                if brand_id is not None and int(stock.brand_id or 0) != int(brand_id):
+                    continue
             already_reserved += int(reservation.quantity or 0)
         outstanding_by_variant[key] = max(0, int(requested_qty) - already_reserved)
 
@@ -761,9 +1329,11 @@ def _reserve_branded_stock(
         raise HTTPException(409, "Stock has already been fully reserved for this sales order")
 
     shortages_precheck: list[dict] = []
-    for (model_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
+    for (reference_type, reference_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
+        model_id = reference_id if reference_type == "model" else None
+        stock_id = reference_id if reference_type == "stock" else None
         available_qty = sum(
             int(row.available_qty or 0)
             for row in _stock_rows_for_variant(
@@ -772,12 +1342,14 @@ def _reserve_branded_stock(
                 color=color,
                 size=size,
                 brand_id=brand_id,
+                finished_goods_stock_id=stock_id,
             )
         )
         if available_qty < requested_qty:
             shortages_precheck.append(
                 {
                     "model_id": model_id,
+                    "finished_goods_stock_id": stock_id,
                     "brand_id": brand_id,
                     "color": color,
                     "size": size,
@@ -789,7 +1361,11 @@ def _reserve_branded_stock(
 
     if fail_on_shortage and shortages_precheck:
         summary = "; ".join(
-            f"M{s['model_id']} {s['color']}/{s['size']} need {s['requested']}, available {s['available']}"
+            (
+                f"S{s['finished_goods_stock_id']} need {s['requested']}, available {s['available']}"
+                if s.get("finished_goods_stock_id")
+                else f"M{s['model_id']} {s['color']}/{s['size']} need {s['requested']}, available {s['available']}"
+            )
             for s in shortages_precheck[:4]
         )
         if len(shortages_precheck) > 4:
@@ -798,9 +1374,11 @@ def _reserve_branded_stock(
 
     reservations: list[dict] = []
     shortages: list[dict] = []
-    for (model_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
+    for (reference_type, reference_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
+        model_id = reference_id if reference_type == "model" else None
+        stock_id = reference_id if reference_type == "stock" else None
         needed = int(requested_qty)
         stocks = _stock_rows_for_variant(
             db,
@@ -808,6 +1386,7 @@ def _reserve_branded_stock(
             color=color,
             size=size,
             brand_id=brand_id,
+            finished_goods_stock_id=stock_id,
         )
         for s in stocks:
             if needed <= 0:
@@ -834,6 +1413,7 @@ def _reserve_branded_stock(
             shortages.append(
                 {
                     "model_id": model_id,
+                    "finished_goods_stock_id": stock_id,
                     "brand_id": brand_id,
                     "color": color,
                     "size": size,
@@ -889,14 +1469,28 @@ def list_sales_orders(
     db: DbSession, _: CurrentUser,
     status: str | None = None, order_type: str | None = None,
     customer_id: int | None = None, q: str | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
     page: int = 1, page_size: int = 50,
     include_total: bool = False,
 ):
-    qry = db.query(SalesOrder)
+    qry = db.query(SalesOrder).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
     if status: qry = qry.filter(SalesOrder.status == status)
     if order_type: qry = qry.filter(SalesOrder.order_type == order_type)
     if customer_id: qry = qry.filter(SalesOrder.customer_id == customer_id)
-    if q: qry = qry.filter(SalesOrder.order_no.ilike(f"%{q}%"))
+    if q:
+        like = f"%{q.strip()}%"
+        qry = qry.filter(
+            or_(
+                SalesOrder.order_no.ilike(like),
+                SalesOrder.status.ilike(like),
+                SalesOrder.order_type.ilike(like),
+                Customer.name.ilike(like),
+            )
+        )
+    start, end = date_filter_bounds(created_from, created_to)
+    if start: qry = qry.filter(SalesOrder.created_at >= start)
+    if end: qry = qry.filter(SalesOrder.created_at <= end)
     total = qry.count() if include_total else 0
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 500))
@@ -915,40 +1509,112 @@ def list_sales_order_history(
     order_type: str | None = None,
     customer_id: int | None = None,
     q: str | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
     page: int = 1,
     page_size: int = 50,
     include_total: bool = False,
 ):
     qry = db.query(SalesOrder).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+    stock_qry = (
+        db.query(ProductionOrder)
+        .options(
+            joinedload(ProductionOrder.planning_order),
+            joinedload(ProductionOrder.items),
+            joinedload(ProductionOrder.batches),
+            joinedload(ProductionOrder.work_orders),
+        )
+        .outerjoin(Model, Model.id == ProductionOrder.model_id)
+        .outerjoin(BrandedPlanningOrder, BrandedPlanningOrder.id == ProductionOrder.planning_order_id)
+        .filter(ProductionOrder.sales_order_id.is_(None), ProductionOrder.production_type == "branded_stock")
+    )
     if status:
         qry = qry.filter(SalesOrder.status == status)
+        stock_qry = stock_qry.filter(ProductionOrder.status == status)
     if order_type:
         qry = qry.filter(SalesOrder.order_type == order_type)
+        stock_qry = stock_qry.filter(ProductionOrder.production_type == order_type)
     if customer_id:
         qry = qry.filter(SalesOrder.customer_id == customer_id)
+        stock_qry = stock_qry.filter(False)
+    start, end = date_filter_bounds(created_from, created_to)
+    if start:
+        qry = qry.filter(SalesOrder.created_at >= start)
+        stock_qry = stock_qry.filter(ProductionOrder.created_at >= start)
+    if end:
+        qry = qry.filter(SalesOrder.created_at <= end)
+        stock_qry = stock_qry.filter(ProductionOrder.created_at <= end)
     if q:
-        like = f"%{q.strip()}%"
-        qry = qry.filter(
-            or_(
-                SalesOrder.order_no.ilike(like),
-                SalesOrder.status.ilike(like),
-                SalesOrder.order_type.ilike(like),
-                Customer.name.ilike(like),
-            )
+        term = q.strip()
+        exact_branded_group = (
+            db.query(BrandedPlanningOrder.id)
+            .filter(BrandedPlanningOrder.order_no == term)
+            .first()
         )
-    total = qry.count() if include_total else 0
+        if exact_branded_group:
+            qry = qry.filter(False)
+            stock_qry = stock_qry.filter(BrandedPlanningOrder.order_no == term)
+        else:
+            like = f"%{term}%"
+            qry = qry.filter(
+                or_(
+                    SalesOrder.order_no.ilike(like),
+                    SalesOrder.status.ilike(like),
+                    SalesOrder.order_type.ilike(like),
+                    Customer.name.ilike(like),
+                )
+            )
+            stock_qry = stock_qry.filter(
+                or_(
+                    ProductionOrder.production_no.ilike(like),
+                    ProductionOrder.status.ilike(like),
+                    ProductionOrder.production_type.ilike(like),
+                    Model.code.ilike(like),
+                    Model.name.ilike(like),
+                    BrandedPlanningOrder.order_no.ilike(like),
+                    BrandedPlanningOrder.ordered_for_name.ilike(like),
+                )
+            )
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 200))
-    rows = (
-        qry.order_by(SalesOrder.id.desc())
-        .offset((safe_page - 1) * safe_size)
-        .limit(safe_size)
-        .all()
+    candidates = (
+        [(so.created_at, "sales", so) for so in qry.all()]
+        + [(po.created_at, "production", po) for po in stock_qry.all()]
     )
-    payload = [_sales_order_history(db, so, include_detail=False) for so in rows]
+    candidates.sort(key=lambda entry: ((entry[0].isoformat() if entry[0] else ""), int(entry[2].id)), reverse=True)
+    total = len(candidates)
+    start_index = (safe_page - 1) * safe_size
+    selected = candidates[start_index:start_index + safe_size]
+    payload = [
+        _sales_order_history(db, entity, include_detail=False)
+        if kind == "sales" else _stock_production_history(db, entity, include_detail=False)
+        for _, kind, entity in selected
+    ]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
     return payload
+
+
+@router.get("/history/production/{pid}")
+def get_stock_production_history(pid: int, db: DbSession, _: CurrentUser):
+    po = (
+        db.query(ProductionOrder)
+        .options(
+            joinedload(ProductionOrder.planning_order),
+            joinedload(ProductionOrder.items),
+            joinedload(ProductionOrder.batches),
+            joinedload(ProductionOrder.work_orders),
+        )
+        .filter(
+            ProductionOrder.id == pid,
+            ProductionOrder.sales_order_id.is_(None),
+            ProductionOrder.production_type == "branded_stock",
+        )
+        .first()
+    )
+    if not po:
+        raise HTTPException(404, "Stock production order not found")
+    return _stock_production_history(db, po, include_detail=True)
 
 
 @router.get("/{sid}/history")
@@ -980,9 +1646,51 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
     total = 0.0
     created_lines: list[SalesOrderItem] = []
     for item in payload.items:
-        if not db.get(Model, item.model_id):
-            raise HTTPException(404, f"Model {item.model_id} not found")
-        line = SalesOrderItem(sales_order_id=so.id, **item.model_dump())
+        if int(item.quantity or 0) <= 0:
+            raise HTTPException(400, "Sales order quantity must be greater than zero")
+        if float(item.unit_price or 0) < 0:
+            raise HTTPException(400, "Sales order unit price cannot be negative")
+
+        item_data = item.model_dump()
+        stock = None
+        source_model_code = None
+        source_model_name = None
+        if item.finished_goods_stock_id is not None:
+            if payload.order_type != "branded_stock_sale":
+                raise HTTPException(400, "Ready-stock selection only applies to stock sales")
+            stock = db.get(FinishedGoodsStock, int(item.finished_goods_stock_id))
+            if not stock:
+                raise HTTPException(404, f"Ready stock {item.finished_goods_stock_id} not found")
+            if stock.model_id is not None:
+                if item.model_id is not None and int(item.model_id) != int(stock.model_id):
+                    raise HTTPException(409, "Selected stock does not match the requested model")
+                item_data["model_id"] = int(stock.model_id)
+            elif item.model_id is not None:
+                raise HTTPException(409, "Model-less legacy stock cannot be assigned a model during sale")
+            else:
+                package = db.get(Package, stock.package_id) if stock.package_id else None
+                identity = package_legacy_identity(db, package)
+                source_model_code = identity.get("model_code")
+                source_model_name = identity.get("model_name")
+                if not package or not package.legacy_receipt_id or not source_model_code:
+                    raise HTTPException(409, "Model-less stock is missing its legacy receipt identity")
+                item_data["source_type"] = "legacy_stock"
+            if item_data.get("brand_id") is None and stock.brand_id is not None:
+                item_data["brand_id"] = int(stock.brand_id)
+            if item_data.get("collection_id") is None and stock.collection_id is not None:
+                item_data["collection_id"] = int(stock.collection_id)
+        else:
+            if item.model_id is None:
+                raise HTTPException(400, "Select a model or an old inventory product")
+            if not db.get(Model, item.model_id):
+                raise HTTPException(404, f"Model {item.model_id} not found")
+
+        line = SalesOrderItem(
+            sales_order_id=so.id,
+            source_model_code=source_model_code,
+            source_model_name=source_model_name,
+            **item_data,
+        )
         db.add(line)
         created_lines.append(line)
         total += float(item.unit_price) * item.quantity
@@ -1053,8 +1761,18 @@ def confirm_sales_order(sid: int, db: DbSession, current: User = Depends(require
 
 
 @router.post("/{sid}/reserve-stock")
-def reserve_stock(sid: int, db: DbSession, current: User = Depends(require_permissions("sales.orders", "*"))):
+def reserve_stock(
+    sid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("sales.orders", "*")),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
     """For branded_stock_sale: try to reserve from FinishedGoodsStock for each line."""
+    fingerprint_payload = {"sales_order_id": sid}
+    replay = replay_idempotent_response(db, scope="sales.reserve-stock", key=idempotency_key, payload=fingerprint_payload)
+    if replay:
+        return replay
+
     so = db.get(SalesOrder, sid)
     if not so: raise HTTPException(404, "Sales order not found")
     if so.order_type != "branded_stock_sale":
@@ -1069,8 +1787,17 @@ def reserve_stock(sid: int, db: DbSession, current: User = Depends(require_permi
         notify_storage_when_ready=True,
     )
     log_action(db, current, "reserve_stock", "SalesOrder", so.id, new_value={"reservations": reservations, "shortages": shortages})
+    response = {"reservations": reservations, "shortages": shortages}
+    store_idempotent_response(
+        db,
+        scope="sales.reserve-stock",
+        key=idempotency_key,
+        payload=fingerprint_payload,
+        response=response,
+        user=current,
+    )
     db.commit()
-    return {"reservations": reservations, "shortages": shortages}
+    return response
 
 
 @router.post("/{sid}/generate-invoice")

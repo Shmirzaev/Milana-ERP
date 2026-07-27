@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatModelComposition } from "@/lib/modelComposition";
+import { imagePreviewHref, isPreviewModelImage, storageThumbnailUrl } from "@/lib/modelImages";
 import { orderReference } from "@/lib/orderRef";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
@@ -13,6 +15,9 @@ type ModelImage = {
   image_type?: string | null;
   is_primary?: boolean;
 };
+type ProductImage = ModelImage & {
+  source?: "model" | "material";
+};
 
 type WorkOrderProductInfoProps = {
   t: Translate;
@@ -22,6 +27,7 @@ type WorkOrderProductInfoProps = {
   model?: any;
   customerName?: string | null;
   statusText?: string;
+  compact?: boolean;
   canEditBreakdown?: boolean;
   onSaveBreakdown?: (items: BreakdownDraftItem[]) => Promise<void>;
 };
@@ -42,26 +48,66 @@ type BreakdownDraftRow = {
 };
 
 function isPreviewImage(img: ModelImage): boolean {
-  const contentType = String(img.content_type || "").toLowerCase();
-  const name = String(img.file_name || img.file_url || "").toLowerCase();
-  return contentType.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(name);
+  return isPreviewModelImage(img);
 }
 
-function selectProductImages(model: any): { modelImage: ModelImage | null; materialImage: ModelImage | null } {
+function imageFromUrl(fileUrl?: string | null, fileName?: string | null, source?: ProductImage["source"]): ProductImage | null {
+  const cleanUrl = String(fileUrl || "").trim();
+  if (!cleanUrl) return null;
+  return {
+    file_url: cleanUrl,
+    file_name: fileName || cleanUrl.split("/").pop() || cleanUrl,
+    content_type: "image/*",
+    image_type: source || null,
+    source,
+  };
+}
+
+function selectProductImages(model: any, po?: any, wo?: any): { modelImage: ProductImage | null; materialImage: ProductImage | null } {
   const images: ModelImage[] = Array.isArray(model?.images) ? model.images.filter(isPreviewImage) : [];
   const typedModelImage = images.find((img) => String(img.image_type || "").toLowerCase() === "model") || null;
   const typedMaterialImage = images.find((img) => String(img.image_type || "").toLowerCase() === "material") || null;
   const modelImage =
+    imageFromUrl(po?.model_image_url || wo?.model_image_url, tSafeName(po?.model_code || wo?.production_no), "model")
+    ||
     typedModelImage
     || images.find((img) => img.is_primary && img !== typedMaterialImage)
     || images.find((img) => img !== typedMaterialImage)
     || null;
   const materialImage =
-    typedMaterialImage
+    imageFromUrl(po?.material_image_url || wo?.material_image_url, tSafeName(po?.material_item_name || wo?.production_no), "material")
+    || typedMaterialImage
     || images.find((img) => img !== modelImage)
     || null;
 
   return { modelImage, materialImage };
+}
+
+function tSafeName(value?: string | null): string | null {
+  const clean = String(value || "").trim();
+  return clean || null;
+}
+
+function selectQolipFiles(model: any): ModelImage[] {
+  const images: ModelImage[] = Array.isArray(model?.images) ? model.images : [];
+  return images.filter((img) => Boolean(img?.file_url) && String(img.image_type || "").toLowerCase() === "pattern");
+}
+
+function modelQolipNo(model: any): string {
+  const general = model?.details_json?.general || {};
+  return String(
+    general.qolip_no
+      ?? general.qolipNo
+      ?? general.mold_no
+      ?? general.moldNo
+      ?? general.pattern_no
+      ?? general.patternNo
+      ?? "",
+  ).trim();
+}
+
+function attachmentName(file: ModelImage, fallback: string): string {
+  return file.file_name || String(file.file_url || "").split("/").pop() || fallback;
 }
 
 function d(v?: string | null) {
@@ -86,14 +132,17 @@ function breakdownRowsFromItems(items: any[]): BreakdownDraftRow[] {
   }));
 }
 
-function ImageSlot({ image, label, fallback }: { image: ModelImage | null; label: string; fallback: string }) {
+function ImageSlot({ image, label, fallback }: { image: ProductImage | null; label: string; fallback: string }) {
   const name = image?.file_name || String(image?.file_url || "").split("/").pop() || label;
+  const imageUrl = storageThumbnailUrl(image?.file_url, 320);
   return (
     <div className="min-w-0">
       <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">{label}</div>
       <div className="aspect-square overflow-hidden rounded-md border border-[#ecebe3] bg-[#f8f7f3]">
-        {image?.file_url ? (
-          <img src={image.file_url} alt={name} className="h-full w-full object-cover" loading="lazy" />
+        {imageUrl ? (
+          <a href={imagePreviewHref(image?.file_url, name)} target="_blank" rel="noreferrer" className="block h-full w-full">
+            <img src={imageUrl} alt={name} className="h-full w-full object-cover" loading="lazy" />
+          </a>
         ) : (
           <div className="flex h-full items-center justify-center px-2 text-center text-xs text-slate-400">{fallback}</div>
         )}
@@ -110,10 +159,13 @@ export default function WorkOrderProductInfo({
   model,
   customerName,
   statusText,
+  compact = false,
   canEditBreakdown = false,
   onSaveBreakdown,
 }: WorkOrderProductInfoProps) {
-  const { modelImage, materialImage } = selectProductImages(model);
+  const { modelImage, materialImage } = selectProductImages(model, po, wo);
+  const qolipFiles = selectQolipFiles(model);
+  const qolipNo = modelQolipNo(model);
   const modelLabel = model ? `${model.code} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-");
   const itemPlanTotal = Array.isArray(po?.items)
     ? po.items.reduce((sum: number, it: any) => sum + Math.max(0, Number(it?.planned_quantity || 0)), 0)
@@ -135,7 +187,7 @@ export default function WorkOrderProductInfo({
   const receivedBundleCount = Number(wo?.received_bundle_count || 0);
   const receivedBundleQty = Number(wo?.received_bundle_qty || wo?.actual_input_qty || 0);
   const showReceivedBundles = isSewingWorkOrder || receivedBundleCount > 0 || receivedBundleQty > 0;
-  const canEditCurrentBreakdown = Boolean(canEditBreakdown && onSaveBreakdown && showActualQty);
+  const canEditCurrentBreakdown = Boolean(canEditBreakdown && onSaveBreakdown && displayedActualQty > 0);
   const [breakdownEditing, setBreakdownEditing] = useState(false);
   const [breakdownRows, setBreakdownRows] = useState<BreakdownDraftRow[]>([]);
   const [breakdownSaving, setBreakdownSaving] = useState(false);
@@ -151,6 +203,7 @@ export default function WorkOrderProductInfo({
     po?.estimated_material_code
     || po?.estimated_material_amount !== null && po?.estimated_material_amount !== undefined,
   );
+  const materialComposition = formatModelComposition(model, po?.estimated_material_composition);
   const displayOrderNo = orderReference({
     order_no: so?.order_no || po?.order_no || wo?.order_no,
     sales_order_no: po?.sales_order_no || wo?.sales_order_no,
@@ -235,13 +288,13 @@ export default function WorkOrderProductInfo({
   }
 
   return (
-    <div className="card mb-4 p-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
+    <div className={`card mb-4 ${compact ? "p-3" : "p-4"}`}>
+      <div className={`grid ${compact ? "gap-3 xl:grid-cols-[minmax(0,1fr)_180px]" : "gap-4 xl:grid-cols-[minmax(0,1fr)_260px]"}`}>
         <div className="min-w-0">
-          <div className="mb-3 text-xs font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
+          <div className={`${compact ? "mb-2" : "mb-3"} text-xs font-semibold uppercase tracking-[0.08em] text-[#8a8472]`}>
             {t("page.workOrder.productInformation")}
           </div>
-          <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+          <div className={`grid text-sm ${compact ? "grid-cols-2 gap-x-4 gap-y-2 md:grid-cols-4" : "grid-cols-1 gap-3 md:grid-cols-3"}`}>
             <div className="space-y-1">
               <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.orderNo")}</div>
               <div className="font-medium">{displayOrderNo}</div>
@@ -300,9 +353,33 @@ export default function WorkOrderProductInfo({
                 </div>
               </>
             )}
+            {materialComposition && (
+              <div className="space-y-1 md:col-span-2">
+                <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.composition")}</div>
+                <div className="font-medium">{materialComposition}</div>
+              </div>
+            )}
+            {(qolipNo || qolipFiles.length > 0) && (
+              <div className="space-y-1 md:col-span-2">
+                <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.workOrder.qolip")}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {qolipNo && <span className="font-medium">{t("page.workOrder.qolipNo")}: {qolipNo}</span>}
+                  {qolipFiles.map((file, index) => (
+                    <a
+                      key={file.id || `${file.file_url}-${index}`}
+                      className="text-brand-600 hover:underline"
+                      href={file.file_url || "#"}
+                      download
+                    >
+                      {attachmentName(file, t("page.workOrder.qolipFile"))}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           {Array.isArray(po?.items) && po.items.length > 0 && (
-            <div className="mt-3 border-t border-[#ecebe3] pt-3">
+            <div className={`${compact ? "mt-2 pt-2" : "mt-3 pt-3"} border-t border-[#ecebe3]`}>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.workOrder.breakdown")}</div>
                 {canEditCurrentBreakdown && !breakdownEditing && (
@@ -388,9 +465,9 @@ export default function WorkOrderProductInfo({
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <div className={`flex flex-wrap ${compact ? "gap-1" : "gap-2"}`}>
                   {po.items.map((it: any) => (
-                    <span key={it.id} className="rounded-full bg-[#f5f2e8] px-3 py-1 text-xs text-[#5d5747]">
+                    <span key={it.id} className={`rounded-full bg-[#f5f2e8] py-1 text-xs text-[#5d5747] ${compact ? "px-2" : "px-3"}`}>
                       {(it.color || "-")} / {(it.size || "-")} / {it.planned_quantity ?? 0}
                     </span>
                   ))}
@@ -405,7 +482,7 @@ export default function WorkOrderProductInfo({
             </div>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:max-xl:max-w-sm">
+        <div className={`grid grid-cols-2 ${compact ? "gap-2" : "gap-3 sm:max-xl:max-w-sm"}`}>
           <ImageSlot image={modelImage} label={t("page.workOrder.modelPicture")} fallback={t("page.workOrder.noImage")} />
           <ImageSlot image={materialImage} label={t("page.workOrder.materialPicture")} fallback={t("page.workOrder.noImage")} />
         </div>

@@ -62,7 +62,7 @@ def _safe_reset_delivery_error(error: object) -> str:
 def notify_admins_about_password_email_failure(
     user_id: int,
     reset_url: str,
-    error: str,
+    error: object,
     *,
     email_kind: str = "reset",
 ) -> None:

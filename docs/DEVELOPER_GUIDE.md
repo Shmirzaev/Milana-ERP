@@ -12,10 +12,10 @@ Milana ERP is a two-part app:
 
 Core flow:
 
-1. User logs in (`/api/auth/login`) and gets JWT.
-2. Frontend stores token in `localStorage` (`erp_token`).
-3. `api.ts` sends `Authorization: Bearer <token>` for every request.
-4. Backend checks token and permissions (`core/deps.py`).
+1. User logs in (`/api/auth/login`) and the backend sets an HttpOnly auth cookie.
+2. Browser requests use `credentials: "same-origin"` through the Next.js proxy.
+3. Machine/API clients may use `/api/auth/token` and send `Authorization: Bearer <token>`.
+4. Backend checks the cookie or bearer token and then enforces permissions (`core/deps.py`).
 5. Route handlers call models/services, commit DB, return JSON.
 6. SWR refreshes UI data.
 
@@ -39,7 +39,7 @@ Core flow:
 - `frontend/src/app/(app)/layout.tsx`: authenticated shell (`Sidebar`, `Topbar`, `TasksDrawer`).
 - `frontend/src/app/(app)/**/page.tsx`: feature pages.
 - `frontend/src/components/*.tsx`: shared UI and navigation.
-- `frontend/src/lib/api.ts`: API wrapper, token injection, timeout handling.
+- `frontend/src/lib/api.ts`: API wrapper, cookie-backed requests, timeout handling.
 - `frontend/src/lib/auth.ts`: current user hook + permission checks.
 - `frontend/src/lib/i18n.tsx`: EN/RU/UZ translations.
 
@@ -164,14 +164,13 @@ Note: `seed()` must stay idempotent. Never write seed logic that duplicates rows
 
 ## 8. Deployment and Runtime Notes
 
-- Frontend deploy target: Vercel project `milana-erp-web`.
-- Backend deploy target: Hugging Face Docker Space.
-- Backend deploy behavior depends on startup hook + env vars.
+- The only supported production topology and release process are defined in the repository root `DEPLOYMENT.md`.
+- Production uses immutable release folders, a `current` symlink, a systemd-managed frontend, and a release-tagged backend Docker image.
 - Frontend and backend communicate via Next API proxy (`/api/...`) from browser.
 - If a deployed change is not visible:
-  1. Wait for the Vercel or Hugging Face build to finish.
+  1. Confirm both `/opt/milana-erp/current` symlinks point to the intended release.
   2. Hard refresh browser.
-  3. Check backend logs for seed/hotfix errors.
+  3. Check `milana-frontend` and `milana-backend` logs.
 
 ## 9. Quick Onboarding Checklist for New Engineers
 

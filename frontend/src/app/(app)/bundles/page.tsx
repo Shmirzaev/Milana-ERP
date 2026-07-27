@@ -7,13 +7,18 @@ import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { orderReference } from "@/lib/orderRef";
 
 export default function BundlesPage() {
   const { t } = useT();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: pageData } = useSWR<any>(`/api/bundles?include_total=true&page=${page}&page_size=${pageSize}`, fetcher);
+  const { data: pageData } = useSWR<any>(
+    `/api/bundles?include_total=true&page=${page}&page_size=${pageSize}`,
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
   const data = useMemo<any[]>(() => pageData?.rows || [], [pageData?.rows]);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 

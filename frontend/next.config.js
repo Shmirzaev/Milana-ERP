@@ -1,18 +1,31 @@
 /** @type {import('next').NextConfig} */
 const isProduction = process.env.NODE_ENV === "production";
-const defaultApiUrl =
-  isProduction
-    ? "https://shmirzaev-milana-erp-api.hf.space"
-    : "http://localhost:8000";
-const envApiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || "";
-const normalizedRawApiUrl = String(envApiUrl || "").trim() || defaultApiUrl;
-const withScheme = /^https?:\/\//i.test(normalizedRawApiUrl) ? normalizedRawApiUrl : `http://${normalizedRawApiUrl}`;
-const apiBaseUrl = withScheme.replace(/\/+$/, "");
+const publicRawApiUrl = String(process.env.NEXT_PUBLIC_API_URL || "").trim();
+const serverRawApiUrl = String(process.env.API_URL || "").trim();
+const normalizedRawApiUrl = serverRawApiUrl || publicRawApiUrl;
+
+if (isProduction && !normalizedRawApiUrl) {
+  throw new Error(
+    "Production frontend builds require NEXT_PUBLIC_API_URL or API_URL. Refusing to fall back to a hosted API.",
+  );
+}
+
+const rawApiUrl = normalizedRawApiUrl || "http://localhost:8000";
+const defaultScheme = isProduction ? "https" : "http";
+function normalizeApiUrl(value, scheme = defaultScheme) {
+  const withScheme = /^https?:\/\//i.test(value) ? value : `${scheme}://${value}`;
+  return withScheme.replace(/\/+$/, "");
+}
+const apiBaseUrl = normalizeApiUrl(rawApiUrl);
+const publicApiBaseUrl = publicRawApiUrl ? normalizeApiUrl(publicRawApiUrl) : apiBaseUrl;
+if (isProduction && publicRawApiUrl && /^http:\/\//i.test(publicApiBaseUrl)) {
+  throw new Error("Production frontend public API URL must use HTTPS.");
+}
 const apiOrigin = (() => {
   try {
-    return new URL(apiBaseUrl).origin;
+    return new URL(publicApiBaseUrl).origin;
   } catch {
-    return "";
+    throw new Error(`Invalid API URL configured for frontend: ${publicApiBaseUrl}`);
   }
 })();
 const connectSrc = ["'self'", apiOrigin].filter(Boolean).join(" ");

@@ -8,6 +8,7 @@ import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 import StagePipeline, { operationLabel, statusLabel } from "@/components/StagePipeline";
 import { orderReference } from "@/lib/orderRef";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 export default function WorkOrdersPage() {
   const { t } = useT();
@@ -25,9 +26,15 @@ export default function WorkOrdersPage() {
   }, [deptCode, depts]);
 
   const url = dept ? `/api/work-orders?department_id=${dept}` : "/api/work-orders";
-  const { data } = useSWR<any[]>(url, fetcher);
-  const { data: processes } = useSWR<any[]>("/api/process-tracking", fetcher);
+  const { data } = useSWR<any[]>(url, fetcher, LIVE_DATA_SWR_OPTIONS);
+  const { data: sewingFlows } = useSWR<any[]>("/api/sewing-flows", fetcher);
+  const { data: processes } = useSWR<any[]>(
+    "/api/process-tracking",
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
   const processByPo = new Map((processes || []).map((p) => [p.production_order_id, p]));
+  const sewingFlowById = new Map((sewingFlows || []).map((flow) => [flow.id, flow]));
 
   return (
     <div>
@@ -75,7 +82,11 @@ export default function WorkOrdersPage() {
                 <td>{w.actual_output_qty}</td>
                 <td>{w.failed_qty}</td>
                 <td>{w.deadline ? new Date(w.deadline).toLocaleDateString() : "—"}</td>
-                <td>{w.sewing_flow_id ?? "—"}</td>
+                <td>
+                  {w.sewing_flow_id
+                    ? sewingFlowById.get(w.sewing_flow_id)?.name || `#${w.sewing_flow_id}`
+                    : "—"}
+                </td>
                 <td>
                   {w.operation === "cutting" && <Link href={`/work-orders/${w.id}/cutting`} className="text-brand-600 hover:underline">{t("dash.cutting")}</Link>}
                   {w.operation === "printing" && <Link href={`/work-orders/${w.id}/printing`} className="text-brand-600 hover:underline">{t("dash.printing")}</Link>}

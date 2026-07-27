@@ -4,17 +4,24 @@ Returns, for every active production order, the current stage of each linked
 work order — which department is working on it, how many units are done vs
 planned, deadlines, sewing-flow assignment, overdue and block flags.
 """
-from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException
-from sqlalchemy import func
+from datetime import date, datetime, timezone
+from fastapi import APIRouter
+from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
+from app.core.deps import DbSession, CurrentUser
+from app.core.pagination import clamp_pagination
 from app.models import (
-    SalesOrder, ProductionOrder, Customer, Model, SewingFlow, SewingAssignment, User,
-    CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, Package, PackageBatchAllocation,
+    SalesOrder, ProductionOrder, Customer, Model, ModelBOM, SewingFlow, SewingAssignment,
+    CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord, SewingReplacementRequest,
+    PackagingRecord, Package, PackageBatchAllocation, StockBatch,
 )
-from app.core.dt import as_utc
+from app.core.dt import as_utc, date_filter_bounds
+from app.services.model_images import (
+    material_preview_image_url,
+    model_preview_image_url,
+    model_variant_picture_url,
+)
 
 router = APIRouter(prefix="/process-tracking", tags=["process-tracking"])
 _OP_ORDER = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
@@ -30,33 +37,58 @@ _STATUS_PRIORITY = [
     "planning",
     "new",
 ]
+_STARTED_STATUSES = {"in_progress", "pending", "collected", "ready"}
 
 
-def _can_view(user: User) -> bool:
-    if is_admin(user):
-        return True
-    if user.role and user.role.name in ("Admin", "Management", "Sales", "Planning"):
-        return True
-    perms = user_permissions(user)
-    return any(p in perms for p in ("processes.view", "sales.orders", "planning.production"))
+def _positive_int(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
-def _stage_dict(wo, flow, now: datetime) -> dict:
+def _actual_output_quantity(stages: list[dict]) -> int:
+    """Return the highest verified output reached by any production stage."""
+    return max((_positive_int(stage.get("completed")) for stage in stages), default=0)
+
+
+def _stage_dict(wo, flow, now: datetime, replacement_totals: dict[str, int] | None = None) -> dict:
     deadline_dt = as_utc(wo.deadline)
-    overdue = bool(deadline_dt and wo.status not in _TERMINAL_STATUSES and deadline_dt < now)
+    status = str(wo.status or "")
+    if wo.operation == "storage_transfer" and status in _STARTED_STATUSES:
+        moved = sum(
+            _positive_int(value)
+            for value in (wo.actual_output_qty, wo.passed_qty, wo.failed_qty, wo.rework_qty)
+        )
+        if moved <= 0:
+            status = "waiting"
+    overdue = bool(deadline_dt and status not in _TERMINAL_STATUSES and deadline_dt < now)
     planned = int(wo.planned_output_qty or 0)
-    done = int(wo.passed_qty or 0)
-    pct = round(100.0 * done / planned, 1) if planned > 0 else 0.0
+    passed = int(wo.passed_qty or 0)
+    failed = int(wo.failed_qty or 0)
+    resolved_failed = 0 if wo.operation == "sewing" else failed
+    processed = min(planned, passed + resolved_failed) if planned > 0 else passed + resolved_failed
+    pct = round(100.0 * processed / planned, 1) if planned > 0 else 0.0
+    replacement_totals = replacement_totals or {}
+    has_open_replacements = (
+        int(replacement_totals.get("waiting_cutting_qty", 0)) > 0
+        if wo.operation == "cutting"
+        else int(replacement_totals.get("open_qty", 0)) > 0
+        if wo.operation in {"sewing", "packaging", "storage_transfer"}
+        else False
+    )
     return {
         "work_order_id": wo.id,
         "operation": wo.operation,
         "department_id": wo.department_id,
-        "status": wo.status,
+        "status": status,
         "planned": planned,
-        "completed": done,
-        "failed": int(wo.failed_qty or 0),
+        "completed": passed,
+        "failed": failed,
+        "processed": processed,
         "rework": int(wo.rework_qty or 0),
         "progress_pct": pct,
+        "has_open_replacements": has_open_replacements,
         "assigned_to": wo.assigned_to,
         "sewing_flow_id": wo.sewing_flow_id,
         "sewing_flow_code": flow.code if flow else None,
@@ -74,8 +106,9 @@ def _rollup_operation(operation: str, rows: list[dict]) -> dict:
     planned = sum(int(r["planned"] or 0) for r in rows)
     completed = sum(int(r["completed"] or 0) for r in rows)
     failed = sum(int(r["failed"] or 0) for r in rows)
+    processed = sum(int(r.get("processed", r["completed"]) or 0) for r in rows)
     rework = sum(int(r["rework"] or 0) for r in rows)
-    pct = round(100.0 * completed / planned, 1) if planned > 0 else 0.0
+    pct = round(100.0 * processed / planned, 1) if planned > 0 else 0.0
 
     if rows and all(str(r["status"]) in _TERMINAL_STATUSES for r in rows):
         if all(str(r["status"]) == "completed" for r in rows):
@@ -105,8 +138,10 @@ def _rollup_operation(operation: str, rows: list[dict]) -> dict:
         "planned": planned,
         "completed": completed,
         "failed": failed,
+        "processed": processed,
         "rework": rework,
         "progress_pct": pct,
+        "has_open_replacements": any(bool(r.get("has_open_replacements")) for r in rows),
         "assigned_to": None,
         "sewing_flow_id": None,
         "sewing_flow_code": flow_code,
@@ -128,6 +163,45 @@ def _batch_stage_status(base_status: str, planned: int, completed: int, activity
     if activity > 0 or completed > 0:
         return "in_progress"
     return "waiting"
+
+
+def _stage_has_started(stage: dict) -> bool:
+    status = str(stage.get("status") or "")
+    if str(stage.get("operation") or "") == "storage_transfer":
+        return _positive_int(stage.get("completed")) > 0
+    if status in _STARTED_STATUSES:
+        return True
+    for key in ("completed", "failed", "rework"):
+        try:
+            if int(stage.get(key) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _apply_upstream_loss_progress(stages: list[dict]) -> None:
+    upstream_failed = 0
+    for stage in sorted(stages, key=lambda s: (_OP_RANK.get(str(s.get("operation")), 999), int(s.get("work_order_id") or 0))):
+        operation = str(stage.get("operation") or "")
+        planned = max(0, int(stage.get("planned") or 0))
+        completed = max(0, int(stage.get("completed") or 0))
+        failed = max(0, int(stage.get("failed") or 0))
+        resolved_failed = 0 if operation == "sewing" else failed
+        processed = completed + resolved_failed + upstream_failed
+        if planned > 0:
+            processed = min(planned, processed)
+            stage["progress_pct"] = round(100.0 * processed / planned, 1)
+            if (
+                processed >= planned
+                and not stage.get("has_open_replacements")
+                and str(stage.get("status") or "") not in ("cancelled", "rejected")
+            ):
+                stage["status"] = "completed"
+        else:
+            stage["progress_pct"] = 0.0
+        stage["processed"] = processed
+        upstream_failed += resolved_failed
 
 
 def _internal_batch_stage_rows(db, po: ProductionOrder, base_stages: list[dict]) -> dict[int, list[dict]]:
@@ -352,24 +426,43 @@ def _internal_batch_stage_rows(db, po: ProductionOrder, base_stages: list[dict])
             row["planned"] = planned
             row["completed"] = completed
             row["failed"] = failed
+            row["processed"] = completed + (0 if op == "sewing" else failed)
             row["rework"] = int(total.get("rework", 0))
-            row["progress_pct"] = round(100.0 * completed / planned, 1) if planned > 0 else 0.0
-            row["status"] = _batch_stage_status(str(base.get("status") or "waiting"), planned, completed, activity)
+            row["progress_pct"] = round(100.0 * int(row["processed"]) / planned, 1) if planned > 0 else 0.0
+            row["status"] = _batch_stage_status(str(base.get("status") or "waiting"), planned, int(row["processed"]), activity)
             rows.append(row)
+        _apply_upstream_loss_progress(rows)
         out[int(b.id)] = rows
     return out
 
 
 def _process_summary(stages: list[dict], po_status: str) -> dict:
     blocked = next((s for s in stages if s.get("is_blocked")), None)
-    current_stage = next((s for s in stages if str(s.get("status")) not in _TERMINAL_STATUSES), None)
     if not stages:
         current_stage_label = "planning_required"
         current_stage_status = po_status
-    elif current_stage is None:
+        current_stage = None
+    else:
+        active_stages = [s for s in stages if str(s.get("status")) not in _TERMINAL_STATUSES]
+        if not active_stages:
+            current_stage = None
+        else:
+            started_stages = [s for s in active_stages if _stage_has_started(s)]
+            if started_stages:
+                current_stage = max(
+                    started_stages,
+                    key=lambda s: (_OP_RANK.get(str(s.get("operation")), -1), int(s.get("work_order_id") or 0)),
+                )
+            else:
+                current_stage = min(
+                    active_stages,
+                    key=lambda s: (_OP_RANK.get(str(s.get("operation")), 999), int(s.get("work_order_id") or 0)),
+                )
+
+    if stages and current_stage is None:
         current_stage_label = "completed"
         current_stage_status = None
-    else:
+    elif current_stage is not None:
         current_stage_label = current_stage["operation"]
         current_stage_status = current_stage["status"]
 
@@ -390,30 +483,72 @@ def _process_summary(stages: list[dict], po_status: str) -> dict:
 def list_processes(
     db: DbSession, current: CurrentUser,
     status: str | None = None,
+    q: str | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
+    sort: str = "created_desc",
     only_active: bool = True,
+    page: int = 1,
+    page_size: int = 100,
+    include_total: bool = False,
 ):
     """One row per Production Order with rolled-up stage progress.
 
     Uses bulk lookups for Model / SalesOrder / Customer / SewingFlow to avoid
     N+1 queries when there are many production orders.
     """
-    if not _can_view(current):
-        raise HTTPException(403, "Not allowed to view process tracking")
-
     qry = db.query(ProductionOrder).options(
         selectinload(ProductionOrder.batches),
         selectinload(ProductionOrder.work_orders),
         selectinload(ProductionOrder.items),
+    ).outerjoin(
+        SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id,
+    ).outerjoin(
+        Customer, Customer.id == SalesOrder.customer_id,
+    ).outerjoin(
+        Model, Model.id == ProductionOrder.model_id,
     )
     if status:
         qry = qry.filter(ProductionOrder.status == status)
     if only_active:
         qry = qry.filter(ProductionOrder.status.not_in(["closed", "cancelled", "delivered"]))
+    start, end = date_filter_bounds(created_from, created_to)
+    if start:
+        qry = qry.filter(ProductionOrder.created_at >= start)
+    if end:
+        qry = qry.filter(ProductionOrder.created_at <= end)
+    search = (q or "").strip()
+    if search:
+        like = f"%{search}%"
+        qry = qry.filter(or_(
+            ProductionOrder.production_no.ilike(like),
+            ProductionOrder.production_type.ilike(like),
+            ProductionOrder.status.ilike(like),
+            SalesOrder.order_no.ilike(like),
+            Customer.name.ilike(like),
+            Model.code.ilike(like),
+            Model.name.ilike(like),
+        ))
 
-    pos = qry.order_by(ProductionOrder.id.desc()).all()
+    safe_page, safe_size, offset = clamp_pagination(page, page_size)
+    total = qry.count() if include_total else 0
+    sort_map = {
+        "created_asc": ProductionOrder.id.asc(),
+        "created_desc": ProductionOrder.id.desc(),
+        "deadline_asc": ProductionOrder.deadline.asc(),
+        "deadline_desc": ProductionOrder.deadline.desc(),
+        "production_no_asc": ProductionOrder.production_no.asc(),
+        "production_no_desc": ProductionOrder.production_no.desc(),
+        "status_asc": ProductionOrder.status.asc(),
+        "status_desc": ProductionOrder.status.desc(),
+    }
+    order_clause = sort_map.get((sort or "").strip().lower(), ProductionOrder.id.desc())
+    pos = qry.order_by(order_clause, ProductionOrder.id.desc()).offset(offset).limit(safe_size).all()
 
     # Bulk-load related entities so we resolve names without N+1 queries.
+    production_order_ids = {int(p.id) for p in pos}
     model_ids = {p.model_id for p in pos if p.model_id}
+    fabric_batch_ids = {p.fabric_batch_id for p in pos if p.fabric_batch_id}
     so_ids = {p.sales_order_id for p in pos if p.sales_order_id}
     work_order_ids = {int(w.id) for p in pos for w in p.work_orders if w.id}
     assignment_rows = (
@@ -433,24 +568,78 @@ def list_processes(
     flow_ids = {w.sewing_flow_id for p in pos for w in p.work_orders if w.sewing_flow_id}
     flow_ids.update({a.sewing_flow_id for a in assignment_rows if a.sewing_flow_id})
 
-    models = {m.id: m for m in (db.query(Model).filter(Model.id.in_(model_ids)).all() if model_ids else [])}
+    models = {
+        m.id: m
+        for m in (
+            db.query(Model)
+            .options(
+                selectinload(Model.images),
+                selectinload(Model.bom).joinedload(ModelBOM.item),
+                selectinload(Model.bom).joinedload(ModelBOM.stock_batch),
+            )
+            .filter(Model.id.in_(model_ids))
+            .all()
+            if model_ids
+            else []
+        )
+    }
+    fabric_batches = {
+        batch.id: batch
+        for batch in (
+            db.query(StockBatch).filter(StockBatch.id.in_(fabric_batch_ids)).all()
+            if fabric_batch_ids
+            else []
+        )
+    }
     sos = {s.id: s for s in (db.query(SalesOrder).filter(SalesOrder.id.in_(so_ids)).all() if so_ids else [])}
     customer_ids = {s.customer_id for s in sos.values() if s.customer_id}
     customers = {c.id: c for c in (db.query(Customer).filter(Customer.id.in_(customer_ids)).all() if customer_ids else [])}
     flows = {f.id: f for f in (db.query(SewingFlow).filter(SewingFlow.id.in_(flow_ids)).all() if flow_ids else [])}
+    passports_by_order: dict[int, list[CuttingPassport]] = {}
+    passport_rows = (
+        db.query(CuttingPassport)
+        .filter(CuttingPassport.production_order_id.in_(production_order_ids))
+        .order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())
+        .all()
+        if production_order_ids
+        else []
+    )
+    for passport in passport_rows:
+        passports_by_order.setdefault(int(passport.production_order_id), []).append(passport)
+
+    replacement_totals_by_order: dict[int, dict[str, int]] = {}
+    replacement_rows = (
+        db.query(
+            SewingReplacementRequest.production_order_id,
+            func.coalesce(func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.cut_qty), 0),
+            func.coalesce(func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.replaced_qty), 0),
+        )
+        .filter(SewingReplacementRequest.production_order_id.in_(production_order_ids))
+        .group_by(SewingReplacementRequest.production_order_id)
+        .all()
+        if production_order_ids
+        else []
+    )
+    for production_order_id, waiting_cutting_qty, open_qty in replacement_rows:
+        replacement_totals_by_order[int(production_order_id)] = {
+            "waiting_cutting_qty": max(0, int(waiting_cutting_qty or 0)),
+            "open_qty": max(0, int(open_qty or 0)),
+        }
 
     now = datetime.now(timezone.utc)
     out: list[dict] = []
     for po in pos:
         model = models.get(po.model_id)
+        fabric_batch = fabric_batches.get(po.fabric_batch_id)
         so = sos.get(po.sales_order_id) if po.sales_order_id else None
         customer = customers.get(so.customer_id) if so and so.customer_id else None
+        cutting_passports = passports_by_order.get(int(po.id), [])
 
         by_batch: dict[int | None, list[dict]] = {}
         all_stage_rows: list[dict] = []
         for wo in po.work_orders:
             flow = flows.get(wo.sewing_flow_id) if wo.sewing_flow_id else None
-            stage = _stage_dict(wo, flow, now)
+            stage = _stage_dict(wo, flow, now, replacement_totals_by_order.get(int(po.id)))
             assigned_flows = [
                 flows.get(a.sewing_flow_id)
                 for a in assignments_by_wo.get(int(wo.id), [])
@@ -466,6 +655,7 @@ def list_processes(
 
         for batch_stages in by_batch.values():
             batch_stages.sort(key=lambda s: (_OP_RANK.get(str(s.get("operation")), 999), int(s.get("work_order_id") or 0)))
+            _apply_upstream_loss_progress(batch_stages)
 
         by_op: dict[str, list[dict]] = {}
         for s in all_stage_rows:
@@ -475,6 +665,7 @@ def list_processes(
             rows = by_op.get(op, [])
             if rows:
                 stages.append(_rollup_operation(op, rows))
+        _apply_upstream_loss_progress(stages)
         summary = _process_summary(stages, po.status)
         internal_batch_mode = bool(po.batches) and all(w.production_batch_id is None for w in po.work_orders)
         internal_batch_stages = _internal_batch_stage_rows(db, po, stages) if internal_batch_mode else {}
@@ -489,6 +680,7 @@ def list_processes(
                 "batch_index": b.batch_index,
                 "name": b.name,
                 "planned_quantity": b.planned_quantity,
+                "actual_quantity": _actual_output_quantity(batch_stages),
                 "start_date": b.start_date,
                 "deadline": b.deadline,
                 "notes": b.notes,
@@ -502,6 +694,12 @@ def list_processes(
 
         po_deadline_utc = as_utc(po.deadline)
         po_overdue = bool(po_deadline_utc and po.status not in ("delivered", "closed", "cancelled") and po_deadline_utc < now)
+        size_totals: dict[str, dict[str, int]] = {}
+        for item in po.items:
+            size = str(item.size or "").strip() or "-"
+            bucket = size_totals.setdefault(size, {"planned_quantity": 0, "completed_quantity": 0})
+            bucket["planned_quantity"] += int(item.planned_quantity or 0)
+            bucket["completed_quantity"] += int(item.completed_quantity or 0)
 
         out.append({
             "production_order_id": po.id,
@@ -512,6 +710,7 @@ def list_processes(
             "po_deadline": po.deadline,
             "po_overdue": po_overdue,
             "planned_quantity": po.planned_quantity,
+            "actual_quantity": _actual_output_quantity(stages),
             "sales_order_id": po.sales_order_id,
             "sales_order_no": so.order_no if so else None,
             "customer_id": so.customer_id if so else None,
@@ -519,6 +718,30 @@ def list_processes(
             "model_id": po.model_id,
             "model_code": model.code if model else None,
             "model_name": model.name if model else None,
+            "sizes": [
+                {
+                    "size": size,
+                    "planned_quantity": quantities["planned_quantity"],
+                    "completed_quantity": quantities["completed_quantity"],
+                }
+                for size, quantities in size_totals.items()
+            ],
+            "model_image_url": model_preview_image_url(model),
+            "variant_picture_url": model_variant_picture_url(model),
+            "material_image_url": (
+                fabric_batch.image_url if fabric_batch else None
+            ) or material_preview_image_url(model),
+            "cutting_passport_id": cutting_passports[0].id if cutting_passports else None,
+            "cutting_passport_no": cutting_passports[0].passport_no if cutting_passports else None,
+            "cutting_passports": [
+                {
+                    "id": passport.id,
+                    "passport_no": passport.passport_no,
+                    "lot_no": passport.lot_no,
+                    "date": passport.date,
+                }
+                for passport in cutting_passports
+            ],
             "current_stage": summary["current_stage"],
             "current_stage_status": summary["current_stage_status"],
             "current_sewing_flow": summary["current_sewing_flow"],
@@ -527,14 +750,14 @@ def list_processes(
             "stages": stages,
             "batches": batches_out,
         })
+    if include_total:
+        return {"rows": out, "total": total, "page": safe_page, "page_size": safe_size}
     return out
 
 
 @router.get("/summary")
 def summary(db: DbSession, current: CurrentUser):
     """Counts per status — useful for the top-row cards on the page."""
-    if not _can_view(current):
-        raise HTTPException(403, "Not allowed")
     rows = (
         db.query(ProductionOrder.status, func.count(ProductionOrder.id))
         .filter(ProductionOrder.status.not_in(["closed", "cancelled", "delivered"]))

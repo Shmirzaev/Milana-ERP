@@ -4,8 +4,12 @@ from pydantic import BaseModel, ConfigDict
 T = TypeVar("T")
 
 
-class ORMModel(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class SchemaModel(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class ORMModel(SchemaModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
 
 class Page(BaseModel, Generic[T]):
@@ -15,6 +19,6 @@ class Page(BaseModel, Generic[T]):
     page_size: int = 50
 
 
-class MessageOut(BaseModel):
+class MessageOut(SchemaModel):
     message: str
     detail: Optional[str] = None

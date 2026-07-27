@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, PkMixin, TimestampMixin
 
 if TYPE_CHECKING:
-    from app.models.production import WorkOrder
+    from app.models.production import ProductionBatch, WorkOrder
 
 
 class SewingAssignment(Base, PkMixin, TimestampMixin):
@@ -20,6 +20,7 @@ class SewingAssignment(Base, PkMixin, TimestampMixin):
     __tablename__ = "sewing_assignments"
 
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False, index=True)
+    production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"), index=True)
     sewing_flow_id: Mapped[int] = mapped_column(ForeignKey("sewing_flows.id"), nullable=False, index=True)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     completed_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -33,3 +34,4 @@ class SewingAssignment(Base, PkMixin, TimestampMixin):
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     work_order: Mapped["WorkOrder"] = relationship("WorkOrder", back_populates="sewing_assignments")
+    production_batch: Mapped["ProductionBatch | None"] = relationship("ProductionBatch")

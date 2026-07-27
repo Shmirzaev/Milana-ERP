@@ -67,7 +67,7 @@ export default function StagePipeline({
       <div className="flex items-center gap-1">
         {ORDER.map((op, idx) => {
           const s = byOp.get(op);
-          const isDone = s?.status === "completed" || idx < currentIdx;
+          const isDone = s?.status === "completed";
           const isCurrent = idx === currentIdx;
           const isBlocked = !!s?.is_blocked;
           const isOverdue = !!s?.overdue;

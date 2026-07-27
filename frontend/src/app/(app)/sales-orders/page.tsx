@@ -8,6 +8,8 @@ import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
+import { useDialogs } from "@/components/DialogProvider";
+import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 type SO = {
   id: number;
@@ -34,6 +36,13 @@ function Money({ value }: { value: number }) {
   return <span className="mono">${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>;
 }
 
+function rowMetrics(index: number) {
+  return {
+    pct: [62, 18, 81, 47, 4, 0, 93, 100][index % 8],
+    qty: [4800, 12000, 3200, 9600, 2100, 1500, 5400, 720][index % 8],
+  };
+}
+
 function toCsvCell(value: unknown): string {
   const s = String(value ?? "");
   if (s.includes(",") || s.includes("\n") || s.includes('"')) {
@@ -53,13 +62,12 @@ function matchesTab(o: SO, tab: TabKey): boolean {
 
 export default function SalesOrdersPage() {
   const { t } = useT();
+  const dialogs = useDialogs();
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q") || "";
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: pageData, isLoading, mutate } = useSWR<any>(`/api/sales-orders?include_total=true&page=${page}&page_size=${pageSize}`, fetcher);
-  const data = useMemo<SO[]>(() => pageData?.rows || [], [pageData?.rows]);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -67,11 +75,37 @@ export default function SalesOrdersPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
   const [query, setQuery] = useState(initialQ);
+  const salesUrl = useMemo(() => {
+    const params = new URLSearchParams({
+      include_total: "true",
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    const trimmed = query.trim();
+    if (trimmed) params.set("q", trimmed);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (typeFilter !== "all") params.set("order_type", typeFilter);
+    if (createdFrom) params.set("created_from", createdFrom);
+    if (createdTo) params.set("created_to", createdTo);
+    return `/api/sales-orders?${params.toString()}`;
+  }, [createdFrom, createdTo, page, pageSize, query, statusFilter, typeFilter]);
+  const { data: pageData, isLoading, mutate } = useSWR<any>(
+    salesUrl,
+    fetcher,
+    LIVE_DATA_SWR_OPTIONS,
+  );
+  const data = useMemo<SO[]>(() => pageData?.rows || [], [pageData?.rows]);
 
   useEffect(() => {
     setQuery(initialQ);
   }, [initialQ]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [createdFrom, createdTo, query, statusFilter, typeFilter]);
 
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
@@ -126,13 +160,13 @@ export default function SalesOrdersPage() {
   }
 
   async function removeSalesOrder(id: number, orderNo: string) {
-    if (!confirm(`${t("common.delete")} ${orderNo}?`)) return;
+    if (!(await dialogs.ask({ message: `${t("common.delete")} ${orderNo}?`, tone: "danger" }))) return;
     try {
       await api.del(`/api/sales-orders/${id}`);
       if (selectedId === id) setSelectedId(null);
       mutate();
     } catch (e: any) {
-      alert(e.message);
+      await dialogs.notify(e.message);
     }
   }
 
@@ -167,7 +201,7 @@ export default function SalesOrdersPage() {
       </div>
 
       {showFilters ? (
-        <div className="card mb-4 grid grid-cols-1 gap-3 p-4 md:grid-cols-2">
+        <div className="card mb-4 grid grid-cols-1 gap-3 p-4 md:grid-cols-4">
           <div>
             <label className="label">{t("common.status")}</label>
             <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
@@ -183,6 +217,14 @@ export default function SalesOrdersPage() {
               <option value="branded_stock_sale">{t("orderType.branded")}</option>
             </select>
           </div>
+          <div>
+            <label className="label">{t("common.createdFrom")}</label>
+            <input className="input" type="date" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">{t("common.createdTo")}</label>
+            <input className="input" type="date" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} />
+          </div>
         </div>
       ) : null}
 
@@ -194,7 +236,65 @@ export default function SalesOrdersPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_480px]">
+      <div className="space-y-3 md:hidden">
+        <div className="card divide-y divide-[#ecebe3]">
+          {isLoading && <div className="p-4 text-sm text-[#8a8472]">{t("common.loading")}</div>}
+          {!isLoading && !filtered.length && <div className="p-4 text-sm text-[#8a8472]">{t("sales.noMatch")}</div>}
+          {filtered.map((o, i) => {
+            const { pct, qty } = rowMetrics(i);
+            return (
+              <article key={o.id} className="p-4">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <a href={`/sales-orders/${o.id}`} className="mono block truncate font-semibold text-[#14110b]">
+                      {o.order_no}
+                    </a>
+                    <div className="mt-1 truncate text-sm font-medium text-[#14110b]">
+                      {customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}
+                    </div>
+                  </div>
+                  <span className={`badge shrink-0 ${statusClass(o.status)}`}>{statusLabel(o.status, t)}</span>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="label">{t("field.qty")}</div>
+                    <div className="mono font-semibold">{qty.toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <div className="label">{t("field.value")}</div>
+                    <div className="font-semibold"><Money value={Number(o.total_amount || 0)} /></div>
+                  </div>
+                  <div>
+                    <div className="label">{t("field.deadline")}</div>
+                    <div className="mono text-[#56503f]">
+                      {o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="label">{t("page.processes.progress")}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="mini-bar flex-1"><span style={{ width: `${pct}%` }} /></div>
+                      <span className="mono text-xs text-[#8a8472]">{pct}%</span>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        <div className="card">
+          <PaginationControls
+            page={page}
+            pageSize={pageSize}
+            total={Number(pageData?.total || data.length)}
+            count={data.length}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
+        </div>
+      </div>
+
+      <div className="hidden grid-cols-1 gap-4 md:grid xl:grid-cols-[1.2fr_480px]">
         <div className="card">
           <div className="overflow-x-auto">
             <table className="table">
@@ -214,8 +314,7 @@ export default function SalesOrdersPage() {
                 {isLoading && <tr><td colSpan={8} className="text-[#8a8472]">{t("common.loading")}</td></tr>}
                 {!isLoading && !filtered.length && <tr><td colSpan={8} className="text-[#8a8472]">{t("sales.noMatch")}</td></tr>}
                 {filtered.map((o, i) => {
-                  const pct = [62, 18, 81, 47, 4, 0, 93, 100][i % 8];
-                  const qty = [4800, 12000, 3200, 9600, 2100, 1500, 5400, 720][i % 8];
+                  const { pct, qty } = rowMetrics(i);
                   const active = selected?.id === o.id;
                   return (
                     <tr key={o.id} data-selected={active} className={active ? "bg-[#fdf3eb]" : ""} onClick={() => setSelectedId(o.id)}>
@@ -248,7 +347,7 @@ export default function SalesOrdersPage() {
           />
         </div>
 
-        <aside className="card self-start">
+        <aside className="card hidden self-start xl:block">
           {selected ? (
             <>
               <div className="flex items-center justify-between border-b border-[#ecebe3] px-4 py-4">

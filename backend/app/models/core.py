@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric, func
+from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -57,6 +57,8 @@ class AuditLog(Base, PkMixin):
     entity_id: Mapped[int | None] = mapped_column(Integer)
     old_value_json: Mapped[dict | None] = mapped_column(JSON)
     new_value_json: Mapped[dict | None] = mapped_column(JSON)
+    prev_hash: Mapped[str | None] = mapped_column(String(64))
+    entry_hash: Mapped[str | None] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -86,3 +88,18 @@ class SystemSetting(Base, PkMixin, TimestampMixin):
     __tablename__ = "system_settings"
     key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     value_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class IdempotencyRecord(Base, PkMixin):
+    __tablename__ = "idempotency_records"
+    __table_args__ = (
+        UniqueConstraint("scope", "key", name="uq_idempotency_records_scope_key"),
+    )
+
+    scope: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    response_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False, default=200)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

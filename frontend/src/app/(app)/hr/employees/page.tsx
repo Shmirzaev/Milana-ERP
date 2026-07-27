@@ -5,6 +5,8 @@ import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { useT } from "@/lib/i18n";
+import { useDialogs } from "@/components/DialogProvider";
+import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
 type Dept = { id: number; name: string };
 type Employee = {
@@ -18,17 +20,27 @@ type Employee = {
   joined_at: string | null;
 };
 
-const EMPTY = {
+type EmployeeForm = {
+  full_name: string;
+  position: string;
+  phone: string;
+  salary: NumberInputValue;
+  department_id: number;
+  status: string;
+};
+
+const EMPTY: EmployeeForm = {
   full_name: "",
   position: "",
   phone: "",
-  salary: 0,
+  salary: "",
   department_id: 0,
   status: "active",
 };
 
 export default function EmployeesPage() {
   const { t } = useT();
+  const dialogs = useDialogs();
   const { data, error: employeesError, isLoading, mutate } = useSWR<Employee[]>("/api/employees", fetcher);
   const { data: depts, error: deptsError } = useSWR<Dept[]>("/api/departments", fetcher);
 
@@ -39,7 +51,7 @@ export default function EmployeesPage() {
     e.preventDefault();
     setCreateMsg("");
     try {
-      await api.post("/api/employees", { ...f, department_id: f.department_id || null });
+      await api.post("/api/employees", { ...f, salary: f.salary === "" ? null : numberOrZero(f.salary), department_id: f.department_id || null });
       setF(EMPTY);
       mutate();
     } catch (e: any) {
@@ -57,7 +69,7 @@ export default function EmployeesPage() {
       full_name: emp.full_name,
       position: emp.position ?? "",
       phone: emp.phone ?? "",
-      salary: emp.salary ?? 0,
+      salary: emp.salary ?? "",
       department_id: emp.department_id ?? 0,
       status: emp.status,
     });
@@ -73,7 +85,7 @@ export default function EmployeesPage() {
         full_name: edit.full_name,
         position: edit.position || null,
         phone: edit.phone || null,
-        salary: edit.salary || null,
+        salary: edit.salary === "" ? null : numberOrZero(edit.salary),
         department_id: edit.department_id || null,
         status: edit.status,
       });
@@ -85,12 +97,12 @@ export default function EmployeesPage() {
   }
 
   async function del(emp: Employee) {
-    if (!confirm(`${t("common.delete")} ${emp.full_name}?`)) return;
+    if (!(await dialogs.ask({ message: `${t("common.delete")} ${emp.full_name}?`, tone: "danger" }))) return;
     try {
       await api.del(`/api/employees/${emp.id}`);
       mutate();
     } catch (e: any) {
-      alert(e.message);
+      await dialogs.notify(e.message);
     }
   }
 
@@ -106,7 +118,7 @@ export default function EmployeesPage() {
           {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
         <input className="input" placeholder={t("field.phone")} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
-        <input className="input" type="number" placeholder={t("field.salary")} value={f.salary} onChange={(e) => setF({ ...f, salary: Number(e.target.value) })} />
+        <input className="input" type="number" placeholder={t("field.salary")} value={f.salary} onChange={(e) => setF({ ...f, salary: parseNumberInput(e.target.value) })} />
         <select className="input" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
           <option value="active">{t("empStatus.active")}</option>
           <option value="inactive">{t("empStatus.inactive")}</option>
@@ -183,7 +195,7 @@ export default function EmployeesPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">{t("field.salary")}</label>
-              <input className="input" type="number" value={edit.salary} onChange={(e) => setEdit({ ...edit, salary: Number(e.target.value) })} />
+              <input className="input" type="number" value={edit.salary} onChange={(e) => setEdit({ ...edit, salary: parseNumberInput(e.target.value) })} />
             </div>
             <div>
               <label className="label">{t("field.department")}</label>

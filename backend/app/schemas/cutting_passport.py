@@ -6,6 +6,8 @@ from app.schemas.common import ORMModel
 
 
 class CuttingPassportIn(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     passport_no: str
     date: datetime
     production_order_id: Optional[int] = None
@@ -75,6 +77,7 @@ class CuttingPassportOut(ORMModel):
     total_ribana_kg: Optional[float] = None
     actual_kg: Optional[float] = None
     pieces_per_layer: Optional[float] = None
+    size_count: Optional[int] = None
     per_piece_weight_kg: Optional[float] = None
     theoretical_kg: Optional[float] = None
     actual_kg_per_piece: Optional[float] = None

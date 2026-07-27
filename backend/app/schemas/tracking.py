@@ -2,10 +2,10 @@ from datetime import datetime
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
-from app.schemas.common import ORMModel
+from app.schemas.common import ORMModel, SchemaModel
 
 
-class BundleIn(BaseModel):
+class BundleIn(SchemaModel):
     production_order_id: int
     production_batch_id: Optional[int] = None
     sales_order_id: Optional[int] = None
@@ -44,6 +44,7 @@ class BundleOut(ORMModel):
     next_department_id: Optional[int] = None
     sewing_factory_code: Optional[str] = None
     status: str
+    created_by: Optional[int] = None
     created_at: datetime
     notes: Optional[str] = None
 
@@ -63,7 +64,7 @@ class BundleDetail(BundleOut):
     scan_logs: list[BundleScanLogOut] = []
 
 
-class PackageItemIn(BaseModel):
+class PackageItemIn(SchemaModel):
     model_id: int
     color: str
     size: str
@@ -73,7 +74,7 @@ class PackageItemIn(BaseModel):
 class PackageItemOut(ORMModel):
     id: int
     package_id: int
-    model_id: int
+    model_id: Optional[int] = None
     color: str
     size: str
     quantity: int
@@ -91,7 +92,7 @@ class PackageBatchAllocationOut(ORMModel):
     quantity: int
 
 
-class PackageIn(BaseModel):
+class PackageIn(SchemaModel):
     production_order_id: int
     production_batch_id: Optional[int] = None
     sales_order_id: Optional[int] = None
@@ -120,12 +121,20 @@ class PackageReceiveStorageIn(BaseModel):
     storage_shelf: Optional[str] = None
 
 
+class PackageBatchReceiveStorageIn(PackageReceiveStorageIn):
+    package_ids: list[int]
+
+
 class PackageStoragePlacementIn(BaseModel):
     storage_cell: str
     storage_shelf: Optional[str] = "S1"
 
 
-class PackageEditItemIn(BaseModel):
+class PackageBatchStoragePlacementIn(PackageStoragePlacementIn):
+    package_ids: list[int]
+
+
+class PackageEditItemIn(SchemaModel):
     model_id: Optional[int] = None
     color: Optional[str] = None
     size: str
@@ -160,7 +169,8 @@ class PackageOut(ORMModel):
     package_no: str
     barcode: str
     qr_code_url: Optional[str] = None
-    production_order_id: int
+    production_order_id: Optional[int] = None
+    legacy_receipt_id: Optional[int] = None
     production_no: Optional[str] = None
     order_no: Optional[str] = None
     production_batch_id: Optional[int] = None
@@ -170,7 +180,10 @@ class PackageOut(ORMModel):
     order_type: Optional[str] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
-    model_id: int
+    model_id: Optional[int] = None
+    model_code: Optional[str] = None
+    model_name: Optional[str] = None
+    model_image_url: Optional[str] = None
     color: str
     package_type: str
     total_quantity: int
@@ -224,7 +237,7 @@ class FinishedGoodsStockOut(ORMModel):
     production_order_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     package_id: Optional[int] = None
-    model_id: int
+    model_id: Optional[int] = None
     model_code: Optional[str] = None
     model_name: Optional[str] = None
     brand_id: Optional[int] = None

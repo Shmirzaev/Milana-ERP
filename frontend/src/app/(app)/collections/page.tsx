@@ -8,6 +8,7 @@ import Modal from "@/components/Modal";
 import { statusLabel } from "@/components/StagePipeline";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { numberOrFallback, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
 type Collection = {
   id: number; brand_id: number; name: string;
@@ -22,15 +23,15 @@ export default function CollectionsPage() {
   const isAdmin = can(me, "*");
   const { data, mutate } = useSWR<Collection[]>("/api/collections", fetcher);
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
-  const [form, setForm] = useState({ brand_id: 0, name: "", season: "", year: 2025 });
+  const [form, setForm] = useState<{ brand_id: number; name: string; season: string; year: NumberInputValue }>({ brand_id: 0, name: "", season: "", year: 2025 });
 
   const [editing, setEditing] = useState<Collection | null>(null);
-  const [edit, setEdit] = useState({ brand_id: 0, name: "", season: "", year: 2025, description: "", status: "draft" });
+  const [edit, setEdit] = useState<{ brand_id: number; name: string; season: string; year: NumberInputValue; description: string; status: string }>({ brand_id: 0, name: "", season: "", year: 2025, description: "", status: "draft" });
   const [editMsg, setEditMsg] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    await api.post("/api/collections", form);
+    await api.post("/api/collections", { ...form, year: numberOrFallback(form.year, 2025) });
     setForm({ brand_id: 0, name: "", season: "", year: 2025 });
     mutate();
   }
@@ -47,7 +48,7 @@ export default function CollectionsPage() {
     e.preventDefault();
     if (!editing) return;
     setEditMsg("");
-    try { await api.patch(`/api/collections/${editing.id}`, edit); setEditing(null); mutate(); }
+    try { await api.patch(`/api/collections/${editing.id}`, { ...edit, year: numberOrFallback(edit.year, 2025) }); setEditing(null); mutate(); }
     catch (e: any) { setEditMsg(e.message); }
   }
 
@@ -76,7 +77,7 @@ export default function CollectionsPage() {
         </select>
         <input className="input" placeholder={t("common.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
         <input className="input" placeholder={t("field.season")} value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} />
-        <input className="input" type="number" placeholder={t("field.year")} value={form.year} onChange={(e) => setForm({ ...form, year: Number(e.target.value) })} required />
+        <input className="input" type="number" placeholder={t("field.year")} value={form.year} onChange={(e) => setForm({ ...form, year: parseNumberInput(e.target.value) })} required />
         <button className="btn btn-primary">{t("btn.create")}</button>
       </form>
       <div className="card">
@@ -119,7 +120,7 @@ export default function CollectionsPage() {
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div><label className="label">{t("field.season")}</label><input className="input" value={edit.season} onChange={(e) => setEdit({ ...edit, season: e.target.value })} /></div>
-            <div><label className="label">{t("field.year")}</label><input className="input" type="number" value={edit.year} onChange={(e) => setEdit({ ...edit, year: Number(e.target.value) })} required /></div>
+            <div><label className="label">{t("field.year")}</label><input className="input" type="number" value={edit.year} onChange={(e) => setEdit({ ...edit, year: parseNumberInput(e.target.value) })} required /></div>
             <div>
               <label className="label">{t("field.status")}</label>
               <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}>
