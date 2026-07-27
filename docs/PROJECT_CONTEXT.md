@@ -78,6 +78,16 @@ tree and its uncommitted files remain untouched; backups, generated output,
 screenshots, bundles, and other non-source artifacts are excluded. This source
 control reconciliation did not deploy code or change production data.
 
+Draft PR `#1` contains a later, source-only security follow-up that upgrades
+the candidate to Pillow `12.3.0`, Next.js `16.2.12`, PostCSS `8.5.18`, and
+sharp `0.35.0`. The only remaining audit exception is
+`PYSEC-2026-1325`: python-jose installs ecdsa transitively, no fixed ecdsa
+release exists, and production/public startup now rejects JWT algorithms other
+than HS256 so the vulnerable elliptic-curve path is unreachable. The README
+was also rewritten to describe the current production ERP and supported
+developer workflow. These PR changes have not been deployed; production
+remains on release/image `20260727_102911`.
+
 The reviewed old-ERP catalog is now live in production: 6,404 source identities
 were verified exactly once, with 5,637 new models and 767 existing models
 enriched without changing any of the 881 pre-existing names, codes, or image
@@ -900,6 +910,8 @@ counts, waste, shortfalls, and replacement work.
 - Review and merge the production-source reconciliation PR, then separately
   classify the preserved local-only and non-production work before adding any
   of it to GitHub.
+- After review, deploy the dependency-security update only through
+  `DEPLOYMENT.md`; it is not part of the currently active production release.
 - Establish tested database backup/restore, RTO/RPO, monitoring alerts, and
   retention policies.
 - Add end-to-end browser tests for login, RBAC, sales order creation, scanning,

@@ -120,6 +120,8 @@ class Settings(BaseSettings):
         errors: list[str] = []
         if self.DEBUG:
             errors.append("DEBUG must be false")
+        if self.JWT_ALGORITHM != "HS256":
+            errors.append("JWT_ALGORITHM must be HS256")
         jwt_secret = self.JWT_SECRET.strip()
         file_secret = self.FILE_SIGNING_SECRET.strip()
         if jwt_secret in {"", "dev-secret", "test-secret"} or len(jwt_secret) < 32:
