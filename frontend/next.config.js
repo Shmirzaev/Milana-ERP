@@ -54,6 +54,10 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // Production is promoted as one immutable artifact. The standalone output
+  // contains only the runtime server and traced dependencies, so production
+  // never needs npm install or next build on the serving VM.
+  output: "standalone",
   reactStrictMode: true,
   experimental: {
     // The API accepts files up to 20 MB. Leave room for multipart framing so

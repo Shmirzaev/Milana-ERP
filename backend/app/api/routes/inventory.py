@@ -1,6 +1,4 @@
-import os
 from datetime import date, datetime
-from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Depends, Header, UploadFile, File, Response
@@ -70,7 +68,6 @@ from app.services.inventory_reports import (
 )
 from app.core.pagination import clamp_pagination
 from app.core.config import settings
-from app.core.uploads import SAFE_IMAGE_EXTENSIONS, extension_for_upload, read_validated_upload_content
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 

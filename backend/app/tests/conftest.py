@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 
 import pytest
@@ -23,12 +24,16 @@ os.environ["INITIAL_ADMIN_PASSWORD"] = "test-admin-password-123!"
 os.environ["SEED_DEMO_USERS"] = "true"
 os.environ["SEED_SAMPLE_DATA"] = "true"
 os.environ["IMPORT_LEGACY_MODELS"] = "false"
+_test_db_path = os.path.join(_tmpdir, "test.db")
+_baseline_db_path = os.path.join(_tmpdir, "baseline.db")
 
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.db import session as session_module
 from app.db.base import Base
+
+_original_engine = session_module.engine
 
 
 # Swap engine to SQLite (sync) — adjust to use StaticPool for shared in-memory if needed
@@ -61,6 +66,9 @@ def setup_db():
     # Seed minimal data
     from app.db.seed import seed
     seed()
+    test_engine.dispose()
+    _original_engine.dispose()
+    shutil.copyfile(_test_db_path, _baseline_db_path)
     yield
     Base.metadata.drop_all(bind=test_engine)
 
@@ -68,6 +76,19 @@ def setup_db():
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def isolate_database_changes():
+    """Restore the seeded SQLite snapshot before every independent test.
+
+    A file snapshot supports workflows that intentionally create independent
+    sessions or call ``rollback()``; an outer transaction does not.
+    """
+    test_engine.dispose()
+    _original_engine.dispose()
+    shutil.copyfile(_baseline_db_path, _test_db_path)
+    yield
 
 
 @pytest.fixture(autouse=True)

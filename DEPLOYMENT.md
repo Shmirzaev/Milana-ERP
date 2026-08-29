@@ -1,170 +1,269 @@
 # Milana ERP Production Deployment Rule
 
-This is the only supported production deployment procedure for Milana ERP.
-No alternative production deployment process is supported.
+This is the only supported production deployment process. Production changes are promoted from a clean Git commit as immutable source plus backend/frontend images. Production VMs do not install dependencies or build the application.
 
 ## Production topology
 
 - Public domain: `https://erp.milanapremium.uz`
 - PostgreSQL VM: `172.16.10.3`
-- FastAPI backend VM: `172.16.10.4`
-- Next.js frontend VM: `172.16.10.5`
-- Nginx Proxy Manager routes the domain to `172.16.10.5:3000` and routes
-  `/api`, `/storage`, and `/health` to `172.16.10.4:8000`.
-- Releases: `/opt/milana-erp/releases/<YYYYMMDD_HHMMSS>`
-- Current release: `/opt/milana-erp/current`
+- Backend VM: `172.16.10.4`; stable port `8000`
+- Frontend VM: `172.16.10.5`; stable port `3000`
+- Backend slots: loopback `18001` (blue), `18002` (green)
+- Frontend slots: loopback `13001` (blue), `13002` (green)
+- Stable-port service on each application VM: `milana-router`
+- Releases: `/opt/milana-erp/releases/<release_id>`
+- Current source: `/opt/milana-erp/current`
+- Runtime slot state: `/opt/milana-erp/runtime/slots.json`
 - Backend environment: `/opt/milana-erp/shared/backend.env`
-- Frontend environment: `/opt/milana-erp/shared/frontend.env`
-- Persistent backend storage: host `/app/storage`, mounted at `/app/storage`
-- Backend container: `milana-backend`
-- Backend image: `milana-backend:<release_id>`
-- FastAPI listens on container port `10000`, published as VM port `8000`.
+- Persistent storage: host `/app/storage`, mounted at `/app/storage`
 
-## Required release process
+Nginx Proxy Manager continues routing the public domain to stable ports. It does not change during a normal blue-green release.
 
-Before packaging any candidate, run the production-drift gate on **both**
-application VMs:
+## Absolute rules
+
+1. Never deploy from a dirty worktree, `C:\ERP`, an old release, or unreconciled GitHub `main`.
+2. Every change begins from the latest exact production-baseline commit.
+3. Never run `npm ci`, `next build`, `pip install`, or `docker build` on a serving production VM.
+4. Never edit `current`, a retained release, a running container, or `.next` in place.
+5. Never switch traffic before tests, backup/migration, health, warm-up, signed read-only QA, and the performance gate pass.
+6. Keep the previous slot live for the observation window.
+7. Slot ports remain loopback-only.
+8. Never expose or print secrets.
+9. A base-manifest mismatch, result-count change, median regression above 10%, p95 regression above 15%, or payload growth above 15% is an automatic stop.
+10. Keep active, rollback, and at least three additional releases.
+
+## Source of truth
+
+The deployable branch must descend from the latest clean production baseline recorded in `deploy/production-base.json`.
+
+Before work, verify both application VMs:
 
 ```sh
 active="$(readlink -f /opt/milana-erp/current)"
 cd "$active"
 sha256sum -c SOURCE_MANIFEST.sha256
+sha256sum SOURCE_MANIFEST.sha256
 ```
 
-Any missing file or checksum mismatch is an automatic stop. Preserve the
-actual active source trees from the backend and frontend VMs separately,
-reconcile every difference into the candidate, and add a focused regression
-test for the recovered behavior before continuing. If the compiled frontend
-contains behavior that is absent from its source, recover that behavior into
-source before rebuilding; a route-count comparison alone is not sufficient.
+Both VMs must name the same release and manifest. If either differs from `deploy/production-base.json`, stop and create a new clean baseline from the exact active source archive. Preserve the legacy dirty checkout and port reviewed changes individually; never merge it wholesale.
 
-1. Create a UTC release ID in `YYYYMMDD_HHMMSS` format.
-2. Upload the same source tree to both application VMs under
-   `/opt/milana-erp/releases/<release_id>`. Verify the archive SHA-256 and a
-   deterministic source-file manifest on both VMs before building. Exclude
-   dependency/build output, caches, logs, live storage, real `.env` files, and
-   private keys.
-3. Never change either `current` symlink until the relevant build and the
-   fresh database backup and database migration have completed successfully.
-4. On the frontend VM:
+## Make a change
+
+1. Fetch and create a clean worktree from the latest production baseline:
 
    ```sh
-   cd /opt/milana-erp/releases/<release_id>/frontend
-   npm ci --legacy-peer-deps --include=dev
-   set -a
-   . /opt/milana-erp/shared/frontend.env
-   set +a
+   git fetch origin
+   git worktree add ../milana-change -b change/<short-name> <production-baseline-branch>
+   cd ../milana-change
+   git status --short
+   ```
+
+2. Read `AGENTS.md` and relevant `docs/PROJECT_CONTEXT.md` sections.
+3. Make one scoped change with workflow and authorization regression tests.
+4. Run all local gates:
+
+   ```sh
+   cd backend
+   python -m ruff check app
+   python -m compileall -q app scripts
+   python -m pytest -q
+
+   cd ../frontend
+   npm ci --legacy-peer-deps
+   npm run lint
+   npm run typecheck:strict
    npm run build
    ```
 
-5. On the backend VM:
+5. Review `git diff --check`, the complete baseline diff, and all previously deployed performance contracts.
+6. Commit, push a change branch, and merge only after CI passes. Never copy uncommitted files directly to production.
 
-   ```sh
-   cd /opt/milana-erp/releases/<release_id>/backend
-   docker build -t milana-backend:<release_id> .
-   docker image inspect milana-backend:<release_id>
-   ```
+## Build immutable artifacts
 
-6. After both builds pass, create a fresh PostgreSQL custom-format backup in
-   `/opt/milana-erp/shared/backups`. Read `DATABASE_URL` without printing it
-   and pass connection fields to `pg_dump --no-password` only through the
-   child process environment, never command-line arguments. Write to a unique
-   temporary file, require a non-empty result, atomically rename it, set mode
-   `0600`, and validate it before proceeding:
+Run `.github/workflows/ci.yml` with **Run workflow** and provide:
 
-   ```sh
-   pg_restore --list /opt/milana-erp/shared/backups/<backup>.dump \
-     > /opt/milana-erp/shared/backups/<backup>.restore.list
-   test "$(grep -vc '^;' /opt/milana-erp/shared/backups/<backup>.restore.list)" -gt 100
-   sha256sum \
-     /opt/milana-erp/shared/backups/<backup>.dump \
-     /opt/milana-erp/shared/backups/<backup>.restore.list
-   ```
+- `release_id`: unique UTC `YYYYMMDD_HHMMSS`;
+- `production_base_release`: currently active release;
+- `production_base_manifest`: SHA-256 of its `SOURCE_MANIFEST.sha256`.
 
-   Record both hashes, the dump size, and restore-object count in
-   `docs/PROJECT_CONTEXT.md`.
+The workflow validates backend/frontend, verifies the production base, packages deterministic source, builds both images once outside production, pushes release-tagged images to GHCR, and retains the source/evidence artifact.
 
-7. Run and verify the candidate migration before either symlink moves:
+Production only pulls these images:
 
-   ```sh
-   docker run --rm \
-     --env-file /opt/milana-erp/shared/backend.env \
-     -v /app/storage:/app/storage \
-     milana-backend:<release_id> \
-     sh -c 'PYTHONPATH=/app:/app/backend alembic -c /app/alembic.ini upgrade head'
-   docker run --rm \
-     --env-file /opt/milana-erp/shared/backend.env \
-     -v /app/storage:/app/storage \
-     milana-backend:<release_id> \
-     sh -c 'PYTHONPATH=/app:/app/backend alembic -c /app/alembic.ini current'
-   ```
+```sh
+docker pull ghcr.io/shmirzaev/milana-erp-backend:<release_id>
+docker pull ghcr.io/shmirzaev/milana-erp-frontend:<release_id>
+docker image inspect ghcr.io/shmirzaev/milana-erp-backend:<release_id>
+docker image inspect ghcr.io/shmirzaev/milana-erp-frontend:<release_id>
+```
 
-8. After the backup, builds, and migration pass, cut over the backend:
+Never rebuild a release on a production VM.
 
-   ```sh
-   ln -sfn /opt/milana-erp/releases/<release_id> /opt/milana-erp/current
-   docker rm -f milana-backend || true
-   docker run -d \
-     --name milana-backend \
-     --restart unless-stopped \
-     --env-file /opt/milana-erp/shared/backend.env \
-     -p 8000:10000 \
-     -v /app/storage:/app/storage \
-     milana-backend:<release_id>
-   ```
+## Stage source, backup, and migration
 
-   The current image startup script runs Alembic once, optionally runs the
-   configured seed once, disables worker-side reseeding, and then starts two
-   Uvicorn workers. Do not increase `WEB_CONCURRENCY` above `2` with the
-   current per-worker pool of 15 plus 10 overflow connections.
+Verify the downloaded archive hash, extract the same archive on both VMs under `/opt/milana-erp/releases/<release_id>`, then run:
 
-9. Cut over the frontend:
+```sh
+cd /opt/milana-erp/releases/<release_id>
+sha256sum -c SOURCE_MANIFEST.sha256
+```
 
-   ```sh
-   ln -sfn /opt/milana-erp/releases/<release_id> /opt/milana-erp/current
-   sudo systemctl restart milana-frontend
-   ```
+Create a unique PostgreSQL custom-format backup without printing `DATABASE_URL`. Requirements:
 
-10. Verify all four endpoints:
+- non-empty mode-`0600` dump;
+- successful `pg_restore --list`;
+- more than 100 restore objects;
+- recorded dump/restore-list sizes and SHA-256 values.
 
-   ```sh
-   curl --fail http://172.16.10.4:8000/health
-   curl --fail --head http://172.16.10.5:3000/login
-   curl --fail https://erp.milanapremium.uz/health
-   curl --fail --head https://erp.milanapremium.uz/login
-   ```
+Run candidate migrations before traffic switch:
 
-11. Verify the active release/image, one Uvicorn parent with two workers,
-    container resource use, startup logs, and PostgreSQL connection headroom:
+```sh
+docker run --rm \
+  --env-file /opt/milana-erp/shared/backend.env \
+  -v /app/storage:/app/storage \
+  ghcr.io/shmirzaev/milana-erp-backend:<release_id> \
+  sh -c 'PYTHONPATH=/app:/app/backend alembic -c /app/alembic.ini upgrade head'
 
-    ```sh
-    readlink -f /opt/milana-erp/current
-    docker inspect -f '{{.Config.Image}}' milana-backend
-    docker top milana-backend -eo pid,ppid,cmd
-    docker stats --no-stream milana-backend
-    docker logs --tail 200 milana-backend
-    ```
+docker run --rm \
+  --env-file /opt/milana-erp/shared/backend.env \
+  -v /app/storage:/app/storage \
+  ghcr.io/shmirzaev/milana-erp-backend:<release_id> \
+  sh -c 'PYTHONPATH=/app:/app/backend alembic -c /app/alembic.ini current'
+```
 
-    Stop and roll back if either VM points to a different release, a required
-    health check fails, a worker does not start, or new 5xx/traceback errors
-    appear. Complete signed-in, read-only checks for the changed workflow
-    before declaring the release complete.
+Prefer forward-compatible migrations. Application rollback does not downgrade the database.
+
+## Stage inactive slots
+
+Read slot state:
+
+```sh
+sudo python /opt/milana-erp/shared/deploy/slotctl.py status
+```
+
+Choose the inactive slot, then on the backend VM:
+
+```sh
+sudo python /opt/milana-erp/shared/deploy/slotctl.py stage \
+  --role backend --slot <inactive-slot> --release <release_id> \
+  --image ghcr.io/shmirzaev/milana-erp-backend:<release_id>
+```
+
+On the frontend VM:
+
+```sh
+sudo python /opt/milana-erp/shared/deploy/slotctl.py stage \
+  --role frontend --slot <inactive-slot> --release <release_id> \
+  --image ghcr.io/shmirzaev/milana-erp-frontend:<release_id>
+```
+
+The manager binds loopback-only candidates, refuses to replace the active slot, waits for health, and warms routes. Backend slots use two workers and an 8+4 pool per worker, keeping overlap below the 100-connection PostgreSQL ceiling.
+
+## Performance and functional gate
+
+Benchmark active and candidate backend slots:
+
+```sh
+sudo python /opt/milana-erp/shared/deploy/slotctl.py benchmark \
+  --slot <active-slot> --output /tmp/erp-active.json
+sudo python /opt/milana-erp/shared/deploy/slotctl.py benchmark \
+  --slot <inactive-slot> --output /tmp/erp-candidate.json
+
+python /opt/milana-erp/releases/<release_id>/scripts/compare_performance.py \
+  /tmp/erp-active.json /tmp/erp-candidate.json
+```
+
+The gate requires identical result rows and bounded median, p95, and payload changes. Also complete signed-in read-only browser QA for each changed workflow and require zero console errors.
+
+## Activate
+
+Switch backend first:
+
+```sh
+sudo python /opt/milana-erp/shared/deploy/slotctl.py activate \
+  --role backend --slot <inactive-slot> --release <release_id>
+```
+
+After stable backend health succeeds, switch frontend:
+
+```sh
+sudo python /opt/milana-erp/shared/deploy/slotctl.py activate \
+  --role frontend --slot <inactive-slot> --release <release_id>
+```
+
+Activation validates HAProxy and performs a graceful reload: existing connections finish while new traffic reaches the warmed candidate. Then update `current` on both VMs:
+
+```sh
+ln -sfn /opt/milana-erp/releases/<release_id> /opt/milana-erp/current
+```
+
+## Required postflight
+
+```sh
+curl --fail http://172.16.10.4:8000/health
+curl --fail --head http://172.16.10.5:3000/login
+curl --fail https://erp.milanapremium.uz/health
+curl --fail --head https://erp.milanapremium.uz/login
+```
+
+Also verify:
+
+- both symlinks and slot states name the same release;
+- `milana-router` is active and HAProxy validates;
+- backend has exactly two workers, zero restarts/OOM, and clean logs;
+- PostgreSQL has headroom and zero invalid indexes;
+- result counts, ordering, permissions, and business actions match;
+- changed-workflow signed browser QA passes;
+- public post-cutover benchmark stays within budget.
+
+Observe at least 30 minutes and keep the previous slot live during observation.
 
 ## Rollback
 
-Select the previous working folder in `/opt/milana-erp/releases`, repoint both
-`current` symlinks, restart `milana-frontend`, and recreate `milana-backend`
-from the previous release-tagged image with `-p 8000:10000`. Database rollback
-is not automatic; prefer forward-compatible migrations and a corrective release.
+Read rollback slot/release from `slots.json`, activate backend rollback first and frontend second, repoint both `current` symlinks, and rerun every health check:
 
-## Safety requirements
+```sh
+sudo python /opt/milana-erp/shared/deploy/slotctl.py activate \
+  --role backend --slot <rollback-slot> --release <rollback-release>
+sudo python /opt/milana-erp/shared/deploy/slotctl.py activate \
+  --role frontend --slot <rollback-slot> --release <rollback-release>
+```
 
-- Never store SSH, database, JWT, signing, or application passwords in Git.
-- Never upload local `.env` files; production uses the shared environment files.
-- Do not delete the previous working release during a deployment.
-- Do not reuse an untagged backend image for production.
-- Do not expose FastAPI port `10000` directly on the VM; publish `8000:10000`.
-- Never edit `/opt/milana-erp/current`, a retained release folder, or `.next`
-  build output in place. Emergency fixes must be packaged as a new immutable
-  release so their source, manifest, build, test, and rollback evidence remain
-  reproducible.
+Do not downgrade the database without an explicit reviewed procedure and verified backup.
+
+## Retention and disk safety
+
+Dry-run first on each VM:
+
+```sh
+python /opt/milana-erp/current/scripts/release_retention.py
+```
+
+The tool verifies manifests, archives source, protects active/rollback/recent releases, and skips anything unsafe. Cleanup requires both `--apply` and the exact hostname from dry-run:
+
+```sh
+sudo python /opt/milana-erp/current/scripts/release_retention.py \
+  --apply --confirm-host <exact-hostname>
+```
+
+Never glob-delete releases. Alert at 70% disk and block staging at 80%.
+
+## One-time blue-green bootstrap
+
+Once per VM:
+
+1. install the distribution HAProxy package;
+2. copy `deploy/slotctl.py` to `/opt/milana-erp/shared/deploy/slotctl.py`;
+3. stage the current/new release in blue;
+4. verify, warm, and benchmark it;
+5. run `install-router --stop-legacy` for the VM role;
+6. immediately run internal/public health and signed read-only checks;
+7. retain legacy service/image until bootstrap verification finishes.
+
+The one-time bootstrap has a short stable-port handoff because legacy processes own ports 8000/3000. Future releases are graceful blue-green reloads.
+
+## Completion record
+
+After every deployment update `docs/PROJECT_CONTEXT.md` and its Obsidian mirror with active/rollback releases and slots, source/image hashes, database backup/revision, performance comparison, tests, browser checks, data touched, and unresolved risks.
+
+Finally update `deploy/production-base.json` in Git to the newly verified active release so the next change cannot start from stale production source.

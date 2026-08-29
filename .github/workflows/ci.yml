@@ -1,0 +1,119 @@
+name: ERP validation and immutable release artifacts
+
+on:
+  pull_request:
+  push:
+    branches: [main, "codex/**"]
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: "UTC release ID (YYYYMMDD_HHMMSS)"
+        required: true
+        type: string
+      production_base_release:
+        description: "Currently active production release"
+        required: true
+        type: string
+      production_base_manifest:
+        description: "Currently active SOURCE_MANIFEST.sha256 hash"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Verify one Alembic head
+        working-directory: backend
+        run: python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; heads=ScriptDirectory.from_config(Config('alembic.ini')).get_heads(); assert len(heads)==1, heads; print(heads[0])"
+      - name: Ruff and compile
+        working-directory: backend
+        run: |
+          python -m ruff check app
+          python -m compileall -q app scripts
+      - name: Backend regression suite
+        working-directory: backend
+        run: python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci --legacy-peer-deps
+      - working-directory: frontend
+        run: npm run lint
+      - working-directory: frontend
+        run: npm run typecheck:strict
+      - name: Optimized production build and contracts
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: https://erp.milanapremium.uz
+          API_URL: http://172.16.10.4:8000
+        run: npm run build
+
+  release:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release identity and production base
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: |
+          [[ "$RELEASE_ID" =~ ^[0-9]{8}_[0-9]{6}$ ]]
+          python scripts/verify_release_source.py . \
+            --expected-base-release '${{ inputs.production_base_release }}' \
+            --expected-base-manifest '${{ inputs.production_base_manifest }}'
+      - name: Package deterministic source archive
+        run: python scripts/package_release.py --release '${{ inputs.release_id }}' --output 'milana-erp-${{ inputs.release_id }}.tar.gz'
+      - name: Authenticate to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Build and publish backend image
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          owner="${REPOSITORY_OWNER,,}"
+          docker build --pull -t "ghcr.io/$owner/milana-erp-backend:$RELEASE_ID" backend
+          docker push "ghcr.io/$owner/milana-erp-backend:$RELEASE_ID"
+      - name: Build and publish frontend image
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          owner="${REPOSITORY_OWNER,,}"
+          docker build --pull \
+            --build-arg NEXT_PUBLIC_API_URL=https://erp.milanapremium.uz \
+            --build-arg API_URL=http://172.16.10.4:8000 \
+            -t "ghcr.io/$owner/milana-erp-frontend:$RELEASE_ID" frontend
+          docker push "ghcr.io/$owner/milana-erp-frontend:$RELEASE_ID"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: milana-erp-${{ inputs.release_id }}
+          path: |
+            milana-erp-${{ inputs.release_id }}.tar.gz
+            milana-erp-${{ inputs.release_id }}.tar.gz.json
+          if-no-files-found: error
+          retention-days: 90

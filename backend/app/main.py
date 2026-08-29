@@ -2,7 +2,6 @@ import os
 import logging
 from time import perf_counter
 from contextlib import asynccontextmanager
-from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -384,7 +383,7 @@ def serve_model_file(name: str, request: Request):
 def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
-    from PIL import Image, ImageOps, UnidentifiedImageError
+    from PIL import UnidentifiedImageError
 
     _require_model_file_token(request)
     source_path = _model_file_path_if_exists(name)

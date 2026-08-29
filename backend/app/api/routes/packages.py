@@ -60,7 +60,7 @@ from app.services.packages import (
     reject_package_change_request,
 )
 from app.services.barcode import save_qr_image
-from app.services.label_images import variant_label_image_src
+from app.services.label_images import material_label_image_src, variant_label_image_src
 from app.services.model_images import model_display_image_url
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
@@ -111,6 +111,18 @@ def _package_out_payload(db: DbSession, pkg: Package) -> dict:
 def _package_detail_payload(db: DbSession, pkg: Package) -> dict:
     data = PackageDetail.model_validate(pkg).model_dump(mode="json")
     data.update(_package_context(db, pkg))
+    receipt = pkg.legacy_receipt
+    if receipt:
+        payload = dict(receipt.source_payload or {})
+        payload.update(
+            {
+                "source_system": receipt.source_system,
+                "source_record_id": receipt.source_record_id,
+                "source_warehouse_name": receipt.source_warehouse_name,
+                "imported_at": receipt.imported_at,
+            }
+        )
+        data["legacy_source"] = payload
     return data
 
 
@@ -226,9 +238,19 @@ def _label_model(db: DbSession, model_id: int | None) -> Model | None:
 
 def _variant_picture_html(model: Model | None) -> str:
     src = variant_label_image_src(model)
+    picture_class = "variant-picture"
+    alt = "Variant picture"
+    material_src = material_label_image_src(model)
+    if src and material_src == src:
+        picture_class += " material-picture"
+        alt = "Material picture"
+    if not src:
+        src = material_src
+        picture_class += " material-picture"
+        alt = "Material picture"
     if not src:
         return "<div class='variant-picture variant-picture--empty' aria-label='No variant picture'>No picture</div>"
-    return f"<div class='variant-picture'><img src='{_h(src)}' alt='Variant picture'/></div>"
+    return f"<div class='{picture_class}'><img src='{_h(src)}' alt='{alt}'/></div>"
 
 
 def _format_weight_kg(value) -> str:
@@ -1210,12 +1232,11 @@ def get_pkg(pid: int, db: DbSession, current: CurrentUser):
 
 @router.get("/barcode/{code}", response_model=PackageDetail)
 def get_pkg_by_barcode(code: str, db: DbSession, current: CurrentUser):
-    for candidate in _package_lookup_candidates(code):
-        p = db.query(Package).filter((Package.barcode == candidate) | (Package.package_no == candidate)).first()
-        if p:
-            require_package_access(current, p)
-            return _package_detail_payload(db, p)
-    raise HTTPException(404, "Package not found")
+    package = _package_for_receiving_scan(db, code)
+    if not package:
+        raise HTTPException(404, "Package not found")
+    require_package_access(current, package)
+    return _package_detail_payload(db, package)
 
 
 @router.post("/{pid}/receive-storage", response_model=PackageDetail)

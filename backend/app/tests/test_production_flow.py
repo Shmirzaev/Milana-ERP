@@ -55,6 +55,13 @@ def _planning_headers(client) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _factory_headers(factory_code: str) -> dict[str, str]:
+    from app.core.security import create_access_token
+
+    token = create_access_token(1, extra={"factory_code": factory_code})
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _issue_required_accessories(client, headers, production_order_id: int) -> None:
     plan_response = client.get(
         f"/api/inventory/accessory-issue-plan?production_order_id={production_order_id}",
@@ -367,12 +374,12 @@ def test_printable_bundle_and_package_qr_labels_include_material_picture(client,
         assert "alt='Material picture'" in label.text or 'alt="Material picture"' in label.text
         assert "data:image/png;base64" in label.text
         if endpoint == f"/api/packages/{package_id}/label":
-            assert ".qr img{display:block;width:50mm;height:50mm" in label.text
+            assert ".qr img{display:block;width:31mm;height:31mm" in label.text
         if endpoint == f"/api/packages/label-sheet/by-ids?ids={package_id}":
-            assert "@page{size:A4;margin:6mm}" in label.text
-            assert "width:96mm;height:132mm" in label.text
-            assert ".qr img{display:block;width:45mm;height:45mm" in label.text
-            assert ".material-picture img{display:block;width:25mm;height:25mm" in label.text
+            assert "@page{size:A4 portrait;margin:5mm}" in label.text
+            assert "width:98.5mm;height:142mm" in label.text
+            assert ".qr img{display:block;width:31mm;height:31mm" in label.text
+            assert ".variant-picture img{display:block;width:100%;height:100%" in label.text
 
 
 def test_cutting_record_print_sheet_keeps_all_reference_sections(client, auth_headers):
@@ -2962,7 +2969,8 @@ def test_cutting_routes_bundles_to_selected_sewing_factories(client, auth_header
     assert any(b["id"] == milana_bundle["id"] for b in r.json()["incoming_bundles"])
     assert any(b["id"] == milana_bundle["id"] and b["textile_code"] == "MIL" for b in r.json()["incoming_bundles"])
 
-    r = client.get("/api/inbox?dept=BST", headers=auth_headers)
+    besttex_headers = _factory_headers("BST")
+    r = client.get("/api/inbox?dept=BST", headers=besttex_headers)
     assert r.status_code == 200, r.text
     assert any(b["id"] == besttex_bundle["id"] for b in r.json()["incoming_bundles"])
     assert any(b["id"] == besttex_bundle["id"] and b["textile_code"] == "BST" for b in r.json()["incoming_bundles"])
@@ -2973,7 +2981,7 @@ def test_cutting_routes_bundles_to_selected_sewing_factories(client, auth_header
     assert any(row["production_order_id"] == po_id and row["textile_code"] == "MIXED" for row in body["incoming_work_orders"])
 
     _issue_required_accessories(client, auth_headers, po_id)
-    r = client.post(f"/api/bundles/{besttex_bundle['id']}/receive-sewing", headers=auth_headers)
+    r = client.post(f"/api/bundles/{besttex_bundle['id']}/receive-sewing", headers=besttex_headers)
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "received_sewing"
     assert r.json()["current_department_id"] == dept_by_code["BST"]["id"]
@@ -3048,9 +3056,7 @@ def test_milana_sewing_inbox_includes_default_textile_work(client, auth_headers)
     assert any(row["production_order_id"] == po_id and row["textile_code"] == "MIL" for row in sewing_body["incoming_work_orders"])
 
     r = client.get("/api/inbox?dept=BST", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    besttex_body = r.json()
-    assert not any(row["production_order_id"] == po_id for row in besttex_body["incoming_work_orders"])
+    assert r.status_code == 403, r.text
 
 
 def test_sewing_inbox_hides_cancelled_production_order_bundles(client, auth_headers):
@@ -3187,6 +3193,8 @@ def test_external_textile_route_uses_factory_packaging_then_milana_storage(
     sewing_code,
     packaging_code,
 ):
+    factory_code = "BST" if sewing_code == "BST" else "ECO"
+    factory_headers = _factory_headers(factory_code)
     so_id = _create_client_sales_order(client, auth_headers)
     _prepare_sales_order_for_po(client, auth_headers, so_id)
 
@@ -3220,7 +3228,8 @@ def test_external_textile_route_uses_factory_packaging_then_milana_storage(
     by_op = {w["operation"]: w for w in r.json()}
     assert by_op["cutting"]["department_id"] == dept_by_code[cutting_code]["id"]
 
-    r = client.get(f"/api/inbox?dept={cutting_code}", headers=auth_headers)
+    cutting_headers = factory_headers if cutting_code == "ECT" else auth_headers
+    r = client.get(f"/api/inbox?dept={cutting_code}", headers=cutting_headers)
     assert r.status_code == 200, r.text
     assert any(
         row["production_order_id"] == po_id
@@ -3244,7 +3253,7 @@ def test_external_textile_route_uses_factory_packaging_then_milana_storage(
                 {"color": "white", "size": "M", "quantity": 100, "count": 1, "next": "sewing", "sewing_factory": factory_name},
             ],
         },
-        headers=auth_headers,
+        headers=cutting_headers,
     )
     assert r.status_code == 201, r.text
     bundle = r.json()["bundles"][0]
@@ -3277,7 +3286,7 @@ def test_external_textile_route_uses_factory_packaging_then_milana_storage(
     sewing_body = r.json()
     assert any(row["production_order_id"] == po_id and row["textile_code"] == sewing_code for row in sewing_body["incoming_work_orders"])
 
-    r = client.get(f"/api/inbox?dept={sewing_code}", headers=auth_headers)
+    r = client.get(f"/api/inbox?dept={sewing_code}", headers=factory_headers)
     assert r.status_code == 200, r.text
     besttex_body = r.json()
     assert any(row["production_order_id"] == po_id and row["textile_code"] == sewing_code for row in besttex_body["incoming_work_orders"])
@@ -3287,7 +3296,7 @@ def test_external_textile_route_uses_factory_packaging_then_milana_storage(
     milana_body = r.json()
     assert not any(row["production_order_id"] == po_id for row in milana_body["incoming_work_orders"])
 
-    r = client.get(f"/api/inbox?dept={packaging_code}", headers=auth_headers)
+    r = client.get(f"/api/inbox?dept={packaging_code}", headers=factory_headers)
     assert r.status_code == 200, r.text
     bpk_expected = [
         row for row in r.json()["incoming_work_orders"]
@@ -3297,7 +3306,7 @@ def test_external_textile_route_uses_factory_packaging_then_milana_storage(
     assert int(bpk_expected[0]["expected_qty"]) == 100
 
     _issue_required_accessories(client, auth_headers, po_id)
-    r = client.post(f"/api/bundles/{bundle['id']}/receive-sewing", headers=auth_headers)
+    r = client.post(f"/api/bundles/{bundle['id']}/receive-sewing", headers=factory_headers)
     assert r.status_code == 200, r.text
     assert r.json()["current_department_id"] == dept_by_code[sewing_code]["id"]
 
@@ -3310,11 +3319,11 @@ def test_external_textile_route_uses_factory_packaging_then_milana_storage(
             "passed_qty": 100,
             "failed_qty": 0,
         },
-        headers=auth_headers,
+        headers=factory_headers,
     )
     assert r.status_code == 201, r.text
 
-    r = client.get(f"/api/inbox?dept={packaging_code}", headers=auth_headers)
+    r = client.get(f"/api/inbox?dept={packaging_code}", headers=factory_headers)
     assert r.status_code == 200, r.text
     bpk_ready = [
         row for row in r.json()["incoming_work_orders"]
@@ -3331,7 +3340,7 @@ def test_external_textile_route_uses_factory_packaging_then_milana_storage(
             "packed_qty": 100,
             "damaged_qty": 0,
         },
-        headers=auth_headers,
+        headers=factory_headers,
     )
     assert r.status_code == 201, r.text
 
@@ -3346,7 +3355,7 @@ def test_external_textile_route_uses_factory_packaging_then_milana_storage(
             "capacity": 100,
             "items": [{"model_id": 1, "color": "white", "size": "M", "quantity": 100}],
         },
-        headers=auth_headers,
+        headers=factory_headers,
     )
     assert r.status_code == 201, r.text
     package_id = r.json()["id"]

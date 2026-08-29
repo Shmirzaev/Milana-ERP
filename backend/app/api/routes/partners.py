@@ -430,19 +430,7 @@ def delete_supplier(sid: int, db: DbSession, current: User = Depends(require_per
         or db.query(PurchaseOrder.id).filter(PurchaseOrder.supplier_id == sid).first()
     )
     if linked:
-        old_value = {"name": s.name, "is_active": bool(s.is_active)}
-        s.is_active = False
-        log_action(
-            db,
-            current,
-            "archive",
-            "Supplier",
-            sid,
-            old_value=old_value,
-            new_value={"name": s.name, "is_active": False},
-        )
-        db.commit()
-        return
+        raise HTTPException(409, "Supplier is linked to stock or purchasing records and cannot be deleted")
     db.delete(s)
     log_action(db, current, "delete", "Supplier", sid, new_value={"name": s.name})
     db.commit()

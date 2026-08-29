@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import os
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.core.config import settings as app_settings
 from app.core.deps import CurrentUser, DbSession, require_permissions
-from app.core.uploads import SAFE_IMAGE_EXTENSIONS, extension_for_upload, read_validated_upload_content
 from app.models import SystemSetting, User
 from app.services.audit import log_action
 

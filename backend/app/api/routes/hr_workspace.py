@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import secrets
 from datetime import date, datetime, timedelta, timezone
@@ -15,7 +14,6 @@ from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.models import (
     AttendanceEvent,
-    AttendancePerson,
     Department,
     Employee,
     HrCalendarEvent,

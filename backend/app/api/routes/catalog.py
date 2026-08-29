@@ -140,7 +140,20 @@ def _clean_text(value: object) -> str:
 
 
 def _normalize_model_number(value: object) -> str:
-    """Remove only the separator between a leading letter prefix and first digit."""
+    """Remove the legacy separator for short letter prefixes such as ``TJ-2300``.
+
+    Longer business identifiers such as ``FAMILY-123`` and ``HISTORY-123``
+    retain their meaningful separator.
+    """
+    return re.sub(r"^([^\W\d_]{1,4})-(?=\d)", r"\1", _clean_text(value), count=1)
+
+
+def _normalize_model_code(value: object) -> str:
+    """Normalize the separator in generated catalog codes.
+
+    Explicit business model numbers are handled separately so their display
+    punctuation remains intact.
+    """
     return re.sub(r"^([^\W\d_]+)-(?=\d)", r"\1", _clean_text(value), count=1)
 
 
@@ -1481,10 +1494,14 @@ def create_model(
 ):
     catalog_scope = _normalize_catalog_scope(catalog_scope)
     model_data = payload.model_dump()
-    model_data["code"] = _normalize_model_number(model_data.get("code"))
+    details = deepcopy(model_data.get("details_json")) if isinstance(model_data.get("details_json"), dict) else {}
+    model_data["code"] = (
+        _clean_text(model_data.get("code"))
+        if details.get("legacy_import") is True
+        else _normalize_model_code(model_data.get("code"))
+    )
     if db.query(Model).filter(Model.code == model_data["code"]).first():
         raise HTTPException(400, "Model code already exists")
-    details = deepcopy(model_data.get("details_json")) if isinstance(model_data.get("details_json"), dict) else {}
     factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
     if factory_scope:
         details = merge_scoped_paid_operations({}, details, factory_scope)

@@ -1,12 +1,9 @@
-import os
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, require_permissions
 from app.core.config import settings
-from app.core.uploads import SAFE_IMAGE_EXTENSIONS, extension_for_upload, read_validated_upload_content
 from app.models import PurchaseOrder, PurchaseRequest, User
 from app.schemas.purchasing import (
     PurchaseOrderIn,
