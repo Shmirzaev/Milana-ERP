@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
@@ -15,17 +14,6 @@ from app.models import Notification, PasswordResetToken, User
 from app.services.email import send_password_reset_email, send_password_setup_email
 
 log = logging.getLogger(__name__)
-
-EMAIL_NOT_CONFIGURED_MESSAGE = (
-    "Email delivery is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL, "
-    "or set SMTP_HOST and SMTP_FROM_EMAIL."
-)
-
-
-@dataclass(frozen=True)
-class PasswordEmailDelivery:
-    sent: bool
-    error: str | None = None
 
 
 def password_reset_hash(token: str) -> str:
@@ -50,10 +38,8 @@ def create_password_reset_token(db: Session, user: User) -> str:
     return raw_token
 
 
-def _safe_reset_delivery_error(error: object) -> str:
-    safe_message = getattr(error, "safe_message", None)
-    if isinstance(safe_message, str) and safe_message.strip():
-        return safe_message
+def _safe_reset_delivery_error(error: str) -> str:
+    _ = error
     # Delivery/provider errors can echo the submitted email body, including the
     # reset URL. Never persist or log raw provider text for reset emails.
     return "Email delivery failed; provider details suppressed because they may contain reset-token material."
@@ -62,7 +48,7 @@ def _safe_reset_delivery_error(error: object) -> str:
 def notify_admins_about_password_email_failure(
     user_id: int,
     reset_url: str,
-    error: object,
+    error: str,
     *,
     email_kind: str = "reset",
 ) -> None:
@@ -113,37 +99,23 @@ def send_password_email_safely(
     user_id: int,
     email_kind: str = "reset",
 ) -> None:
-    send_password_email(email, name, reset_url, user_id, email_kind)
-
-
-def send_password_email(
-    email: str,
-    name: str,
-    reset_url: str,
-    user_id: int,
-    email_kind: str = "reset",
-) -> PasswordEmailDelivery:
     try:
         sender = send_password_setup_email if email_kind == "setup" else send_password_reset_email
         if sender(email, name, reset_url):
             log.info("Password %s email sent to %s", email_kind, email)
-            return PasswordEmailDelivery(sent=True)
         else:
-            log.warning("Password %s email not sent to %s: email delivery is not configured", email_kind, email)
+            log.warning("Password %s email not sent to %s: SMTP is not configured", email_kind, email)
             notify_admins_about_password_email_failure(
                 user_id,
                 reset_url,
-                EMAIL_NOT_CONFIGURED_MESSAGE,
+                "SMTP is not configured",
                 email_kind=email_kind,
             )
-            return PasswordEmailDelivery(sent=False, error=EMAIL_NOT_CONFIGURED_MESSAGE)
     except Exception as exc:
-        safe_error = _safe_reset_delivery_error(exc)
         log.warning(
             "Password %s email failed for %s (%s); details suppressed because they may contain reset-token material",
             email_kind,
             email,
             type(exc).__name__,
         )
-        notify_admins_about_password_email_failure(user_id, reset_url, exc, email_kind=email_kind)
-        return PasswordEmailDelivery(sent=False, error=safe_error)
+        notify_admins_about_password_email_failure(user_id, reset_url, str(exc), email_kind=email_kind)

@@ -15,8 +15,9 @@ from app.models.sales import (
     SalesOrder, SalesOrderItem, Shipment, ShipmentPackage, ShipmentScanLog, Invoice, Payment,
 )
 from app.models.production import (
-    BrandedPlanningOrder, ProductionOrder, ProductionBatch, ProductionOrderItem, WorkOrder, public_production_order_no,
-    CuttingRecord, PrintingRecord, SewingRecord, SewingReplacementRequest, PackagingRecord, PackagingReceipt, QualityCheck,
+    BrandedPlanningOrder, ProductionOrder, ProductionOrderMaterial, ProductionBatch, ProductionOrderItem,
+    WorkOrder, public_production_order_no, CuttingRecord, CuttingMaterialUsage, PrintingRecord, SewingRecord,
+    SewingReplacementRequest, PackagingRecord, PackagingReceipt, QualityCheck,
 )
 from app.models.tracking import (
     Bundle, BundleScanLog, Package, PackageItem, PackageBatchAllocation, PackageScanLog,
@@ -30,6 +31,9 @@ from app.models.sewing_assignment import SewingAssignment
 from app.models.sewing_daily_report import SewingDailyReport
 from app.models.cutting_passport import CuttingPassport
 from app.models.payroll import PayrollPeriod, PayrollRecord, PayrollQrLabel, PayrollAdjustment
+from app.models.attendance import AttendanceDevice, AttendancePerson, AttendanceEvent
+from app.models.hr import HrOrgUnit, HrPosition, HrEmployeeDocument, HrRecruitmentCandidate, HrCalendarEvent
+from app.models.price_calculation import PriceCalculationRequest
 
 __all__ = [
     "Role", "Department", "User", "Employee", "AuditLog", "Notification", "PasswordResetToken", "SystemSetting",
@@ -39,8 +43,9 @@ __all__ = [
     "Item", "Warehouse", "StockBatch", "StockMovement", "MaterialReservation", "ManualAccessoryIssue",
     "PurchaseRequest", "PurchaseRequestLine", "PurchaseOrder", "PurchaseOrderLine",
     "SalesOrder", "SalesOrderItem", "Shipment", "ShipmentPackage", "ShipmentScanLog", "Invoice", "Payment",
-    "BrandedPlanningOrder", "ProductionOrder", "ProductionBatch", "ProductionOrderItem", "WorkOrder", "public_production_order_no",
-    "CuttingRecord", "PrintingRecord", "SewingRecord", "SewingReplacementRequest", "PackagingRecord", "PackagingReceipt", "QualityCheck",
+    "BrandedPlanningOrder", "ProductionOrder", "ProductionOrderMaterial", "ProductionBatch", "ProductionOrderItem",
+    "WorkOrder", "public_production_order_no", "CuttingRecord", "CuttingMaterialUsage", "PrintingRecord",
+    "SewingRecord", "SewingReplacementRequest", "PackagingRecord", "PackagingReceipt", "QualityCheck",
     "Bundle", "BundleScanLog", "Package", "PackageItem", "PackageBatchAllocation", "PackageScanLog",
     "PackageChangeRequest", "PackageBarcodeAlias", "LegacyStockReceipt",
     "FinishedGoodsStock", "StockReservation",
@@ -52,4 +57,7 @@ __all__ = [
     "SewingDailyReport",
     "CuttingPassport",
     "PayrollPeriod", "PayrollRecord", "PayrollQrLabel", "PayrollAdjustment",
+    "AttendanceDevice", "AttendancePerson", "AttendanceEvent",
+    "HrOrgUnit", "HrPosition", "HrEmployeeDocument", "HrRecruitmentCandidate", "HrCalendarEvent",
+    "PriceCalculationRequest",
 ]

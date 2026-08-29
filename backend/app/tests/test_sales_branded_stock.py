@@ -1,20 +1,11 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import (
-    FinishedGoodsStock,
-    LegacyStockReceipt,
-    Model,
-    Package,
-    PackageItem,
-    SalesOrderItem,
-    ShipmentPackage,
-    StockReservation,
-)
+from app.models import FinishedGoodsStock, LegacyStockReceipt, Package, ShipmentPackage, StockReservation
 
 
 def _find_model_id(client, headers, code: str) -> int:
-    r = client.get("/api/models", headers=headers)
+    r = client.get("/api/models", params={"code": code, "page_size": 1}, headers=headers)
     assert r.status_code == 200, r.text
     row = next((m for m in r.json() if str(m.get("code")) == code), None)
     assert row is not None, f"Model {code} not found"
@@ -74,69 +65,6 @@ def _insert_finished_goods_stock(*, model_id: int, brand_id: int, color: str, si
         db.commit()
         db.refresh(row)
         return int(row.id)
-    finally:
-        db.close()
-
-
-def _insert_model_less_legacy_stock(*, quantity: int = 90) -> tuple[int, int, str]:
-    token = uuid4().hex
-    model_code = f"OLD-{token[:8].upper()}"
-    db = SessionLocal()
-    try:
-        receipt = LegacyStockReceipt(
-            source_system="ASTATKA_XLSX",
-            source_warehouse_id="READY_PRODUCTS_BALANCE",
-            source_warehouse_name="Ready products",
-            source_record_id=f"TEST-{token}",
-            source_checksum=token.ljust(64, "0"),
-            source_payload={
-                "model_code": model_code,
-                "model_name": "Old inventory pajamas",
-                "product": "Old inventory pajamas",
-                "size": "46-56",
-                "quantity": quantity,
-            },
-        )
-        db.add(receipt)
-        db.flush()
-        package = Package(
-            package_no=f"OLD-PKG-{token[:12].upper()}",
-            barcode=f"OLD-BC-{token[:16].upper()}",
-            legacy_receipt_id=receipt.id,
-            model_id=None,
-            color="Old inventory pajamas",
-            total_quantity=quantity,
-            capacity=60,
-            status="received_in_storage",
-        )
-        db.add(package)
-        db.flush()
-        db.add(
-            PackageItem(
-                package_id=package.id,
-                model_id=None,
-                color="Old inventory pajamas",
-                size="46-56",
-                quantity=quantity,
-            )
-        )
-        stock = FinishedGoodsStock(
-            package_id=package.id,
-            model_id=None,
-            color="Old inventory pajamas",
-            size="46-56",
-            quantity=quantity,
-            available_qty=quantity,
-            reserved_qty=0,
-            sold_qty=0,
-            cost_per_piece=0,
-            selling_price=0,
-            status="available",
-        )
-        db.add(stock)
-        db.commit()
-        db.refresh(stock)
-        return int(stock.id), int(package.id), model_code
     finally:
         db.close()
 
@@ -202,7 +130,13 @@ def test_branded_sales_order_auto_reserves_and_notifies_storage(client, auth_hea
     r3 = client.get("/api/notifications?limit=30", headers=fgs_headers)
     assert r3.status_code == 200, r3.text
     notifications = r3.json()
-    assert any(str(so["order_no"]) in str(n.get("title", "")) for n in notifications)
+    notification = next((n for n in notifications if str(so["order_no"]) in str(n.get("title", ""))), None)
+    assert notification is not None
+    assert "12 pcs" in str(notification.get("title") or "")
+    assert "T-SHIRT-001" in str(notification.get("message") or "")
+    assert "white / 46" in str(notification.get("message") or "")
+    assert "x 12" in str(notification.get("message") or "")
+    assert str(notification.get("link") or "") == f"/departments/FGS#shipping-order-{so['id']}"
 
 
 def test_branded_sales_order_rejects_when_stock_is_insufficient(client, auth_headers):
@@ -426,6 +360,93 @@ def test_branded_stock_sale_lists_and_reserves_unbranded_branded_production_stoc
         db.close()
 
 
+def test_branded_stock_sale_lists_and_reserves_legacy_receipt_stock(client, auth_headers):
+    suffix = uuid4().hex[:8].upper()
+    r = client.post(
+        "/api/models",
+        json={"code": f"LEGACY-SALE-{suffix}", "name": "Legacy sale stock model", "status": "approved"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    model_id = int(r.json()["id"])
+
+    db = SessionLocal()
+    try:
+        receipt = LegacyStockReceipt(
+            source_system="TEST_LEGACY_SALE",
+            source_warehouse_id="test",
+            source_record_id=suffix,
+            source_checksum="0" * 64,
+            source_payload={"test": True},
+        )
+        db.add(receipt)
+        db.flush()
+        package = Package(
+            package_no=f"LEGACY-SALE-{suffix}",
+            barcode=f"LEGACY-SALE-{suffix}",
+            legacy_receipt_id=receipt.id,
+            model_id=model_id,
+            color="Not specified",
+            total_quantity=90,
+            capacity=90,
+            status="received_in_storage",
+        )
+        db.add(package)
+        db.flush()
+        db.add(
+            FinishedGoodsStock(
+                package_id=package.id,
+                model_id=model_id,
+                color="Not specified",
+                size="M-46",
+                quantity=90,
+                available_qty=90,
+                reserved_qty=0,
+                sold_qty=0,
+                status="available",
+            )
+        )
+        db.commit()
+        package_id = int(package.id)
+    finally:
+        db.close()
+
+    r = client.get("/api/finished-goods/branded-stock", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    row = next((row for row in r.json() if int(row.get("package_id") or 0) == package_id), None)
+    assert row is not None
+    assert int(row["model_id"]) == model_id
+    assert int(row["available_qty"]) == 90
+    assert row["brand_id"] is None
+
+    r = client.post(
+        "/api/sales-orders",
+        json={
+            "order_type": "branded_stock_sale",
+            "items": [
+                {
+                    "model_id": model_id,
+                    "color": "mixed",
+                    "size": "pack60",
+                    "quantity": 60,
+                    "unit_price": 21,
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["status"] == "ready"
+
+    db = SessionLocal()
+    try:
+        row = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == package_id).one()
+        assert int(row.available_qty or 0) == 30
+        assert int(row.reserved_qty or 0) == 60
+    finally:
+        db.close()
+
+
 def test_branded_stock_sale_can_reserve_not_full_package(client, auth_headers):
     suffix = uuid4().hex[:8].upper()
     r = client.post(
@@ -591,6 +612,24 @@ def test_fgs_inbox_shows_branded_sales_prep_queue_with_reserved_qty(client, auth
     assert int(row.get("quantity") or 0) == 60
     assert int(row.get("packages") or 0) == 1
     assert int(row.get("pending_qty") or 0) == 0
+    assert int(row.get("order_quantity") or 0) == 60
+    assert len(row.get("item_lines") or []) == 1
+    assert int(row["item_lines"][0]["model_id"]) == model_id
+    assert str(row["item_lines"][0]["model_code"]) == "T-SHIRT-001"
+    assert str(row["item_lines"][0]["color"]) == "mixed"
+    assert str(row["item_lines"][0]["size"]) == "pack60"
+    assert int(row["item_lines"][0]["quantity"]) == 60
+
+    notifications_response = client.get("/api/notifications?limit=30", headers=fgs_headers)
+    assert notifications_response.status_code == 200, notifications_response.text
+    notification = next(
+        (n for n in notifications_response.json() if str(so["order_no"]) in str(n.get("title") or "")),
+        None,
+    )
+    assert notification is not None
+    assert "T-SHIRT-001" in str(notification.get("message") or "")
+    assert "x 60" in str(notification.get("message") or "")
+    assert "Tashkent, Sergeli district" in str(notification.get("message") or "")
 
 
 def test_shipments_ready_packages_follow_stock_reservations(client, auth_headers):
@@ -824,113 +863,3 @@ def test_shipment_scan_accepts_unreserved_same_model_package_and_blocks_other_mo
     r = client.post(f"/api/shipments/{shipment_id}/ship", headers=auth_headers)
     assert r.status_code == 200, r.text
     assert str(r.json()["status"]) == "shipped"
-
-
-def test_model_less_legacy_stock_can_be_sold_in_multiple_shipments_without_creating_models(
-    client,
-    auth_headers,
-):
-    stock_id, package_id, model_code = _insert_model_less_legacy_stock(quantity=90)
-    db = SessionLocal()
-    try:
-        model_count_before = int(db.query(Model).count())
-    finally:
-        db.close()
-
-    r = client.get("/api/finished-goods/branded-stock", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    listed = next((row for row in r.json() if int(row["id"]) == stock_id), None)
-    assert listed is not None
-    assert listed["model_id"] is None
-    assert listed["model_code"] == model_code
-    assert listed["model_name"] == "Old inventory pajamas"
-    assert int(listed["available_qty"]) == 90
-
-    def create_sale_and_ship(quantity: int) -> int:
-        response = client.post(
-            "/api/sales-orders",
-            json={
-                "order_type": "branded_stock_sale",
-                "items": [
-                    {
-                        "model_id": None,
-                        "finished_goods_stock_id": stock_id,
-                        "color": "mixed",
-                        "size": "pack60",
-                        "quantity": quantity,
-                        "unit_price": 12.5,
-                    }
-                ],
-            },
-            headers=auth_headers,
-        )
-        assert response.status_code == 201, response.text
-        order = response.json()
-        assert order["status"] == "ready"
-        assert order["items"][0]["model_id"] is None
-        assert int(order["items"][0]["finished_goods_stock_id"]) == stock_id
-        assert order["items"][0]["model_code"] == model_code
-        assert order["items"][0]["model_name"] == "Old inventory pajamas"
-
-        shipment_response = client.post(
-            "/api/shipments",
-            json={"sales_order_id": int(order["id"])},
-            headers=auth_headers,
-        )
-        assert shipment_response.status_code == 201, shipment_response.text
-        shipment = shipment_response.json()
-        assert int(shipment["packages_count"]) == 1
-        assert int(shipment["total_qty"]) == quantity
-
-        shipped = client.post(
-            f"/api/shipments/{shipment['id']}/mark-shipped",
-            headers=auth_headers,
-        )
-        assert shipped.status_code == 200, shipped.text
-        return int(order["id"])
-
-    first_order_id = create_sale_and_ship(60)
-    db = SessionLocal()
-    try:
-        stock = db.get(FinishedGoodsStock, stock_id)
-        package = db.get(Package, package_id)
-        line = (
-            db.query(SalesOrderItem)
-            .filter(SalesOrderItem.sales_order_id == first_order_id)
-            .one()
-        )
-        shipment_link = (
-            db.query(ShipmentPackage)
-            .filter(ShipmentPackage.package_id == package_id)
-            .order_by(ShipmentPackage.id.asc())
-            .first()
-        )
-        assert stock is not None
-        assert package is not None
-        assert line.model_id is None
-        assert line.source_model_code == model_code
-        assert int(stock.available_qty) == 30
-        assert int(stock.reserved_qty) == 0
-        assert int(stock.sold_qty) == 60
-        assert stock.status == "available"
-        assert package.status == "received_in_storage"
-        assert shipment_link is not None
-        assert int(shipment_link.quantity) == 60
-    finally:
-        db.close()
-
-    create_sale_and_ship(30)
-    db = SessionLocal()
-    try:
-        stock = db.get(FinishedGoodsStock, stock_id)
-        package = db.get(Package, package_id)
-        assert stock is not None
-        assert package is not None
-        assert int(stock.available_qty) == 0
-        assert int(stock.reserved_qty) == 0
-        assert int(stock.sold_qty) == 90
-        assert stock.status == "sold"
-        assert package.status == "shipped"
-        assert int(db.query(Model).count()) == model_count_before
-    finally:
-        db.close()

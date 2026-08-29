@@ -2,8 +2,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.api.routes.finished_goods import _stock_payload
-from app.api.routes.packages import _package_detail_payload, storage_map
+from app.api.routes.packages import storage_map
 from app.api.routes.shipments import _find_package_for_scan
 from app.db.session import SessionLocal
 from app.models import (
@@ -17,7 +16,6 @@ from app.models import (
     Shipment,
     ShipmentPackage,
     ShipmentScanLog,
-    Warehouse,
 )
 from scripts.import_legacy_ready_stock import (
     current_piece_quantity,
@@ -25,13 +23,12 @@ from scripts.import_legacy_ready_stock import (
     payload_checksum,
     profile_rows,
 )
-from scripts.import_astatka_ready_stock import run_import as run_astatka_import
 from scripts.prepare_legacy_ready_stock import COL, EXPECTED_COLUMNS, prepare
 from scripts.canonicalize_legacy_stock_models import reconcile as canonicalize
 from scripts.reconcile_legacy_stock_models import reconcile
 
 
-def _legacy_package(db, *, suffix: str, model_id: int | None, receipt_id: int) -> Package:
+def _legacy_package(db, *, suffix: str, model_id: int, receipt_id: int) -> Package:
     package = Package(
         package_no=f"LEG-TEST-{suffix}",
         barcode=f"LEGACY:TEST-{suffix}",
@@ -47,167 +44,6 @@ def _legacy_package(db, *, suffix: str, model_id: int | None, receipt_id: int) -
     db.add(package)
     db.flush()
     return package
-
-
-def test_model_less_legacy_stock_keeps_source_identity_without_creating_model():
-    token = uuid4().hex[:10]
-    db = SessionLocal()
-    try:
-        model_count_before = db.query(Model).count()
-        receipt = LegacyStockReceipt(
-            source_system="ASTATKA_XLSX",
-            source_warehouse_id="READY_PRODUCTS_BALANCE",
-            source_record_id=f"astatka-{token}",
-            source_checksum=f"{token:0<64}",
-            source_payload={
-                "model_code": f"OLD-{token}",
-                "model_name": "Old ready product",
-                "product": "Old ready product description",
-                "category": "Old category",
-                "size": "44-52",
-                "season": "Bahor - Yoz",
-            },
-        )
-        db.add(receipt)
-        db.flush()
-        package = _legacy_package(
-            db,
-            suffix=f"model-less-{token}",
-            model_id=None,
-            receipt_id=receipt.id,
-        )
-        package.color = "Old ready product description"
-        db.add_all(
-            [
-                PackageItem(
-                    package_id=package.id,
-                    model_id=None,
-                    color=package.color,
-                    size="44-52",
-                    quantity=5,
-                ),
-                FinishedGoodsStock(
-                    package_id=package.id,
-                    model_id=None,
-                    color=package.color,
-                    size="44-52",
-                    quantity=5,
-                    available_qty=5,
-                    reserved_qty=0,
-                    sold_qty=0,
-                    status="available",
-                ),
-            ]
-        )
-        db.commit()
-
-        stock = (
-            db.query(FinishedGoodsStock)
-            .filter(FinishedGoodsStock.package_id == package.id)
-            .one()
-        )
-        stock_payload = _stock_payload(db, stock)
-        package_payload = _package_detail_payload(db, package)
-        map_payload = storage_map(db, None, model_query=token, include_unplaced=True)
-
-        assert stock_payload["model_id"] is None
-        assert stock_payload["model_code"] == f"OLD-{token}"
-        assert stock_payload["model_name"] == "Old ready product"
-        assert package_payload["model_id"] is None
-        assert package_payload["model_code"] == f"OLD-{token}"
-        assert package_payload["items"][0]["model_id"] is None
-        assert any(row["id"] == package.id for row in map_payload["placements"])
-        assert db.query(Model).count() == model_count_before
-    finally:
-        db.close()
-
-
-def test_astatka_import_preserves_exact_match_and_leaves_old_product_model_less():
-    token = uuid4().hex[:10]
-    db = SessionLocal()
-    try:
-        warehouse = Warehouse(name=f"Finished Goods {token}", type="finished_goods")
-        model = Model(
-            code=f"EXACT-{token}",
-            name="Exact model",
-            status="approved",
-        )
-        db.add_all([warehouse, model])
-        db.commit()
-        warehouse_id = int(warehouse.id)
-        model_id = int(model.id)
-        model_code = str(model.code)
-        model_count_before = db.query(Model).count()
-
-        def row(index: int, target_model_id: int | None, target_model_code: str | None):
-            return {
-                "source_record_id": f"ASTATKA-{token}-{index}",
-                "package_no": f"AST-{token}-{index}",
-                "barcode": f"ASTATKA:{token}:{index}",
-                "quantity": 5 + index,
-                "target_model_id": target_model_id,
-                "target_model_code": target_model_code,
-                "source_payload": {
-                    "model_code": target_model_code or f"OLD-{token}",
-                    "model_name": "Ready product",
-                    "product": "Ready product description",
-                    "category": "Category",
-                    "size": "44-52",
-                    "season": "Bahor - Yoz",
-                },
-            }
-
-        plan = {
-            "source_file_sha256": token,
-            "expectations": {
-                "rows": 2,
-                "quantity": 13,
-                "mapped_rows": 1,
-                "model_less_rows": 1,
-            },
-            "rows": [
-                row(1, model_id, model_code),
-                row(2, None, None),
-            ],
-        }
-
-        dry_run = run_astatka_import(
-            db,
-            plan,
-            warehouse_id=warehouse_id,
-            imported_by=None,
-            apply=False,
-        )
-        assert dry_run["created"]["stock_rows"] == 2
-        assert dry_run["created"]["quantity"] == 13
-        assert dry_run["models_created"] == 0
-        assert (
-            db.query(LegacyStockReceipt)
-            .filter(LegacyStockReceipt.source_record_id.like(f"ASTATKA-{token}-%"))
-            .count()
-            == 0
-        )
-
-        applied = run_astatka_import(
-            db,
-            plan,
-            warehouse_id=warehouse_id,
-            imported_by=None,
-            apply=True,
-        )
-        imported_stock = (
-            db.query(FinishedGoodsStock)
-            .join(Package, Package.id == FinishedGoodsStock.package_id)
-            .filter(Package.package_no.like(f"AST-{token}-%"))
-            .order_by(Package.package_no)
-            .all()
-        )
-        assert applied["created"]["mapped_rows"] == 1
-        assert applied["created"]["model_less_rows"] == 1
-        assert [row.model_id for row in imported_stock] == [model_id, None]
-        assert db.query(Model).count() == model_count_before
-    finally:
-        db.close()
 
 
 def test_legacy_profile_requires_unique_whole_piece_rows():
@@ -310,6 +146,75 @@ def test_reused_legacy_alias_selects_next_unscanned_attached_package():
         assert matched_next == shared_code
     finally:
         db.close()
+
+
+def test_package_scanner_resolves_sticker_qr_and_returns_source_evidence(client, auth_headers):
+    token = uuid4().hex[:10]
+    qr_code = f"uzerp_ii_{int(token[:6], 16)}_2"
+    db = SessionLocal()
+    try:
+        model = Model(code=f"STICKER-{token}", name="Sticker evidence model", status="approved")
+        db.add(model)
+        db.flush()
+        receipt = LegacyStockReceipt(
+            source_system="UZERP_STICKER_PHOTO",
+            source_warehouse_id="18",
+            source_warehouse_name="TAYYOR MAHSULOT OMBORI",
+            source_record_id=qr_code,
+            source_checksum="a" * 64,
+            source_payload={
+                "client": "0001",
+                "model_number": "TJ2049",
+                "article": "V-4326",
+                "color": "Rotatsion Baski",
+                "product": "1201 Туника",
+                "fabric": "30/1 CMP PENYE",
+                "sizes": ["XL-50", "2XL-52"],
+                "weight_kg": 20.7,
+                "quantity": 60,
+                "qr_code": qr_code,
+                "inventory_no": "3769",
+                "location": "Paxtaobod",
+                "source_photo": "photo_1.jpg",
+                "source_photo_sha256": "b" * 64,
+            },
+        )
+        db.add(receipt)
+        db.flush()
+        package = _legacy_package(db, suffix=token, model_id=model.id, receipt_id=receipt.id)
+        package.weight_kg = 20.7
+        package.total_quantity = 60
+        db.add(PackageBarcodeAlias(package_id=package.id, code=qr_code, code_type="legacy_sticker_qr"))
+        db.commit()
+        package_id = package.id
+    finally:
+        db.close()
+
+    response = client.get(f"/api/packages/barcode/{qr_code}", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["id"] == package_id
+    assert body["legacy_source"] == {
+        "source_system": "UZERP_STICKER_PHOTO",
+        "source_record_id": qr_code,
+        "source_warehouse_name": "TAYYOR MAHSULOT OMBORI",
+        "imported_at": body["legacy_source"]["imported_at"],
+        "client": "0001",
+        "model_number": "TJ2049",
+        "article": "V-4326",
+        "color": "Rotatsion Baski",
+        "product": "1201 Туника",
+        "fabric": "30/1 CMP PENYE",
+        "sizes": ["XL-50", "2XL-52"],
+        "weight_kg": 20.7,
+        "quantity": 60,
+        "qr_code": qr_code,
+        "inventory_no": "3769",
+        "location": "Paxtaobod",
+        "source_photo": "photo_1.jpg",
+        "source_photo_sha256": "b" * 64,
+    }
 
 
 def test_warehouse_stock_can_include_unplaced_legacy_packages():

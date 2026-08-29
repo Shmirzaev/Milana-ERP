@@ -4,7 +4,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import (
-    Bundle, BundleScanLog, ProductionOrder, ProductionBatch, Department, SalesOrder, WorkOrder,
+    Bundle, BundleScanLog, CuttingRecord, ProductionOrder, ProductionBatch, Department, SalesOrder, WorkOrder,
 )
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
 from app.services.numbering import next_bundle_no
@@ -222,6 +222,7 @@ def create_bundle(
     *,
     production_order_id: int,
     production_batch_id: int | None = None,
+    cutting_record_id: int | None = None,
     model_id: int,
     color: str,
     size: str,
@@ -264,6 +265,7 @@ def create_bundle(
         barcode=barcode_value,
         production_order_id=production_order_id,
         production_batch_id=batch_id,
+        cutting_record_id=cutting_record_id,
         sales_order_id=sales_order_id,
         brand_id=brand_id,
         collection_id=collection_id,
@@ -293,6 +295,16 @@ def create_bundle(
     return b
 
 
+def _require_cutting_batch_approved(db: Session, bundle: Bundle) -> None:
+    if not bundle.cutting_record_id:
+        return
+    record = db.get(CuttingRecord, int(bundle.cutting_record_id))
+    if not record:
+        raise HTTPException(409, "The source cutting batch is unavailable")
+    if record.approval_status != "approved":
+        raise HTTPException(409, "This cutting batch must be approved before its bundles can move")
+
+
 def _transition(
     db: Session, bundle: Bundle, scan_type: str, new_status: str,
     from_code: str | None, to_code: str | None, user_id: int | None,
@@ -310,6 +322,7 @@ def _transition(
 
 
 def send_to_printing(db: Session, bundle: Bundle, user_id: int | None = None):
+    _require_cutting_batch_approved(db, bundle)
     if bundle.status == "sent_to_printing":
         raise HTTPException(409, "This bundle sticker was already sent to printing")
     if bundle.status in ("received_printing", "sent_to_sewing", "received_sewing"):
@@ -347,6 +360,7 @@ def receive_at_printing(db: Session, bundle: Bundle, user_id: int | None = None)
 
 
 def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
+    _require_cutting_batch_approved(db, bundle)
     if bundle.status == "sent_to_sewing":
         raise HTTPException(409, "This bundle sticker was already sent to sewing")
     if bundle.status == "received_sewing":

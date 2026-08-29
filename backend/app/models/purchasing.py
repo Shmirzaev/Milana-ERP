@@ -47,6 +47,8 @@ class PurchaseRequestLine(Base, PkMixin, TimestampMixin):
     available_quantity: Mapped[float] = mapped_column(Numeric(14, 4), default=0, nullable=False)
     shortage_quantity: Mapped[float] = mapped_column(Numeric(14, 4), default=0, nullable=False)
     preferred_supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"))
+    material_name: Mapped[str | None] = mapped_column(String(255))
+    photo_url: Mapped[str | None] = mapped_column(String(500))
     notes: Mapped[str | None] = mapped_column(Text)
 
     purchase_request: Mapped["PurchaseRequest"] = relationship("PurchaseRequest", back_populates="lines")
@@ -105,11 +107,19 @@ class PurchaseOrderLine(Base, PkMixin, TimestampMixin):
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     unit_cost: Mapped[float] = mapped_column(Numeric(12, 4), default=0, nullable=False)
     warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))
+    supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"))
+    material_name: Mapped[str | None] = mapped_column(String(255))
+    photo_url: Mapped[str | None] = mapped_column(String(500))
     notes: Mapped[str | None] = mapped_column(Text)
 
     purchase_order: Mapped["PurchaseOrder"] = relationship("PurchaseOrder", back_populates="lines")
     item = relationship("Item", lazy="joined")
     warehouse = relationship("Warehouse", lazy="joined")
+    supplier = relationship("Supplier", lazy="joined")
+
+    @property
+    def supplier_name(self) -> str | None:
+        return self.supplier.name if self.supplier else None
 
     @property
     def item_sku(self) -> str | None:

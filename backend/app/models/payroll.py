@@ -15,9 +15,12 @@ class PayrollPeriod(Base, PkMixin, TimestampMixin):
             "status IN ('draft', 'open', 'locked', 'approved', 'paid', 'cancelled')",
             name="ck_payroll_periods_status",
         ),
+        CheckConstraint("factory_code IN ('MIL', 'BST', 'ECO')", name="ck_payroll_periods_factory_code"),
+        UniqueConstraint("factory_code", "period_no", name="uq_payroll_periods_factory_period_no"),
     )
 
-    period_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    factory_code: Mapped[str] = mapped_column(String(3), nullable=False, default="MIL", server_default="MIL", index=True)
+    period_no: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -40,10 +43,12 @@ class PayrollRecord(Base, PkMixin, TimestampMixin):
             "status IN ('recorded', 'voided', 'approved', 'paid')",
             name="ck_payroll_records_status",
         ),
-        UniqueConstraint("scan_uid", name="uq_payroll_records_scan_uid"),
-        UniqueConstraint("dedupe_key", name="uq_payroll_records_dedupe_key"),
+        CheckConstraint("factory_code IN ('MIL', 'BST', 'ECO')", name="ck_payroll_records_factory_code"),
+        UniqueConstraint("factory_code", "scan_uid", name="uq_payroll_records_factory_scan_uid"),
+        UniqueConstraint("factory_code", "dedupe_key", name="uq_payroll_records_factory_dedupe_key"),
     )
 
+    factory_code: Mapped[str] = mapped_column(String(3), nullable=False, default="MIL", server_default="MIL", index=True)
     payroll_period_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_periods.id"), index=True)
     scan_uid: Mapped[str | None] = mapped_column(String(128), index=True)
     original_scan_uid: Mapped[str | None] = mapped_column(String(128), index=True)
@@ -87,10 +92,13 @@ class PayrollQrLabel(Base, PkMixin, TimestampMixin):
         CheckConstraint("quantity >= 0", name="ck_payroll_qr_labels_quantity_nonnegative"),
         CheckConstraint("rate_per_piece >= 0", name="ck_payroll_qr_labels_rate_nonnegative"),
         CheckConstraint("return_count >= 0", name="ck_payroll_qr_labels_return_count_nonnegative"),
-        CheckConstraint("status IN ('available', 'scanned')", name="ck_payroll_qr_labels_status"),
+        CheckConstraint("status IN ('available', 'scanned', 'superseded')", name="ck_payroll_qr_labels_status"),
+        CheckConstraint("factory_code IN ('MIL', 'BST', 'ECO')", name="ck_payroll_qr_labels_factory_code"),
+        UniqueConstraint("factory_code", "label_uid", name="uq_payroll_qr_labels_factory_label_uid"),
     )
 
-    label_uid: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    factory_code: Mapped[str] = mapped_column(String(3), nullable=False, default="MIL", server_default="MIL", index=True)
+    label_uid: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     payload: Mapped[str | None] = mapped_column(Text)
     production_order_id: Mapped[int | None] = mapped_column(ForeignKey("production_orders.id"), index=True)
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), index=True)
@@ -122,6 +130,12 @@ class PayrollQrLabel(Base, PkMixin, TimestampMixin):
     returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     returned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     return_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    superseded_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    split_from_label_id: Mapped[int | None] = mapped_column(
+        ForeignKey("payroll_qr_labels.id", ondelete="RESTRICT"),
+        index=True,
+    )
 
 
 class PayrollAdjustment(Base, PkMixin):
@@ -129,9 +143,13 @@ class PayrollAdjustment(Base, PkMixin):
     __table_args__ = (
         CheckConstraint("amount >= 0", name="ck_payroll_adjustments_amount_nonnegative"),
         CheckConstraint("adjustment_type IN ('bonus', 'deduction')", name="ck_payroll_adjustments_type"),
+        CheckConstraint("factory_code IN ('MIL', 'BST', 'ECO')", name="ck_payroll_adjustments_factory_code"),
+        UniqueConstraint("source_payroll_record_id", name="uq_payroll_adjustments_source_record"),
     )
 
+    factory_code: Mapped[str] = mapped_column(String(3), nullable=False, default="MIL", server_default="MIL", index=True)
     payroll_period_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_periods.id"), index=True)
+    source_payroll_record_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_records.id"), index=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
     adjustment_type: Mapped[str] = mapped_column(String(16), default="bonus", nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)

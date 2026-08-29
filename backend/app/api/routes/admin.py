@@ -2,7 +2,7 @@ from datetime import datetime, time, timezone
 import secrets
 
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from sqlalchemy import delete, update
 
 from app.core.config import settings
@@ -21,13 +21,12 @@ from fastapi import Depends
 from app.core.security import hash_password, normalize_email, validate_password_strength
 from app.db.base import Base
 from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
+from app.services.factory_scope import normalize_factory_code, selected_factory_code
 from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
-    PasswordSetupEmailStatusOut,
 )
 from app.services.audit import export_audit_hash_chain, log_action, verify_audit_hash_chain
-from app.services.email import email_configured, email_unavailable_reason
-from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email
+from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
 from app.db.reset_demo import reset_to_seed
 
 router = APIRouter(tags=["admin"])
@@ -86,8 +85,6 @@ ACTION_LABELS = {
     "generate_invoice": "generated invoice",
     "mark_disposed": "marked disposed",
     "mark_shipped": "marked shipped",
-    # This is an audit action label, not a credential.
-    "password_setup": "sent password setup",  # nosec B105
     "mark_paid": "marked paid",
     "receive": "received",
     "receive_purchase_order_line": "received purchase order line",
@@ -368,25 +365,29 @@ def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users
 def create_user(
     payload: UserIn,
     db: DbSession,
+    background_tasks: BackgroundTasks,
     current: User = Depends(require_permissions("admin.users", "*")),
 ):
     email = normalize_email(payload.email)
-    raw_password = payload.password
-    password_provided = bool(raw_password)
+    password_provided = bool(payload.password)
     if password_provided:
-        _require_strong_password(raw_password)
+        _require_strong_password(payload.password)
     _assert_can_grant_role(db, current, payload.role_id)
     extra_permissions = normalize_permissions(payload.extra_permissions)
     _assert_can_grant_permissions(current, extra_permissions)
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(400, "Email already exists")
+    factory_code = normalize_factory_code(payload.factory_code, default=selected_factory_code(current))
+    if not is_super_admin(current) and factory_code != selected_factory_code(current):
+        raise HTTPException(403, "Only Super Admin can assign another factory")
     setup_url: str | None = None
     u = User(
         name=payload.name,
         email=email,
-        password_hash=hash_password(raw_password if password_provided else secrets.token_urlsafe(48)),
+        password_hash=hash_password(payload.password if password_provided else secrets.token_urlsafe(48)),
         role_id=payload.role_id,
         department_id=payload.department_id,
+        factory_code=factory_code,
         extra_permissions=extra_permissions,
         is_active=payload.is_active,
     )
@@ -401,23 +402,13 @@ def create_user(
         "create",
         "User",
         u.id,
-        new_value={"email": u.email, "setup_email_queued": bool(setup_url)},
+        new_value={"email": u.email, "password_setup_email_queued": bool(setup_url)},
     )
     db.commit()
     db.refresh(u)
     if setup_url:
-        delivery = send_password_email(u.email, u.name, setup_url, u.id, "setup")
-        u.password_setup_email_sent = delivery.sent
-        u.password_setup_email_error = delivery.error
+        background_tasks.add_task(send_password_email_safely, u.email, u.name, setup_url, u.id, "setup")
     return u
-
-
-@router.get("/users/password-setup-email-status", response_model=PasswordSetupEmailStatusOut)
-def password_setup_email_status(_: User = Depends(require_permissions("admin.users", "*"))):
-    return PasswordSetupEmailStatusOut(
-        available=email_configured(),
-        message=email_unavailable_reason(),
-    )
 
 
 @router.get("/users/{user_id}", response_model=UserOut)
@@ -428,37 +419,6 @@ def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions(
     return u
 
 
-@router.post("/users/{user_id}/password-setup", response_model=UserOut)
-def send_user_password_setup(
-    user_id: int,
-    db: DbSession,
-    current: User = Depends(require_permissions("admin.users", "*")),
-):
-    u = db.get(User, user_id)
-    if not u:
-        raise HTTPException(404, "User not found")
-    if not u.is_active:
-        raise HTTPException(400, "Cannot send a setup link to an inactive user")
-    if "*" in user_permissions(u) and not is_super_admin(current):
-        raise HTTPException(403, "Only a super admin can manage administrator accounts")
-    setup_token = create_password_reset_token(db, u)
-    setup_url = password_reset_url(setup_token)
-    log_action(
-        db,
-        current,
-        "password_setup",
-        "User",
-        u.id,
-        new_value={"email": u.email, "setup_email_requested": True},
-    )
-    db.commit()
-    db.refresh(u)
-    delivery = send_password_email(u.email, u.name, setup_url, u.id, "setup")
-    u.password_setup_email_sent = delivery.sent
-    u.password_setup_email_error = delivery.error
-    return u
-
-
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
     u = db.get(User, user_id)
@@ -466,6 +426,12 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)
     actor_is_super_admin = is_super_admin(current)
+    if "factory_code" in data:
+        data["factory_code"] = normalize_factory_code(data["factory_code"])
+        if not actor_is_super_admin and data["factory_code"] != u.factory_code:
+            raise HTTPException(403, "Only Super Admin can change a user's factory")
+        if data["factory_code"] != u.factory_code:
+            u.tokens_valid_from = datetime.now(timezone.utc)
     if "extra_permissions" in data:
         data["extra_permissions"] = normalize_permissions(data["extra_permissions"])
     # Guard against self-escalation and self-lockout by a non-superadmin manager.
@@ -742,8 +708,7 @@ def mcp_info(_: User = Depends(require_super_admin)):
         "env": {
             "ERP_API_BASE_URL": public_base_url,
             "ERP_MCP_AUTH_MODE": "bearer",
-            # Deliberate placeholder; never a usable token.
-            "ERP_MCP_BEARER_TOKEN": "REPLACE_WITH_REAL_ERP_TOKEN",  # nosec B105
+            "ERP_MCP_BEARER_TOKEN": "REPLACE_WITH_REAL_ERP_TOKEN",
             "ERP_MCP_REQUIRE_CONFIRMATION": "true",
             "ERP_MCP_MAX_BULK_RECIPIENTS": "25",
         },
@@ -754,8 +719,7 @@ def mcp_info(_: User = Depends(require_super_admin)):
                     "args": ["-m", "milana_erp_mcp.server"],
                     "env": {
                         "ERP_API_BASE_URL": public_base_url,
-                        # Deliberate placeholder; never a usable token.
-                        "ERP_MCP_BEARER_TOKEN": "REPLACE_WITH_REAL_ERP_TOKEN",  # nosec B105
+                        "ERP_MCP_BEARER_TOKEN": "REPLACE_WITH_REAL_ERP_TOKEN",
                         "ERP_MCP_REQUIRE_CONFIRMATION": "true",
                     },
                 },

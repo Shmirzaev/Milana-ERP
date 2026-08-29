@@ -1,6 +1,7 @@
 import type { NumberInputValue } from "@/lib/numberInput";
 
 export type SectionCode = "sewing" | "pressing" | "packaging";
+export type PaidOperationFactory = "milana" | "besttex" | "eco_cotton";
 
 export type QuantityMode = "batch" | "custom";
 export type SplitMode = "none" | "equal" | "custom";
@@ -12,6 +13,8 @@ export type PaidOperation = {
   code: string;
   name: string;
   rate: string;
+  sewingFactory?: PaidOperationFactory;
+  legacySourceId?: string;
   sourceOrder?: number;
   duration?: string;
   currency?: string;
@@ -40,6 +43,7 @@ export const SECTION_BADGES: Record<SectionCode, string> = {
 const VALID_SECTIONS: SectionCode[] = ["sewing", "pressing", "packaging"];
 const VALID_QUANTITY_MODES: QuantityMode[] = ["batch", "custom"];
 const VALID_SPLIT_MODES: SplitMode[] = ["none", "equal", "custom"];
+export const PAID_OPERATION_FACTORIES: PaidOperationFactory[] = ["milana", "besttex", "eco_cotton"];
 
 export const DEFAULT_PAID_OPERATIONS: PaidOperation[] = [
   {
@@ -163,7 +167,11 @@ export function clonePaidOperations(rows: PaidOperation[] = DEFAULT_PAID_OPERATI
   return rows.map((row) => ({ ...row, splitQuantities: [...(row.splitQuantities || [])] }));
 }
 
-export function createPaidOperation(prefix = "op", customQuantity = 0): PaidOperation {
+export function createPaidOperation(
+  prefix = "op",
+  customQuantity = 0,
+  sewingFactory?: PaidOperationFactory,
+): PaidOperation {
   return {
     id: cleanId(prefix),
     selected: true,
@@ -171,12 +179,73 @@ export function createPaidOperation(prefix = "op", customQuantity = 0): PaidOper
     code: "SEW-NEW",
     name: "New operation",
     rate: "",
+    ...(sewingFactory ? { sewingFactory } : {}),
     quantityMode: "batch",
     customQuantity,
     copies: 1,
     splitMode: "none",
     splitQuantities: [],
   };
+}
+
+export function normalizePaidOperationFactory(value: unknown): PaidOperationFactory | undefined {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["mil", "milana", "sml"].includes(normalized)) return "milana";
+  if (["bst", "besttex", "btx"].includes(normalized)) return "besttex";
+  if (["eco", "eco_cotton", "ecocotton"].includes(normalized)) return "eco_cotton";
+  return undefined;
+}
+
+export function paidOperationFactoryFromDepartmentCode(value: unknown): PaidOperationFactory | undefined {
+  return normalizePaidOperationFactory(value);
+}
+
+export function isLegacySharedPaidOperation(operation: PaidOperation): boolean {
+  return !normalizePaidOperationFactory(operation.sewingFactory);
+}
+
+export function paidOperationMatchesFactory(
+  operation: PaidOperation,
+  sewingFactory: PaidOperationFactory,
+): boolean {
+  const configuredFactory = normalizePaidOperationFactory(operation.sewingFactory);
+  return !configuredFactory || configuredFactory === sewingFactory;
+}
+
+export function materializeLegacyPaidOperations(
+  rows: PaidOperation[],
+  factories: PaidOperationFactory[] = PAID_OPERATION_FACTORIES,
+): PaidOperation[] {
+  const configuredRows = rows.filter((row) => !isLegacySharedPaidOperation(row));
+  const existingIds = new Set(rows.map((row) => row.id));
+  const configuredLegacyKeys = new Set(
+    configuredRows
+      .filter((row) => row.legacySourceId && row.sewingFactory)
+      .map((row) => `${row.legacySourceId}::${row.sewingFactory}`),
+  );
+  const expanded: PaidOperation[] = [...configuredRows];
+
+  for (const row of rows.filter(isLegacySharedPaidOperation)) {
+    for (const factory of factories) {
+      if (configuredLegacyKeys.has(`${row.id}::${factory}`)) continue;
+      const idBase = `${row.id}--${factory}`;
+      let id = idBase;
+      let suffix = 2;
+      while (existingIds.has(id)) {
+        id = `${idBase}-${suffix}`;
+        suffix += 1;
+      }
+      existingIds.add(id);
+      expanded.push({
+        ...row,
+        id,
+        sewingFactory: factory,
+        legacySourceId: row.id,
+        splitQuantities: [...(row.splitQuantities || [])],
+      });
+    }
+  }
+  return expanded;
 }
 
 export function normalizePaidOperation(row: any, index = 0): PaidOperation {
@@ -202,6 +271,10 @@ export function normalizePaidOperation(row: any, index = 0): PaidOperation {
       ?? row?.final_operation
       ?? row?.final,
   );
+  const sewingFactory = normalizePaidOperationFactory(
+    row?.sewingFactory ?? row?.sewing_factory ?? row?.factory ?? row?.company,
+  );
+  const legacySourceId = optionalString(row?.legacySourceId ?? row?.legacy_source_id)?.trim();
   return {
     id: String(row?.id || fallback?.id || cleanId("op")),
     selected: row?.selected !== false,
@@ -209,6 +282,8 @@ export function normalizePaidOperation(row: any, index = 0): PaidOperation {
     code: String(row?.code || fallback?.code || "").toUpperCase(),
     name: String(row?.name || row?.operation_name || fallback?.name || ""),
     rate: row?.rate === null || row?.rate === undefined ? String(fallback?.rate || "") : String(row.rate),
+    ...(sewingFactory ? { sewingFactory } : {}),
+    ...(legacySourceId ? { legacySourceId } : {}),
     ...(sourceOrder === undefined ? {} : { sourceOrder }),
     ...(duration === undefined ? {} : { duration }),
     ...(currency === undefined ? {} : { currency }),
@@ -255,6 +330,8 @@ export function serializePaidOperations(rows: PaidOperation[]): PaidOperation[] 
       code: row.code.trim().toUpperCase(),
       name: row.name.trim(),
       rate: String(row.rate ?? "").trim(),
+      ...(row.sewingFactory ? { sewingFactory: row.sewingFactory } : {}),
+      ...(row.legacySourceId ? { legacySourceId: row.legacySourceId } : {}),
       ...(sourceOrder === undefined ? {} : { sourceOrder }),
       ...(duration ? { duration } : {}),
       ...(currency ? { currency } : {}),

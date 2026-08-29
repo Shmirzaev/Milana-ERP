@@ -8,6 +8,7 @@ from math import floor
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.dt import as_utc
+from app.core.config import settings
 from app.models import (
     Brand,
     Bundle,
@@ -23,6 +24,7 @@ from app.models import (
     WorkOrder,
 )
 from app.services.label_images import fabric_label_image_src, model_label_image_src
+from app.services.barcode import qr_png_data_uri
 
 
 _TASHKENT = timezone(timedelta(hours=5), name="Asia/Tashkent")
@@ -93,13 +95,29 @@ def _format_quantity(value: object) -> str:
     return f"{number:.4f}".rstrip("0").rstrip(".")
 
 
-def _batch_label(db: Session, batch: ProductionBatch | None, production_order_id: int) -> str:
+def _batch_label(
+    db: Session,
+    batch: ProductionBatch | None,
+    production_order_id: int,
+    *,
+    include_name: bool = False,
+) -> str:
     if not batch:
         return ""
     total = db.query(ProductionBatch.id).filter(ProductionBatch.production_order_id == production_order_id).count()
-    if batch.batch_index and total:
-        return f"{batch.batch_index}/{total}"
-    return _text(batch.batch_no or batch.name)
+    sequence = f"{batch.batch_index}/{total}" if batch.batch_index and total else ""
+    if not include_name:
+        return sequence or _text(batch.batch_no or batch.name)
+
+    batch_no = _text(batch.batch_no)
+    batch_name = _text(batch.name)
+    if batch_no and batch_name and batch_no.casefold() != batch_name.casefold():
+        identity = f"{batch_no} - {batch_name}"
+    else:
+        identity = batch_no or batch_name
+    if identity and sequence:
+        return f"{identity} ({sequence})"
+    return identity or sequence
 
 
 def _scaled_size_plan(items: list[ProductionOrderItem], target_total: int) -> tuple[list[str], dict[str, int]]:
@@ -306,8 +324,28 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
     order_no = _text(production_order.order_no or (passport.order_no if passport else None))
     kroy_no = _text(passport.passport_no if passport else None)
     etiket = _text(brand.name if brand else None)
-    batch_label = _batch_label(db, batch, production_order.id)
+    batch_label = _batch_label(
+        db,
+        batch,
+        production_order.id,
+        include_name=production_order.source_type == "usluga",
+    )
+    batch_sewing_url = (
+        f"{settings.FRONTEND_BASE_URL.rstrip('/')}/bundles/scan/sewing?batch={int(batch.id)}"
+        if batch
+        else ""
+    )
+    batch_qr_html = (
+        f"<div class='batch-qr' data-sewing-url='{_h(batch_sewing_url)}'><img src='{_h(qr_png_data_uri(batch_sewing_url))}' alt='Sewing batch acceptance QR'>"
+        f"<span>Sewing accept<br><b>{_h(batch_label or batch.batch_no)}</b></span></div>"
+        if batch_sewing_url
+        else ""
+    )
     report_ref = f"CUT-{record.id}"
+    layup_operator_name = (
+        _text(record.layup_operator_name)
+        or _text(passport.operator_name_manual if passport else None)
+    )
 
     size_values = sizes
     planned_values = [_format_quantity(planned_by_size.get(size, 0)) for size in sizes]
@@ -344,25 +382,29 @@ html,body{{margin:0;padding:0;background:#ececeb;color:#17191a;font-family:Arial
 .toolbar{{display:flex;justify-content:flex-end;padding:10px;background:#fff;border-bottom:1px solid #d1d4d3}}
 .toolbar button{{border:1px solid #2f6049;border-radius:7px;background:#2f6049;color:#fff;padding:8px 14px;font:600 14px Arial;cursor:pointer}}
 .sheet{{width:283mm;height:196mm;margin:10px auto;background:#fff;border:1px solid #17191a;padding:0;overflow:hidden}}
-.meta{{height:12mm;display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;border-bottom:1px solid #9fa5a7;font-size:8pt}}
+.meta{{height:12mm;display:grid;grid-template-columns:1fr 1fr auto;align-items:center;border-bottom:1px solid #9fa5a7;font-size:8pt}}
 .meta strong{{font-size:9pt}} .meta .center{{text-align:center}} .meta .right{{text-align:right}}
-.top{{height:64mm;display:grid;grid-template-columns:46% 54%;gap:2mm;margin-top:2mm}}
-.lower{{height:105mm;min-height:0;display:grid;grid-template-columns:46% 54%;gap:2mm;margin-top:2mm;overflow:hidden}}
+.meta-end{{display:flex;align-items:center;justify-content:flex-end;gap:3mm}}
+.batch-qr{{display:flex;align-items:center;gap:1.5mm;text-align:left;white-space:nowrap;font-size:6pt;line-height:1.2}}
+.batch-qr img{{display:block;width:10mm;height:10mm;image-rendering:pixelated}}
+.top{{height:84mm;display:grid;grid-template-columns:54% 46%;gap:2mm;margin-top:2mm}}
+.lower{{height:85mm;min-height:0;display:grid;grid-template-columns:46% 54%;gap:2mm;margin-top:2mm;overflow:hidden}}
 table{{width:100%;border-collapse:collapse;table-layout:fixed}} th,td{{border:1px solid #aeb5b8;padding:1.2mm;vertical-align:middle}}
 th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
-.identity{{height:100%;font-size:8pt}} .identity .title-row{{height:9mm}} .identity .photo-cell{{padding:0;background:#f3f5f4}}
-.identity .photo{{height:55mm;display:flex;align-items:center;justify-content:center;padding:3mm}}
+.identity{{height:100%;font-size:8pt}} .identity col.identity-label{{width:16%}} .identity col.identity-value{{width:44%}} .identity col.detail-label{{width:22%}} .identity col.detail-value{{width:18%}}
+.identity .title-row{{height:9mm}} .identity .photo-cell{{padding:0;background:#f3f5f4}}
+.identity .photo{{height:75mm;display:flex;align-items:center;justify-content:center;padding:1mm}}
 .identity .photo img{{display:block;max-width:100%;max-height:100%;object-fit:contain}}
 .empty-photo{{width:100%;height:100%}}
-.identity .field-label{{width:52%;font-weight:700;background:#e8ecea;text-align:left}}
-.identity .field-value{{height:9.1mm;text-align:center}}
+.identity .field-label{{font-weight:700;background:#e8ecea;text-align:left}}
+.identity .field-value{{height:8.5mm;text-align:center}}
 .process-wrap{{height:100%;display:flex;flex-direction:column}}
 .summary{{height:9mm;font-size:6.7pt}} .summary th,.summary td{{padding:.8mm;text-align:center}}
-.process{{height:55mm;font-size:6.6pt}} .process th{{width:24mm;padding:.5mm 1.2mm}}
+.process{{height:70mm;font-size:6.6pt}} .process th{{width:24mm;padding:.5mm 1.2mm}}
 .process td{{padding:.45mm;text-align:center}} .process .total{{font-weight:700;background:#f3f5f4}}
 .process .cut-row th{{background:#dcecdf;color:#2e674e}} .process .cut-row td{{background:#f3faf5;color:#2e674e;font-weight:700}}
-.accessories{{height:100%;min-height:0;font-size:7.4pt}} .accessories caption{{height:8mm;padding:2mm;text-align:left;background:#17191a;color:#fff;font-weight:700}}
-.accessories th{{width:46%;height:9.7mm;padding-left:3mm}} .accessories td{{height:9.7mm;text-align:left;padding-left:3mm}}
+.accessories{{height:auto;min-height:0;font-size:7.4pt}} .accessories caption{{height:8mm;padding:2mm;text-align:left;background:#17191a;color:#fff;font-weight:700}}
+.accessories th{{width:46%;height:7.4mm;padding-left:3mm}} .accessories td{{height:7.4mm;text-align:left;padding-left:3mm}}
 .samples{{height:100%;min-height:0;display:grid;grid-template-columns:1fr 1fr;border:1px solid #aeb5b8;overflow:hidden}}
 .sample-column{{min-width:0;min-height:0;display:grid;grid-template-rows:9mm minmax(0,1fr);overflow:hidden}}
 .sample-column.right{{grid-template-rows:9mm minmax(0,1fr) 9mm minmax(0,1fr)}}
@@ -378,16 +420,18 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
 </style></head>
 <body><div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div>
 <main class="sheet">
-  <header class="meta"><div><strong>MILANA ERP</strong><br>{_h(cutting_date)}</div><div class="center"><strong>REPORT</strong>{f' | BATCH {_h(batch_label)}' if batch_label else ''}</div><div class="right"><strong>{_h(report_ref)}</strong><br>Page 1 / 1</div></header>
+  <header class="meta"><div><strong>MILANA ERP</strong><br>{_h(cutting_date)}</div><div class="center"><strong>REPORT</strong>{f' | BATCH {_h(batch_label)}' if batch_label else ''}</div><div class="meta-end">{batch_qr_html}<div class="right"><strong>{_h(report_ref)}</strong><br>Page 1 / 1</div></div></header>
   <section class="top">
     <table class="identity">
+      <colgroup><col class="identity-label"><col class="identity-value"><col class="detail-label"><col class="detail-value"></colgroup>
       <tr class="title-row"><th>Model</th><td>{_h(identity['model'])}</td><th>Qolip No</th><td>{_h(identity['qolip'])}</td></tr>
-      <tr><td class="photo-cell" rowspan="6" colspan="2"><div class="photo">{image_html}</div></td><th class="field-label">Artikul</th><td class="field-value">{_h(identity['article'])}</td></tr>
+      <tr><td class="photo-cell" rowspan="7" colspan="2"><div class="photo">{image_html}</div></td><th class="field-label">Artikul</th><td class="field-value">{_h(identity['article'])}</td></tr>
       <tr><th class="field-label">Zakaz No</th><td class="field-value">{_h(order_no)}</td></tr>
       <tr><th class="field-label">Bichilgan sana</th><td class="field-value">{_h(cutting_date)}</td></tr>
       <tr><th class="field-label">Etiket</th><td class="field-value">{_h(etiket)}</td></tr>
       <tr><th class="field-label">Kroy No</th><td class="field-value">{_h(kroy_no)}</td></tr>
       <tr><th class="field-label">Detskiy</th><td class="field-value">{_h(identity['detskiy'])}</td></tr>
+      <tr><th class="field-label">Nastilchi</th><td class="field-value">{_h(layup_operator_name)}</td></tr>
     </table>
     <div class="process-wrap">
       <table class="summary"><tr><th>Sana</th><td>{_h(cutting_date)}</td><th>Buyurtma soni</th><td>{_h(_format_quantity(planned_total))}</td><th>Bichilgan soni</th><td><strong>{_h(_format_quantity(record.cut_pieces))}</strong></td></tr></table>

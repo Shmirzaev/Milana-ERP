@@ -1,12 +1,18 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { createPortal } from "react-dom";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, ImageIcon, Search } from "lucide-react";
+import { normalizeModelSearch } from "@/lib/modelCode";
+import { storageThumbnailUrl } from "@/lib/modelImages";
+
+const LOCAL_RENDER_PAGE_SIZE = 80;
 
 export type SearchableSelectOption<T extends string | number = string | number> = {
   value: T;
   label: string;
   searchText?: string;
+  imageUrl?: string | null;
 };
 
 export default function SearchableSelect<T extends string | number>({
@@ -18,6 +24,13 @@ export default function SearchableSelect<T extends string | number>({
   disabled = false,
   required = false,
   inputId,
+  serverFilter = false,
+  loading = false,
+  hasMore = false,
+  loadingText = "Loading...",
+  loadMoreText = "Load more",
+  onSearchChange,
+  onLoadMore,
 }: {
   value: T | null | undefined;
   options: SearchableSelectOption<T>[];
@@ -27,15 +40,31 @@ export default function SearchableSelect<T extends string | number>({
   disabled?: boolean;
   required?: boolean;
   inputId?: string;
+  serverFilter?: boolean;
+  loading?: boolean;
+  hasMore?: boolean;
+  loadingText?: string;
+  loadMoreText?: string;
+  onSearchChange?: (query: string) => void;
+  onLoadMore?: () => void;
 }) {
   const generatedId = useId();
   const id = inputId || `searchable-select-${generatedId}`;
   const listboxId = `${id}-listbox`;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const listboxRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [localRenderLimit, setLocalRenderLimit] = useState(LOCAL_RENDER_PAGE_SIZE);
+  const [listboxPosition, setListboxPosition] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    maxHeight: number;
+    transform?: string;
+  } | null>(null);
   const activeOptionId = `${listboxId}-option-${activeIndex}`;
 
   const selectedOption = useMemo(
@@ -43,21 +72,53 @@ export default function SearchableSelect<T extends string | number>({
     [options, value],
   );
 
+  const searchableOptions = useMemo(
+    () => options.map((option) => ({
+      option,
+      searchKey: normalizeModelSearch(`${option.label} ${option.searchText || ""}`),
+    })),
+    [options],
+  );
+
   useEffect(() => {
     if (!open) setQuery(selectedOption?.label || "");
   }, [open, selectedOption]);
 
   const filteredOptions = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
+    if (serverFilter) return options;
+    const needle = normalizeModelSearch(query);
     if (!needle || query === selectedOption?.label) return options;
-    return options.filter((option) => (
-      `${option.label} ${option.searchText || ""}`.toLocaleLowerCase().includes(needle)
-    ));
-  }, [options, query, selectedOption?.label]);
+    return searchableOptions
+      .filter(({ searchKey }) => searchKey.includes(needle))
+      .map(({ option }) => option);
+  }, [options, query, searchableOptions, selectedOption?.label, serverFilter]);
+
+  const visibleOptions = useMemo(() => {
+    if (serverFilter || filteredOptions.length <= localRenderLimit) return filteredOptions;
+    const visible = filteredOptions.slice(0, localRenderLimit);
+    if (
+      query === selectedOption?.label
+      && selectedOption
+      && !visible.some((option) => String(option.value) === String(selectedOption.value))
+    ) {
+      return [selectedOption, ...visible.slice(0, Math.max(0, localRenderLimit - 1))];
+    }
+    return visible;
+  }, [filteredOptions, localRenderLimit, query, selectedOption, serverFilter]);
+  const hasMoreLocalOptions = !serverFilter && visibleOptions.length < filteredOptions.length;
+  const canLoadMore = hasMoreLocalOptions || hasMore;
+
+  const loadMoreOptions = useCallback(() => {
+    if (hasMoreLocalOptions) {
+      setLocalRenderLimit((current) => Math.min(current + LOCAL_RENDER_PAGE_SIZE, filteredOptions.length));
+      return;
+    }
+    onLoadMore?.();
+  }, [filteredOptions.length, hasMoreLocalOptions, onLoadMore]);
 
   useEffect(() => {
-    setActiveIndex((current) => Math.min(current, Math.max(0, filteredOptions.length - 1)));
-  }, [filteredOptions.length]);
+    setActiveIndex((current) => Math.min(current, Math.max(0, visibleOptions.length - 1)));
+  }, [visibleOptions.length]);
 
   useEffect(() => {
     if (open) document.getElementById(activeOptionId)?.scrollIntoView({ block: "nearest" });
@@ -65,11 +126,65 @@ export default function SearchableSelect<T extends string | number>({
 
   useEffect(() => {
     function closeOnOutsideClick(event: MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !listboxRef.current?.contains(target)) setOpen(false);
     }
     document.addEventListener("mousedown", closeOnOutsideClick);
     return () => document.removeEventListener("mousedown", closeOnOutsideClick);
   }, []);
+
+  const updateListboxPosition = useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const rect = root.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportWidth = viewport?.width ?? window.innerWidth;
+    const viewportHeight = viewport?.height ?? window.innerHeight;
+    const viewportRight = viewportLeft + viewportWidth;
+    const viewportBottom = viewportTop + viewportHeight;
+    const gutter = 8;
+    const gap = 4;
+    const roomBelow = viewportBottom - rect.bottom - gap - gutter;
+    const roomAbove = rect.top - viewportTop - gap - gutter;
+    const openAbove = roomBelow < 192 && roomAbove > roomBelow;
+    const maxHeight = Math.max(0, Math.min(256, openAbove ? roomAbove : roomBelow));
+    const width = Math.max(0, Math.min(rect.width, viewportWidth - gutter * 2));
+    const left = Math.max(
+      viewportLeft + gutter,
+      Math.min(rect.left, viewportRight - width - gutter),
+    );
+
+    setListboxPosition({
+      left,
+      top: openAbove ? rect.top - gap : rect.bottom + gap,
+      width,
+      maxHeight,
+      transform: openAbove ? "translateY(-100%)" : undefined,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setListboxPosition(null);
+      return;
+    }
+
+    updateListboxPosition();
+    const viewport = window.visualViewport;
+    window.addEventListener("resize", updateListboxPosition);
+    window.addEventListener("scroll", updateListboxPosition, true);
+    viewport?.addEventListener("resize", updateListboxPosition);
+    viewport?.addEventListener("scroll", updateListboxPosition);
+    return () => {
+      window.removeEventListener("resize", updateListboxPosition);
+      window.removeEventListener("scroll", updateListboxPosition, true);
+      viewport?.removeEventListener("resize", updateListboxPosition);
+      viewport?.removeEventListener("scroll", updateListboxPosition);
+    };
+  }, [open, updateListboxPosition]);
 
   function choose(option: SearchableSelectOption<T>) {
     onChange(option.value, option);
@@ -79,7 +194,7 @@ export default function SearchableSelect<T extends string | number>({
   }
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative min-w-0">
       <div className={`input flex items-center gap-2 px-3 py-0 ${disabled ? "cursor-not-allowed bg-[#f4f2eb] opacity-70" : "bg-white"}`}>
         <Search className="h-4 w-4 shrink-0 text-[#8a8472]" aria-hidden="true" />
         <input
@@ -89,7 +204,7 @@ export default function SearchableSelect<T extends string | number>({
           aria-autocomplete="list"
           aria-expanded={open}
           aria-controls={listboxId}
-          aria-activedescendant={open && filteredOptions.length ? activeOptionId : undefined}
+          aria-activedescendant={open && visibleOptions.length ? activeOptionId : undefined}
           aria-required={required}
           className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none"
           value={query}
@@ -97,11 +212,14 @@ export default function SearchableSelect<T extends string | number>({
           disabled={disabled}
           autoComplete="off"
           onFocus={(event) => {
+            setLocalRenderLimit(LOCAL_RENDER_PAGE_SIZE);
             setOpen(true);
             event.currentTarget.select();
           }}
           onChange={(event) => {
             setQuery(event.target.value);
+            setLocalRenderLimit(LOCAL_RENDER_PAGE_SIZE);
+            onSearchChange?.(event.target.value);
             setActiveIndex(0);
             setOpen(true);
           }}
@@ -114,14 +232,14 @@ export default function SearchableSelect<T extends string | number>({
             if (event.key === "ArrowDown") {
               event.preventDefault();
               setOpen(true);
-              setActiveIndex((current) => Math.min(current + 1, Math.max(0, filteredOptions.length - 1)));
+              setActiveIndex((current) => Math.min(current + 1, Math.max(0, visibleOptions.length - 1)));
             } else if (event.key === "ArrowUp") {
               event.preventDefault();
               setOpen(true);
               setActiveIndex((current) => Math.max(0, current - 1));
-            } else if (event.key === "Enter" && open && filteredOptions[activeIndex]) {
+            } else if (event.key === "Enter" && open && visibleOptions[activeIndex]) {
               event.preventDefault();
-              choose(filteredOptions[activeIndex]);
+              choose(visibleOptions[activeIndex]);
             } else if (event.key === "Escape") {
               event.preventDefault();
               setOpen(false);
@@ -137,6 +255,7 @@ export default function SearchableSelect<T extends string | number>({
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
             const nextOpen = !open;
+            if (nextOpen) setLocalRenderLimit(LOCAL_RENDER_PAGE_SIZE);
             setOpen(nextOpen);
             if (nextOpen) {
               inputRef.current?.focus();
@@ -148,14 +267,24 @@ export default function SearchableSelect<T extends string | number>({
         </button>
       </div>
 
-      {open && !disabled && (
+      {open && !disabled && listboxPosition && createPortal((
         <div
+          ref={listboxRef}
           id={listboxId}
           role="listbox"
-          className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-[#d8d2c2] bg-white py-1 shadow-sm"
+          className="fixed z-[100] overflow-y-auto overscroll-contain rounded-md border border-[#d8d2c2] bg-white py-1 shadow-sm"
+          style={listboxPosition}
+          onScroll={(event) => {
+            const target = event.currentTarget;
+            if (canLoadMore && !loading && target.scrollHeight - target.scrollTop - target.clientHeight < 48) {
+              loadMoreOptions();
+            }
+          }}
         >
-          {filteredOptions.map((option, index) => {
+          {visibleOptions.map((option, index) => {
             const selected = String(option.value) === String(value ?? "");
+            const showImage = Object.prototype.hasOwnProperty.call(option, "imageUrl");
+            const imageUrl = storageThumbnailUrl(option.imageUrl, 128);
             return (
               <button
                 type="button"
@@ -168,16 +297,51 @@ export default function SearchableSelect<T extends string | number>({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => choose(option)}
               >
-                <span className="min-w-0 flex-1 break-words">{option.label}</span>
-                <Check className={`mt-0.5 h-4 w-4 shrink-0 ${selected ? "text-[#14110b]" : "invisible"}`} aria-hidden="true" />
+                {showImage && (
+                  imageUrl ? (
+                    <img
+                      src={imageUrl}
+                      alt=""
+                      className="h-11 w-11 shrink-0 rounded-md border border-[#ded9ca] bg-white object-cover"
+                      loading="lazy"
+                      decoding="async"
+                      width={44}
+                      height={44}
+                    />
+                  ) : (
+                    <span
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[#ded9ca] bg-[#f4f1e8] text-[#9a927f]"
+                      aria-hidden="true"
+                    >
+                      <ImageIcon className="h-4 w-4" />
+                    </span>
+                  )
+                )}
+                <span className="min-w-0 flex-1 self-center break-words">{option.label}</span>
+                <Check className={`h-4 w-4 shrink-0 self-center ${selected ? "text-[#14110b]" : "invisible"}`} aria-hidden="true" />
               </button>
             );
           })}
-          {filteredOptions.length === 0 && (
+          {filteredOptions.length === 0 && !loading && (
             <div className="px-3 py-3 text-sm text-[#8a8472]">{noResultsText}</div>
           )}
+          {loading && (
+            <div className="px-3 py-2 text-sm text-[#8a8472]">{loadingText}</div>
+          )}
+          {canLoadMore && !loading && (
+            <div role="presentation" className="border-t border-[#ece8dc] p-1">
+              <button
+                type="button"
+                className="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-[#56503f] hover:bg-[#f8f6ef]"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={loadMoreOptions}
+              >
+                {loadMoreText}
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }

@@ -39,3 +39,4 @@ Start with the full process overview, then open the manual for the employee's de
 ## Sources Reviewed
 
 These manuals are based on the current ERP code and documentation: the main README, the existing employee guide, seeded departments and roles, frontend sidebar/page flows, backend routes, and current permissions.
+

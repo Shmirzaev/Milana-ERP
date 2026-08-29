@@ -8,6 +8,7 @@ from sqlalchemy.dialects import postgresql
 from app.api.routes.cutting_passports import _compute, _size_count_from_range
 from app.api.routes.inventory import (
     _delete_stock_batch_receipt_movements,
+    _locked_active_batch_reservations_statement,
     _locked_stock_batch_statement,
 )
 
@@ -282,7 +283,8 @@ def test_inventory_batches_can_filter_by_material_item_ids(client, auth_headers)
 
     warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
     assert warehouses.status_code == 200, warehouses.text
-    warehouse_id = next(row["id"] for row in warehouses.json() if row["type"] == "fabric_storage")
+    fabric_warehouse_id = next(row["id"] for row in warehouses.json() if row["type"] == "fabric_storage")
+    accessory_warehouse_id = next(row["id"] for row in warehouses.json() if row["type"] == "accessory_storage")
 
     fabric_batch = client.post(
         "/api/inventory/receive",
@@ -292,7 +294,7 @@ def test_inventory_batches_can_filter_by_material_item_ids(client, auth_headers)
             "quantity": 12,
             "unit": "kg",
             "cost_per_unit": 3,
-            "warehouse_id": warehouse_id,
+            "warehouse_id": fabric_warehouse_id,
             "qc_status": "passed",
         },
         headers=auth_headers,
@@ -306,7 +308,7 @@ def test_inventory_batches_can_filter_by_material_item_ids(client, auth_headers)
             "quantity": 50,
             "unit": "pcs",
             "cost_per_unit": 1,
-            "warehouse_id": warehouse_id,
+            "warehouse_id": accessory_warehouse_id,
             "qc_status": "passed",
         },
         headers=auth_headers,
@@ -427,6 +429,92 @@ def test_material_inventory_batch_details_include_receive_fields_and_search(clie
     assert batch["warehouse_name"] == warehouse["name"]
     assert batch["qc_status"] == receive_payload["qc_status"]
     assert round(float(batch["available_quantity"]), 2) == 123.45
+
+    colors_response = client.get("/api/inventory/colors", headers=auth_headers)
+    assert colors_response.status_code == 200, colors_response.text
+    assert receive_payload["color"] in colors_response.json()
+
+
+def test_material_inventory_search_ignores_depleted_batch_matches(client, auth_headers):
+    suffix = uuid4().hex[:8].upper()
+    stale_batch_no = f"DEPLETED-SEARCH-{suffix}"
+    live_batch_no = f"LIVE-SEARCH-{suffix}"
+    item_response = client.post(
+        "/api/inventory/items",
+        json={
+            "sku": f"FAB-SEARCH-CONTROL-{suffix}",
+            "name": f"Batch search control fabric {suffix}",
+            "category": "fabric",
+            "unit": "kg",
+            "default_cost": 1,
+            "reorder_level": 0,
+            "track_batch": True,
+            "is_active": True,
+        },
+        headers=auth_headers,
+    )
+    assert item_response.status_code == 201, item_response.text
+    item = item_response.json()
+
+    warehouses_response = client.get("/api/inventory/warehouses", headers=auth_headers)
+    assert warehouses_response.status_code == 200, warehouses_response.text
+    warehouse = next(row for row in warehouses_response.json() if row["type"] == "fabric_storage")
+
+    stale_receive = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_id": item["id"],
+            "batch_no": stale_batch_no,
+            "quantity": 10,
+            "unit": "kg",
+            "cost_per_unit": 1,
+            "warehouse_id": warehouse["id"],
+            "qc_status": "passed",
+        },
+        headers=auth_headers,
+    )
+    assert stale_receive.status_code == 201, stale_receive.text
+    stale_batch_id = int(stale_receive.json()["id"])
+
+    depleted = client.patch(
+        f"/api/inventory/batches/{stale_batch_id}?force=true",
+        json={"quantity": 0},
+        headers=auth_headers,
+    )
+    assert depleted.status_code == 200, depleted.text
+
+    live_receive = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_id": item["id"],
+            "batch_no": live_batch_no,
+            "quantity": 15,
+            "unit": "kg",
+            "cost_per_unit": 1,
+            "warehouse_id": warehouse["id"],
+            "qc_status": "passed",
+        },
+        headers=auth_headers,
+    )
+    assert live_receive.status_code == 201, live_receive.text
+
+    depleted_search = client.get(
+        f"/api/inventory/stock?group=materials&q={stale_batch_no}&include_total=true",
+        headers=auth_headers,
+    )
+    assert depleted_search.status_code == 200, depleted_search.text
+    assert depleted_search.json() == {"rows": [], "total": 0, "page": 1, "page_size": 500}
+
+    live_search = client.get(
+        f"/api/inventory/stock?group=materials&q={live_batch_no}&include_total=true",
+        headers=auth_headers,
+    )
+    assert live_search.status_code == 200, live_search.text
+    live_body = live_search.json()
+    assert live_body["total"] == 1
+    assert len(live_body["rows"]) == 1
+    assert live_body["rows"][0]["item_id"] == item["id"]
+    assert round(float(live_body["rows"][0]["quantity"]), 2) == 15.00
 
 
 def test_material_inventory_orders_latest_received_batches_first(client, auth_headers):
@@ -989,6 +1077,136 @@ def test_stock_batch_editor_reassigns_an_unused_batch_to_an_existing_material(cl
     assert any(row["id"] == batch_id for row in target_batches.json())
 
 
+def test_reserved_batch_delete_releases_reservation_and_archives_inventory(client, auth_headers):
+    from app.db import session as session_module
+    from app.models import MaterialReservation, Model, ProductionOrder, StockBatch, StockMovement
+
+    suffix = uuid4().hex[:8].upper()
+    materials = []
+    for label in ("SOURCE", "TARGET"):
+        response = client.post(
+            "/api/inventory/items",
+            json={
+                "sku": f"FAB-RESERVED-MOVE-{label}-{suffix}",
+                "name": f"Reserved batch move {label} {suffix}",
+                "category": "fabric",
+                "unit": "kg",
+                "default_cost": 1,
+                "reorder_level": 0,
+                "track_batch": True,
+                "is_active": True,
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 201, response.text
+        materials.append(response.json())
+
+    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
+    assert warehouses.status_code == 200, warehouses.text
+    warehouse_id = int(warehouses.json()[0]["id"])
+    receive = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_id": materials[0]["id"],
+            "batch_no": f"RESERVED-MOVE-{suffix}",
+            "quantity": 10,
+            "unit": "kg",
+            "cost_per_unit": 1,
+            "warehouse_id": warehouse_id,
+            "qc_status": "passed",
+        },
+        headers=auth_headers,
+    )
+    assert receive.status_code == 201, receive.text
+    batch_id = int(receive.json()["id"])
+
+    with session_module.SessionLocal() as db:
+        model = Model(
+            code=f"RESERVED-MOVE-{suffix}",
+            name=f"Reserved move model {suffix}",
+            status="approved",
+        )
+        db.add(model)
+        db.flush()
+        production_order = ProductionOrder(
+            production_no=f"PO-RESERVED-MOVE-{suffix}",
+            production_type="branded_stock",
+            model_id=model.id,
+            fabric_batch_id=batch_id,
+            planned_quantity=1,
+        )
+        db.add(production_order)
+        db.flush()
+        db.add(MaterialReservation(
+            reservation_no=f"MR-RESERVED-MOVE-{suffix}",
+            production_order_id=production_order.id,
+            item_id=materials[0]["id"],
+            stock_batch_id=batch_id,
+            warehouse_id=warehouse_id,
+            reserved_quantity=3,
+            consumed_quantity=0,
+            released_quantity=0,
+            unit="kg",
+            status="reserved",
+            reservation_type="material",
+            source="manual",
+        ))
+        db.commit()
+
+    denied_reassignment = client.patch(
+        f"/api/inventory/batches/{batch_id}",
+        json={"item_id": materials[1]["id"]},
+        headers=auth_headers,
+    )
+    assert denied_reassignment.status_code == 409, denied_reassignment.text
+
+    reassigned = client.patch(
+        f"/api/inventory/batches/{batch_id}?force=true",
+        json={"item_id": materials[1]["id"]},
+        headers=auth_headers,
+    )
+    assert reassigned.status_code == 200, reassigned.text
+    assert reassigned.json()["item_id"] == materials[1]["id"]
+    assert reassigned.json()["reserved_quantity"] == 3
+    assert reassigned.json()["available_quantity"] == 7
+
+    with session_module.SessionLocal() as db:
+        reservation = db.query(MaterialReservation).filter(
+            MaterialReservation.stock_batch_id == batch_id,
+        ).one()
+        assert reservation.item_id == materials[1]["id"]
+
+    deleted = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    assert deleted.status_code == 204, deleted.text
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        assert batch is not None
+        assert float(batch.quantity) == 0
+        assert batch.qc_status == "hold"
+        assert batch.archived_at is not None
+        reservation = db.query(MaterialReservation).filter(
+            MaterialReservation.stock_batch_id == batch_id,
+        ).one()
+        assert reservation.status == "released"
+        assert float(reservation.released_quantity) == 3
+        deletion_issue = db.query(StockMovement).filter(
+            StockMovement.batch_id == batch_id,
+            StockMovement.reference_type == "StockBatchDelete",
+        ).one()
+        assert float(deletion_issue.quantity) == 10
+        production_order = db.query(ProductionOrder).filter(
+            ProductionOrder.production_no == f"PO-RESERVED-MOVE-{suffix}",
+        ).one()
+        assert production_order.fabric_batch_id == batch_id
+
+    visible = client.get(
+        f"/api/inventory/batches?item_id={materials[1]['id']}",
+        headers=auth_headers,
+    )
+    assert visible.status_code == 200, visible.text
+    assert all(row["id"] != batch_id for row in visible.json())
+
+
 def test_stock_batch_editor_rejects_material_change_after_batch_usage(client, auth_headers):
     suffix = uuid4().hex[:8].upper()
     created_items = []
@@ -1041,6 +1259,69 @@ def test_stock_batch_editor_rejects_material_change_after_batch_usage(client, au
     )
     assert update.status_code == 409, update.text
     assert "reserved or used" in update.json()["detail"]
+
+
+def test_stock_summary_hides_only_inactive_materials_without_current_stock(client, auth_headers):
+    suffix = uuid4().hex[:8].upper()
+    created = client.post(
+        "/api/inventory/items",
+        json={
+            "sku": f"FAB-INACTIVE-STOCK-{suffix}",
+            "name": f"Inactive stock visibility {suffix}",
+            "category": "fabric",
+            "unit": "kg",
+            "default_cost": 1,
+            "reorder_level": 0,
+            "track_batch": True,
+            "is_active": True,
+        },
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    item = created.json()
+    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
+    assert warehouses.status_code == 200, warehouses.text
+    received = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_id": item["id"],
+            "batch_no": f"INACTIVE-STOCK-{suffix}",
+            "quantity": 5,
+            "unit": "kg",
+            "cost_per_unit": 1,
+            "warehouse_id": warehouses.json()[0]["id"],
+            "qc_status": "passed",
+        },
+        headers=auth_headers,
+    )
+    assert received.status_code == 201, received.text
+    batch_id = int(received.json()["id"])
+
+    archived = client.patch(
+        f"/api/inventory/items/{item['id']}",
+        json={**item, "is_active": False},
+        headers=auth_headers,
+    )
+    assert archived.status_code == 200, archived.text
+    with_stock = client.get(
+        f"/api/inventory/stock?group=materials&q={item['sku']}&include_total=true",
+        headers=auth_headers,
+    )
+    assert with_stock.status_code == 200, with_stock.text
+    assert with_stock.json()["total"] == 1
+
+    zeroed = client.patch(
+        f"/api/inventory/batches/{batch_id}?force=true",
+        json={"quantity": 0},
+        headers=auth_headers,
+    )
+    assert zeroed.status_code == 200, zeroed.text
+    empty = client.get(
+        f"/api/inventory/stock?group=materials&q={item['sku']}&include_total=true",
+        headers=auth_headers,
+    )
+    assert empty.status_code == 200, empty.text
+    assert empty.json() == {"rows": [], "total": 0, "page": 1, "page_size": 500}
 
 
 def test_material_inventory_report_exports_grouped_counts_kg_and_grand_total(client, auth_headers):
@@ -1117,273 +1398,6 @@ def test_material_inventory_report_exports_grouped_counts_kg_and_grand_total(cli
     assert len(pdf_response.content) > 10_000
 
 
-def test_material_inventory_supplier_filter_scopes_stock_batches_options_and_reports(client, auth_headers):
-    suffix = uuid4().hex[:8].upper()
-    supplier_a = client.post(
-        "/api/suppliers",
-        json={"name": f"Supplier A {suffix}"},
-        headers=auth_headers,
-    )
-    supplier_b = client.post(
-        "/api/suppliers",
-        json={"name": f"Supplier B {suffix}"},
-        headers=auth_headers,
-    )
-    assert supplier_a.status_code == 201, supplier_a.text
-    assert supplier_b.status_code == 201, supplier_b.text
-    supplier_a_data = supplier_a.json()
-    supplier_b_data = supplier_b.json()
-
-    item_response = client.post(
-        "/api/inventory/items",
-        json={
-            "sku": f"FAB-SUPPLIER-FILTER-{suffix}",
-            "name": f"Supplier-filter fabric {suffix}",
-            "category": "fabric",
-            "unit": "kg",
-            "default_cost": 1,
-            "reorder_level": 0,
-            "track_batch": True,
-            "is_active": True,
-        },
-        headers=auth_headers,
-    )
-    assert item_response.status_code == 201, item_response.text
-    item = item_response.json()
-    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
-    assert warehouses.status_code == 200, warehouses.text
-    warehouse_id = warehouses.json()[0]["id"]
-
-    receipts = (
-        ("SUP-A", 5.25, 3, supplier_a_data["id"]),
-        ("SUP-B", 7.50, 4, supplier_b_data["id"]),
-        ("SUP-NONE", 6.25, 5, None),
-    )
-    for batch_prefix, quantity, piece_count, supplier_id in receipts:
-        receive = client.post(
-            "/api/inventory/receive",
-            json={
-                "item_id": item["id"],
-                "batch_no": f"{batch_prefix}-{suffix}",
-                "supplier_id": supplier_id,
-                "quantity": quantity,
-                "piece_count": piece_count,
-                "unit": "kg",
-                "cost_per_unit": 1,
-                "warehouse_id": warehouse_id,
-                "qc_status": "passed",
-            },
-            headers=auth_headers,
-        )
-        assert receive.status_code == 201, receive.text
-
-    depleted_batch_no = f"SUP-ZERO-{suffix}"
-    depleted_receive = client.post(
-        "/api/inventory/receive",
-        json={
-            "item_id": item["id"],
-            "batch_no": depleted_batch_no,
-            "quantity": 0,
-            "piece_count": 0,
-            "unit": "kg",
-            "cost_per_unit": 1,
-            "warehouse_id": warehouse_id,
-            "qc_status": "passed",
-        },
-        headers=auth_headers,
-    )
-    assert depleted_receive.status_code == 201, depleted_receive.text
-
-    supplier_stock = client.get(
-        (
-            "/api/inventory/stock?group=materials&include_total=true"
-            f"&supplier_id={supplier_a_data['id']}&q={suffix}"
-        ),
-        headers=auth_headers,
-    )
-    assert supplier_stock.status_code == 200, supplier_stock.text
-    supplier_stock_data = supplier_stock.json()
-    assert supplier_stock_data["total"] == 1
-    assert supplier_stock_data["item_total"] == 1
-    assert supplier_stock_data["line_total"] == 1
-    assert len(supplier_stock_data["rows"]) == 1
-    assert supplier_stock_data["rows"][0]["item_id"] == item["id"]
-    assert supplier_stock_data["rows"][0]["quantity"] == 5.25
-
-    supplier_batches = client.get(
-        (
-            "/api/inventory/batches?group=materials&include_total=true&hide_empty=true"
-            f"&supplier_id={supplier_a_data['id']}&q={suffix}"
-        ),
-        headers=auth_headers,
-    )
-    assert supplier_batches.status_code == 200, supplier_batches.text
-    supplier_batch_data = supplier_batches.json()
-    assert supplier_batch_data["total"] == 1
-    assert supplier_batch_data["rows"][0]["supplier_id"] == supplier_a_data["id"]
-    assert supplier_batch_data["rows"][0]["quantity"] == 5.25
-
-    cross_supplier_search = client.get(
-        (
-            "/api/inventory/stock?group=materials&include_total=true"
-            f"&supplier_id={supplier_b_data['id']}&q=SUP-A-{suffix}"
-        ),
-        headers=auth_headers,
-    )
-    assert cross_supplier_search.status_code == 200, cross_supplier_search.text
-    assert cross_supplier_search.json()["total"] == 0
-    assert cross_supplier_search.json()["rows"] == []
-
-    unassigned_stock = client.get(
-        (
-            "/api/inventory/stock?group=materials&include_total=true"
-            f"&supplier_unassigned=true&q={suffix}"
-        ),
-        headers=auth_headers,
-    )
-    assert unassigned_stock.status_code == 200, unassigned_stock.text
-    unassigned_data = unassigned_stock.json()
-    assert unassigned_data["item_total"] == 1
-    assert unassigned_data["line_total"] == 1
-    assert unassigned_data["rows"][0]["quantity"] == 6.25
-
-    depleted_search = client.get(
-        (
-            "/api/inventory/stock?group=materials&include_total=true"
-            f"&supplier_unassigned=true&q={depleted_batch_no}"
-        ),
-        headers=auth_headers,
-    )
-    assert depleted_search.status_code == 200, depleted_search.text
-    assert depleted_search.json()["rows"] == []
-    assert depleted_search.json()["item_total"] == 0
-    assert depleted_search.json()["line_total"] == 0
-
-    movement_item_response = client.post(
-        "/api/inventory/items",
-        json={
-            "sku": f"FAB-UNBATCHED-{suffix}",
-            "name": f"Unbatched material {suffix}",
-            "category": "fabric",
-            "unit": "kg",
-            "default_cost": 1,
-            "reorder_level": 0,
-            "track_batch": False,
-            "is_active": True,
-        },
-        headers=auth_headers,
-    )
-    assert movement_item_response.status_code == 201, movement_item_response.text
-    movement_item = movement_item_response.json()
-    movement_adjustment = client.patch(
-        f"/api/inventory/stock/{movement_item['id']}",
-        json={"quantity": 11, "unit": "kg"},
-        headers=auth_headers,
-    )
-    assert movement_adjustment.status_code == 200, movement_adjustment.text
-    movement_stock = client.get(
-        (
-            "/api/inventory/stock?group=materials&include_total=true"
-            f"&supplier_unassigned=true&q=FAB-UNBATCHED-{suffix}"
-        ),
-        headers=auth_headers,
-    )
-    assert movement_stock.status_code == 200, movement_stock.text
-    movement_stock_data = movement_stock.json()
-    assert movement_stock_data["item_total"] == 1
-    assert movement_stock_data["line_total"] == 1
-    assert movement_stock_data["rows"][0]["item_id"] == movement_item["id"]
-    assert movement_stock_data["rows"][0]["quantity"] == 11
-    movement_batches = client.get(
-        (
-            "/api/inventory/batches?group=materials&include_total=true&hide_empty=true"
-            f"&supplier_unassigned=true&item_id={movement_item['id']}"
-        ),
-        headers=auth_headers,
-    )
-    assert movement_batches.status_code == 200, movement_batches.text
-    assert movement_batches.json()["total"] == 0
-    assert movement_batches.json()["rows"] == []
-
-    options = client.get(
-        "/api/inventory/supplier-options?group=materials",
-        headers=auth_headers,
-    )
-    assert options.status_code == 200, options.text
-    option_data = options.json()
-    assert option_data["has_unassigned"] is True
-    assert {"id": supplier_a_data["id"], "name": supplier_a_data["name"]} in option_data["rows"]
-    assert {"id": supplier_b_data["id"], "name": supplier_b_data["name"]} in option_data["rows"]
-    assert all(set(row) == {"id", "name"} for row in option_data["rows"])
-
-    supplier_excel = client.get(
-        (
-            "/api/inventory/reports/material-stock.xlsx?lang=en"
-            f"&supplier_id={supplier_a_data['id']}"
-        ),
-        headers=auth_headers,
-    )
-    assert supplier_excel.status_code == 200, supplier_excel.text
-    assert supplier_excel.headers["cache-control"] == "no-store"
-    workbook = load_workbook(BytesIO(supplier_excel.content), data_only=False)
-    sheet = workbook["Material Inventory"]
-    assert supplier_a_data["name"] in str(sheet["A3"].value)
-    material_rows = [
-        row
-        for row in sheet.iter_rows(min_row=6, max_row=sheet.max_row - 1, values_only=True)
-        if row[1]
-    ]
-    assert len(material_rows) == 1
-    assert material_rows[0][1] == item["name"]
-    assert material_rows[0][3:] == (1, 3, 5.25)
-
-    unassigned_excel = client.get(
-        "/api/inventory/reports/material-stock.xlsx?lang=en&supplier_unassigned=true",
-        headers=auth_headers,
-    )
-    assert unassigned_excel.status_code == 200, unassigned_excel.text
-    unassigned_workbook = load_workbook(BytesIO(unassigned_excel.content), data_only=False)
-    unassigned_sheet = unassigned_workbook["Material Inventory"]
-    assert "No supplier" in str(unassigned_sheet["A3"].value)
-    unassigned_material_row = next(
-        row
-        for row in unassigned_sheet.iter_rows(min_row=6, values_only=True)
-        if row[1] == item["name"]
-    )
-    assert unassigned_material_row[3:] == (1, 5, 6.25)
-    movement_material_row = next(
-        row
-        for row in unassigned_sheet.iter_rows(min_row=6, values_only=True)
-        if row[1] == movement_item["name"]
-    )
-    assert movement_material_row[3:] == (0, 0, 11)
-
-    supplier_pdf = client.get(
-        (
-            "/api/inventory/reports/material-stock.pdf?lang=en"
-            f"&supplier_id={supplier_a_data['id']}"
-        ),
-        headers=auth_headers,
-    )
-    assert supplier_pdf.status_code == 200, supplier_pdf.text
-    assert supplier_pdf.headers["cache-control"] == "no-store"
-    assert supplier_pdf.content.startswith(b"%PDF")
-
-    conflict = client.get(
-        (
-            "/api/inventory/stock?group=materials"
-            f"&supplier_id={supplier_a_data['id']}&supplier_unassigned=true"
-        ),
-        headers=auth_headers,
-    )
-    assert conflict.status_code == 400, conflict.text
-    missing_supplier = client.get(
-        "/api/inventory/reports/material-stock.xlsx?lang=en&supplier_id=999999999",
-        headers=auth_headers,
-    )
-    assert missing_supplier.status_code == 404, missing_supplier.text
-
-
 def test_admin_can_delete_unused_stock_receipt_batch(client, auth_headers):
     suffix = uuid4().hex[:8].upper()
     item_response = client.post(
@@ -1441,6 +1455,18 @@ def test_stock_batch_delete_lock_does_not_lock_outer_join():
     assert " JOIN " not in sql
 
 
+def test_stock_batch_delete_reservation_lock_targets_only_reservation_rows():
+    sql = str(
+        _locked_active_batch_reservations_statement(90).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    ).upper()
+
+    assert "FOR UPDATE OF MATERIAL_RESERVATIONS" in sql
+    assert " JOIN " not in sql
+
+
 def test_stock_batch_delete_flushes_receipts_before_parent_batch():
     calls: list[object] = []
 
@@ -1458,7 +1484,10 @@ def test_stock_batch_delete_flushes_receipts_before_parent_batch():
     assert calls == [first, second, "flush"]
 
 
-def test_stock_batch_delete_rejects_batch_with_downstream_movement(client, auth_headers):
+def test_stock_batch_delete_archives_used_batch_and_reduces_remaining_inventory(client, auth_headers):
+    from app.db import session as session_module
+    from app.models import StockBatch, StockMovement
+
     suffix = uuid4().hex[:8].upper()
     item_response = client.post(
         "/api/inventory/items",
@@ -1499,9 +1528,27 @@ def test_stock_batch_delete_rejects_batch_with_downstream_movement(client, auth_
     )
     assert adjusted.status_code == 200, adjusted.text
 
-    denied = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
-    assert denied.status_code == 409, denied.text
-    assert "already reserved or used" in denied.json()["detail"]
+    deleted = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    assert deleted.status_code == 204, deleted.text
+
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        assert batch is not None
+        assert float(batch.quantity) == 0
+        assert batch.qc_status == "hold"
+        assert batch.archived_at is not None
+        deletion_issue = db.query(StockMovement).filter(
+            StockMovement.batch_id == batch_id,
+            StockMovement.reference_type == "StockBatchDelete",
+        ).one()
+        assert float(deletion_issue.quantity) == 9
+
+    visible = client.get(
+        f"/api/inventory/batches?item_id={item_response.json()['id']}",
+        headers=auth_headers,
+    )
+    assert visible.status_code == 200, visible.text
+    assert all(row["id"] != batch_id for row in visible.json())
 
 
 def test_admin_can_create_update_and_delete_supplier(client, auth_headers):

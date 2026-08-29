@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { CalendarDays, Download, Factory, Plus, TrendingDown, TrendingUp } from "lucide-react";
 import { fetcher } from "@/lib/api";
-import { DASHBOARD_SWR_OPTIONS } from "@/lib/liveData";
 import PageHeader from "@/components/PageHeader";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -118,24 +117,13 @@ export default function HomePage() {
   const { data: mgmt } = useSWR<any>(
     can(me, "management.view", "*") ? `/api/dashboard/management?tz=${encodeURIComponent(clientTz)}` : null,
     fetcher,
-    DASHBOARD_SWR_OPTIONS,
   );
-  const { data: fin } = useSWR<any>(
-    can(me, "finance.view", "*") ? "/api/dashboard/finance" : null,
-    fetcher,
-    DASHBOARD_SWR_OPTIONS,
-  );
+  const { data: fin } = useSWR<any>(can(me, "finance.view", "*") ? "/api/dashboard/finance" : null, fetcher);
   const {
-    data: activeProductionData,
+    data: activeProduction = [],
     error: activeProductionError,
     isLoading: activeProductionLoading,
-  } = useSWR<ActiveProductionOrder[]>(
-    "/api/dashboard/active-production",
-    fetcher,
-    DASHBOARD_SWR_OPTIONS,
-  );
-  const activeProduction = useMemo(() => activeProductionData ?? [], [activeProductionData]);
-  const showActiveProductionError = Boolean(activeProductionError && !activeProductionData);
+  } = useSWR<ActiveProductionOrder[]>("/api/dashboard/active-production", fetcher);
 
   const [kind, setKind] = useState<FilterKind>("all");
   const [datePreset, setDatePreset] = useState<DatePreset>("this_week");
@@ -181,7 +169,7 @@ export default function HomePage() {
     const qs = params.toString();
     return qs ? `/api/dashboard/production?${qs}` : "/api/dashboard/production";
   }, [dateRange.start, dateRange.end]);
-  const { data: prod } = useSWR<any>(prodUrl, fetcher, DASHBOARD_SWR_OPTIONS);
+  const { data: prod } = useSWR<any>(prodUrl, fetcher);
 
   const activeOrders = useMemo(() => {
     return activeProduction
@@ -238,7 +226,7 @@ export default function HomePage() {
                 <CalendarDays />{t(formatRangeLabel(datePreset))}
               </button>
               {showDateMenu ? (
-                <div className="absolute right-0 top-10 z-20 w-64 rounded-lg border border-[#ded9ca] bg-[#fdfcf8] p-3 shadow-lg">
+                <div className="absolute left-0 right-auto top-10 z-20 w-[min(16rem,calc(100vw-2rem))] rounded-lg border border-[#ded9ca] bg-[#fdfcf8] p-3 shadow-lg lg:left-auto lg:right-0">
                   <div>
                     <div className="label">{t("home.datePreset")}</div>
                     <select
@@ -315,7 +303,7 @@ export default function HomePage() {
           <div className="divide-y divide-[#ecebe3] md:hidden">
             {activeProductionLoading ? (
               <div className="p-4 text-sm text-[#8a8472]">{t("common.loading")}</div>
-            ) : showActiveProductionError ? (
+            ) : activeProductionError ? (
               <div className="p-4 text-sm text-red-600">{t("page.home.activeProductionError")}</div>
             ) : !activeOrders.length ? (
               <div className="p-4 text-sm text-[#8a8472]">{t("page.home.noOrdersSelectedFilter")}</div>
@@ -367,7 +355,7 @@ export default function HomePage() {
               <tbody>
                 {activeProductionLoading ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("common.loading")}</td></tr>
-                ) : showActiveProductionError ? (
+                ) : activeProductionError ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-red-600">{t("page.home.activeProductionError")}</td></tr>
                 ) : !activeOrders.length ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("page.home.noOrdersSelectedFilter")}</td></tr>

@@ -20,6 +20,7 @@ class Bundle(Base, PkMixin, TimestampMixin):
     qr_code_url: Mapped[str | None] = mapped_column(String(512))
     production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False)
     production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"), index=True)
+    cutting_record_id: Mapped[int | None] = mapped_column(ForeignKey("cutting_records.id"), index=True)
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
@@ -57,7 +58,11 @@ class Package(Base, PkMixin, TimestampMixin):
         CheckConstraint("capacity > 0", name="ck_packages_capacity_positive"),
         CheckConstraint("weight_kg IS NULL OR weight_kg >= 0", name="ck_packages_weight_nonnegative"),
         CheckConstraint(
-            "status IN ('packed', 'received_in_storage', 'reserved', 'shipped', 'delivered', 'damaged')",
+            "packaging_department_code IN ('PKG', 'BPK', 'ECP')",
+            name="ck_packages_packaging_department",
+        ),
+        CheckConstraint(
+            "status IN ('packed', 'handed_over', 'received_in_storage', 'reserved', 'shipped', 'delivered', 'damaged')",
             name="ck_packages_status",
         ),
         CheckConstraint(
@@ -67,6 +72,7 @@ class Package(Base, PkMixin, TimestampMixin):
     )
     package_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     barcode: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    packaging_department_code: Mapped[str] = mapped_column(String(16), default="PKG", nullable=False, index=True)
     qr_code_url: Mapped[str | None] = mapped_column(String(512))
     production_order_id: Mapped[int | None] = mapped_column(ForeignKey("production_orders.id"))
     legacy_receipt_id: Mapped[int | None] = mapped_column(
@@ -76,7 +82,7 @@ class Package(Base, PkMixin, TimestampMixin):
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
-    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
+    model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
     color: Mapped[str] = mapped_column(String(64), nullable=False)
     package_type: Mapped[str] = mapped_column(String(16), default="bag", nullable=False)
     total_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -159,7 +165,7 @@ class PackageItem(Base, PkMixin, TimestampMixin):
         CheckConstraint("quantity > 0", name="ck_package_items_quantity_positive"),
     )
     package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False)
-    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
+    model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
     color: Mapped[str] = mapped_column(String(64), nullable=False)
     size: Mapped[str] = mapped_column(String(32), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -224,7 +230,7 @@ class FinishedGoodsStock(Base, PkMixin, TimestampMixin):
     production_order_id: Mapped[int | None] = mapped_column(ForeignKey("production_orders.id"))
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
     package_id: Mapped[int | None] = mapped_column(ForeignKey("packages.id"))
-    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
+    model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
     color: Mapped[str] = mapped_column(String(64), nullable=False)

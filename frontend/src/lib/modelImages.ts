@@ -24,7 +24,7 @@ export function storageThumbnailUrl(value?: string | null, size = 320): string {
   if (url.startsWith("/storage/model-files/thumb/")) return url;
   const match = url.match(/^\/storage\/model-files\/([^/?#]+)(?:[?#].*)?$/);
   if (!match) return url;
-  return `/storage/model-files/thumb/${match[1]}?size=${Math.max(96, Math.min(size, 640))}`;
+  return `/storage/model-files/thumb/${match[1]}?size=${Math.max(96, Math.min(size, 1280))}&quality=hq2`;
 }
 
 export function storageFullImageUrl(value?: string | null): string {

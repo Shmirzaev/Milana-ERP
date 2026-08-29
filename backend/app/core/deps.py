@@ -7,6 +7,15 @@ from app.core.config import settings
 from app.core.security import decode_token
 from app.db.session import get_db
 from app.models import User
+from app.services.factory_scope import (
+    assigned_factory_code,
+    bind_session_factory,
+    enforce_request_factory_scope,
+    factory_permissions_for,
+    is_factory_permission_token,
+    selected_factory_code,
+    user_is_super_admin,
+)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
@@ -108,6 +117,8 @@ def get_current_user(
         from app.core.dt import as_utc
         if int(issued_at) < int(as_utc(valid_from).timestamp()):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired, please sign in again")
+    bind_session_factory(user, payload.get("factory_code"))
+    enforce_request_factory_scope(user, request)
     return user
 
 
@@ -131,9 +142,15 @@ def normalize_permissions(values) -> list[str]:
 
 def user_permissions(user: User) -> list[str]:
     permissions: list[str] = []
+    if not user_is_super_admin(user) and selected_factory_code(user) != assigned_factory_code(user):
+        return normalize_permissions(factory_permissions_for(user, selected_factory_code(user)))
     if user.role and user.role.permissions:
         permissions.extend(user.role.permissions)
-    permissions.extend(getattr(user, "extra_permissions", None) or [])
+    permissions.extend(
+        permission
+        for permission in (getattr(user, "extra_permissions", None) or [])
+        if not is_factory_permission_token(permission)
+    )
     return normalize_permissions(permissions)
 
 

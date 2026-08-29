@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import case, func, or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, lazyload
 
 from app.core.pagination import clamp_pagination
+from app.core.model_search import model_code_contains
 from app.models import (
     CuttingRecord,
     Item,
@@ -16,6 +17,7 @@ from app.models import (
     PrintingRecord,
     ProductionOrder,
     ProductionOrderItem,
+    ProductionOrderMaterial,
     SewingRecord,
     StockBatch,
     StockMovement,
@@ -36,8 +38,6 @@ RESERVATION_SOURCES = ("manual", "auto_bom", "planning")
 REQUIRE_RESERVATION_SETTING = "require_material_reservation_before_cutting"
 ACCESSORY_SEWING_BLOCK_REASON = "Accessories must be issued before sewing."
 EPSILON = 1e-9
-STOCK_SUMMARY_OUT_TYPES = ("issue", "consume", "waste", "shipment")
-STOCK_SUMMARY_IN_TYPES = ("produce", "return", "adjustment")
 
 
 def _accessory_match_key(value: object) -> str:
@@ -214,9 +214,46 @@ def _bom_requirement_rows(
         by_model.setdefault(int(bom.model_id), []).append((bom, item))
 
     required: dict[tuple[int, str, int | None], dict] = {}
-    planned_fabric_batch = db.get(StockBatch, po.fabric_batch_id) if po.fabric_batch_id else None
+    explicit_materials = (
+        db.query(ProductionOrderMaterial)
+        .filter(ProductionOrderMaterial.production_order_id == po.id)
+        .order_by(ProductionOrderMaterial.position.asc())
+        .all()
+    )
+    include_materials = categories is None or any(category in MATERIAL_CATEGORIES for category in categories)
+    if explicit_materials and include_materials:
+        for planned in explicit_materials:
+            stock_batch = db.get(StockBatch, planned.stock_batch_id)
+            item = db.get(Item, stock_batch.item_id) if stock_batch else None
+            if not stock_batch or not item:
+                continue
+            unit = str(planned.unit or stock_batch.unit or item.unit or "").strip() or item.unit
+            key = (int(item.id), unit, int(stock_batch.id))
+            required[key] = {
+                "item_id": int(item.id),
+                "item_sku": item.sku,
+                "item_name": item.name,
+                "item_image_url": item.image_url,
+                "composition": _item_composition(item),
+                "category": item.category,
+                "reservation_type": _reservation_type_for_category(item.category),
+                "unit": unit,
+                "stock_batch_id": int(stock_batch.id),
+                "stock_batch_no": stock_batch.batch_no,
+                "stock_batch_image_url": stock_batch.image_url,
+                "stock_batch_color": stock_batch.color,
+                "required_quantity": float(planned.estimated_quantity or 0),
+            }
+
+    planned_fabric_batch = (
+        db.get(StockBatch, po.fabric_batch_id)
+        if po.fabric_batch_id and not explicit_materials
+        else None
+    )
 
     def add_requirement(bom: ModelBOM, item: Item, planned_qty: int) -> None:
+        if explicit_materials and str(item.category or "").lower() in MATERIAL_CATEGORIES:
+            return
         qty = float(bom.quantity_per_piece or 0) * max(0, int(planned_qty or 0))
         qty *= 1.0 + float(bom.waste_percent or 0) / 100.0
         if qty <= 0:
@@ -776,85 +813,54 @@ def missing_material_reservation_for_cutting(db: Session, production_order_id: i
     return not bool(plan.get("is_complete"))
 
 
-def _apply_supplier_batch_filter(query, supplier_id: int | None, supplier_unassigned: bool):
-    if supplier_id is not None:
-        return query.filter(StockBatch.supplier_id == supplier_id)
-    if supplier_unassigned:
-        return query.filter(StockBatch.supplier_id.is_(None))
-    return query
-
-
-def _positive_stock_item_ids_query(
-    db: Session,
-    supplier_id: int | None,
-    supplier_unassigned: bool,
-):
-    batch_balance_query = db.query(
-        StockBatch.item_id.label("item_id"),
-        func.coalesce(func.sum(StockBatch.quantity), 0).label("batch_quantity"),
-    )
-    batch_balance_query = _apply_supplier_batch_filter(
-        batch_balance_query,
-        supplier_id,
-        supplier_unassigned,
-    )
-    batch_balance = batch_balance_query.group_by(StockBatch.item_id).subquery()
-    if supplier_id is not None:
-        return db.query(batch_balance.c.item_id).filter(batch_balance.c.batch_quantity > 0)
-
-    movement_balance = (
-        db.query(
-            StockMovement.item_id.label("item_id"),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            StockMovement.movement_type.in_(STOCK_SUMMARY_OUT_TYPES),
-                            -StockMovement.quantity,
-                        ),
-                        (
-                            StockMovement.movement_type.in_(STOCK_SUMMARY_IN_TYPES),
-                            StockMovement.quantity,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("movement_quantity"),
-        )
-        .filter(StockMovement.batch_id.is_(None))
-        .group_by(StockMovement.item_id)
-        .subquery()
-    )
-    return (
-        db.query(Item.id.label("item_id"))
-        .outerjoin(batch_balance, batch_balance.c.item_id == Item.id)
-        .outerjoin(movement_balance, movement_balance.c.item_id == Item.id)
-        .filter(
-            func.coalesce(batch_balance.c.batch_quantity, 0)
-            + func.coalesce(movement_balance.c.movement_quantity, 0)
-            > 0
-        )
-    )
-
-
 def _stock_item_query(
     db: Session,
     category: str | None = None,
     group: str | None = None,
     q: str | None = None,
+    supplier_id: int | None = None,
     created_from: datetime | None = None,
     created_to: datetime | None = None,
-    supplier_id: int | None = None,
-    supplier_unassigned: bool = False,
-    positive_only: bool = False,
 ):
-    query = db.query(Item)
+    positive_batch_exists = db.query(StockBatch.id).filter(
+        StockBatch.item_id == Item.id,
+        StockBatch.quantity > 0,
+    ).exists()
+    active_reservation_exists = db.query(MaterialReservation.id).filter(
+        MaterialReservation.item_id == Item.id,
+        MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+        (
+            MaterialReservation.reserved_quantity
+            - MaterialReservation.consumed_quantity
+            - MaterialReservation.released_quantity
+        ) > 0,
+    ).exists()
+    batchless_movement_exists = db.query(StockMovement.id).filter(
+        StockMovement.item_id == Item.id,
+        StockMovement.batch_id.is_(None),
+    ).exists()
+    query = db.query(Item).filter(
+        or_(
+            Item.is_active.is_(True),
+            positive_batch_exists,
+            active_reservation_exists,
+            batchless_movement_exists,
+        )
+    )
     categories = categories_for_group(group)
     if categories:
         query = query.filter(Item.category.in_(categories))
     if category:
         query = query.filter(Item.category == category)
+    if supplier_id or created_from or created_to:
+        matching_batch_items = db.query(StockBatch.item_id)
+        if supplier_id:
+            matching_batch_items = matching_batch_items.filter(StockBatch.supplier_id == supplier_id)
+        if created_from:
+            matching_batch_items = matching_batch_items.filter(StockBatch.received_date >= created_from)
+        if created_to:
+            matching_batch_items = matching_batch_items.filter(StockBatch.received_date <= created_to)
+        query = query.filter(Item.id.in_(matching_batch_items))
     search = (q or "").strip()
     if search:
         term = f"%{search}%"
@@ -872,11 +878,6 @@ def _stock_item_query(
                 StockBatch.qc_status.ilike(term),
             )
         )
-        matching_batch_items = _apply_supplier_batch_filter(
-            matching_batch_items,
-            supplier_id,
-            supplier_unassigned,
-        )
         query = query.filter(
             or_(
                 Item.sku.ilike(term),
@@ -885,20 +886,6 @@ def _stock_item_query(
                 Item.id.in_(matching_batch_items),
             )
         )
-    if positive_only or supplier_id is not None or supplier_unassigned:
-        query = query.filter(
-            Item.id.in_(
-                _positive_stock_item_ids_query(
-                    db,
-                    supplier_id,
-                    supplier_unassigned,
-                )
-            )
-        )
-    if created_from:
-        query = query.filter(Item.created_at >= created_from)
-    if created_to:
-        query = query.filter(Item.created_at <= created_to)
     return query
 
 
@@ -907,94 +894,11 @@ def stock_summary_count(
     category: str | None = None,
     group: str | None = None,
     q: str | None = None,
+    supplier_id: int | None = None,
     created_from: datetime | None = None,
     created_to: datetime | None = None,
-    supplier_id: int | None = None,
-    supplier_unassigned: bool = False,
-    positive_only: bool = False,
 ) -> int:
-    return int(
-        _stock_item_query(
-            db,
-            category=category,
-            group=group,
-            q=q,
-            created_from=created_from,
-            created_to=created_to,
-            supplier_id=supplier_id,
-            supplier_unassigned=supplier_unassigned,
-            positive_only=positive_only,
-        ).count()
-    )
-
-
-def stock_summary_line_count(
-    db: Session,
-    category: str | None = None,
-    group: str | None = None,
-    q: str | None = None,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
-    supplier_id: int | None = None,
-    supplier_unassigned: bool = False,
-) -> int:
-    query = (
-        db.query(func.count(StockBatch.id))
-        .join(Item, Item.id == StockBatch.item_id)
-        .filter(StockBatch.quantity > 0)
-    )
-    categories = categories_for_group(group)
-    if categories:
-        query = query.filter(Item.category.in_(categories))
-    if category:
-        query = query.filter(Item.category == category)
-    query = _apply_supplier_batch_filter(query, supplier_id, supplier_unassigned)
-    search = (q or "").strip()
-    if search:
-        term = f"%{search}%"
-        query = query.filter(
-            or_(
-                Item.sku.ilike(term),
-                Item.name.ilike(term),
-                Item.unit.ilike(term),
-                StockBatch.batch_no.ilike(term),
-                StockBatch.color.ilike(term),
-                StockBatch.old_code.ilike(term),
-                StockBatch.color_code.ilike(term),
-                StockBatch.color_status.ilike(term),
-                StockBatch.order_no.ilike(term),
-                StockBatch.processes.ilike(term),
-                StockBatch.unit.ilike(term),
-                StockBatch.qc_status.ilike(term),
-            )
-        )
-    if created_from:
-        query = query.filter(Item.created_at >= created_from)
-    if created_to:
-        query = query.filter(Item.created_at <= created_to)
-    batch_line_count = int(query.scalar() or 0)
-    if supplier_id is not None:
-        return batch_line_count
-
-    positive_items = _stock_item_query(
-        db,
-        category=category,
-        group=group,
-        q=q,
-        created_from=created_from,
-        created_to=created_to,
-        supplier_id=supplier_id,
-        supplier_unassigned=supplier_unassigned,
-        positive_only=True,
-    )
-    positive_batch_items = db.query(StockBatch.item_id).filter(StockBatch.quantity > 0)
-    positive_batch_items = _apply_supplier_batch_filter(
-        positive_batch_items,
-        supplier_id,
-        supplier_unassigned,
-    )
-    fallback_line_count = positive_items.filter(~Item.id.in_(positive_batch_items)).count()
-    return batch_line_count + int(fallback_line_count)
+    return int(_stock_item_query(db, category=category, group=group, q=q, supplier_id=supplier_id, created_from=created_from, created_to=created_to).count())
 
 
 def stock_summary(
@@ -1002,105 +906,106 @@ def stock_summary(
     category: str | None = None,
     group: str | None = None,
     q: str | None = None,
+    supplier_id: int | None = None,
     created_from: datetime | None = None,
     created_to: datetime | None = None,
     page: int | None = None,
     page_size: int | None = None,
-    supplier_id: int | None = None,
-    supplier_unassigned: bool = False,
-    positive_only: bool = False,
-) -> list[dict]:
-    latest_batch_receipt_query = (
+    include_total: bool = False,
+) -> list[dict] | tuple[list[dict], int]:
+    latest_batch_query = (
         db.query(
             StockBatch.item_id.label("item_id"),
             func.max(StockBatch.received_date).label("received_at"),
         )
     )
-    latest_batch_receipt_query = _apply_supplier_batch_filter(
-        latest_batch_receipt_query,
-        supplier_id,
-        supplier_unassigned,
-    )
-    latest_batch_receipt = latest_batch_receipt_query.group_by(StockBatch.item_id).subquery()
+    if supplier_id:
+        latest_batch_query = latest_batch_query.filter(StockBatch.supplier_id == supplier_id)
+    if created_from:
+        latest_batch_query = latest_batch_query.filter(StockBatch.received_date >= created_from)
+    if created_to:
+        latest_batch_query = latest_batch_query.filter(StockBatch.received_date <= created_to)
+    latest_batch_receipt = latest_batch_query.group_by(StockBatch.item_id).subquery()
     query = _stock_item_query(
         db,
         category=category,
         group=group,
         q=q,
+        supplier_id=supplier_id,
         created_from=created_from,
         created_to=created_to,
-        supplier_id=supplier_id,
-        supplier_unassigned=supplier_unassigned,
-        positive_only=positive_only,
     ).outerjoin(latest_batch_receipt, latest_batch_receipt.c.item_id == Item.id)
     query = query.order_by(
         func.coalesce(latest_batch_receipt.c.received_at, Item.created_at).desc(),
         Item.id.desc(),
     )
+    if include_total:
+        query = query.add_columns(func.count(Item.id).over().label("page_total"))
     if page is not None or page_size is not None:
         safe_page, safe_size, offset = clamp_pagination(page or 1, page_size or 50)
         query = query.offset(offset).limit(safe_size)
-    items = query.all()
+    raw_items = query.all()
+    total = 0
+    if include_total:
+        total = int(raw_items[0][1] or 0) if raw_items else 0
+        items = [row[0] for row in raw_items]
+        if not items and (page or 1) > 1:
+            total = stock_summary_count(
+                db,
+                category=category,
+                group=group,
+                q=q,
+                supplier_id=supplier_id,
+                created_from=created_from,
+                created_to=created_to,
+            )
+    else:
+        items = raw_items
     if not items:
-        return []
+        return ([], total) if include_total else []
 
     item_ids = [it.id for it in items]
     batch_query = (
         db.query(StockBatch.item_id, func.coalesce(func.sum(StockBatch.quantity), 0))
         .filter(StockBatch.item_id.in_(item_ids))
     )
-    batch_rows = (
-        _apply_supplier_batch_filter(batch_query, supplier_id, supplier_unassigned)
-        .group_by(StockBatch.item_id)
-        .all()
-    )
-    if supplier_id is None:
+    if supplier_id:
+        batch_query = batch_query.filter(StockBatch.supplier_id == supplier_id)
+    if created_from:
+        batch_query = batch_query.filter(StockBatch.received_date >= created_from)
+    if created_to:
+        batch_query = batch_query.filter(StockBatch.received_date <= created_to)
+    batch_rows = batch_query.group_by(StockBatch.item_id).all()
+    if supplier_id or created_from or created_to:
+        move_rows = []
+        reservation_rows = []
+    else:
         move_rows = (
-            db.query(
-                StockMovement.item_id,
-                StockMovement.movement_type,
-                func.coalesce(func.sum(StockMovement.quantity), 0),
-            )
+            db.query(StockMovement.item_id, StockMovement.movement_type, func.coalesce(func.sum(StockMovement.quantity), 0))
             .filter(StockMovement.item_id.in_(item_ids), StockMovement.batch_id.is_(None))
             .group_by(StockMovement.item_id, StockMovement.movement_type)
             .all()
         )
-    else:
-        # Batch-less movements have no supplier identity and must not be
-        # attributed to a named supplier.
-        move_rows = []
-    reservation_query = (
-        db.query(MaterialReservation.item_id, _active_reserved_sum_query(db))
-        .filter(
-            MaterialReservation.item_id.in_(item_ids),
-            MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
-        )
-    )
-    if supplier_id is not None:
-        reservation_query = reservation_query.join(
-            StockBatch,
-            StockBatch.id == MaterialReservation.stock_batch_id,
-        ).filter(StockBatch.supplier_id == supplier_id)
-    elif supplier_unassigned:
-        reservation_query = reservation_query.outerjoin(
-            StockBatch,
-            StockBatch.id == MaterialReservation.stock_batch_id,
-        ).filter(
-            or_(
-                MaterialReservation.stock_batch_id.is_(None),
-                StockBatch.supplier_id.is_(None),
+        reservation_rows = (
+            db.query(MaterialReservation.item_id, _active_reserved_sum_query(db))
+            .filter(
+                MaterialReservation.item_id.in_(item_ids),
+                MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
             )
+            .group_by(MaterialReservation.item_id)
+            .all()
         )
-    reservation_rows = reservation_query.group_by(MaterialReservation.item_id).all()
 
     batch_totals = {int(item_id): float(qty or 0) for item_id, qty in batch_rows}
     deltas: dict[int, float] = {int(i): 0.0 for i in item_ids}
+    out_types = {"issue", "consume", "waste", "shipment"}
+    in_types = {"produce", "return", "adjustment"}
     for item_id, movement_type, qty in move_rows:
         qv = float(qty or 0)
         iid = int(item_id)
-        if movement_type in STOCK_SUMMARY_OUT_TYPES:
+        if movement_type in out_types:
             deltas[iid] = deltas.get(iid, 0.0) - qv
-        elif movement_type in STOCK_SUMMARY_IN_TYPES:
+        elif movement_type in in_types:
             deltas[iid] = deltas.get(iid, 0.0) + qv
     reserved_totals = {int(item_id): max(0.0, float(qty or 0)) for item_id, qty in reservation_rows}
 
@@ -1119,7 +1024,7 @@ def stock_summary(
             "reserved_quantity": reserved_qty,
             "available_quantity": qty - reserved_qty,
         })
-    return out
+    return (out, total) if include_total else out
 
 
 def _model_label_fields(db: Session, model_id: int | None) -> tuple[str | None, str | None]:
@@ -1380,10 +1285,11 @@ def accessory_issue_summary(
     search = (q or "").strip().lower()
     if search:
         def matches(row: dict) -> bool:
+            if model_code_contains(row.get("model_code"), search):
+                return True
             fields = [
                 row.get("order_no"),
                 row.get("production_no"),
-                row.get("model_code"),
                 row.get("model_name"),
                 row.get("item_sku"),
                 row.get("item_name"),

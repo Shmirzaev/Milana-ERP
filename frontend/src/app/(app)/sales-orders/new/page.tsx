@@ -3,9 +3,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
+import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import PageHeader from "@/components/PageHeader";
-import SearchableSelect from "@/components/SearchableSelect";
+import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import { useT } from "@/lib/i18n";
+import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import {
   groupModelVariants,
@@ -19,7 +21,6 @@ import {
 type Line = {
   row_id: string;
   model_id: number;
-  finished_goods_stock_id: number;
   color: string;
   size: string;
   quantity: NumberInputValue;
@@ -33,9 +34,7 @@ type PrintingAttachment = { file_url: string; file_name?: string | null; content
 type BrandedStockRow = {
   id: number;
   package_id?: number | null;
-  model_id?: number | null;
-  model_code?: string | null;
-  model_name?: string | null;
+  model_id: number;
   brand_id?: number | null;
   color: string;
   size: string;
@@ -46,15 +45,7 @@ type AvailableModelOption = {
   model: any;
   available: number;
   fullPacks: number;
-  partialPacks: number;
-  partialQuantities: number[];
-  saleablePacks: number;
-  saleableQty: number;
-};
-type AvailableLegacyOption = {
-  stock: BrandedStockRow;
-  available: number;
-  fullPacks: number;
+  fullQuantities: number[];
   partialPacks: number;
   partialQuantities: number[];
   saleablePacks: number;
@@ -63,7 +54,7 @@ type AvailableLegacyOption = {
 type ModelDetailSize = { size?: string | null };
 type ModelDetailResponse = { sizes?: ModelDetailSize[] };
 
-const SIZE_OPTIONS = ["44", "46", "48", "50", "52", "54", "56", "58", "60", "62", "64"];
+const SIZE_OPTIONS = GARMENT_SIZE_OPTIONS;
 const DEFAULT_SIZE = SIZE_OPTIONS[0];
 const DEFAULT_PACK_PIECES = 60;
 const BRANDED_PACK_COLOR = "mixed";
@@ -84,7 +75,6 @@ function createLine(overrides: Partial<Omit<Line, "row_id">> = {}): Line {
   return {
     row_id: rowId,
     model_id: 0,
-    finished_goods_stock_id: 0,
     color: "white",
     size: DEFAULT_SIZE,
     quantity: "",
@@ -103,6 +93,10 @@ function normalizeStockToken(value: unknown): string {
 
 function stockVariantKey(modelId: number, color: string, size: string): string {
   return `${Number(modelId) || 0}|${normalizeStockToken(color)}|${normalizeStockToken(size)}`;
+}
+
+function stockPackageKey(row: BrandedStockRow): string {
+  return row.package_id ? `pkg:${row.package_id}` : `stock:${row.id}`;
 }
 
 function formatNumericSize(value: number): string {
@@ -133,13 +127,8 @@ function buildModelSizeRange(values: Array<string | null | undefined>): string |
 export default function NewSalesOrderPage() {
   const { t } = useT();
   const { data: customers } = useSWR<any[]>("/api/customers", fetcher);
-  const { data: models } = useSWR<any[]>("/api/models", fetcher);
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
-  const {
-    data: brandedStockRows,
-    error: brandedStockError,
-    isLoading: brandedStockLoading,
-  } = useSWR<BrandedStockRow[]>("/api/finished-goods/branded-stock", fetcher);
+  const { data: brandedStockRows } = useSWR<BrandedStockRow[]>("/api/finished-goods/branded-stock", fetcher);
   const [customerId, setCustomerId] = useState<number | "">("");
   const [brandId, setBrandId] = useState<number | "">("");
   const [orderType, setOrderType] = useState("client_order");
@@ -153,10 +142,15 @@ export default function NewSalesOrderPage() {
   const [sizeTo, setSizeTo] = useState("56");
   const [distributeTotalQty, setDistributeTotalQty] = useState<NumberInputValue>(6000);
   const [packPieces, setPackPieces] = useState<NumberInputValue>(DEFAULT_PACK_PIECES);
-  const [includePartialPacks, setIncludePartialPacks] = useState(false);
+  const [includePartialPacks, setIncludePartialPacks] = useState(true);
   const [modelSizeRangeById, setModelSizeRangeById] = useState<Record<number, string>>({});
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  const salesModelOptionsKey = modelOptionsByIdsKey([
+    ...(brandedStockRows || []).map((row) => row.model_id),
+    ...lines.map((line) => line.model_id),
+  ]);
+  const { data: models } = useSWR<any[]>(salesModelOptionsKey, modelOptionsByIdsFetcher);
 
   const isBrandedOrder = orderType === "branded_stock_sale";
   const effectivePackPieces = normalizePackPieces(packPieces);
@@ -177,11 +171,7 @@ export default function NewSalesOrderPage() {
     const selectedBrandId = Number(brandId || 0);
     return (brandedStockRows ?? []).filter((row) => {
       if (Number(row.available_qty || 0) <= 0) return false;
-      if (
-        selectedBrandId > 0
-        && row.model_id
-        && Number(row.brand_id || 0) !== selectedBrandId
-      ) return false;
+      if (selectedBrandId > 0 && Number(row.brand_id || 0) !== selectedBrandId) return false;
       return true;
     });
   }, [brandId, brandedStockRows]);
@@ -189,7 +179,6 @@ export default function NewSalesOrderPage() {
   const brandedAvailableByVariant = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of filteredBrandedStockRows) {
-      if (!row.model_id) continue;
       const key = stockVariantKey(Number(row.model_id), row.color, row.size);
       map.set(key, (map.get(key) || 0) + Number(row.available_qty || 0));
     }
@@ -197,7 +186,7 @@ export default function NewSalesOrderPage() {
   }, [filteredBrandedStockRows]);
 
   const availableModelOptions = useMemo<AvailableModelOption[]>(() => {
-    const map = new Map<number, { model: any; available: number }>();
+    const map = new Map<number, { model: any; available: number; packages: Map<string, number> }>();
     for (const row of filteredBrandedStockRows) {
       const modelId = Number(row.model_id || 0);
       if (!modelId) continue;
@@ -207,19 +196,28 @@ export default function NewSalesOrderPage() {
       const found = map.get(modelId);
       if (found) {
         found.available += availableQty;
+        found.packages.set(stockPackageKey(row), (found.packages.get(stockPackageKey(row)) || 0) + availableQty);
       } else {
-        map.set(modelId, { model, available: availableQty });
+        const packages = new Map<string, number>();
+        packages.set(stockPackageKey(row), availableQty);
+        map.set(modelId, { model, available: availableQty, packages });
       }
     }
     return Array.from(map.values())
       .map((item) => {
-        const fullPacks = Math.floor(item.available / effectivePackPieces);
-        const remainder = item.available % effectivePackPieces;
-        const partialQuantities = remainder > 0 ? [remainder] : [];
+        const packageQuantities = Array.from(item.packages.values()).filter((qty) => qty > 0);
+        const fullQuantities = packageQuantities
+          .filter((qty) => qty >= effectivePackPieces)
+          .sort((a, b) => b - a);
+        const fullPacks = fullQuantities.length;
+        const partialQuantities = packageQuantities
+          .filter((qty) => qty > 0 && qty < effectivePackPieces)
+          .sort((a, b) => b - a);
         const partialPacks = partialQuantities.length;
         const saleablePacks = fullPacks + (includePartialPacks ? partialPacks : 0);
-        const saleableQty = (fullPacks * effectivePackPieces) + (includePartialPacks ? partialQuantities.reduce((sum, qty) => sum + qty, 0) : 0);
-        return { ...item, fullPacks, partialPacks, partialQuantities, saleablePacks, saleableQty };
+        const fullQty = fullQuantities.reduce((sum, qty) => sum + qty, 0);
+        const saleableQty = fullQty + (includePartialPacks ? partialQuantities.reduce((sum, qty) => sum + qty, 0) : 0);
+        return { ...item, fullPacks, fullQuantities, partialPacks, partialQuantities, saleablePacks, saleableQty };
       })
       .filter((item) => item.saleablePacks > 0)
       .sort((a, b) => {
@@ -229,37 +227,28 @@ export default function NewSalesOrderPage() {
       });
   }, [effectivePackPieces, filteredBrandedStockRows, includePartialPacks, modelMap]);
 
-  const availableLegacyOptions = useMemo<AvailableLegacyOption[]>(() => (
-    filteredBrandedStockRows
-      .filter((row) => !row.model_id)
-      .map((stock) => {
-        const available = Number(stock.available_qty || 0);
-        const fullPacks = Math.floor(available / effectivePackPieces);
-        const remainder = available % effectivePackPieces;
-        const partialQuantities = remainder > 0 ? [remainder] : [];
-        const partialPacks = partialQuantities.length;
-        const saleablePacks = fullPacks + (includePartialPacks ? partialPacks : 0);
-        const saleableQty = (fullPacks * effectivePackPieces)
-          + (includePartialPacks ? remainder : 0);
-        return {
-          stock,
-          available,
-          fullPacks,
-          partialPacks,
-          partialQuantities,
-          saleablePacks,
-          saleableQty,
-        };
-      })
-      .filter((item) => item.saleablePacks > 0)
-      .sort((a, b) => (
-        String(a.stock.model_code || "").localeCompare(
-          String(b.stock.model_code || ""),
+  const availableModelGroups = useMemo(() => {
+    const grouped = new Map<string, { key: string; label: string; items: AvailableModelOption[] }>();
+    for (const item of availableModelOptions) {
+      const modelId = Number(item.model.id);
+      const key = modelGroupKeyByModelId.get(modelId) || modelVariantGroupKey(item.model);
+      const group = modelGroupByKey.get(key);
+      const label = group ? modelGroupLabel(group) : modelOrderLabel(item.model);
+      const current = grouped.get(key);
+      if (current) current.items.push(item);
+      else grouped.set(key, { key, label, items: [item] });
+    }
+    return Array.from(grouped.values())
+      .map((group) => ({
+        ...group,
+        items: group.items.slice().sort((a, b) => modelVariantLabel(modelVariantOption(a.model)).localeCompare(
+          modelVariantLabel(modelVariantOption(b.model)),
           undefined,
           { numeric: true, sensitivity: "base" },
-        )
-      ))
-  ), [effectivePackPieces, filteredBrandedStockRows, includePartialPacks]);
+        )),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }));
+  }, [availableModelOptions, modelGroupByKey, modelGroupKeyByModelId]);
 
   const availableModelOptionById = useMemo(() => {
     return new Map(availableModelOptions.map((item) => [Number(item.model.id), item]));
@@ -269,49 +258,12 @@ export default function NewSalesOrderPage() {
     return new Map(availableModelOptions.map((item) => [Number(item.model.id), Number(item.saleableQty || 0)]));
   }, [availableModelOptions]);
 
-  const availableLegacyOptionById = useMemo(() => (
-    new Map(availableLegacyOptions.map((item) => [Number(item.stock.id), item]))
-  ), [availableLegacyOptions]);
-
-  const saleableSelectionOptions = useMemo(() => [
-    ...availableModelOptions.map((item) => ({
-      value: `model:${item.model.id}`,
-      label: `${modelOrderLabel(item.model)} — ${item.saleablePacks.toLocaleString()} ${t("newso.packsShort")}`,
-      searchText: `${item.model.code || ""} ${item.model.name || ""}`,
-    })),
-    ...availableLegacyOptions.map((item) => ({
-      value: `stock:${item.stock.id}`,
-      label: `${t("newso.legacyStockGroup")}: ${item.stock.model_code || `#${item.stock.id}`} — ${item.stock.model_name || ""} · ${item.stock.size || ""} — ${item.saleablePacks.toLocaleString()} ${t("newso.packsShort")}`,
-      searchText: `${item.stock.model_code || ""} ${item.stock.model_name || ""} ${item.stock.color || ""} ${item.stock.size || ""}`,
-    })),
-  ], [availableLegacyOptions, availableModelOptions, t]);
-
-  const availableSelectionKeys = useMemo(
-    () => new Set(saleableSelectionOptions.map((option) => option.value)),
-    [saleableSelectionOptions],
-  );
-  const availableProductCount = availableModelOptions.length + availableLegacyOptions.length;
-  const totalBrandedPieces = [...availableModelOptions, ...availableLegacyOptions]
-    .reduce((sum, item) => sum + Number(item.saleableQty || 0), 0);
-  const totalFullPacks = [...availableModelOptions, ...availableLegacyOptions]
-    .reduce((sum, item) => sum + Number(item.fullPacks || 0), 0);
-  const totalPartialPacks = [...availableModelOptions, ...availableLegacyOptions]
-    .reduce((sum, item) => sum + Number(item.partialPacks || 0), 0);
-  const totalBrandedPacks = [...availableModelOptions, ...availableLegacyOptions]
-    .reduce((sum, item) => sum + Number(item.saleablePacks || 0), 0);
-
-  function selectionKeyForLine(line: Line): string {
-    if (line.finished_goods_stock_id) return `stock:${line.finished_goods_stock_id}`;
-    if (line.model_id) return `model:${line.model_id}`;
-    return "";
-  }
-
-  function optionForLine(line: Line): AvailableModelOption | AvailableLegacyOption | undefined {
-    if (line.finished_goods_stock_id) {
-      return availableLegacyOptionById.get(Number(line.finished_goods_stock_id));
-    }
-    return availableModelOptionById.get(Number(line.model_id));
-  }
+  const availableModelIds = useMemo(() => new Set(availableModelOptions.map((item) => Number(item.model.id))), [availableModelOptions]);
+  const availableModelCount = availableModelOptions.length;
+  const totalBrandedPieces = availableModelOptions.reduce((sum, item) => sum + Number(item.saleableQty || 0), 0);
+  const totalFullPacks = availableModelOptions.reduce((sum, item) => sum + Number(item.fullPacks || 0), 0);
+  const totalPartialPacks = availableModelOptions.reduce((sum, item) => sum + Number(item.partialPacks || 0), 0);
+  const totalBrandedPacks = availableModelOptions.reduce((sum, item) => sum + Number(item.saleablePacks || 0), 0);
 
   const brandedPackSelection = useCallback((line: Line): {
     fullPackCount: number;
@@ -319,7 +271,7 @@ export default function NewSalesOrderPage() {
     packCount: number;
     quantity: number;
   } => {
-    const option = optionForLine(line);
+    const option = availableModelOptionById.get(Number(line.model_id));
     const fallbackPackCount = Math.max(0, numberOrZero(line.pack_count));
     let fullPackCount = Math.max(0, numberOrZero(line.full_pack_count));
     let partialPackCount = includePartialPacks ? Math.max(0, numberOrZero(line.partial_pack_count)) : 0;
@@ -337,6 +289,9 @@ export default function NewSalesOrderPage() {
       partialPackCount = 0;
     }
 
+    const fullQty = option
+      ? option.fullQuantities.slice(0, fullPackCount).reduce((sum, qty) => sum + qty, 0)
+      : fullPackCount * effectivePackPieces;
     const partialQty = includePartialPacks && option
       ? option.partialQuantities.slice(0, partialPackCount).reduce((sum, qty) => sum + qty, 0)
       : 0;
@@ -345,26 +300,18 @@ export default function NewSalesOrderPage() {
       fullPackCount,
       partialPackCount,
       packCount,
-      quantity: (fullPackCount * effectivePackPieces) + partialQty,
+      quantity: fullQty + partialQty,
     };
-  }, [availableLegacyOptionById, availableModelOptionById, effectivePackPieces, includePartialPacks]);
+  }, [availableModelOptionById, effectivePackPieces, includePartialPacks]);
 
   useEffect(() => {
     if (isBrandedOrder) {
       setLines((prev) => prev.map((line) => {
-        const currentKey = selectionKeyForLine(line);
-        const keepSelection = availableSelectionKeys.has(currentKey);
-        const nextModelId = keepSelection ? line.model_id : 0;
-        const nextStockId = keepSelection ? line.finished_goods_stock_id : 0;
-        const selection = brandedPackSelection({
-          ...line,
-          model_id: nextModelId,
-          finished_goods_stock_id: nextStockId,
-        });
+        const nextModelId = availableModelIds.has(Number(line.model_id)) ? line.model_id : 0;
+        const selection = brandedPackSelection({ ...line, model_id: nextModelId });
         return {
           ...line,
           model_id: nextModelId,
-          finished_goods_stock_id: nextStockId,
           color: BRANDED_PACK_COLOR,
           size: brandedPackSize,
           pack_count: selection.packCount,
@@ -376,12 +323,11 @@ export default function NewSalesOrderPage() {
     } else {
       setLines((prev) => prev.map((line) => ({
         ...line,
-        finished_goods_stock_id: 0,
         color: line.color || "white",
         size: line.size || DEFAULT_SIZE,
       })));
     }
-  }, [isBrandedOrder, availableSelectionKeys, brandedPackSelection, brandedPackSize]);
+  }, [isBrandedOrder, availableModelIds, brandedPackSelection, brandedPackSize]);
 
   useEffect(() => {
     if (!isBrandedOrder) return;
@@ -420,21 +366,11 @@ export default function NewSalesOrderPage() {
   }, [isBrandedOrder, lines, modelSizeRangeById]);
 
   function brandedLineSizeLabel(line: Line): string {
-    if (line.finished_goods_stock_id) {
-      return availableLegacyOptionById.get(Number(line.finished_goods_stock_id))?.stock.size
-        || brandedPackSize;
-    }
     if (!line.model_id) return brandedPackSize;
     return modelSizeRangeById[Number(line.model_id)] || brandedPackSize;
   }
 
   function availableQtyForLine(line: Line): number {
-    if (line.finished_goods_stock_id) {
-      return Number(
-        availableLegacyOptionById.get(Number(line.finished_goods_stock_id))?.saleableQty
-        || 0,
-      );
-    }
     if (!line.model_id) return 0;
     if (isBrandedOrder) {
       return Number(availableModelQtyById.get(Number(line.model_id)) || 0);
@@ -494,57 +430,6 @@ export default function NewSalesOrderPage() {
     return m ? modelOrderLabel(m) : "";
   }
 
-  function productLabelForLine(line: Line): string {
-    if (line.finished_goods_stock_id) {
-      const stock = availableLegacyOptionById.get(
-        Number(line.finished_goods_stock_id),
-      )?.stock;
-      if (!stock) return `#${line.finished_goods_stock_id}`;
-      return [stock.model_code, stock.model_name].filter(Boolean).join(" — ");
-    }
-    return modelLabelById(line.model_id) || `#${line.model_id}`;
-  }
-
-  function selectSaleableProduct(index: number, value: string) {
-    const [kind, rawId] = String(value || "").split(":", 2);
-    const id = Number(rawId || 0);
-    setLines((prev) => prev.map((line, lineIndex) => {
-      if (lineIndex !== index) return line;
-      const next: Line = {
-        ...line,
-        model_id: kind === "model" ? id : 0,
-        finished_goods_stock_id: kind === "stock" ? id : 0,
-      };
-      const selection = brandedPackSelection(next);
-      return {
-        ...next,
-        color: BRANDED_PACK_COLOR,
-        size: brandedPackSize,
-        pack_count: selection.packCount,
-        full_pack_count: selection.fullPackCount,
-        partial_pack_count: selection.partialPackCount,
-        quantity: selection.quantity,
-      };
-    }));
-  }
-
-  function selectModelGroup(index: number, groupKey: string) {
-    const group = modelGroupByKey.get(groupKey);
-    setLines((prev) => prev.map((line, lineIndex) => (
-      lineIndex === index
-        ? {
-            ...line,
-            model_id: Number(group?.variants[0]?.id || 0),
-            finished_goods_stock_id: 0,
-          }
-        : line
-    )));
-  }
-
-  function selectedModelGroupKey(modelId: number): string {
-    return modelGroupKeyByModelId.get(Number(modelId)) || "";
-  }
-
   function distributeBySizeRange() {
     setErr("");
     const distributeQty = numberOrZero(distributeTotalQty);
@@ -570,7 +455,6 @@ export default function NewSalesOrderPage() {
       if (remainder > 0) remainder -= 1;
       return createLine({
         model_id: base.model_id,
-        finished_goods_stock_id: base.finished_goods_stock_id,
         color: base.color,
         size,
         quantity: qtyPerSize + addOne,
@@ -622,13 +506,13 @@ export default function NewSalesOrderPage() {
     setSaving(true);
     try {
       if (isBrandedOrder) {
-        if (!availableProductCount) {
+        if (!availableModelOptions.length) {
           setErr(t("newso.noStockForBrand"));
           setSaving(false);
           return;
         }
         for (const line of lines) {
-          if (!line.model_id && !line.finished_goods_stock_id) {
+          if (!line.model_id) {
             setErr(t("newso.selectModel"));
             setSaving(false);
             return;
@@ -640,23 +524,23 @@ export default function NewSalesOrderPage() {
           }
         }
 
-        const requestedByProduct = new Map<string, { requested: number; available: number; model: string }>();
+        const requestedByModel = new Map<number, { requested: number; available: number; model: string }>();
         for (const line of lines) {
-          const key = selectionKeyForLine(line);
-          const available = availableQtyForLine(line);
-          const modelName = productLabelForLine(line);
-          const current = requestedByProduct.get(key);
+          const key = Number(line.model_id || 0);
+          const available = Number(availableModelQtyById.get(key) || 0);
+          const modelName = modelLabelById(line.model_id) || `#${line.model_id}`;
+          const current = requestedByModel.get(key);
           if (current) {
             current.requested += linePieces(line);
           } else {
-            requestedByProduct.set(key, {
+            requestedByModel.set(key, {
               requested: linePieces(line),
               available,
               model: modelName,
             });
           }
         }
-        for (const row of requestedByProduct.values()) {
+        for (const row of requestedByModel.values()) {
           if (row.requested > row.available) {
             setErr(
               t("newso.stockInsufficient", {
@@ -679,8 +563,7 @@ export default function NewSalesOrderPage() {
         printing_attachments: hasPrintingSelected ? printingAttachments : [],
         notes,
         items: lines.map((line) => ({
-          model_id: line.model_id || null,
-          finished_goods_stock_id: line.finished_goods_stock_id || null,
+          model_id: line.model_id,
           color: isBrandedOrder ? BRANDED_PACK_COLOR : line.color,
           size: isBrandedOrder ? brandedPackSize : line.size,
           quantity: linePieces(line),
@@ -748,8 +631,8 @@ export default function NewSalesOrderPage() {
               <div className="mt-4 rounded-xl border border-[#d7e5dd] bg-[linear-gradient(145deg,#f8fcfa,#eef5f1)] p-4">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="rounded-lg bg-white/75 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.08em] text-[#6a7f72]">{t("newso.productsInStorage")}</div>
-                    <div className="mt-1 text-2xl font-semibold text-[#1f4032]">{availableProductCount.toLocaleString()}</div>
+                    <div className="text-[11px] uppercase tracking-[0.08em] text-[#6a7f72]">{t("newso.modelsInStorage")}</div>
+                    <div className="mt-1 text-2xl font-semibold text-[#1f4032]">{availableModelCount.toLocaleString()}</div>
                   </div>
                   <div className="rounded-lg bg-white/75 p-3">
                     <div className="text-[11px] uppercase tracking-[0.08em] text-[#6a7f72]">{t("newso.packsInStorage")}</div>
@@ -763,13 +646,7 @@ export default function NewSalesOrderPage() {
                   </div>
                 </div>
                 <p className="mt-2 text-xs text-[#53695c]">
-                  {brandedStockError
-                    ? t("newso.stockLoadFailed")
-                    : brandedStockLoading
-                      ? t("common.loading")
-                      : availableProductCount > 0
-                        ? t("newso.readyStockHint")
-                        : t("newso.noStockForBrand")}
+                  {availableModelCount > 0 ? t("newso.brandedStockHint") : t("newso.noStockForBrand")}
                 </p>
               </div>
             )}
@@ -866,67 +743,56 @@ export default function NewSalesOrderPage() {
                 </thead>
                 <tbody>
                   {lines.map((l, i) => {
-                    const productOption = optionForLine(l);
-                    const productTotal = Number(productOption?.saleableQty || 0);
+                    const modelOption = availableModelOptionById.get(Number(l.model_id));
+                    const modelTotal = Number(availableModelQtyById.get(Number(l.model_id)) || 0);
                     const lineAvailable = availableQtyForLine(l);
-                    const lineAvailablePacks = Number(productOption?.saleablePacks || Math.floor(lineAvailable / effectivePackPieces));
+                    const lineAvailablePacks = Number(modelOption?.saleablePacks || Math.floor(lineAvailable / effectivePackPieces));
                     const selectedFullPacks = Math.max(0, numberOrZero(l.full_pack_count));
                     const selectedPartialPacks = includePartialPacks ? Math.max(0, numberOrZero(l.partial_pack_count)) : 0;
-                    const lineFullPacks = Number(productOption?.fullPacks || 0);
-                    const linePartialPacks = includePartialPacks ? Number(productOption?.partialPacks || 0) : 0;
-                    const selectedGroupKey = selectedModelGroupKey(l.model_id);
-                    const selectedGroup = modelGroupByKey.get(selectedGroupKey);
-                    const selectedProductKey = selectionKeyForLine(l);
+                    const lineFullPacks = Number(modelOption?.fullPacks || 0);
+                    const linePartialPacks = includePartialPacks ? Number(modelOption?.partialPacks || 0) : 0;
                     return (
                       <tr key={l.row_id}>
                         <td className="min-w-72 align-top">
                           {isBrandedOrder ? (
                             <>
-                              <SearchableSelect
-                                inputId={`saleable-product-${l.row_id}`}
-                                value={selectedProductKey || null}
-                                options={saleableSelectionOptions}
-                                onChange={(value) => selectSaleableProduct(i, String(value))}
-                                placeholder={t("newso.selectModel")}
-                                noResultsText={t("newso.noMatchingStock")}
-                                disabled={!saleableSelectionOptions.length}
-                              />
-                              {selectedProductKey && (
+                              <select
+                                className="input h-9"
+                                value={l.model_id || ""}
+                                onChange={(e) => updateLine(i, "model_id", Number(e.target.value) || 0)}
+                                disabled={!availableModelOptions.length}
+                              >
+                                <option value="">{t("newso.selectModel")}</option>
+                                {availableModelGroups.map((group) => (
+                                  <optgroup key={group.key} label={group.label}>
+                                    {group.items.map((item) => (
+                                      <option key={item.model.id} value={item.model.id}>
+                                        {`${modelVariantLabel(modelVariantOption(item.model))} - ${item.saleablePacks.toLocaleString()} ${t("newso.packsShort")}${item.partialPacks > 0 && includePartialPacks ? ` (${item.fullPacks.toLocaleString()} + ${item.partialPacks.toLocaleString()} ${t("newso.notFullShort")})` : ""}`}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                              {l.model_id > 0 && (
                                 <div className="inline-flex rounded-md bg-[#edf7f1] px-2.5 py-1 text-xs font-medium text-[#246845]">
                                   {t("newso.modelInStockPack", {
                                     packs: lineAvailablePacks.toLocaleString(),
-                                    qty: productTotal.toLocaleString(),
+                                    qty: modelTotal.toLocaleString(),
                                   })}
                                 </div>
                               )}
                             </>
                           ) : (
-                            <div className="grid min-w-72 grid-cols-1 gap-2">
-                              <select
-                                className="input h-9"
-                                value={selectedGroupKey}
-                                onChange={(e) => selectModelGroup(i, e.target.value)}
-                              >
-                                <option value="">{t("newso.selectModel")}</option>
-                                {modelGroups.map((group) => (
-                                  <option key={group.key} value={group.key}>
-                                    {modelGroupLabel(group)}
-                                  </option>
-                                ))}
-                              </select>
-                              <select
-                                className="input h-9"
-                                value={l.model_id || ""}
-                                onChange={(e) => updateLine(i, "model_id", Number(e.target.value) || 0)}
-                                disabled={!selectedGroup}
-                              >
-                                <option value="">{t("page.modelDetail.tab.variants")}</option>
-                                {(selectedGroup?.variants || []).map((variant) => (
-                                  <option key={variant.id} value={variant.id}>
-                                    {modelVariantLabel(variant)}
-                                  </option>
-                                ))}
-                              </select>
+                            <div className="min-w-72">
+                              <ModelAsyncSelect
+                                value={l.model_id || null}
+                                onChange={(modelId) => updateLine(i, "model_id", modelId)}
+                                placeholder={t("newso.selectModel")}
+                                noResultsText={t("page.search.noMatches")}
+                                loadingText={t("common.loading")}
+                                loadMoreText={t("common.loadMore")}
+                                required
+                              />
                             </div>
                           )}
                         </td>
@@ -975,7 +841,7 @@ export default function NewSalesOrderPage() {
                                   {`${linePieces(l).toLocaleString()} ${t("newso.pcsShort")}`}
                                 </span>
                               </div>
-                              {selectedProductKey && (
+                              {l.model_id > 0 && (
                                 <div className="flex flex-wrap gap-1.5">
                                   <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${selectedFullPacks > lineFullPacks ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
                                     {t("newso.fullPacksAvailable", { count: lineFullPacks.toLocaleString() })}

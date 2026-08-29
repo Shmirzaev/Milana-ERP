@@ -494,7 +494,7 @@ def test_cors_rejects_untrusted_credentialed_origin(client):
 def test_sales_order_attachment_requires_valid_signature(client, auth_headers):
     r = client.post(
         "/api/sales-orders/printing-attachments/upload",
-        files={"file": ("design.png", _PNG, "image/png")},
+        files={"file": ("design.png", _VALID_PNG, "image/png")},
         headers=auth_headers,
     )
     assert r.status_code == 201, r.text
@@ -514,7 +514,7 @@ def test_sales_order_attachment_requires_valid_signature(client, auth_headers):
 def test_sales_order_persists_bare_path_and_resigns_on_read(client, auth_headers):
     up = client.post(
         "/api/sales-orders/printing-attachments/upload",
-        files={"file": ("art.png", _PNG, "image/png")},
+        files={"file": ("art.png", _VALID_PNG, "image/png")},
         headers=auth_headers,
     ).json()
 
@@ -583,7 +583,7 @@ def test_printable_package_label_escapes_database_values(client, auth_headers):
 def test_model_file_storage_requires_authentication(client, auth_headers):
     up = client.post(
         "/api/models/1/images/upload",
-        files={"file": ("model.png", _PNG, "image/png")},
+        files={"file": ("model.png", _VALID_PNG, "image/png")},
         headers=auth_headers,
     )
     assert up.status_code == 201, up.text
@@ -613,10 +613,28 @@ def test_model_file_thumbnail_is_authenticated_and_cacheable(client, auth_header
     assert "max-age" in thumb.headers["cache-control"]
 
 
-def test_model_file_uses_database_fallback_when_available(client, auth_headers):
+def test_filesystem_thumbnail_does_not_use_database_pool(client, auth_headers, monkeypatch):
+    up = client.post(
+        "/api/models/1/images/upload",
+        files={"file": ("pool-safe-preview.png", _VALID_PNG, "image/png")},
+        headers=auth_headers,
+    )
+    assert up.status_code == 201, up.text
+    thumb_url = up.json()["file_url"].replace(
+        "/storage/model-files/", "/storage/model-files/thumb/"
+    ) + "?size=160"
+
+    def fail_session_checkout():
+        raise AssertionError("filesystem thumbnails must not check out a database session")
+
+    monkeypatch.setattr("app.main.SessionLocal", fail_session_checkout)
+    thumb = client.get(thumb_url, headers=auth_headers)
+    assert thumb.status_code == 200, thumb.text
+    assert thumb.headers["content-type"].startswith("image/webp")
+
+
+def test_model_file_survives_missing_filesystem_copy(client, auth_headers):
     from app.core.config import settings
-    from app.db.session import SessionLocal
-    from app.models import ModelImage
 
     up = client.post(
         "/api/models/1/images/upload",
@@ -635,16 +653,15 @@ def test_model_file_uses_database_fallback_when_available(client, auth_headers):
     uploaded = next(img for img in model.json()["images"] if img["file_url"] == file_url)
     assert uploaded["is_primary"] is True
 
-    # New uploads are stored once on the persistent filesystem. Legacy rows
-    # that still contain file_data must remain readable as a recovery fallback.
-    db = SessionLocal()
-    try:
-        image = db.query(ModelImage).filter(ModelImage.file_url == file_url).one()
-        assert image.file_data is None
-        image.file_data = _VALID_PNG
+    # Simulate a legacy/imported image that retained its database backup. New
+    # browser uploads intentionally avoid storing a duplicate bytea copy.
+    from app.db.session import SessionLocal
+    from app.models import ModelImage
+
+    with SessionLocal() as db:
+        image_row = db.query(ModelImage).filter(ModelImage.file_url == file_url).one()
+        image_row.file_data = _VALID_PNG
         db.commit()
-    finally:
-        db.close()
 
     os.remove(abs_path)
     original = client.get(file_url, headers=auth_headers)

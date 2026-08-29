@@ -27,6 +27,7 @@ class PayrollPeriodUpdate(BaseModel):
 
 class PayrollPeriodOut(ORMModel):
     id: int
+    factory_code: str
     period_no: str
     name: str
     start_date: datetime
@@ -78,6 +79,7 @@ class PayrollRecordBulkIn(BaseModel):
 
 class PayrollRecordOut(ORMModel):
     id: int
+    factory_code: str
     payroll_period_id: int | None = None
     scan_uid: str | None = None
     original_scan_uid: str | None = None
@@ -160,11 +162,33 @@ class PayrollQrIssuedLabelOut(BaseModel):
 
 class PayrollQrLabelsIssueOut(BaseModel):
     issued_count: int
+    created_count: int
+    existing_count: int
     labels: list[PayrollQrIssuedLabelOut]
+
+
+class PayrollQrLabelBatchDeleteIn(BaseModel):
+    label_ids: list[int] = Field(min_length=1, max_length=5000)
+    size: str = Field(min_length=1, max_length=32)
+
+
+class PayrollQrLabelBatchDeleteOut(BaseModel):
+    deleted_count: int
+    size: str
+
+
+class PayrollQrLabelEditIn(BaseModel):
+    operation_name: str = Field(min_length=1, max_length=255)
+    rate_per_piece: Decimal = Field(ge=0)
+
+
+class PayrollQrLabelSplitIn(PayrollQrLabelEditIn):
+    quantities: list[int] = Field(min_length=2, max_length=50)
 
 
 class PayrollQrLabelOut(ORMModel):
     id: int
+    factory_code: str
     label_uid: str
     qr_token: str
     payload: str | None = None
@@ -200,6 +224,14 @@ class PayrollQrLabelOut(ORMModel):
     last_scanned_at: datetime | None = None
     returned_at: datetime | None = None
     return_count: int
+    superseded_at: datetime | None = None
+    superseded_by: int | None = None
+    split_from_label_id: int | None = None
+
+
+class PayrollQrLabelSplitOut(BaseModel):
+    superseded_label_id: int
+    labels: list[PayrollQrLabelOut]
 
 
 class PayrollQrControlOut(BaseModel):
@@ -207,6 +239,115 @@ class PayrollQrControlOut(BaseModel):
     total: int
     available_count: int
     scanned_count: int
+
+
+class OrderQrStatusOrderOption(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    order_no: str
+    sales_order_nos: list[str] = Field(default_factory=list)
+    production_nos: list[str] = Field(default_factory=list)
+    model_codes: list[str] = Field(default_factory=list)
+    label_count: int
+
+
+class OrderQrStatusCellOut(BaseModel):
+    size: str
+    issued_labels: int
+    scanned_labels: int
+    available_labels: int
+    issued_quantity: Decimal
+    scanned_quantity: Decimal
+    available_quantity: Decimal
+
+
+class OrderQrStatusOperationOut(BaseModel):
+    operation_section: str | None = None
+    operation_code: str | None = None
+    operation_name: str
+    cells: list[OrderQrStatusCellOut] = Field(default_factory=list)
+    issued_labels: int
+    scanned_labels: int
+    available_labels: int
+    issued_quantity: Decimal
+    scanned_quantity: Decimal
+    available_quantity: Decimal
+
+
+class OrderQrStatusOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    order_no: str
+    sales_order_nos: list[str] = Field(default_factory=list)
+    production_nos: list[str] = Field(default_factory=list)
+    model_codes: list[str] = Field(default_factory=list)
+    batch_nos: list[str] = Field(default_factory=list)
+    sizes: list[str] = Field(default_factory=list)
+    operations: list[OrderQrStatusOperationOut] = Field(default_factory=list)
+    items: list[PayrollQrLabelOut]
+    total: int
+    offset: int
+    limit: int
+    total_labels: int
+    scanned_labels: int
+    available_labels: int
+    total_quantity: Decimal
+    scanned_quantity: Decimal
+    available_quantity: Decimal
+
+
+class SewingProductionReportOption(BaseModel):
+    value: str
+    label: str
+
+
+class SewingProductionReportRow(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    scanned_at: datetime
+    employee_id: int
+    employee_no: str | None = None
+    employee_name: str
+    barcode: str
+    sewing_line_code: str | None = None
+    sewing_line_name: str | None = None
+    cutting_reference: str | None = None
+    production_no: str | None = None
+    sales_order_no: str | None = None
+    batch_no: str | None = None
+    model_code: str | None = None
+    product_name: str | None = None
+    operation_code: str | None = None
+    operation_name: str | None = None
+    size: str | None = None
+    quantity: Decimal
+    rate_per_piece: Decimal
+    total_amount: Decimal
+    currency: str
+    status: str
+    factory_code: str | None = None
+
+
+class SewingProductionReportOptions(BaseModel):
+    employees: list[SewingProductionReportOption] = Field(default_factory=list)
+    operations: list[SewingProductionReportOption] = Field(default_factory=list)
+    sewing_lines: list[SewingProductionReportOption] = Field(default_factory=list)
+    models: list[SewingProductionReportOption] = Field(default_factory=list)
+    orders: list[SewingProductionReportOption] = Field(default_factory=list)
+    cutting_references: list[SewingProductionReportOption] = Field(default_factory=list)
+    sizes: list[SewingProductionReportOption] = Field(default_factory=list)
+
+
+class SewingProductionReportOut(BaseModel):
+    items: list[SewingProductionReportRow]
+    total: int
+    offset: int
+    limit: int
+    total_quantity: Decimal
+    total_amount: Decimal
+    currency: str
+    options: SewingProductionReportOptions
 
 
 class PayrollSummaryOperationOut(BaseModel):
@@ -259,9 +400,16 @@ class PayrollAdjustmentIn(BaseModel):
     reason: str
 
 
+class PayrollRecordReversalIn(BaseModel):
+    target_period_id: int
+    reason: str = Field(min_length=3, max_length=255)
+
+
 class PayrollAdjustmentOut(ORMModel):
     id: int
+    factory_code: str
     payroll_period_id: int | None = None
+    source_payroll_record_id: int | None = None
     employee_id: int
     adjustment_type: str
     amount: Decimal

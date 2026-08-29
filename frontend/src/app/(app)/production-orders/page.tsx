@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { productionTypeLabel, statusLabel } from "@/components/StagePipeline";
@@ -10,7 +11,6 @@ import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { orderReference } from "@/lib/orderRef";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 type PO = {
   id: number; production_no: string; order_no?: string | null; sales_order_no?: string | null; production_type: string;
@@ -27,12 +27,9 @@ export default function ProductionOrdersPage() {
   const { me } = useMe();
   const { t } = useT();
   const isAdmin = can(me, "*");
-  const { data, mutate } = useSWR<PO[]>(
-    "/api/production-orders",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
-  const { data: models } = useSWR<any[]>("/api/models", fetcher);
+  const { data, mutate } = useSWR<PO[]>("/api/production-orders", fetcher);
+  const modelOptionsKey = modelOptionsByIdsKey((data || []).map((row) => row.model_id));
+  const { data: models } = useSWR<any[]>(modelOptionsKey, modelOptionsByIdsFetcher);
   const modelMap = new Map((models ?? []).map((m) => [m.id, m]));
 
   const [editing, setEditing] = useState<PO | null>(null);

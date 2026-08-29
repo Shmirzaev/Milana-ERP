@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { BellRing, Play, Volume2, VolumeX } from "lucide-react";
@@ -102,6 +103,13 @@ export default function NotificationBell() {
   const { t } = useT();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const bellRef = useRef<HTMLButtonElement | null>(null);
+  const [panelPosition, setPanelPosition] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [permission, setPermission] = useState<BrowserNotificationPermission>("default");
   const [alertSound, setAlertSound] = useState<AlertSound>("chime");
@@ -112,25 +120,21 @@ export default function NotificationBell() {
   const lastAlertedIdRef = useRef(0);
   const alertsActive = alertsEnabled && permission === "granted";
 
-  const { data: count, mutate: mutateCount } = useSWR<{ count: number }>(
-    "/api/notifications/unread-count",
+  const { data: summary, mutate: mutateCount } = useSWR<{ count: number; rows: N[] }>(
+    "/api/notifications/summary?limit=10",
     fetcher,
-    { refreshInterval: 20_000, refreshWhenHidden: true },
+    {
+      refreshInterval: alertsActive ? 15_000 : 60_000,
+      refreshWhenHidden: alertsActive,
+      refreshWhenOffline: false,
+      revalidateOnFocus: true,
+    },
   );
   const { data: list, mutate: mutateList } = useSWR<N[]>(
     open ? "/api/notifications?limit=20" : null,
     fetcher,
   );
-  const { data: alertList } = useSWR<N[]>(
-    alertsActive ? "/api/notifications?only_unread=true&limit=10" : null,
-    fetcher,
-    {
-      refreshInterval: 15_000,
-      refreshWhenHidden: true,
-      refreshWhenOffline: false,
-      revalidateOnFocus: true,
-    },
-  );
+  const alertList = alertsActive ? summary?.rows : undefined;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -144,7 +148,7 @@ export default function NotificationBell() {
     setPermission("Notification" in window ? window.Notification.permission : "unsupported");
   }, []);
 
-  function getAudioContext() {
+  const getAudioContext = useCallback(() => {
     if (typeof window === "undefined") return null;
     if (audioContextRef.current) return audioContextRef.current;
     const audioWindow = window as AudioWindow;
@@ -152,23 +156,23 @@ export default function NotificationBell() {
     if (!AudioCtor) return null;
     audioContextRef.current = new AudioCtor();
     return audioContextRef.current;
-  }
+  }, []);
 
-  async function primeNotificationAudio() {
+  const primeNotificationAudio = useCallback(async () => {
     try {
       const ctx = getAudioContext();
       if (ctx?.state === "suspended") await ctx.resume();
     } catch {}
-  }
+  }, [getAudioContext]);
 
-  function playTone(
+  const playTone = useCallback((
     ctx: AudioContext,
     frequency: number,
     offset: number,
     duration: number,
     type: OscillatorType = "triangle",
     gainScale = 1,
-  ) {
+  ) => {
     const startedAt = ctx.currentTime + offset;
     const oscillator = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -183,9 +187,9 @@ export default function NotificationBell() {
     gain.connect(ctx.destination);
     oscillator.start(startedAt);
     oscillator.stop(startedAt + duration + 0.02);
-  }
+  }, [alertVolume]);
 
-  async function playNotificationSound() {
+  const playNotificationSound = useCallback(async () => {
     try {
       const ctx = getAudioContext();
       if (!ctx) return;
@@ -206,9 +210,9 @@ export default function NotificationBell() {
         playTone(ctx, 1175, 0.25, 0.22, "sine", 0.74);
       }
     } catch {}
-  }
+  }, [alertSound, getAudioContext, playTone]);
 
-  async function getNotificationRegistration() {
+  const getNotificationRegistration = useCallback(async () => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null;
     if (notificationRegistrationRef.current) return notificationRegistrationRef.current;
     try {
@@ -219,9 +223,9 @@ export default function NotificationBell() {
     } catch {
       return null;
     }
-  }
+  }, []);
 
-  async function showDesktopNotification(title: string, body: string, notification: N) {
+  const showDesktopNotification = useCallback(async (title: string, body: string, notification: N) => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (window.Notification.permission !== "granted") return;
 
@@ -248,7 +252,7 @@ export default function NotificationBell() {
         notice.close();
       };
     } catch {}
-  }
+  }, [getNotificationRegistration, router]);
 
   async function enableAlerts() {
     if (typeof window === "undefined" || !("Notification" in window)) {
@@ -310,7 +314,7 @@ export default function NotificationBell() {
       window.removeEventListener("pointerdown", prime);
       window.removeEventListener("keydown", prime);
     };
-  }, [alertsActive]);
+  }, [alertsActive, primeNotificationAudio]);
 
   useEffect(() => {
     if (!alertsActive || !alertList) return;
@@ -345,7 +349,7 @@ export default function NotificationBell() {
 
     lastAlertedIdRef.current = Math.max(lastAlertedIdRef.current, ...fresh.map((n) => n.id));
     localStorage.setItem(LAST_ALERTED_ID_KEY, String(lastAlertedIdRef.current));
-  }, [alertList, alertsActive, router, t]);
+  }, [alertList, alertsActive, playNotificationSound, showDesktopNotification, t]);
 
   async function readOne(n: N) {
     // Mark-as-read in the background; don't block navigation on the request.
@@ -370,12 +374,65 @@ export default function NotificationBell() {
     } catch {}
   }
 
-  const unread = count?.count ?? 0;
+  const unread = summary?.count ?? 0;
   const canEnableAlerts = permission === "default" || permission === "granted";
+
+  const updatePanelPosition = useCallback(() => {
+    const bell = bellRef.current;
+    if (!bell) return;
+
+    const rect = bell.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportWidth = viewport?.width ?? window.innerWidth;
+    const viewportHeight = viewport?.height ?? window.innerHeight;
+    const viewportRight = viewportLeft + viewportWidth;
+    const viewportBottom = viewportTop + viewportHeight;
+    const gutter = 8;
+    const gap = 8;
+    const width = Math.max(0, Math.min(320, viewportWidth - gutter * 2));
+    const roomBelow = viewportBottom - rect.bottom - gap - gutter;
+    const roomAbove = rect.top - viewportTop - gap - gutter;
+    const openAbove = roomBelow < 192 && roomAbove > roomBelow;
+    const maxHeight = Math.max(0, Math.min(384, openAbove ? roomAbove : roomBelow));
+    const left = Math.max(
+      viewportLeft + gutter,
+      Math.min(rect.right - width, viewportRight - width - gutter),
+    );
+
+    setPanelPosition({
+      left,
+      top: openAbove ? rect.top - gap - maxHeight : rect.bottom + gap,
+      width,
+      maxHeight,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setPanelPosition(null);
+      return;
+    }
+
+    updatePanelPosition();
+    const viewport = window.visualViewport;
+    window.addEventListener("resize", updatePanelPosition);
+    window.addEventListener("scroll", updatePanelPosition, true);
+    viewport?.addEventListener("resize", updatePanelPosition);
+    viewport?.addEventListener("scroll", updatePanelPosition);
+    return () => {
+      window.removeEventListener("resize", updatePanelPosition);
+      window.removeEventListener("scroll", updatePanelPosition, true);
+      viewport?.removeEventListener("resize", updatePanelPosition);
+      viewport?.removeEventListener("scroll", updatePanelPosition);
+    };
+  }, [open, updatePanelPosition]);
 
   return (
     <div className="relative">
       <button
+        ref={bellRef}
         type="button"
         onClick={() => {
           setOpen(!open);
@@ -434,20 +491,23 @@ export default function NotificationBell() {
         )}
       </button>
 
-      {open && (
+      {open && panelPosition && createPortal((
         <>
           {/* click-outside layer */}
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
           <div
-            className="absolute right-0 top-11 z-40 flex max-h-96 w-[calc(100vw-1.5rem)] max-w-80 flex-col rounded-lg shadow-lg"
+            role="dialog"
+            aria-label={t("notif.title")}
+            className="fixed z-[100] flex flex-col overflow-y-auto overscroll-contain rounded-lg shadow-lg"
             style={{
+              ...panelPosition,
               background: "var(--erp-surface)",
               border: "1px solid var(--erp-border)",
               boxShadow:
                 "0 20px 40px -16px var(--erp-shadow-strong), 0 2px 4px var(--erp-shadow)",
             }}
           >
-            <div className="px-4 py-2.5 flex items-center justify-between border-b border-[#e3dfd3]">
+            <div className="flex shrink-0 items-center justify-between border-b border-[#e3dfd3] px-4 py-2.5">
               <div className="flex items-center gap-2">
                 <span className="text-[10.5px] font-semibold tracking-[0.18em] uppercase text-[#8a8472]">
                   {t("notif.title")}
@@ -478,7 +538,7 @@ export default function NotificationBell() {
               )}
             </div>
 
-            <div className="border-b border-[#e3dfd3] px-3 py-2">
+            <div className="shrink-0 border-b border-[#e3dfd3] px-3 py-2">
               {permission === "unsupported" && (
                 <div className="flex items-center gap-2 rounded-md bg-[#f8f6ef] px-2.5 py-2 text-[11.5px] text-[#8a8472]">
                   <VolumeX className="h-3.5 w-3.5 shrink-0" />
@@ -504,10 +564,10 @@ export default function NotificationBell() {
                       <BellRing className="h-3.5 w-3.5 shrink-0 text-[#c2410c]" />
                     )}
                     <span className="min-w-0">
-                      <span className="block truncate text-[12px] font-medium text-[#2c2920]">
+                      <span className="block break-words text-[12px] font-medium text-[#2c2920]">
                         {alertsActive ? t("notif.alertsEnabled") : t("notif.enableAlerts")}
                       </span>
-                      <span className="block truncate text-[10.5px] text-[#8a8472]">
+                      <span className="block break-words text-[10.5px] text-[#8a8472]">
                         {t("notif.alertsHint")}
                       </span>
                     </span>
@@ -561,7 +621,7 @@ export default function NotificationBell() {
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto">
+            <div className="min-h-24 flex-1 overflow-y-auto">
               {(!list || list.length === 0) && (
                 <div className="px-4 py-8 text-center text-[13px] text-[#8a8472]">
                   {t("notif.empty")}
@@ -593,14 +653,14 @@ export default function NotificationBell() {
                     {n.is_read && <span className="w-1.5 shrink-0" />}
                     <div className="flex-1 min-w-0">
                       <div
-                        className={`text-[13px] font-medium truncate ${
+                        className={`break-words text-[13px] font-medium ${
                           n.is_read ? "text-[#56503f]" : "text-[#14110b]"
                         }`}
                       >
                         {n.title}
                       </div>
                       {n.message && (
-                        <div className="text-[11.5px] text-[#56503f] mt-0.5 line-clamp-2">
+                        <div className="mt-0.5 break-words text-[11.5px] text-[#56503f]">
                           {n.message}
                         </div>
                       )}
@@ -614,7 +674,7 @@ export default function NotificationBell() {
             </div>
           </div>
         </>
-      )}
+      ), document.body)}
     </div>
   );
 }

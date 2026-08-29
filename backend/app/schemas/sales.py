@@ -6,8 +6,7 @@ from app.schemas.common import ORMModel, SchemaModel
 
 
 class SalesOrderItemIn(SchemaModel):
-    model_id: Optional[int] = None
-    finished_goods_stock_id: Optional[int] = None
+    model_id: int
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
     color: str
@@ -34,12 +33,9 @@ class SalesOrderCustomerRef(BaseModel):
 class SalesOrderItemOut(ORMModel):
     id: int
     sales_order_id: int
-    model_id: Optional[int] = None
-    finished_goods_stock_id: Optional[int] = None
+    model_id: int
     model_code: Optional[str] = None
     model_name: Optional[str] = None
-    source_model_code: Optional[str] = None
-    source_model_name: Optional[str] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
     color: str
@@ -125,6 +121,7 @@ class ShipmentOut(ORMModel):
     notes: Optional[str] = None
     sales_order_no: Optional[str] = None
     customer_name: Optional[str] = None
+    shipment_type: str = "sales_order"
     packages_count: int = 0
     total_qty: int = 0
     created_at: datetime

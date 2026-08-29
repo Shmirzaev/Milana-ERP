@@ -2,6 +2,7 @@
 import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
@@ -10,11 +11,12 @@ import { statusLabel } from "@/components/StagePipeline";
 import { orderReference } from "@/lib/orderRef";
 import { formatBatchLabel } from "@/lib/batchSerial";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
-import { FAST_LIVE_DATA_SWR_OPTIONS, LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import { useMe } from "@/lib/auth";
 
 type Flow = {
   id: number;
+  factory_code: string;
   name: string;
   code: string;
   description: string | null;
@@ -115,23 +117,23 @@ function WorkOrderMiniRow({
   const qtyPlanned = showReceivedQty ? effectiveSewingQty(workOrder) : Number(workOrder.planned_output_qty || workOrder.planned_input_qty || 0);
   if (showImage) {
     return (
-      <div className="grid grid-cols-[48px_minmax(74px,1fr)_minmax(68px,0.7fr)_minmax(70px,0.7fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
+      <div className="grid min-w-[390px] grid-cols-[48px_minmax(74px,1fr)_minmax(68px,0.7fr)_minmax(70px,0.7fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
         <FabricThumb workOrder={workOrder} />
         <div className="min-w-0">
           <Link
             href={`/production-orders/${workOrder.production_order_id}`}
-            className="block min-w-0 truncate font-medium text-brand-600 hover:underline"
+            className="block min-w-0 break-words font-medium text-brand-600 hover:underline"
             title={orderReference(workOrder, `#${workOrder.production_order_id}`)}
           >
             {orderReference(workOrder, `#${workOrder.production_order_id}`)}
           </Link>
           {workOrder.model_no && (
-            <div className="mt-1 truncate text-[11px] font-medium text-[#494538]">
+            <div className="mt-1 break-words text-[11px] font-medium text-[#494538]">
               {t("field.modelNo")}: {workOrder.model_no}
             </div>
           )}
-          {batchLabel && <div className="mt-1 truncate text-[11px] text-[#6d6655]">{batchLabel}</div>}
-          <span className="badge mt-1 max-w-full justify-center truncate px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
+          {batchLabel && <div className="mt-1 break-words text-[11px] text-[#6d6655]">{batchLabel}</div>}
+          <span className="badge mt-1 max-w-full justify-center px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
         </div>
         <div className="text-right tabular-nums text-[#14110b]">
           {qtyDone} / {qtyPlanned}
@@ -158,19 +160,19 @@ function WorkOrderMiniRow({
     );
   }
   return (
-    <div className="grid grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
+    <div className="grid min-w-[390px] grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
       <div className="min-w-0">
         <Link
           href={`/production-orders/${workOrder.production_order_id}`}
-          className="block min-w-0 truncate font-medium text-brand-600 hover:underline"
+          className="block min-w-0 break-words font-medium text-brand-600 hover:underline"
           title={orderReference(workOrder, `#${workOrder.production_order_id}`)}
         >
           {orderReference(workOrder, `#${workOrder.production_order_id}`)}
         </Link>
-        {batchLabel && <div className="mt-1 min-w-0 truncate text-[11px] text-[#6d6655]">{batchLabel}</div>}
+        {batchLabel && <div className="mt-1 min-w-0 break-words text-[11px] text-[#6d6655]">{batchLabel}</div>}
       </div>
       <div className="min-w-0">
-        <span className="badge max-w-full justify-center truncate px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
+        <span className="badge max-w-full justify-center px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
       </div>
       <div className="text-right tabular-nums text-[#14110b]">
         {qtyDone} / {qtyPlanned}
@@ -220,7 +222,7 @@ function WorkOrderMiniHeader({ showImage = false, showReceivedQty = false }: { s
   const { t } = useT();
   if (showImage) {
     return (
-      <div className="grid grid-cols-[48px_minmax(74px,1fr)_minmax(68px,0.7fr)_minmax(70px,0.7fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
+      <div className="grid min-w-[390px] grid-cols-[48px_minmax(74px,1fr)_minmax(68px,0.7fr)_minmax(70px,0.7fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
         <div>{t("field.picture")}</div>
         <div className="min-w-0">{t("field.orderNo")}</div>
         <div className="text-right">{showReceivedQty ? t("field.received") : t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</div>
@@ -230,7 +232,7 @@ function WorkOrderMiniHeader({ showImage = false, showReceivedQty = false }: { s
     );
   }
   return (
-    <div className="grid grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
+    <div className="grid min-w-[390px] grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
       <div className="min-w-0">{t("field.orderNo")}</div>
       <div>{t("common.status")}</div>
       <div className="text-right">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</div>
@@ -242,18 +244,20 @@ function WorkOrderMiniHeader({ showImage = false, showReceivedQty = false }: { s
 
 export default function SewingFlowsPage() {
   const { t } = useT();
-  const { data: flows } = useSWR<Flow[]>(
-    "/api/sewing-flows",
-    fetcher,
-    FAST_LIVE_DATA_SWR_OPTIONS,
-  );
+  const { me } = useMe();
+  const searchParams = useSearchParams();
+  const requestedFactory = (searchParams.get("factory") || me?.factory_code || "MIL").toUpperCase();
+  const factoryCode = requestedFactory === "BST" || requestedFactory === "ECO" ? requestedFactory : "MIL";
+  const factoryName = factoryCode === "BST" ? "Besttex" : factoryCode === "ECO" ? "Eco Cotton" : "Milana";
+  const flowsUrl = `/api/sewing-flows?factory_code=${factoryCode}`;
+  const { data: flows } = useSWR<Flow[]>(flowsUrl, fetcher, { refreshInterval: 10_000 });
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const visibleFlows = flows || [];
 
   return (
     <div>
-      <PageHeader title={t("page.sewingFlows.title")} subtitle={t("page.sewingFlows.subtitle")} />
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+      <PageHeader title={`${factoryName} - ${t("page.sewingFlows.title")}`} subtitle={t("page.sewingFlows.subtitle")} />
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
         {visibleFlows.map((f) => {
           const isExpanded = !!expanded[f.id];
           const pctDone = f.planned_units > 0 ? Math.min(100, Math.round((100 * f.completed_units) / f.planned_units)) : 0;
@@ -294,7 +298,7 @@ export default function SewingFlowsPage() {
                   ? t("btn.cancel")
                   : (f.active_work_orders > 0 ? t("page.sewingFlows.assigned") : t("page.sewingFlows.readyForWork"))}
               </button>
-              {isExpanded && <FlowDetail flowId={f.id} />}
+              {isExpanded && <FlowDetail flowId={f.id} factoryCode={factoryCode} flowsUrl={flowsUrl} />}
             </div>
           );
         })}
@@ -303,18 +307,13 @@ export default function SewingFlowsPage() {
   );
 }
 
-function FlowDetail({ flowId }: { flowId: number }) {
+function FlowDetail({ flowId, factoryCode, flowsUrl }: { flowId: number; factoryCode: string; flowsUrl: string }) {
   const { t } = useT();
   const { mutate: mutateGlobal } = useSWRConfig();
-  const { data: wos, mutate: mutateAssigned } = useSWR<WO[]>(
-    `/api/sewing-flows/${flowId}/work-orders?only_active=true`,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data: wos, mutate: mutateAssigned } = useSWR<WO[]>(`/api/sewing-flows/${flowId}/work-orders?only_active=true`, fetcher);
   const { data: availableWos, mutate: mutateAvailableWos } = useSWR<WO[]>(
-    "/api/work-orders?operation=sewing&only_active=true&only_received_sewing=true",
+    `/api/work-orders?operation=sewing&only_active=true&only_received_sewing=true&sewing_factory_code=${factoryCode}`,
     fetcher,
-    LIVE_DATA_SWR_OPTIONS,
   );
   const [claimingKey, setClaimingKey] = useState<string | null>(null);
   const [loadingPickKey, setLoadingPickKey] = useState<string | null>(null);
@@ -393,7 +392,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
         planned_end: nextDay.toISOString(),
       });
       setPick({ wo: null, qty: "", maxQty: 0, productionBatchId: null, batchLabel: "" });
-      await Promise.all([mutateAssigned(), mutateAvailableWos(), mutateGlobal("/api/sewing-flows")]);
+      await Promise.all([mutateAssigned(), mutateAvailableWos(), mutateGlobal(flowsUrl)]);
     } catch (e: any) {
       setMsg(e.message);
     } finally {
@@ -406,7 +405,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
   return (
     <div className="mt-3 space-y-3">
       {wos.length > 0 ? (
-        <div className="overflow-hidden rounded-md border border-[#e3dfd3]">
+        <div className="overflow-x-auto rounded-md border border-[#e3dfd3]">
           <WorkOrderMiniHeader showImage />
           {wos.map((w) => (
             <WorkOrderMiniRow key={workOrderRowKey(w)} workOrder={w} showImage />
@@ -421,7 +420,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
         {availableWos.length === 0 ? (
           <div className="text-xs text-slate-400">{t("page.sewingFlows.noUnassignedWork")}</div>
         ) : (
-          <div className="overflow-hidden rounded-md border border-[#e3dfd3]">
+          <div className="overflow-x-auto rounded-md border border-[#e3dfd3]">
             <WorkOrderMiniHeader showImage showReceivedQty />
             {availableWos.map((w) => {
               const rowKey = workOrderRowKey(w);

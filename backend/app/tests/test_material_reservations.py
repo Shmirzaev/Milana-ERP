@@ -203,6 +203,236 @@ def test_planning_fabric_batch_drives_material_reservation_plan(client, auth_hea
     assert {row["stock_batch_id"] for row in fabric["suggested_batches"]} == {batch["id"]}
 
 
+def test_planning_accepts_available_fabric_batch_outside_model_bom(client, auth_headers):
+    suffix = uuid4().hex[:8].upper()
+    item_response = client.post(
+        "/api/inventory/items",
+        json={
+            "sku": f"FAB-OVERRIDE-{suffix}",
+            "name": f"Planning Fabric Override {suffix}",
+            "category": "fabric",
+            "unit": "kg",
+            "track_batch": True,
+        },
+        headers=auth_headers,
+    )
+    assert item_response.status_code == 201, item_response.text
+    item = item_response.json()
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    batch = _receive_batch(
+        client,
+        auth_headers,
+        item_id=item["id"],
+        warehouse_id=warehouse["id"],
+        quantity=100,
+        unit="kg",
+        batch_no=f"PLAN-OVERRIDE-{suffix}",
+    )
+
+    response = client.post(
+        "/api/planning/create-branded-production",
+        json={
+            "production_type": "branded_stock",
+            "model_id": 1,
+            "planned_quantity": 10,
+            "fabric_batch_id": batch["id"],
+            "estimated_material_amount": 15,
+            "estimated_material_unit": "kg",
+            "items": [],
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201, response.text
+    production_order = response.json()
+    assert production_order["fabric_batch_id"] == batch["id"]
+    assert production_order["estimated_material_code"] == item["sku"]
+
+
+def test_multi_fabric_planning_flows_to_atomic_cutting_and_bundles(client, auth_headers):
+    from app.db.session import SessionLocal
+    from app.models import Bundle, CuttingMaterialUsage, CuttingRecord, StockMovement
+
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    first_item = _fabric_item(client, auth_headers)
+    suffix = uuid4().hex[:8].upper()
+    item_response = client.post(
+        "/api/inventory/items",
+        json={
+            "sku": f"FAB-MULTI-{suffix}",
+            "name": f"Secondary fabric {suffix}",
+            "category": "fabric",
+            "unit": "kg",
+            "track_batch": True,
+        },
+        headers=auth_headers,
+    )
+    assert item_response.status_code == 201, item_response.text
+    second_item = item_response.json()
+    first_batch = _receive_batch(
+        client,
+        auth_headers,
+        item_id=first_item["id"],
+        warehouse_id=warehouse["id"],
+        quantity=100,
+        unit="kg",
+        batch_no=f"MULTI-A-{suffix}",
+    )
+    second_batch = _receive_batch(
+        client,
+        auth_headers,
+        item_id=second_item["id"],
+        warehouse_id=warehouse["id"],
+        quantity=100,
+        unit="kg",
+        batch_no=f"MULTI-B-{suffix}",
+    )
+
+    duplicate_response = client.post(
+        "/api/planning/create-branded-production",
+        json={
+            "production_type": "branded_stock",
+            "model_id": 1,
+            "planned_quantity": 10,
+            "materials": [
+                {"stock_batch_id": first_batch["id"], "estimated_quantity": 10, "unit": "kg"},
+                {"stock_batch_id": first_batch["id"], "estimated_quantity": 2, "unit": "kg"},
+            ],
+            "items": [],
+        },
+        headers=auth_headers,
+    )
+    assert duplicate_response.status_code == 400, duplicate_response.text
+    assert "same fabric batch" in duplicate_response.text.lower()
+
+    create_response = client.post(
+        "/api/planning/create-branded-production",
+        json={
+            "production_type": "branded_stock",
+            "model_id": 1,
+            "planned_quantity": 10,
+            "materials": [
+                {"stock_batch_id": first_batch["id"], "estimated_quantity": 12, "unit": "kg"},
+                {"stock_batch_id": second_batch["id"], "estimated_quantity": 4.5, "unit": "kg"},
+            ],
+            "items": [
+                {
+                    "model_id": 1,
+                    "color": "white",
+                    "size": "46",
+                    "planned_quantity": 10,
+                    "printing_required": False,
+                },
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert create_response.status_code == 201, create_response.text
+    production_order = create_response.json()
+    assert production_order["fabric_batch_id"] == first_batch["id"]
+    assert float(production_order["estimated_material_amount"]) == 12
+    assert [row["stock_batch_id"] for row in production_order["materials"]] == [
+        first_batch["id"],
+        second_batch["id"],
+    ]
+
+    plan_response = client.get(
+        f"/api/inventory/reservations/plan?production_order_id={production_order['id']}",
+        headers=auth_headers,
+    )
+    assert plan_response.status_code == 200, plan_response.text
+    planned_by_batch = {
+        int(row["stock_batch_id"]): float(row["required_quantity"])
+        for row in plan_response.json()["rows"]
+        if row["stock_batch_id"] in {first_batch["id"], second_batch["id"]}
+    }
+    assert planned_by_batch == {first_batch["id"]: 12.0, second_batch["id"]: 4.5}
+
+    cutting_work_order = _cutting_work_order(client, auth_headers, production_order["id"])
+    cutting_payload = {
+        "work_order_id": cutting_work_order["id"],
+        "fabric_batch_id": first_batch["id"],
+        "input_quantity": 11,
+        "input_unit": "kg",
+        "cut_pieces": 10,
+        "passed_pieces": 10,
+        "defective_pieces": 0,
+        "waste_quantity": 0,
+        "waste_unit": "kg",
+        "bundles": [
+            {
+                "color": "white",
+                "size": "46",
+                "quantity": 10,
+                "count": 1,
+                "next": "sewing",
+                "sewing_factory": "milana",
+            },
+        ],
+    }
+    incomplete_response = client.post(
+        "/api/cutting/records",
+        json={
+            **cutting_payload,
+            "materials": [
+                {"stock_batch_id": first_batch["id"], "quantity": 11, "unit": "kg"},
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert incomplete_response.status_code == 400, incomplete_response.text
+
+    db = SessionLocal()
+    try:
+        assert db.query(CuttingRecord.id).filter(
+            CuttingRecord.work_order_id == cutting_work_order["id"],
+        ).count() == 0
+        assert db.query(Bundle.id).filter(
+            Bundle.production_order_id == production_order["id"],
+        ).count() == 0
+    finally:
+        db.close()
+
+    cutting_response = client.post(
+        "/api/cutting/records",
+        json={
+            **cutting_payload,
+            "materials": [
+                {"stock_batch_id": first_batch["id"], "quantity": 11, "unit": "kg"},
+                {"stock_batch_id": second_batch["id"], "quantity": 4, "unit": "kg"},
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert cutting_response.status_code == 201, cutting_response.text
+    cutting_record_id = cutting_response.json()["id"]
+    assert len(cutting_response.json()["bundles"]) == 1
+    assert [row["stock_batch_id"] for row in cutting_response.json()["materials"]] == [
+        first_batch["id"],
+        second_batch["id"],
+    ]
+
+    db = SessionLocal()
+    try:
+        usages = db.query(CuttingMaterialUsage).filter(
+            CuttingMaterialUsage.cutting_record_id == cutting_record_id,
+        ).order_by(CuttingMaterialUsage.position.asc()).all()
+        assert [(row.stock_batch_id, float(row.quantity)) for row in usages] == [
+            (first_batch["id"], 11.0),
+            (second_batch["id"], 4.0),
+        ]
+        consumed_batch_ids = {
+            row.batch_id
+            for row in db.query(StockMovement).filter(
+                StockMovement.reference_type == "CuttingRecord",
+                StockMovement.reference_id == cutting_record_id,
+            ).all()
+        }
+        assert {first_batch["id"], second_batch["id"]}.issubset(consumed_batch_ids)
+    finally:
+        db.close()
+
+
 def test_reservation_plan_reports_no_bom_instead_of_ready(client, auth_headers):
     from app.db.session import SessionLocal
     from app.models import Model

@@ -112,3 +112,4 @@ Sewing commonly uses piecework payroll scans.
 | Wrong line shown | Assignment not set or wrong flow selected | Ask Planning/supervisor to update assignment. |
 | Quantity error | Sewing input/output exceeds allowed upstream quantity | Check bundle/work order quantities and previous department records. |
 | Payroll duplicate | Same work QR already saved | Review scan history and saved status. |
+

@@ -138,3 +138,4 @@ Before saving or confirming:
 | Missing printing details | Printing team waits or prints incorrectly | Add instructions/files before production reaches printing. |
 | Duplicate customer | Payment history splits across records | Ask Admin or supervisor how to merge/correct. |
 | Quantity changed after production started | Production and costing can mismatch | Coordinate with Planning and Management before edits. |
+

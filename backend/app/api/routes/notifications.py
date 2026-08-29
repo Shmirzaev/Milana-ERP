@@ -106,6 +106,26 @@ def unread_count(db: DbSession, current: CurrentUser):
     return {"count": int(n)}
 
 
+@router.get("/summary")
+def notification_summary(db: DbSession, current: CurrentUser, limit: int = 10):
+    safe_limit = max(1, min(int(limit or 10), 50))
+    count = db.query(func.count(Notification.id)).filter(
+        Notification.user_id == current.id,
+        Notification.is_read.is_(False),
+    ).scalar() or 0
+    rows = (
+        db.query(Notification)
+        .filter(Notification.user_id == current.id, Notification.is_read.is_(False))
+        .order_by(Notification.id.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    return {
+        "count": int(count),
+        "rows": [NotificationOut.model_validate(row).model_dump(mode="json") for row in rows],
+    }
+
+
 @router.post("/send")
 def send_notification(
     payload: NotificationSendIn,

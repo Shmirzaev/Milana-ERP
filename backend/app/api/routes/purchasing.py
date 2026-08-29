@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends
+import os
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, require_permissions
+from app.core.config import settings
+from app.core.uploads import SAFE_IMAGE_EXTENSIONS, extension_for_upload, read_validated_upload_content
 from app.models import PurchaseOrder, PurchaseRequest, User
 from app.schemas.purchasing import (
     PurchaseOrderIn,
     PurchaseOrderOut,
     PurchaseOrderReceiveIn,
+    PurchaseRequestApprovalIn,
     PurchaseRequestIn,
+    PurchaseRequestOrderIn,
     PurchaseRequestOut,
 )
 from app.services.purchasing import (
@@ -63,10 +70,11 @@ def create_request_from_sales_order(
 @router.post("/requests/{request_id}/approve", response_model=PurchaseRequestOut)
 def approve_request(
     request_id: int,
+    payload: PurchaseRequestApprovalIn,
     db: DbSession,
     current: User = Depends(require_permissions("purchasing.approve", "*")),
 ):
-    request = approve_purchase_request(db, request_id=request_id, current=current)
+    request = approve_purchase_request(db, request_id=request_id, data=payload.model_dump(), current=current)
     db.commit()
     db.refresh(request)
     return request
@@ -87,13 +95,32 @@ def reject_request(
 @router.post("/requests/{request_id}/convert-to-order", response_model=PurchaseOrderOut, status_code=201)
 def convert_request_to_order(
     request_id: int,
+    payload: PurchaseRequestOrderIn,
     db: DbSession,
     current: User = Depends(require_permissions("purchasing.order", "*")),
 ):
-    order = convert_purchase_request_to_order(db, request_id=request_id, current=current)
+    order = convert_purchase_request_to_order(db, request_id=request_id, data=payload.model_dump(), current=current)
     db.commit()
     db.refresh(order)
     return order
+
+
+@router.post("/request-photo/upload", status_code=201)
+async def upload_request_photo(
+    file: UploadFile = File(...),
+    _: User = Depends(require_permissions("purchasing.request", "purchasing.approve", "*")),
+):
+    from app.services.image_storage import store_uploaded_image
+
+    stored = await store_uploaded_image(
+        file,
+        target_dir=settings.MODEL_FILES_DIR,
+        file_url_base="/storage/model-files",
+        name_prefix="purchase",
+        max_bytes=10 * 1024 * 1024,
+        prebuild_thumbnails=True,
+    )
+    return {"file_url": stored.file_url}
 
 
 @router.get("/orders", response_model=list[PurchaseOrderOut])

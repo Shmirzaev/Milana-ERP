@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState, type FormEvent } from "react";
 import { ChevronDown, ChevronRight, QrCode, RefreshCw, Search, X } from "lucide-react";
 import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import FabricThumbnail from "@/components/FabricThumbnail";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -86,6 +86,9 @@ function inventoryState(row: BundleRow, t: (key: string) => string) {
 
 export default function CuttingInventoryPage() {
   const { t } = useT();
+  const searchParams = useSearchParams();
+  const cuttingDepartment = searchParams.get("cutting_department") === "ECT" ? "ECT" : "CUT";
+  const factoryName = cuttingDepartment === "ECT" ? t("factory.ecoCotton") : t("factory.milana");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [searchDraft, setSearchDraft] = useState("");
@@ -98,16 +101,13 @@ export default function CuttingInventoryPage() {
     const params = new URLSearchParams({
       page: String(page),
       page_size: String(pageSize),
+      cutting_department_code: cuttingDepartment,
     });
     if (search) params.set("q", search);
     return `/api/bundles/cutting-inventory?${params.toString()}`;
-  }, [page, pageSize, search]);
+  }, [cuttingDepartment, page, pageSize, search]);
 
-  const { data: pageData, mutate, isLoading } = useSWR<InventoryResponse>(
-    inventoryUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data: pageData, mutate, isLoading } = useSWR<InventoryResponse>(inventoryUrl, fetcher);
   const rows = useMemo(() => pageData?.rows || [], [pageData?.rows]);
 
   const grouped = useMemo<Group[]>(() => {
@@ -180,7 +180,7 @@ export default function CuttingInventoryPage() {
   return (
     <div>
       <PageHeader
-        title={t("page.cuttingInventory.title")}
+        title={`${factoryName} - ${t("page.cuttingInventory.title")}`}
         subtitle={t("page.cuttingInventory.subtitle")}
         actions={(
           <div className="flex flex-wrap gap-2">

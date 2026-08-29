@@ -9,7 +9,11 @@ export type Me = {
   email: string;
   role?: string;
   department?: string;
+  department_code?: string;
   permissions: string[];
+  factory_code: "MIL" | "BST" | "ECO";
+  assigned_factory_code: "MIL" | "BST" | "ECO";
+  available_factories: ("MIL" | "BST" | "ECO")[];
 };
 
 export function useMe() {

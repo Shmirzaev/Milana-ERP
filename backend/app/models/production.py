@@ -51,9 +51,15 @@ class ProductionOrder(Base, PkMixin, TimestampMixin):
     __tablename__ = "production_orders"
     __table_args__ = (
         CheckConstraint("planned_quantity >= 0", name="ck_production_orders_planned_quantity_nonnegative"),
+        CheckConstraint("source_type IN ('standard', 'usluga')", name="ck_production_orders_source_type"),
+        CheckConstraint(
+            "service_material_usage_kg IS NULL OR service_material_usage_kg >= 0",
+            name="ck_production_orders_service_material_usage_nonnegative",
+        ),
     )
     production_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     production_type: Mapped[str] = mapped_column(String(32), nullable=False)  # client_order, branded_stock
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False, default="standard", server_default="standard", index=True)
     planning_order_id: Mapped[int | None] = mapped_column(ForeignKey("branded_planning_orders.id"), index=True)
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
@@ -70,11 +76,27 @@ class ProductionOrder(Base, PkMixin, TimestampMixin):
     printing_instructions: Mapped[str | None] = mapped_column(Text)
     printing_attachments: Mapped[list[dict] | None] = mapped_column(JSON, default=list)
     destination_warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))
+    service_customer_name: Mapped[str | None] = mapped_column(String(255))
+    service_customer_reference: Mapped[str | None] = mapped_column(String(128))
+    service_material_description: Mapped[str | None] = mapped_column(Text)
+    service_material_usage_kg: Mapped[float | None] = mapped_column(Numeric(14, 4))
+    service_material_notes: Mapped[str | None] = mapped_column(Text)
+    service_handover_recipient: Mapped[str | None] = mapped_column(String(255))
+    service_handover_notes: Mapped[str | None] = mapped_column(Text)
+    handed_over_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    handed_over_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     sales_order: Mapped["SalesOrder | None"] = relationship("SalesOrder")
     planning_order: Mapped["BrandedPlanningOrder | None"] = relationship(
         "BrandedPlanningOrder", back_populates="production_orders",
+    )
+    materials: Mapped[list["ProductionOrderMaterial"]] = relationship(
+        "ProductionOrderMaterial",
+        back_populates="production_order",
+        cascade="all, delete-orphan",
+        order_by="ProductionOrderMaterial.position",
+        lazy="selectin",
     )
     batches: Mapped[list["ProductionBatch"]] = relationship("ProductionBatch", back_populates="production_order", cascade="all, delete-orphan")
     items: Mapped[list["ProductionOrderItem"]] = relationship("ProductionOrderItem", back_populates="production_order", cascade="all, delete-orphan")
@@ -87,6 +109,34 @@ class ProductionOrder(Base, PkMixin, TimestampMixin):
     @property
     def order_no(self) -> str:
         return self.sales_order_no or public_production_order_no(self.production_no) or self.production_no
+
+
+class ProductionOrderMaterial(Base, PkMixin, TimestampMixin):
+    __tablename__ = "production_order_materials"
+    __table_args__ = (
+        CheckConstraint("estimated_quantity > 0", name="ck_production_order_materials_quantity_positive"),
+        CheckConstraint("position > 0", name="ck_production_order_materials_position_positive"),
+        UniqueConstraint(
+            "production_order_id", "stock_batch_id",
+            name="uq_production_order_materials_order_batch",
+        ),
+        UniqueConstraint(
+            "production_order_id", "position",
+            name="uq_production_order_materials_order_position",
+        ),
+    )
+    production_order_id: Mapped[int] = mapped_column(
+        ForeignKey("production_orders.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    stock_batch_id: Mapped[int] = mapped_column(ForeignKey("stock_batches.id"), nullable=False, index=True)
+    estimated_quantity: Mapped[float] = mapped_column(Numeric(14, 4), nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    production_order: Mapped["ProductionOrder"] = relationship(
+        "ProductionOrder", back_populates="materials",
+    )
+    stock_batch = relationship("StockBatch")
 
 
 class ProductionBatch(Base, PkMixin, TimestampMixin):
@@ -189,6 +239,7 @@ class CuttingRecord(Base, PkMixin, TimestampMixin):
     __table_args__ = (
         CheckConstraint("input_quantity >= 0", name="ck_cutting_records_input_nonnegative"),
         CheckConstraint("cut_pieces >= 0", name="ck_cutting_records_cut_nonnegative"),
+        CheckConstraint("report_piece_count >= 0", name="ck_cutting_records_report_piece_nonnegative"),
         CheckConstraint("passed_pieces >= 0", name="ck_cutting_records_passed_nonnegative"),
         CheckConstraint("defective_pieces >= 0", name="ck_cutting_records_defective_nonnegative"),
         CheckConstraint("waste_quantity >= 0", name="ck_cutting_records_waste_nonnegative"),
@@ -197,13 +248,30 @@ class CuttingRecord(Base, PkMixin, TimestampMixin):
         CheckConstraint("material_rolls_used >= 0", name="ck_cutting_records_rolls_nonnegative"),
         CheckConstraint("bundle_count >= 0", name="ck_cutting_records_bundle_count_nonnegative"),
         CheckConstraint("total_bundled_quantity >= 0", name="ck_cutting_records_total_bundled_nonnegative"),
+        CheckConstraint(
+            "material_role IS NULL OR material_role IN ('main', 'secondary')",
+            name="ck_cutting_records_material_role",
+        ),
+        CheckConstraint(
+            "approval_status IN ('pending', 'approved', 'rejected')",
+            name="ck_cutting_records_approval_status",
+        ),
     )
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False)
     production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"))
     fabric_batch_id: Mapped[int | None] = mapped_column(ForeignKey("stock_batches.id"))
+    model_bom_id: Mapped[int | None] = mapped_column(ForeignKey("model_bom.id"), index=True)
+    cutting_batch_no: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    material_name_snapshot: Mapped[str | None] = mapped_column(String(255))
+    material_role: Mapped[str | None] = mapped_column(String(16))
+    approval_status: Mapped[str] = mapped_column(String(16), default="approved", nullable=False, index=True)
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
     input_quantity: Mapped[float] = mapped_column(Numeric(14, 4), default=0, nullable=False)
     input_unit: Mapped[str] = mapped_column(String(32), default="kg", nullable=False)
     cut_pieces: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    report_piece_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     passed_pieces: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     defective_pieces: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     waste_quantity: Mapped[float] = mapped_column(Numeric(14, 4), default=0, nullable=False)
@@ -214,7 +282,43 @@ class CuttingRecord(Base, PkMixin, TimestampMixin):
     bundle_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_bundled_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     operator_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    layup_operator_name: Mapped[str | None] = mapped_column(String(128))
     notes: Mapped[str | None] = mapped_column(Text)
+    materials: Mapped[list["CuttingMaterialUsage"]] = relationship(
+        "CuttingMaterialUsage",
+        back_populates="cutting_record",
+        cascade="all, delete-orphan",
+        order_by="CuttingMaterialUsage.position",
+        lazy="selectin",
+    )
+
+
+class CuttingMaterialUsage(Base, PkMixin, TimestampMixin):
+    __tablename__ = "cutting_material_usages"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_cutting_material_usages_quantity_positive"),
+        CheckConstraint("position > 0", name="ck_cutting_material_usages_position_positive"),
+        UniqueConstraint(
+            "cutting_record_id", "stock_batch_id",
+            name="uq_cutting_material_usages_record_batch",
+        ),
+        UniqueConstraint(
+            "cutting_record_id", "position",
+            name="uq_cutting_material_usages_record_position",
+        ),
+    )
+    cutting_record_id: Mapped[int] = mapped_column(
+        ForeignKey("cutting_records.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    stock_batch_id: Mapped[int] = mapped_column(ForeignKey("stock_batches.id"), nullable=False, index=True)
+    quantity: Mapped[float] = mapped_column(Numeric(14, 4), nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    cutting_record: Mapped["CuttingRecord"] = relationship(
+        "CuttingRecord", back_populates="materials",
+    )
+    stock_batch = relationship("StockBatch")
 
 
 class PrintingRecord(Base, PkMixin, TimestampMixin):
@@ -255,6 +359,7 @@ class SewingRecord(Base, PkMixin, TimestampMixin):
     failed_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     rework_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     rejected_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    size_quantities: Mapped[list[dict] | None] = mapped_column(JSON, default=list)
     defect_reason: Mapped[str | None] = mapped_column(String(255))
     line_name: Mapped[str | None] = mapped_column(String(64))
     operator_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
@@ -314,8 +419,13 @@ class PackagingReceipt(Base, PkMixin, TimestampMixin):
     __table_args__ = (
         CheckConstraint("quantity > 0", name="ck_packaging_receipts_quantity_positive"),
         CheckConstraint("receive_method IN ('scan', 'manual')", name="ck_packaging_receipts_method"),
+        CheckConstraint(
+            "packaging_department_code IN ('PKG', 'BPK', 'ECP')",
+            name="ck_packaging_receipts_department",
+        ),
         UniqueConstraint("bundle_id", name="uq_packaging_receipts_bundle"),
     )
+    packaging_department_code: Mapped[str] = mapped_column(String(16), default="PKG", nullable=False, index=True)
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False, index=True)
     source_work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False, index=True)
     production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False, index=True)

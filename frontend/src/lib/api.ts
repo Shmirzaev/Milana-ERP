@@ -7,20 +7,16 @@ function resolveUrl(path: string): string {
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 12_000) {
   const controller = new AbortController();
+  const callerSignal = init.signal;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const cacheOptions =
-      (init.method || "GET").toUpperCase() === "GET" && init.cache === undefined
-        ? { cache: "no-store" as RequestCache }
-        : {};
-    return await fetch(url, {
-      credentials: "same-origin",
-      ...cacheOptions,
-      ...init,
-      signal: controller.signal,
-    });
+    return await fetch(url, { credentials: "same-origin", ...init, signal: controller.signal });
   } catch (err: any) {
     if (err?.name === "AbortError") {
+      if (callerSignal?.aborted) throw err;
       throw new Error(
         `Backend is not responding. Check backend server and frontend API proxy settings (NEXT_PUBLIC_API_URL/API_URL). Request: ${url}`
       );
@@ -28,6 +24,7 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
     throw err;
   } finally {
     clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -87,10 +84,12 @@ async function request<T = any>(path: string, init: RequestInit = {}, timeoutMs 
 
 export const api = {
   get: <T = any>(p: string, timeoutMs?: number) => request<T>(p, { method: "GET" }, timeoutMs),
+  getWithSignal: <T = any>(p: string, signal: AbortSignal, timeoutMs?: number) =>
+    request<T>(p, { method: "GET", signal }, timeoutMs),
   post: <T = any>(p: string, body?: any, timeoutMs?: number) =>
     request<T>(p, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }, timeoutMs),
-  postForm: async <T = any>(p: string, form: FormData): Promise<T> => {
-    const res = await fetchWithTimeout(resolveUrl(p), { method: "POST", body: form });
+  postForm: async <T = any>(p: string, form: FormData, timeoutMs = 60_000): Promise<T> => {
+    const res = await fetchWithTimeout(resolveUrl(p), { method: "POST", body: form }, timeoutMs);
     if (!res.ok) {
       let detail = res.statusText;
       try {
@@ -108,12 +107,9 @@ export const api = {
     request<T>(p, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined }),
   del: <T = any>(p: string) => request<T>(p, { method: "DELETE" }),
 
-  async login(email: string, password: string): Promise<void> {
-    const form = new URLSearchParams();
-    form.set("username", email);
-    form.set("password", password);
+  async login(email: string, password: string, factoryCode: "MIL" | "BST" | "ECO"): Promise<void> {
     const loginEndpoints = [
-      resolveUrl("/api/auth/login"),
+      resolveUrl("/api/auth/login-json"),
     ];
     const maxAttempts = 3;
     let lastTransientError = "";
@@ -124,8 +120,8 @@ export const api = {
             endpoint,
             {
               method: "POST",
-              headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              body: form.toString(),
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email, password, factory_code: factoryCode }),
             },
             20_000,
           );

@@ -89,16 +89,45 @@ def _item_by_sku(client, headers, sku: str) -> dict:
     return next(row for row in r.json() if row["sku"] == sku)
 
 
+def _approval_payload(request: dict, supplier_id: int) -> dict:
+    return {
+        "lines": [
+            {
+                "purchase_request_line_id": line["id"],
+                "material_name": f"Approved {line['item_name']}",
+                "preferred_supplier_id": supplier_id,
+                "photo_url": "/storage/model-files/purchase-test.png",
+            }
+            for line in request["lines"]
+        ]
+    }
+
+
+def _order_payload(request: dict) -> dict:
+    return {
+        "expected_date": "2027-01-15T00:00:00Z",
+        "lines": [
+            {
+                "purchase_request_line_id": line["id"],
+                "ordered_quantity": float(line["requested_quantity"] or 5),
+            }
+            for line in request["lines"]
+        ],
+    }
+
+
 def _create_approved_purchase_order(client, headers) -> dict:
     so_id = _create_large_sales_order(client, headers)
     request = client.post(f"/api/purchasing/requests/from-sales-order/{so_id}", headers=headers)
     assert request.status_code == 201, request.text
-    request_id = int(request.json()["id"])
+    request_body = request.json()
+    request_id = int(request_body["id"])
+    supplier_id = _first_supplier_id(client, headers)
 
-    approve = client.post(f"/api/purchasing/requests/{request_id}/approve", headers=headers)
+    approve = client.post(f"/api/purchasing/requests/{request_id}/approve", json=_approval_payload(request_body, supplier_id), headers=headers)
     assert approve.status_code == 200, approve.text
 
-    order = client.post(f"/api/purchasing/requests/{request_id}/convert-to-order", headers=headers)
+    order = client.post(f"/api/purchasing/requests/{request_id}/convert-to-order", json=_order_payload(request_body), headers=headers)
     assert order.status_code == 201, order.text
     return order.json()
 
@@ -115,23 +144,28 @@ def test_purchasing_from_sales_order_approve_convert_receive_increases_stock(cli
     assert all(float(line["shortage_quantity"]) > 0 for line in request["lines"])
     assert all(round(float(line["requested_quantity"]), 4) == round(float(line["shortage_quantity"]), 4) for line in request["lines"])
 
-    approve_response = client.post(f"/api/purchasing/requests/{request['id']}/approve", headers=auth_headers)
+    supplier_id = _first_supplier_id(client, auth_headers)
+    approve_response = client.post(f"/api/purchasing/requests/{request['id']}/approve", json=_approval_payload(request, supplier_id), headers=auth_headers)
     assert approve_response.status_code == 200, approve_response.text
     assert approve_response.json()["status"] == "approved"
 
-    order_response = client.post(f"/api/purchasing/requests/{request['id']}/convert-to-order", headers=auth_headers)
+    order_response = client.post(f"/api/purchasing/requests/{request['id']}/convert-to-order", json=_order_payload(request), headers=auth_headers)
     assert order_response.status_code == 201, order_response.text
     order = order_response.json()
     assert order["po_no"].startswith("PUR-")
     assert order["request_no"] == request["request_no"]
     assert order["status"] == "sent"
+    assert order["expected_date"].startswith("2027-01-15")
     assert order["lines"]
+    assert all(line["photo_url"] == "/storage/model-files/purchase-test.png" for line in order["lines"])
+    assert all(line["supplier_id"] == supplier_id for line in order["lines"])
+    assert all(line["material_name"].startswith("Approved ") for line in order["lines"])
 
     cotton_line = next(line for line in order["lines"] if line["item_sku"] == "FAB-COT-001")
     before_qty = _stock_quantity(client, auth_headers, "FAB-COT-001")
     warehouse_id = _fabric_warehouse_id(client, auth_headers)
     supplier_id = _first_supplier_id(client, auth_headers)
-    batch_no = f"{order['po_no']}-TEST"
+    batch_no = f"SUPPLIER-LOT-{order['id']}"
 
     receive_response = client.post(
         f"/api/purchasing/orders/{order['id']}/receive",
@@ -166,6 +200,8 @@ def test_purchasing_from_sales_order_approve_convert_receive_increases_stock(cli
         batch = db.query(StockBatch).filter(StockBatch.batch_no == batch_no).first()
         assert batch is not None
         assert round(float(batch.quantity or 0), 2) == 5.00
+        assert batch.internal_batch_no == order["po_no"]
+        assert batch.image_url == cotton_line["photo_url"]
         movement = (
             db.query(StockMovement)
             .filter(
@@ -185,6 +221,50 @@ def test_purchasing_from_sales_order_approve_convert_receive_increases_stock(cli
     audit = client.get(f"/api/audit-logs?entity_type=PurchaseOrder&entity_id={order['id']}", headers=auth_headers)
     assert audit.status_code == 200, audit.text
     assert any(row["action"] == "update_status" for row in audit.json())
+
+
+def test_short_purchase_receipt_can_close_order(client, auth_headers):
+    order = _create_approved_purchase_order(client, auth_headers)
+    line = next(row for row in order["lines"] if row["item_sku"] == "FAB-COT-001")
+    ordered_quantity = float(line["ordered_quantity"])
+    received_quantity = min(5.0, ordered_quantity / 2)
+    assert 0 < received_quantity < ordered_quantity
+
+    response = client.post(
+        f"/api/purchasing/orders/{order['id']}/receive",
+        json={
+            "supplier_id": _first_supplier_id(client, auth_headers),
+            "close_order": True,
+            "lines": [
+                {
+                    "purchase_order_line_id": line["id"],
+                    "received_quantity": received_quantity,
+                    "batch_no": f"SHORT-CLOSED-{order['id']}",
+                    "warehouse_id": _fabric_warehouse_id(client, auth_headers),
+                    "piece_count": 1,
+                    "roll_weights_kg": [received_quantity],
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    closed_order = response.json()
+    assert closed_order["status"] == "received"
+    closed_line = next(row for row in closed_order["lines"] if row["id"] == line["id"])
+    assert float(closed_line["received_quantity"]) == received_quantity
+    assert float(closed_line["remaining_quantity"]) > 0
+
+    audit = client.get(
+        f"/api/audit-logs?entity_type=PurchaseOrder&entity_id={order['id']}",
+        headers=auth_headers,
+    )
+    assert audit.status_code == 200, audit.text
+    status_change = next(row for row in audit.json() if row["action"] == "update_status")
+    assert status_change["new_value"]["status"] == "received"
+    assert status_change["new_value"]["short_receipt_closed"] is True
+    assert float(status_change["new_value"]["remaining_quantity_cancelled"]) > 0
 
 
 def test_purchasing_approve_requires_permission(client, auth_headers):
@@ -230,7 +310,12 @@ def test_purchase_request_notifications_follow_approval_flow(client, auth_header
         for row in manager_notes.json()
     )
 
-    approve = client.post(f"/api/purchasing/requests/{request.json()['id']}/approve", headers=manager_headers)
+    request_body = request.json()
+    approve = client.post(
+        f"/api/purchasing/requests/{request_body['id']}/approve",
+        json=_approval_payload(request_body, _first_supplier_id(client, auth_headers)),
+        headers=manager_headers,
+    )
     assert approve.status_code == 200, approve.text
 
     planning_notes = client.get("/api/notifications?only_unread=true", headers=planning_headers)
@@ -267,6 +352,40 @@ def test_purchasing_receive_requires_permission(client, auth_headers):
         headers=limited_headers,
     )
     assert denied.status_code == 403, denied.text
+
+
+def test_purchase_order_receiving_accepts_quantity_above_ordered_amount(client, auth_headers):
+    order = _create_approved_purchase_order(client, auth_headers)
+    line = next(row for row in order["lines"] if row["item_sku"] == "FAB-COT-001")
+    warehouse_id = _fabric_warehouse_id(client, auth_headers)
+    supplier_id = _first_supplier_id(client, auth_headers)
+    ordered_quantity = float(line["ordered_quantity"])
+    received_quantity = ordered_quantity + 1.25
+    stock_before = _stock_quantity(client, auth_headers, "FAB-COT-001")
+
+    response = client.post(
+        f"/api/purchasing/orders/{order['id']}/receive",
+        json={
+            "supplier_id": supplier_id,
+            "lines": [
+                {
+                    "purchase_order_line_id": line["id"],
+                    "received_quantity": received_quantity,
+                    "batch_no": f"{order['po_no']}-OVERAGE",
+                    "warehouse_id": warehouse_id,
+                    "cost_per_unit": 3.75,
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    received_line = next(row for row in response.json()["lines"] if row["id"] == line["id"])
+    assert float(received_line["received_quantity"]) == received_quantity
+    assert float(received_line["remaining_quantity"]) == 0
+    stock_after = _stock_quantity(client, auth_headers, "FAB-COT-001")
+    assert round(stock_after - stock_before, 2) == round(received_quantity, 2)
 
 
 def test_draft_purchase_order_cannot_be_received(client, auth_headers):

@@ -9,7 +9,6 @@ import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { can, useMe } from "@/lib/auth";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import WarehouseMap from "@/components/WarehouseMap";
 
@@ -73,11 +72,7 @@ export default function ScanPackagePage() {
   const [busy, setBusy] = useState<"lookup" | "receive" | "move" | null>(null);
   const [selectedCell, setSelectedCell] = useState<string>("");
   const [selectedShelf, setSelectedShelf] = useState<"S1" | "S2">("S1");
-  const { data: mapData, mutate: mutateMap } = useSWR<any>(
-    "/api/packages/storage-map",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data: mapData, mutate: mutateMap } = useSWR<any>("/api/packages/storage-map", fetcher);
   const canStoragePackages = can(me, "*", "storage.packages");
 
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);

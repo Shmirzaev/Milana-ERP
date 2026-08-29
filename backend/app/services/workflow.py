@@ -14,6 +14,7 @@ from app.models import (
     ModelBOM,
     Notification,
     Package,
+    ProductionBatch,
     ProductionOrder,
     SalesOrder,
     StockBatch,
@@ -126,6 +127,49 @@ def _complete_if_done(db: Session, wo: WorkOrder) -> None:
         replacement_qry = replacement_qry.filter(False)
     if replacement_qry.first():
         return
+    if wo.operation == "cutting":
+        po = db.get(ProductionOrder, wo.production_order_id)
+        if po and po.source_type == "usluga":
+            if db.query(CuttingRecord.id).filter(
+                CuttingRecord.work_order_id == wo.id,
+                CuttingRecord.approval_status == "pending",
+            ).first():
+                return
+            required_material_ids = {
+                int(material_id)
+                for (material_id,) in db.query(ModelBOM.id).filter(
+                    ModelBOM.model_id == po.model_id,
+                    ModelBOM.material_role.in_(("main", "secondary")),
+                ).all()
+            }
+            approved_material_ids = {
+                int(material_id)
+                for (material_id,) in db.query(CuttingRecord.model_bom_id).filter(
+                    CuttingRecord.work_order_id == wo.id,
+                    CuttingRecord.approval_status == "approved",
+                    CuttingRecord.model_bom_id.is_not(None),
+                ).all()
+            }
+            if required_material_ids - approved_material_ids:
+                return
+            production_batch_ids = {
+                int(batch_id)
+                for (batch_id,) in db.query(ProductionBatch.id).filter(
+                    ProductionBatch.production_order_id == wo.production_order_id,
+                ).all()
+            }
+            if production_batch_ids:
+                approved_main_batch_ids = {
+                    int(batch_id)
+                    for (batch_id,) in db.query(CuttingRecord.production_batch_id).filter(
+                        CuttingRecord.work_order_id == wo.id,
+                        CuttingRecord.material_role == "main",
+                        CuttingRecord.approval_status == "approved",
+                        CuttingRecord.production_batch_id.is_not(None),
+                    ).all()
+                }
+                if production_batch_ids - approved_main_batch_ids:
+                    return
     planned = int(wo.planned_output_qty or 0)
     processed = processed_work_order_qty(db, wo)
     if planned > 0 and processed >= planned and wo.status != "completed":
@@ -166,6 +210,11 @@ def propagate_cutting_plan_from_output(db: Session, wo: WorkOrder) -> None:
     bundle_qry = db.query(func.coalesce(func.sum(Bundle.quantity), 0)).filter(
         Bundle.production_order_id == wo.production_order_id,
     )
+    if po.source_type == "usluga":
+        bundle_qry = bundle_qry.join(CuttingRecord, CuttingRecord.id == Bundle.cutting_record_id).filter(
+            CuttingRecord.approval_status == "approved",
+            CuttingRecord.material_role == "main",
+        )
     if wo.production_batch_id is not None:
         bundle_qry = bundle_qry.filter(Bundle.production_batch_id == wo.production_batch_id)
 
@@ -181,7 +230,17 @@ def propagate_cutting_plan_from_output(db: Session, wo: WorkOrder) -> None:
         int(wo.passed_qty or 0) - replacement_cut_qty,
         int(
             db.query(func.coalesce(func.sum(CuttingRecord.total_bundled_quantity), 0))
-            .filter(CuttingRecord.work_order_id == wo.id)
+            .filter(
+                CuttingRecord.work_order_id == wo.id,
+                *(
+                    (
+                        CuttingRecord.approval_status == "approved",
+                        CuttingRecord.material_role == "main",
+                    )
+                    if po.source_type == "usluga"
+                    else ()
+                ),
+            )
             .scalar()
             or 0
         ) - replacement_cut_qty,
@@ -218,7 +277,7 @@ def sync_production_order_status(db: Session, production_order_id: int) -> None:
 
     active = [w for w in all_wos if w.status not in ("completed", "rejected", "cancelled")]
     if not active:
-        po.status = "finished_storage"
+        po.status = "ready_for_handover" if po.source_type == "usluga" and not po.handed_over_at else "finished_storage"
         return
     started = [w for w in active if _work_order_has_started(w)]
     if started:

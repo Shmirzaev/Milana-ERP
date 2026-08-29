@@ -3,36 +3,74 @@ from datetime import date, datetime, timezone
 import os
 import re
 from uuid import uuid4
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from fastapi import UploadFile, File, Form
-from sqlalchemy import func
+from sqlalchemy import and_, case, func, literal_column, or_, select
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.core.config import settings
 from app.core.dt import date_filter_bounds
+from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
     extension_for_upload,
-    read_validated_image_upload,
     safe_content_type,
     read_validated_upload_content,
 )
 from app.models import (
     Brand, Collection, CollectionModel, Model, ModelImage, ModelSize, ModelColor, ModelBOM, User,
     Item, SalesOrderItem, ProductionOrder, ProductionOrderItem, Bundle, Package, PackageItem, FinishedGoodsStock,
-    StockBatch,
+    StockBatch, CuttingRecord,
 )
 from app.schemas.catalog import (
     BrandIn, BrandOut, CollectionIn, CollectionOut,
     ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelColorIn, ModelBOMIn,
-    ModelBOMUpdate, ModelVariantCreateIn, ModelVariantUpdateIn,
+    ModelBOMUpdate, ModelOptionPage, ModelPaidOperationsIn, ModelSummaryOut, ModelVariantCreateIn, ModelVariantUpdateIn,
 )
+from app.schemas.inventory import ItemOut
 from app.services.audit import log_action
-from app.services.model_images import model_display_image_url, model_variant_picture_url
+from app.services.factory_scope import selected_factory_code
+from app.services.model_images import model_display_image_url
+from app.services.numbering import next_model_variant_no
+from app.services.paid_operations import (
+    filter_paid_operations_for_factory,
+    merge_scoped_paid_operations,
+    normalize_paid_operation_factory,
+    paid_operations_from_details,
+    sewing_master_factory_scope,
+)
 
 router = APIRouter(tags=["catalog"])
+
+
+def _standard_catalog_scope() -> str:
+    """FastAPI dependency that keeps the shared PLM routes standard-only."""
+    return "standard"
+
+
+def _normalize_catalog_scope(value: str) -> str:
+    scope = str(value or "standard").strip().lower()
+    if scope not in {"standard", "usluga"}:
+        raise HTTPException(400, "Invalid model catalog scope")
+    return scope
+
+
+def _catalog_paid_operation_factory_scope(user: User, catalog_scope: str) -> str | None:
+    if _normalize_catalog_scope(catalog_scope) == "usluga":
+        return "eco_cotton"
+    return _model_paid_operation_factory_scope(user)
+
+
+def _model_paid_operation_factory_scope(user: User) -> str | None:
+    sewing_scope = sewing_master_factory_scope(user)
+    if sewing_scope:
+        return sewing_scope
+    granted = set(user_permissions(user))
+    if "*" not in granted and granted.intersection({"payroll.view", "payroll.manage", "payroll.scan"}):
+        return normalize_paid_operation_factory(selected_factory_code(user))
+    return None
 
 
 def _estimate_variant_net_cost_pc(db: DbSession, model: Model) -> float:
@@ -44,7 +82,7 @@ def _estimate_variant_net_cost_pc(db: DbSession, model: Model) -> float:
     }
     base_cost = 0.0
     for row in model.bom or []:
-        item_cost = item_cost_map.get(int(row.item_id), 0.0)
+        item_cost = item_cost_map.get(int(row.item_id), 0.0) if row.item_id else 0.0
         base_cost += float(row.quantity_per_piece or 0) * (1.0 + float(row.waste_percent or 0) / 100.0) * item_cost
 
     details = model.details_json or {}
@@ -99,6 +137,11 @@ def _image_payload(img: ModelImage) -> dict:
 
 def _clean_text(value: object) -> str:
     return str(value or "").strip()
+
+
+def _normalize_model_number(value: object) -> str:
+    """Remove only the separator between a leading letter prefix and first digit."""
+    return re.sub(r"^([^\W\d_]+)-(?=\d)", r"\1", _clean_text(value), count=1)
 
 
 def _normalized_key(value: object) -> str:
@@ -163,6 +206,22 @@ def _material_bom_rows(model: Model) -> list[ModelBOM]:
     return rows
 
 
+def _ordered_material_bom_rows(model: Model) -> list[ModelBOM]:
+    """Return the model's main material first, with a stable legacy fallback."""
+    rows = _material_bom_rows(model)
+    main = next(
+        (row for row in rows if _normalized_key(getattr(row, "material_role", None)) == "main"),
+        None,
+    )
+    if not main:
+        return rows
+    return [main, *(row for row in rows if int(row.id or 0) != int(main.id or 0))]
+
+
+def _primary_material_bom_row(model: Model) -> ModelBOM | None:
+    return next(iter(_ordered_material_bom_rows(model)), None)
+
+
 def _composition_label(rows: list[dict] | None) -> str:
     parts: list[str] = []
     for row in rows or []:
@@ -217,8 +276,29 @@ def _selected_variant_fabric_item(
     return item
 
 
+def _parent_variant_fabric(
+    db: DbSession,
+    model: Model,
+    *,
+    requested_item_id: int | None = None,
+    legacy_stock_batch_id: int | None = None,
+    action: str,
+) -> tuple[ModelBOM, Item]:
+    fabric_row = _primary_material_bom_row(model)
+    if not fabric_row:
+        raise HTTPException(400, f"Add a fabric BOM row to this model before {action} variants")
+    fabric_item = getattr(fabric_row, "item", None) or db.get(Item, int(fabric_row.item_id or 0))
+    if not fabric_item:
+        raise HTTPException(400, "The parent model fabric type is no longer available")
+    if requested_item_id or legacy_stock_batch_id:
+        requested_item = _selected_variant_fabric_item(db, requested_item_id, legacy_stock_batch_id)
+        if int(requested_item.id) != int(fabric_item.id):
+            raise HTTPException(400, "Variant material must match the parent model material")
+    return fabric_row, fabric_item
+
+
 def _variant_fabric_item_id_for_model(model: Model) -> int | None:
-    for row in _material_bom_rows(model):
+    for row in _ordered_material_bom_rows(model):
         if row.item_id:
             return int(row.item_id)
     details = model.details_json or {}
@@ -286,31 +366,33 @@ def _apply_variant_fabric_item(
     model: Model,
     selected_item: Item,
     *,
+    color_provided: bool = False,
     color: str | None = None,
     picture_url: str | None = None,
 ) -> None:
-    fabric_row = next(iter(_material_bom_rows(model)), None)
+    fabric_row = _primary_material_bom_row(model)
     if not fabric_row:
         raise HTTPException(400, "Add a fabric BOM row to this model before editing variants")
-    fabric_item_changed = int(fabric_row.item_id or 0) != int(selected_item.id)
     fabric_row.item_id = int(selected_item.id)
     fabric_row.stock_batch_id = None
-    fabric_row.color = _clean_text(color) or None
+    if color_provided:
+        fabric_row.color = _clean_text(color) or None
     if picture_url is not None:
         fabric_row.photo_url = picture_url
-    elif fabric_item_changed:
-        fabric_row.photo_url = None
     fabric_row.unit = selected_item.unit or fabric_row.unit
 
 
 def _fabric_label_for_model(model: Model) -> str:
-    for row in _material_bom_rows(model):
+    for row in _ordered_material_bom_rows(model):
         item = getattr(row, "item", None)
+        material_name = _clean_text(getattr(row, "material_name", None))
         item_name = _clean_text(getattr(item, "name", None))
         item_sku = _clean_text(getattr(item, "sku", None))
         color = _clean_text(row.color)
         parts: list[str] = []
-        if item_name:
+        if material_name:
+            parts.append(material_name)
+        elif item_name:
             parts.append(item_name)
         elif item_sku:
             parts.append(item_sku)
@@ -327,14 +409,25 @@ def _fabric_label_for_model(model: Model) -> str:
 
 
 def _variant_picture_url_for_model(model: Model) -> str | None:
-    return model_variant_picture_url(model)
+    material_image = _material_model_image(model)
+    if material_image:
+        return material_image.file_url
+    for row in _ordered_material_bom_rows(model):
+        item = getattr(row, "item", None)
+        picture = row.photo_url or getattr(item, "image_url", None)
+        if picture:
+            return picture
+    primary = _primary_model_image(model)
+    if primary:
+        return primary.file_url
+    return model_display_image_url(model)
 
 
 def _fabric_picture_url_for_model(model: Model) -> str | None:
     material_image = _material_model_image(model)
     if material_image:
         return material_image.file_url
-    for row in _material_bom_rows(model):
+    for row in _ordered_material_bom_rows(model):
         item = getattr(row, "item", None)
         picture = row.photo_url or getattr(item, "image_url", None)
         if picture:
@@ -347,7 +440,9 @@ def _model_variant_payload(model: Model) -> dict:
     fabric = _fabric_label_for_model(model)
     picture_url = _variant_picture_url_for_model(model)
     fabric_item_id = _variant_fabric_item_id_for_model(model)
-    fabric_row = next(iter(_material_bom_rows(model)), None)
+    fabric_row = _primary_material_bom_row(model)
+    details = model.details_json if isinstance(model.details_json, dict) else {}
+    general = details.get("general") if isinstance(details.get("general"), dict) else {}
     return {
         "id": model.id,
         "model_id": model.id,
@@ -361,7 +456,7 @@ def _model_variant_payload(model: Model) -> dict:
         "fabric": fabric,
         "picture_url": picture_url,
         "fabric_item_id": fabric_item_id,
-        "color": _clean_text(getattr(fabric_row, "color", None)) or None,
+        "color": _clean_text(getattr(fabric_row, "color", None)) or _clean_text(general.get("variant_color")) or None,
         "stock_batch_id": None,
     }
 
@@ -465,7 +560,9 @@ def _model_group_payload(models: list[Model], *, compact: bool = False) -> dict:
     payload = _compact_model_payload(representative) if compact else _model_payload(representative)
     group_model_no, _ = _model_code_parts(representative)
     group_picture = None
-    for model in ordered_models:
+    base_models = [model for model in ordered_models if not _clean_text(_model_code_parts(model)[1])]
+    picture_candidates = base_models + [model for model in ordered_models if model not in base_models]
+    for model in picture_candidates:
         model_image = _primary_model_image(model)
         if model_image:
             group_picture = model_image.file_url
@@ -482,8 +579,9 @@ def _model_group_payload(models: list[Model], *, compact: bool = False) -> dict:
     return payload
 
 
-def _model_payload(m: Model) -> dict:
+def _model_payload(m: Model, factory_scope: str | None = None) -> dict:
     payload = ModelOut.model_validate(m).model_dump()
+    payload["details_json"] = filter_paid_operations_for_factory(payload.get("details_json"), factory_scope)
     images = sorted(list(m.images or []), key=lambda img: int(getattr(img, "id", 0) or 0), reverse=True)
     primary_image = _primary_model_image(m)
     primary_payload = _image_payload(primary_image) if primary_image else None
@@ -498,7 +596,7 @@ def _model_payload(m: Model) -> dict:
     return payload
 
 
-def _models_query(db: DbSession):
+def _models_query(db: DbSession, catalog_scope: str = "standard"):
     return db.query(Model).options(
         selectinload(Model.images).load_only(
             ModelImage.id,
@@ -512,11 +610,96 @@ def _models_query(db: DbSession):
         ),
         selectinload(Model.bom).joinedload(ModelBOM.item),
         selectinload(Model.bom).joinedload(ModelBOM.stock_batch),
+    ).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope))
+
+
+def _variant_models_query(db: DbSession, catalog_scope: str = "standard"):
+    """Load only relationships displayed in the bounded variant table."""
+    return db.query(Model).options(
+        selectinload(Model.images).load_only(
+            ModelImage.id,
+            ModelImage.model_id,
+            ModelImage.file_url,
+            ModelImage.file_name,
+            ModelImage.content_type,
+            ModelImage.image_type,
+            ModelImage.is_primary,
+            ModelImage.created_at,
+        ),
+        selectinload(Model.bom).joinedload(ModelBOM.item),
+    ).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope))
+
+
+def _model_thumbnail_subquery():
+    preview_image = or_(
+        ModelImage.content_type.ilike("image/%"),
+        func.lower(ModelImage.file_url).like("%.png"),
+        func.lower(ModelImage.file_url).like("%.jpg"),
+        func.lower(ModelImage.file_url).like("%.jpeg"),
+        func.lower(ModelImage.file_url).like("%.webp"),
+        func.lower(ModelImage.file_url).like("%.gif"),
     )
+    priority = case(
+        (and_(ModelImage.is_primary.is_(True), ModelImage.image_type == "model"), 0),
+        (ModelImage.is_primary.is_(True), 1),
+        (ModelImage.image_type == "model", 2),
+        else_=3,
+    )
+    return (
+        select(ModelImage.file_url)
+        .where(ModelImage.model_id == Model.id, preview_image)
+        .order_by(priority, ModelImage.id.desc())
+        .limit(1)
+        .correlate(Model)
+        .scalar_subquery()
+    )
+
+
+def _model_summary_query(db: DbSession, catalog_scope: str = "standard"):
+    return db.query(
+        Model.id,
+        Model.code,
+        Model.name,
+        Model.category,
+        Model.brand_id,
+        Model.status,
+        Model.created_at,
+        Model.updated_at,
+        _model_thumbnail_subquery().label("thumbnail_url"),
+    ).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope))
+
+
+def _catalog_model(db: DbSession, model_id: int, catalog_scope: str = "standard") -> Model | None:
+    return db.query(Model).filter(
+        Model.id == model_id,
+        Model.catalog_scope == _normalize_catalog_scope(catalog_scope),
+    ).one_or_none()
+
+
+def _standard_model(db: DbSession, model_id: int) -> Model | None:
+    """Never expose Eco Cotton Usluga identities through shared PLM APIs."""
+    return _catalog_model(db, model_id, "standard")
+
+
+def _model_summary_payload(row) -> dict:
+    return ModelSummaryOut(
+        id=row.id,
+        code=row.code,
+        name=row.name,
+        category=row.category,
+        brand_id=row.brand_id,
+        status=row.status,
+        thumbnail_url=row.thumbnail_url,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    ).model_dump()
 
 
 def _without_internal_legacy_models(qry):
     """Keep migration-only stock identities out of the PLM catalog."""
+    session = getattr(qry, "session", None)
+    if session is not None and session.get_bind().dialect.name == "postgresql":
+        return qry.filter(literal_column("models.is_legacy_import").is_(False))
     legacy_flag = Model.details_json["legacy_import"].as_boolean()
     return qry.filter(func.coalesce(legacy_flag, False).is_(False))
 
@@ -532,7 +715,9 @@ def _apply_model_list_filters(
     created_from: date | None,
     created_to: date | None,
     include_legacy_import: bool,
+    catalog_scope: str = "standard",
 ):
+    qry = qry.filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope))
     if not include_legacy_import:
         qry = _without_internal_legacy_models(qry)
     if status:
@@ -540,14 +725,16 @@ def _apply_model_list_filters(
     search_query = _clean_text(q)
     if search_query:
         pattern = f"%{search_query}%"
+        normalized_code_pattern = normalized_model_code_pattern(search_query)
         qry = qry.filter(
             (Model.name.ilike(pattern))
-            | (Model.code.ilike(pattern))
+            | (normalized_model_code_column(Model.code).ilike(normalized_code_pattern))
             | (Model.category.ilike(pattern))
         )
     code_query = _clean_text(code)
     if code_query:
-        qry = qry.filter(Model.code.ilike(f"%{code_query}%"))
+        normalized_code_pattern = normalized_model_code_pattern(code_query)
+        qry = qry.filter(normalized_model_code_column(Model.code).ilike(normalized_code_pattern))
     name_query = _clean_text(name)
     if name_query:
         qry = qry.filter(Model.name.ilike(f"%{name_query}%"))
@@ -562,8 +749,42 @@ def _apply_model_list_filters(
     return qry
 
 
-def _model_group_member_ids(qry) -> list[list[int]]:
-    grouped: dict[str, list[int]] = {}
+def _variant_group_predicate(db: DbSession, *, group_key: str, model_no: str):
+    general_model_no = func.coalesce(
+        Model.details_json["general"]["model_no"].as_string(),
+        Model.details_json["general"]["modelNo"].as_string(),
+    )
+    explicit_variant_no = func.coalesce(
+        Model.details_json["general"]["variant_no"].as_string(),
+        Model.details_json["general"]["variantNo"].as_string(),
+    )
+    has_explicit_model_no = func.length(func.trim(func.coalesce(general_model_no, ""))) > 0
+    has_explicit_variant_no = func.length(func.trim(func.coalesce(explicit_variant_no, ""))) > 0
+    derived_variant = and_(
+        ~has_explicit_model_no,
+        Model.code.ilike(f"{model_no}-%"),
+    )
+    is_variant = or_(has_explicit_variant_no, derived_variant)
+
+    if db.get_bind().dialect.name == "postgresql":
+        # Migration 0084 materializes this exact family identity and indexes it
+        # with model id, so production does an indexed family lookup.
+        return and_(
+            literal_column("models.is_legacy_import").is_(False),
+            literal_column("models.model_group_key") == group_key,
+            is_variant,
+        )
+
+    # SQLite test databases are built from ORM metadata rather than Alembic and
+    # therefore do not have PostgreSQL's generated family columns.
+    return and_(
+        func.lower(func.trim(func.coalesce(general_model_no, ""))) == _normalized_key(model_no),
+        is_variant,
+    )
+
+
+def _model_group_members(qry) -> list[list]:
+    grouped: dict[str, list] = {}
     for row in qry.order_by(Model.id.desc()).all():
         key = _model_group_key_from_values(
             model_id=int(row.id),
@@ -571,11 +792,18 @@ def _model_group_member_ids(qry) -> list[list[int]]:
             name=row.name,
             general=row.general_details,
         )
-        grouped.setdefault(key, []).append(int(row.id))
+        grouped.setdefault(key, []).append(row)
     return list(grouped.values())
 
 
-def _model_with_variant_relations(db: DbSession, mid: int) -> Model | None:
+def _model_group_member_ids(qry) -> list[list[int]]:
+    return [
+        [int(row.id) for row in rows]
+        for rows in _model_group_members(qry)
+    ]
+
+
+def _model_with_variant_relations(db: DbSession, mid: int, catalog_scope: str = "standard") -> Model | None:
     return (
         db.query(Model)
         .options(
@@ -585,7 +813,7 @@ def _model_with_variant_relations(db: DbSession, mid: int) -> Model | None:
             selectinload(Model.bom).joinedload(ModelBOM.item),
             selectinload(Model.bom).joinedload(ModelBOM.stock_batch),
         )
-        .filter(Model.id == mid)
+        .filter(Model.id == mid, Model.catalog_scope == _normalize_catalog_scope(catalog_scope))
         .first()
     )
 
@@ -636,6 +864,54 @@ def _normalize_bom_batch_fields(db: DbSession, data: dict) -> dict:
     return data
 
 
+def _normalize_bom_fields(db: DbSession, data: dict, catalog_scope: str) -> dict:
+    """Keep Usluga fabric descriptions independent from Milana inventory."""
+    scope = _normalize_catalog_scope(catalog_scope)
+    material_name = _clean_text(data.get("material_name"))
+    if material_name:
+        if scope != "usluga":
+            raise HTTPException(400, "Manual fabric names are available only for Usluga models")
+        material_role = _clean_text(data.get("material_role")).lower()
+        if material_role not in {"main", "secondary"}:
+            raise HTTPException(400, "Choose whether the Usluga fabric is main or secondary")
+        data["material_name"] = material_name
+        data["material_role"] = material_role
+        data["item_id"] = None
+        data["stock_batch_id"] = None
+        return data
+
+    data["material_name"] = None
+    data["material_role"] = None
+    normalized = _normalize_bom_batch_fields(db, data)
+    if scope == "usluga":
+        item = db.get(Item, int(normalized.get("item_id") or 0))
+        category = str(getattr(item, "category", "") or "").lower()
+        if category in {"fabric", "semi_finished"}:
+            raise HTTPException(400, "Enter the Usluga fabric name manually; inventory fabrics are not allowed")
+        if category not in {"accessory", "packaging"}:
+            raise HTTPException(400, "Usluga inventory links are allowed only for accessories and packaging")
+    return normalized
+
+
+def _ensure_unique_usluga_main_material(
+    db: DbSession,
+    model_id: int,
+    data: dict,
+    *,
+    exclude_bom_id: int | None = None,
+) -> None:
+    if data.get("material_role") != "main":
+        return
+    qry = db.query(ModelBOM.id).filter(
+        ModelBOM.model_id == model_id,
+        ModelBOM.material_role == "main",
+    )
+    if exclude_bom_id is not None:
+        qry = qry.filter(ModelBOM.id != exclude_bom_id)
+    if qry.first():
+        raise HTTPException(409, "This Usluga model already has a main fabric; change it to secondary first")
+
+
 def _split_model_code(code: str | None) -> tuple[str, str]:
     value = str(code or "").strip()
     dash_index = value.rfind("-")
@@ -645,7 +921,7 @@ def _split_model_code(code: str | None) -> tuple[str, str]:
 
 
 def _build_model_code(model_no: str, variant_no: str) -> str:
-    clean_model_no = _clean_text(model_no)
+    clean_model_no = _normalize_model_number(model_no)
     clean_variant_no = _clean_text(variant_no)
     if clean_model_no and clean_variant_no:
         return f"{clean_model_no}-{clean_variant_no}"
@@ -668,7 +944,12 @@ def _set_model_identity(model: Model, *, model_no: str, variant_no: str) -> None
     model.details_json = details
 
 
-def _rename_model_group(db: DbSession, source: Model, new_model_no: str) -> list[tuple[Model, str]]:
+def _rename_model_group(
+    db: DbSession,
+    source: Model,
+    new_model_no: str,
+    catalog_scope: str = "standard",
+) -> list[tuple[Model, str]]:
     """Rename every variant in source's current group while preserving variant numbers."""
     old_model_no, _ = _model_code_parts(source)
     clean_new_model_no = _clean_text(new_model_no)
@@ -680,7 +961,7 @@ def _rename_model_group(db: DbSession, source: Model, new_model_no: str) -> list
     old_group_key = _normalized_key(old_model_no)
     group = [
         model
-        for model in db.query(Model).all()
+        for model in db.query(Model).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope)).all()
         if _normalized_key(_model_code_parts(model)[0]) == old_group_key
     ]
     if not group:
@@ -855,7 +1136,7 @@ def update_collection(cid: int, payload: CollectionIn, db: DbSession, current: U
 def add_model_to_collection(cid: int, model_id: int, db: DbSession, current: User = Depends(require_permissions("modeling.collections", "*"))):
     if not db.get(Collection, cid):
         raise HTTPException(404, "Collection not found")
-    if not db.get(Model, model_id):
+    if not _standard_model(db, model_id):
         raise HTTPException(404, "Model not found")
     db.add(CollectionModel(collection_id=cid, model_id=model_id))
     db.commit()
@@ -863,10 +1144,84 @@ def add_model_to_collection(cid: int, model_id: int, db: DbSession, current: Use
 
 
 # ===== Models =====
+@router.get("/model-options", response_model=ModelOptionPage)
+def list_model_options(
+    db: DbSession,
+    _: CurrentUser,
+    status: str | None = Query(default=None, max_length=32),
+    search: str | None = Query(default=None, max_length=100),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=30, ge=1, le=50),
+    ids: list[int] | None = Query(default=None),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    """Return bounded, relationship-free rows for model selectors."""
+    selected_ids = list(dict.fromkeys(ids or []))
+    if any(model_id < 1 for model_id in selected_ids) or len(selected_ids) > 50:
+        raise HTTPException(422, "ids must contain between 1 and 50 positive model IDs")
+
+    qry = _model_summary_query(db, catalog_scope)
+    if selected_ids:
+        # An ids-only lookup lets edit forms recover labels that are outside the
+        # current search/status page without weakening the normal filters.
+        result = (
+            qry.filter(Model.id.in_(selected_ids))
+            .order_by(Model.created_at.desc(), Model.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size + 1)
+            .all()
+        )
+        has_more = len(result) > page_size
+        items = [
+            {
+                "id": row.id,
+                "code": row.code,
+                "name": row.name,
+                "thumbnail_url": row.thumbnail_url,
+            }
+            for row in result[:page_size]
+        ]
+        return {"items": items, "page": page, "page_size": page_size, "has_more": has_more}
+
+    qry = _without_internal_legacy_models(qry)
+    status_filter = _clean_text(status)
+    if status_filter:
+        qry = qry.filter(Model.status == status_filter)
+    search_filter = _clean_text(search)
+    if search_filter:
+        pattern = f"%{search_filter}%"
+        normalized_code_pattern = normalized_model_code_pattern(search_filter)
+        qry = qry.filter(
+            or_(
+                Model.name.ilike(pattern),
+                normalized_model_code_column(Model.code).ilike(normalized_code_pattern),
+            )
+        )
+
+    rows = (
+        qry.order_by(Model.created_at.desc(), Model.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size + 1)
+        .all()
+    )
+    has_more = len(rows) > page_size
+    items = [
+        {
+            "id": row.id,
+            "code": row.code,
+            "name": row.name,
+            "thumbnail_url": row.thumbnail_url,
+        }
+        for row in rows[:page_size]
+    ]
+    return {"items": items, "page": page, "page_size": page_size, "has_more": has_more}
+
+
 @router.get("/models")
 def list_models(
     db: DbSession,
-    _: CurrentUser,
+    current: CurrentUser,
+    response: Response,
     status: str | None = None,
     q: str | None = None,
     code: str | None = None,
@@ -874,13 +1229,14 @@ def list_models(
     category: str | None = None,
     created_from: date | None = None,
     created_to: date | None = None,
-    page: int = 1,
-    page_size: int = 50,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
     include_total: bool = False,
     include_legacy_import: bool = False,
+    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
     qry = _apply_model_list_filters(
-        _models_query(db),
+        _model_summary_query(db, catalog_scope),
         status=status,
         q=q,
         code=code,
@@ -889,23 +1245,51 @@ def list_models(
         created_from=created_from,
         created_to=created_to,
         include_legacy_import=include_legacy_import,
+        catalog_scope=catalog_scope,
     )
-    total = qry.count() if include_total else 0
-    qry = qry.order_by(Model.id.desc())
+    total = None
     if include_total:
-        safe_page = max(1, page)
-        safe_size = max(1, min(page_size, 500))
-        qry = qry.offset((safe_page - 1) * safe_size).limit(safe_size)
-    rows = [_model_payload(m) for m in qry.all()]
+        count_qry = _apply_model_list_filters(
+            db.query(func.count(Model.id)),
+            status=status,
+            q=q,
+            code=code,
+            name=name,
+            category=category,
+            created_from=created_from,
+            created_to=created_to,
+            include_legacy_import=include_legacy_import,
+            catalog_scope=catalog_scope,
+        )
+        total = int(count_qry.scalar() or 0)
+    result = (
+        qry.order_by(Model.created_at.desc(), Model.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size + 1)
+        .all()
+    )
+    has_more = len(result) > page_size
+    rows = [_model_summary_payload(row) for row in result[:page_size]]
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    response.headers["X-Has-More"] = "true" if has_more else "false"
+    if total is not None:
+        response.headers["X-Total"] = str(total)
     if include_total:
-        return _pagination_payload(rows, total=total, page=page, page_size=page_size)
+        return {
+            "rows": rows,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "has_more": has_more,
+        }
     return rows
 
 
 @router.get("/models/variant-groups")
 def list_model_variant_groups(
     db: DbSession,
-    _: CurrentUser,
+    current: CurrentUser,
     status: str | None = None,
     q: str | None = None,
     code: str | None = None,
@@ -918,36 +1302,136 @@ def list_model_variant_groups(
     include_total: bool = False,
     include_legacy_import: bool = False,
     compact: bool = False,
+    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    identity_qry = db.query(
-        Model.id,
-        Model.code,
-        Model.name,
-        Model.details_json["general"].label("general_details"),
-    )
-    identity_qry = _apply_model_list_filters(
-        identity_qry,
-        status=status,
-        q=q,
-        code=code,
-        name=name,
-        category=category,
-        created_from=created_from,
-        created_to=created_to,
-        include_legacy_import=include_legacy_import,
-    )
-    grouped_ids = _model_group_member_ids(identity_qry)
-    total = len(grouped_ids)
-    if include_total:
-        safe_page = max(1, page)
-        safe_size = max(1, min(page_size, 500))
-        grouped_ids = grouped_ids[(safe_page - 1) * safe_size : safe_page * safe_size]
+    safe_page = max(1, int(page or 1))
+    safe_size = max(1, min(int(page_size or 50), 100))
+
+    if db.get_bind().dialect.name == "postgresql":
+        # Migration 0084 materializes and indexes this family identity. Page
+        # those narrow keys first so unrelated details_json values are never
+        # hydrated or grouped in Python.
+        group_key_column = literal_column("models.model_group_key")
+        filtered_keys_qry = db.query(
+            group_key_column.label("group_key"),
+            func.max(Model.id).label("representative_id"),
+        ).select_from(Model)
+        filtered_keys_qry = _apply_model_list_filters(
+            filtered_keys_qry,
+            status=status,
+            q=q,
+            code=code,
+            name=name,
+            category=category,
+            created_from=created_from,
+            created_to=created_to,
+            include_legacy_import=include_legacy_import,
+            catalog_scope=catalog_scope,
+        ).group_by(group_key_column)
+        total = filtered_keys_qry.count() if include_total else 0
+        selected_groups = (
+            filtered_keys_qry
+            .order_by(func.max(Model.id).desc())
+            .offset((safe_page - 1) * safe_size)
+            .limit(safe_size)
+            .all()
+        )
+        selected_keys = [str(row.group_key) for row in selected_groups]
+        grouped_ids_by_key: dict[str, list[int]] = {key: [] for key in selected_keys}
+        if selected_keys:
+            membership_qry = db.query(
+                Model.id,
+                group_key_column.label("group_key"),
+            ).select_from(Model).filter(
+                group_key_column.in_(selected_keys),
+                Model.catalog_scope == _normalize_catalog_scope(catalog_scope),
+            )
+            if not include_legacy_import:
+                membership_qry = _without_internal_legacy_models(membership_qry)
+            for model_id, group_key in membership_qry.order_by(Model.id.desc()).all():
+                grouped_ids_by_key[str(group_key)].append(int(model_id))
+        grouped_ids = [grouped_ids_by_key[key] for key in selected_keys if grouped_ids_by_key[key]]
+    else:
+        # SQLite test/dev databases use ORM metadata and do not have the
+        # PostgreSQL generated columns. Retain the compatible fallback while
+        # bounding the hydrated result page.
+        identity_qry = db.query(
+            Model.id,
+            Model.code,
+            Model.name,
+            Model.details_json["general"].label("general_details"),
+        )
+        identity_qry = _apply_model_list_filters(
+            identity_qry,
+            status=status,
+            q=q,
+            code=code,
+            name=name,
+            category=category,
+            created_from=created_from,
+            created_to=created_to,
+            include_legacy_import=include_legacy_import,
+            catalog_scope=catalog_scope,
+        )
+        matching_groups = _model_group_members(identity_qry)
+        total = len(matching_groups) if include_total else 0
+        matching_groups = matching_groups[(safe_page - 1) * safe_size : safe_page * safe_size]
+
+        has_member_filter = any(
+            value is not None and (not isinstance(value, str) or bool(value.strip()))
+            for value in (status, q, code, name, category, created_from, created_to)
+        )
+        if has_member_filter and matching_groups:
+            membership_qry = db.query(
+                Model.id,
+                Model.code,
+                Model.name,
+                Model.details_json["general"].label("general_details"),
+            ).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope))
+            if not include_legacy_import:
+                membership_qry = _without_internal_legacy_models(membership_qry)
+            selected_keys = {
+                _model_group_key_from_values(
+                    model_id=int(rows[0].id),
+                    code=rows[0].code,
+                    name=rows[0].name,
+                    general=rows[0].general_details,
+                )
+                for rows in matching_groups
+                if rows
+            }
+            full_groups_by_key: dict[str, list] = {}
+            for rows in _model_group_members(membership_qry):
+                if not rows:
+                    continue
+                key = _model_group_key_from_values(
+                    model_id=int(rows[0].id),
+                    code=rows[0].code,
+                    name=rows[0].name,
+                    general=rows[0].general_details,
+                )
+                if key in selected_keys:
+                    full_groups_by_key[key] = rows
+            matching_groups = [
+                full_groups_by_key.get(
+                    _model_group_key_from_values(
+                        model_id=int(rows[0].id),
+                        code=rows[0].code,
+                        name=rows[0].name,
+                        general=rows[0].general_details,
+                    ),
+                    rows,
+                )
+                for rows in matching_groups
+            ]
+        grouped_ids = [[int(row.id) for row in rows] for rows in matching_groups]
 
     member_ids = [model_id for group_ids in grouped_ids for model_id in group_ids]
+    model_loader = _variant_models_query(db, catalog_scope) if compact else _models_query(db, catalog_scope)
     models_by_id = (
         {
             int(model.id): model
-            for model in _models_query(db).filter(Model.id.in_(member_ids)).all()
+            for model in model_loader.filter(Model.id.in_(member_ids)).all()
         }
         if member_ids
         else {}
@@ -961,32 +1445,102 @@ def list_model_variant_groups(
         for models in model_groups
         if models
     ]
+    factory_scope = _catalog_paid_operation_factory_scope(current, catalog_scope)
+    if factory_scope and not compact:
+        for row in rows:
+            row["details_json"] = filter_paid_operations_for_factory(row.get("details_json"), factory_scope)
     rows.sort(key=lambda row: int(row.get("id") or 0), reverse=True)
     if include_total:
-        return _pagination_payload(rows, total=total, page=page, page_size=page_size)
+        return _pagination_payload(rows, total=total, page=safe_page, page_size=safe_size)
     return rows
 
 
+@router.get("/models/bom-items", response_model=list[ItemOut])
+def list_model_bom_items(
+    db: DbSession,
+    _: User = Depends(require_permissions("modeling.bom", "modeling.models", "*")),
+):
+    """Return only the active item master data needed by the model BOM editor."""
+    return (
+        db.query(Item)
+        .filter(
+            Item.is_active.is_(True),
+            Item.category.in_(("fabric", "semi_finished", "accessory", "packaging")),
+        )
+        .order_by(func.lower(Item.name), Item.name, Item.id)
+        .all()
+    )
+
+
 @router.post("/models", response_model=ModelOut, status_code=201)
-def create_model(payload: ModelIn, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
-    if db.query(Model).filter(Model.code == payload.code).first():
+def create_model(
+    payload: ModelIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    catalog_scope = _normalize_catalog_scope(catalog_scope)
+    model_data = payload.model_dump()
+    model_data["code"] = _normalize_model_number(model_data.get("code"))
+    if db.query(Model).filter(Model.code == model_data["code"]).first():
         raise HTTPException(400, "Model code already exists")
-    m = Model(**payload.model_dump(), created_by=current.id)
+    details = deepcopy(model_data.get("details_json")) if isinstance(model_data.get("details_json"), dict) else {}
+    factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
+    if factory_scope:
+        details = merge_scoped_paid_operations({}, details, factory_scope)
+    general = details.get("general")
+    if not isinstance(general, dict):
+        general = {}
+    configured_model_no = _normalize_model_number(general.get("model_no") or general.get("modelNo"))
+    configured_variant_no = _clean_text(general.get("variant_no") or general.get("variantNo"))
+    if configured_model_no:
+        general["model_no"] = configured_model_no
+        general.pop("modelNo", None)
+    if not configured_model_no and not configured_variant_no:
+        general["model_no"] = model_data["code"]
+    if (configured_model_no or general.get("model_no")) and not configured_variant_no:
+        general.pop("variant_no", None)
+        general.pop("variantNo", None)
+    details["general"] = general
+    model_data["details_json"] = details
+
+    m = Model(
+        **model_data,
+        catalog_scope=catalog_scope,
+        factory_code="ECO" if catalog_scope == "usluga" else None,
+        created_by=current.id,
+    )
     db.add(m); db.flush()
     log_action(db, current, "create", "Model", m.id, new_value={"code": m.code})
     db.commit(); db.refresh(m)
-    return m
+    return _model_payload(m, factory_scope)
 
 
 @router.get("/models/{mid}", response_model=ModelDetail)
-def get_model(mid: int, db: DbSession, _: CurrentUser):
-    m = _models_query(db).filter(Model.id == mid).first()
+def get_model(
+    mid: int,
+    db: DbSession,
+    current: CurrentUser,
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    m = _models_query(db, catalog_scope).filter(Model.id == mid).first()
     if not m: raise HTTPException(404, "Model not found")
-    return m
+    payload = ModelDetail.model_validate(m).model_dump()
+    payload["details_json"] = filter_paid_operations_for_factory(
+        payload.get("details_json"),
+        _catalog_paid_operation_factory_scope(current, catalog_scope),
+    )
+    return payload
 
 
 @router.post("/models/{mid}/clone", response_model=ModelOut, status_code=201)
-def clone_model(mid: int, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
+def clone_model(
+    mid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    catalog_scope = _normalize_catalog_scope(catalog_scope)
     source = (
         db.query(Model)
         .options(
@@ -995,7 +1549,7 @@ def clone_model(mid: int, db: DbSession, current: User = Depends(require_permiss
             selectinload(Model.colors),
             selectinload(Model.bom),
         )
-        .filter(Model.id == mid)
+        .filter(Model.id == mid, Model.catalog_scope == catalog_scope)
         .first()
     )
     if not source:
@@ -1017,6 +1571,8 @@ def clone_model(mid: int, db: DbSession, current: User = Depends(require_permiss
         status="draft",
         created_by=current.id,
         sam_minutes=source.sam_minutes or 0,
+        catalog_scope=catalog_scope,
+        factory_code="ECO" if catalog_scope == "usluga" else source.factory_code,
     )
     db.add(cloned)
     db.flush()
@@ -1030,6 +1586,8 @@ def clone_model(mid: int, db: DbSession, current: User = Depends(require_permiss
             ModelBOM(
                 model_id=cloned.id,
                 item_id=row.item_id,
+                material_name=row.material_name,
+                material_role=row.material_role,
                 stock_batch_id=row.stock_batch_id,
                 size=row.size,
                 color=row.color,
@@ -1057,24 +1615,59 @@ def clone_model(mid: int, db: DbSession, current: User = Depends(require_permiss
     log_action(db, current, "clone", "Model", cloned.id, new_value={"source_model_id": source.id, "code": cloned.code})
     db.commit()
     db.refresh(cloned)
-    return cloned
+    return _model_payload(cloned, _catalog_paid_operation_factory_scope(current, catalog_scope))
 
 
 @router.get("/models/{mid}/variants")
-def list_model_variants(mid: int, db: DbSession, _: CurrentUser):
+def list_model_variants(
+    mid: int,
+    response: Response,
+    db: DbSession,
+    _: CurrentUser,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
     """Return fabric variants that belong to the same model group."""
-    m = _models_query(db).filter(Model.id == mid).first()
+    m = db.query(Model.id, Model.code, Model.name, Model.details_json).filter(
+        Model.id == mid,
+        Model.catalog_scope == _normalize_catalog_scope(catalog_scope),
+    ).first()
     if not m:
         raise HTTPException(404, "Model not found")
 
-    group_key = _model_group_key(m)
-    variants = [
-        _model_variant_payload(model)
-        for model in _models_query(db).all()
-        if _model_group_key(model) == group_key and _clean_text(_model_code_parts(model)[1])
-    ]
-    variants.sort(key=lambda row: _natural_sort_key(row.get("variant_no") or row.get("code")))
-    return variants
+    general = (m.details_json or {}).get("general") if isinstance(m.details_json, dict) else {}
+    model_no, _ = _model_code_parts_from_general(m.code, general)
+    group_key = _model_group_key_from_values(
+        model_id=int(m.id),
+        code=m.code,
+        name=m.name,
+        general=general,
+    )
+    result = (
+        _variant_models_query(db, catalog_scope)
+        .filter(_variant_group_predicate(db, group_key=group_key, model_no=model_no))
+        .order_by(Model.id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size + 1)
+        .all()
+    )
+    response.headers["X-Has-More"] = "true" if len(result) > page_size else "false"
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    return [_model_variant_payload(model) for model in result[:page_size]]
+
+
+@router.get("/models/{mid}/variants/next-number")
+def get_next_model_variant_number(
+    mid: int,
+    db: DbSession,
+    _: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    if not _catalog_model(db, mid, catalog_scope):
+        raise HTTPException(404, "Model not found")
+    return {"variant_no": next_model_variant_no(db)}
 
 
 @router.post("/models/{mid}/variants", response_model=ModelOut, status_code=201)
@@ -1083,26 +1676,34 @@ def create_model_variant(
     payload: ModelVariantCreateIn,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    source = _model_with_variant_relations(db, mid)
+    catalog_scope = _normalize_catalog_scope(catalog_scope)
+    source = _model_with_variant_relations(db, mid, catalog_scope)
     if not source:
         raise HTTPException(404, "Model not found")
 
     model_no, _ = _model_code_parts(source)
     model_no = _clean_text(model_no)
-    variant_no = _clean_text(payload.variant_no)
     if not model_no:
         raise HTTPException(400, "Model number is required before adding variants")
-    if not variant_no:
-        raise HTTPException(400, "Variant number is required")
+    requested_variant_no = _clean_text(payload.variant_no)
+    variant_no = requested_variant_no or next_model_variant_no(db, reserve=True)
 
-    selected_item = _selected_variant_fabric_item(db, payload.fabric_item_id, payload.stock_batch_id)
     color = _clean_text(payload.color) or None
     picture_url = _validate_file_url(payload.picture_url) if payload.picture_url else None
-    source_fabric_row = next(iter(_material_bom_rows(source)), None)
-    if not source_fabric_row:
-        raise HTTPException(400, "Add a fabric BOM row to this model before creating variants")
-    fabric = _fabric_item_label(selected_item)
+    parent_fabric_item: Item | None = None
+    if catalog_scope == "standard":
+        _, parent_fabric_item = _parent_variant_fabric(
+            db,
+            source,
+            requested_item_id=payload.fabric_item_id,
+            legacy_stock_batch_id=payload.stock_batch_id,
+            action="creating",
+        )
+    elif payload.fabric_item_id or payload.stock_batch_id:
+        raise HTTPException(400, "Usluga model variants must not select inventory material")
+    fabric = _fabric_item_label(parent_fabric_item)
 
     new_code = f"{model_no}-{variant_no}"
     if db.query(Model.id).filter(Model.code == new_code).first():
@@ -1114,8 +1715,19 @@ def create_model_variant(
         general = {}
     general["model_no"] = model_no
     general["variant_no"] = variant_no
-    general["variant_fabric"] = fabric
-    general["variant_fabric_item_id"] = int(selected_item.id)
+    if fabric:
+        general["variant_fabric"] = fabric
+    else:
+        general.pop("variant_fabric", None)
+        general.pop("variantFabric", None)
+    if parent_fabric_item:
+        general["variant_fabric_item_id"] = int(parent_fabric_item.id)
+    else:
+        general.pop("variant_fabric_item_id", None)
+    if color:
+        general["variant_color"] = color
+    else:
+        general.pop("variant_color", None)
     general.pop("variant_stock_batch_id", None)
     details["general"] = general
 
@@ -1137,6 +1749,8 @@ def create_model_variant(
         approved_by=current.id if approved else None,
         approved_at=datetime.now(timezone.utc) if approved else None,
         sam_minutes=source.sam_minutes or 0,
+        catalog_scope=catalog_scope,
+        factory_code="ECO" if catalog_scope == "usluga" else source.factory_code,
     )
     db.add(cloned)
     db.flush()
@@ -1146,26 +1760,27 @@ def create_model_variant(
     for row in source.colors or []:
         db.add(ModelColor(model_id=cloned.id, color_name=row.color_name, color_code=row.color_code))
 
-    fabric_applied = False
+    variant_fabric_source = _primary_material_bom_row(source)
     for row in source.bom or []:
-        item = getattr(row, "item", None)
-        category = str(getattr(item, "category", "") or "").lower()
-        is_fabric_row = not fabric_applied and category in {"fabric", "semi_finished", ""}
+        is_fabric_row = bool(
+            variant_fabric_source
+            and int(row.id or 0) == int(variant_fabric_source.id or 0)
+        )
         db.add(
             ModelBOM(
                 model_id=cloned.id,
-                item_id=selected_item.id if is_fabric_row else row.item_id,
+                item_id=parent_fabric_item.id if is_fabric_row and parent_fabric_item else row.item_id,
+                material_name=None if is_fabric_row and parent_fabric_item else row.material_name,
+                material_role=None if is_fabric_row and parent_fabric_item else row.material_role,
                 stock_batch_id=None if is_fabric_row else row.stock_batch_id,
                 size=row.size,
                 color=color if is_fabric_row else row.color,
                 photo_url=picture_url if is_fabric_row else row.photo_url,
                 quantity_per_piece=row.quantity_per_piece,
-                unit=(selected_item.unit or row.unit) if is_fabric_row else row.unit,
+                unit=(parent_fabric_item.unit or row.unit) if is_fabric_row and parent_fabric_item else row.unit,
                 waste_percent=row.waste_percent,
             )
         )
-        if is_fabric_row:
-            fabric_applied = True
 
     copied_material_image = False
     for row in source.images or []:
@@ -1209,7 +1824,7 @@ def create_model_variant(
             "source_model_id": source.id,
             "code": cloned.code,
             "variant_no": variant_no,
-            "fabric_item_id": int(selected_item.id),
+            "fabric_item_id": int(parent_fabric_item.id) if parent_fabric_item else None,
             "fabric": fabric,
             "color": color,
             "picture_url": picture_url,
@@ -1217,7 +1832,7 @@ def create_model_variant(
     )
     db.commit()
     db.refresh(cloned)
-    return cloned
+    return _model_payload(cloned, _catalog_paid_operation_factory_scope(current, catalog_scope))
 
 
 @router.patch("/models/{mid}/variants/{variant_id}", response_model=ModelOut)
@@ -1227,11 +1842,13 @@ def update_model_variant(
     payload: ModelVariantUpdateIn,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    source = _model_with_variant_relations(db, mid)
+    catalog_scope = _normalize_catalog_scope(catalog_scope)
+    source = _model_with_variant_relations(db, mid, catalog_scope)
     if not source:
         raise HTTPException(404, "Model not found")
-    target = _model_with_variant_relations(db, variant_id)
+    target = _model_with_variant_relations(db, variant_id, catalog_scope)
     if not target or _model_group_key(target) != _model_group_key(source):
         raise HTTPException(404, "Variant not found")
 
@@ -1243,14 +1860,23 @@ def update_model_variant(
     if not variant_no:
         raise HTTPException(400, "Variant number is required")
 
-    selected_item = (
-        _selected_variant_fabric_item(db, payload.fabric_item_id, payload.stock_batch_id)
-        if payload.fabric_item_id or payload.stock_batch_id
-        else None
-    )
+    source_fabric_row = _primary_material_bom_row(source)
+    parent_fabric_item: Item | None = None
+    if catalog_scope == "standard" and source_fabric_row:
+        source_fabric_row, parent_fabric_item = _parent_variant_fabric(
+            db,
+            source,
+            requested_item_id=payload.fabric_item_id,
+            legacy_stock_batch_id=payload.stock_batch_id,
+            action="editing",
+        )
+    elif catalog_scope == "standard" and (payload.fabric_item_id or payload.stock_batch_id):
+        raise HTTPException(400, "Add a fabric BOM row to this model before editing variants")
+    elif catalog_scope == "usluga" and (payload.fabric_item_id or payload.stock_batch_id):
+        raise HTTPException(400, "Usluga model variants must not select inventory material")
     color = _clean_text(payload.color) or None
     picture_url = _validate_file_url(payload.picture_url) if payload.picture_url else None
-    fabric = _fabric_item_label(selected_item) if selected_item else _details_variant_fabric(target)
+    fabric = _fabric_item_label(parent_fabric_item) if parent_fabric_item else _details_variant_fabric(target)
     new_code = f"{model_no}-{variant_no}"
     duplicate = db.query(Model.id).filter(Model.code == new_code, Model.id != target.id).first()
     if duplicate:
@@ -1260,26 +1886,52 @@ def update_model_variant(
         "code": target.code,
         "variant_no": _model_code_parts(target)[1],
         "fabric_item_id": _variant_fabric_item_id_for_model(target),
-        "color": next((row.color for row in _material_bom_rows(target)), None),
+        "color": getattr(_primary_material_bom_row(target), "color", None),
     }
     target.code = new_code
     _set_variant_general_details(
         target,
         model_no=model_no,
         variant_no=variant_no,
-        fabric_item=selected_item,
+        fabric_item=parent_fabric_item,
     )
-    fabric_row = next(iter(_material_bom_rows(target)), None)
-    if selected_item and fabric_row:
-        _apply_variant_fabric_item(target, selected_item, color=color, picture_url=picture_url)
+    if catalog_scope == "usluga":
+        details = deepcopy(target.details_json or {})
+        general = details.get("general") if isinstance(details.get("general"), dict) else {}
+        if color:
+            general["variant_color"] = color
+        else:
+            general.pop("variant_color", None)
+        details["general"] = general
+        target.details_json = details
+    fabric_row = _primary_material_bom_row(target)
+    if fabric_row and parent_fabric_item:
+        _apply_variant_fabric_item(
+            target,
+            parent_fabric_item,
+            color_provided=payload.color is not None,
+            color=color,
+            picture_url=picture_url,
+        )
+    elif parent_fabric_item and source_fabric_row:
+        fabric_row = ModelBOM(
+            model_id=target.id,
+            item_id=parent_fabric_item.id,
+            stock_batch_id=None,
+            size=source_fabric_row.size,
+            color=color if payload.color is not None else source_fabric_row.color,
+            photo_url=picture_url,
+            quantity_per_piece=source_fabric_row.quantity_per_piece,
+            unit=parent_fabric_item.unit or source_fabric_row.unit,
+            waste_percent=source_fabric_row.waste_percent,
+        )
+        db.add(fabric_row)
     elif fabric_row:
-        if picture_url is not None:
-            fabric_row.photo_url = picture_url
         if payload.color is not None:
             fabric_row.color = color
-    elif picture_url is not None:
-        _set_variant_material_image(db, target, picture_url)
-    if picture_url is not None and fabric_row:
+        if picture_url is not None:
+            fabric_row.photo_url = picture_url
+    if picture_url is not None:
         _set_variant_material_image(db, target, picture_url)
     log_action(
         db,
@@ -1292,7 +1944,7 @@ def update_model_variant(
             "source_model_id": source.id,
             "code": target.code,
             "variant_no": variant_no,
-            "fabric_item_id": int(selected_item.id) if selected_item else None,
+            "fabric_item_id": int(parent_fabric_item.id) if parent_fabric_item else _variant_fabric_item_id_for_model(target),
             "fabric": fabric,
             "color": color,
             "picture_url": picture_url,
@@ -1300,7 +1952,7 @@ def update_model_variant(
     )
     db.commit()
     db.refresh(target)
-    return target
+    return _model_payload(target, _catalog_paid_operation_factory_scope(current, catalog_scope))
 
 
 @router.delete("/models/{mid}/variants/{variant_id}", status_code=204)
@@ -1309,11 +1961,12 @@ def delete_model_variant(
     variant_id: int,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    source = _model_with_variant_relations(db, mid)
+    source = _model_with_variant_relations(db, mid, catalog_scope)
     if not source:
         raise HTTPException(404, "Model not found")
-    target = _model_with_variant_relations(db, variant_id)
+    target = _model_with_variant_relations(db, variant_id, catalog_scope)
     if not target or _model_group_key(target) != _model_group_key(source):
         raise HTTPException(404, "Variant not found")
 
@@ -1334,24 +1987,43 @@ def delete_model_variant(
 
 
 @router.patch("/models/{mid}", response_model=ModelOut)
-def update_model(mid: int, payload: ModelIn, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
-    m = db.get(Model, mid)
+def update_model(
+    mid: int,
+    payload: ModelIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    catalog_scope = _normalize_catalog_scope(catalog_scope)
+    m = _catalog_model(db, mid, catalog_scope)
     if not m: raise HTTPException(404, "Model not found")
     update_data = payload.model_dump(exclude_unset=True)
+    factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
+    if factory_scope and "details_json" in update_data:
+        update_data["details_json"] = merge_scoped_paid_operations(
+            m.details_json,
+            update_data.get("details_json"),
+            factory_scope,
+        )
+    if "code" in update_data:
+        update_data["code"] = _normalize_model_number(update_data.get("code"))
     incoming_details = update_data.get("details_json")
     incoming_general = incoming_details.get("general") if isinstance(incoming_details, dict) else None
-    incoming_model_no = _clean_text(
+    incoming_model_no = _normalize_model_number(
         (incoming_general.get("model_no") or incoming_general.get("modelNo"))
         if isinstance(incoming_general, dict)
         else ""
     )
+    if isinstance(incoming_general, dict) and incoming_model_no:
+        incoming_general["model_no"] = incoming_model_no
+        incoming_general.pop("modelNo", None)
     if not incoming_model_no and "code" in update_data:
         incoming_model_no, _ = _split_model_code(update_data.get("code"))
 
     current_model_no, _ = _model_code_parts(m)
     renamed: list[tuple[Model, str]] = []
     if incoming_model_no and _normalized_key(incoming_model_no) != _normalized_key(current_model_no):
-        renamed = _rename_model_group(db, m, incoming_model_no)
+        renamed = _rename_model_group(db, m, incoming_model_no, catalog_scope)
 
     for k, v in update_data.items():
         setattr(m, k, v)
@@ -1378,24 +2050,79 @@ def update_model(mid: int, payload: ModelIn, db: DbSession, current: User = Depe
         new_value={"code": m.code, "group_model_no": incoming_model_no or current_model_no},
     )
     db.commit(); db.refresh(m)
-    return m
+    return _model_payload(m, factory_scope)
+
+
+@router.patch("/models/{mid}/paid-operations", response_model=ModelOut)
+def update_model_paid_operations(
+    mid: int,
+    payload: ModelPaidOperationsIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("payroll.manage", "modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    model = _catalog_model(db, mid, catalog_scope)
+    if not model:
+        raise HTTPException(404, "Model not found")
+
+    factory_scope = _catalog_paid_operation_factory_scope(current, catalog_scope)
+    incoming_details = deepcopy(model.details_json) if isinstance(model.details_json, dict) else {}
+    incoming_details["paid_operations"] = deepcopy(payload.paid_operations)
+    incoming_details.pop("paidOperations", None)
+    if factory_scope:
+        next_details = merge_scoped_paid_operations(model.details_json, incoming_details, factory_scope)
+    else:
+        next_details = incoming_details
+
+    old_count = len(paid_operations_from_details(filter_paid_operations_for_factory(model.details_json, factory_scope)))
+    model.details_json = next_details
+    log_action(
+        db,
+        current,
+        "update_paid_operations",
+        "Model",
+        model.id,
+        old_value={"factory": factory_scope, "operation_count": old_count},
+        new_value={"factory": factory_scope, "operation_count": len(payload.paid_operations)},
+    )
+    db.commit()
+    db.refresh(model)
+    return _model_payload(model, factory_scope)
 
 
 @router.post("/models/{mid}/approve", response_model=ModelOut)
-def approve_model(mid: int, db: DbSession, current: User = Depends(require_permissions("modeling.approve", "*"))):
-    m = db.get(Model, mid)
+def approve_model(
+    mid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.approve", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    m = _catalog_model(db, mid, catalog_scope)
     if not m: raise HTTPException(404, "Model not found")
+    if _normalize_catalog_scope(catalog_scope) == "usluga":
+        main_count = db.query(ModelBOM.id).filter(
+            ModelBOM.model_id == m.id,
+            ModelBOM.material_role == "main",
+        ).count()
+        if main_count != 1:
+            raise HTTPException(409, "Usluga model approval requires exactly one main fabric")
     m.status = "approved"
     m.approved_by = current.id
     m.approved_at = datetime.now(timezone.utc)
     log_action(db, current, "approve", "Model", m.id)
     db.commit(); db.refresh(m)
-    return m
+    return _model_payload(m, _catalog_paid_operation_factory_scope(current, catalog_scope))
 
 
 @router.post("/models/{mid}/images", status_code=201)
-def add_image(mid: int, payload: ModelImageIn, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
-    if not db.get(Model, mid): raise HTTPException(404, "Model not found")
+def add_image(
+    mid: int,
+    payload: ModelImageIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
     data = payload.model_dump()
     data["file_url"] = _validate_file_url(data["file_url"])
     data["image_type"] = _normalize_image_type(data.get("image_type"))
@@ -1419,18 +2146,35 @@ async def upload_image(
     file: UploadFile = File(...),
     image_type: str | None = Form(None),
     current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    if not db.get(Model, mid):
+    if not _catalog_model(db, mid, catalog_scope):
         raise HTTPException(404, "Model not found")
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     normalized_image_type = _normalize_image_type(image_type)
-    os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
-    safe_name = f"model_{mid}_{uuid4().hex}{ext}"
-    abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
-    content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-    with open(abs_path, "wb") as f:
-        f.write(content)
-    file_url = f"/storage/model-files/{safe_name}"
+    if ext in SAFE_IMAGE_EXTENSIONS:
+        from app.services.image_storage import store_uploaded_image
+
+        stored = await store_uploaded_image(
+            file,
+            target_dir=settings.MODEL_FILES_DIR,
+            file_url_base="/storage/model-files",
+            name_prefix=f"model_{mid}",
+            max_bytes=20 * 1024 * 1024,
+            prebuild_thumbnails=True,
+        )
+        safe_name = stored.file_name
+        file_url = stored.file_url
+        stored_content_type = stored.content_type
+    else:
+        os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
+        safe_name = f"model_{mid}_{uuid4().hex}{ext}"
+        abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
+        content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+        with open(abs_path, "wb") as f:
+            f.write(content)
+        file_url = f"/storage/model-files/{safe_name}"
+        stored_content_type = safe_content_type(ext)
     is_primary = normalized_image_type == "model"
     if is_primary:
         db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
@@ -1441,7 +2185,7 @@ async def upload_image(
         model_id=mid,
         file_url=file_url,
         file_name=file.filename or safe_name,
-        content_type=safe_content_type(ext),
+        content_type=stored_content_type,
         # The file is already persisted in MODEL_FILES_DIR. Keeping another
         # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
         file_data=None,
@@ -1461,7 +2205,10 @@ def delete_image(
     image_id: int,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
+    if not _catalog_model(db, mid, catalog_scope):
+        raise HTTPException(404, "Model not found")
     img = db.query(ModelImage).filter(ModelImage.id == image_id, ModelImage.model_id == mid).first()
     if not img:
         raise HTTPException(404, "Pattern file not found")
@@ -1472,8 +2219,14 @@ def delete_image(
 
 
 @router.post("/models/{mid}/sizes", status_code=201)
-def add_size(mid: int, payload: ModelSizeIn, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
-    if not db.get(Model, mid): raise HTTPException(404, "Model not found")
+def add_size(
+    mid: int,
+    payload: ModelSizeIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
     s = ModelSize(model_id=mid, **payload.model_dump())
     db.add(s)
     db.flush()
@@ -1483,7 +2236,15 @@ def add_size(mid: int, payload: ModelSizeIn, db: DbSession, current: User = Depe
 
 
 @router.delete("/models/{mid}/sizes/{size_id}", status_code=204)
-def delete_size(mid: int, size_id: int, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
+def delete_size(
+    mid: int,
+    size_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    if not _catalog_model(db, mid, catalog_scope):
+        raise HTTPException(404, "Model not found")
     s = db.query(ModelSize).filter(ModelSize.id == size_id, ModelSize.model_id == mid).first()
     if not s:
         raise HTTPException(404, "Size not found")
@@ -1493,17 +2254,30 @@ def delete_size(mid: int, size_id: int, db: DbSession, current: User = Depends(r
 
 
 @router.post("/models/{mid}/colors", status_code=201)
-def add_color(mid: int, payload: ModelColorIn, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
-    if not db.get(Model, mid): raise HTTPException(404, "Model not found")
+def add_color(
+    mid: int,
+    payload: ModelColorIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
     c = ModelColor(model_id=mid, **payload.model_dump())
     db.add(c); db.commit(); db.refresh(c)
     return {"id": c.id}
 
 
 @router.post("/models/{mid}/bom", status_code=201)
-def add_bom(mid: int, payload: ModelBOMIn, db: DbSession, current: User = Depends(require_permissions("modeling.bom", "*"))):
-    if not db.get(Model, mid): raise HTTPException(404, "Model not found")
-    data = _normalize_bom_batch_fields(db, payload.model_dump())
+def add_bom(
+    mid: int,
+    payload: ModelBOMIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.bom", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
+    data = _normalize_bom_fields(db, payload.model_dump(), catalog_scope)
+    _ensure_unique_usluga_main_material(db, mid, data)
     if data.get("photo_url"):
         data["photo_url"] = _validate_file_url(data["photo_url"])
     b = ModelBOM(model_id=mid, **data)
@@ -1519,16 +2293,21 @@ async def upload_bom_photo(
     db: DbSession,
     file: UploadFile = File(...),
     current: User = Depends(require_permissions("modeling.bom", "modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    if not db.get(Model, mid):
+    if not _catalog_model(db, mid, catalog_scope):
         raise HTTPException(404, "Model not found")
-    content, ext = await read_validated_image_upload(file, 10 * 1024 * 1024)
-    os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
-    safe_name = f"model_bom_{mid}_{uuid4().hex}{ext}"
-    abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
-    with open(abs_path, "wb") as f:
-        f.write(content)
-    file_url = f"/storage/model-files/{safe_name}"
+    from app.services.image_storage import store_uploaded_image
+
+    stored = await store_uploaded_image(
+        file,
+        target_dir=settings.MODEL_FILES_DIR,
+        file_url_base="/storage/model-files",
+        name_prefix=f"model_bom_{mid}",
+        max_bytes=10 * 1024 * 1024,
+        prebuild_thumbnails=True,
+    )
+    file_url = stored.file_url
     log_action(db, current, "upload", "ModelBOM", mid, new_value={"model_id": mid, "file_url": file_url})
     db.commit()
     return {"file_url": file_url}
@@ -1541,21 +2320,42 @@ def update_bom(
     payload: ModelBOMUpdate,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.bom", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
+    if not _catalog_model(db, mid, catalog_scope):
+        raise HTTPException(404, "Model not found")
     b = db.query(ModelBOM).filter(ModelBOM.id == bom_id, ModelBOM.model_id == mid).first()
     if not b:
         raise HTTPException(404, "BOM row not found")
     data = payload.model_dump(exclude_unset=True)
-    if "stock_batch_id" in data or "item_id" in data:
+    identity_fields = {"item_id", "material_name", "material_role", "stock_batch_id"}
+    if identity_fields.intersection(data) and db.query(CuttingRecord.id).filter(CuttingRecord.model_bom_id == b.id).first():
+        raise HTTPException(409, "Fabric name and role cannot be changed after a cutting batch has used it")
+    if "material_name" in data or "material_role" in data:
         existing = {
             "item_id": b.item_id,
+            "material_name": b.material_name,
+            "material_role": b.material_role,
             "stock_batch_id": b.stock_batch_id,
             "color": b.color,
             "photo_url": b.photo_url,
             "unit": b.unit,
         }
         existing.update(data)
-        data = _normalize_bom_batch_fields(db, existing)
+        data = _normalize_bom_fields(db, existing, catalog_scope)
+    elif "stock_batch_id" in data or "item_id" in data:
+        existing = {
+            "item_id": b.item_id,
+            "material_name": b.material_name,
+            "material_role": b.material_role,
+            "stock_batch_id": b.stock_batch_id,
+            "color": b.color,
+            "photo_url": b.photo_url,
+            "unit": b.unit,
+        }
+        existing.update(data)
+        data = _normalize_bom_fields(db, existing, catalog_scope)
+    _ensure_unique_usluga_main_material(db, mid, data, exclude_bom_id=b.id)
     if "photo_url" in data and data["photo_url"]:
         data["photo_url"] = _validate_file_url(data["photo_url"])
     for key, value in data.items():
@@ -1571,10 +2371,15 @@ def delete_bom(
     bom_id: int,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.bom", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
+    if not _catalog_model(db, mid, catalog_scope):
+        raise HTTPException(404, "Model not found")
     b = db.query(ModelBOM).filter(ModelBOM.id == bom_id, ModelBOM.model_id == mid).first()
     if not b:
         raise HTTPException(404, "BOM row not found")
+    if db.query(CuttingRecord.id).filter(CuttingRecord.model_bom_id == b.id).first():
+        raise HTTPException(409, "Fabric cannot be deleted after a cutting batch has used it")
     old_value = {
         "model_id": mid,
         "item_id": b.item_id,
@@ -1588,8 +2393,13 @@ def delete_bom(
 
 
 @router.delete("/models/{mid}", status_code=204)
-def delete_model(mid: int, db: DbSession, current: User = Depends(require_permissions("modeling.models", "*"))):
-    m = db.get(Model, mid)
+def delete_model(
+    mid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("modeling.models", "*")),
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    m = _catalog_model(db, mid, catalog_scope)
     if not m:
         raise HTTPException(404, "Model not found")
 

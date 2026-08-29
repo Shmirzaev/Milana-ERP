@@ -120,3 +120,4 @@ Batch data affects production cost and traceability. Always verify:
 | Cost report is wrong | Receiving cost entered incorrectly | Notify Finance/Admin before reports are finalized. |
 | Batch not available for cutting | Reservation missing or stock in wrong status | Review reservation and stock movement. |
 | Duplicate SKU | Master data mistake | Stop using duplicate and ask Admin/Storage lead to correct. |
+

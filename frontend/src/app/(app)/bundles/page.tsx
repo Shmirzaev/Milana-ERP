@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
@@ -7,18 +8,16 @@ import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { orderReference } from "@/lib/orderRef";
 
 export default function BundlesPage() {
   const { t } = useT();
+  const searchParams = useSearchParams();
+  const cuttingDepartment = searchParams.get("cutting_department") === "ECT" ? "ECT" : "CUT";
+  const factoryName = cuttingDepartment === "ECT" ? t("factory.ecoCotton") : t("factory.milana");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: pageData } = useSWR<any>(
-    `/api/bundles?include_total=true&page=${page}&page_size=${pageSize}`,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data: pageData } = useSWR<any>(`/api/bundles?include_total=true&page=${page}&page_size=${pageSize}&cutting_department_code=${cuttingDepartment}`, fetcher);
   const data = useMemo<any[]>(() => pageData?.rows || [], [pageData?.rows]);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
@@ -78,7 +77,7 @@ export default function BundlesPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.bundles.title")} subtitle={t("page.bundles.subtitle")} actions={<Link href="/bundles/scan" className="btn">{t("btn.scan")}</Link>} />
+      <PageHeader title={`${factoryName} - ${t("page.bundles.title")}`} subtitle={t("page.bundles.subtitle")} actions={<Link href="/bundles/scan" className="btn">{t("btn.scan")}</Link>} />
       <div className="card overflow-x-auto">
         <table className="table">
           <thead>

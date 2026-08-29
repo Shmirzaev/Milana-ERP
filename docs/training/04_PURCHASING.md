@@ -120,3 +120,4 @@ Receiving creates inventory stock batches. Wrong cost, batch, or warehouse will 
 | Cannot receive | Missing `purchasing.receive` or no open PO line | Check permission and Purchase Order status. |
 | Wrong warehouse selected | Human selection error | Notify Storage/Admin immediately before stock is used. |
 | Duplicate request | Same shortage requested twice | Approver should reject duplicate or coordinate correction. |
+

@@ -126,3 +126,4 @@ Finance/Admin rules:
 | COGS looks wrong | BOM or stock cost issue | Ask Modeling/Storage to verify source data. |
 | Payroll cannot be paid | Period not approved | Ask HR/Management to complete approval. |
 | Waste income missing | Waste sale not recorded | Ask Waste Department to check status. |
+

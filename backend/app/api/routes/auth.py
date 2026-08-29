@@ -25,6 +25,7 @@ from app.models import (
 )
 from app.schemas.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.services.audit import log_action
+from app.services.factory_scope import assigned_factory_code, authorize_login_factory, available_factory_codes, selected_factory_code
 from app.services.password_reset import (
     create_password_reset_token,
     password_reset_hash,
@@ -33,6 +34,7 @@ from app.services.password_reset import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+session_router = APIRouter(prefix="/session", tags=["auth"])
 
 _DUMMY_PASSWORD_HASH = hash_password("dummy-login-password-0")
 
@@ -40,6 +42,10 @@ _DUMMY_PASSWORD_HASH = hash_password("dummy-login-password-0")
 class ProfileUpdateIn(BaseModel):
     name: str
     email: EmailStr
+
+
+class FactorySwitchIn(BaseModel):
+    factory_code: str
 
 
 class ChangePasswordIn(BaseModel):
@@ -190,6 +196,7 @@ def _mark_successful_login(db: Session, user: User) -> None:
     db.commit()
 
 
+@session_router.post("/login", response_model=LoginOk)
 @router.post("/login", response_model=LoginOk)
 def login_oauth(
     request: Request,
@@ -205,11 +212,22 @@ def login_oauth(
     return LoginOk()
 
 
+@session_router.post("/login-json", response_model=LoginOk)
 @router.post("/login-json", response_model=LoginOk)
 def login_json(request: Request, response: Response, payload: LoginIn, db: DbSession):
     user = _authenticate(request, db, str(payload.email), payload.password)
+    factory_code = authorize_login_factory(user, payload.factory_code)
     _mark_successful_login(db, user)
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, extra={"factory_code": factory_code})
+    _set_auth_cookie(request, response, token)
+    return LoginOk()
+
+
+@session_router.post("/switch-factory", response_model=LoginOk)
+@router.post("/switch-factory", response_model=LoginOk)
+def switch_factory(request: Request, response: Response, payload: FactorySwitchIn, user: CurrentUser):
+    factory_code = authorize_login_factory(user, payload.factory_code)
+    token = create_access_token(user.id, extra={"factory_code": factory_code})
     _set_auth_cookie(request, response, token)
     return LoginOk()
 
@@ -226,12 +244,14 @@ def token_oauth(
     return TokenOut(access_token=create_access_token(user.id))
 
 
+@session_router.post("/logout")
 @router.post("/logout")
 def logout(request: Request, response: Response):
     _clear_auth_cookie(request, response)
     return {"message": "logged_out"}
 
 
+@session_router.post("/forgot-password")
 @router.post("/forgot-password")
 def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: BackgroundTasks, request: Request):
     email = normalize_email(str(payload.email))
@@ -259,6 +279,7 @@ def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: 
     return {"message": "If this account exists, a reset link has been sent."}
 
 
+@session_router.post("/reset-password")
 @router.post("/reset-password")
 def reset_password(payload: ResetPasswordIn, db: DbSession):
     if payload.new_password != payload.confirm_new_password:
@@ -287,6 +308,7 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
     return {"message": "password_reset"}
 
 
+@session_router.get("/me", response_model=UserMe)
 @router.get("/me", response_model=UserMe)
 def me(user: CurrentUser, db: DbSession):
     user.last_seen_at = utcnow()
@@ -297,11 +319,16 @@ def me(user: CurrentUser, db: DbSession):
         email=user.email,
         role=user.role.name if user.role else None,
         department=user.department.name if user.department else None,
+        department_code=user.department.code if user.department else None,
         extra_permissions=user.extra_permissions or [],
         permissions=user_permissions(user),
+        factory_code=selected_factory_code(user),
+        assigned_factory_code=assigned_factory_code(user),
+        available_factories=available_factory_codes(user),
     )
 
 
+@session_router.patch("/me", response_model=UserMe)
 @router.patch("/me", response_model=UserMe)
 def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
     email = normalize_email(str(payload.email))
@@ -319,11 +346,13 @@ def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
         email=user.email,
         role=user.role.name if user.role else None,
         department=user.department.name if user.department else None,
+        department_code=user.department.code if user.department else None,
         extra_permissions=user.extra_permissions or [],
         permissions=user_permissions(user),
     )
 
 
+@session_router.post("/change-password")
 @router.post("/change-password")
 def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser):
     if payload.new_password != payload.confirm_new_password:
@@ -341,6 +370,7 @@ def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser)
     return {"message": "password_updated"}
 
 
+@session_router.get("/login-panel")
 @router.get("/login-panel")
 def login_panel(db: DbSession, tz: str | None = None):
     _ = db, tz

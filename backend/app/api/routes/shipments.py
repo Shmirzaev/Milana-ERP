@@ -9,7 +9,6 @@ from app.models import (
     ShipmentPackage,
     ShipmentScanLog,
     Package,
-    PackageScanLog,
     PackageBarcodeAlias,
     SalesOrder,
     StockReservation,
@@ -22,11 +21,11 @@ from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.numbering import next_shipment_no
 from app.services.packages import ship_package, mark_delivered
-from app.services.legacy_stock import package_legacy_identity
 from app.services.workflow import ensure_invoice_for_delivered_shipment, notify_department
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
 _READY_FOR_SHIPMENT_STATUSES = ("received_in_storage", "reserved")
+_OPEN_SHIPMENT_STATUSES = ("draft", "created")
 _SHIPMENT_ORDER_STATUSES = {
     "confirmed",
     "planning",
@@ -60,6 +59,7 @@ def _shipment_payload(db: DbSession, sh: Shipment) -> dict:
         "created_at": sh.created_at,
         "sales_order_no": so.order_no if so else None,
         "customer_name": customer.name if customer else None,
+        "shipment_type": "sales_order" if sh.sales_order_id else "warehouse_exit",
         "packages_count": packages_count,
         "total_qty": total_qty,
     }
@@ -108,6 +108,78 @@ def _shipment_exists_for_sales_order(db: DbSession, sales_order_id: int) -> bool
     )
 
 
+def _other_open_shipment_for_package(
+    db: DbSession,
+    package_id: int,
+    *,
+    shipment_id: int | None = None,
+) -> Shipment | None:
+    qry = (
+        db.query(Shipment)
+        .join(ShipmentPackage, ShipmentPackage.shipment_id == Shipment.id)
+        .filter(
+            ShipmentPackage.package_id == package_id,
+            Shipment.status.in_(_OPEN_SHIPMENT_STATUSES),
+        )
+    )
+    if shipment_id is not None:
+        qry = qry.filter(Shipment.id != shipment_id)
+    return qry.order_by(Shipment.id.asc()).first()
+
+
+def _lock_package(db: DbSession, package: Package) -> Package:
+    if db.bind and db.bind.dialect.name == "postgresql":
+        return (
+            db.query(Package)
+            .filter(Package.id == package.id)
+            .with_for_update(of=Package)
+            .one()
+        )
+    return package
+
+
+def _orderless_package_error(db: DbSession, package: Package) -> str | None:
+    if package.sales_order_id:
+        return f"Package {package.package_no} belongs to a sales order and must use its sales shipment."
+    if package.status != "received_in_storage":
+        return f"Package {package.package_no} is not unreserved warehouse stock."
+    reserved = (
+        db.query(StockReservation.id)
+        .filter(
+            StockReservation.package_id == package.id,
+            StockReservation.quantity > 0,
+        )
+        .first()
+    )
+    if reserved:
+        return f"Package {package.package_no} is reserved for a sales order."
+    stock_count, available_qty, reserved_qty = (
+        db.query(
+            func.count(FinishedGoodsStock.id),
+            func.coalesce(func.sum(FinishedGoodsStock.available_qty), 0),
+            func.coalesce(func.sum(FinishedGoodsStock.reserved_qty), 0),
+        )
+        .filter(FinishedGoodsStock.package_id == package.id)
+        .one()
+    )
+    if (
+        int(stock_count or 0) <= 0
+        or int(available_qty or 0) != int(package.total_quantity or 0)
+        or int(reserved_qty or 0) != 0
+    ):
+        return f"Package {package.package_no} is not fully available in finished-goods stock."
+    return None
+
+
+def _package_attachment_error(db: DbSession, shipment: Shipment, package: Package) -> str | None:
+    other = _other_open_shipment_for_package(db, int(package.id), shipment_id=int(shipment.id))
+    if other:
+        return f"Package {package.package_no} is already attached to shipment {other.shipment_no}."
+    if not shipment.sales_order_id:
+        return _orderless_package_error(db, package)
+    return None
+
+
 def _ready_packages_for_sales_order(db: DbSession, sales_order_id: int) -> list[tuple[Package, Model | None]]:
     statuses = _READY_FOR_SHIPMENT_STATUSES
     pkg_ids_from_reservations = [
@@ -128,7 +200,7 @@ def _ready_packages_for_sales_order(db: DbSession, sales_order_id: int) -> list[
     if pkg_ids_from_reservations:
         for pkg, model in (
             db.query(Package, Model)
-            .outerjoin(Model, Model.id == Package.model_id)
+            .join(Model, Model.id == Package.model_id)
             .filter(Package.id.in_(pkg_ids_from_reservations), Package.status.in_(statuses))
             .order_by(Package.id.asc())
             .all()
@@ -137,7 +209,7 @@ def _ready_packages_for_sales_order(db: DbSession, sales_order_id: int) -> list[
 
     for pkg, model in (
         db.query(Package, Model)
-        .outerjoin(Model, Model.id == Package.model_id)
+        .join(Model, Model.id == Package.model_id)
         .filter(Package.sales_order_id == sales_order_id, Package.status.in_(statuses))
         .order_by(Package.id.asc())
         .all()
@@ -145,138 +217,6 @@ def _ready_packages_for_sales_order(db: DbSession, sales_order_id: int) -> list[
         rows.setdefault(int(pkg.id), (pkg, model))
 
     return [rows[k] for k in sorted(rows.keys())]
-
-
-def _reserved_quantities_by_package(
-    db: DbSession,
-    sales_order_id: int,
-) -> dict[int, int]:
-    rows = (
-        db.query(
-            StockReservation.package_id,
-            func.coalesce(func.sum(StockReservation.quantity), 0),
-        )
-        .filter(
-            StockReservation.sales_order_id == sales_order_id,
-            StockReservation.package_id.isnot(None),
-        )
-        .group_by(StockReservation.package_id)
-        .all()
-    )
-    return {
-        int(package_id): int(quantity or 0)
-        for package_id, quantity in rows
-        if package_id is not None and int(quantity or 0) > 0
-    }
-
-
-def _shipment_quantity_for_package(
-    db: DbSession,
-    *,
-    shipment: Shipment,
-    package: Package,
-) -> int:
-    if shipment.sales_order_id:
-        reserved = _reserved_quantities_by_package(
-            db,
-            int(shipment.sales_order_id),
-        ).get(int(package.id), 0)
-        if reserved > 0:
-            return reserved
-    return int(package.total_quantity or 0)
-
-
-def _ship_reserved_package_quantity(
-    db: DbSession,
-    *,
-    shipment: Shipment,
-    shipment_package: ShipmentPackage,
-    package: Package,
-    user_id: int | None,
-) -> None:
-    """Ship only this order's reserved quantity from an aggregate stock lot."""
-    if not shipment.sales_order_id:
-        ship_package(db, package, user_id)
-        return
-
-    requested = int(shipment_package.quantity or 0)
-    if requested <= 0:
-        raise HTTPException(409, f"Package {package.package_no} has no shipment quantity")
-
-    reservations = (
-        db.query(StockReservation)
-        .filter(
-            StockReservation.sales_order_id == shipment.sales_order_id,
-            StockReservation.package_id == package.id,
-        )
-        .order_by(StockReservation.id.asc())
-    )
-    if db.bind and db.bind.dialect.name == "postgresql":
-        reservations = reservations.with_for_update(of=StockReservation)
-    reservation_rows = reservations.all()
-
-    remaining = requested
-    for reservation in reservation_rows:
-        if remaining <= 0:
-            break
-        stock_qry = db.query(FinishedGoodsStock).filter(
-            FinishedGoodsStock.id == reservation.finished_goods_stock_id
-        )
-        if db.bind and db.bind.dialect.name == "postgresql":
-            stock_qry = stock_qry.with_for_update(of=FinishedGoodsStock)
-        stock = stock_qry.first()
-        if not stock:
-            raise HTTPException(409, "Reserved finished-goods stock is missing")
-
-        take = min(
-            remaining,
-            int(reservation.quantity or 0),
-            int(stock.reserved_qty or 0),
-        )
-        if take <= 0:
-            continue
-        stock.reserved_qty = int(stock.reserved_qty or 0) - take
-        stock.sold_qty = int(stock.sold_qty or 0) + take
-        if int(stock.available_qty or 0) > 0:
-            stock.status = "available"
-        elif int(stock.reserved_qty or 0) > 0:
-            stock.status = "reserved"
-        else:
-            stock.status = "sold"
-        remaining -= take
-
-    if remaining > 0:
-        raise HTTPException(
-            409,
-            f"Package {package.package_no} is short by {remaining} reserved piece(s)",
-        )
-
-    package_stock = (
-        db.query(FinishedGoodsStock)
-        .filter(FinishedGoodsStock.package_id == package.id)
-        .all()
-    )
-    available = sum(int(row.available_qty or 0) for row in package_stock)
-    reserved = sum(int(row.reserved_qty or 0) for row in package_stock)
-    if available <= 0 and reserved <= 0:
-        package.status = "shipped"
-        package.shipped_at = datetime.now(timezone.utc)
-        package.storage_cell = None
-        package.storage_shelf = None
-        package.storage_placed_at = None
-    elif available > 0:
-        package.status = "received_in_storage"
-    else:
-        package.status = "reserved"
-
-    db.add(
-        PackageScanLog(
-            package_id=package.id,
-            scanned_by=user_id,
-            scan_type="shipped",
-            location=f"shipment:{shipment.id};quantity:{requested}",
-        )
-    )
 
 
 def _scan_code_candidates(raw_code: str) -> list[str]:
@@ -457,8 +397,6 @@ def _replace_unscanned_same_model_package(
     scanned_package: Package,
     current: User,
 ) -> tuple[ShipmentPackage | None, str | None]:
-    if scanned_package.model_id is None:
-        return None, None
     matched_ids = _matched_package_ids_for_shipment(db, int(shipment.id))
     qry = (
         db.query(ShipmentPackage)
@@ -533,6 +471,40 @@ def _scan_response(
     )
 
 
+def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) -> tuple[int, int]:
+    if str(shipment.status or "") not in _OPEN_SHIPMENT_STATUSES:
+        raise HTTPException(409, f"Shipment {shipment.shipment_no} cannot ship from status '{shipment.status}'")
+
+    required_count, scanned_count, remaining_count, _, attached_ids, scanned_attached = _scan_progress(db, shipment)
+    if required_count <= 0:
+        raise HTTPException(400, "Shipment has no packages to ship")
+    if remaining_count > 0:
+        missing_ids = sorted(attached_ids - scanned_attached)
+        missing_rows = db.query(Package.package_no).filter(Package.id.in_(missing_ids)).all()
+        missing_nos = [str(no) for (no,) in missing_rows if no]
+        suffix = ", ".join(missing_nos[:10]) if missing_nos else f"{remaining_count} package(s)"
+        raise HTTPException(
+            409,
+            f"Scan all shipment packages before shipping. Missing scan for: {suffix}",
+        )
+
+    packages: list[Package] = []
+    for shipment_package in shipment.packages:
+        package = db.get(Package, shipment_package.package_id)
+        if not package:
+            raise HTTPException(409, f"Shipment package #{shipment_package.package_id} no longer exists")
+        package = _lock_package(db, package)
+        if package.status not in _READY_FOR_SHIPMENT_STATUSES:
+            raise HTTPException(409, f"Package {package.package_no} is no longer ready to ship")
+        packages.append(package)
+
+    shipment.status = "shipped"
+    shipment.shipped_at = datetime.now(timezone.utc)
+    for package in packages:
+        ship_package(db, package, current.id)
+    return required_count, scanned_count
+
+
 @router.get("", response_model=list[ShipmentOut])
 def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = None):
     qry = db.query(Shipment)
@@ -584,29 +556,42 @@ def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
     if sales_order_id:
         rows = _ready_packages_for_sales_order(db, int(sales_order_id))
     else:
+        reserved_package_ids = db.query(StockReservation.package_id).filter(
+            StockReservation.package_id.isnot(None),
+            StockReservation.quantity > 0,
+        )
+        attached_package_ids = (
+            db.query(ShipmentPackage.package_id)
+            .join(Shipment, Shipment.id == ShipmentPackage.shipment_id)
+            .filter(Shipment.status.in_(_OPEN_SHIPMENT_STATUSES))
+        )
         rows = (
             db.query(Package, Model)
-            .outerjoin(Model, Model.id == Package.model_id)
-            .filter(Package.status.in_(_READY_FOR_SHIPMENT_STATUSES))
+            .join(Model, Model.id == Package.model_id)
+            .filter(
+                Package.status == "received_in_storage",
+                Package.sales_order_id.is_(None),
+                Package.id.notin_(reserved_package_ids),
+                Package.id.notin_(attached_package_ids),
+            )
             .order_by(Package.id.asc())
             .all()
         )
-    result = []
-    for p, model in rows:
-        identity = package_legacy_identity(db, p) if not model else {}
-        result.append({
+    return [
+        {
             "id": p.id,
             "package_no": p.package_no,
             "sales_order_id": p.sales_order_id,
             "model_id": p.model_id,
-            "model_code": model.code if model else identity.get("model_code"),
+            "model_code": model.code if model else None,
             "color": p.color,
             "total_quantity": p.total_quantity,
             "status": p.status,
             "storage_cell": p.storage_cell,
             "storage_shelf": p.storage_shelf,
-        })
-    return result
+        }
+        for p, model in rows
+    ]
 
 
 @router.post("", response_model=ShipmentOut, status_code=201)
@@ -623,6 +608,8 @@ def create_shipment(
     so = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
     if payload.sales_order_id and not so:
         raise HTTPException(404, "Sales order not found")
+    if not payload.sales_order_id and not str(payload.notes or "").strip():
+        raise HTTPException(400, "Recipient or warehouse exit reference is required")
     if so:
         if _shipment_exists_for_sales_order(db, int(so.id)):
             raise HTTPException(409, f"Shipment already exists for {so.order_no}")
@@ -639,7 +626,6 @@ def create_shipment(
     db.add(sh); db.flush()
     added = 0
     if so:
-        reserved_by_package = _reserved_quantities_by_package(db, int(so.id))
         for pkg, _ in _ready_packages_for_sales_order(db, int(so.id)):
             exists = db.query(ShipmentPackage.id).filter(
                 ShipmentPackage.shipment_id == sh.id,
@@ -647,12 +633,21 @@ def create_shipment(
             ).first()
             if exists:
                 continue
-            quantity = reserved_by_package.get(int(pkg.id), int(pkg.total_quantity or 0))
-            if quantity <= 0:
-                continue
-            db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=quantity))
+            db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=pkg.total_quantity))
             added += 1
-    log_action(db, current, "create", "Shipment", sh.id, new_value={"shipment_no": sh.shipment_no, "packages": added})
+    log_action(
+        db,
+        current,
+        "create",
+        "Shipment",
+        sh.id,
+        new_value={
+            "shipment_no": sh.shipment_no,
+            "shipment_type": "sales_order" if sh.sales_order_id else "warehouse_exit",
+            "packages": added,
+            "notes": sh.notes,
+        },
+    )
     db.flush()
     db.refresh(sh)
     response = _shipment_payload(db, sh)
@@ -716,17 +711,18 @@ def add_package(
     if not sh: raise HTTPException(404, "Shipment not found")
     pkg = db.get(Package, package_id)
     if not pkg: raise HTTPException(404, "Package not found")
+    pkg = _lock_package(db, pkg)
     if pkg.status not in _READY_FOR_SHIPMENT_STATUSES:
         raise HTTPException(409, f"Package {pkg.package_no} is not ready to ship")
+    attachment_error = _package_attachment_error(db, sh, pkg)
+    if attachment_error:
+        raise HTTPException(409, attachment_error)
     exists = db.query(ShipmentPackage).filter(
         ShipmentPackage.shipment_id == sh.id, ShipmentPackage.package_id == pkg.id,
     ).first()
     if exists:
         raise HTTPException(409, "Package already attached to this shipment")
-    quantity = _shipment_quantity_for_package(db, shipment=sh, package=pkg)
-    if quantity <= 0:
-        raise HTTPException(409, "Package has no quantity reserved for this shipment")
-    db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=quantity))
+    db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=pkg.total_quantity))
     log_action(db, current, "add_package", "Shipment", sh.id, new_value={"package_id": pkg.id})
     response = {"message": "added"}
     store_idempotent_response(
@@ -759,15 +755,11 @@ def add_ready_packages(
     attached = {sp.package_id for sp in sh.packages}
     ready = [pkg for pkg, _ in _ready_packages_for_sales_order(db, int(sh.sales_order_id))]
     ready_ids = {pkg.id for pkg in ready}
-    reserved_by_package = _reserved_quantities_by_package(db, int(sh.sales_order_id))
     added = 0
     for p in ready:
         if p.id in attached:
             continue
-        quantity = reserved_by_package.get(int(p.id), int(p.total_quantity or 0))
-        if quantity <= 0:
-            continue
-        db.add(ShipmentPackage(shipment_id=sh.id, package_id=p.id, quantity=quantity))
+        db.add(ShipmentPackage(shipment_id=sh.id, package_id=p.id, quantity=p.total_quantity))
         added += 1
     reported = added if added > 0 else len(attached & ready_ids)
     log_action(db, current, "add_ready_packages", "Shipment", sh.id, new_value={"added": added, "ready_attached": reported})
@@ -882,9 +874,9 @@ def scan_package(
             response=response,
         )
 
+    pkg = _lock_package(db, pkg)
+
     model = db.get(Model, pkg.model_id) if pkg.model_id else None
-    legacy_identity = package_legacy_identity(db, pkg) if not model else {}
-    package_model_code = model.code if model else legacy_identity.get("model_code")
     if pkg.status not in _READY_FOR_SHIPMENT_STATUSES:
         msg = f"Package {pkg.package_no} is in status '{pkg.status}' and is not ready for shipment."
         db.add(
@@ -904,7 +896,40 @@ def scan_package(
             code=matched_code,
             message=msg,
             package=pkg,
-            package_model_code=package_model_code,
+            package_model_code=model.code if model else None,
+            required_count=required_count,
+            scanned_count=scanned_count,
+            remaining_count=remaining_count,
+            is_complete=is_complete,
+        )
+        return _commit_scan_response(
+            db,
+            current=current,
+            idempotency_key=idempotency_key,
+            fingerprint_payload=fingerprint_payload,
+            response=response,
+        )
+
+    attachment_error = _package_attachment_error(db, sh, pkg)
+    if attachment_error:
+        db.add(
+            ShipmentScanLog(
+                shipment_id=sh.id,
+                package_id=pkg.id,
+                scanned_code=matched_code,
+                scan_result="mismatch",
+                message=attachment_error,
+                scanned_by=current.id,
+            )
+        )
+        required_count, scanned_count, remaining_count, is_complete, _, _ = _scan_progress(db, sh)
+        response = _scan_response(
+            ok=False,
+            sign="error",
+            code=matched_code,
+            message=attachment_error,
+            package=pkg,
+            package_model_code=model.code if model else None,
             required_count=required_count,
             scanned_count=scanned_count,
             remaining_count=remaining_count,
@@ -958,7 +983,7 @@ def scan_package(
                     code=matched_code,
                     message=msg,
                     package=pkg,
-                    package_model_code=package_model_code,
+                    package_model_code=model.code if model else None,
                     required_count=required_count,
                     scanned_count=scanned_count,
                     remaining_count=remaining_count,
@@ -972,10 +997,7 @@ def scan_package(
                     response=response,
                 )
     if not link:
-        quantity = _shipment_quantity_for_package(db, shipment=sh, package=pkg)
-        if quantity <= 0:
-            raise HTTPException(409, "Package has no quantity reserved for this shipment")
-        db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=quantity))
+        db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=pkg.total_quantity))
         db.flush()
         log_action(db, current, "add_package_scan", "Shipment", sh.id, new_value={"package_id": pkg.id})
 
@@ -1008,6 +1030,7 @@ def scan_package(
             scanned_by=current.id,
         )
     )
+    db.flush()
     required_count, scanned_count, remaining_count, is_complete, _, _ = _scan_progress(db, sh)
     response = _scan_response(
         ok=True,
@@ -1015,7 +1038,7 @@ def scan_package(
         code=matched_code,
         message=msg,
         package=pkg,
-        package_model_code=package_model_code,
+        package_model_code=model.code if model else None,
         required_count=required_count,
         scanned_count=scanned_count,
         remaining_count=remaining_count,
@@ -1043,32 +1066,7 @@ def ship_all(
         return replay
     sh = db.get(Shipment, sid)
     if not sh: raise HTTPException(404, "Shipment not found")
-    if str(sh.status or "") in ("shipped", "delivered"):
-        raise HTTPException(409, f"Shipment {sh.shipment_no} is already {sh.status}")
-    required_count, scanned_count, remaining_count, _, attached_ids, scanned_attached = _scan_progress(db, sh)
-    if required_count <= 0:
-        raise HTTPException(400, "Shipment has no packages to ship")
-    if remaining_count > 0:
-        missing_ids = sorted(attached_ids - scanned_attached)
-        missing_rows = db.query(Package.package_no).filter(Package.id.in_(missing_ids)).all()
-        missing_nos = [str(no) for (no,) in missing_rows if no]
-        suffix = ", ".join(missing_nos[:10]) if missing_nos else f"{remaining_count} package(s)"
-        raise HTTPException(
-            409,
-            f"Scan all shipment packages before shipping. Missing scan for: {suffix}",
-        )
-    sh.status = "shipped"
-    sh.shipped_at = datetime.now(timezone.utc)
-    for sp in sh.packages:
-        pkg = db.get(Package, sp.package_id)
-        if pkg and pkg.status in _READY_FOR_SHIPMENT_STATUSES:
-            _ship_reserved_package_quantity(
-                db,
-                shipment=sh,
-                shipment_package=sp,
-                package=pkg,
-                user_id=current.id,
-            )
+    required_count, scanned_count = _ship_verified_packages(db, sh, current)
     log_action(
         db,
         current,
@@ -1105,23 +1103,15 @@ def mark_shipped(
     sh = db.get(Shipment, sid)
     if not sh:
         raise HTTPException(404, "Shipment not found")
-    if str(sh.status or "") in ("shipped", "delivered"):
-        raise HTTPException(409, f"Shipment {sh.shipment_no} is already {sh.status}")
-    if not sh.packages:
-        raise HTTPException(400, "Shipment has no packages to ship")
-    sh.status = "shipped"
-    sh.shipped_at = datetime.now(timezone.utc)
-    for sp in sh.packages:
-        pkg = db.get(Package, sp.package_id)
-        if pkg and pkg.status in _READY_FOR_SHIPMENT_STATUSES:
-            _ship_reserved_package_quantity(
-                db,
-                shipment=sh,
-                shipment_package=sp,
-                package=pkg,
-                user_id=current.id,
-            )
-    log_action(db, current, "mark_shipped", "Shipment", sh.id)
+    required_count, scanned_count = _ship_verified_packages(db, sh, current)
+    log_action(
+        db,
+        current,
+        "mark_shipped",
+        "Shipment",
+        sh.id,
+        new_value={"required_scans": required_count, "verified_scans": scanned_count},
+    )
     db.flush()
     response = _shipment_payload(db, sh)
     store_idempotent_response(
@@ -1150,6 +1140,10 @@ def deliver(
         return replay
     sh = db.get(Shipment, sid)
     if not sh: raise HTTPException(404, "Shipment not found")
+    if str(sh.status or "") != "shipped":
+        raise HTTPException(409, "Shipment must be shipped before it can be marked delivered")
+    if not sh.packages:
+        raise HTTPException(400, "Shipment has no packages to deliver")
     sh.status = "delivered"
     sh.delivered_at = datetime.now(timezone.utc)
     for sp in sh.packages:

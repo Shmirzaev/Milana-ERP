@@ -157,3 +157,4 @@ Always enter a clear block reason. Unblock only after the cause is resolved.
 | Cutting cannot start | Required material reservation incomplete | Reserve materials or resolve shortage policy. |
 | Sewing line full | Assigned capacity exceeded | Pick another line or split across flows. |
 | Process Tracking shows blocked | Work Order block exists | Open Production Order and resolve the blocked stage. |
+

@@ -2,28 +2,34 @@
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import PageHeader from "@/components/PageHeader";
+import ShipmentItemLines from "@/components/ShipmentItemLines";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
+const warehouseExitLabel = {
+  en: "Create warehouse exit",
+  ru: "Создать выдачу со склада",
+  uz: "Ombor chiqimini yaratish",
+} as const;
+
 export default function FinishedGoodsPage() {
-  const { t } = useT();
-  const { data } = useSWR<any[]>("/api/finished-goods", fetcher, LIVE_DATA_SWR_OPTIONS);
-  const { data: branded } = useSWR<any[]>(
-    "/api/finished-goods/branded-stock",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
-  const { data: inbox } = useSWR<any>(
-    "/api/inbox?dept=FGS",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { lang, t } = useT();
+  const { data } = useSWR<any[]>("/api/finished-goods", fetcher);
+  const { data: branded } = useSWR<any[]>("/api/finished-goods/branded-stock", fetcher);
+  const { data: inbox } = useSWR<any>("/api/inbox?dept=FGS", fetcher);
   const readyToShip = Array.isArray(inbox?.ready_to_ship) ? inbox.ready_to_ship : [];
   return (
     <div>
-      <PageHeader title={t("page.finishedGoods.title")} subtitle={t("page.finishedGoods.subtitle")} />
+      <PageHeader
+        title={t("page.finishedGoods.title")}
+        subtitle={t("page.finishedGoods.subtitle")}
+        actions={(
+          <Link className="btn btn-primary" href="/shipments?mode=warehouse_exit">
+            {warehouseExitLabel[lang]}
+          </Link>
+        )}
+      />
       <h2 className="text-lg font-medium mt-2 mb-2">{t("page.finishedGoods.branded")}</h2>
       <div className="card mb-6 overflow-x-auto">
         <table className="table">
@@ -53,7 +59,7 @@ export default function FinishedGoodsPage() {
       <div className="card overflow-x-auto">
         <table className="table">
           <thead>
-            <tr><th>{t("field.salesOrderShort")}</th><th>{t("field.customer")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th><th>{t("field.shipmentNo")}</th></tr>
+            <tr><th>{t("field.salesOrderShort")}</th><th>{t("field.customer")}</th><th>{t("field.address")}</th><th>{t("field.items")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th><th>{t("field.shipmentNo")}</th></tr>
           </thead>
           <tbody>
             {readyToShip.map((row: any) => {
@@ -62,6 +68,8 @@ export default function FinishedGoodsPage() {
                 <tr key={row.sales_order_id || row.sales_order_no}>
                   <td>{row.sales_order_no || row.sales_order_id || "-"}</td>
                   <td>{row.customer_name || "-"}</td>
+                  <td>{row.destination || row.customer_address || "-"}</td>
+                  <td><ShipmentItemLines items={row.item_lines} /></td>
                   <td>{Number(row.packages || 0)}</td>
                   <td>{Number(row.quantity || 0)}</td>
                   <td>
@@ -74,7 +82,7 @@ export default function FinishedGoodsPage() {
                 </tr>
               );
             })}
-            {readyToShip.length === 0 && <tr><td colSpan={5} className="text-sm text-slate-400">{t("page.finishedGoods.noOrdersReady")}</td></tr>}
+            {readyToShip.length === 0 && <tr><td colSpan={7} className="text-sm text-slate-400">{t("page.finishedGoods.noOrdersReady")}</td></tr>}
           </tbody>
         </table>
       </div>

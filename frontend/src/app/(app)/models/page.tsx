@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import useSWR from "swr";
 import { fetcher, api } from "@/lib/api";
@@ -16,6 +16,7 @@ import { formatModelComposition } from "@/lib/modelComposition";
 import { modelCodeParts } from "@/lib/modelCode";
 import { isPreviewModelImage, storageThumbnailUrl } from "@/lib/modelImages";
 import { modelVariantOption } from "@/lib/modelVariants";
+import VerticalModelPhoto from "@/components/VerticalModelPhoto";
 
 type Model = {
   id: number; code: string; name: string;
@@ -61,12 +62,16 @@ type ModelsPageData = {
 
 export default function ModelsPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const q = searchParams.get("q")?.trim() ?? "";
   const { me } = useMe();
   const { t, lang } = useT();
   const dialogs = useDialogs();
-  const isAdmin = can(me, "*");
+  const isUsluga = pathname.startsWith("/usluga/models");
+  const modelApiBase = isUsluga ? "/api/usluga/models" : "/api/models";
+  const modelPageBase = isUsluga ? "/usluga/models" : "/models";
+  const canManage = isUsluga ? can(me, "usluga.manage", "*") : can(me, "modeling.models", "*");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const [showFilters, setShowFilters] = useState(false);
@@ -75,7 +80,7 @@ export default function ModelsPage() {
   const [appliedFilters, setAppliedFilters] = useState(filters);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setAppliedFilters(filters), 250);
+    const timer = window.setTimeout(() => setAppliedFilters(filters), 180);
     return () => window.clearTimeout(timer);
   }, [filters]);
 
@@ -92,8 +97,8 @@ export default function ModelsPage() {
     if (appliedFilters.category) params.set("category", appliedFilters.category);
     if (appliedFilters.createdFrom) params.set("created_from", appliedFilters.createdFrom);
     if (appliedFilters.createdTo) params.set("created_to", appliedFilters.createdTo);
-    return `/api/models/variant-groups?${params.toString()}`;
-  }, [appliedFilters, page, pageSize, q]);
+    return `${modelApiBase}/variant-groups?${params.toString()}`;
+  }, [appliedFilters, modelApiBase, page, pageSize, q]);
   const {
     data: pageData,
     error,
@@ -130,13 +135,13 @@ export default function ModelsPage() {
     return storageThumbnailUrl(variant.picture_url || variant.variant_picture_url || variant.primary_image_url || "", 160);
   }
 
-  async function approve(id: number) { await api.post(`/api/models/${id}/approve`); mutate(); }
+  async function approve(id: number) { await api.post(`${modelApiBase}/${id}/approve`); mutate(); }
 
   async function cloneModel(m: Model) {
     setCloningId(m.id);
     try {
-      const cloned = await api.post<Model>(`/api/models/${m.id}/clone`);
-      router.push(`/models/${cloned.id}?mode=edit`);
+      const cloned = await api.post<Model>(`${modelApiBase}/${m.id}/clone`);
+      router.push(`${modelPageBase}/${cloned.id}?mode=edit`);
     } catch (e: any) {
       await dialogs.notify(e.message);
     } finally {
@@ -151,7 +156,7 @@ export default function ModelsPage() {
   async function confirmRemoveModel() {
     if (!deleting) return;
     try {
-      await api.del(`/api/models/${deleting.id}`);
+      await api.del(`${modelApiBase}/${deleting.id}`);
       setDeleting(null);
       mutate();
     } catch (e: any) {
@@ -162,15 +167,15 @@ export default function ModelsPage() {
   return (
     <div>
       <PageHeader
-        title={t("page.models.title")}
-        subtitle={t("page.models.subtitle")}
-        actions={<Link href="/models/new" className="btn btn-primary">{t("page.models.createNew")}</Link>}
+        title={isUsluga ? t("usluga.modelsTitle") : t("page.models.title")}
+        subtitle={isUsluga ? t("usluga.modelsSubtitle") : t("page.models.subtitle")}
+        actions={canManage ? <Link href={`${modelPageBase}/new`} className="btn btn-primary">{t("page.models.createNew")}</Link> : null}
       />
       <div className="mb-3 flex flex-wrap gap-2 md:hidden">
         <button type="button" className="btn flex-1 justify-center" onClick={() => setShowFilters((open) => !open)}>
           {showFilters ? t("page.models.hideFilters") : t("page.models.showFilters")}
         </button>
-        <Link href="/models/new" className="btn btn-primary flex-1 justify-center">{t("page.models.createNew")}</Link>
+        {canManage && <Link href={`${modelPageBase}/new`} className="btn btn-primary flex-1 justify-center">{t("page.models.createNew")}</Link>}
       </div>
       <form onSubmit={(e) => e.preventDefault()} className={`${showFilters ? "grid" : "hidden"} card mb-4 grid-cols-1 gap-3 p-4 md:grid md:grid-cols-5`}>
         <input
@@ -260,20 +265,19 @@ export default function ModelsPage() {
           const materialComposition = formatModelComposition(m);
           return (
             <article key={m.id} className="model-list-card overflow-hidden rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm transition hover:border-[#d6ceb9] hover:shadow-md">
-              <div className="grid min-h-[128px] grid-cols-[96px_minmax(0,1fr)] sm:grid-cols-[120px_minmax(0,1fr)]">
-                <Link href={`/models/${m.id}`} prefetch={false} className="block h-full bg-[#f1efe8]">
+              <div className="grid min-h-[128px] grid-cols-[96px_minmax(0,1fr)] items-start sm:grid-cols-[120px_minmax(0,1fr)]">
+                <Link href={`${modelPageBase}/${m.id}`} prefetch={false} className="block w-full bg-[#f1efe8]">
                   {imageUrl ? (
-                    <img
+                    <VerticalModelPhoto
                       src={imageUrl}
                       alt={modelName}
-                      className="h-full min-h-[128px] w-full object-cover"
+                      className="w-full border-r border-[#e3dfd3]"
                       loading="lazy"
-                      decoding="async"
-                      width={320}
+                      width={240}
                       height={320}
                     />
                   ) : (
-                    <div className="flex h-full min-h-[128px] flex-col items-center justify-center gap-2 border-r border-[#e3dfd3] px-3 text-center">
+                    <div className="flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 border-r border-[#e3dfd3] px-3 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-full border border-[#ded9ca] bg-[#fdfcf8] text-sm font-semibold text-[#56503f]">
                         {String(codeParts.modelNo || m.code || modelName || "?").slice(0, 2).toUpperCase()}
                       </div>
@@ -285,7 +289,7 @@ export default function ModelsPage() {
                   <div className="min-w-0">
                     <div className="mono text-xs font-semibold uppercase text-[#8a8472]">{modelNo}</div>
                     <div className="mt-0.5 text-[11px] text-[#8a8472]">{t("page.modelDetail.tab.variants")}: {variantCount}</div>
-                    <Link href={`/models/${m.id}`} prefetch={false} className="mt-1 block break-words text-base font-semibold leading-snug text-[#14110b] hover:underline">
+                    <Link href={`${modelPageBase}/${m.id}`} prefetch={false} className="mt-1 block break-words text-base font-semibold leading-snug text-[#14110b] hover:underline">
                       {modelName}
                     </Link>
                   </div>
@@ -298,7 +302,7 @@ export default function ModelsPage() {
                         return (
                           <Link
                             key={variant.model_id || variant.id}
-                            href={`/models/${variant.model_id || variant.id}`}
+                            href={`${modelPageBase}/${variant.model_id || variant.id}`}
                             prefetch={false}
                             className="grid grid-cols-[44px_minmax(0,1fr)] gap-2 rounded-md border border-[#ecebe3] bg-white/70 p-2 text-xs hover:border-[#d6ceb9]"
                           >
@@ -350,11 +354,11 @@ export default function ModelsPage() {
 
                     <div className="text-sm">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 xl:justify-end">
-                        <Link href={`/models/${m.id}`} prefetch={false} className="font-medium text-brand-600 hover:underline">{t("btn.view")}</Link>
+                        <Link href={`${modelPageBase}/${m.id}`} prefetch={false} className="font-medium text-brand-600 hover:underline">{t("btn.view")}</Link>
                         {m.status !== "approved" && (
                           <button type="button" className="font-medium text-green-700 hover:underline" onClick={() => approve(m.id)}>{t("btn.approve")}</button>
                         )}
-                        {isAdmin && (
+                        {canManage && (
                           <>
                             <button
                               type="button"
@@ -364,7 +368,7 @@ export default function ModelsPage() {
                             >
                               {cloningId === m.id ? t("page.models.cloning") : t("btn.clone")}
                             </button>
-                            <Link href={`/models/${m.id}?mode=edit`} prefetch={false} className="font-medium text-slate-700 hover:underline">{t("btn.edit")}</Link>
+                            <Link href={`${modelPageBase}/${m.id}?mode=edit`} prefetch={false} className="font-medium text-slate-700 hover:underline">{t("btn.edit")}</Link>
                             <button type="button" className="font-medium text-red-600 hover:underline" onClick={() => removeModel(m)}>{t("common.delete")}</button>
                           </>
                         )}
@@ -382,7 +386,6 @@ export default function ModelsPage() {
           </div>
         )}
       </div>
-
       <ConfirmDialog
         isOpen={!!deleting}
         title={t("confirm.deleteTitle")}

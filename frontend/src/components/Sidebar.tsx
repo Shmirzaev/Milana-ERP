@@ -9,6 +9,7 @@ import {
   Boxes,
   Building2,
   Calculator,
+  Clock3,
   ClipboardList,
   Coins,
   Database,
@@ -39,9 +40,11 @@ import {
 import { useMe, can } from "@/lib/auth";
 import { isSewingRole, isSewingWorkspaceNavItem } from "@/lib/access";
 import { useT } from "@/lib/i18n";
+import { isAbbosbekPricingUser, isAccessoryPricingUser } from "@/lib/priceCalculationRequests";
 import BrandLogo from "@/components/BrandLogo";
 
-type NavItem = { href: string; labelKey: string; perms?: string[]; superOnly?: boolean; icon: ComponentType<{ className?: string }> };
+type NavAudience = "abbosbekPricing" | "accessoryPricing";
+type NavItem = { href: string; labelKey: string; perms?: string[]; superOnly?: boolean; audience?: NavAudience; icon: ComponentType<{ className?: string }> };
 type Section = { titleKey: string; items: NavItem[] };
 
 const SUPER_ADMIN_PERMISSION = "admin.super";
@@ -64,8 +67,15 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    titleKey: "section.hr",
+    items: [
+      { href: "/hr", labelKey: "nav.hrDashboard", perms: ["hr.employees", "*"], icon: Users },
+    ],
+  },
+  {
     titleKey: "section.sales",
     items: [
+      { href: "/sales/price-requests", labelKey: "nav.salesPriceRequests", perms: ["sales.orders"], icon: Calculator },
       { href: "/sales-orders", labelKey: "nav.salesOrders", perms: ["sales.orders"], icon: ShoppingCart },
       { href: "/order-history", labelKey: "nav.orderHistory", perms: ["sales.orders"], icon: ClipboardList },
       { href: "/customers", labelKey: "nav.customers", perms: ["sales.customers"], icon: Users },
@@ -91,6 +101,7 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.purchasing",
     items: [
+      { href: "/purchasing/price-calculation", labelKey: "nav.purchasingPriceRequests", audience: "abbosbekPricing", icon: Calculator },
       { href: "/purchasing", labelKey: "nav.purchaseRequests", perms: ["purchasing.view", "purchasing.request", "purchasing.approve", "purchasing.order", "*"], icon: ShoppingBag },
       { href: "/purchasing/receiving", labelKey: "nav.purchaseReceiving", perms: ["purchasing.receive", "*"], icon: PackageCheck },
     ],
@@ -98,10 +109,12 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.inventory",
     items: [
+      { href: "/inventory/accessory-pricing", labelKey: "nav.accessoryPriceRequests", audience: "accessoryPricing", icon: Calculator },
       { href: "/inventory?group=materials", labelKey: "nav.materialInventory", perms: ["storage.items", "storage.receive"], icon: Warehouse },
       { href: "/inventory?group=accessories", labelKey: "nav.accessoryInventory", perms: ["storage.items", "storage.receive"], icon: PackageSearch },
       { href: "/inventory/master-data", labelKey: "nav.masterData", perms: ["storage.items", "storage.suppliers", "*"], icon: Database },
-      { href: "/inventory/receive", labelKey: "nav.receive", perms: ["storage.receive"], icon: PackageCheck },
+      { href: "/inventory/receive?group=materials", labelKey: "nav.receiveFabric", perms: ["storage.receive"], icon: PackageCheck },
+      { href: "/inventory/receive?group=accessories", labelKey: "nav.receiveAccessories", perms: ["storage.receive"], icon: PackageCheck },
       { href: "/inventory/batches", labelKey: "nav.batches", perms: ["storage.items"], icon: Boxes },
     ],
   },
@@ -109,10 +122,11 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.cutting",
     items: [
+      { href: "/cutting/price-calculation", labelKey: "nav.cuttingPriceRequests", perms: ["cutting.records", "cutting.bundles", "admin.super"], icon: Calculator },
       { href: "/departments/CUT", labelKey: "nav.cuttingFloor", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Scissors },
-      { href: "/cutting-passports", labelKey: "nav.cuttingPassports", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: FileText },
-      { href: "/cutting-inventory", labelKey: "nav.bundleInventory", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Boxes },
-      { href: "/bundles", labelKey: "nav.bundles", perms: ["cutting.bundles", "cutting.records", "planning.production"], icon: PackageSearch },
+      { href: "/cutting-passports?cutting_department=CUT", labelKey: "nav.cuttingPassports", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: FileText },
+      { href: "/cutting-inventory?cutting_department=CUT", labelKey: "nav.bundleInventory", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Boxes },
+      { href: "/bundles?cutting_department=CUT", labelKey: "nav.bundles", perms: ["cutting.bundles", "cutting.records", "planning.production"], icon: PackageSearch },
       { href: "/bundles/scan/cutting", labelKey: "nav.scanBundle", perms: ["cutting.bundles", "cutting.records"], icon: QrCode },
     ],
   },
@@ -126,48 +140,85 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.sewing",
     items: [
-      { href: "/sewing/flows", labelKey: "nav.sewingFlows", perms: ["sewing.workspace"], icon: Layers3 },
-      { href: "/sewing/daily-report", labelKey: "nav.sewingDailyReport", perms: ["sewing.workspace"], icon: ClipboardList },
+      { href: "/sewing/flows?factory=MIL", labelKey: "nav.sewingFlows", perms: ["sewing.workspace", "sewing.flows"], icon: Layers3 },
+      { href: "/sewing/daily-report?factory=MIL", labelKey: "nav.sewingDailyReport", perms: ["sewing.workspace", "sewing.daily_reports.view"], icon: ClipboardList },
       { href: "/departments/SEW", labelKey: "nav.sewingFloor", perms: ["sewing.workspace"], icon: Shirt },
       { href: "/departments/MIL", labelKey: "nav.milanaSewing", perms: ["sewing.records", "sewing.bundles", "planning.production"], icon: Factory },
-      { href: "/bundles/scan/sewing", labelKey: "nav.scanBundle", perms: ["sewing.bundles", "sewing.records"], icon: QrCode },
+      { href: "/bundles/scan/sewing?factory=MIL", labelKey: "nav.scanBundle", perms: ["sewing.bundles", "sewing.records"], icon: QrCode },
     ],
   },
   {
     titleKey: "section.besttexTextile",
     items: [
       { href: "/departments/BST", labelKey: "nav.besttexSewing", perms: ["sewing.records", "sewing.bundles", "planning.production"], icon: Factory },
+      { href: "/sewing/flows?factory=BST", labelKey: "nav.sewingFlows", perms: ["sewing.workspace", "sewing.flows"], icon: Layers3 },
+      { href: "/sewing/daily-report?factory=BST", labelKey: "nav.sewingDailyReport", perms: ["sewing.workspace", "sewing.daily_reports.view"], icon: ClipboardList },
+      { href: "/bundles/scan/sewing?factory=BST", labelKey: "nav.scanBundle", perms: ["sewing.bundles", "sewing.records"], icon: QrCode },
       { href: "/departments/BPK", labelKey: "nav.besttexPackaging", perms: ["packaging.records", "packaging.packages", "planning.production"], icon: PackageCheck },
+      { href: "/packages?packaging_department=BPK", labelKey: "nav.packages", perms: ["packaging.packages", "packaging.records"], icon: Boxes },
+      { href: "/packaging/queue?packaging_department=BPK", labelKey: "nav.packingQueue", perms: ["packaging.records", "planning.production"], icon: PackageSearch },
+      { href: "/packaging/receive?packaging_department=BPK", labelKey: "nav.receiveFromSewing", perms: ["packaging.records", "planning.production"], icon: QrCode },
     ],
   },
   {
-    titleKey: "section.ecoCotton",
+    titleKey: "section.ecoCottonCutting",
     items: [
       { href: "/departments/ECT", labelKey: "nav.ecoCottonCutting", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Scissors },
-      { href: "/cutting-passports", labelKey: "nav.cuttingPassports", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: FileText },
-      { href: "/cutting-inventory", labelKey: "nav.bundleInventory", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Boxes },
-      { href: "/bundles", labelKey: "nav.bundles", perms: ["cutting.bundles", "cutting.records", "planning.production"], icon: PackageSearch },
-      { href: "/bundles/scan/cutting", labelKey: "nav.scanBundle", perms: ["cutting.bundles", "cutting.records"], icon: QrCode },
+      { href: "/cutting-passports?cutting_department=ECT", labelKey: "nav.cuttingPassports", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: FileText },
+      { href: "/cutting-inventory?cutting_department=ECT", labelKey: "nav.bundleInventory", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Boxes },
+      { href: "/bundles?cutting_department=ECT", labelKey: "nav.bundles", perms: ["cutting.bundles", "cutting.records", "planning.production"], icon: PackageSearch },
+      { href: "/bundles/scan/cutting?cutting_department=ECT", labelKey: "nav.scanBundle", perms: ["cutting.bundles", "cutting.records"], icon: QrCode },
+    ],
+  },
+  {
+    titleKey: "section.ecoCottonSewing",
+    items: [
       { href: "/departments/ECO", labelKey: "nav.ecoCottonSewing", perms: ["sewing.records", "sewing.bundles", "planning.production"], icon: Factory },
+      { href: "/sewing/flows?factory=ECO", labelKey: "nav.sewingFlows", perms: ["sewing.workspace", "sewing.flows"], icon: Layers3 },
+      { href: "/sewing/daily-report?factory=ECO", labelKey: "nav.sewingDailyReport", perms: ["sewing.workspace", "sewing.daily_reports.view"], icon: ClipboardList },
+      { href: "/bundles/scan/sewing?factory=ECO", labelKey: "nav.scanBundle", perms: ["sewing.bundles", "sewing.records"], icon: QrCode },
+    ],
+  },
+  {
+    titleKey: "section.ecoCottonPackaging",
+    items: [
       { href: "/departments/ECP", labelKey: "nav.ecoCottonPackaging", perms: ["packaging.records", "packaging.packages", "planning.production"], icon: PackageCheck },
+      { href: "/packages?packaging_department=ECP", labelKey: "nav.packages", perms: ["packaging.packages", "packaging.records"], icon: Boxes },
+      { href: "/packaging/queue?packaging_department=ECP", labelKey: "nav.packingQueue", perms: ["packaging.records", "planning.production"], icon: PackageSearch },
+      { href: "/packaging/receive?packaging_department=ECP", labelKey: "nav.receiveFromSewing", perms: ["packaging.records", "planning.production"], icon: QrCode },
+    ],
+  },
+  {
+    titleKey: "section.usluga",
+    items: [
+      { href: "/usluga", labelKey: "nav.uslugaPlanning", perms: ["usluga.view", "usluga.manage", "usluga.handover", "*"], icon: ClipboardList },
+      { href: "/usluga/models", labelKey: "nav.uslugaModels", perms: ["usluga.view", "usluga.manage", "*"], icon: Shirt },
     ],
   },
   {
     titleKey: "section.packaging",
     items: [
       { href: "/departments/PKG", labelKey: "nav.packagingFloor", perms: ["packaging.records", "packaging.packages", "planning.production"], icon: PackageCheck },
-      { href: "/packages", labelKey: "nav.packages", perms: ["packaging.packages", "packaging.records"], icon: Boxes },
-      { href: "/packaging/queue", labelKey: "nav.packingQueue", perms: ["packaging.records", "planning.production"], icon: PackageSearch },
-      { href: "/packaging/receive", labelKey: "nav.receiveFromSewing", perms: ["packaging.records", "planning.production"], icon: QrCode },
+      { href: "/packages?packaging_department=PKG", labelKey: "nav.packages", perms: ["packaging.packages", "packaging.records"], icon: Boxes },
+      { href: "/packaging/queue?packaging_department=PKG", labelKey: "nav.packingQueue", perms: ["packaging.records", "planning.production"], icon: PackageSearch },
+      { href: "/packaging/receive?packaging_department=PKG", labelKey: "nav.receiveFromSewing", perms: ["packaging.records", "planning.production"], icon: QrCode },
     ],
   },
   {
     titleKey: "section.payroll",
     items: [
       { href: "/payroll", labelKey: "nav.payrollSummary", perms: ["payroll.view", "payroll.manage", "payroll.pay"], icon: ClipboardList },
+      { href: "/payroll/reports/sewing-production", labelKey: "nav.sewingProductionReport", perms: ["payroll.view", "payroll.manage", "payroll.pay", "*"], icon: FileText },
+      { href: "/payroll/reports/order-qr-status", labelKey: "nav.orderQrStatus", perms: ["payroll.view", "payroll.manage", "payroll.pay", "*"], icon: FileSearch },
       { href: "/process-qr", labelKey: "nav.processQr", perms: ["payroll.scan", "*"], icon: QrCode },
       { href: "/payroll/scan", labelKey: "nav.payrollScan", perms: ["payroll.scan", "*"], icon: Calculator },
       { href: "/payroll/qr-control", labelKey: "nav.payrollQrControl", perms: ["payroll.view", "payroll.manage", "*"], icon: FileSearch },
+    ],
+  },
+  {
+    titleKey: "section.attendance",
+    items: [
+      { href: "/attendance", labelKey: "nav.attendance", perms: ["attendance.view", "attendance.manage", "*"], icon: Clock3 },
     ],
   },
   {
@@ -189,6 +240,7 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.finance",
     items: [
+      { href: "/finance/price-calculation", labelKey: "nav.priceCalculation", perms: ["finance.view"], icon: Calculator },
       { href: "/finance", labelKey: "nav.financeDash", perms: ["finance.view"], icon: Coins },
     ],
   },
@@ -234,7 +286,7 @@ function SidebarNavSections({
                   <Link
                     href={it.href}
                     onClick={onNavigate}
-                    className={`flex h-10 min-w-0 items-center rounded-md text-[13px] transition ${collapsed ? "justify-center px-0" : "gap-2 px-3"} ${
+                    className={`flex min-h-10 min-w-0 items-center rounded-md text-[13px] transition ${collapsed ? "h-10 justify-center px-0" : "gap-2 px-3 py-2"} ${
                       active
                         ? "bg-[#14110b] text-[#fdfcf8] shadow-sm"
                         : "text-[#56503f] hover:bg-[#f1efe8] hover:text-[#14110b]"
@@ -242,7 +294,7 @@ function SidebarNavSections({
                     title={t(it.labelKey)}
                   >
                     <ItemIcon className="h-4 w-4 shrink-0" />
-                    <span className={collapsed ? "sr-only" : "truncate"}>{t(it.labelKey)}</span>
+                    <span className={collapsed ? "sr-only" : "break-words leading-tight"}>{t(it.labelKey)}</span>
                   </Link>
                 </li>
               );
@@ -265,11 +317,27 @@ export default function Sidebar() {
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const visibleSections = useMemo(
     () =>
-      SECTIONS.map((sec) => ({
+      SECTIONS.filter((sec) => {
+        const factory = me?.factory_code || "MIL";
+        if (factory === "BST") return sec.titleKey === "section.besttexTextile" || sec.titleKey === "section.hr";
+        const ecoSections = new Set([
+          "section.ecoCottonCutting",
+          "section.ecoCottonSewing",
+          "section.ecoCottonPackaging",
+          "section.usluga",
+          "section.attendance",
+        ]);
+        if (factory === "ECO") return sec.titleKey === "section.hr" || ecoSections.has(sec.titleKey);
+        return sec.titleKey === "section.hr"
+          || sec.titleKey === "section.attendance"
+          || (sec.titleKey !== "section.besttexTextile" && !ecoSections.has(sec.titleKey));
+      }).map((sec) => ({
         ...sec,
         items: sec.items.filter((i) => {
           if (isSewingRole(me) && !isSewingWorkspaceNavItem(i.href)) return false;
           if (i.superOnly) return isSuperAdmin(me);
+          if (i.audience === "abbosbekPricing" && !isAbbosbekPricingUser(me)) return false;
+          if (i.audience === "accessoryPricing" && !isAccessoryPricingUser(me)) return false;
           return !i.perms || can(me, ...i.perms);
         }),
       })).filter((sec) => sec.items.length > 0),
@@ -303,18 +371,42 @@ export default function Sidebar() {
 
   function isActive(href: string) {
     const basePath = href.split("?")[0];
-    const itemGroup = new URLSearchParams(href.split("?")[1] || "").get("group") || "";
+    const itemParams = new URLSearchParams(href.split("?")[1] || "");
+    const itemGroup = itemParams.get("group") || "";
+    const itemCuttingDepartment = itemParams.get("cutting_department") || "";
+    const itemFactory = itemParams.get("factory") || "";
+    const itemPackagingDepartment = itemParams.get("packaging_department") || "";
+    const currentFactory = searchParams.get("factory") || me?.factory_code || "MIL";
+    const currentCuttingDepartment = searchParams.get("cutting_department") || "CUT";
+    const currentPackagingDepartment = searchParams.get("packaging_department") || "PKG";
     const bundlesScanMismatch = basePath === "/bundles" && pathname.startsWith("/bundles/scan");
     const packagesScanMismatch = basePath === "/packages" && pathname.startsWith("/packages/scan");
     const inventoryGroupMismatch = basePath === "/inventory" && (pathname !== "/inventory" || itemGroup !== inventoryGroup);
+    const inventoryReceiveGroupMismatch = basePath === "/inventory/receive" && itemGroup !== inventoryGroup;
+    const cuttingDepartmentMismatch = ["/cutting-passports", "/cutting-inventory", "/bundles"].includes(basePath)
+      && itemCuttingDepartment !== currentCuttingDepartment;
+    const sewingFactoryMismatch = ["/sewing/flows", "/sewing/daily-report", "/bundles/scan/sewing"].includes(basePath)
+      && itemFactory !== currentFactory;
+    const packagingDepartmentMismatch = ["/packages", "/packaging/queue", "/packaging/receive"].includes(basePath)
+      && itemPackagingDepartment !== currentPackagingDepartment;
     const purchasingChildMismatch = basePath === "/purchasing" && pathname.startsWith("/purchasing/");
     const planningChildMismatch = basePath === "/planning" && pathname.startsWith("/planning/");
+    const payrollChildMismatch = basePath === "/payroll" && pathname.startsWith("/payroll/");
+    const uslugaChildMismatch = basePath === "/usluga" && pathname.startsWith("/usluga/");
+    const financeChildMismatch = basePath === "/finance" && pathname.startsWith("/finance/");
     return (
       !bundlesScanMismatch &&
       !packagesScanMismatch &&
       !inventoryGroupMismatch &&
+      !inventoryReceiveGroupMismatch &&
+      !cuttingDepartmentMismatch &&
+      !sewingFactoryMismatch &&
+      !packagingDepartmentMismatch &&
       !purchasingChildMismatch &&
       !planningChildMismatch &&
+      !payrollChildMismatch &&
+      !uslugaChildMismatch &&
+      !financeChildMismatch &&
       (pathname === basePath || (basePath !== "/" && pathname?.startsWith(basePath)))
     );
   }
@@ -333,7 +425,7 @@ export default function Sidebar() {
 
   return (
     <>
-      <div className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#e3dfd3] bg-[#fdfcf8] px-3 text-[#2c2920] lg:hidden">
+      <div className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#e3dfd3] bg-[#fdfcf8] px-3 text-[#2c2920] min-[1440px]:hidden">
         <BrandLogo alt={t("app.name")} className="h-9 w-auto max-w-[160px]" />
         <button
           type="button"
@@ -348,7 +440,7 @@ export default function Sidebar() {
       </div>
 
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label={t("nav.menu")}>
+        <div className="fixed inset-0 z-50 min-[1440px]:hidden" role="dialog" aria-modal="true" aria-label={t("nav.menu")}>
           <button
             type="button"
             className="absolute inset-0 h-full w-full cursor-default bg-[#14110b]/40"
@@ -357,7 +449,7 @@ export default function Sidebar() {
           />
           <aside
             id="mobile-navigation"
-            className="absolute left-0 top-0 flex h-full w-[88vw] max-w-[360px] flex-col border-r border-[#e3dfd3] bg-[#fdfcf8] text-[#2c2920] shadow-lg sm:max-w-[460px]"
+            className="absolute left-0 top-0 flex h-[100dvh] w-[88vw] max-w-[360px] flex-col border-r border-[#e3dfd3] bg-[#fdfcf8] pb-[env(safe-area-inset-bottom)] text-[#2c2920] shadow-lg sm:max-w-[460px]"
           >
             <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#ecebe3] px-4">
               <BrandLogo alt={t("app.name")} className="h-10 w-auto max-w-[180px]" />
@@ -379,7 +471,7 @@ export default function Sidebar() {
       )}
 
       <aside
-        className={`sticky top-0 z-30 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-[#e3dfd3] bg-[#fdfcf8] text-[#2c2920] transition-[width] duration-150 lg:flex ${desktopCollapsed ? "w-[72px]" : "w-60"}`}
+        className={`sticky top-0 z-30 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-[#e3dfd3] bg-[#fdfcf8] text-[#2c2920] transition-[width] duration-150 min-[1440px]:flex ${desktopCollapsed ? "w-[72px]" : "w-60"}`}
         data-collapsed={desktopCollapsed}
       >
         <div className={`flex h-28 shrink-0 border-b border-[#ecebe3] ${desktopCollapsed ? "flex-col items-center justify-center gap-2 px-2" : "items-center gap-2 px-3"}`}>

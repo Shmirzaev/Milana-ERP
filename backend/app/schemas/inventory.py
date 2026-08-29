@@ -67,6 +67,7 @@ class StockBatchIn(BaseModel):
     gsm: Optional[float] = None
     quantity: float
     piece_count: Optional[int] = None
+    roll_weights_kg: list[float] = Field(default_factory=list)
     processes: Optional[str] = None
     unit: str
     cost_per_unit: float = 0
@@ -97,6 +98,10 @@ class StockBatchUpdate(BaseModel):
     qc_status: Optional[str] = None
 
 
+class StockBatchRollWeightsIn(BaseModel):
+    roll_weights_kg: list[float] = Field(min_length=1, max_length=1000)
+
+
 class AccessoryReturnIn(StockBatchIn):
     production_order_id: int
     return_condition: Optional[str] = "used"
@@ -109,6 +114,7 @@ class StockBatchOut(ORMModel):
     item_name: Optional[str] = None
     item_category: Optional[str] = None
     batch_no: str
+    internal_batch_no: Optional[str] = None
     supplier_id: Optional[int] = None
     supplier_name: Optional[str] = None
     color: Optional[str] = None
@@ -120,6 +126,7 @@ class StockBatchOut(ORMModel):
     gsm: Optional[float] = None
     quantity: float
     piece_count: Optional[int] = None
+    roll_weights_kg: list[float] = Field(default_factory=list)
     processes: Optional[str] = None
     unit: str
     cost_per_unit: float

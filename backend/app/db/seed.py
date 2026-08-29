@@ -38,6 +38,8 @@ DEPARTMENTS = [
 
 PAYROLL_ROLE_NAME = "Payroll"
 PAYROLL_SCAN_PERMISSION = "payroll.scan"
+PAYROLL_WORKSPACE_PERMISSIONS = ["payroll.view", "payroll.manage", PAYROLL_SCAN_PERMISSION]
+PAYROLL_DAILY_SEWING_REPORT_PERMISSION = "sewing.daily_reports.view"
 PAYROLL_PERMISSION_PREFIX = "payroll."
 ADMIN_ROLE_NAMES = {"Admin", "Super Admin"}
 AI_MONITOR_ROLE_NAME = "AI Monitor"
@@ -86,11 +88,11 @@ ROLES = {
     ],
     "Cutting": ["cutting.records", "cutting.bundles", "inventory.reservations.view", "traceability.view"],
     "Printing": ["printing.records", "printing.bundles", "traceability.view"],
-    "Sewing": ["sewing.workspace", "sewing.records", "sewing.bundles", "traceability.view"],
+    "Sewing": ["sewing.workspace", "sewing.records", "sewing.bundles", "sewing.flows", "traceability.view"],
     "Packaging": ["packaging.records", "packaging.packages", "traceability.view"],
     "ReadyStorage": ["storage.packages", "storage.shipment", "traceability.view", "traceability.export"],
     "Waste": ["waste.receive", "waste.sell", "waste.disposal"],
-    PAYROLL_ROLE_NAME: [PAYROLL_SCAN_PERMISSION],
+    PAYROLL_ROLE_NAME: [*PAYROLL_WORKSPACE_PERMISSIONS, PAYROLL_DAILY_SEWING_REPORT_PERMISSION],
     "Finance": ["finance.view", "finance.invoice", "finance.payment", "inventory.reservations.view", "purchasing.view", "forecasting.view"],
     "HR": ["hr.employees"],
     AI_MONITOR_ROLE_NAME: AI_MONITOR_PERMISSIONS,
@@ -101,13 +103,18 @@ SEWING_FLOWS = [
     # Canonical production lines after the 2026-07 consolidation. Capacities
     # for merged lines retain the combined capacity of the original 200/day
     # lines so planning is not artificially constrained on fresh installs.
-    ("Bozorova", "SEW-01", 600),       # former lines 01, 02, 08
-    ("Shaxnoza opa", "SEW-06", 200),
-    ("Jalilova", "SEW-07", 800),       # former lines 03, 04, 05, 07
-    ("Dilafruz opa", "SEW-09", 200),
-    ("Nargiza opa", "SEW-10", 400),  # former lines 10 and 11
-    ("Muxlisa", "SEW-12", 200),
-    ("Sevara", "SEW-13", 200),
+    ("Bozorova Nargiza", "SEW-01", 600),      # former lines 01, 02, 08
+    ("Botirova Shaxnoza", "SEW-06", 200),
+    ("Jalolova Nargiza", "SEW-07", 800),       # former lines 03, 04, 05, 07
+    ("Akbarova Dilafruz", "SEW-09", 200),
+    ("Maxmudova Nargiza - 1", "SEW-10", 400),  # former lines 10 and 11
+    ("Botirova Muxlisa", "SEW-12", 200),
+    ("Maxmudova Nargiza - 2", "SEW-13", 200),
+]
+
+ECO_SEWING_BANDS = [
+    (f"{number}-Band", f"ECO-BAND-{number:02d}", 200)
+    for number in range(1, 21)
 ]
 
 LEGACY_MODELS_CSV = Path(__file__).resolve().parents[2] / "data" / "legacy_models.csv"
@@ -159,13 +166,13 @@ def _role_has_admin_access(role: Role | None) -> bool:
     return role_name in admin_role_names or "*" in (role.permissions or [])
 
 
-def _payroll_limited_permissions(values, *, allow_scan: bool) -> list[str]:
+def _payroll_limited_permissions(values, *, allow_workspace: bool) -> list[str]:
     permissions: list[str] = []
     for permission in values or []:
         if not isinstance(permission, str):
             continue
         if permission.startswith(PAYROLL_PERMISSION_PREFIX):
-            if allow_scan and permission == PAYROLL_SCAN_PERMISSION:
+            if allow_workspace and permission in PAYROLL_WORKSPACE_PERMISSIONS:
                 permissions.append(permission)
             continue
         permissions.append(permission)
@@ -176,16 +183,16 @@ def _remove_payroll_access_from_non_admins(db: Session) -> None:
     for role in db.query(Role).all():
         if _role_has_admin_access(role):
             continue
-        allow_scan = role.name == PAYROLL_ROLE_NAME
-        permissions = _payroll_limited_permissions(role.permissions or [], allow_scan=allow_scan)
+        allow_workspace = role.name == PAYROLL_ROLE_NAME
+        permissions = _payroll_limited_permissions(role.permissions or [], allow_workspace=allow_workspace)
         if permissions != (role.permissions or []):
             role.permissions = permissions
 
     for user in db.query(User).all():
         if _role_has_admin_access(user.role):
             continue
-        allow_scan = user.role is not None and user.role.name == PAYROLL_ROLE_NAME
-        extra_permissions = _payroll_limited_permissions(user.extra_permissions or [], allow_scan=allow_scan)
+        allow_workspace = user.role is not None and user.role.name == PAYROLL_ROLE_NAME
+        extra_permissions = _payroll_limited_permissions(user.extra_permissions or [], allow_workspace=allow_workspace)
         if extra_permissions != (user.extra_permissions or []):
             user.extra_permissions = extra_permissions
 
@@ -467,10 +474,27 @@ def seed(*, ensure_schema: bool | None = None):
 
         # ----- Canonical Sewing Flows -----
         for name, code, capacity_per_day in SEWING_FLOWS:
-            if not db.query(SewingFlow).filter(SewingFlow.code == code).first():
+            if not db.query(SewingFlow).filter(
+                SewingFlow.factory_code == "MIL",
+                SewingFlow.code == code,
+            ).first():
                 db.add(SewingFlow(
+                    factory_code="MIL",
                     name=name, code=code,
-                    description=f"Sewing flow {name}",
+                    description=f"MIL sewing flow {name}",
+                    capacity_per_day=capacity_per_day,
+                    is_active=True,
+                ))
+
+        for name, code, capacity_per_day in ECO_SEWING_BANDS:
+            if not db.query(SewingFlow).filter(
+                SewingFlow.factory_code == "ECO",
+                SewingFlow.code == code,
+            ).first():
+                db.add(SewingFlow(
+                    factory_code="ECO",
+                    name=name, code=code,
+                    description=f"Eco Cotton sewing band {name}",
                     capacity_per_day=capacity_per_day,
                     is_active=True,
                 ))

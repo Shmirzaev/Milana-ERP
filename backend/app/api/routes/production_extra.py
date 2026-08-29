@@ -23,6 +23,8 @@ from app.core.dt import as_utc
 from app.services.audit import log_action
 from app.services.model_images import model_display_image_url
 from app.services.notifications import notify
+from app.services.bundles import resolve_sewing_factory_code
+from app.services.sewing_scope import require_sewing_flow_access
 
 router = APIRouter(tags=["production_extra"])
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
@@ -153,10 +155,23 @@ def create_assignment(
         raise HTTPException(400, "Assignments only apply to sewing work orders")
     flow = db.get(SewingFlow, payload.sewing_flow_id)
     if not flow: raise HTTPException(404, "Sewing flow not found")
+    require_sewing_flow_access(current, flow)
     if not flow.is_active: raise HTTPException(400, "Sewing flow is inactive")
     if payload.quantity <= 0:
         raise HTTPException(400, "Quantity must be > 0")
     batch_id = _normalize_assignment_batch_id(db, wo, payload.production_batch_id)
+    routed_qry = db.query(Bundle.sewing_factory_code).filter(
+        Bundle.production_order_id == wo.production_order_id,
+        Bundle.status == "received_sewing",
+    )
+    if batch_id is not None:
+        routed_qry = routed_qry.filter(Bundle.production_batch_id == batch_id)
+    routed_factories = {
+        resolve_sewing_factory_code(factory_code)
+        for (factory_code,) in routed_qry.distinct().all()
+    }
+    if routed_factories and routed_factories != {flow.factory_code}:
+        raise HTTPException(409, "This sewing work is routed to a different sewing factory")
 
     # Validate: total assignments cannot exceed the selected batch/order input.
     existing_qry = db.query(SewingAssignment).filter(

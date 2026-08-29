@@ -21,6 +21,7 @@ from app.models import (
     Package,
     PackagingRecord,
     PrintingRecord,
+    ProductionBatch,
     ProductionOrder,
     QualityCheck,
     SalesOrder,
@@ -34,7 +35,9 @@ from app.models import (
     Warehouse,
     WasteRecord,
     WorkOrder,
+    PackageBatchAllocation,
 )
+from app.services.inventory import accessory_issue_summary
 from app.services.packages import format_storage_location
 
 
@@ -101,11 +104,11 @@ def _package_batch_ids(pkg: Package | None) -> set[int]:
     return ids
 
 
-def _filter_records_for_package(records: list[Any], batch_ids: set[int]) -> list[Any]:
+def _filter_records_for_package(records: list[Any], batch_ids: set[int], *, strict: bool = False) -> list[Any]:
     if not batch_ids:
         return records
     exact = [row for row in records if getattr(row, "production_batch_id", None) in batch_ids]
-    return exact if exact else records
+    return exact if strict or exact else records
 
 
 def _related_shipments_for_package(db: Session, pkg_id: int) -> list[Shipment]:
@@ -206,6 +209,7 @@ def _cutting_payload(db: Session, row: CuttingRecord) -> tuple[dict, dict | None
         "input_quantity": _num(row.input_quantity),
         "input_unit": row.input_unit,
         "cut_pieces": int(row.cut_pieces or 0),
+        "report_piece_count": int(row.report_piece_count or 0),
         "passed_pieces": int(row.passed_pieces or 0),
         "defective_pieces": int(row.defective_pieces or 0),
         "waste_quantity": _num(row.waste_quantity),
@@ -218,6 +222,24 @@ def _cutting_payload(db: Session, row: CuttingRecord) -> tuple[dict, dict | None
         "operator_id": int(row.operator_id) if row.operator_id else None,
         "notes": row.notes,
         "created_at": _dt(row.created_at),
+        "materials": [
+            {
+                "stock_batch_id": int(usage.stock_batch_id),
+                "quantity": _num(usage.quantity),
+                "unit": usage.unit,
+                "position": int(usage.position or 0),
+            }
+            for usage in (getattr(row, "materials", None) or [])
+        ],
+        "beika_materials": [
+            {
+                "stock_batch_id": int(usage.stock_batch_id),
+                "quantity": _num(usage.quantity),
+                "unit": usage.unit,
+                "position": int(usage.position or 0),
+            }
+            for usage in (getattr(row, "beika_materials", None) or [])
+        ],
     }
     gap = None if batch else "No fabric batch linked to cutting record"
     return payload, material, gap
@@ -456,6 +478,7 @@ def build_traceability(
     package: Package | None = None,
     bundle: Bundle | None = None,
     shipment: Shipment | None = None,
+    production_batch_id: int | None = None,
 ) -> dict:
     gaps: list[str] = []
     po = production_order
@@ -491,6 +514,9 @@ def build_traceability(
     work_orders = _work_orders_for_po(db, int(po.id)) if po else []
     wo_ids = [int(wo.id) for wo in work_orders]
     batch_ids = _package_batch_ids(package)
+    strict_batch_scope = production_batch_id is not None
+    if production_batch_id is not None:
+        batch_ids = {int(production_batch_id)}
     if bundle and bundle.production_batch_id:
         batch_ids.add(int(bundle.production_batch_id))
 
@@ -503,7 +529,7 @@ def build_traceability(
             .order_by(CuttingRecord.created_at.asc(), CuttingRecord.id.asc())
             .all()
         )
-        for row in _filter_records_for_package(all_cutting, batch_ids):
+        for row in _filter_records_for_package(all_cutting, batch_ids, strict=strict_batch_scope):
             payload, material, gap = _cutting_payload(db, row)
             cutting_rows.append(payload)
             if material and all(material["id"] != existing["id"] for existing in material_batches):
@@ -518,7 +544,7 @@ def build_traceability(
         bundles_query = bundles_query.filter(Bundle.production_order_id == po.id)
         if batch_ids:
             matched = bundles_query.filter(Bundle.production_batch_id.in_(batch_ids)).all()
-            bundle_rows = matched if matched else bundles_query.all()
+            bundle_rows = matched if strict_batch_scope or matched else bundles_query.all()
         elif package:
             item_keys = {(item.color, item.size) for item in (package.items or [])}
             bundle_rows = bundles_query.all()
@@ -551,14 +577,22 @@ def build_traceability(
             .order_by(model_cls.created_at.asc(), model_cls.id.asc())
             .all()
         )
-        return [_record_payload(row, fields) for row in _filter_records_for_package(rows, batch_ids)]
+        return [
+            _record_payload(row, fields)
+            for row in _filter_records_for_package(rows, batch_ids, strict=strict_batch_scope)
+        ]
 
     printing_rows = op_records(PrintingRecord, ["input_qty", "printed_qty", "passed_qty", "rejected_qty", "defect_reason", "print_type", "operator_id", "notes"])
     sewing_rows = op_records(SewingRecord, ["input_qty", "sewn_qty", "passed_qty", "failed_qty", "rework_qty", "rejected_qty", "defect_reason", "line_name", "operator_id", "notes"])
     packaging_rows = op_records(PackagingRecord, ["input_qty", "packed_qty", "damaged_qty", "package_count", "total_packed_quantity", "packaging_material_used", "operator_id", "notes"])
 
     quality_rows = []
-    if wo_ids:
+    quality_wo_ids = (
+        [int(wo.id) for wo in work_orders if int(wo.production_batch_id or 0) == int(production_batch_id or 0)]
+        if strict_batch_scope
+        else wo_ids
+    )
+    if quality_wo_ids:
         quality_rows = [
             {
                 "id": int(row.id),
@@ -573,11 +607,11 @@ def build_traceability(
                 "checked_by": int(row.checked_by) if row.checked_by else None,
                 "checked_at": _dt(row.checked_at),
             }
-            for row in db.query(QualityCheck).filter(QualityCheck.work_order_id.in_(wo_ids)).order_by(QualityCheck.id.asc()).all()
+            for row in db.query(QualityCheck).filter(QualityCheck.work_order_id.in_(quality_wo_ids)).order_by(QualityCheck.id.asc()).all()
         ]
 
     waste_rows = []
-    if po:
+    if po and not strict_batch_scope:
         waste_rows = [
             {
                 "waste_type": waste_type,
@@ -694,6 +728,320 @@ def production_order_traceability(db: Session, po: ProductionOrder) -> dict:
     if not packages:
         data["gaps"].append("Production order has no packages")
         data["trace_gap"] = True
+    return data
+
+
+def _sum_rows(rows: list[dict], key: str) -> float:
+    return sum(float(row.get(key) or 0) for row in rows)
+
+
+def _event_bounds(values: list[Any]) -> tuple[str | None, str | None]:
+    cleaned = sorted(str(value) for value in values if value)
+    return (cleaned[0], cleaned[-1]) if cleaned else (None, None)
+
+
+def _batch_packages(db: Session, batch_id: int, production_order_id: int) -> tuple[list[Package], dict[int, int]]:
+    allocation_rows = (
+        db.query(PackageBatchAllocation, Package)
+        .join(Package, Package.id == PackageBatchAllocation.package_id)
+        .filter(
+            PackageBatchAllocation.production_batch_id == batch_id,
+            Package.production_order_id == production_order_id,
+        )
+        .all()
+    )
+    packages_by_id: dict[int, Package] = {}
+    quantities: dict[int, int] = {}
+    for allocation, package in allocation_rows:
+        packages_by_id[int(package.id)] = package
+        quantities[int(package.id)] = quantities.get(int(package.id), 0) + int(allocation.quantity or 0)
+
+    direct_packages = (
+        db.query(Package)
+        .filter(
+            Package.production_order_id == production_order_id,
+            Package.production_batch_id == batch_id,
+        )
+        .all()
+    )
+    for package in direct_packages:
+        packages_by_id[int(package.id)] = package
+        quantities.setdefault(int(package.id), int(package.total_quantity or 0))
+    return sorted(packages_by_id.values(), key=lambda row: int(row.id)), quantities
+
+
+def _batch_material_usage(db: Session, data: dict) -> list[dict]:
+    origin_cache = {int(row["id"]): row for row in data.get("material_batches") or [] if row.get("id")}
+    grouped: dict[tuple[str, int | None, str], dict] = {}
+
+    def origin(stock_batch_id: int | None) -> dict:
+        if not stock_batch_id:
+            return {}
+        if stock_batch_id not in origin_cache:
+            stock_batch = db.get(StockBatch, stock_batch_id)
+            item = stock_batch.item if stock_batch and stock_batch.item else None
+            origin_cache[stock_batch_id] = {
+                "batch_no": stock_batch.batch_no if stock_batch else None,
+                "item_id": int(stock_batch.item_id) if stock_batch else None,
+                "item_sku": item.sku if item else None,
+                "item_name": item.name if item else None,
+                "color": stock_batch.color if stock_batch else None,
+            }
+        return origin_cache[stock_batch_id]
+
+    def add_usage(*, usage_type: str, stock_batch_id: int | None, quantity: float, unit: str) -> None:
+        source = origin(stock_batch_id)
+        key = (usage_type, stock_batch_id, unit)
+        row = grouped.setdefault(
+            key,
+            {
+                "usage_type": usage_type,
+                "stock_batch_id": stock_batch_id,
+                "batch_no": source.get("batch_no"),
+                "item_id": source.get("item_id"),
+                "item_sku": source.get("item_sku"),
+                "item_name": source.get("item_name") or ("Beyka" if usage_type == "beika" else "Main fabric"),
+                "color": source.get("color"),
+                "used_quantity": 0.0,
+                "unit": unit,
+                "scope": "production_batch",
+            },
+        )
+        row["used_quantity"] += quantity
+
+    for record in data.get("cutting_records") or []:
+        material_rows = record.get("materials") or []
+        if material_rows:
+            for usage in material_rows:
+                add_usage(
+                    usage_type="fabric",
+                    stock_batch_id=int(usage["stock_batch_id"]) if usage.get("stock_batch_id") else None,
+                    quantity=float(usage.get("quantity") or 0),
+                    unit=str(usage.get("unit") or "kg"),
+                )
+        else:
+            add_usage(
+                usage_type="fabric",
+                stock_batch_id=int(record["fabric_batch_id"]) if record.get("fabric_batch_id") else None,
+                quantity=float(record.get("input_quantity") or 0),
+                unit=str(record.get("input_unit") or "kg"),
+            )
+
+        beika_rows = record.get("beika_materials") or []
+        if beika_rows:
+            for usage in beika_rows:
+                add_usage(
+                    usage_type="beika",
+                    stock_batch_id=int(usage["stock_batch_id"]) if usage.get("stock_batch_id") else None,
+                    quantity=float(usage.get("quantity") or 0),
+                    unit=str(usage.get("unit") or "kg"),
+                )
+        elif float(record.get("beika_kg") or 0) > 0:
+            add_usage(
+                usage_type="beika",
+                stock_batch_id=None,
+                quantity=float(record.get("beika_kg") or 0),
+                unit="kg",
+            )
+    return list(grouped.values())
+
+
+def production_batch_traceability(db: Session, batch: ProductionBatch) -> dict:
+    po = db.get(ProductionOrder, batch.production_order_id)
+    if not po:
+        raise ValueError("Production order not found for batch")
+    data = build_traceability(
+        db,
+        subject_type="production_batch",
+        production_order=po,
+        production_batch_id=int(batch.id),
+    )
+    packages, batch_quantity_by_package = _batch_packages(db, int(batch.id), int(po.id))
+    package_payloads = []
+    for package in packages:
+        payload = _package_payload(db, package)
+        payload["batch_quantity"] = int(batch_quantity_by_package.get(int(package.id), 0))
+        package_payloads.append(payload)
+
+    package_ids = [int(package.id) for package in packages]
+    shipment_rows = (
+        db.query(Shipment)
+        .join(ShipmentPackage, ShipmentPackage.shipment_id == Shipment.id)
+        .filter(ShipmentPackage.package_id.in_(package_ids))
+        .order_by(Shipment.created_at.asc(), Shipment.id.asc())
+        .all()
+        if package_ids
+        else []
+    )
+    shipment_ids = [int(row.id) for row in shipment_rows]
+    shipment_payloads = [_shipment_payload(db, row) for row in shipment_rows]
+    shipment_payloads = [row for row in shipment_payloads if row]
+
+    package_scans = []
+    for package in packages:
+        for scan in _package_scans(package):
+            package_scans.append({**scan, "package_id": int(package.id), "package_no": package.package_no})
+    package_scans.sort(key=lambda row: (str(row.get("scanned_at") or ""), int(row.get("id") or 0)))
+
+    cutting = data.get("cutting_records") or []
+    printing = data.get("printing_records") or []
+    sewing = data.get("sewing_records") or []
+    packaging = data.get("packaging_records") or []
+    planned = int(batch.planned_quantity or 0)
+    quantities = {
+        "planned": planned,
+        "cut_created": int(_sum_rows(cutting, "cut_pieces")),
+        "cut_usable": int(_sum_rows(cutting, "passed_pieces")),
+        "cut_defective": int(_sum_rows(cutting, "defective_pieces")),
+        "sewn": int(_sum_rows(sewing, "sewn_qty")),
+        "sewing_passed": int(_sum_rows(sewing, "passed_qty")),
+        "sewing_failed": int(_sum_rows(sewing, "failed_qty")),
+        "packed": int(_sum_rows(packaging, "packed_qty")),
+        "packaged": sum(batch_quantity_by_package.values()),
+        "warehouse_received": sum(
+            batch_quantity_by_package.get(int(package.id), 0)
+            for package in packages
+            if str(package.status or "") in {"received_in_storage", "reserved", "shipped", "delivered"}
+        ),
+        "shipped": sum(
+            batch_quantity_by_package.get(int(package.id), 0)
+            for package in packages
+            if str(package.status or "") in {"shipped", "delivered"}
+        ),
+    }
+
+    work_orders = _work_orders_for_po(db, int(po.id))
+    available_operations = {str(row.operation) for row in work_orders}
+    route = ["cutting"]
+    if "printing" in available_operations:
+        route.append("printing")
+    route.extend(["sewing", "packaging", "storage_transfer", "shipment"])
+    stage_values = {
+        "cutting": (quantities["cut_usable"], quantities["cut_defective"], cutting, "passed_pieces"),
+        "printing": (int(_sum_rows(printing, "passed_qty")), int(_sum_rows(printing, "rejected_qty")), printing, "passed_qty"),
+        "sewing": (quantities["sewing_passed"], quantities["sewing_failed"], sewing, "passed_qty"),
+        "packaging": (max(quantities["packed"], quantities["packaged"]), int(_sum_rows(packaging, "damaged_qty")), packaging, "packed_qty"),
+        "storage_transfer": (quantities["warehouse_received"], 0, package_payloads, "batch_quantity"),
+        "shipment": (quantities["shipped"], 0, shipment_payloads, "id"),
+    }
+    printing_scan_times = []
+    sewing_scan_times = []
+    for bundle_payload in data.get("bundles") or []:
+        for scan in bundle_payload.get("scan_logs") or []:
+            scan_type = str(scan.get("scan_type") or "")
+            if scan_type in {"sent_printing", "received_printing"}:
+                printing_scan_times.append(scan.get("scanned_at"))
+            if scan_type in {"sent_sewing", "received_sewing"}:
+                sewing_scan_times.append(scan.get("scanned_at"))
+    stage_times: dict[str, list[Any]] = {
+        "cutting": [row.get("created_at") for row in cutting],
+        "printing": [row.get("created_at") for row in printing] + printing_scan_times,
+        "sewing": [row.get("created_at") for row in sewing] + sewing_scan_times,
+        "packaging": [row.get("created_at") for row in packaging],
+        "storage_transfer": [row.get("received_at") for row in package_payloads if row.get("received_at")],
+        "shipment": [row.get("shipped_at") for row in shipment_payloads if row.get("shipped_at")],
+    }
+    stages = []
+    for operation in route:
+        completed, failed, _activity_rows, _ = stage_values[operation]
+        started_at, last_event_at = _event_bounds(stage_times[operation])
+        has_activity = bool(started_at) or completed > 0 or failed > 0
+        if planned > 0 and completed >= planned:
+            status = "completed"
+        elif has_activity:
+            status = "in_progress"
+        else:
+            status = "waiting"
+        stages.append(
+            {
+                "operation": operation,
+                "status": status,
+                "planned": planned,
+                "completed": int(completed),
+                "failed": int(failed),
+                "progress_pct": round(min(100.0, 100.0 * completed / planned), 1) if planned > 0 else 0.0,
+                "started_at": started_at,
+                "last_event_at": last_event_at,
+                "completed_at": last_event_at if status == "completed" else None,
+            }
+        )
+
+    active_stage = None
+    started_indexes = [index for index, row in enumerate(stages) if row["status"] in {"in_progress", "completed"}]
+    if started_indexes:
+        index = max(started_indexes)
+        active_stage = stages[index]
+        if active_stage["status"] == "completed" and index + 1 < len(stages):
+            active_stage = stages[index + 1]
+    elif stages:
+        active_stage = stages[0]
+    current_process = {
+        "operation": active_stage["operation"] if active_stage else "completed",
+        "status": active_stage["status"] if active_stage else "completed",
+        "as_of": data["generated_at"],
+    }
+
+    accessory_rows = []
+    for row in accessory_issue_summary(db, production_order_id=int(po.id)):
+        issued = float(row.get("issued_quantity") or 0)
+        returned = float(row.get("returned_quantity") or 0)
+        accessory_rows.append(
+            {
+                "item_id": row.get("item_id"),
+                "item_sku": row.get("item_sku"),
+                "item_name": row.get("item_name"),
+                "issued_quantity": issued,
+                "returned_quantity": returned,
+                "used_quantity": max(0.0, issued - returned),
+                "unit": row.get("unit"),
+                "first_issued_at": _dt(row.get("first_issued_at")),
+                "last_issued_at": _dt(row.get("last_issued_at")),
+                "scope": "production_order",
+            }
+        )
+
+    integrity_gaps: list[str] = []
+    if cutting and any(not row.get("fabric_batch_id") for row in cutting):
+        integrity_gaps.append("A cutting record has no fabric batch link")
+    if quantities["cut_usable"] > 0 and not data.get("bundles"):
+        integrity_gaps.append("Cut output has no batch-linked bundles")
+    if quantities["packed"] > 0 and not packages:
+        integrity_gaps.append("Packaging output has no batch allocation")
+
+    data.update(
+        {
+            "subject_id": int(batch.id),
+            "production_batch": {
+                "id": int(batch.id),
+                "batch_no": batch.batch_no,
+                "batch_index": int(batch.batch_index or 0),
+                "name": batch.name,
+                "planned_quantity": planned,
+                "start_date": _dt(batch.start_date),
+                "deadline": _dt(batch.deadline),
+                "notes": batch.notes,
+            },
+            "current_process": current_process,
+            "quantity_summary": quantities,
+            "stage_summary": stages,
+            "material_usage": _batch_material_usage(db, data),
+            "accessory_usage": accessory_rows,
+            "accessory_scope": "production_order",
+            "packages": package_payloads,
+            "package": None,
+            "package_scan_history": package_scans,
+            "shipments": shipment_payloads,
+            "shipment": shipment_payloads[-1] if shipment_payloads else None,
+            "shipment_packages": [
+                row for row in _shipment_packages(db, shipment_ids) if int(row.get("package_id") or 0) in package_ids
+            ],
+            "shipment_package_scan_logs": [
+                row for row in _shipment_scan_logs(db, shipment_ids) if int(row.get("package_id") or 0) in package_ids
+            ],
+            "gaps": integrity_gaps,
+            "trace_gap": bool(integrity_gaps),
+        }
+    )
     return data
 
 

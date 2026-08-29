@@ -13,6 +13,10 @@ class TraceabilityResponse(BaseModel):
     subject_id: int | None = None
     company: dict[str, Any]
     production_order: dict[str, Any] | None = None
+    production_batch: dict[str, Any] | None = None
+    current_process: dict[str, Any] | None = None
+    quantity_summary: dict[str, Any] | None = None
+    stage_summary: list[dict[str, Any]] = []
     sales_order: dict[str, Any] | None = None
     customer: dict[str, Any] | None = None
     brand: dict[str, Any] | None = None
@@ -20,6 +24,9 @@ class TraceabilityResponse(BaseModel):
     model: dict[str, Any] | None = None
     color_size_quantities: list[dict[str, Any]] = []
     material_batches: list[dict[str, Any]] = []
+    material_usage: list[dict[str, Any]] = []
+    accessory_usage: list[dict[str, Any]] = []
+    accessory_scope: str | None = None
     cutting_records: list[dict[str, Any]] = []
     bundles: list[dict[str, Any]] = []
     printing_records: list[dict[str, Any]] = []

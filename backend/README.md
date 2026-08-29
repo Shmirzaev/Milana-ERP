@@ -17,6 +17,9 @@ Required production settings:
 - `CORS_ORIGINS=https://erp.milanapremium.uz`
 - `FRONTEND_BASE_URL=https://erp.milanapremium.uz`
 - `SHARED_STORE_URL=sqlite:////app/storage/shared-store.db`
+- `ATTENDANCE_INTEGRATION_TOKEN` (unique high-entropy connector credential)
+- `ATTENDANCE_INTEGRATION_FACTORY_CODE=MIL`
+- `ATTENDANCE_PHOTOS_DIR=/app/storage/attendance_photos`
 
 Use Redis instead of SQLite for multi-replica deployments:
 

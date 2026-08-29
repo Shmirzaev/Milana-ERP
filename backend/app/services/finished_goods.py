@@ -127,11 +127,7 @@ def infer_brand_and_collection(
 def repair_missing_brand_metadata(db: Session) -> int:
     rows = (
         db.query(FinishedGoodsStock)
-        .filter(
-            FinishedGoodsStock.model_id.isnot(None),
-            (FinishedGoodsStock.brand_id.is_(None))
-            | (FinishedGoodsStock.collection_id.is_(None)),
-        )
+        .filter((FinishedGoodsStock.brand_id.is_(None)) | (FinishedGoodsStock.collection_id.is_(None)))
         .all()
     )
     updated = 0

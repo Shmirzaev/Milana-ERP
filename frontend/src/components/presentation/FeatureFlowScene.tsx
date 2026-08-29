@@ -168,6 +168,9 @@ export default function FeatureFlowScene() {
       let pointerX = 0;
       let pointerY = 0;
       let frame = 0;
+      let isIntersecting = true;
+      let reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let lastTime = 0;
 
       const resize = () => {
         const width = Math.max(1, host.clientWidth);
@@ -188,7 +191,8 @@ export default function FeatureFlowScene() {
       window.addEventListener("pointermove", onPointerMove, { passive: true });
       resize();
 
-      const animate = (time: number) => {
+      const renderFrame = (time: number) => {
+        lastTime = time;
         root.rotation.y = Math.sin(time * 0.00022) * 0.12 + pointerX * 0.07;
         root.rotation.x = -0.08 + Math.sin(time * 0.00018) * 0.025 - pointerY * 0.025;
 
@@ -202,15 +206,41 @@ export default function FeatureFlowScene() {
         });
 
         renderer.render(scene, camera);
-        frame = window.requestAnimationFrame(animate);
       };
 
-      frame = window.requestAnimationFrame(animate);
+      const shouldAnimate = () => isIntersecting && !document.hidden && !reduceMotion;
+      const animate = (time: number) => {
+        renderFrame(time);
+        frame = shouldAnimate() ? window.requestAnimationFrame(animate) : 0;
+      };
+      const syncAnimation = () => {
+        if (frame) window.cancelAnimationFrame(frame);
+        frame = 0;
+        if (shouldAnimate()) frame = window.requestAnimationFrame(animate);
+        else renderFrame(lastTime);
+      };
+
+      const visibilityObserver = new IntersectionObserver(([entry]) => {
+        isIntersecting = entry?.isIntersecting ?? false;
+        syncAnimation();
+      }, { rootMargin: "80px" });
+      visibilityObserver.observe(host);
+      const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+      const onMotionChange = () => {
+        reduceMotion = motionQuery.matches;
+        syncAnimation();
+      };
+      document.addEventListener("visibilitychange", syncAnimation);
+      motionQuery.addEventListener("change", onMotionChange);
+      syncAnimation();
 
       cleanup = () => {
-        window.cancelAnimationFrame(frame);
+        if (frame) window.cancelAnimationFrame(frame);
         window.removeEventListener("pointermove", onPointerMove);
+        document.removeEventListener("visibilitychange", syncAnimation);
+        motionQuery.removeEventListener("change", onMotionChange);
         observer.disconnect();
+        visibilityObserver.disconnect();
         disposables.forEach((item) => item.dispose());
         renderer.dispose();
       };

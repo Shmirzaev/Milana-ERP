@@ -4,6 +4,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { Check, ClipboardList, PackagePlus, RotateCcw, ShoppingBag, X } from "lucide-react";
 
+import ForecastLineChart from "@/components/ForecastLineChart";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
@@ -15,14 +16,29 @@ function qty(value: unknown) {
 }
 
 export default function ForecastingPage() {
-  const { t } = useT();
+  const { lang, t } = useT();
   const { me } = useMe();
   const canManage = can(me, "forecasting.manage");
   const { data, mutate } = useSWR<any>("/api/forecasting/dashboard", fetcher);
   const { data: recommendations, mutate: mutateRecommendations } = useSWR<any[]>("/api/forecasting/recommendations", fetcher);
   const branded = data?.branded_stock_suggestions || [];
   const reorder = data?.item_reorder_suggestions || [];
+  const demandTrend = data?.demand_trend || [];
   const cards = data?.cards || {};
+  const locale = lang === "ru" ? "ru-RU" : lang === "uz" ? "uz-UZ" : "en-US";
+  const demandPoints = demandTrend.map((row: any) => ({
+    label: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(`${row.week_start}T00:00:00`)),
+    values: { demand: Number(row.quantity || 0) },
+  }));
+  const variantPoints = branded.slice(0, 8).map((row: any) => ({
+    label: row.size || "-",
+    tooltipLabel: `${row.model_code || row.model_id || "-"} / ${row.color || "-"} / ${row.size || "-"}`,
+    values: {
+      projected: Number(row.projected_demand || 0),
+      available: Number(row.available_quantity || 0),
+      suggested: Number(row.suggested_quantity || 0),
+    },
+  }));
 
   async function saveSuggestion(row: any) {
     await api.post("/api/forecasting/recommendations", {
@@ -60,6 +76,29 @@ export default function ForecastingPage() {
         <div className="kpi-card"><div className="label">{t("page.forecasting.reorderAlerts")}</div><div className="mt-1 text-2xl font-semibold">{cards.reorder_alert_count ?? reorder.length}</div></div>
         <div className="kpi-card"><div className="label">{t("page.forecasting.lowStockFinished")}</div><div className="mt-1 text-2xl font-semibold">{cards.low_stock_finished_goods ?? 0}</div></div>
         <div className="kpi-card"><div className="label">{t("page.forecasting.demandTrend")}</div><div className="mt-1 text-2xl font-semibold">{qty(cards.demand_trend_quantity)}</div></div>
+      </div>
+
+      <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <ForecastLineChart
+          title={t("page.forecasting.weeklyDemand")}
+          description={t("page.forecasting.weeklyDemandDescription")}
+          points={demandPoints}
+          series={[{ key: "demand", label: t("page.forecasting.demand"), color: "var(--erp-accent)" }]}
+          emptyLabel={t("page.forecasting.noChartData")}
+          valueFormatter={(value) => qty(value)}
+        />
+        <ForecastLineChart
+          title={t("page.forecasting.variantCoverage")}
+          description={t("page.forecasting.variantCoverageDescription")}
+          points={variantPoints}
+          series={[
+            { key: "projected", label: t("page.forecasting.projectedDemand"), color: "var(--erp-accent)" },
+            { key: "available", label: t("page.forecasting.availableStock"), color: "var(--erp-success)" },
+            { key: "suggested", label: t("page.forecasting.suggestedProduction"), color: "var(--erp-blue)" },
+          ]}
+          emptyLabel={t("page.forecasting.noChartData")}
+          valueFormatter={(value) => qty(value)}
+        />
       </div>
 
       <section className="card mb-5 overflow-x-auto">

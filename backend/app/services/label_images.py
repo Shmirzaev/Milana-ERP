@@ -138,5 +138,10 @@ def model_label_image_src(model: Model | None) -> str | None:
     return _model_image_src(typed_model or primary or (images[0] if images else None))
 
 
+def variant_label_image_src(model: Model | None) -> str | None:
+    """Printable picture for the selected model variant."""
+    return model_label_image_src(model)
+
+
 def _bom_item_category(row: ModelBOM) -> str:
     return str(getattr(getattr(row, "item", None), "category", "") or "").lower()

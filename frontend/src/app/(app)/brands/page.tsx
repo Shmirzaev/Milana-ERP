@@ -59,7 +59,7 @@ export default function BrandsPage() {
         <input className="input" placeholder={t("field.description")} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         <button className="btn btn-primary">{t("btn.create")}</button>
       </form>
-      <div className="card">
+      <div className="card overflow-x-auto">
         <table className="table">
           <thead>
             <tr>

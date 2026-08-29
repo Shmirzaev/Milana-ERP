@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { can, useMe } from "@/lib/auth";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Modal from "@/components/Modal";
@@ -29,21 +29,18 @@ type EditForm = {
 
 export default function PackagesPage() {
   const { t } = useT();
+  const searchParams = useSearchParams();
+  const requestedDepartment = searchParams.get("packaging_department");
+  const packagingDepartment = requestedDepartment === "ECP" || requestedDepartment === "BPK" ? requestedDepartment : "PKG";
+  const isEcoCotton = packagingDepartment === "ECP";
+  const factoryLabel = isEcoCotton ? "Eco Cotton" : packagingDepartment === "BPK" ? "Besttex" : "Milana";
   const { me } = useMe();
   const canApprovePackageChange = can(me, "management.approve");
   const canTraceability = can(me, "traceability.view");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: pageData, mutate } = useSWR<any>(
-    `/api/packages?include_total=true&page=${page}&page_size=${pageSize}`,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
-  const { data: pendingRequests, mutate: mutatePendingRequests } = useSWR<any[]>(
-    "/api/packages/change-requests?status=pending",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data: pageData, mutate } = useSWR<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}&packaging_department_code=${packagingDepartment}`, fetcher);
+  const { data: pendingRequests, mutate: mutatePendingRequests } = useSWR<any[]>(`/api/packages/change-requests?status=pending&packaging_department_code=${packagingDepartment}`, fetcher);
   const data = useMemo<any[]>(() => pageData?.rows || [], [pageData?.rows]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<any | null>(null);
@@ -300,7 +297,7 @@ export default function PackagesPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.packages.title")} subtitle={t("page.packages.subtitle")} actions={<Link href="/packaging/receive" className="btn">{t("nav.receiveFromSewing")}</Link>} />
+      <PageHeader title={`${factoryLabel} - ${t("page.packages.title")}`} subtitle={t("page.packages.subtitle")} actions={<Link href={`/packaging/receive?packaging_department=${packagingDepartment}`} className="btn">{t("nav.receiveFromSewing")}</Link>} />
       {message && <div className="mb-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div>}
       {error && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <div className="card overflow-x-auto">
@@ -484,7 +481,7 @@ export default function PackagesPage() {
               </div>
               <div className="space-y-2">
                 {editForm.items.map((item, idx) => (
-                  <div key={`${idx}-${item.size}`} className="grid grid-cols-[minmax(0,1fr)_110px_auto] gap-2">
+                  <div key={`${idx}-${item.size}`} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_110px_auto]">
                     <input className="input" value={item.size} onChange={(e) => setItemField(idx, "size", e.target.value)} placeholder={t("common.size")} required />
                     <input className="input" type="number" min={1} value={item.quantity} onChange={(e) => setItemField(idx, "quantity", e.target.value)} required />
                     <button type="button" className="btn" onClick={() => removeItemRow(idx)} disabled={editForm.items.length <= 1}>{t("common.remove")}</button>
@@ -499,7 +496,7 @@ export default function PackagesPage() {
                 <div className="mb-2 text-sm font-medium text-slate-900">{t("page.packages.batchAllocations")}</div>
                 <div className="space-y-2">
                   {editForm.batch_allocations.map((row, idx) => (
-                    <div key={row.production_batch_id} className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
+                    <div key={row.production_batch_id} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px]">
                       <div className="input flex items-center bg-slate-50 text-slate-600">#{row.production_batch_id}</div>
                       <input className="input" type="number" min={1} value={row.quantity} onChange={(e) => setBatchQuantity(idx, e.target.value)} required />
                     </div>

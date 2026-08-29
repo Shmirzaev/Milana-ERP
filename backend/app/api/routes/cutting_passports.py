@@ -1,11 +1,14 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
+from sqlalchemy import or_
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models.cutting_passport import CuttingPassport
-from app.models import Item, ModelBOM, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
+from app.models import Department, Item, ModelBOM, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
 from app.models.catalog import Model as CatalogModel
-from app.schemas.cutting_passport import CuttingPassportIn, CuttingPassportOut
+from app.schemas.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
 from app.services.audit import log_action
+from app.services.factory_scope import available_factory_codes, selected_factory_code
 from app.services.model_images import model_display_image_url
 
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
@@ -353,24 +356,60 @@ def material_defaults(
     return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch)
 
 
+@router.get("/operators", response_model=list[CuttingOperatorOut])
+def cutting_operator_options(
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.records", "*")),
+):
+    """Return only active operator names available in the selected factory.
+
+    Cutting staff need this small lookup to assign a cutting passport operator,
+    but they must not receive the full admin user directory (email, role, and
+    permission details).
+    """
+    factory_code = selected_factory_code(current)
+    users = db.query(User).filter(User.is_active.is_(True)).order_by(User.name.asc(), User.id.asc()).all()
+    return [user for user in users if factory_code in available_factory_codes(user)]
+
+
 @router.get("", response_model=list[CuttingPassportOut])
 def list_passports(
     db: DbSession,
-    _: CurrentUser,
+    current: CurrentUser,
     q: str | None = None,
     production_order_id: int | None = None,
+    cutting_department_code: str | None = None,
     limit: int = Query(200, ge=1, le=500),
 ):
     qry = db.query(CuttingPassport).order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())
+    from app.services.factory_scope import cutting_department_scope
+    scope = cutting_department_scope(current, cutting_department_code)
+    if scope:
+        eco_order_ids = (
+            db.query(WorkOrder.production_order_id)
+            .join(Department, Department.id == WorkOrder.department_id)
+            .filter(WorkOrder.operation == "cutting", Department.code == "ECT")
+            .distinct()
+        )
+        if scope == "ECT":
+            qry = qry.filter(CuttingPassport.production_order_id.in_(eco_order_ids))
+        else:
+            qry = qry.filter(
+                or_(
+                    CuttingPassport.production_order_id.is_(None),
+                    CuttingPassport.production_order_id.notin_(eco_order_ids),
+                )
+            )
     if production_order_id:
         qry = qry.filter(CuttingPassport.production_order_id == production_order_id)
     if q:
         like = f"%{q}%"
+        model_code_like = normalized_model_code_pattern(q)
         qry = qry.filter(
             CuttingPassport.passport_no.ilike(like)
             | CuttingPassport.lot_no.ilike(like)
             | CuttingPassport.variant.ilike(like)
-            | CuttingPassport.model_code.ilike(like)
+            | normalized_model_code_column(CuttingPassport.model_code).ilike(model_code_like)
             | CuttingPassport.order_no.ilike(like)
             | CuttingPassport.operator_name_manual.ilike(like)
         )
@@ -393,6 +432,14 @@ def create_passport(
     db: DbSession,
     current: User = Depends(require_permissions("cutting.records", "*")),
 ):
+    if payload.production_order_id:
+        from app.services.factory_scope import require_work_order_factory_access
+        work_order = db.query(WorkOrder).filter(
+            WorkOrder.production_order_id == payload.production_order_id,
+            WorkOrder.operation == "cutting",
+        ).first()
+        if work_order:
+            require_work_order_factory_access(current, db, work_order)
     p = CuttingPassport(**payload.model_dump())
     db.add(p)
     db.flush()

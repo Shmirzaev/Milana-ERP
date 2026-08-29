@@ -104,8 +104,6 @@ export default function SewingPage() {
     input_qty: NumberInputValue;
     sewn_qty: NumberInputValue;
     failed_qty: NumberInputValue;
-    rework_qty: NumberInputValue;
-    rejected_qty: NumberInputValue;
     line_name: string;
     sewing_assignment_id: number | null;
     defect_reason: string;
@@ -115,8 +113,6 @@ export default function SewingPage() {
     input_qty: "",
     sewn_qty: "",
     failed_qty: "",
-    rework_qty: "",
-    rejected_qty: "",
     line_name: "",
     sewing_assignment_id: null,
     defect_reason: "",
@@ -223,15 +219,16 @@ export default function SewingPage() {
       return;
     }
     try {
+      const failedQty = Math.max(0, numberOrZero(f.failed_qty));
       const outputQty = Math.max(0, numberOrZero(f.sewn_qty));
       await api.post("/api/sewing/records", {
         work_order_id: id,
         ...f,
         input_qty: numberOrZero(f.input_qty),
         sewn_qty: outputQty,
-        failed_qty: numberOrZero(f.failed_qty),
-        rework_qty: numberOrZero(f.rework_qty),
-        rejected_qty: numberOrZero(f.rejected_qty),
+        failed_qty: failedQty,
+        rework_qty: 0,
+        rejected_qty: 0,
         passed_qty: outputQty,
         production_batch_id: selectedLine?.productionBatchId || f.production_batch_id || null,
       });
@@ -244,8 +241,6 @@ export default function SewingPage() {
         input_qty: "",
         sewn_qty: "",
         failed_qty: "",
-        rework_qty: "",
-        rejected_qty: "",
         defect_reason: "",
         notes: "",
       }));
@@ -439,7 +434,7 @@ export default function SewingPage() {
           </div>
         </div>
       )}
-      <form onSubmit={submit} className="card max-w-2xl space-y-3 p-6">
+      <form onSubmit={submit} className="card max-w-4xl space-y-3 p-6">
         {isAlreadyBatched && (
           <div>
             <label className="label">{t("batch.orderBatch")}</label>
@@ -471,14 +466,6 @@ export default function SewingPage() {
           <input className="input" type="number" value={f.failed_qty} onChange={(e) => setF({ ...f, failed_qty: parseNumberInput(e.target.value) })} />
         </div>
         <div>
-          <label className="label">{t("field.rework")}</label>
-          <input className="input" type="number" value={f.rework_qty} onChange={(e) => setF({ ...f, rework_qty: parseNumberInput(e.target.value) })} />
-        </div>
-        <div>
-          <label className="label">{t("field.rejected")}</label>
-          <input className="input" type="number" value={f.rejected_qty} onChange={(e) => setF({ ...f, rejected_qty: parseNumberInput(e.target.value) })} />
-        </div>
-        <div>
           <label className="label">{t("field.lineName")}</label>
           <select
             className="input"
@@ -508,7 +495,7 @@ export default function SewingPage() {
             id="sewing-defect-reason"
             value={f.defect_reason}
             onChange={(defect_reason) => setF({ ...f, defect_reason })}
-            required={numberOrZero(f.failed_qty) > 0 || numberOrZero(f.rejected_qty) > 0}
+            required={numberOrZero(f.failed_qty) > 0}
           />
         </div>
         <div>

@@ -287,7 +287,7 @@ export default function InventoryMasterDataPage() {
     if (!(await dialogs.ask({ message: t("page.masterData.deleteItemConfirm", { name: item.name }), tone: "danger" }))) return;
     setMessage("");
     try {
-      await api.del(`/api/inventory/items/${item.id}`);
+      await api.del(`/api/inventory/items/${item.id}?force=true`);
       setMessage(t("page.masterData.itemDeleted"));
       refreshMaterials();
       refreshAccessories();

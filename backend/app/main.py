@@ -1,5 +1,6 @@
 import os
 import logging
+from time import perf_counter
 from contextlib import asynccontextmanager
 from io import BytesIO
 from pathlib import Path
@@ -10,6 +11,7 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
 
@@ -232,6 +234,23 @@ async def _security_headers(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def _request_timing(request: Request, call_next):
+    started = perf_counter()
+    response = await call_next(request)
+    duration_ms = (perf_counter() - started) * 1000
+    response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
+    if duration_ms >= 1000:
+        log.warning(
+            "slow_request method=%s path=%s status=%s duration_ms=%.1f",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
+    return response
+
+
 @app.exception_handler(Exception)
 async def _unhandled_exception(request: Request, exc: Exception):
     """Catch-all so a programming bug returns proper JSON instead of crashing
@@ -267,6 +286,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Most authenticated ERP list endpoints return highly compressible JSON. Keep
+# the threshold above small control responses so compression CPU is spent only
+# where it materially reduces transfer size. Static model images are already
+# encoded and are therefore unaffected by this middleware.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
 app.include_router(api_router)
 
@@ -371,7 +396,7 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     if not source_path and not image_data:
         raise HTTPException(status_code=404, detail="Not found")
 
-    safe_size = max(96, min(int(size or 320), 640))
+    safe_size = max(96, min(int(size or 320), 1280))
     os.makedirs(_MODEL_THUMBS_ROOT, exist_ok=True)
     thumb_name = f"{safe_size}_{name}.webp"
     thumb_path = os.path.realpath(os.path.join(_MODEL_THUMBS_ROOT, thumb_name))
@@ -381,14 +406,15 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     source_mtime = os.path.getmtime(source_path) if source_path else 0
     if not os.path.isfile(thumb_path) or os.path.getmtime(thumb_path) < source_mtime:
         try:
-            image_source = source_path if source_path else BytesIO(image_data)
-            with Image.open(image_source) as img:
-                img = ImageOps.exif_transpose(img)
-                img.thumbnail((safe_size, safe_size), Image.Resampling.LANCZOS)
-                if img.mode not in {"RGB", "RGBA"}:
-                    img = img.convert("RGB")
-                img.save(thumb_path, "WEBP", quality=76, method=4)
-        except (UnidentifiedImageError, OSError):
+            from app.services.image_storage import ensure_webp_thumbnail
+
+            ensure_webp_thumbnail(
+                destination_path=thumb_path,
+                size=safe_size,
+                source_path=source_path,
+                image_data=image_data,
+            )
+        except (UnidentifiedImageError, OSError, HTTPException):
             raise HTTPException(status_code=415, detail="File is not a previewable image")
 
     return FileResponse(

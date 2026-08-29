@@ -5,11 +5,11 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import (
-    Brand, Department, Item, Model, ModelBOM, ProductionBatch, ProductionOrder,
-    ProductionOrderItem, SalesOrder, StockBatch, WorkOrder,
+    Brand, Department, Item, Model, ProductionBatch, ProductionOrder,
+    ProductionOrderItem, ProductionOrderMaterial, SalesOrder, StockBatch, WorkOrder,
 )
 from app.core.signing import strip_signature
-from app.services.numbering import next_production_order_no
+from app.services.numbering import next_production_order_no, next_usluga_order_no
 from app.services.inventory import available_stock_for_batch, missing_material_reservation_for_cutting
 
 
@@ -108,19 +108,48 @@ def create_production_order(
     estimated_material_code: str | None = None,
     estimated_material_amount: float | None = None,
     estimated_material_unit: str | None = None,
+    materials: list[dict] | None = None,
     printing_instructions: str | None = None,
     printing_attachments: list[dict] | None = None,
     destination_warehouse_id: int | None = None,
     items: list[dict] | None = None,
     created_by: int | None = None,
+    source_type: str = "standard",
+    service_customer_name: str | None = None,
+    service_customer_reference: str | None = None,
+    service_material_description: str | None = None,
+    service_material_usage_kg: float | None = None,
+    service_material_notes: str | None = None,
 ) -> ProductionOrder:
-    if production_type not in ("client_order", "branded_stock"):
+    if production_type not in ("client_order", "branded_stock", "service_order"):
         raise HTTPException(400, "Invalid production_type")
+    source_type = str(source_type or "standard").strip().lower()
+    if source_type not in {"standard", "usluga"}:
+        raise HTTPException(400, "Invalid production source_type")
+    if (production_type == "service_order") != (source_type == "usluga"):
+        raise HTTPException(400, "service_order and usluga source_type must be used together")
 
-    normalized_items = expand_production_size_range_items(items)
+    # Usluga model labels such as "40-42" represent one paired garment size,
+    # not shorthand for multiple independent sizes. Keep them byte-for-byte
+    # aligned with the model so Cutting and its bundle passports use the same
+    # size identity. Standard production retains its established range split.
+    normalized_items = (
+        [raw.model_dump() if hasattr(raw, "model_dump") else dict(raw) for raw in (items or [])]
+        if source_type == "usluga"
+        else expand_production_size_range_items(items)
+    )
 
     model = db.get(Model, model_id)
     if not model:
+        raise HTTPException(404, "Model not found")
+    if source_type == "usluga":
+        if model.catalog_scope != "usluga" or model.factory_code != "ECO":
+            raise HTTPException(400, "Usluga production requires an Eco Cotton Usluga model")
+        if not str(service_customer_name or "").strip():
+            raise HTTPException(400, "Usluga customer/company is required")
+        if fabric_batch_id is not None or materials:
+            raise HTTPException(400, "Usluga material must not be linked to inventory")
+    elif model.catalog_scope != "standard":
         raise HTTPException(404, "Model not found")
     if production_type == "branded_stock" and model.status != "approved":
         raise HTTPException(400, "Branded stock production requires an approved model")
@@ -142,53 +171,87 @@ def create_production_order(
         if not brand.is_active:
             raise HTTPException(400, "Brand is inactive")
 
-    selected_fabric_batch = db.get(StockBatch, fabric_batch_id) if fabric_batch_id else None
-    if fabric_batch_id and not selected_fabric_batch:
-        raise HTTPException(404, "Fabric inventory batch not found")
-    if selected_fabric_batch:
-        selected_fabric_item = db.get(Item, selected_fabric_batch.item_id)
-        if not selected_fabric_item or str(selected_fabric_item.category or "").lower() not in {
-            "fabric", "semi_finished",
-        }:
-            raise HTTPException(400, "Selected inventory batch is not fabric")
-        model_ids = {int(model_id)}
-        model_ids.update(int(row.get("model_id") or model_id) for row in normalized_items)
-        allowed_fabric_item_ids = {
-            int(item_id)
-            for (item_id,) in (
-                db.query(ModelBOM.item_id)
-                .join(Item, Item.id == ModelBOM.item_id)
-                .filter(
-                    ModelBOM.model_id.in_(sorted(model_ids)),
-                    Item.category.in_(("fabric", "semi_finished")),
-                )
-                .distinct()
-                .all()
-            )
-        }
-        if int(selected_fabric_batch.item_id) not in allowed_fabric_item_ids:
-            raise HTTPException(400, "Selected fabric batch does not match the model's fabric type")
-        if available_stock_for_batch(db, int(selected_fabric_batch.id)) <= 0:
-            raise HTTPException(400, "Selected fabric batch has no available stock")
+    normalized_materials: list[dict] = []
+    seen_batch_ids: set[int] = set()
+    for index, raw in enumerate(materials or [], start=1):
+        row = raw.model_dump() if hasattr(raw, "model_dump") else dict(raw)
+        try:
+            batch_id = int(row.get("stock_batch_id") or 0)
+            quantity = float(row.get("estimated_quantity") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"Material #{index} has an invalid batch or quantity")
+        if batch_id <= 0:
+            raise HTTPException(400, f"Material #{index} requires an inventory batch")
+        if quantity <= 0:
+            raise HTTPException(400, f"Material #{index} estimated quantity must be greater than zero")
+        if batch_id in seen_batch_ids:
+            raise HTTPException(400, "The same fabric batch cannot be added more than once")
+        batch = db.get(StockBatch, batch_id)
+        if not batch:
+            raise HTTPException(404, f"Material #{index} inventory batch not found")
+        item = db.get(Item, batch.item_id)
+        if not item or str(item.category or "").lower() not in {"fabric", "semi_finished"}:
+            raise HTTPException(400, f"Material #{index} is not a fabric inventory batch")
+        if available_stock_for_batch(db, int(batch.id)) <= 0:
+            raise HTTPException(400, f"Material #{index} batch has no available stock")
+        unit = str(row.get("unit") or batch.unit or item.unit or "kg").strip()
+        if not unit:
+            raise HTTPException(400, f"Material #{index} requires a unit")
+        seen_batch_ids.add(batch_id)
+        normalized_materials.append({
+            "stock_batch_id": batch_id,
+            "estimated_quantity": quantity,
+            "unit": unit,
+            "batch": batch,
+            "item": item,
+        })
+
+    if normalized_materials:
+        primary_material = normalized_materials[0]
+        fabric_batch_id = int(primary_material["stock_batch_id"])
+        selected_fabric_batch = primary_material["batch"]
+        selected_fabric_item = primary_material["item"]
         material_code = selected_fabric_item.sku
-        material_unit = selected_fabric_batch.unit or selected_fabric_item.unit
+        material_unit = primary_material["unit"]
+        material_amount = float(primary_material["estimated_quantity"])
     else:
-        material_code = str(estimated_material_code or "").strip() or None
-        material_unit = str(estimated_material_unit or "").strip() or None
+        selected_fabric_batch = db.get(StockBatch, fabric_batch_id) if fabric_batch_id else None
+        if fabric_batch_id and not selected_fabric_batch:
+            raise HTTPException(404, "Fabric inventory batch not found")
+        if selected_fabric_batch:
+            selected_fabric_item = db.get(Item, selected_fabric_batch.item_id)
+            if not selected_fabric_item or str(selected_fabric_item.category or "").lower() not in {
+                "fabric", "semi_finished",
+            }:
+                raise HTTPException(400, "Selected inventory batch is not fabric")
+            if available_stock_for_batch(db, int(selected_fabric_batch.id)) <= 0:
+                raise HTTPException(400, "Selected fabric batch has no available stock")
+            material_code = selected_fabric_item.sku
+            material_unit = selected_fabric_batch.unit or selected_fabric_item.unit
+        else:
+            material_code = str(estimated_material_code or "").strip() or None
+            material_unit = str(estimated_material_unit or "").strip() or None
 
-    material_amount = None
-    if estimated_material_amount is not None:
-        material_amount = float(estimated_material_amount)
-        if material_amount < 0:
-            raise HTTPException(400, "Estimated material amount cannot be negative")
-        material_unit = material_unit or "kg"
+        material_amount = None
+        if estimated_material_amount is not None:
+            material_amount = float(estimated_material_amount)
+            if material_amount < 0:
+                raise HTTPException(400, "Estimated material amount cannot be negative")
+            material_unit = material_unit or "kg"
 
-    production_no = _production_no_for_sales_order(db, so) if so else next_production_order_no(db)
+    production_no = (
+        _production_no_for_sales_order(db, so)
+        if so
+        else next_usluga_order_no(db)
+        if source_type == "usluga"
+        else next_production_order_no(db)
+    )
     print_notes = str(printing_instructions or "").strip() or None
 
     po = ProductionOrder(
         production_no=production_no,
         production_type=production_type,
+        source_type=source_type,
         sales_order_id=sales_order_id,
         planning_order_id=planning_order_id,
         collection_id=collection_id,
@@ -205,10 +268,24 @@ def create_production_order(
         printing_instructions=print_notes,
         printing_attachments=printing_attachments or [],
         destination_warehouse_id=destination_warehouse_id,
+        service_customer_name=str(service_customer_name or "").strip() or None,
+        service_customer_reference=str(service_customer_reference or "").strip() or None,
+        service_material_description=str(service_material_description or "").strip() or None,
+        service_material_usage_kg=service_material_usage_kg,
+        service_material_notes=str(service_material_notes or "").strip() or None,
         created_by=created_by,
     )
     db.add(po)
     db.flush()
+
+    for position, row in enumerate(normalized_materials, start=1):
+        db.add(ProductionOrderMaterial(
+            production_order_id=po.id,
+            stock_batch_id=row["stock_batch_id"],
+            estimated_quantity=row["estimated_quantity"],
+            unit=row["unit"],
+            position=position,
+        ))
 
     for it in normalized_items:
         db.add(ProductionOrderItem(
@@ -274,6 +351,9 @@ def create_work_orders(
     production_order_id: int,
     include_printing: bool = False,
     cutting_department_code: str = "CUT",
+    factory_code: str = "MIL",
+    sewing_factory_code: str | None = None,
+    include_storage_transfer: bool = True,
 ) -> list[WorkOrder]:
     po = db.get(ProductionOrder, production_order_id)
     if not po:
@@ -288,16 +368,32 @@ def create_work_orders(
 
     # Keep one WO per operation even when the PO has internal batches.
     # Batches are managed inside the operation screen, not by duplicating WOs.
-    normalized_cutting_code = str(cutting_department_code or "CUT").strip().upper()
+    normalized_factory = str(factory_code or "MIL").strip().upper()
+    if normalized_factory not in {"MIL", "BST", "ECO"}:
+        raise HTTPException(400, "Factory must be MIL, BST, or ECO")
+    normalized_sewing_factory = str(sewing_factory_code or normalized_factory).strip().upper()
+    if normalized_sewing_factory not in {"MIL", "BST", "ECO"}:
+        raise HTTPException(400, "Sewing factory must be MIL, BST, or ECO")
+    normalized_cutting_code = str(cutting_department_code or ("ECT" if normalized_factory == "ECO" else "CUT")).strip().upper()
     if normalized_cutting_code not in {"CUT", "ECT"}:
         raise HTTPException(400, f"Unsupported cutting department '{cutting_department_code}'")
+
+    department_by_operation = {
+        "cutting": normalized_cutting_code,
+        "printing": "PRT",
+        "sewing": normalized_sewing_factory,
+        "packaging": {"MIL": "PKG", "BST": "BPK", "ECO": "ECP"}[normalized_factory],
+        "storage_transfer": "FGS",
+    }
 
     for code, op in DEPT_OPS:
         if op == "printing" and not include_printing:
             continue
+        if op == "storage_transfer" and not include_storage_transfer:
+            continue
         if op in existing_ops:
             continue
-        dept = _get_dept(db, normalized_cutting_code if op == "cutting" else code)
+        dept = _get_dept(db, department_by_operation[op])
         wo = WorkOrder(
             production_order_id=po.id,
             production_batch_id=None,
@@ -323,7 +419,7 @@ def create_work_orders(
         .all()
     )
     if cutting_wos:
-        reservation_missing = missing_material_reservation_for_cutting(db, int(po.id))
+        reservation_missing = po.source_type != "usluga" and missing_material_reservation_for_cutting(db, int(po.id))
         # Start only one cutting WO when there are duplicates from legacy data.
         first_started = False
         for cutting_wo in cutting_wos:

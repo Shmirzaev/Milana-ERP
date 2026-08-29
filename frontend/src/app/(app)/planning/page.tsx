@@ -10,8 +10,10 @@ import PageHeader from "@/components/PageHeader";
 import BrandedOrderHistory, { type BrandedPlanningOrder } from "@/components/BrandedOrderHistory";
 import Modal from "@/components/Modal";
 import SearchableSelect from "@/components/SearchableSelect";
+import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
 import { numberOrFallback, numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
 type FabricBatch = {
@@ -26,6 +28,7 @@ type FabricBatch = {
   available_quantity: number;
   warehouse_name?: string | null;
   qc_status?: string | null;
+  image_url?: string | null;
 };
 
 type Brand = {
@@ -43,8 +46,16 @@ type BrandedLine = {
   printing_required: boolean;
 };
 
+type BrandedMaterialRow = {
+  fabric_batch_id: number;
+  estimated_material_amount: NumberInputValue;
+};
+
 type BrandedModelDetail = {
   id: number;
+  code?: string | null;
+  name?: string | null;
+  brand_id?: number | null;
   sizes?: Array<{ id: number; size: string }>;
   bom?: Array<{
     item_id: number;
@@ -54,6 +65,7 @@ type BrandedModelDetail = {
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
 type CuttingDepartmentCode = "CUT" | "ECT";
+type SewingFactoryCode = "MIL" | "BST" | "ECO";
 
 type BatchPlanRow = {
   name: string;
@@ -97,10 +109,10 @@ type BatchPlanState = {
 type BrandedFormState = {
   model_id: number;
   brand_id: number;
-  fabric_batch_id: number;
-  estimated_material_amount: NumberInputValue;
+  materials: BrandedMaterialRow[];
   deadline: string;
   cutting_department_code: CuttingDepartmentCode;
+  sewing_factory_code: SewingFactoryCode;
   lines: BrandedLine[];
 };
 
@@ -172,7 +184,7 @@ type MaterialReservationStatus = {
   reservations: MaterialReservation[];
 };
 
-const SIZE_OPTIONS = ["44", "46", "48", "50", "52", "54", "56", "58", "60", "62", "64"];
+const SIZE_OPTIONS = GARMENT_SIZE_OPTIONS;
 const DEFAULT_MATERIAL_UNIT = "kg";
 const MATERIAL_ESTIMATE_LABEL_CLASS = "label md:min-h-[32px]";
 
@@ -231,7 +243,7 @@ function fabricBatchLabel(batch: FabricBatch): string {
   return `${fabric || `Fabric #${batch.item_id}`} | ${details}`;
 }
 
-function fabricBatchOptions(batches: FabricBatch[], fabricItemIds: number[]) {
+function fabricBatchOptions(batches: FabricBatch[], fabricItemIds: number[], includePictures = false) {
   const matchingItemIds = new Set(fabricItemIds.map(Number));
   return batches
     .map((batch, index) => ({
@@ -243,7 +255,11 @@ function fabricBatchOptions(batches: FabricBatch[], fabricItemIds: number[]) {
       Number(right.matchesModel) - Number(left.matchesModel)
       || left.index - right.index
     ))
-    .map(({ batch }) => ({ value: Number(batch.id), label: fabricBatchLabel(batch) }));
+    .map(({ batch }) => ({
+      value: Number(batch.id),
+      label: fabricBatchLabel(batch),
+      ...(includePictures ? { imageUrl: batch.image_url || null } : {}),
+    }));
 }
 
 function reservationStatusLabel(status: string, t: (key: string) => string) {
@@ -320,7 +336,6 @@ export default function PlanningDashboard() {
   const { data: dash } = useSWR<any>("/api/dashboard/planning", fetcher);
   const { data: orders } = useSWR<any[]>("/api/sales-orders?order_type=client_order&page_size=200", fetcher);
   const { data: productionOrders, mutate: mutateProductionOrders } = useSWR<any[]>("/api/production-orders?page_size=100", fetcher);
-  const { data: models } = useSWR<any[]>("/api/models?status=approved", fetcher);
   const { data: brands, mutate: mutateBrands } = useSWR<Brand[]>("/api/brands", fetcher);
   const { data: fabricBatches } = useSWR<FabricBatch[]>("/api/inventory/batches?group=materials&hide_empty=true&page_size=1000", fetcher);
   const { data: brandedOrders, mutate: mutateBrandedOrders } = useSWR<BrandedPlanningOrder[]>("/api/planning/branded-orders", fetcher);
@@ -332,10 +347,10 @@ export default function PlanningDashboard() {
   const [brandedForm, setBrandedForm] = useState<BrandedFormState>({
     model_id: 0,
     brand_id: 0,
-    fabric_batch_id: 0,
-    estimated_material_amount: "",
+    materials: [{ fabric_batch_id: 0, estimated_material_amount: "" }],
     deadline: "",
     cutting_department_code: "CUT",
+    sewing_factory_code: "MIL",
     lines: [{ color: "white", size: "46", quantity: 600, printing_required: false }],
   });
   const [brandedSizeFrom, setBrandedSizeFrom] = useState("46");
@@ -384,13 +399,8 @@ export default function PlanningDashboard() {
   const availableFabricBatches = useMemo(() => (fabricBatches || [])
     .filter((batch) => Number(batch.available_quantity || 0) > 0)
     .filter((batch) => !["failed", "rejected"].includes(String(batch.qc_status || "").toLowerCase())), [fabricBatches]);
-  const selectedBrandedModel = models?.find((m) => Number(m.id) === Number(brandedForm.model_id)) || null;
+  const selectedBrandedModel = selectedBrandedModelDetail || null;
   const selectedBrandedBrand = activeBrands.find((brand) => Number(brand.id) === Number(brandedForm.brand_id)) || null;
-  const selectedBrandedFabricBatch = availableFabricBatches.find((batch) => Number(batch.id) === Number(brandedForm.fabric_batch_id)) || null;
-  const brandedModelOptions = useMemo(() => (models || []).map((model) => ({
-    value: Number(model.id),
-    label: [model.code, model.name].filter(Boolean).join(" - "),
-  })), [models]);
   const selectedBrandedModelSizes = useMemo(
     () => uniqueSortedSizes((selectedBrandedModelDetail?.sizes || []).map((row) => row.size)),
     [selectedBrandedModelDetail],
@@ -400,7 +410,7 @@ export default function PlanningDashboard() {
     [selectedBrandedModelDetail],
   );
   const brandedFabricBatchOptions = useMemo(
-    () => fabricBatchOptions(availableFabricBatches, selectedBrandedFabricItemIds),
+    () => fabricBatchOptions(availableFabricBatches, selectedBrandedFabricItemIds, true),
     [availableFabricBatches, selectedBrandedFabricItemIds],
   );
   const brandedSizeOptions = useMemo(
@@ -452,30 +462,52 @@ export default function PlanningDashboard() {
 
   useEffect(() => {
     if (!brandedForm.model_id || brandedForm.brand_id) return;
-    const model = models?.find((row) => Number(row.id) === Number(brandedForm.model_id));
+    const model = selectedBrandedModelDetail;
     if (!model?.brand_id) return;
     setBrandedForm((prev) => ({ ...prev, brand_id: Number(model.brand_id) }));
-  }, [brandedForm.brand_id, brandedForm.model_id, models]);
+  }, [brandedForm.brand_id, brandedForm.model_id, selectedBrandedModelDetail]);
 
   useEffect(() => {
     if (!brandedForm.model_id || !availableFabricBatches.length) return;
+    const firstMaterial = brandedForm.materials[0];
     const currentIsValid = availableFabricBatches.some(
-      (batch) => Number(batch.id) === Number(brandedForm.fabric_batch_id),
+      (batch) => Number(batch.id) === Number(firstMaterial?.fabric_batch_id),
     );
     if (currentIsValid) return;
-    const firstMatch = availableFabricBatches.find((batch) => selectedBrandedFabricItemIds.includes(Number(batch.item_id)));
-    setBrandedForm((prev) => ({ ...prev, fabric_batch_id: Number(firstMatch?.id || 0) }));
-  }, [availableFabricBatches, brandedForm.fabric_batch_id, brandedForm.model_id, selectedBrandedFabricItemIds]);
+    const defaultBatch = availableFabricBatches.find(
+      (batch) => selectedBrandedFabricItemIds.includes(Number(batch.item_id)),
+    ) || availableFabricBatches[0];
+    if (Number(firstMaterial?.fabric_batch_id || 0) === Number(defaultBatch?.id || 0)) return;
+    setBrandedForm((prev) => ({
+      ...prev,
+      materials: prev.materials.map((row, index) => (
+        index === 0 ? { ...row, fabric_batch_id: Number(defaultBatch?.id || 0) } : row
+      )),
+    }));
+  }, [availableFabricBatches, brandedForm.materials, brandedForm.model_id, selectedBrandedFabricItemIds]);
 
   function selectBrandedModel(modelId: number) {
-    const model = models?.find((row) => Number(row.id) === Number(modelId));
     setBrandedLinesModelId(0);
     setBrandedLinesEditing(false);
     setBrandedForm((prev) => ({
       ...prev,
       model_id: Number(modelId),
-      brand_id: Number(model?.brand_id || 0),
-      fabric_batch_id: 0,
+      brand_id: 0,
+      materials: [{ fabric_batch_id: 0, estimated_material_amount: "" }],
+    }));
+  }
+
+  function addBrandedMaterial() {
+    setBrandedForm((prev) => ({
+      ...prev,
+      materials: [...prev.materials, { fabric_batch_id: 0, estimated_material_amount: "" }],
+    }));
+  }
+
+  function removeBrandedMaterial(index: number) {
+    setBrandedForm((prev) => ({
+      ...prev,
+      materials: prev.materials.filter((_, rowIndex) => rowIndex !== index),
     }));
   }
 
@@ -664,7 +696,7 @@ export default function PlanningDashboard() {
     const fabricItemIds = Array.from(new Set(modelDetails.flatMap((model) => modelFabricItemIds(model))));
     const selectedBatch = availableFabricBatches.find((batch) => fabricItemIds.includes(Number(batch.item_id)));
     const firstItem = so.items?.[0];
-    const model = models?.find((row) => Number(row.id) === Number(firstItem?.model_id));
+    const model = modelDetails.find((row) => Number(row.id) === Number(firstItem?.model_id));
     return emptyMaterialEstimate(
       Number(firstItem?.brand_id || model?.brand_id || 0),
       fabricItemIds,
@@ -871,13 +903,24 @@ export default function PlanningDashboard() {
       setBrandedErr(t("newso.brandSelect"));
       return;
     }
-    if (!selectedBrandedFabricBatch || !selectedBrandedFabricItemIds.includes(Number(selectedBrandedFabricBatch.item_id))) {
-      setBrandedErr("Select an available fabric batch that matches this model's fabric type.");
+    const materials = brandedForm.materials.map((row) => {
+      const batch = availableFabricBatches.find((candidate) => Number(candidate.id) === Number(row.fabric_batch_id));
+      return {
+        batch,
+        quantity: Number(row.estimated_material_amount),
+      };
+    });
+    if (!materials.length || materials.some((row) => !row.batch)) {
+      setBrandedErr(t("page.planning.selectEveryFabric"));
       return;
     }
-    const estimatedMaterialAmount = Number(brandedForm.estimated_material_amount);
-    if (!Number.isFinite(estimatedMaterialAmount) || estimatedMaterialAmount <= 0) {
-      setBrandedErr("Enter estimated material amount greater than zero.");
+    if (materials.some((row) => !Number.isFinite(row.quantity) || row.quantity <= 0)) {
+      setBrandedErr(t("page.planning.enterEveryFabricAmount"));
+      return;
+    }
+    const materialBatchIds = materials.map((row) => Number(row.batch!.id));
+    if (new Set(materialBatchIds).size !== materialBatchIds.length) {
+      setBrandedErr(t("page.planning.duplicateFabric"));
       return;
     }
     if (!selectedBrandedOrderId) {
@@ -901,6 +944,7 @@ export default function PlanningDashboard() {
     }
 
     const plannedQty = items.reduce((sum, line) => sum + line.planned_quantity, 0);
+    const primaryMaterial = materials[0];
     setBrandedSaving(true);
     try {
       const po = await api.post("/api/planning/create-branded-production", {
@@ -908,13 +952,19 @@ export default function PlanningDashboard() {
         planning_order_id: selectedBrandedOrderId,
         model_id: brandedForm.model_id,
         brand_id: brandedForm.brand_id,
-        fabric_batch_id: selectedBrandedFabricBatch.id,
-        estimated_material_code: selectedBrandedFabricBatch.item_sku || selectedBrandedFabricBatch.batch_no,
-        estimated_material_amount: estimatedMaterialAmount,
-        estimated_material_unit: selectedBrandedFabricBatch.unit || DEFAULT_MATERIAL_UNIT,
+        fabric_batch_id: primaryMaterial.batch!.id,
+        estimated_material_code: primaryMaterial.batch!.item_sku || primaryMaterial.batch!.batch_no,
+        estimated_material_amount: primaryMaterial.quantity,
+        estimated_material_unit: primaryMaterial.batch!.unit || DEFAULT_MATERIAL_UNIT,
+        materials: materials.map((row) => ({
+          stock_batch_id: row.batch!.id,
+          estimated_quantity: row.quantity,
+          unit: row.batch!.unit || DEFAULT_MATERIAL_UNIT,
+        })),
         planned_quantity: plannedQty,
         deadline: brandedForm.deadline || null,
         cutting_department_code: brandedForm.cutting_department_code,
+        sewing_factory_code: brandedForm.sewing_factory_code,
         printing_instructions: brandedHasPrintingSelected ? (brandedPrintingInstructions.trim() || null) : null,
         printing_attachments: brandedHasPrintingSelected ? brandedPrintingAttachments : [],
         items,
@@ -927,8 +977,7 @@ export default function PlanningDashboard() {
         ...prev,
         model_id: 0,
         brand_id: 0,
-        fabric_batch_id: 0,
-        estimated_material_amount: "",
+        materials: [{ fabric_batch_id: 0, estimated_material_amount: "" }],
         deadline: "",
         lines: [{ color: "white", size: "46", quantity: 600, printing_required: false }],
       }));
@@ -1171,7 +1220,7 @@ export default function PlanningDashboard() {
         </div>
       </section>
 
-      <div className="card p-4 mb-6">
+      <div className="card mb-6 overflow-x-auto p-4">
         <h2 className="font-medium mb-3">{t("page.planning.confirmedAwaiting")}</h2>
         <table className="table">
           <thead><tr><th>{t("field.orderNo")}</th><th>{t("field.customer")}</th><th>{t("field.total")}</th><th>{t("common.status")}</th><th></th></tr></thead>
@@ -1509,7 +1558,7 @@ export default function PlanningDashboard() {
 
       <BrandedOrderHistory
         orders={brandedOrders || []}
-        models={models || []}
+        models={[]}
         activeOrderId={selectedBrandedOrderId}
         creating={newBrandedOrderSaving}
         error={newBrandedOrderErr}
@@ -1529,16 +1578,18 @@ export default function PlanningDashboard() {
             <span className="mono text-sm font-semibold text-[#56503f]">{selectedBrandedOrder?.order_no || "—"}</span>
           </div>
           <div className="border-b border-[#ecebe3] px-5 py-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
               <div>
                 <label className="label" htmlFor="branded-approved-model">{t("field.model")}</label>
-                <SearchableSelect
+                <ModelAsyncSelect
                   inputId="branded-approved-model"
                   value={brandedForm.model_id || null}
-                  options={brandedModelOptions}
                   onChange={(modelId) => selectBrandedModel(Number(modelId))}
+                  status="approved"
                   placeholder={t("ph.approvedModel")}
                   noResultsText={t("page.search.noMatches")}
+                  loadingText={t("common.loading")}
+                  loadMoreText={t("common.loadMore")}
                   required
                 />
               </div>
@@ -1585,36 +1636,107 @@ export default function PlanningDashboard() {
                   <option value="ECT">{t("nav.ecoCottonCutting")}</option>
                 </select>
               </div>
-            </div>
-            <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[#ecebe3] pt-4 md:grid-cols-[minmax(0,1fr)_180px_120px]">
               <div>
-                <label className="label" htmlFor="branded-fabric-batch">{t("field.fabricBatch")}</label>
-                <SearchableSelect
-                  inputId="branded-fabric-batch"
-                  value={brandedForm.fabric_batch_id || null}
-                  options={brandedFabricBatchOptions}
-                  onChange={(batchId) => setBrandedForm((prev) => ({ ...prev, fabric_batch_id: Number(batchId) }))}
-                  placeholder={brandedForm.model_id ? t("field.fabricBatch") : t("newso.selectModel")}
-                  noResultsText={t("page.search.noMatches")}
-                  disabled={!brandedForm.model_id}
-                  required
-                />
-              </div>
-              <div>
-                <label className="label">{t("page.planning.materialEstimateAmount")}</label>
-                <input
+                <label className="label">{t("field.sewingFactory")}</label>
+                <select
                   className="input"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={brandedForm.estimated_material_amount}
-                  onChange={(e) => setBrandedForm((prev) => ({ ...prev, estimated_material_amount: parseNumberInput(e.target.value) }))}
-                  required
-                />
+                  value={brandedForm.sewing_factory_code}
+                  onChange={(e) => setBrandedForm((prev) => ({
+                    ...prev,
+                    sewing_factory_code: e.target.value as SewingFactoryCode,
+                  }))}
+                >
+                  <option value="MIL">{t("factory.milana")}</option>
+                  <option value="BST">{t("factory.besttex")}</option>
+                  <option value="ECO">{t("factory.ecoCotton")}</option>
+                </select>
               </div>
-              <div>
-                <label className="label">{t("page.planning.materialEstimateUnit")}</label>
-                <input className="input" value={selectedBrandedFabricBatch?.unit || DEFAULT_MATERIAL_UNIT} readOnly />
+            </div>
+            <div className="mt-4 border-t border-[#ecebe3] pt-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#393528]">{t("page.planning.fabrics")}</h3>
+                  <p className="mt-0.5 text-xs text-[#8a8472]">{t("page.planning.fabricsHelp")}</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn shrink-0"
+                  onClick={addBrandedMaterial}
+                  disabled={!brandedForm.model_id}
+                >
+                  <Plus className="h-4 w-4" />
+                  {t("page.planning.addFabric")}
+                </button>
+              </div>
+              <div className="divide-y divide-[#ecebe3] rounded-md border border-[#e3e0d5]">
+                {brandedForm.materials.map((material, index) => {
+                  const selectedBatch = availableFabricBatches.find(
+                    (batch) => Number(batch.id) === Number(material.fabric_batch_id),
+                  ) || null;
+                  return (
+                    <div
+                      key={`branded-material-${index}`}
+                      className="grid grid-cols-1 gap-3 p-3 md:grid-cols-[minmax(0,1fr)_180px_120px_36px] md:items-end"
+                    >
+                      <div>
+                        <label className="label" htmlFor={`branded-fabric-batch-${index}`}>
+                          {t("field.fabricBatch")} {index + 1}
+                        </label>
+                        <SearchableSelect
+                          inputId={`branded-fabric-batch-${index}`}
+                          value={material.fabric_batch_id || null}
+                          options={brandedFabricBatchOptions.filter((option) => (
+                            Number(option.value) === Number(material.fabric_batch_id)
+                            || !brandedForm.materials.some((row) => Number(row.fabric_batch_id) === Number(option.value))
+                          ))}
+                          onChange={(batchId) => setBrandedForm((prev) => ({
+                            ...prev,
+                            materials: prev.materials.map((row, rowIndex) => (
+                              rowIndex === index ? { ...row, fabric_batch_id: Number(batchId) } : row
+                            )),
+                          }))}
+                          placeholder={brandedForm.model_id ? t("field.fabricBatch") : t("newso.selectModel")}
+                          noResultsText={t("page.search.noMatches")}
+                          disabled={!brandedForm.model_id}
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="label">{t("page.planning.materialEstimateAmount")}</label>
+                        <input
+                          className="input"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={material.estimated_material_amount}
+                          onChange={(e) => setBrandedForm((prev) => ({
+                            ...prev,
+                            materials: prev.materials.map((row, rowIndex) => (
+                              rowIndex === index
+                                ? { ...row, estimated_material_amount: parseNumberInput(e.target.value) }
+                                : row
+                            )),
+                          }))}
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="label">{t("page.planning.materialEstimateUnit")}</label>
+                        <input className="input" value={selectedBatch?.unit || DEFAULT_MATERIAL_UNIT} readOnly />
+                      </div>
+                      <button
+                        type="button"
+                        className="btn h-9 w-9 p-0"
+                        onClick={() => removeBrandedMaterial(index)}
+                        disabled={brandedForm.materials.length === 1}
+                        aria-label={t("common.remove")}
+                        title={t("common.remove")}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

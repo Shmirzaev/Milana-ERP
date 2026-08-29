@@ -25,6 +25,7 @@ class User(Base, PkMixin, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role_id: Mapped[int | None] = mapped_column(ForeignKey("roles.id"), nullable=True)
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), nullable=True)
+    factory_code: Mapped[str] = mapped_column(String(3), nullable=False, default="MIL", server_default="MIL", index=True)
     extra_permissions: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -39,7 +40,13 @@ class User(Base, PkMixin, TimestampMixin):
 
 class Employee(Base, PkMixin, TimestampMixin):
     __tablename__ = "employees"
+    __table_args__ = (
+        UniqueConstraint("factory_code", "employee_no", name="uq_employees_factory_employee_no"),
+    )
+
+    factory_code: Mapped[str] = mapped_column(String(3), nullable=False, default="MIL", server_default="MIL", index=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    employee_no: Mapped[str | None] = mapped_column(String(32), index=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), nullable=True)
     position: Mapped[str | None] = mapped_column(String(128))
@@ -47,6 +54,20 @@ class Employee(Base, PkMixin, TimestampMixin):
     salary: Mapped[float | None] = mapped_column(Numeric(12, 2))
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
     joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Additive HR profile data. Existing operational columns above stay the
+    # source of truth for payroll/production compatibility.
+    manager_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True)
+    hr_position_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "hr_positions.id",
+            ondelete="SET NULL",
+            name="fk_employees_hr_position_id",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
+    )
+    hr_profile_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class AuditLog(Base, PkMixin):

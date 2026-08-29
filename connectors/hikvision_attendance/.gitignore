@@ -1,0 +1,5 @@
+.venv/
+config.json
+secrets.dpapi.json
+state.json
+*.log

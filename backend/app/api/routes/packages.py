@@ -10,13 +10,33 @@ import os
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions, is_admin
 from app.core.config import settings
 from app.core.dt import date_filter_bounds
-from app.models import Customer, Package, PackageChangeRequest, Model, ModelBOM, ProductionOrder, ProductionBatch, SalesOrder, User
+from app.core.model_search import (
+    model_code_contains,
+    normalized_model_code_column,
+    normalized_model_code_pattern,
+)
+from app.models import (
+    Customer,
+    Package,
+    PackageBarcodeAlias,
+    PackageChangeRequest,
+    PackageScanLog,
+    Model,
+    ModelBOM,
+    ProductionOrder,
+    ProductionBatch,
+    SalesOrder,
+    StockBatch,
+    User,
+)
 from app.schemas.tracking import (
     PackageIn,
     PackageBulkIn,
     PackageOut,
     PackageDetail,
     PackageBatchReceiveStorageIn,
+    PackageReceivingQueueRemoveIn,
+    PackageReceivingQueueScanIn,
     PackageBatchStoragePlacementIn,
     PackageReceiveStorageIn,
     PackageStoragePlacementIn,
@@ -40,13 +60,22 @@ from app.services.packages import (
     reject_package_change_request,
 )
 from app.services.barcode import save_qr_image
-from app.services.label_images import material_label_image_src
+from app.services.label_images import variant_label_image_src
 from app.services.model_images import model_display_image_url
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.legacy_stock import package_legacy_identity
+from app.services.packaging_scope import (
+    packaging_department_for_order,
+    packaging_department_scope,
+    require_package_access,
+)
 
 router = APIRouter(prefix="/packages", tags=["packages"])
+_RECEIVING_QUEUE_EVENTS = (
+    "queued_storage",
+    "removed_storage_queue",
+    "received_storage",
+)
 
 
 def _package_context(db: DbSession, pkg: Package) -> dict:
@@ -61,15 +90,14 @@ def _package_context(db: DbSession, pkg: Package) -> dict:
         if pkg.model_id
         else None
     )
-    legacy_identity = package_legacy_identity(db, pkg) if not model else {}
     return {
         "production_no": po.production_no if po else None,
         "sales_order_no": so.order_no if so else None,
         "order_no": so.order_no if so else (po.order_no if po else None),
         "customer_name": customer.name if customer else None,
         "order_type": so.order_type if so else (po.production_type if po else None),
-        "model_code": model.code if model else legacy_identity.get("model_code"),
-        "model_name": model.name if model else legacy_identity.get("model_name"),
+        "model_code": model.code if model else None,
+        "model_name": model.name if model else None,
         "model_image_url": model_display_image_url(model),
     }
 
@@ -86,8 +114,74 @@ def _package_detail_payload(db: DbSession, pkg: Package) -> dict:
     return data
 
 
+def _receiving_queue_packages(db: DbSession) -> list[Package]:
+    latest_event = (
+        db.query(
+            PackageScanLog.package_id.label("package_id"),
+            func.max(PackageScanLog.id).label("event_id"),
+        )
+        .filter(PackageScanLog.scan_type.in_(_RECEIVING_QUEUE_EVENTS))
+        .group_by(PackageScanLog.package_id)
+        .subquery()
+    )
+    return (
+        db.query(Package)
+        .join(latest_event, latest_event.c.package_id == Package.id)
+        .join(PackageScanLog, PackageScanLog.id == latest_event.c.event_id)
+        .filter(
+            Package.status == "packed",
+            PackageScanLog.scan_type == "queued_storage",
+        )
+        .order_by(PackageScanLog.id.desc())
+        .all()
+    )
+
+
+def _package_for_receiving_scan(db: DbSession, raw_code: str) -> Package | None:
+    for candidate in _package_lookup_candidates(raw_code):
+        pkg = (
+            db.query(Package)
+            .filter((Package.barcode == candidate) | (Package.package_no == candidate))
+            .first()
+        )
+        if pkg:
+            return pkg
+
+        alias_ids = [
+            int(package_id)
+            for (package_id,) in (
+                db.query(PackageBarcodeAlias.package_id)
+                .filter(PackageBarcodeAlias.code == candidate)
+                .order_by(PackageBarcodeAlias.package_id.asc())
+                .all()
+            )
+        ]
+        if len(alias_ids) == 1:
+            return db.get(Package, alias_ids[0])
+        if len(alias_ids) > 1:
+            raise HTTPException(409, "This legacy barcode matches more than one package. Scan the package QR label instead.")
+    return None
+
+
+def _latest_receiving_queue_event(db: DbSession, package_id: int) -> PackageScanLog | None:
+    return (
+        db.query(PackageScanLog)
+        .filter(
+            PackageScanLog.package_id == package_id,
+            PackageScanLog.scan_type.in_(_RECEIVING_QUEUE_EVENTS),
+        )
+        .order_by(PackageScanLog.id.desc())
+        .first()
+    )
+
+
 def _h(value) -> str:
-    return escape(str(value or ""), quote=True)
+    escaped = escape(str(value or ""), quote=True)
+    # Label sheets are opened through Blob URLs before printing. Some Windows
+    # print-preview paths decode those Blob documents with a legacy code page,
+    # corrupting Cyrillic model and product names. Numeric references keep the
+    # dynamic HTML source ASCII while rendering the exact Unicode text.
+    return escaped.encode("ascii", "xmlcharrefreplace").decode("ascii")
 
 
 def _qr_data_uri_for_package(db: DbSession, pkg: Package) -> str:
@@ -130,11 +224,11 @@ def _label_model(db: DbSession, model_id: int | None) -> Model | None:
     )
 
 
-def _material_picture_html(model: Model | None) -> str:
-    src = material_label_image_src(model)
+def _variant_picture_html(model: Model | None) -> str:
+    src = variant_label_image_src(model)
     if not src:
-        return ""
-    return f"<div class='material-picture'><img src='{_h(src)}' alt='Material picture'/></div>"
+        return "<div class='variant-picture variant-picture--empty' aria-label='No variant picture'>No picture</div>"
+    return f"<div class='variant-picture'><img src='{_h(src)}' alt='Variant picture'/></div>"
 
 
 def _format_weight_kg(value) -> str:
@@ -145,6 +239,140 @@ def _format_weight_kg(value) -> str:
     except (TypeError, ValueError):
         return ""
     return f"{weight:.4f}".rstrip("0").rstrip(".") + " kg"
+
+
+def _model_general_value(model: Model | None, *keys: str) -> str:
+    details = model.details_json if model and isinstance(model.details_json, dict) else {}
+    general = details.get("general") if isinstance(details.get("general"), dict) else {}
+    for key in keys:
+        value = str(general.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _composition_label(item) -> str:
+    parts = []
+    rows = item.composition_json if item and isinstance(item.composition_json, list) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        try:
+            percentage = float(row.get("percentage") or 0)
+        except (TypeError, ValueError):
+            percentage = 0.0
+        if name:
+            number = str(int(percentage)) if percentage.is_integer() else f"{percentage:g}"
+            parts.append(f"{number}% {name}" if percentage else name)
+    return ", ".join(parts)
+
+
+def _package_label_details(db: DbSession, pkg: Package, model: Model | None) -> dict[str, str]:
+    po = db.get(ProductionOrder, pkg.production_order_id) if pkg.production_order_id else None
+    sales_order_id = pkg.sales_order_id or (po.sales_order_id if po else None)
+    so = db.get(SalesOrder, sales_order_id) if sales_order_id else None
+    customer = db.get(Customer, so.customer_id) if so and so.customer_id else None
+
+    fabric_item = None
+    if po and po.fabric_batch_id:
+        fabric_batch = db.get(StockBatch, po.fabric_batch_id)
+        fabric_item = fabric_batch.item if fabric_batch else None
+    if not fabric_item and model:
+        fabric_row = next(
+            (
+                row
+                for row in (model.bom or [])
+                if row.item and str(row.item.category or "").lower() in {"fabric", "semi_finished"}
+            ),
+            None,
+        )
+        fabric_item = fabric_row.item if fabric_row else None
+
+    fabric_name = str((fabric_item.name or fabric_item.sku) if fabric_item else "").strip()
+    composition = _composition_label(fabric_item)
+    fabric = " - ".join(part for part in (fabric_name, composition) if part)
+    model_code = _model_general_value(model, "model_no", "modelNo") or (model.code if model else "")
+    article = _model_general_value(model, "variant_no", "variantNo", "article", "artikul")
+    product = (model.product_type or model.name) if model else ""
+    order_no = (so.order_no if so else None) or (po.production_no if po else None)
+    return {
+        "client": customer.name if customer else "MILANA",
+        "order": str(order_no or "-"),
+        "model": str(model_code or "-"),
+        "article": article or "-",
+        "product": str(product or "-"),
+        "fabric": fabric or "-",
+    }
+
+
+def _size_breakdown_html(pkg: Package) -> str:
+    cells = "".join(
+        f"<span class='size-cell'><b>{_h(item.size)}</b></span>"
+        for item in pkg.items
+    )
+    return f"<div class='size-grid'>{cells}</div>" if cells else "-"
+
+
+_PACKAGE_LABEL_CSS = """
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#fff;color:#111;font-family:"DejaVu Sans",sans-serif}
+.label{width:98.5mm;height:142mm;border:1.1px solid #111;display:grid;grid-template-rows:6mm 97mm 1fr;overflow:hidden;break-inside:avoid;page-break-inside:avoid;background:#fff}
+.label-head{padding:0 2mm;background:#f0f0f0;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #111;font-size:9pt;font-weight:700;line-height:1}
+.label-head span:last-child{font-size:6.8pt;letter-spacing:.04em}
+.details{width:100%;height:97mm;border-collapse:collapse;table-layout:fixed;font-size:8.2pt}
+.details tr{height:7mm}
+.details tr.h8{height:8mm}.details tr.h10{height:10mm}.details tr.h12{height:12mm}.details tr.h22{height:22mm}
+.details th,.details td{border-bottom:1px solid #111;padding:.8mm 1.5mm;vertical-align:middle;text-align:left;line-height:1.08}
+.details th{width:28mm;border-right:1px solid #111;font-weight:700;white-space:nowrap}
+.details td{font-weight:700;overflow-wrap:anywhere}
+.details tr:last-child th,.details tr:last-child td{border-bottom:0}
+.details .value-right{text-align:right;font-size:10pt}.details .value-large{font-size:13pt}
+.size-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border:1px solid #111;border-right:0;border-bottom:0}
+.size-cell{min-width:0;border-right:1px solid #111;border-bottom:1px solid #111;text-align:center;padding:.7mm .35mm;line-height:1}
+.size-cell b{display:block;font-size:10pt;overflow-wrap:anywhere}
+.scan-panel{min-height:0;border-top:1px solid #111;padding:2mm;display:grid;grid-template-columns:31mm 24mm minmax(0,1fr);gap:2mm;align-items:center}
+.qr img{display:block;width:31mm;height:31mm;object-fit:contain}
+.variant-wrap{height:31mm;display:flex;flex-direction:column;align-items:stretch;justify-content:center;min-width:0}
+.variant-caption{height:4mm;display:flex;align-items:center;justify-content:center;font-size:6.5pt;font-weight:700;line-height:1}
+.variant-picture{height:27mm;border:1px solid #777;padding:1mm;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.variant-picture img{display:block;width:100%;height:100%;object-fit:contain}
+.variant-picture--empty{font-size:6.5pt;color:#666;text-align:center}
+.package-code{min-width:0;align-self:stretch;display:flex;flex-direction:column;justify-content:center;overflow-wrap:anywhere;line-height:1.15}
+.package-code small{font-size:6.3pt;font-weight:700}.package-code b{margin-top:1.4mm;font-size:9pt}.package-code span{margin-top:1.2mm;font-size:7.4pt;font-weight:700}
+.print-button{margin:4mm 0;padding:2mm 4mm;border:1px solid #111;background:#fff;border-radius:5px;font:9pt "DejaVu Sans",sans-serif;cursor:pointer}
+@media print{.print-button{display:none}}
+"""
+
+
+def _package_label_card_html(db: DbSession, pkg: Package) -> str:
+    model = _label_model(db, pkg.model_id)
+    details = _package_label_details(db, pkg, model)
+    qr = _qr_data_uri_for_package(db, pkg)
+    picture = _variant_picture_html(model)
+    batches = _batch_allocations_html(db, pkg) or "-"
+    weight = _format_weight_kg(pkg.weight_kg) or "-"
+    return f"""
+<article class='label' data-package='{_h(pkg.package_no)}'>
+  <header class='label-head'><span>MILANA ERP</span><span>PACKAGE LABEL</span></header>
+  <table class='details'>
+    <tr><th>Client</th><td class='value-right'>{_h(details['client'])}</td></tr>
+    <tr><th>Order number</th><td class='value-right'>{_h(details['order'])}</td></tr>
+    <tr class='h8'><th>Model number</th><td class='value-right value-large'>{_h(details['model'])}</td></tr>
+    <tr class='h8'><th>Article</th><td class='value-right value-large'>{_h(details['article'])}</td></tr>
+    <tr class='h8'><th>Color</th><td class='value-right'>{_h(pkg.color)}</td></tr>
+    <tr class='h10'><th>Product</th><td>{_h(details['product'])}</td></tr>
+    <tr class='h12'><th>Fabric</th><td>{_h(details['fabric'])}</td></tr>
+    <tr class='h8'><th>Batch</th><td class='value-right'>{batches}</td></tr>
+    <tr class='h22'><th>Size</th><td>{_size_breakdown_html(pkg)}</td></tr>
+    <tr><th>Weight</th><td class='value-right'>{_h(weight)}</td></tr>
+  </table>
+  <section class='scan-panel'>
+    <div class='qr'><img src='{qr}' alt='Package QR'></div>
+    <div class='variant-wrap'><div class='variant-caption'>VARIANT</div>{picture}</div>
+    <div class='package-code'><small>SCAN PACKAGE QR</small><b>{_h(pkg.package_no)}</b><span>{_h(pkg.barcode)}</span></div>
+  </section>
+</article>"""
 
 
 def _ensure_package_qr_url(db: DbSession, pkg: Package) -> str:
@@ -197,7 +425,7 @@ def _batch_allocations_html(db: DbSession, pkg: Package) -> str:
         return ""
 
     parts = []
-    for batch_id, quantity in rows:
+    for batch_id, _quantity in rows:
         batch = db.get(ProductionBatch, batch_id)
         if batch:
             label = batch.batch_no
@@ -205,16 +433,18 @@ def _batch_allocations_html(db: DbSession, pkg: Package) -> str:
                 label = f"{label} - {batch.name}"
         else:
             label = f"Batch #{batch_id}"
-        parts.append(f"{_h(label)}: {_h(quantity)}")
+        parts.append(_h(label))
     return "<br>".join(parts)
 
 
 @router.get("")
-def list_packages(db: DbSession, _: CurrentUser,
+def list_packages(db: DbSession, current: CurrentUser,
                   status: str | None = None, production_order_id: int | None = None,
                   created_from: date | None = None, created_to: date | None = None,
-                  page: int = 1, page_size: int = 50, include_total: bool = False):
-    qry = db.query(Package)
+                  page: int = 1, page_size: int = 50, include_total: bool = False,
+                  packaging_department_code: str | None = None):
+    department_code = packaging_department_scope(current, packaging_department_code)
+    qry = db.query(Package).filter(Package.packaging_department_code == department_code)
     if status: qry = qry.filter(Package.status == status)
     if production_order_id: qry = qry.filter(Package.production_order_id == production_order_id)
     start, end = date_filter_bounds(created_from, created_to)
@@ -267,6 +497,10 @@ def create_pkg(
     current: User = Depends(require_permissions("packaging.packages", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    department_code = packaging_department_for_order(
+        db, payload.production_order_id, payload.production_batch_id
+    )
+    packaging_department_scope(current, department_code)
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="packages.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
@@ -290,6 +524,7 @@ def create_pkg(
         is_admin=is_admin(current),
         user_id=current.id,
         notes=payload.notes,
+        packaging_department_code=department_code,
     )
     log_action(db, current, "create", "Package", pkg.id, new_value={"package_no": pkg.package_no})
     response = _package_out_payload(db, pkg)
@@ -313,6 +548,10 @@ def create_pkg_bulk(
     current: User = Depends(require_permissions("packaging.packages", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    department_code = packaging_department_for_order(
+        db, payload.production_order_id, payload.production_batch_id
+    )
+    packaging_department_scope(current, department_code)
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="packages.bulk-create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
@@ -338,6 +577,7 @@ def create_pkg_bulk(
         is_admin=is_admin(current),
         user_id=current.id,
         notes=payload.notes,
+        packaging_department_code=department_code,
     )
     for p in pkgs:
         log_action(db, current, "create", "Package", p.id, new_value={"package_no": p.package_no, "mode": "bulk"})
@@ -372,7 +612,7 @@ def storage_map(
     ready_statuses = ["packed", "received_in_storage", "reserved"]
     query = (
         db.query(Package, Model, SalesOrder, ProductionOrder)
-        .outerjoin(Model, Model.id == Package.model_id)
+        .join(Model, Model.id == Package.model_id)
         .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
         .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
         .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
@@ -398,9 +638,8 @@ def storage_map(
     matches: list[dict] = []
     by_cell: dict[str, list[dict]] = {}
     for pkg, model, sales_order, production_order in query.all():
-        legacy_identity = package_legacy_identity(db, pkg) if not model else {}
-        model_code = model.code if model else legacy_identity.get("model_code")
-        model_name = model.name if model else legacy_identity.get("model_name")
+        model_code = model.code if model else None
+        model_name = model.name if model else None
         fields = [
             model_code or "",
             model_name or "",
@@ -411,7 +650,10 @@ def storage_map(
             pkg.storage_cell or "",
             pkg.storage_shelf or "",
         ]
-        matched = bool(q) and any(q in f.lower() for f in fields)
+        matched = bool(q) and (
+            model_code_contains(model_code, q)
+            or any(q in f.lower() for f in fields[1:])
+        )
         row = {
             "id": pkg.id,
             "package_no": pkg.package_no,
@@ -456,7 +698,6 @@ def storage_map(
             )
             .filter(
                 Package.legacy_receipt_id.isnot(None),
-                Package.model_id.isnot(None),
                 Package.storage_cell.is_(None),
                 Package.status.in_(ready_statuses),
             )
@@ -545,61 +786,6 @@ def storage_map(
             if matched:
                 matches.append(row)
 
-        model_less_query = (
-            db.query(Package)
-            .filter(
-                Package.legacy_receipt_id.isnot(None),
-                Package.model_id.is_(None),
-                Package.storage_cell.is_(None),
-                Package.status.in_(ready_statuses),
-            )
-            .order_by(Package.id.desc())
-        )
-        if start:
-            model_less_query = model_less_query.filter(Package.created_at >= start)
-        if end:
-            model_less_query = model_less_query.filter(Package.created_at <= end)
-        for package in model_less_query.all():
-            identity = package_legacy_identity(db, package)
-            model_code = identity.get("model_code")
-            model_name = identity.get("model_name")
-            fields = [
-                model_code or "",
-                model_name or "",
-                package.package_no or "",
-                package.barcode or "",
-                package.color or "",
-            ]
-            matched = bool(q) and any(q in field.lower() for field in fields)
-            row = {
-                "id": package.id,
-                "package_no": package.package_no,
-                "barcode": package.barcode,
-                "production_order_id": None,
-                "production_no": None,
-                "sales_order_id": None,
-                "sales_order_no": None,
-                "order_no": None,
-                "model_id": None,
-                "model_code": model_code,
-                "model_name": model_name,
-                "model_image_url": None,
-                "color": package.color,
-                "package_type": package.package_type,
-                "total_quantity": int(package.total_quantity or 0),
-                "package_count": 1,
-                "status": package.status,
-                "created_at": package.created_at,
-                "storage_cell": None,
-                "storage_shelf": None,
-                "storage_placed_at": None,
-                "location": "",
-                "matched": matched,
-            }
-            placements.append(row)
-            if matched:
-                matches.append(row)
-
     cells: list[dict] = []
     for zone, size in WAREHOUSE_MAP_LAYOUT:
         for idx in range(1, size + 1):
@@ -654,50 +840,55 @@ def find_on_storage_map(
     needle = q.strip()
     if not needle:
         raise HTTPException(400, "q is required")
-    normalized_needle = needle.lower()
+    like = f"%{needle}%"
+    model_code_like = normalized_model_code_pattern(needle)
     rows = (
         db.query(Package, Model)
-        .outerjoin(Model, Model.id == Package.model_id)
+        .join(Model, Model.id == Package.model_id)
         .filter(
             Package.storage_cell.isnot(None),
             Package.status.in_(["packed", "received_in_storage", "reserved"]),
+            or_(
+                normalized_model_code_column(Model.code).ilike(model_code_like),
+                Model.name.ilike(like),
+                Package.package_no.ilike(like),
+                Package.barcode.ilike(like),
+            ),
         )
         .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
         .all()
     )
-    result = []
-    for pkg, model in rows:
-        identity = package_legacy_identity(db, pkg) if not model else {}
-        model_code = model.code if model else identity.get("model_code")
-        model_name = model.name if model else identity.get("model_name")
-        fields = [model_code or "", model_name or "", pkg.package_no or "", pkg.barcode or ""]
-        if not any(normalized_needle in field.lower() for field in fields):
-            continue
-        result.append({
+    return [
+        {
             "id": pkg.id,
             "package_no": pkg.package_no,
             "barcode": pkg.barcode,
             "model_id": pkg.model_id,
-            "model_code": model_code,
-            "model_name": model_name,
+            "model_code": model.code if model else None,
+            "model_name": model.name if model else None,
             "color": pkg.color,
             "total_quantity": pkg.total_quantity,
             "status": pkg.status,
             "storage_cell": pkg.storage_cell,
             "storage_shelf": pkg.storage_shelf,
             "location": format_storage_location(pkg.storage_cell, pkg.storage_shelf),
-        })
-    return result
+        }
+        for pkg, model in rows
+    ]
 
 
 @router.get("/change-requests", response_model=list[PackageChangeRequestOut])
 def list_package_change_requests(
     db: DbSession,
-    _: CurrentUser,
+    current: CurrentUser,
     status: str | None = "pending",
     package_id: int | None = None,
+    packaging_department_code: str | None = None,
 ):
-    qry = db.query(PackageChangeRequest)
+    department_code = packaging_department_scope(current, packaging_department_code)
+    qry = db.query(PackageChangeRequest).join(Package, Package.id == PackageChangeRequest.package_id).filter(
+        Package.packaging_department_code == department_code
+    )
     if status and status != "all":
         qry = qry.filter(PackageChangeRequest.status == status)
     if package_id is not None:
@@ -715,6 +906,7 @@ def request_package_change(
     p = db.get(Package, pid)
     if not p:
         raise HTTPException(404, "Package not found")
+    require_package_access(current, p)
     payload_dict = payload.payload.model_dump(exclude_unset=True) if payload.payload else None
     req = create_package_change_request(
         db,
@@ -748,6 +940,9 @@ def approve_package_change(
     req = db.get(PackageChangeRequest, request_id)
     if not req:
         raise HTTPException(404, "Package change request not found")
+    package = db.get(Package, req.package_id)
+    if package:
+        require_package_access(current, package)
     old_value = {"status": req.status, "package_no": req.package_no, "request_type": req.request_type}
     approve_package_change_request(db, req, user_id=current.id, notes=payload.notes if payload else None)
     log_action(
@@ -779,6 +974,9 @@ def reject_package_change(
     req = db.get(PackageChangeRequest, request_id)
     if not req:
         raise HTTPException(404, "Package change request not found")
+    package = db.get(Package, req.package_id)
+    if package:
+        require_package_access(current, package)
     old_value = {"status": req.status, "package_no": req.package_no, "request_type": req.request_type}
     reject_package_change_request(db, req, user_id=current.id, notes=payload.notes if payload else None)
     log_action(
@@ -798,6 +996,105 @@ def reject_package_change(
     db.commit()
     db.refresh(req)
     return req
+
+
+@router.get("/receiving-queue", response_model=list[PackageDetail])
+def receiving_queue(
+    db: DbSession,
+    _: User = Depends(require_permissions("storage.packages", "*")),
+):
+    return [_package_detail_payload(db, pkg) for pkg in _receiving_queue_packages(db)]
+
+
+@router.post("/receiving-queue/scan", response_model=PackageDetail)
+def scan_into_receiving_queue(
+    payload: PackageReceivingQueueScanIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("storage.packages", "*")),
+):
+    raw_code = str(payload.code or "").strip()
+    if not raw_code:
+        raise HTTPException(400, "Package barcode is required")
+
+    found = _package_for_receiving_scan(db, raw_code)
+    if not found:
+        raise HTTPException(404, "Package not found")
+    pkg = (
+        db.query(Package)
+        .filter(Package.id == found.id)
+        .with_for_update()
+        .first()
+    )
+    if not pkg:
+        raise HTTPException(404, "Package not found")
+    if pkg.status != "packed":
+        raise HTTPException(
+            409,
+            f"Package {pkg.package_no} is already in status '{pkg.status}' and cannot be scanned for receiving.",
+        )
+
+    latest_event = _latest_receiving_queue_event(db, int(pkg.id))
+    if latest_event and latest_event.scan_type == "queued_storage":
+        raise HTTPException(409, f"Package {pkg.package_no} is already scanned and waiting for receiving.")
+
+    db.add(
+        PackageScanLog(
+            package_id=pkg.id,
+            scanned_by=current.id,
+            scan_type="queued_storage",
+        )
+    )
+    log_action(
+        db,
+        current,
+        "scan_receiving_queue",
+        "Package",
+        pkg.id,
+        new_value={"package_no": pkg.package_no},
+    )
+    db.commit()
+    db.refresh(pkg)
+    return _package_detail_payload(db, pkg)
+
+
+@router.post("/receiving-queue/remove")
+def remove_from_receiving_queue(
+    payload: PackageReceivingQueueRemoveIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("storage.packages", "*")),
+):
+    requested_ids = {int(package_id) for package_id in payload.package_ids if int(package_id or 0) > 0}
+    if not requested_ids:
+        return {"count": 0, "packages": [_package_detail_payload(db, pkg) for pkg in _receiving_queue_packages(db)]}
+
+    active_by_id = {int(pkg.id): pkg for pkg in _receiving_queue_packages(db)}
+    removed = 0
+    for package_id in sorted(requested_ids):
+        pkg = active_by_id.get(package_id)
+        if not pkg:
+            continue
+        db.add(
+            PackageScanLog(
+                package_id=pkg.id,
+                scanned_by=current.id,
+                scan_type="removed_storage_queue",
+            )
+        )
+        log_action(
+            db,
+            current,
+            "remove_receiving_queue",
+            "Package",
+            pkg.id,
+            old_value={"package_no": pkg.package_no, "queued": True},
+            new_value={"queued": False},
+        )
+        removed += 1
+    db.commit()
+    return {
+        "count": removed,
+        "packages": [_package_detail_payload(db, pkg) for pkg in _receiving_queue_packages(db)],
+    }
 
 
 @router.post("/batch/receive-storage")
@@ -904,17 +1201,19 @@ def api_batch_place_on_map(
 
 
 @router.get("/{pid}", response_model=PackageDetail)
-def get_pkg(pid: int, db: DbSession, _: CurrentUser):
+def get_pkg(pid: int, db: DbSession, current: CurrentUser):
     p = db.get(Package, pid)
     if not p: raise HTTPException(404, "Package not found")
+    require_package_access(current, p)
     return _package_detail_payload(db, p)
 
 
 @router.get("/barcode/{code}", response_model=PackageDetail)
-def get_pkg_by_barcode(code: str, db: DbSession, _: CurrentUser):
+def get_pkg_by_barcode(code: str, db: DbSession, current: CurrentUser):
     for candidate in _package_lookup_candidates(code):
         p = db.query(Package).filter((Package.barcode == candidate) | (Package.package_no == candidate)).first()
         if p:
+            require_package_access(current, p)
             return _package_detail_payload(db, p)
     raise HTTPException(404, "Package not found")
 
@@ -1119,9 +1418,10 @@ def api_damaged(
 
 
 @router.get("/{pid}/history")
-def history(pid: int, db: DbSession, _: CurrentUser):
+def history(pid: int, db: DbSession, current: CurrentUser):
     p = db.get(Package, pid)
     if not p: raise HTTPException(404, "Package not found")
+    require_package_access(current, p)
     return [
         {"id": s.id, "scan_type": s.scan_type, "scanned_by": s.scanned_by, "scanned_at": s.scanned_at, "location": s.location}
         for s in p.scan_logs
@@ -1129,43 +1429,28 @@ def history(pid: int, db: DbSession, _: CurrentUser):
 
 
 @router.get("/{pid}/label", response_class=HTMLResponse)
-def label(pid: int, db: DbSession, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
+def label(pid: int, db: DbSession, current: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
     p = db.get(Package, pid)
     if not p: raise HTTPException(404, "Package not found")
-    model = _label_model(db, p.model_id)
-    legacy_identity = package_legacy_identity(db, p) if not model else {}
-    sizes = "<br>".join(f"{_h(it.size)}: {_h(it.quantity)}" for it in p.items)
-    batches = _batch_allocations_html(db, p)
-    batch_block = f'<div style="margin-top:3mm;font-size:9pt"><b>Batches:</b><br>{batches}</div>' if batches else ""
-    qr = _qr_data_uri_for_package(db, p)
+    require_package_access(current, p)
     package_no = _h(p.package_no)
-    model_code = _h(model.code if model else legacy_identity.get("model_code"))
-    color = _h(p.color)
-    total_quantity = _h(p.total_quantity)
-    weight = _h(_format_weight_kg(p.weight_kg))
-    weight_row = f'<div class="row"><b>Weight</b><span>{weight}</span></div>' if weight else ""
-    barcode = _h(p.barcode)
-    picture = _material_picture_html(model)
+    card = _package_label_card_html(db, p)
+    cards = card * 4
     return f"""<!doctype html>
-<html><head><title>Package Label {package_no}</title>
-<style>@page{{margin:8mm}} body{{font-family:Arial;margin:0;padding:8mm}} .label{{box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;border:1px solid #000;padding:6mm;width:90mm}} .row{{display:flex;justify-content:space-between;font-size:10pt}} .label-visuals{{display:flex;align-items:flex-end;justify-content:center;gap:2mm;margin-top:4mm}} .qr img{{display:block;width:50mm;height:50mm;object-fit:contain}} .material-picture img{{display:block;width:25mm;height:25mm;object-fit:contain}} .material-picture{{box-sizing:border-box;width:27mm;height:27mm;border:1px solid #ddd;padding:1mm;display:flex;align-items:center;justify-content:center}} h2{{margin:0 0 4mm 0;font-size:14pt}}@media print{{body{{margin:0;padding:0}} button{{display:none}}}}</style></head>
-<body><div class=\"label\">
-<h2>MILANA ERP</h2>
-<div class=\"row\"><b>Package</b><span>{package_no}</span></div>
-<div class=\"row\"><b>Model</b><span>{model_code}</span></div>
-<div class=\"row\"><b>Color</b><span>{color}</span></div>
-<div class=\"row\"><b>Total Qty</b><span>{total_quantity}</span></div>
-{weight_row}
-<div style=\"margin-top:3mm;font-size:9pt\"><b>Sizes:</b><br>{sizes}</div>
-{batch_block}
-<div class=\"row\" style=\"margin-top:3mm\"><b>Barcode</b><span>{barcode}</span></div>
-<div class=\"label-visuals\">{picture}<div class=\"qr\"><img src=\"{qr}\" alt=\"QR\"/></div></div>
-<button onclick=\"window.print()\">Print</button>
-</div></body></html>"""
+<html><head><meta charset='utf-8'><title>Package Label {package_no}</title>
+<style>
+@page{{size:A4 portrait;margin:5mm}}
+{_PACKAGE_LABEL_CSS}
+.sheet{{display:grid;grid-template-columns:repeat(2,98.5mm);grid-template-rows:repeat(2,142mm);gap:3mm;justify-content:center;align-content:start}}
+</style></head>
+<body>
+<div class='sheet'>{cards}</div>
+<button class='print-button' onclick='window.print()'>Print</button>
+</body></html>"""
 
 
 @router.get("/label-sheet/by-ids", response_class=HTMLResponse)
-def label_sheet(ids: str, db: DbSession, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
+def label_sheet(ids: str, db: DbSession, current: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
     raw_ids = [s.strip() for s in (ids or "").split(",") if s.strip()]
     try:
         parsed_ids = [int(v) for v in raw_ids]
@@ -1182,56 +1467,18 @@ def label_sheet(ids: str, db: DbSession, _: User = Depends(require_permissions(*
     )
     if not rows:
         raise HTTPException(404, "No packages found")
+    for package in rows:
+        require_package_access(current, package)
 
-    cards = []
-    for p in rows:
-        model = _label_model(db, p.model_id)
-        legacy_identity = package_legacy_identity(db, p) if not model else {}
-        qr = _qr_data_uri_for_package(db, p)
-        sizes = "<br>".join(f"{_h(it.size)}: {_h(it.quantity)}" for it in p.items)
-        batches = _batch_allocations_html(db, p)
-        batch_block = f"<div style='margin-top:2mm;font-size:9pt'><b>Batches:</b><br>{batches}</div>" if batches else ""
-        package_no = _h(p.package_no)
-        model_code = _h(model.code if model else legacy_identity.get("model_code"))
-        color = _h(p.color)
-        total_quantity = _h(p.total_quantity)
-        weight = _h(_format_weight_kg(p.weight_kg))
-        weight_row = f"<div class='row'><b>Weight</b><span>{weight}</span></div>" if weight else ""
-        barcode = _h(p.barcode)
-        picture = _material_picture_html(model)
-        cards.append(
-            f"""
-            <div class='label'>
-              <h2>MILANA ERP</h2>
-              <div class='row'><b>Package</b><span>{package_no}</span></div>
-              <div class='row'><b>Model</b><span>{model_code}</span></div>
-              <div class='row'><b>Color</b><span>{color}</span></div>
-              <div class='row'><b>Total Qty</b><span>{total_quantity}</span></div>
-              {weight_row}
-              <div style='margin-top:2mm;font-size:9pt'><b>Sizes:</b><br>{sizes}</div>
-              {batch_block}
-              <div class='row' style='margin-top:2mm'><b>Barcode</b><span>{barcode}</span></div>
-              <div class='label-visuals'>{picture}<div class='qr'><img src='{qr}' alt='QR'/></div></div>
-            </div>
-            """
-        )
+    cards = [_package_label_card_html(db, p) for p in rows]
     return f"""<!doctype html>
-<html><head><title>Package Label Sheet</title>
+<html><head><meta charset='utf-8'><title>Package Label Sheet</title>
 <style>
-@page{{size:A4;margin:6mm}}
-html,body{{font-family:Arial;margin:0;padding:0}}
-.sheet{{font-size:0}}
-.label{{display:inline-block;vertical-align:top;box-sizing:border-box;width:96mm;height:132mm;overflow:hidden;margin:0 4mm 4mm 0;border:1px solid #000;padding:5mm;font-size:10pt;break-inside:avoid;page-break-inside:avoid}}
-.label:nth-child(2n){{margin-right:0}}
-.row{{display:flex;justify-content:space-between;font-size:10pt}}
-.label-visuals{{display:flex;align-items:flex-end;justify-content:center;gap:2mm;margin-top:3mm}}
-.qr img{{display:block;width:45mm;height:45mm;object-fit:contain}}
-.material-picture img{{display:block;width:25mm;height:25mm;object-fit:contain}}
-.material-picture{{box-sizing:border-box;width:27mm;height:27mm;border:1px solid #ddd;padding:1mm;display:flex;align-items:center;justify-content:center}}
-h2{{margin:0 0 3mm 0;font-size:13pt}}
-@media print{{button{{display:none}} .label{{break-inside:avoid;page-break-inside:avoid}}}}
+@page{{size:A4 portrait;margin:5mm}}
+{_PACKAGE_LABEL_CSS}
+.sheet{{display:grid;grid-template-columns:repeat(2,98.5mm);grid-template-rows:repeat(2,142mm);gap:3mm;justify-content:center;align-content:start}}
 </style></head>
 <body>
 <div class='sheet'>{''.join(cards)}</div>
-<button onclick="window.print()" style="margin-top:6mm">Print</button>
+<button class='print-button' onclick='window.print()'>Print</button>
 </body></html>"""

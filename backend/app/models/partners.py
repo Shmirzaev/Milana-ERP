@@ -1,4 +1,4 @@
-from sqlalchemy import String, Text
+from sqlalchemy import Boolean, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -20,3 +20,4 @@ class Supplier(Base, PkMixin, TimestampMixin):
     email: Mapped[str | None] = mapped_column(String(255))
     address: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

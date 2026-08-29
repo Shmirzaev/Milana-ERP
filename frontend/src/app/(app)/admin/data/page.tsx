@@ -416,7 +416,7 @@ export default function SuperDataPage() {
           setDeleteMsg("");
         }}
       />
-      {deleteMsg ? <div className="fixed bottom-4 right-4 z-50 rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-sm">{deleteMsg}</div> : null}
+      {deleteMsg ? <div className="fixed bottom-16 left-3 right-3 z-50 max-w-[calc(100vw-1.5rem)] rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-sm sm:bottom-24 sm:left-auto sm:right-6 sm:max-w-md">{deleteMsg}</div> : null}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import BrandedPlanningOrder, Customer, User, SalesOrder
+from app.models import BrandedPlanningOrder, Customer, Model, User, SalesOrder
 from app.schemas.production import (
     BrandedPlanningOrderIn,
     MaterialRequirement,
@@ -17,6 +17,7 @@ from app.services.production import (
     printing_attachments_for_storage,
 )
 from app.services.audit import log_action
+from app.services.model_images import material_preview_image_url, model_display_image_url
 from app.services.numbering import next_branded_planning_order_no
 
 router = APIRouter(prefix="/planning", tags=["planning"])
@@ -28,7 +29,38 @@ BRANDED_ORDER_PARTIES = {
 }
 
 
-def _branded_order_payload(order: BrandedPlanningOrder) -> dict:
+def _branded_model_fabric_label(model: Model) -> str | None:
+    for row in sorted(model.bom or [], key=lambda value: int(value.id or 0)):
+        item = getattr(row, "item", None)
+        if str(getattr(item, "category", "") or "").lower() not in {"fabric", "semi_finished"}:
+            continue
+        item_label = str(getattr(item, "name", None) or getattr(item, "sku", None) or "").strip()
+        color = str(row.color or "").strip()
+        label = " / ".join(value for value in (item_label, color) if value)
+        if label:
+            return label
+
+    details = model.details_json if isinstance(model.details_json, dict) else {}
+    general = details.get("general") if isinstance(details.get("general"), dict) else {}
+    return str(general.get("variant_fabric") or general.get("variantFabric") or "").strip() or None
+
+
+def _branded_model_payload(model: Model) -> dict:
+    return {
+        "id": model.id,
+        "code": model.code,
+        "name": model.name,
+        "primary_image_url": model_display_image_url(model),
+        "variant_fabric": _branded_model_fabric_label(model),
+        "fabric_image_url": material_preview_image_url(model),
+    }
+
+
+def _branded_order_payload(
+    order: BrandedPlanningOrder,
+    model_by_id: dict[int, dict] | None = None,
+) -> dict:
+    model_by_id = model_by_id or {}
     productions = sorted(order.production_orders or [], key=lambda row: int(row.id))
     return {
         "id": order.id,
@@ -49,6 +81,7 @@ def _branded_order_payload(order: BrandedPlanningOrder) -> dict:
                 "order_no": row.order_no,
                 "production_no": row.production_no,
                 "model_id": row.model_id,
+                "model": model_by_id.get(int(row.model_id)),
                 "planned_quantity": row.planned_quantity,
                 "status": row.status,
             }
@@ -79,7 +112,22 @@ def list_branded_orders(
     if status:
         query = query.filter(BrandedPlanningOrder.status == status)
     rows = query.order_by(BrandedPlanningOrder.id.desc()).all()
-    return [_branded_order_payload(row) for row in rows]
+    model_ids = {
+        int(production.model_id)
+        for order in rows
+        for production in (order.production_orders or [])
+        if production.model_id
+    }
+    models = (
+        db.query(Model)
+        .options(selectinload(Model.images), selectinload(Model.bom))
+        .filter(Model.id.in_(model_ids))
+        .all()
+        if model_ids
+        else []
+    )
+    model_by_id = {int(model.id): _branded_model_payload(model) for model in models}
+    return [_branded_order_payload(row, model_by_id) for row in rows]
 
 
 @router.post("/branded-orders", status_code=201)
@@ -155,6 +203,7 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
         estimated_material_code=payload.estimated_material_code,
         estimated_material_amount=payload.estimated_material_amount,
         estimated_material_unit=payload.estimated_material_unit,
+        materials=[row.model_dump() for row in payload.materials],
         printing_instructions=payload.printing_instructions,
         printing_attachments=printing_attachments,
         destination_warehouse_id=payload.destination_warehouse_id,
@@ -174,6 +223,7 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
         po.id,
         include_printing=include_printing,
         cutting_department_code=payload.cutting_department_code,
+        sewing_factory_code=payload.sewing_factory_code,
     )
     so.status = "planning"
     log_action(db, current, "create", "ProductionOrder", po.id, new_value={"production_no": po.production_no})
@@ -216,6 +266,7 @@ def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User 
         estimated_material_code=payload.estimated_material_code,
         estimated_material_amount=payload.estimated_material_amount,
         estimated_material_unit=payload.estimated_material_unit,
+        materials=[row.model_dump() for row in payload.materials],
         printing_instructions=payload.printing_instructions,
         printing_attachments=printing_attachments,
         destination_warehouse_id=payload.destination_warehouse_id,
@@ -234,6 +285,7 @@ def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User 
         po.id,
         include_printing=include_printing,
         cutting_department_code=payload.cutting_department_code,
+        sewing_factory_code=payload.sewing_factory_code,
     )
     log_action(
         db, current, "create", "ProductionOrder", po.id,
@@ -241,6 +293,7 @@ def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User 
             "production_no": po.production_no,
             "type": "branded_stock",
             "planning_order_no": planning_order.order_no,
+            "sewing_factory_code": payload.sewing_factory_code,
         },
     )
     db.commit(); db.refresh(po)

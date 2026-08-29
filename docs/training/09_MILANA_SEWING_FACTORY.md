@@ -62,3 +62,4 @@ Use the same sewing output rules as the main Sewing department:
 | Bundle says Besttex | Cutting selected wrong factory or bundle belongs elsewhere | Do not receive; notify supervisor. |
 | No receive action | Bundle not sent or wrong status | Ask previous department to scan/send. |
 | Missing assignment | Planning has not assigned flow | Ask Planning/supervisor. |
+

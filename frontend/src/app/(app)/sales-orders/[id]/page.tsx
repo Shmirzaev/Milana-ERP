@@ -125,7 +125,7 @@ export default function SalesOrderDetail() {
             )}
           </dl>
         </div>
-        <div className="card p-4">
+        <div className="card overflow-x-auto p-4">
           <h3 className="font-medium mb-2">{t("page.soDetail.items")}</h3>
           <table className="table">
             <thead><tr><th>{t("field.model")}</th><th>{t("field.color")}</th><th>{t("field.size")}</th><th>{t("field.qty")}</th><th>{t("field.price")}</th></tr></thead>
@@ -187,7 +187,7 @@ export default function SalesOrderDetail() {
         </div>
       )}
 
-      <div className="card p-4">
+      <div className="card overflow-x-auto p-4">
         <h3 className="font-medium mb-2">{t("page.soDetail.materialReq")}</h3>
         {mr?.some((row) => formatComposition(row.composition)) && (
           <div className="mb-3 rounded-md border border-[#ecebe3] bg-[#fbfaf6] p-3 text-sm">

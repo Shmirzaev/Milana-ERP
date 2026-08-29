@@ -16,6 +16,16 @@ type SearchResult = {
 };
 
 const TYPE_ORDER: SearchResult["type"][] = ["SalesOrder", "Bundle", "Model", "Customer"];
+const INITIAL_RESULTS_PER_TYPE = 30;
+
+function initialVisibleCounts(): Record<SearchResult["type"], number> {
+  return {
+    SalesOrder: INITIAL_RESULTS_PER_TYPE,
+    Bundle: INITIAL_RESULTS_PER_TYPE,
+    Model: INITIAL_RESULTS_PER_TYPE,
+    Customer: INITIAL_RESULTS_PER_TYPE,
+  };
+}
 
 export default function SearchPage() {
   const router = useRouter();
@@ -23,6 +33,7 @@ export default function SearchPage() {
   const { t } = useT();
   const q = (params.get("q") || "").trim();
   const [query, setQuery] = useState(q);
+  const [visibleCounts, setVisibleCounts] = useState(initialVisibleCounts);
   const { data, isLoading } = useSWR<SearchResult[]>(
     q ? `/api/search?q=${encodeURIComponent(q)}` : null,
     fetcher,
@@ -30,6 +41,7 @@ export default function SearchPage() {
 
   useEffect(() => {
     setQuery(q);
+    setVisibleCounts(initialVisibleCounts());
   }, [q]);
 
   const grouped = useMemo(() => {
@@ -83,15 +95,29 @@ export default function SearchPage() {
                 {t(`search.type.${type}`)} ({grouped[type]?.length || 0})
               </div>
               {grouped[type]?.length ? (
-                <ul className="space-y-1">
-                  {grouped[type].map((row) => (
-                    <li key={`${row.type}-${row.id}`}>
-                      <a className="text-sm text-[#3b3528] underline" href={row.url}>
-                        {row.label}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="space-y-1">
+                    {grouped[type].slice(0, visibleCounts[type]).map((row) => (
+                      <li key={`${row.type}-${row.id}`}>
+                        <a className="text-sm text-[#3b3528] underline" href={row.url}>
+                          {row.label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                  {visibleCounts[type] < grouped[type].length && (
+                    <button
+                      type="button"
+                      className="btn mt-3"
+                      onClick={() => setVisibleCounts((current) => ({
+                        ...current,
+                        [type]: Math.min(current[type] + INITIAL_RESULTS_PER_TYPE, grouped[type].length),
+                      }))}
+                    >
+                      {t("common.loadMore")}
+                    </button>
+                  )}
+                </>
               ) : (
                 <div className="text-sm text-slate-500">{t("page.search.noMatches")}</div>
               )}

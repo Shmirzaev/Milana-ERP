@@ -17,6 +17,7 @@ from app.schemas.sewing_daily_report import (
     SewingDailyReportListOut,
     SewingDailyReportOut,
     SewingDailyReportSummaryLine,
+    SewingDailyReportUpdate,
 )
 from app.services.audit import log_action
 from app.services.model_images import material_preview_image_url, model_preview_image_url
@@ -25,15 +26,23 @@ from app.services.sewing_daily_report_exports import (
     build_sewing_daily_report_pdf,
     build_sewing_daily_report_xlsx,
 )
+from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
 
 router = APIRouter(prefix="/sewing-daily-reports", tags=["sewing-daily-reports"])
 
-SECTIONED_LINE_CODES = {"SEW-01", "SEW-06", "SEW-07", "SEW-09"}
+SECTIONED_LINE_CODES = {"SEW-01", "SEW-06", "SEW-07", "SEW-09", "SEW-10", "SEW-12", "SEW-13"}
 
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
-_REPORT_READ_PERMS = ("sewing.workspace",)
+_REPORT_READ_PERMS = ("sewing.workspace", "sewing.daily_reports.view")
+
+
+def _uses_dynamic_sections(flow: SewingFlow) -> bool:
+    """Return whether a sewing line uses the multi-section daily report form."""
+    factory_code = str(flow.factory_code or "").strip().upper()
+    line_code = str(flow.code or "").strip().upper()
+    return factory_code in {"BST", "ECO"} or line_code in SECTIONED_LINE_CODES
 
 
 def _model_code_parts(model: Model | None) -> tuple[str | None, str | None]:
@@ -101,14 +110,53 @@ def _report_model_info(
     production_order: ProductionOrder | None,
     cache: dict[int, dict] | None = None,
 ) -> dict:
-    payload = dict(_production_model_info(db, production_order, cache))
     manual_model_no = str(report.manual_model_no or "").strip()
     manual_variant_no = str(report.manual_variant_no or "").strip()
     if manual_model_no:
-        payload["model_no"] = manual_model_no
-    if manual_variant_no:
-        payload["variant_no"] = manual_variant_no
+        return {
+            "model_id": None,
+            "model_code": None,
+            "model_no": manual_model_no,
+            "variant_no": manual_variant_no or None,
+            "model_name": None,
+            "model_image_url": None,
+            "fabric_image_url": None,
+        }
+    return dict(_production_model_info(db, production_order, cache))
+
+
+def _report_response(db, report: SewingDailyReport) -> dict:
+    production_order = (
+        db.get(ProductionOrder, int(report.production_order_id))
+        if report.production_order_id
+        else None
+    )
+    payload = SewingDailyReportOut.model_validate(report).model_dump()
+    payload.update(_report_model_info(db, report, production_order))
     return payload
+
+
+def _report_audit_values(report: SewingDailyReport) -> dict:
+    return {
+        "report_date": report.report_date,
+        "sewing_flow_id": report.sewing_flow_id,
+        "work_order_id": report.work_order_id,
+        "sewing_assignment_id": report.sewing_assignment_id,
+        "production_order_id": report.production_order_id,
+        "production_batch_id": report.production_batch_id,
+        "manual_model_no": report.manual_model_no,
+        "manual_variant_no": report.manual_variant_no,
+        "kroy_no": report.kroy_no,
+        "sewn_qty": report.sewn_qty,
+        "section_quantities": report.section_quantities,
+        "section_no": report.section_no,
+        "section_name": report.section_name,
+        "top_qty": report.top_qty,
+        "bottom_qty": report.bottom_qty,
+        "defective_qty": report.defective_qty,
+        "defect_reason": report.defect_reason,
+        "notes": report.notes,
+    }
 
 
 def _work_order_context(
@@ -212,11 +260,12 @@ def _line_context(db, flow: SewingFlow) -> SewingDailyLineContext:
 def line_context(
     sewing_flow_id: int,
     db: DbSession,
-    _: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
+    current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
 ):
     flow = db.get(SewingFlow, sewing_flow_id)
     if not flow:
         raise HTTPException(404, "Sewing line not found")
+    require_sewing_flow_access(current, flow)
     if not flow.is_active:
         raise HTTPException(400, "Sewing line is inactive")
     return _line_context(db, flow)
@@ -231,6 +280,7 @@ def create_report(
     flow = db.get(SewingFlow, payload.sewing_flow_id)
     if not flow:
         raise HTTPException(404, "Sewing line not found")
+    require_sewing_flow_access(current, flow)
     if not flow.is_active:
         raise HTTPException(400, "Sewing line is inactive")
     work_order = None
@@ -260,6 +310,7 @@ def create_report(
         if assignment and assignment.production_batch_id
         else work_order.production_batch_id if work_order else None
     )
+    uses_sections = _uses_dynamic_sections(flow)
     report = SewingDailyReport(
         report_date=payload.report_date,
         sewing_flow_id=flow.id,
@@ -279,11 +330,11 @@ def create_report(
             work_order.production_order_id if work_order else None,
         ),
         sewn_qty=payload.sewn_qty,
-        section_quantities=(payload.section_quantities if flow.code in SECTIONED_LINE_CODES else None),
-        section_no=(payload.section_no if flow.code in SECTIONED_LINE_CODES else None),
-        section_name=(payload.section_name if flow.code in SECTIONED_LINE_CODES else None),
-        top_qty=(payload.top_qty if flow.code in SECTIONED_LINE_CODES else None),
-        bottom_qty=(payload.bottom_qty if flow.code in SECTIONED_LINE_CODES else None),
+        section_quantities=(payload.section_quantities if uses_sections else None),
+        section_no=(payload.section_no if uses_sections else None),
+        section_name=(payload.section_name if uses_sections else None),
+        top_qty=(payload.top_qty if uses_sections else None),
+        bottom_qty=(payload.bottom_qty if uses_sections else None),
         defective_qty=payload.defective_qty,
         defect_reason=(payload.defect_reason or "").strip() or None,
         notes=(payload.notes or "").strip() or None,
@@ -303,19 +354,72 @@ def create_report(
             "work_order_id": work_order.id if work_order else None,
             "kroy_no": report.kroy_no,
             "sewn_qty": payload.sewn_qty,
-            "section_quantities": payload.section_quantities if flow.code in SECTIONED_LINE_CODES else None,
-            "section_no": payload.section_no if flow.code in SECTIONED_LINE_CODES else None,
-            "section_name": payload.section_name if flow.code in SECTIONED_LINE_CODES else None,
-            "top_qty": payload.top_qty if flow.code in SECTIONED_LINE_CODES else None,
-            "bottom_qty": payload.bottom_qty if flow.code in SECTIONED_LINE_CODES else None,
+            "section_quantities": payload.section_quantities if uses_sections else None,
+            "section_no": payload.section_no if uses_sections else None,
+            "section_name": payload.section_name if uses_sections else None,
+            "top_qty": payload.top_qty if uses_sections else None,
+            "bottom_qty": payload.bottom_qty if uses_sections else None,
             "defective_qty": payload.defective_qty,
         },
     )
     db.commit()
     db.refresh(report)
-    response_payload = SewingDailyReportOut.model_validate(report).model_dump()
-    response_payload.update(_report_model_info(db, report, work_order.production_order if work_order else None))
-    return response_payload
+    return _report_response(db, report)
+
+
+@router.patch("/{report_id}", response_model=SewingDailyReportOut)
+def update_report(
+    report_id: int,
+    payload: SewingDailyReportUpdate,
+    db: DbSession,
+    current: User = Depends(require_permissions("sewing.workspace")),
+):
+    report = db.get(SewingDailyReport, report_id)
+    if not report:
+        raise HTTPException(404, "Daily sewing report entry not found")
+    flow = db.get(SewingFlow, int(report.sewing_flow_id))
+    if not flow:
+        raise HTTPException(400, "The saved sewing line no longer exists")
+    require_sewing_flow_access(current, flow)
+    if report.work_order_id is None and not payload.manual_model_no:
+        raise HTTPException(400, "Model number is required when no sewing order is attached")
+
+    old_value = _report_audit_values(report)
+    uses_sections = _uses_dynamic_sections(flow)
+    report.report_date = payload.report_date
+    report.manual_model_no = payload.manual_model_no
+    report.manual_variant_no = payload.manual_variant_no
+    if payload.manual_model_no:
+        report.work_order_id = None
+        report.sewing_assignment_id = None
+        report.production_order_id = None
+        report.production_batch_id = None
+        report.order_no = None
+        report.production_no = None
+        report.sales_order_no = None
+    report.kroy_no = payload.kroy_no or _production_kroy_no(db, report.production_order_id)
+    report.sewn_qty = payload.sewn_qty
+    report.section_quantities = payload.section_quantities if uses_sections else None
+    report.section_no = payload.section_no if uses_sections else None
+    report.section_name = payload.section_name if uses_sections else None
+    report.top_qty = payload.top_qty if uses_sections else None
+    report.bottom_qty = payload.bottom_qty if uses_sections else None
+    report.defective_qty = payload.defective_qty
+    report.defect_reason = (payload.defect_reason or "").strip() or None
+    report.notes = (payload.notes or "").strip() or None
+    db.flush()
+    log_action(
+        db,
+        current,
+        "update",
+        "SewingDailyReport",
+        report.id,
+        old_value=old_value,
+        new_value=_report_audit_values(report),
+    )
+    db.commit()
+    db.refresh(report)
+    return _report_response(db, report)
 
 
 def _report_date_range(
@@ -345,9 +449,17 @@ def _report_list(
     *,
     from_date: date,
     to_date: date,
+    factory_code: str,
     sewing_flow_id: int | None = None,
 ) -> SewingDailyReportListOut:
-    qry = db.query(SewingDailyReport).filter(SewingDailyReport.report_date >= from_date, SewingDailyReport.report_date <= to_date)
+    qry = db.query(SewingDailyReport).join(
+        SewingFlow,
+        SewingFlow.id == SewingDailyReport.sewing_flow_id,
+    ).filter(
+        SewingDailyReport.report_date >= from_date,
+        SewingDailyReport.report_date <= to_date,
+        SewingFlow.factory_code == factory_code,
+    )
     if sewing_flow_id:
         qry = qry.filter(SewingDailyReport.sewing_flow_id == sewing_flow_id)
     rows = qry.order_by(SewingDailyReport.report_date.desc(), SewingDailyReport.line_code.asc(), SewingDailyReport.created_at.desc()).all()
@@ -443,14 +555,17 @@ def download_report_excel(
     from_date: date | None = None,
     to_date: date | None = None,
     sewing_flow_id: int | None = None,
+    factory_code: str | None = None,
     lang: ReportLanguage = "uz",
-    _: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
+    current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
 ):
+    factory = sewing_line_factory_scope(current, factory_code)
     resolved_from, resolved_to = _report_date_range(report_date, from_date, to_date)
     report = _report_list(
         db,
         from_date=resolved_from,
         to_date=resolved_to,
+        factory_code=factory,
         sewing_flow_id=sewing_flow_id,
     )
     generated_label, filename_timestamp = _report_generated_labels()
@@ -473,14 +588,17 @@ def download_report_pdf(
     from_date: date | None = None,
     to_date: date | None = None,
     sewing_flow_id: int | None = None,
+    factory_code: str | None = None,
     lang: ReportLanguage = "uz",
-    _: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
+    current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
 ):
+    factory = sewing_line_factory_scope(current, factory_code)
     resolved_from, resolved_to = _report_date_range(report_date, from_date, to_date)
     report = _report_list(
         db,
         from_date=resolved_from,
         to_date=resolved_to,
+        factory_code=factory,
         sewing_flow_id=sewing_flow_id,
     )
     generated_label, filename_timestamp = _report_generated_labels()
@@ -499,16 +617,19 @@ def download_report_pdf(
 @router.get("", response_model=SewingDailyReportListOut)
 def list_reports(
     db: DbSession,
-    _: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
+    current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
     report_date: date | None = None,
     from_date: date | None = None,
     to_date: date | None = None,
     sewing_flow_id: int | None = None,
+    factory_code: str | None = None,
 ):
+    factory = sewing_line_factory_scope(current, factory_code)
     resolved_from, resolved_to = _report_date_range(report_date, from_date, to_date)
     return _report_list(
         db,
         from_date=resolved_from,
         to_date=resolved_to,
+        factory_code=factory,
         sewing_flow_id=sewing_flow_id,
     )

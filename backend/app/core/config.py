@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     MODEL_FILES_DIR: str = "/app/storage/model_files"
     SALES_ORDER_FILES_DIR: str = "/app/storage/sales_order_files"
     INTEGRATION_1C_TOKEN: str = ""
+    ATTENDANCE_INTEGRATION_TOKEN: str = ""
+    ATTENDANCE_INTEGRATION_FACTORY_CODE: str = "MIL"
+    ATTENDANCE_PHOTOS_DIR: str = "/app/storage/attendance_photos"
+    ATTENDANCE_PHOTO_MAX_BYTES: int = 8 * 1024 * 1024
+    HR_DOCUMENTS_DIR: str = "/app/storage/hr_documents"
+    HR_DOCUMENT_MAX_BYTES: int = 20 * 1024 * 1024
     STARTUP_SCHEMA_SYNC: bool = False
 
     @field_validator("DEBUG", mode="before")
@@ -94,13 +100,6 @@ class Settings(BaseSettings):
         return any(str(os.environ.get(name, "")).strip() for name in public_markers)
 
     @property
-    def is_hugging_face_space(self) -> bool:
-        return any(
-            str(os.environ.get(name, "")).strip()
-            for name in ("SPACE_ID", "SPACE_HOST", "HF_SPACE_ID", "HF_SPACE_HOST")
-        )
-
-    @property
     def strict_security_required(self) -> bool:
         return self.is_production or self.is_public_deployment
 
@@ -120,8 +119,6 @@ class Settings(BaseSettings):
         errors: list[str] = []
         if self.DEBUG:
             errors.append("DEBUG must be false")
-        if self.JWT_ALGORITHM != "HS256":
-            errors.append("JWT_ALGORITHM must be HS256")
         jwt_secret = self.JWT_SECRET.strip()
         file_secret = self.FILE_SIGNING_SECRET.strip()
         if jwt_secret in {"", "dev-secret", "test-secret"} or len(jwt_secret) < 32:

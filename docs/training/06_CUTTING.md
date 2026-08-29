@@ -151,3 +151,4 @@ If cutting operations use payroll QR labels:
 | Bundle count wrong | Bundle plan does not match cut pieces | Correct plan before saving, or ask supervisor if already saved. |
 | Printing cannot receive bundle | Cutting did not send bundle to Printing | Scan bundle and send to Printing. |
 | Sewing cannot receive bundle | Bundle next department/factory is wrong or not sent | Check bundle details and ask supervisor if destination is wrong. |
+

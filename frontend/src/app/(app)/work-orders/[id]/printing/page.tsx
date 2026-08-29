@@ -3,6 +3,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import PageHeader from "@/components/PageHeader";
@@ -56,7 +57,8 @@ export default function PrintingPage() {
     ? po.items.map((item: any) => ({ ...item, quantity: item.quantity ?? item.planned_quantity }))
     : [];
   const orderItems = so ? soItems : poItems;
-  const { data: models } = useSWR<any[]>(orderItems.length > 0 ? "/api/models" : null, fetcher);
+  const printingModelOptionsKey = modelOptionsByIdsKey(orderItems.map((row: any) => row.model_id));
+  const { data: models } = useSWR<any[]>(printingModelOptionsKey, modelOptionsByIdsFetcher);
   const printSource = so || po;
   const printFiles: PrintingAttachment[] = Array.isArray(printSource?.printing_attachments) ? printSource.printing_attachments : [];
   const customerName = customers?.find((c) => Number(c.id) === Number(so?.customer_id))?.name;

@@ -6,11 +6,12 @@ import useSWR from "swr";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
+import CuttingOrderList from "@/components/CuttingOrderList";
+import ShipmentItemLines from "@/components/ShipmentItemLines";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
-import { FAST_LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { orderReference } from "@/lib/orderRef";
 
 const DEPT_LABELS: Record<string, string> = {
@@ -56,7 +57,7 @@ function materialLine(row: any) {
   const sku = String(row?.material_item_sku || "").trim();
   const label = [sku, name].filter(Boolean).join(" - ");
   if (!label) return null;
-  return <div className="truncate text-[11px] text-slate-500">{label}</div>;
+  return <div className="break-words text-[11px] text-slate-500">{label}</div>;
 }
 
 function orderContextLine(row: any, t: (key: string, vars?: Record<string, string | number>) => string) {
@@ -87,7 +88,6 @@ export default function DepartmentInboxPage() {
   const params = useParams<{ code: string }>();
   const router = useRouter();
   const code = String(params.code || "").toUpperCase();
-  const isFinishedGoods = code === "FGS";
   const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
   const [clientTz, setClientTz] = useState("UTC");
   const [startingWoId, setStartingWoId] = useState<number | null>(null);
@@ -104,16 +104,15 @@ export default function DepartmentInboxPage() {
     }
   }, []);
 
-  const { data, isLoading, mutate } = useSWR<any>(
-    code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null,
-    fetcher,
-    FAST_LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data, isLoading, mutate } = useSWR<any>(code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null, fetcher, {
+    refreshInterval: 10_000,
+  });
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
   const activeWorkOrders = Array.isArray(data?.active_work_orders) ? data.active_work_orders : [];
   const replacementCuttingWork = Array.isArray(data?.replacement_cutting_work) ? data.replacement_cutting_work : [];
   const replacementSewingWork = Array.isArray(data?.replacement_sewing_work) ? data.replacement_sewing_work : [];
+  const cuttingWorkOrders = Array.isArray(data?.cutting_work_orders) ? data.cutting_work_orders : [];
   const incomingWorkOrders = useMemo(
     () => (Array.isArray(data?.incoming_work_orders) ? data.incoming_work_orders : []),
     [data?.incoming_work_orders],
@@ -214,6 +213,8 @@ export default function DepartmentInboxPage() {
       packages: g.packages.length,
       quantity: g.total_quantity,
       pending_qty: 0,
+      order_quantity: g.total_quantity,
+      item_lines: [],
       package_lines: g.packages.map((p: any) => ({
         package_id: p.id,
         package_no: p.package_no,
@@ -284,7 +285,7 @@ export default function DepartmentInboxPage() {
     <div>
       <PageHeader
         title={t("page.deptInbox.title", { dept: deptLabel })}
-        subtitle={t(isFinishedGoods ? "page.deptInbox.finishedGoodsSubtitle" : "page.deptInbox.subtitle")}
+        subtitle={t("page.deptInbox.subtitle")}
       />
       {isLoading && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
       {!isLoading && (code === "CUT" || code === "ECT") && (
@@ -299,7 +300,7 @@ export default function DepartmentInboxPage() {
                   <div className="flex items-start gap-2">
                     <MaterialThumb row={row} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{orderReference(row, `#${row.production_order_id}`)}</div>
+                      <div className="break-words font-medium">{orderReference(row, `#${row.production_order_id}`)}</div>
                       {orderContextLine(row, t)}
                       {materialLine(row)}
                     </div>
@@ -308,6 +309,11 @@ export default function DepartmentInboxPage() {
                     {t("replacement.cuttingRemaining", { count: Number(row.remaining_qty || 0).toLocaleString() })}
                   </div>
                   <div className="text-xs text-slate-600">{t("replacement.failedSource")}</div>
+                  {row.sewing_line_name && (
+                    <div className="mt-1 text-xs text-slate-600">
+                      {t("field.lineName")}: {row.sewing_line_name}
+                    </div>
+                  )}
                   {row.defect_reason && (
                     <div className="mt-1 text-xs text-slate-600">
                       {t("replacement.reason")}: {row.defect_reason}
@@ -335,7 +341,7 @@ export default function DepartmentInboxPage() {
                 <div className="flex items-start gap-2">
                   <MaterialThumb row={row} />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{orderReference(row, `#${row.production_order_id}`)}</div>
+                    <div className="break-words font-medium">{orderReference(row, `#${row.production_order_id}`)}</div>
                     {orderContextLine(row, t)}
                     {materialLine(row)}
                     {textileLine(row)}
@@ -358,8 +364,16 @@ export default function DepartmentInboxPage() {
           </div>
         </section>
       )}
-      {!isLoading && !isFinishedGoods && (
-        <div className={`grid grid-cols-1 gap-4 ${splitQueueByStatus ? "xl:grid-cols-4" : "lg:grid-cols-3"}`}>
+      {!isLoading && (code === "CUT" || code === "ECT") ? (
+        <CuttingOrderList
+          rows={cuttingWorkOrders}
+          startingWorkOrderId={startingWoId}
+          startError={startError}
+          onMoveToInProgress={movePendingToInProgress}
+          t={t}
+        />
+      ) : !isLoading ? (
+        <div className={`grid grid-cols-1 gap-4 ${splitQueueByStatus ? "md:grid-cols-2 2xl:grid-cols-4" : "md:grid-cols-2 xl:grid-cols-3"}`}>
           <section className="card p-4">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
               {t("page.deptInbox.incoming", { count: incomingCount })}
@@ -372,7 +386,7 @@ export default function DepartmentInboxPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="truncate font-medium">{orderReference(w, `#${w.production_order_id}`)}</div>
+                          <div className="break-words font-medium">{orderReference(w, `#${w.production_order_id}`)}</div>
                           <div className="text-xs text-slate-500">
                             {t("page.deptInbox.incomingProcess", {
                               source: operationLabel(w.source_operation, t),
@@ -414,7 +428,7 @@ export default function DepartmentInboxPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="truncate font-medium">{orderReference(g, `#${g.production_order_id}`)}</div>
+                          <div className="break-words font-medium">{orderReference(g, `#${g.production_order_id}`)}</div>
                           <div className="text-xs text-slate-500">
                             {t("page.deptInbox.incomingProcess", {
                               source: operationLabel(g.source_operation || "cutting", t),
@@ -470,7 +484,7 @@ export default function DepartmentInboxPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <div className="truncate font-medium">{workCardTitle(w, t)}</div>
+                              <div className="break-words font-medium">{workCardTitle(w, t)}</div>
                               {orderContextLine(w, t)}
                               {materialLine(w)}
                               {textileLine(w)}
@@ -512,7 +526,7 @@ export default function DepartmentInboxPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <div className="truncate font-medium">{workCardTitle(w, t)}</div>
+                              <div className="break-words font-medium">{workCardTitle(w, t)}</div>
                               {orderContextLine(w, t)}
                               {materialLine(w)}
                               {textileLine(w)}
@@ -546,7 +560,7 @@ export default function DepartmentInboxPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="truncate font-medium">{workCardTitle(w, t)}</div>
+                            <div className="break-words font-medium">{workCardTitle(w, t)}</div>
                             {orderContextLine(w, t)}
                             {materialLine(w)}
                             {textileLine(w)}
@@ -578,7 +592,7 @@ export default function DepartmentInboxPage() {
                   <div className="flex items-start gap-2">
                     <MaterialThumb row={w} />
                     <div className="min-w-0">
-                      <div className="truncate font-medium">{workCardTitle(w, t)}</div>
+                      <div className="break-words font-medium">{workCardTitle(w, t)}</div>
                       {orderContextLine(w, t)}
                       {materialLine(w)}
                       {textileLine(w)}
@@ -592,10 +606,10 @@ export default function DepartmentInboxPage() {
             </div>
           </section>
         </div>
-      )}
+      ) : null}
 
       {(code === "PKG" || code === "BPK" || code === "ECP") && data?.awaiting_packaging?.length > 0 && (
-        <div className="card mt-4 p-4">
+        <div className="card mt-4 overflow-x-auto p-4">
           <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")}</h3>
           <table className="table">
             <thead>
@@ -617,7 +631,7 @@ export default function DepartmentInboxPage() {
 
       {code === "FGS" && (
         <div className="grid grid-cols-1 gap-4 mt-4 lg:grid-cols-2">
-          <section className="card p-4">
+          <section className="card overflow-x-auto p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
               {t("page.deptInbox.pendingPackageIntake", { count: pendingPackages.length })}
             </h3>
@@ -669,7 +683,7 @@ export default function DepartmentInboxPage() {
               </tbody>
             </table>
           </section>
-          <section className="card p-4">
+          <section className="card overflow-x-auto p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
               {t("page.deptInbox.readyToShip", { count: readyToShipOrders.length })}
             </h3>
@@ -680,6 +694,7 @@ export default function DepartmentInboxPage() {
                   <th>{t("field.salesOrderShort")}</th>
                   <th>{t("field.customer")}</th>
                   <th>{t("field.address")}</th>
+                  <th>{t("field.items")}</th>
                   <th>{t("field.type")}</th>
                   <th>{t("field.shipmentNo")}</th>
                   <th>{t("field.packages")}</th>
@@ -698,12 +713,13 @@ export default function DepartmentInboxPage() {
                   const rowKey = `so-${soId}`;
                   return (
                   <Fragment key={key}>
-                    <tr>
+                    <tr id={soId > 0 ? `shipping-order-${soId}` : undefined}>
                       <td>{soLabel}</td>
                       <td>{g.customer_name || "-"}</td>
                       <td className="max-w-[260px] truncate" title={String(g.destination || g.customer_address || "-")}>
                         {g.destination || g.customer_address || "-"}
                       </td>
+                      <td><ShipmentItemLines items={g.item_lines} /></td>
                       <td>{shipmentType}</td>
                       <td>{shipmentLabel}</td>
                       <td>{Number(g.packages || 0)}</td>
@@ -737,7 +753,7 @@ export default function DepartmentInboxPage() {
                   </Fragment>
                 )})}
                 {readyToShipOrders.length === 0 && (
-                  <tr><td colSpan={8} className="text-sm text-slate-400">{t("page.deptInbox.noReadyToShip")}</td></tr>
+                  <tr><td colSpan={9} className="text-sm text-slate-400">{t("page.deptInbox.noReadyToShip")}</td></tr>
                 )}
               </tbody>
             </table>

@@ -16,3 +16,4 @@ def test_mcp_info_requires_super_admin(client, auth_headers):
     hr_headers = _token_headers(client, "hr@example.com")
     denied = client.get("/api/admin/mcp-info", headers=hr_headers)
     assert denied.status_code == 403, denied.text
+

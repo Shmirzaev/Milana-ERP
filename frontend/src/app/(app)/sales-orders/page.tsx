@@ -9,7 +9,6 @@ import PaginationControls from "@/components/PaginationControls";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 type SO = {
   id: number;
@@ -92,11 +91,7 @@ export default function SalesOrdersPage() {
     if (createdTo) params.set("created_to", createdTo);
     return `/api/sales-orders?${params.toString()}`;
   }, [createdFrom, createdTo, page, pageSize, query, statusFilter, typeFilter]);
-  const { data: pageData, isLoading, mutate } = useSWR<any>(
-    salesUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data: pageData, isLoading, mutate } = useSWR<any>(salesUrl, fetcher);
   const data = useMemo<SO[]>(() => pageData?.rows || [], [pageData?.rows]);
 
   useEffect(() => {
@@ -110,21 +105,13 @@ export default function SalesOrdersPage() {
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
     return data.filter((o) => {
       if (!matchesTab(o, activeTab)) return false;
       if (statusFilter !== "all" && o.status !== statusFilter) return false;
       if (typeFilter !== "all" && o.order_type !== typeFilter) return false;
-      if (!q) return true;
-      const customer = String(customerMap.get(o.customer_id) || "").toLowerCase();
-      return (
-        o.order_no.toLowerCase().includes(q) ||
-        o.status.toLowerCase().includes(q) ||
-        o.order_type.toLowerCase().includes(q) ||
-        customer.includes(q)
-      );
+      return true;
     });
-  }, [data, activeTab, statusFilter, typeFilter, query, customerMap]);
+  }, [data, activeTab, statusFilter, typeFilter]);
 
   const selected = filtered.find((o) => o.id === (selectedId ?? filtered[0]?.id)) ?? filtered[0];
   const activeCount = data.filter((o) => !["closed", "cancelled", "delivered"].includes(o.status)).length;

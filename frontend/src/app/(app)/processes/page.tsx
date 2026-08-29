@@ -10,7 +10,6 @@ import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import { useT } from "@/lib/i18n";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
-import { FAST_LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import StagePipeline, { operationLabel, statusLabel } from "@/components/StagePipeline";
 
 type Stage = {
@@ -49,6 +48,11 @@ type ProcessBatch = {
   stages: Stage[];
 };
 
+type FactoryRef = {
+  code: string;
+  name: string;
+};
+
 type Process = {
   production_order_id: number;
   production_no: string;
@@ -64,8 +68,9 @@ type Process = {
   model_code: string | null;
   model_name: string | null;
   model_image_url?: string | null;
-  variant_picture_url?: string | null;
   material_image_url?: string | null;
+  cutting_factories?: FactoryRef[];
+  sewing_factories?: FactoryRef[];
   is_blocked?: boolean;
   blocked_by?: { work_order_id: number; operation: string; reason: string | null } | null;
   current_stage: string;
@@ -158,7 +163,6 @@ export default function ProcessTrackingPage() {
   const [page, setPage] = useState(() => positiveInt(searchParams.get("page"), 1));
   const [pageSize, setPageSize] = useState(() => positiveInt(searchParams.get("page_size"), 25));
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [manualRefreshing, setManualRefreshing] = useState(false);
 
   useEffect(() => {
     const nextQ = searchParams.get("q") ?? "";
@@ -185,21 +189,11 @@ export default function ProcessTrackingPage() {
     () => buildProcessUrl({ q: debouncedSearch, status, createdFrom, createdTo, sort, page, pageSize }),
     [createdFrom, createdTo, debouncedSearch, status, sort, page, pageSize],
   );
-  const { data, error, isLoading, mutate } = useSWR<ProcessResponse>(
+  const { data, error, isLoading, isValidating, mutate } = useSWR<ProcessResponse>(
     processUrl,
     fetcher,
-    { ...FAST_LIVE_DATA_SWR_OPTIONS, keepPreviousData: true },
+    { refreshInterval: 10_000, keepPreviousData: true },
   );
-
-  async function refreshNow() {
-    if (manualRefreshing) return;
-    setManualRefreshing(true);
-    try {
-      await mutate();
-    } finally {
-      setManualRefreshing(false);
-    }
-  }
 
   function openExport() {
     api.openLabel("/api/process-tracking/export");
@@ -220,16 +214,10 @@ export default function ProcessTrackingPage() {
         title={t("page.processes.title")}
         subtitle={t("page.processes.subtitle")}
         actions={(
-          <div className="flex gap-2">
-            <button
-              className="btn"
-              onClick={refreshNow}
-              disabled={manualRefreshing}
-              title={t("page.processes.refresh")}
-              aria-label={t("page.processes.refresh")}
-            >
+          <div className="flex flex-wrap gap-2">
+            <button className="btn" onClick={() => mutate()} title={t("page.processes.refresh")} aria-label={t("page.processes.refresh")}>
               <RefreshCw />
-              {manualRefreshing ? t("common.loading") : t("page.processes.refresh")}
+              {isValidating ? t("common.loading") : t("page.processes.refresh")}
             </button>
             <button className="btn" onClick={openExport}>
               <Printer />
@@ -239,14 +227,14 @@ export default function ProcessTrackingPage() {
         )}
       />
 
-      {error && !data && (
+      {error && (
         <div className="card mb-4 border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {String((error as any).message ?? error)}
         </div>
       )}
 
-      <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem_12rem_13rem]">
-        <label className="block">
+      <div className="responsive-filter-grid mb-4">
+        <label className="responsive-filter-grid__wide block">
           <span className="label">{t("common.search")}</span>
           <span className="relative block">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a8472]" />
@@ -292,7 +280,7 @@ export default function ProcessTrackingPage() {
         </div>
       </div>
 
-      <div className="card hidden overflow-x-auto md:block">
+      <div className="card hidden overflow-x-auto xl:block">
         <table className="table min-w-[1180px]">
           <thead>
             <tr>
@@ -363,7 +351,7 @@ export default function ProcessTrackingPage() {
         />
       </div>
 
-      <div className="grid gap-3 md:hidden">
+      <div className="grid gap-3 xl:hidden">
         {loadingFirstPage && <div className="card p-4 text-sm text-[#8a8472]">{t("common.loading")}</div>}
         {!loadingFirstPage && rows.length === 0 && <div className="card p-4 text-sm text-[#8a8472]">{emptyMessage}</div>}
         {rows.map((p) => (
@@ -531,18 +519,48 @@ function PictureThumb({ imageUrl, alt, placeholder = false }: { imageUrl?: strin
 }
 
 function ModelCell({ process }: { process: Process }) {
+  const { t } = useT();
   const modelAlt = process.model_name || process.model_code || "Model";
-  const variantAlt = process.model_code ? `${process.model_code} variant` : "Variant";
-  const showVariant = Boolean(process.variant_picture_url && process.variant_picture_url !== process.model_image_url);
+  const fabricAlt = process.model_code ? `${process.model_code} fabric` : "Fabric";
+  const showMaterial = Boolean(process.material_image_url && process.material_image_url !== process.model_image_url);
+  const localizedFactoryName = (factory: FactoryRef) => {
+    switch (factory.code.toUpperCase()) {
+      case "CUT":
+        return t("nav.cuttingFloor");
+      case "ECT":
+        return t("nav.ecoCottonCutting");
+      case "MIL":
+      case "SEW":
+        return t("factory.milana");
+      case "BST":
+        return t("factory.besttex");
+      case "ECO":
+        return t("factory.ecoCotton");
+      default:
+        return factory.name || factory.code;
+    }
+  };
+  const cuttingFactories = (process.cutting_factories || []).map(localizedFactoryName).join(", ") || "-";
+  const sewingFactories = (process.sewing_factories || []).map(localizedFactoryName).join(", ") || "-";
   return (
     <div className="flex min-w-0 items-center gap-3">
       <div className="flex shrink-0 gap-1.5">
         <PictureThumb imageUrl={process.model_image_url} alt={modelAlt} placeholder />
-        {showVariant && <PictureThumb imageUrl={process.variant_picture_url} alt={variantAlt} />}
+        {showMaterial && <PictureThumb imageUrl={process.material_image_url} alt={fabricAlt} />}
       </div>
       <div className="min-w-0">
-        <div className="truncate text-sm font-medium" title={process.model_code || ""}>{process.model_code || "-"}</div>
-        <div className="truncate text-xs text-[#8a8472]" title={process.model_name || ""}>{process.model_name || "-"}</div>
+        <div className="break-words text-sm font-medium">{process.model_code || "-"}</div>
+        <div className="break-words text-xs text-[#8a8472]">{process.model_name || "-"}</div>
+        <div className="mt-1 space-y-0.5 text-[10px] leading-tight text-[#8a8472]">
+          <div className="break-words">
+            <span className="font-semibold text-[#56503f]">{t("field.cuttingDepartment")}:</span>{" "}
+            {cuttingFactories}
+          </div>
+          <div className="break-words">
+            <span className="font-semibold text-[#56503f]">{t("field.sewingFactory")}:</span>{" "}
+            {sewingFactories}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -573,7 +591,7 @@ function ExpandedProcess({ process }: { process: Process }) {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="badge shrink-0">{formatBatchSerial(batch, process.production_order_id)}</span>
-                    <span className="truncate text-sm font-medium">{batch.name || `Batch ${batch.batch_index}`}</span>
+                    <span className="break-words text-sm font-medium">{batch.name || `Batch ${batch.batch_index}`}</span>
                     <span className="text-xs text-[#8a8472]">{batch.planned_quantity} {t("field.unitPcs")}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs">

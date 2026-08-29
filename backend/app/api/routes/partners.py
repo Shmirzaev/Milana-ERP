@@ -384,7 +384,7 @@ def delete_customer(cid: int, db: DbSession, current: User = Depends(require_per
 # ===== Suppliers =====
 @router.get("/suppliers", response_model=list[PartyOut])
 def list_suppliers(db: DbSession, _: User = Depends(require_permissions(*SUPPLIER_READ_PERMISSIONS))):
-    return db.query(Supplier).order_by(Supplier.id.desc()).all()
+    return db.query(Supplier).filter(Supplier.is_active.is_(True)).order_by(Supplier.id.desc()).all()
 
 
 @router.post("/suppliers", response_model=PartyOut, status_code=201)
@@ -430,7 +430,19 @@ def delete_supplier(sid: int, db: DbSession, current: User = Depends(require_per
         or db.query(PurchaseOrder.id).filter(PurchaseOrder.supplier_id == sid).first()
     )
     if linked:
-        raise HTTPException(409, "Supplier is linked to stock batches or purchasing records")
+        old_value = {"name": s.name, "is_active": bool(s.is_active)}
+        s.is_active = False
+        log_action(
+            db,
+            current,
+            "archive",
+            "Supplier",
+            sid,
+            old_value=old_value,
+            new_value={"name": s.name, "is_active": False},
+        )
+        db.commit()
+        return
     db.delete(s)
     log_action(db, current, "delete", "Supplier", sid, new_value={"name": s.name})
     db.commit()

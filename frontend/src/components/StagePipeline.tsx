@@ -21,6 +21,7 @@ export function operationLabel(op: string, t: CtxT) {
   if (op === "sewing") return t("dash.sewing");
   if (op === "packaging") return t("dash.packaging");
   if (op === "storage_transfer") return t("stage.storageTransfer");
+  if (op === "shipment") return t("stage.shipment");
   return fallbackLabel(op);
 }
 
@@ -63,6 +64,7 @@ export default function StagePipeline({
   const byOp = new Map((stages || []).map((s) => [s.operation, s]));
   const currentIdx = currentStage ? ORDER.indexOf(currentStage) : -1;
   return (
+    <div className="scroll-region overflow-x-auto">
     <div className="min-w-[360px]">
       <div className="flex items-center gap-1">
         {ORDER.map((op, idx) => {
@@ -101,6 +103,7 @@ export default function StagePipeline({
           ))}
         </div>
       )}
+    </div>
     </div>
   );
 }

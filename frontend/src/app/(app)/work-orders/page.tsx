@@ -8,7 +8,6 @@ import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 import StagePipeline, { operationLabel, statusLabel } from "@/components/StagePipeline";
 import { orderReference } from "@/lib/orderRef";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 export default function WorkOrdersPage() {
   const { t } = useT();
@@ -26,13 +25,9 @@ export default function WorkOrdersPage() {
   }, [deptCode, depts]);
 
   const url = dept ? `/api/work-orders?department_id=${dept}` : "/api/work-orders";
-  const { data } = useSWR<any[]>(url, fetcher, LIVE_DATA_SWR_OPTIONS);
+  const { data } = useSWR<any[]>(url, fetcher);
   const { data: sewingFlows } = useSWR<any[]>("/api/sewing-flows", fetcher);
-  const { data: processes } = useSWR<any[]>(
-    "/api/process-tracking",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data: processes } = useSWR<any[]>("/api/process-tracking", fetcher);
   const processByPo = new Map((processes || []).map((p) => [p.production_order_id, p]));
   const sewingFlowById = new Map((sewingFlows || []).map((flow) => [flow.id, flow]));
 

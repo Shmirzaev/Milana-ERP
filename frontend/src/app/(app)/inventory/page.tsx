@@ -1,11 +1,11 @@
 "use client";
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Download, Edit3, PackageCheck, Plus, Search, Trash2, X } from "lucide-react";
+import { Download, Edit3, PackageCheck, Plus, QrCode, Search, Trash2, X } from "lucide-react";
 import useSWR from "swr";
 import Modal from "@/components/Modal";
 import { api, fetcher } from "@/lib/api";
+import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import { can, useMe } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
@@ -14,9 +14,10 @@ import { compositionTotal, type MaterialComposition } from "@/lib/materialCompos
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { orderReference } from "@/lib/orderRef";
 import { useDialogs } from "@/components/DialogProvider";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
+import MaterialQrStickerModal, { type MaterialQrStickerData } from "@/components/MaterialQrStickerModal";
 
 type InventoryGroup = "materials" | "accessories";
+const INVENTORY_RENDER_PAGE_SIZE = 80;
 
 type AccessoryIssueRow = {
   production_order_id: number;
@@ -112,6 +113,7 @@ type StockBatch = {
   item_sku?: string | null;
   item_name?: string | null;
   batch_no: string;
+  internal_batch_no?: string | null;
   supplier_id?: number | null;
   supplier_name?: string | null;
   color?: string | null;
@@ -123,6 +125,7 @@ type StockBatch = {
   gsm?: number | string | null;
   quantity: number;
   piece_count?: number | null;
+  roll_weights_kg?: number[] | null;
   processes?: string | null;
   unit: string;
   cost_per_unit: number;
@@ -133,11 +136,6 @@ type StockBatch = {
   qc_status: string;
   reserved_quantity?: number;
   available_quantity?: number;
-};
-
-type SupplierFilterOptions = {
-  rows: Array<{ id: number; name: string }>;
-  has_unassigned: boolean;
 };
 
 type BatchForm = {
@@ -183,7 +181,6 @@ const GROUPS: { value: InventoryGroup; titleKey: string; subtitleKey: string }[]
 ];
 const MATERIAL_CATEGORIES = ["fabric", "semi_finished"];
 const ACCESSORY_CATEGORIES = ["accessory", "packaging"];
-const UNASSIGNED_SUPPLIER_FILTER = "unassigned";
 const UNITS = ["kg", "m", "pcs", "roll", "carton"];
 const ACCESSORY_ISSUE_UNITS = [
   { value: "pcs", label: "piece" },
@@ -366,23 +363,12 @@ export default function InventoryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const q = (searchParams.get("q") ?? "").trim();
+  const scannedRoll = Math.max(0, Math.floor(Number(searchParams.get("roll") || 0) || 0));
+  const scannedRollTotal = Math.max(scannedRoll, Math.floor(Number(searchParams.get("roll_total") || 0) || 0));
   const createdFrom = (searchParams.get("created_from") ?? "").trim();
   const createdTo = (searchParams.get("created_to") ?? "").trim();
+  const initialSupplierFilter = Math.max(0, Number(searchParams.get("supplier_id") || 0) || 0);
   const group: InventoryGroup = searchParams.get("group") === "accessories" ? "accessories" : "materials";
-  const rawSupplierId = (searchParams.get("supplier_id") ?? "").trim();
-  const supplierId =
-    group === "materials" && /^[1-9]\d*$/.test(rawSupplierId)
-      ? Number(rawSupplierId)
-      : null;
-  const supplierUnassigned =
-    group === "materials"
-    && supplierId === null
-    && searchParams.get("supplier_unassigned") === "true";
-  const supplierFilterValue = supplierUnassigned
-    ? UNASSIGNED_SUPPLIER_FILTER
-    : supplierId
-      ? String(supplierId)
-      : "";
   const selectedGroup = GROUPS.find((g) => g.value === group) ?? GROUPS[0];
   const { t, lang } = useT();
   const dialogs = useDialogs();
@@ -390,8 +376,10 @@ export default function InventoryPage() {
   const canEditItems = can(me, "storage.items", "*");
   const canDeleteBatches = can(me, "inventory.batches.delete", "*");
   const [searchDraft, setSearchDraft] = useState(q);
+  const [supplierFilter, setSupplierFilter] = useState(initialSupplierFilter);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [inventoryRenderLimit, setInventoryRenderLimit] = useState(INVENTORY_RENDER_PAGE_SIZE);
   const [issuePage, setIssuePage] = useState(1);
   const [issuePageSize, setIssuePageSize] = useState(50);
   const [requestPage, setRequestPage] = useState(1);
@@ -415,45 +403,37 @@ export default function InventoryPage() {
   const [issueSaving, setIssueSaving] = useState(false);
   const [deletingBatchId, setDeletingBatchId] = useState<number | null>(null);
   const [downloadingReport, setDownloadingReport] = useState<"xlsx" | "pdf" | null>(null);
+  const [stickerData, setStickerData] = useState<MaterialQrStickerData | null>(null);
   const stockParams = new URLSearchParams({
     group,
     include_total: "true",
-    positive_only: "true",
     page: String(page),
     page_size: String(pageSize),
   });
   if (q) stockParams.set("q", q);
   if (createdFrom) stockParams.set("created_from", createdFrom);
   if (createdTo) stockParams.set("created_to", createdTo);
-  if (supplierId) stockParams.set("supplier_id", String(supplierId));
-  if (supplierUnassigned) stockParams.set("supplier_unassigned", "true");
+  if (group === "materials" && supplierFilter) stockParams.set("supplier_id", String(supplierFilter));
   const stockUrl = `/api/inventory/stock?${stockParams.toString()}`;
-  const { data: stockPage, mutate: refreshStock } = useSWR<any>(
-    stockUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data: stockPage, mutate: refreshStock } = useSWR<any>(stockUrl, fetcher);
   const stock = useMemo<any[]>(() => stockPage?.rows || [], [stockPage]);
   const { data: allAccessoryStock } = useSWR<any[]>(
     group === "accessories" ? "/api/inventory/stock?group=accessories&page_size=500" : null,
     fetcher,
   );
   const itemParams = new URLSearchParams({ group, page_size: "500" });
-  if (createdFrom) itemParams.set("created_from", createdFrom);
-  if (createdTo) itemParams.set("created_to", createdTo);
   const { data: items, mutate: refreshItems } = useSWR<Item[]>(`/api/inventory/items?${itemParams.toString()}`, fetcher);
   const { data: selectableItems } = useSWR<Item[]>(
     editingBatch && canEditItems ? `/api/inventory/items?group=${group}&page_size=500` : null,
     fetcher,
   );
   const { data: warehouses } = useSWR<any[]>(canEditItems ? "/api/inventory/warehouses" : null, fetcher);
-  const { data: suppliers } = useSWR<any[]>(canEditItems ? "/api/suppliers" : null, fetcher);
-  const { data: supplierFilterOptions } = useSWR<SupplierFilterOptions>(
-    group === "materials" ? "/api/inventory/supplier-options?group=materials" : null,
-    fetcher,
-  );
+  const { data: suppliers } = useSWR<any[]>(group === "materials" || canEditItems ? "/api/suppliers" : null, fetcher);
   const { data: productionOrders } = useSWR<any[]>(group === "accessories" ? "/api/production-orders?page_size=500" : null, fetcher);
-  const { data: models } = useSWR<any[]>(group === "accessories" ? "/api/models" : null, fetcher);
+  const inventoryModelOptionsKey = group === "accessories"
+    ? modelOptionsByIdsKey((productionOrders || []).map((row) => row.model_id))
+    : null;
+  const { data: models } = useSWR<any[]>(inventoryModelOptionsKey, modelOptionsByIdsFetcher);
   const issueParams = useMemo(() => {
     const params = new URLSearchParams({
       include_total: "true",
@@ -541,16 +521,11 @@ export default function InventoryPage() {
   const issueOrderOptions = useMemo(() => {
     return (productionOrders || []).filter((po) => !manualIssueModelId || Number(po.model_id) === Number(manualIssueModelId));
   }, [manualIssueModelId, productionOrders]);
-  const rows = useMemo(() => {
-    if (!activeSearch) return stock;
-    if (activeSearch === q.toLowerCase()) return stock;
-    return stock.filter((s) => {
-      const sku = String(s.item_sku ?? "").toLowerCase();
-      const name = String(s.item_name ?? "").toLowerCase();
-      const unit = String(s.unit ?? "").toLowerCase();
-      return sku.includes(activeSearch) || name.includes(activeSearch) || unit.includes(activeSearch);
-    });
-  }, [activeSearch, q, stock]);
+  // The server search also matches batch numbers, purchase orders, suppliers,
+  // and warehouse names. Keep the last server result visible while the 350 ms
+  // debounced request is pending instead of applying an incomplete item-only
+  // filter that can incorrectly flash an empty table for a valid batch number.
+  const rows = stock;
   const visibleItemIds = useMemo(() => {
     const ids = rows.map((row) => Number(row.item_id)).filter((id) => Number.isFinite(id) && id > 0);
     return Array.from(new Set(ids));
@@ -568,15 +543,10 @@ export default function InventoryPage() {
     if (q) params.set("q", q);
     if (createdFrom) params.set("created_from", createdFrom);
     if (createdTo) params.set("created_to", createdTo);
-    if (supplierId) params.set("supplier_id", String(supplierId));
-    if (supplierUnassigned) params.set("supplier_unassigned", "true");
+    if (group === "materials" && supplierFilter) params.set("supplier_id", String(supplierFilter));
     return `/api/inventory/batches?${params.toString()}`;
-  }, [createdFrom, createdTo, group, q, supplierId, supplierUnassigned, visibleItemIds]);
-  const { data: batchPage, mutate: refreshBatches } = useSWR<any>(
-    batchUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  }, [createdFrom, createdTo, group, q, supplierFilter, visibleItemIds]);
+  const { data: batchPage, mutate: refreshBatches } = useSWR<any>(batchUrl, fetcher);
   const receiveBatches = useMemo<StockBatch[]>(() => batchPage?.rows || [], [batchPage]);
   const batchesByItemId = useMemo(() => {
     const map = new Map<number, StockBatch[]>();
@@ -607,19 +577,22 @@ export default function InventoryPage() {
       }));
     });
   }, [batchesByItemId, rows]);
+  const visibleInventoryRows = useMemo(
+    () => inventoryRows.slice(0, inventoryRenderLimit),
+    [inventoryRenderLimit, inventoryRows],
+  );
+  const hasMoreInventoryRows = visibleInventoryRows.length < inventoryRows.length;
   const searchApplied = activeSearch === q.toLowerCase();
-  const totalItems = activeSearch
-    ? (searchApplied ? Number(stockPage?.item_total ?? stockPage?.total ?? rows.length) : rows.length)
-    : Number(stockPage?.item_total ?? stockPage?.total ?? 0);
   const totalLines = activeSearch
-    ? (searchApplied ? Number(stockPage?.line_total ?? stockPage?.total ?? inventoryRows.length) : inventoryRows.length)
-    : Number(stockPage?.line_total ?? stockPage?.total ?? 0);
+    ? (searchApplied ? Number(stockPage?.total || rows.length) : rows.length)
+    : Number(stockPage?.total || 0);
 
   useEffect(() => {
     setPage(1);
     setIssuePage(1);
     setRequestPage(1);
-  }, [createdFrom, createdTo, group, q, supplierId, supplierUnassigned]);
+    setInventoryRenderLimit(INVENTORY_RENDER_PAGE_SIZE);
+  }, [createdFrom, createdTo, group, q, supplierFilter]);
 
   useEffect(() => {
     setIssuePage(1);
@@ -631,6 +604,10 @@ export default function InventoryPage() {
   }, [q]);
 
   useEffect(() => {
+    setSupplierFilter(initialSupplierFilter);
+  }, [initialSupplierFilter]);
+
+  useEffect(() => {
     const nextQuery = searchDraft.trim();
     if (nextQuery === q) return;
 
@@ -640,14 +617,13 @@ export default function InventoryPage() {
       if (nextQuery) params.set("q", nextQuery);
       if (createdFrom) params.set("created_from", createdFrom);
       if (createdTo) params.set("created_to", createdTo);
-      if (supplierId) params.set("supplier_id", String(supplierId));
-      if (supplierUnassigned) params.set("supplier_unassigned", "true");
+      if (group === "materials" && supplierFilter) params.set("supplier_id", String(supplierFilter));
       router.replace(`/inventory?${params.toString()}`);
       setPage(1);
-    }, 350);
+    }, 200);
 
     return () => window.clearTimeout(timer);
-  }, [createdFrom, createdTo, group, q, router, searchDraft, supplierId, supplierUnassigned]);
+  }, [createdFrom, createdTo, group, q, router, searchDraft, supplierFilter]);
 
   useEffect(() => {
     if (!issuePlan?.rows) {
@@ -662,26 +638,14 @@ export default function InventoryPage() {
     setIssueQuantities(next);
   }, [issuePlan]);
 
-  function inventoryHref(
-    nextGroup: InventoryGroup,
-    query = q,
-    nextCreatedFrom = createdFrom,
-    nextCreatedTo = createdTo,
-    nextSupplierFilter = supplierFilterValue,
-  ) {
+  function inventoryHref(nextGroup: InventoryGroup, query = q, nextCreatedFrom = createdFrom, nextCreatedTo = createdTo, nextSupplierId = supplierFilter) {
     const params = new URLSearchParams();
     params.set("group", nextGroup);
     const trimmed = query.trim();
     if (trimmed) params.set("q", trimmed);
     if (nextCreatedFrom) params.set("created_from", nextCreatedFrom);
     if (nextCreatedTo) params.set("created_to", nextCreatedTo);
-    if (nextGroup === "materials") {
-      if (nextSupplierFilter === UNASSIGNED_SUPPLIER_FILTER) {
-        params.set("supplier_unassigned", "true");
-      } else if (/^[1-9]\d*$/.test(nextSupplierFilter)) {
-        params.set("supplier_id", nextSupplierFilter);
-      }
-    }
+    if (nextGroup === "materials" && nextSupplierId) params.set("supplier_id", String(nextSupplierId));
     const qs = params.toString();
     return `/inventory${qs ? `?${qs}` : ""}`;
   }
@@ -724,8 +688,26 @@ export default function InventoryPage() {
     );
   }
 
-  function hasEditableItem(row: { item_id?: number | string | null }) {
-    return canEditItems && itemById.has(Number(row.item_id));
+  function editableItemForRow(row: any, batch: StockBatch | null): Item | null {
+    const itemId = Number(row.item_id || batch?.item_id);
+    if (!itemId) return null;
+    return itemById.get(itemId) || {
+      id: itemId,
+      sku: String(batch?.item_sku || row.item_sku || ""),
+      name: String(batch?.item_name || row.item_name || ""),
+      category: group === "materials" ? "fabric" : "accessory",
+      unit: rowUnit(row, batch),
+      default_cost: Number(batch?.cost_per_unit || 0),
+      reorder_level: 0,
+      track_batch: true,
+      is_active: false,
+      image_url: batch?.image_url || row.item_image_url || row.image_url || null,
+      composition: null,
+    };
+  }
+
+  function hasEditableItem(row: { item_id?: number | string | null }, batch: StockBatch | null = null) {
+    return canEditItems && Number(row.item_id || batch?.item_id) > 0;
   }
 
   function itemCost(row: { item_id?: number | string | null }) {
@@ -779,8 +761,25 @@ export default function InventoryPage() {
     ].filter((detail) => textOrDash(detail.value) !== "-");
   }
 
+  function openMaterialQrSticker(row: any, batch: StockBatch | null) {
+    if (!batch) return;
+    const sku = String(batch.item_sku || row.item_sku || "").trim();
+    const materialName = String(batch?.item_name || row.item_name || "").trim();
+    const batchNo = String(batch?.batch_no || "").trim();
+    setStickerData({
+      batchId: batch.id,
+      materialName,
+      batchNo,
+      color: String(batch?.color || "").trim(),
+      batchQuantity: Number(batch.quantity || 0),
+      pieceCount: Math.max(1, Math.floor(Number(batch?.piece_count) || 1)),
+      supplier: String(batch?.supplier_name || "").trim(),
+      searchValue: batchNo || sku || materialName,
+    });
+  }
+
   function openEditItem(row: any, batch: StockBatch | null = null) {
-    const item = itemById.get(Number(row.item_id));
+    const item = editableItemForRow(row, batch);
     if (!item) {
       setEditMessage(t("page.masterData.actionFailed"));
       return;
@@ -1074,12 +1073,12 @@ export default function InventoryPage() {
   async function downloadMaterialReport(format: "xlsx" | "pdf") {
     setDownloadingReport(format);
     try {
-      const params = new URLSearchParams({ lang });
-      if (supplierId) params.set("supplier_id", String(supplierId));
-      if (supplierUnassigned) params.set("supplier_unassigned", "true");
-      const response = await fetch(`/api/inventory/reports/material-stock.${format}?${params.toString()}`, {
+      const reportParams = new URLSearchParams({ lang });
+      if (supplierFilter) reportParams.set("supplier_id", String(supplierFilter));
+      if (createdFrom) reportParams.set("created_from", createdFrom);
+      if (createdTo) reportParams.set("created_to", createdTo);
+      const response = await fetch(`/api/inventory/reports/material-stock.${format}?${reportParams.toString()}`, {
         credentials: "same-origin",
-        cache: "no-store",
       });
       if (!response.ok) {
         let detail = response.statusText;
@@ -1121,18 +1120,14 @@ export default function InventoryPage() {
       setEditMessage(`${t("field.quantity")} must be zero or greater`);
       return;
     }
-    if (!editingBatch && editingStock && stockQuantity + 0.0001 < editingStock.reservedQuantity) {
-      setEditMessage(`${t("field.quantity")} cannot be lower than ${t("field.reserved").toLowerCase()} (${editingStock.reservedQuantity.toFixed(2)} ${editingStock.unit})`);
-      return;
-    }
     setSavingItem(true);
     setEditMessage("");
     try {
       if (editingBatch) {
-        await api.patch(`/api/inventory/batches/${editingBatch.id}`, batchPayload(batchForm));
+        await api.patch(`/api/inventory/batches/${editingBatch.id}?force=true`, batchPayload(batchForm));
       } else {
         await api.patch(`/api/inventory/items/${editingItem.id}`, itemPayload(itemForm));
-        await api.patch(`/api/inventory/stock/${editingItem.id}`, { quantity: stockQuantity, unit: itemForm.unit });
+        await api.patch(`/api/inventory/stock/${editingItem.id}?force=true`, { quantity: stockQuantity, unit: itemForm.unit });
       }
       await Promise.all([refreshItems(), refreshStock(), refreshBatches()]);
       setEditingItem(null);
@@ -1156,35 +1151,29 @@ export default function InventoryPage() {
   const batchQuantity = Number(batchForm.quantity);
   const batchQuantityInvalid = !Number.isFinite(batchQuantity) || batchQuantity < 0;
   const batchBelowReserved = Boolean(editingStock && batchQuantity + 0.0001 < editingStock.reservedQuantity);
-  const selectedBatchItem = (selectableItems || items || []).find((item) => item.id === Number(batchForm.item_id)) || editingItem;
-  const batchMaterialOptions = (selectableItems || items || [])
+  const availableBatchItems = selectableItems || items || [];
+  const selectedBatchItem = availableBatchItems.find((item) => item.id === Number(batchForm.item_id)) || editingItem;
+  const batchMaterialOptions = [
+    ...availableBatchItems,
+    ...(editingItem && !availableBatchItems.some((item) => item.id === editingItem.id) ? [editingItem] : []),
+  ]
     .filter((item) => item.unit === batchForm.unit || item.id === editingItem?.id)
     .sort((left, right) => left.name.localeCompare(right.name));
 
   return (
     <div>
       <PageHeader title={t(selectedGroup.titleKey)} subtitle={t(selectedGroup.subtitleKey)} />
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
-          {GROUPS.map((option) => {
-            const active = option.value === group;
-            return (
-              <Link
-                key={option.value}
-                href={inventoryHref(option.value)}
-                className={`rounded-md border px-3 py-2 text-sm font-medium transition ${
-                  active
-                    ? "border-[#14110b] bg-[#14110b] text-[#fdfcf8]"
-                    : "border-[#ded8c8] bg-[#fdfcf8] text-[#56503f] hover:border-[#bcb39f] hover:text-[#14110b]"
-                }`}
-              >
-                {t(option.titleKey)}
-              </Link>
-            );
+      {group === "materials" && scannedRoll > 0 && (
+        <div className="mb-4 rounded-md border border-[#cfc7b4] bg-[#f5f2e9] px-3 py-2 text-sm text-[#332d20]" role="status">
+          {t("page.inventory.scannedRoll", {
+            roll: scannedRoll,
+            count: scannedRollTotal || scannedRoll,
+            batch: q || "-",
           })}
         </div>
-        {group === "materials" && (
-          <div className="flex gap-2">
+      )}
+      {group === "materials" && (
+        <div className="mb-4 flex justify-end gap-2">
             <button
               type="button"
               className="btn"
@@ -1203,9 +1192,8 @@ export default function InventoryPage() {
               <Download />
               {downloadingReport === "pdf" ? t("common.loading") : t("page.inventory.pdfReport")}
             </button>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
       <form onSubmit={submitSearch} className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3">
           <Search className="h-4 w-4 shrink-0 text-[#8a8472]" />
@@ -1226,38 +1214,7 @@ export default function InventoryPage() {
           {t("common.search")}
         </button>
       </form>
-      <div className={`mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 ${
-        group === "materials" ? "lg:w-[760px] lg:grid-cols-3" : "lg:w-[480px]"
-      }`}>
-        {group === "materials" && (
-          <label className="block">
-            <span className="label">{t("field.supplier")}</span>
-            <select
-              className="input"
-              value={supplierFilterValue}
-              onChange={(event) => {
-                router.push(
-                  inventoryHref(
-                    group,
-                    searchDraft,
-                    createdFrom,
-                    createdTo,
-                    event.target.value,
-                  ),
-                );
-                setPage(1);
-              }}
-            >
-              <option value="">{t("page.inventory.allSuppliers")}</option>
-              {(supplierFilterOptions?.rows || []).map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-              ))}
-              {supplierFilterOptions?.has_unassigned && (
-                <option value={UNASSIGNED_SUPPLIER_FILTER}>{t("page.inventory.noSupplier")}</option>
-              )}
-            </select>
-          </label>
-        )}
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:w-[720px] lg:grid-cols-3">
         <label className="block">
           <span className="label">{t("common.createdFrom")}</span>
           <input
@@ -1276,14 +1233,34 @@ export default function InventoryPage() {
             onChange={(e) => router.push(inventoryHref(group, searchDraft, createdFrom, e.target.value))}
           />
         </label>
+        {group === "materials" && (
+          <label className="block">
+            <span className="label">{t("field.supplier")}</span>
+            <select
+              id="inventory-supplier-filter"
+              className="input"
+              value={supplierFilter || ""}
+              onChange={(event) => {
+                const nextSupplierId = Number(event.currentTarget.value) || 0;
+                setSupplierFilter(nextSupplierId);
+                setPage(1);
+              }}
+            >
+              <option value="">-</option>
+              {(suppliers || []).map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-        <div className="card p-4"><div className="text-xs text-slate-500">{t("page.inventory.itemTypes")}</div><div className="text-2xl font-semibold">{totalItems}</div></div>
+        <div className="card p-4"><div className="text-xs text-slate-500">{t("page.inventory.itemTypes")}</div><div className="text-2xl font-semibold">{supplierFilter || createdFrom || createdTo ? totalLines : (items?.length ?? 0)}</div></div>
         <div className="card p-4"><div className="text-xs text-slate-500">{t("page.inventory.linesTracked")}</div><div className="text-2xl font-semibold">{totalLines}</div></div>
       </div>
       <div className="card overflow-hidden">
         <div className="divide-y divide-[#ecebe3] md:hidden">
-          {inventoryRows.map(({ key, item: s, batch }) => {
+          {visibleInventoryRows.map(({ key, item: s, batch }) => {
             const unit = rowUnit(s, batch);
             const details = batch
               ? [
@@ -1305,9 +1282,19 @@ export default function InventoryPage() {
                           {t("field.batch")}: <span className="mono text-[#14110b]">{batch.batch_no}</span>
                         </div>
                       )}
+                      {batch?.internal_batch_no && (
+                        <div className="mt-1 text-xs text-[#6f684f]">
+                          {t("field.internalBatchNo")}: <span className="mono text-[#14110b]">{batch.internal_batch_no}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="flex shrink-0 gap-1">
-                      {hasEditableItem(s) && (
+                      {group === "materials" && batch && (
+                        <button type="button" className="icon-btn" onClick={() => openMaterialQrSticker(s, batch)} title={t("page.inventory.printQrSticker")}>
+                          <QrCode />
+                        </button>
+                      )}
+                      {hasEditableItem(s, batch) && (
                         <button type="button" className="icon-btn" onClick={() => openEditItem(s, batch)} title={t("btn.edit")}>
                           <Edit3 />
                         </button>
@@ -1358,7 +1345,7 @@ export default function InventoryPage() {
             <thead>
               <tr>
                 <th>{t("field.picture")}</th>
-                <th>{t("field.batch")}</th>
+                <th>{t("field.batch")} / {t("field.internalBatchNo")}</th>
                 <th>{t("common.name")} / {t("field.materialColor")}</th>
                 <th>{t("field.quantity")}</th>
                 <th>{t("field.reserved")}</th>
@@ -1367,11 +1354,11 @@ export default function InventoryPage() {
                 <th>{t("field.cost")}</th>
                 <th>{t("field.supplier")} / {t("field.warehouse")}</th>
                 <th>{t("field.orderNo")} / {t("page.receiveStock.qcStatus")}</th>
-                {(canEditItems || canDeleteBatches) && <th>{t("field.actions")}</th>}
+                {(group === "materials" || canEditItems || canDeleteBatches) && <th>{t("field.actions")}</th>}
               </tr>
             </thead>
             <tbody>
-              {inventoryRows.map(({ key, item: s, batch }) => {
+              {visibleInventoryRows.map(({ key, item: s, batch }) => {
                 const unit = rowUnit(s, batch);
                 const colorDetails = batchColorDetails(batch);
                 const receiveDetails = batchReceiveDetails(batch);
@@ -1379,7 +1366,16 @@ export default function InventoryPage() {
                   <tr key={key}>
                     <td>{itemPicture(rowImageUrl(s, batch), s.item_name || t("field.picture"))}</td>
                     <td>
-                      {batch ? <div className="mono font-semibold text-[#14110b]">{batch.batch_no}</div> : "-"}
+                      {batch ? (
+                        <div>
+                          <div className="mono font-semibold text-[#14110b]">{batch.batch_no}</div>
+                          {batch.internal_batch_no && (
+                            <div className="mt-1 text-xs text-[#6f684f]">
+                              {t("field.internalBatchNo")}: <span className="mono text-[#14110b]">{batch.internal_batch_no}</span>
+                            </div>
+                          )}
+                        </div>
+                      ) : "-"}
                     </td>
                     <td className="min-w-[220px]">
                       <div className="font-medium text-[#14110b]">{s.item_name}</div>
@@ -1417,10 +1413,15 @@ export default function InventoryPage() {
                         </div>
                       ) : "-"}
                     </td>
-                    {(canEditItems || canDeleteBatches) && (
+                    {(group === "materials" || canEditItems || canDeleteBatches) && (
                       <td>
                         <div className="flex gap-1">
-                          {hasEditableItem(s) && (
+                          {group === "materials" && batch && (
+                            <button type="button" className="icon-btn" onClick={() => openMaterialQrSticker(s, batch)} title={t("page.inventory.printQrSticker")}>
+                              <QrCode />
+                            </button>
+                          )}
+                          {hasEditableItem(s, batch) && (
                             <button type="button" className="icon-btn" onClick={() => openEditItem(s, batch)} title={t("btn.edit")}>
                               <Edit3 />
                             </button>
@@ -1440,15 +1441,32 @@ export default function InventoryPage() {
           </table>
           {inventoryRows.length === 0 && <div className="border-t border-[#ecebe3] p-4 text-sm text-[#8a8472]">{t("common.matches", { count: 0 })}</div>}
         </div>
+        {hasMoreInventoryRows && (
+          <div className="border-t border-[#ecebe3] p-3 text-center">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setInventoryRenderLimit((current) => (
+                Math.min(current + INVENTORY_RENDER_PAGE_SIZE, inventoryRows.length)
+              ))}
+            >
+              {t("common.loadMore")}
+            </button>
+          </div>
+        )}
         <PaginationControls
           page={page}
           pageSize={pageSize}
-          total={totalItems || rows.length}
-          count={rows.length}
+          total={totalLines || rows.length}
+          count={inventoryRows.length}
           onPageChange={setPage}
           onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
         />
       </div>
+      <MaterialQrStickerModal
+        data={stickerData}
+        onClose={() => setStickerData(null)}
+      />
       <Modal
         open={Boolean(editingItem)}
         onClose={() => {
@@ -1468,19 +1486,28 @@ export default function InventoryPage() {
             </div>
           )}
           {editingBatch ? (
-            <div>
-              <label className="label">{t("field.materialName")}</label>
-              <select
-                className="input"
-                value={batchForm.item_id}
-                onChange={(event) => setBatchForm({ ...batchForm, item_id: event.target.value })}
-                required
-              >
-                <option value="">-</option>
-                {batchMaterialOptions.map((item) => (
-                  <option key={item.id} value={item.id}>{item.name}</option>
-                ))}
-              </select>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="label">{t("field.materialName")}</label>
+                <select
+                  className="input"
+                  value={batchForm.item_id}
+                  onChange={(event) => setBatchForm({ ...batchForm, item_id: event.target.value })}
+                  required
+                >
+                  <option value="">-</option>
+                  {batchMaterialOptions.map((item) => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">{t("field.supplier")}</label>
+                <select className="input" value={batchForm.supplier_id} onChange={(event) => setBatchForm({ ...batchForm, supplier_id: event.target.value })}>
+                  <option value="">{t("ph.supplier")}</option>
+                  {(suppliers || []).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+                </select>
+              </div>
             </div>
           ) : (
             <>
@@ -1601,19 +1628,12 @@ export default function InventoryPage() {
                 </div>
                 <div>
                   <label className="label">{t("field.quantity")} ({batchForm.unit || "-"})</label>
-                  <input className={`input ${batchBelowReserved || batchQuantityInvalid ? "border-red-400" : ""}`} type="number" min={editingStock?.reservedQuantity ?? 0} step="0.0001" value={batchForm.quantity} onChange={(event) => setBatchForm({ ...batchForm, quantity: event.target.value })} required />
+                  <input className={`input ${batchBelowReserved || batchQuantityInvalid ? "border-red-400" : ""}`} type="number" min={0} step="0.0001" value={batchForm.quantity} onChange={(event) => setBatchForm({ ...batchForm, quantity: event.target.value })} required />
                   {editingStock && <div className={`mt-1 text-xs ${batchBelowReserved ? "text-red-700" : "text-[#8a8472]"}`}>{t("field.reserved")}: {editingStock.reservedQuantity.toFixed(2)} {editingStock.unit}</div>}
                 </div>
                 <div>
                   <label className="label">{`${t("field.cost")} / ${t("field.unit")}`}</label>
                   <input className="input" type="number" min={0} step="0.0001" value={batchForm.cost_per_unit} onChange={(event) => setBatchForm({ ...batchForm, cost_per_unit: event.target.value })} required />
-                </div>
-                <div>
-                  <label className="label">{t("field.supplier")}</label>
-                  <select className="input" value={batchForm.supplier_id} onChange={(event) => setBatchForm({ ...batchForm, supplier_id: event.target.value })}>
-                    <option value="">-</option>
-                    {(suppliers || []).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-                  </select>
                 </div>
                 <div>
                   <label className="label">{t("field.warehouse")}</label>
@@ -1678,7 +1698,7 @@ export default function InventoryPage() {
                 <input
                   className={`input ${stockBelowReserved || stockQuantityInvalid ? "border-red-400" : ""}`}
                   type="number"
-                  min={editingStock?.reservedQuantity ?? 0}
+                  min={0}
                   step="0.0001"
                   value={itemForm.stock_quantity}
                   onChange={(event) => setItemForm({ ...itemForm, stock_quantity: event.target.value })}
@@ -1716,7 +1736,7 @@ export default function InventoryPage() {
             <button type="button" className="btn" onClick={() => { setEditingItem(null); setEditingBatch(null); setEditingStock(null); setBatchForm(EMPTY_BATCH_FORM); }}>
               {t("btn.cancel")}
             </button>
-            <button className="btn btn-primary" disabled={savingItem || uploadingItemImage || !canEditItems || (editingBatch ? (batchQuantityInvalid || batchBelowReserved || !batchForm.item_id || !batchForm.warehouse_id || !batchForm.batch_no.trim()) : (stockQuantityInvalid || stockBelowReserved)) || compositionOverLimit}>
+            <button className="btn btn-primary" disabled={savingItem || uploadingItemImage || !canEditItems || (editingBatch ? (batchQuantityInvalid || !batchForm.item_id || !batchForm.warehouse_id || !batchForm.batch_no.trim()) : stockQuantityInvalid) || compositionOverLimit}>
               {savingItem ? t("common.saving") : t("btn.save")}
             </button>
           </div>

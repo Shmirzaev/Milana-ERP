@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { ArrowRight, PackageOpen, RefreshCw, Search } from "lucide-react";
 import useSWR from "swr";
 
 import PageHeader from "@/components/PageHeader";
 import { fetcher } from "@/lib/api";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { useT } from "@/lib/i18n";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 
@@ -33,18 +33,20 @@ function orderLabel(row: ReceivedOrder) {
 
 export default function PackagingQueuePage() {
   const { t } = useT();
+  const searchParams = useSearchParams();
+  const requestedDepartment = searchParams.get("packaging_department");
+  const packagingDepartment = requestedDepartment === "ECP" || requestedDepartment === "BPK" ? requestedDepartment : "PKG";
+  const isEcoCotton = packagingDepartment === "ECP";
+  const factoryLabel = isEcoCotton ? "Eco Cotton" : packagingDepartment === "BPK" ? "Besttex" : "Milana";
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const queueUrl = useMemo(() => {
     const params = new URLSearchParams({ limit: "200" });
+    params.set("packaging_department_code", packagingDepartment);
     if (search) params.set("q", search);
     return `/api/packaging/received-orders?${params.toString()}`;
-  }, [search]);
-  const { data: orders = [], mutate, isLoading } = useSWR<ReceivedOrder[]>(
-    queueUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  }, [packagingDepartment, search]);
+  const { data: orders = [], mutate, isLoading } = useSWR<ReceivedOrder[]>(queueUrl, fetcher);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -54,7 +56,7 @@ export default function PackagingQueuePage() {
   return (
     <div>
       <PageHeader
-        title={t("page.packagingReceive.queueTitle")}
+        title={`${factoryLabel} - ${t("page.packagingReceive.queueTitle")}`}
         subtitle={t("page.packagingReceive.queueHint")}
         actions={(
           <button type="button" className="btn" onClick={() => mutate()}>

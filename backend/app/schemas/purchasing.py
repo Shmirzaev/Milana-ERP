@@ -1,19 +1,21 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 
 
 class PurchaseRequestLineIn(BaseModel):
     item_id: int
-    required_quantity: float
+    required_quantity: float = 0
     requested_quantity: Optional[float] = None
     unit: Optional[str] = None
     available_quantity: float = 0
     shortage_quantity: Optional[float] = None
     preferred_supplier_id: Optional[int] = None
+    material_name: Optional[str] = None
+    photo_url: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -38,6 +40,8 @@ class PurchaseRequestLineOut(ORMModel):
     shortage_quantity: float
     preferred_supplier_id: Optional[int] = None
     preferred_supplier_name: Optional[str] = None
+    material_name: Optional[str] = None
+    photo_url: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -64,6 +68,9 @@ class PurchaseOrderLineIn(BaseModel):
     unit: Optional[str] = None
     unit_cost: float = 0
     warehouse_id: Optional[int] = None
+    supplier_id: Optional[int] = None
+    material_name: Optional[str] = None
+    photo_url: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -88,6 +95,10 @@ class PurchaseOrderLineOut(ORMModel):
     unit_cost: float
     warehouse_id: Optional[int] = None
     warehouse_name: Optional[str] = None
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
+    material_name: Optional[str] = None
+    photo_url: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -122,10 +133,33 @@ class PurchaseOrderReceiveLineIn(BaseModel):
     width: Optional[float] = None
     gsm: Optional[float] = None
     piece_count: Optional[int] = None
+    roll_weights_kg: list[float] = Field(default_factory=list)
     processes: Optional[str] = None
     qc_status: str = "passed"
 
 
 class PurchaseOrderReceiveIn(BaseModel):
     supplier_id: Optional[int] = None
+    close_order: bool = False
     lines: list[PurchaseOrderReceiveLineIn]
+
+
+class PurchaseRequestApprovalLineIn(BaseModel):
+    purchase_request_line_id: int
+    material_name: str
+    preferred_supplier_id: int
+    photo_url: str
+
+
+class PurchaseRequestApprovalIn(BaseModel):
+    lines: list[PurchaseRequestApprovalLineIn]
+
+
+class PurchaseRequestOrderLineIn(BaseModel):
+    purchase_request_line_id: int
+    ordered_quantity: float
+
+
+class PurchaseRequestOrderIn(BaseModel):
+    expected_date: datetime
+    lines: list[PurchaseRequestOrderLineIn]

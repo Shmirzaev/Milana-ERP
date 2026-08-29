@@ -4,6 +4,8 @@ Stores PNG files on the local filesystem under settings.BARCODE_STORAGE_DIR and
 returns a URL path served by FastAPI (mounted at /storage/barcodes).
 """
 from __future__ import annotations
+import base64
+from io import BytesIO
 import os
 import uuid
 
@@ -37,6 +39,18 @@ def save_qr_image(payload: str, filename_stem: str) -> str:
     full_path = os.path.join(settings.BARCODE_STORAGE_DIR, f"{filename_stem}.png")
     img.save(full_path)
     return f"/storage/barcodes/{filename_stem}.png"
+
+
+def qr_png_data_uri(payload: str) -> str:
+    """Render a QR as an inline PNG without creating a persistent storage file."""
+    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=2)
+    qr.add_data(payload)
+    qr.make(fit=True)
+    image = qr.make_image(fill_color="black", back_color="white")
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 def save_barcode_image(value: str, filename_stem: str) -> str:

@@ -11,6 +11,7 @@ from app.schemas.sewing_flow import (
 from app.schemas.production import WorkOrderOut
 from app.services.audit import log_action
 from app.services.model_images import material_preview_image_url
+from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
 
 router = APIRouter(prefix="/sewing-flows", tags=["sewing-flows"])
 
@@ -189,8 +190,9 @@ def _single_load(db, flow_id: int) -> dict:
 
 
 @router.get("", response_model=list[SewingFlowWithLoad])
-def list_flows(db: DbSession, _: CurrentUser, only_active: bool = True):
-    qry = db.query(SewingFlow)
+def list_flows(db: DbSession, current: CurrentUser, only_active: bool = True, factory_code: str | None = None):
+    factory = sewing_line_factory_scope(current, factory_code)
+    qry = db.query(SewingFlow).filter(SewingFlow.factory_code == factory)
     if only_active:
         qry = qry.filter(SewingFlow.is_active.is_(True))
     flows = qry.order_by(SewingFlow.code).all()
@@ -198,7 +200,7 @@ def list_flows(db: DbSession, _: CurrentUser, only_active: bool = True):
     empty = {"active_work_orders": 0, "planned_units": 0, "completed_units": 0}
     return [
         SewingFlowWithLoad(
-            id=f.id, name=f.name, code=f.code, description=f.description,
+            id=f.id, factory_code=f.factory_code, name=f.name, code=f.code, description=f.description,
             capacity_per_day=f.capacity_per_day, supervisor_id=f.supervisor_id,
             is_active=f.is_active,
             **loads.get(f.id, empty),
@@ -209,9 +211,14 @@ def list_flows(db: DbSession, _: CurrentUser, only_active: bool = True):
 
 @router.post("", response_model=SewingFlowOut, status_code=201)
 def create_flow(payload: SewingFlowIn, db: DbSession, current: User = Depends(require_permissions("sewing.flows", "*"))):
-    if db.query(SewingFlow).filter(SewingFlow.code == payload.code).first():
+    factory = sewing_line_factory_scope(current, payload.factory_code)
+    if db.query(SewingFlow).filter(SewingFlow.factory_code == factory, SewingFlow.code == payload.code).first():
         raise HTTPException(400, "Flow code already exists")
-    f = SewingFlow(**payload.model_dump())
+    if db.query(SewingFlow).filter(SewingFlow.factory_code == factory, SewingFlow.name == payload.name).first():
+        raise HTTPException(400, "Flow name already exists")
+    values = payload.model_dump()
+    values["factory_code"] = factory
+    f = SewingFlow(**values)
     db.add(f); db.flush()
     log_action(db, current, "create", "SewingFlow", f.id, new_value={"code": f.code})
     db.commit(); db.refresh(f)
@@ -264,8 +271,12 @@ def _committed_today(db, flow_id: int) -> int:
 
 
 @router.get("/utilization-snapshot")
-def utilization_snapshot(db: DbSession, _: CurrentUser):
-    flows = db.query(SewingFlow).filter(SewingFlow.is_active.is_(True)).order_by(SewingFlow.code).all()
+def utilization_snapshot(db: DbSession, current: CurrentUser, factory_code: str | None = None):
+    factory = sewing_line_factory_scope(current, factory_code)
+    flows = db.query(SewingFlow).filter(
+        SewingFlow.factory_code == factory,
+        SewingFlow.is_active.is_(True),
+    ).order_by(SewingFlow.code).all()
     out = []
     for flow in flows:
         committed = _committed_today(db, int(flow.id))
@@ -285,11 +296,12 @@ def utilization_snapshot(db: DbSession, _: CurrentUser):
 
 
 @router.get("/{fid}", response_model=SewingFlowWithLoad)
-def get_flow(fid: int, db: DbSession, _: CurrentUser):
+def get_flow(fid: int, db: DbSession, current: CurrentUser):
     f = db.get(SewingFlow, fid)
     if not f: raise HTTPException(404, "Sewing flow not found")
+    require_sewing_flow_access(current, f)
     return SewingFlowWithLoad(
-        id=f.id, name=f.name, code=f.code, description=f.description,
+        id=f.id, factory_code=f.factory_code, name=f.name, code=f.code, description=f.description,
         capacity_per_day=f.capacity_per_day, supervisor_id=f.supervisor_id,
         is_active=f.is_active,
         **_single_load(db, f.id),
@@ -300,7 +312,17 @@ def get_flow(fid: int, db: DbSession, _: CurrentUser):
 def update_flow(fid: int, payload: SewingFlowUpdate, db: DbSession, current: User = Depends(require_permissions("sewing.flows", "*"))):
     f = db.get(SewingFlow, fid)
     if not f: raise HTTPException(404, "Sewing flow not found")
+    require_sewing_flow_access(current, f)
     changes = payload.model_dump(exclude_unset=True)
+    next_code = changes.get("code", f.code)
+    next_name = changes.get("name", f.name)
+    duplicate = db.query(SewingFlow.id).filter(
+        SewingFlow.factory_code == f.factory_code,
+        SewingFlow.id != f.id,
+        (SewingFlow.code == next_code) | (SewingFlow.name == next_name),
+    ).first()
+    if duplicate:
+        raise HTTPException(400, "Flow code or name already exists in this factory")
     for k, v in changes.items():
         setattr(f, k, v)
     log_action(db, current, "update", "SewingFlow", f.id, new_value=changes)
@@ -309,9 +331,11 @@ def update_flow(fid: int, payload: SewingFlowUpdate, db: DbSession, current: Use
 
 
 @router.get("/{fid}/work-orders", response_model=list[SewingFlowWorkOrderOut])
-def flow_work_orders(fid: int, db: DbSession, _: CurrentUser, only_active: bool = False):
-    if not db.get(SewingFlow, fid):
+def flow_work_orders(fid: int, db: DbSession, current: CurrentUser, only_active: bool = False):
+    flow = db.get(SewingFlow, fid)
+    if not flow:
         raise HTTPException(404, "Sewing flow not found")
+    require_sewing_flow_access(current, flow)
 
     assignment_managed_wo_ids = {
         wid for (wid,) in db.query(SewingAssignment.work_order_id).filter(

@@ -55,6 +55,11 @@ const securityHeaders = [
 
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    // The API accepts files up to 20 MB. Leave room for multipart framing so
+    // oversized requests reach the API and receive a proper validation error.
+    proxyClientMaxBodySize: "25mb",
+  },
   async headers() {
     return [
       {

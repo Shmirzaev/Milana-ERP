@@ -30,11 +30,57 @@ class SewingDailyReportCreate(BaseModel):
         self.manual_variant_no = (self.manual_variant_no or "").strip() or None
         self.kroy_no = (self.kroy_no or "").strip() or None
         self.section_name = (self.section_name or "").strip() or None
+        if self.manual_variant_no and not self.manual_model_no:
+            raise ValueError("A manual variant number requires a manual model number")
+        if self.work_order_id is not None and self.manual_model_no:
+            raise ValueError("A manual model cannot be combined with a sewing order")
         if self.work_order_id is None:
             if self.sewing_assignment_id is not None:
                 raise ValueError("A sewing assignment cannot be selected without a work order")
             if not self.manual_model_no:
                 raise ValueError("Model number is required when no sewing order is attached")
+        if self.sewn_qty <= 0:
+            raise ValueError("Sewn quantity must be greater than zero")
+        if self.section_quantities is not None:
+            if any(quantity < 0 for quantity in self.section_quantities):
+                raise ValueError("Section quantities cannot be negative")
+            if sum(self.section_quantities) != self.sewn_qty:
+                raise ValueError("Section quantities must add up to sewn quantity")
+        if (self.top_qty is None) != (self.bottom_qty is None):
+            raise ValueError("Top and bottom quantities must be provided together")
+        if self.top_qty is not None and self.bottom_qty is not None:
+            if self.top_qty + self.bottom_qty != self.sewn_qty:
+                raise ValueError("Top and bottom quantities must add up to sewn quantity")
+        if self.defective_qty > self.sewn_qty:
+            raise ValueError("Defective quantity cannot exceed sewn quantity")
+        if self.defective_qty > 0 and not (self.defect_reason or "").strip():
+            raise ValueError("Defect reason is required when defective quantity is greater than zero")
+        return self
+
+
+class SewingDailyReportUpdate(BaseModel):
+    report_date: date
+    manual_model_no: Optional[str] = Field(default=None, max_length=64)
+    manual_variant_no: Optional[str] = Field(default=None, max_length=64)
+    kroy_no: Optional[str] = Field(default=None, max_length=64)
+    sewn_qty: int = Field(ge=0)
+    section_quantities: Optional[list[int]] = Field(default=None, min_length=3, max_length=3)
+    section_no: Optional[int] = Field(default=None, ge=1, le=20)
+    section_name: Optional[str] = Field(default=None, max_length=64)
+    top_qty: Optional[int] = Field(default=None, ge=0)
+    bottom_qty: Optional[int] = Field(default=None, ge=0)
+    defective_qty: int = Field(default=0, ge=0)
+    defect_reason: Optional[str] = Field(default=None, max_length=255)
+    notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_quantities(self):
+        self.manual_model_no = (self.manual_model_no or "").strip() or None
+        self.manual_variant_no = (self.manual_variant_no or "").strip() or None
+        self.kroy_no = (self.kroy_no or "").strip() or None
+        self.section_name = (self.section_name or "").strip() or None
+        if self.manual_variant_no and not self.manual_model_no:
+            raise ValueError("A manual variant number requires a manual model number")
         if self.sewn_qty <= 0:
             raise ValueError("Sewn quantity must be greater than zero")
         if self.section_quantities is not None:

@@ -6,6 +6,7 @@ from app.schemas.production import WorkOrderOut
 
 
 class SewingFlowIn(BaseModel):
+    factory_code: str = "MIL"
     name: str
     code: str
     description: Optional[str] = None
@@ -25,6 +26,7 @@ class SewingFlowUpdate(BaseModel):
 
 class SewingFlowOut(ORMModel):
     id: int
+    factory_code: str
     name: str
     code: str
     description: Optional[str] = None

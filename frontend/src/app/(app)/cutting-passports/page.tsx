@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Plus, Search, Pencil, Trash2, BookOpen } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
@@ -10,7 +11,6 @@ import { modelCodeParts } from "@/lib/modelCode";
 import { useDialogs } from "@/components/DialogProvider";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import { useT } from "@/lib/i18n";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -255,36 +255,25 @@ function modelQolipNo(model: any): string {
 export default function CuttingPassportsPage() {
   const dialogs = useDialogs();
   const { t } = useT();
-  const { data: passports = [], mutate } = useSWR<Passport[]>(
-    "/api/cutting-passports?formula_version=20260706_ishlangan_kg",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
-  const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
-  const { data: models = [] } = useSWR<any[]>("/api/models?page_size=500", fetcher);
-  const { data: users = [] } = useSWR<any[]>("/api/users", fetcher);
-
+  const searchParams = useSearchParams();
+  const cuttingDepartment = searchParams.get("cutting_department") === "ECT" ? "ECT" : "CUT";
+  const factoryName = cuttingDepartment === "ECT" ? t("factory.ecoCotton") : t("factory.milana");
   const [q, setQ] = useState("");
+  const passportSearch = q.trim();
+  const passportUrl = `/api/cutting-passports?formula_version=20260706_ishlangan_kg&limit=500&cutting_department_code=${cuttingDepartment}${
+    passportSearch ? `&q=${encodeURIComponent(passportSearch)}` : ""
+  }`;
+  const { data: passports = [], mutate } = useSWR<Passport[]>(passportUrl, fetcher, { keepPreviousData: true });
+  const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
+  const { data: users = [] } = useSWR<any[]>("/api/cutting-passports/operators", fetcher);
+
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Passport | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [sizeChoices, setSizeChoices] = useState<string[]>([]);
   const [err, setErr] = useState("");
 
-  const rows = useMemo(() => {
-    if (!q.trim()) return passports;
-    const lq = q.toLowerCase();
-    return passports.filter((p) =>
-      (p.passport_no || "").toLowerCase().includes(lq) ||
-      (p.lot_no || "").toLowerCase().includes(lq) ||
-      (p.model_code || "").toLowerCase().includes(lq) ||
-      (p.model_name || "").toLowerCase().includes(lq) ||
-      (p.order_no || "").toLowerCase().includes(lq) ||
-      (p.production_order_no || "").toLowerCase().includes(lq) ||
-      (p.operator_name || "").toLowerCase().includes(lq) ||
-      (p.variant || "").toLowerCase().includes(lq)
-    );
-  }, [passports, q]);
+  const rows = passports;
 
   const selectedSizeCount = useMemo(
     () => sizeCountForSelection(form.size_range, sizeChoices),
@@ -424,9 +413,12 @@ export default function CuttingPassportsPage() {
     mutate();
   }
 
-  const prodOrdersArr: any[] = Array.isArray(prodOrders) ? prodOrders : (prodOrders as any)?.rows ?? [];
-  const modelsArr: any[] = Array.isArray(models) ? models : (models as any)?.rows ?? [];
-  const modelMap = new Map(modelsArr.map((m: any) => [m.id, m]));
+  const allProdOrders: any[] = Array.isArray(prodOrders) ? prodOrders : (prodOrders as any)?.rows ?? [];
+  const prodOrdersArr = allProdOrders.filter((row: any) => (
+    cuttingDepartment === "ECT"
+      ? row.cutting_department_code === "ECT"
+      : row.cutting_department_code !== "ECT"
+  ));
   const usersArr: any[] = Array.isArray(users) ? users : [];
   const f = form;
   const sf = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) =>
@@ -436,30 +428,32 @@ export default function CuttingPassportsPage() {
     const value = e.target.value;
     setSizeChoices([]);
     const po = prodOrdersArr.find((row: any) => String(row.id) === value);
-    const model = po ? modelMap.get(po.model_id) : null;
-    const parts = model ? modelCodeParts(model) : null;
-    const qolipNo = modelQolipNo(model);
     setForm((prev) => ({
       ...prev,
       production_order_id: value,
       order_no: po ? orderReference(po, po.production_no || prev.order_no) : "",
-      model_code: parts?.code || model?.code || po?.model_code || "",
-      variant: parts?.variantNo || "",
-      mold_no: qolipNo,
+      model_code: po?.model_code || "",
+      variant: "",
+      mold_no: "",
       pieces: po?.planned_quantity ?? prev.pieces,
       planned_kg: po?.estimated_material_amount ?? prev.planned_kg,
     }));
     if (!value) return;
     try {
-      const defaults = await api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${value}`);
+      const [defaults, model] = await Promise.all([
+        api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${value}`),
+        po?.model_id ? api.get<any>(`/api/models/${po.model_id}`).catch(() => null) : Promise.resolve(null),
+      ]);
+      const parts = model ? modelCodeParts(model) : null;
+      const qolipNo = modelQolipNo(model);
       setSizeChoices(defaults.sizes?.length ? defaults.sizes : expandSizeSelection(defaults.size_range));
       setForm((prev) => {
         if (String(prev.production_order_id) !== value) return prev;
         return {
           ...prev,
           order_no: defaults.order_no || defaults.sales_order_no || defaults.production_order_no || prev.order_no,
-          model_code: defaults.model_code || defaults.model_no || prev.model_code,
-          variant: defaults.variant || prev.variant,
+          model_code: defaults.model_code || defaults.model_no || parts?.code || model?.code || prev.model_code,
+          variant: defaults.variant || parts?.variantNo || prev.variant,
           mold_no: defaults.mold_no || qolipNo,
           image_ref: defaults.image_ref || prev.image_ref,
           fabric_type: defaults.fabric_type || defaults.material_item_name || prev.fabric_type,
@@ -488,12 +482,12 @@ export default function CuttingPassportsPage() {
   return (
     <div>
       <PageHeader
-        title={t("page.cuttingPassports.title")}
+        title={`${factoryName} - ${t("page.cuttingPassports.title")}`}
         subtitle={t("page.cuttingPassports.subtitle")}
       />
 
       {/* Toolbar */}
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
           <input
@@ -515,7 +509,7 @@ export default function CuttingPassportsPage() {
             <thead>
               {/* Column group row */}
               <tr className="text-[10px] font-bold uppercase tracking-widest">
-                <th colSpan={3} className="sticky left-0 z-30 bg-slate-700 text-white px-3 py-1.5 text-left border-r-2 border-slate-500">
+                <th colSpan={3} className="bg-slate-700 text-white px-3 py-1.5 text-left border-r-2 border-slate-500 lg:sticky lg:left-0 lg:z-30">
                   {t("page.cuttingPassports.group.basic")}
                 </th>
                 <th colSpan={8} className="bg-slate-600 text-slate-200 px-3 py-1.5 text-left border-r border-slate-500">
@@ -533,14 +527,14 @@ export default function CuttingPassportsPage() {
                 <th colSpan={3} className="bg-green-700 text-green-100 px-3 py-1.5 text-center border-r border-green-500">
                   {t("page.cuttingPassports.group.result")}
                 </th>
-                <th className="sticky right-0 z-30 bg-slate-700 px-2 py-1.5" />
+                <th className="bg-slate-700 px-2 py-1.5 lg:sticky lg:right-0 lg:z-30" />
               </tr>
               {/* Column headers */}
               <tr className="border-b-2 border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
                 {/* Frozen left */}
-                <th className="sticky left-0 z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[88px] shadow-[2px_0_0_0_#e2e8f0]">{t("page.cuttingPassports.field.passportNo")}</th>
-                <th className="sticky left-[88px] z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[90px]">{t("page.cuttingPassports.field.date")}</th>
-                <th className="sticky left-[178px] z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[120px] shadow-[2px_0_6px_-1px_rgba(0,0,0,0.12)]">{t("page.cuttingPassports.field.model")}</th>
+                <th className="bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[88px] lg:sticky lg:left-0 lg:z-20 lg:shadow-[2px_0_0_0_#e2e8f0]">{t("page.cuttingPassports.field.passportNo")}</th>
+                <th className="bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[90px] lg:sticky lg:left-[88px] lg:z-20">{t("page.cuttingPassports.field.date")}</th>
+                <th className="bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[120px] lg:sticky lg:left-[178px] lg:z-20 lg:shadow-[2px_0_6px_-1px_rgba(0,0,0,0.12)]">{t("page.cuttingPassports.field.model")}</th>
                 {/* Scrollable cols */}
                 <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.variant")}</th>
                 <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.moldNo")}</th>
@@ -573,7 +567,7 @@ export default function CuttingPassportsPage() {
                 <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.layerGr")}</th>
                 <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.grossGr")}</th>
                 {/* Frozen right: actions */}
-                <th className="sticky right-0 z-20 bg-slate-50 px-2 py-2 shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.12)]" />
+                <th className="bg-slate-50 px-2 py-2 lg:sticky lg:right-0 lg:z-20 lg:shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.12)]" />
               </tr>
             </thead>
             <tbody>
@@ -587,9 +581,9 @@ export default function CuttingPassportsPage() {
               {rows.map((p) => (
                 <tr key={p.id} className="border-b border-slate-100 hover:bg-stone-50 group">
                   {/* Frozen left */}
-                  <td className="sticky left-0 z-10 bg-white group-hover:bg-stone-50 px-3 py-2 font-mono font-semibold whitespace-nowrap min-w-[88px] shadow-[2px_0_0_0_#f1f5f9]">{p.passport_no}</td>
-                  <td className="sticky left-[88px] z-10 bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[90px]">{p.date.slice(0, 10)}</td>
-                  <td className="sticky left-[178px] z-10 bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[120px] shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)]" title={p.model_name ?? ""}>{p.model_code ?? p.model_name ?? "—"}</td>
+                  <td className="bg-white group-hover:bg-stone-50 px-3 py-2 font-mono font-semibold whitespace-nowrap min-w-[88px] lg:sticky lg:left-0 lg:z-10 lg:shadow-[2px_0_0_0_#f1f5f9]">{p.passport_no}</td>
+                  <td className="bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[90px] lg:sticky lg:left-[88px] lg:z-10">{p.date.slice(0, 10)}</td>
+                  <td className="bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[120px] lg:sticky lg:left-[178px] lg:z-10 lg:shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)]" title={p.model_name ?? ""}>{p.model_code ?? p.model_name ?? "—"}</td>
                   {/* Scrollable */}
                   <td className="px-3 py-2">{p.variant ?? "—"}</td>
                   <td className="px-3 py-2">{p.mold_no ?? "—"}</td>
@@ -633,7 +627,7 @@ export default function CuttingPassportsPage() {
                   <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.actual_kg_per_piece)}</td>
                   <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.gross_kg_per_piece)}</td>
                   {/* Frozen right */}
-                  <td className="sticky right-0 z-10 bg-white group-hover:bg-stone-50 px-2 py-2 shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.08)]">
+                  <td className="bg-white group-hover:bg-stone-50 px-2 py-2 lg:sticky lg:right-0 lg:z-10 lg:shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.08)]">
                     <div className="flex gap-1">
                       <button className="btn btn-ghost p-1" onClick={() => openEdit(p)}>
                         <Pencil className="h-3.5 w-3.5" />
@@ -656,8 +650,9 @@ export default function CuttingPassportsPage() {
         onClose={() => setShowForm(false)}
         title={editing ? t("page.cuttingPassports.editTitle", { passport: editing.passport_no }) : t("page.cuttingPassports.createTitle")}
         wide
+        closeOnOutsideClick={false}
       >
-        <form onSubmit={save} className="max-h-[80vh] overflow-y-auto pr-1 space-y-5">
+        <form onSubmit={save} className="space-y-5">
 
           {!editing && (
             <div className="flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -670,7 +665,7 @@ export default function CuttingPassportsPage() {
           )}
 
           <Sec label={t("page.cuttingPassports.section.basicInfo")}>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label={t("page.cuttingPassports.field.passportNoRequired")}>
                 <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleNumber")} value={f.passport_no} onChange={sf("passport_no")} required />
               </Field>
@@ -681,15 +676,14 @@ export default function CuttingPassportsPage() {
           </Sec>
 
           <Sec label={t("page.cuttingPassports.section.modelIdentification")}>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <Field label={t("page.cuttingPassports.field.erpOrderModel")}>
                 <select className="input" value={f.production_order_id} onChange={selectProductionOrder}>
                   <option value="">{t("page.cuttingPassports.placeholder.chooseNone")}</option>
                   {prodOrdersArr.map((po: any) => {
-                    const model = modelMap.get(po.model_id);
                     return (
                       <option key={po.id} value={po.id}>
-                        {orderReference(po, po.production_no)}{model?.code ? ` · ${model.code}` : ""}
+                        {orderReference(po, po.production_no)}{po.model_code ? ` · ${po.model_code}` : ""}
                       </option>
                     );
                   })}
@@ -737,7 +731,7 @@ export default function CuttingPassportsPage() {
           </Sec>
 
           <Sec label={t("page.cuttingPassports.section.layupInfo")}>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <Field label={t("page.cuttingPassports.field.rollsCount")}>
                 <input className="input" type="number" placeholder="0" value={f.rolls_count} onChange={sf("rolls_count")} />
               </Field>
@@ -763,7 +757,7 @@ export default function CuttingPassportsPage() {
           </Sec>
 
           <Sec label={t("page.cuttingPassports.section.fabricMeasurements")}>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <Field label={t("page.cuttingPassports.field.fabricWidthM")}>
                 <input className="input" type="number" step="0.01" placeholder="1.80" value={f.fabric_width_m} onChange={sf("fabric_width_m")} />
               </Field>
@@ -793,7 +787,7 @@ export default function CuttingPassportsPage() {
           </Sec>
 
           <Sec label={t("page.cuttingPassports.section.bindingRibanaPerPiece")}>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <CalcBox label={t("page.cuttingPassports.field.bindingTotal")} formula={t("page.cuttingPassports.formula.bindingTotal")}>
                 {calc.X ? calc.X.toFixed(4) : "—"}
               </CalcBox>
@@ -819,7 +813,7 @@ export default function CuttingPassportsPage() {
           </Sec>
 
           <Sec label={t("page.cuttingPassports.section.results")}>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <CalcBox label={t("page.cuttingPassports.field.perPieceGr")} formula={t("page.cuttingPassports.formula.perPieceGr")} highlight>
                 {calc.AE ? calc.AE.toFixed(6) : "—"}
               </CalcBox>
@@ -838,7 +832,7 @@ export default function CuttingPassportsPage() {
 
           {err && <p className="text-sm text-red-600">{err}</p>}
 
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <button type="button" className="btn" onClick={() => setShowForm(false)}>{t("common.cancel")}</button>
             <button type="submit" className="btn btn-primary">
               {editing ? t("common.save") : t("common.create")}

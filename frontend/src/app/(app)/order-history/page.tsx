@@ -56,8 +56,7 @@ type HistoryRow = {
 };
 
 type HistoryProduct = {
-  model_id?: number | null;
-  finished_goods_stock_id?: number | null;
+  model_id: number;
   model_no?: string | null;
   variant_no?: string | null;
   code?: string | null;

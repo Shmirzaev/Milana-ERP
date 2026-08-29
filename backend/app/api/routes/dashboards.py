@@ -15,6 +15,7 @@ from app.core.dt import as_utc
 from app.models import (
     SalesOrder, ProductionOrder, WorkOrder, WasteRecord, FinishedGoodsStock,
     CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer, User,
+    SalesOrderItem,
 )
 from app.services.finance import dashboard_summary, branded_stock_value
 from app.services.inventory import stock_summary
@@ -42,26 +43,65 @@ def active_production(db: DbSession, _: User = Depends(require_permissions(*PROD
         .order_by(SalesOrder.deadline.asc(), SalesOrder.id.asc())
         .all()
     )
+    order_ids = {int(order.id) for order in orders}
+    production_orders = (
+        db.query(ProductionOrder)
+        .filter(ProductionOrder.sales_order_id.in_(order_ids))
+        .all()
+        if order_ids
+        else []
+    )
+    production_orders_by_sales_order: dict[int, list[ProductionOrder]] = {}
+    for production_order in production_orders:
+        production_orders_by_sales_order.setdefault(int(production_order.sales_order_id), []).append(production_order)
+    production_order_ids = {int(production_order.id) for production_order in production_orders}
+    packaging_work_orders = (
+        db.query(WorkOrder)
+        .filter(
+            WorkOrder.production_order_id.in_(production_order_ids),
+            WorkOrder.operation == "packaging",
+        )
+        .all()
+        if production_order_ids
+        else []
+    )
+    packaging_by_production_order: dict[int, list[WorkOrder]] = {}
+    for work_order in packaging_work_orders:
+        packaging_by_production_order.setdefault(int(work_order.production_order_id), []).append(work_order)
+    item_quantity_by_order = {
+        int(order_id): int(quantity or 0)
+        for order_id, quantity in (
+            db.query(SalesOrderItem.sales_order_id, func.coalesce(func.sum(SalesOrderItem.quantity), 0))
+            .filter(SalesOrderItem.sales_order_id.in_(order_ids))
+            .group_by(SalesOrderItem.sales_order_id)
+            .all()
+            if order_ids
+            else []
+        )
+    }
+    customer_ids = {int(order.customer_id) for order in orders if order.customer_id}
+    customers_by_id = {
+        int(customer.id): customer
+        for customer in (
+            db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
+            if customer_ids
+            else []
+        )
+    }
     result = []
     for order in orders:
-        production_orders = db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == order.id).all()
-        po_ids = [int(po.id) for po in production_orders]
-        planned_qty = sum(int(po.planned_quantity or 0) for po in production_orders)
+        order_production_orders = production_orders_by_sales_order.get(int(order.id), [])
+        planned_qty = sum(int(po.planned_quantity or 0) for po in order_production_orders)
         if planned_qty <= 0:
-            planned_qty = sum(int(item.quantity or 0) for item in (order.items or []))
+            planned_qty = item_quantity_by_order.get(int(order.id), 0)
 
-        completed_qty = 0
-        if po_ids:
-            packaging_wos = db.query(WorkOrder).filter(
-                WorkOrder.production_order_id.in_(po_ids),
-                WorkOrder.operation == "packaging",
-            ).all()
-            completed_qty = sum(
+        completed_qty = sum(
                 max(int(wo.passed_qty or 0), int(wo.actual_output_qty or 0))
-                for wo in packaging_wos
-            )
+                for production_order in order_production_orders
+                for wo in packaging_by_production_order.get(int(production_order.id), [])
+        )
         progress_pct = round((completed_qty / planned_qty * 100) if planned_qty > 0 else 0)
-        customer = db.get(Customer, order.customer_id) if order.customer_id else None
+        customer = customers_by_id.get(int(order.customer_id)) if order.customer_id else None
         result.append(
             {
                 "id": order.id,

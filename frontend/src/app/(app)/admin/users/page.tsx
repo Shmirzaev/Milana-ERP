@@ -18,14 +18,12 @@ type User = {
   email: string;
   role_id: number | null;
   department_id: number | null;
+  factory_code: "MIL" | "BST" | "ECO";
   extra_permissions: string[];
   is_active: boolean;
   last_login_at: string | null;
   last_seen_at: string | null;
-  password_setup_email_sent?: boolean | null;
-  password_setup_email_error?: string | null;
 };
-type PasswordSetupEmailStatus = { available: boolean; message?: string | null };
 
 type PermissionOption = { value: string; label: string };
 type AccessGroup = { title: string; permissions: PermissionOption[] };
@@ -71,6 +69,9 @@ const ACCESS_GROUPS: AccessGroup[] = [
       { value: "sewing.bundles", label: "Sewing bundles" },
       { value: "packaging.records", label: "Packaging records" },
       { value: "packaging.packages", label: "Packaging packages" },
+      { value: "usluga.view", label: "Eco Cotton Usluga view" },
+      { value: "usluga.manage", label: "Eco Cotton Usluga models and orders" },
+      { value: "usluga.handover", label: "Eco Cotton Usluga handover" },
       { value: "production.override_deadline", label: "Deadline override" },
     ],
   },
@@ -97,6 +98,8 @@ const ACCESS_GROUPS: AccessGroup[] = [
     title: "People & Admin",
     permissions: [
       { value: "hr.employees", label: "Employees" },
+      { value: "attendance.view", label: "Turnstile attendance (read only)" },
+      { value: "attendance.manage", label: "Attendance device management" },
       { value: "admin.users", label: "Users" },
       { value: "admin.audit", label: "Audit logs" },
       { value: SUPER_ADMIN_PERMISSION, label: "Super admin control" },
@@ -156,7 +159,6 @@ export default function AdminUsersPage() {
   const dialogs = useDialogs();
   const { me } = useMe();
   const { data, mutate } = useSWR<User[]>("/api/users", fetcher);
-  const { data: setupEmailStatus } = useSWR<PasswordSetupEmailStatus>("/api/users/password-setup-email-status", fetcher);
   const { data: roles } = useSWR<Role[]>("/api/roles", fetcher);
   const { data: depts } = useSWR<Dept[]>("/api/departments", fetcher);
   const [nowMs, setNowMs] = useState<number | null>(null);
@@ -167,7 +169,6 @@ export default function AdminUsersPage() {
   };
   const locale = localeByLang[lang] || "en-US";
   const canManageAdmins = Boolean(me?.permissions.includes(SUPER_ADMIN_PERMISSION));
-  const setupEmailAvailable = setupEmailStatus?.available === true;
 
   useEffect(() => {
     const updateNow = () => setNowMs(Date.now());
@@ -181,40 +182,25 @@ export default function AdminUsersPage() {
     email: "",
     role_id: 0,
     department_id: 0,
+    factory_code: "MIL" as "MIL" | "BST" | "ECO",
     is_active: true,
   });
   const [createMsg, setCreateMsg] = useState("");
   const [createError, setCreateError] = useState(false);
-  const [setupSendingUserId, setSetupSendingUserId] = useState<number | null>(null);
-  const [setupMessages, setSetupMessages] = useState<Record<number, string>>({});
-  const [setupErrors, setSetupErrors] = useState<Record<number, boolean>>({});
-
-  function emailDeliveryText(user: User, successKey: string, failedKey: string) {
-    if (user.password_setup_email_sent) return { message: t(successKey), error: false };
-    if (user.password_setup_email_error && setupEmailStatus?.available === false) {
-      return { message: t("page.admin.users.setupEmailUnavailableAfterCreate"), error: true };
-    }
-    if (user.password_setup_email_error) {
-      return { message: t(failedKey, { error: user.password_setup_email_error }), error: true };
-    }
-    return { message: t(successKey), error: false };
-  }
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setCreateMsg("");
     setCreateError(false);
     try {
-      const created = await api.post<User>("/api/users", {
+      await api.post("/api/users", {
         ...f,
         role_id: f.role_id || null,
         department_id: f.department_id || null,
       });
       mutate();
-      setF({ name: "", email: "", role_id: 0, department_id: 0, is_active: true });
-      const delivery = emailDeliveryText(created, "page.admin.users.setupEmailSent", "page.admin.users.setupEmailFailed");
-      setCreateError(delivery.error);
-      setCreateMsg(delivery.message);
+      setF({ name: "", email: "", role_id: 0, department_id: 0, factory_code: "MIL", is_active: true });
+      setCreateMsg(t("page.admin.users.setupEmailQueued"));
     } catch (e: any) {
       setCreateError(true);
       setCreateMsg(e.message);
@@ -228,6 +214,7 @@ export default function AdminUsersPage() {
     password: "",
     role_id: 0,
     department_id: 0,
+    factory_code: "MIL" as "MIL" | "BST" | "ECO",
     extra_permissions: [] as string[],
     is_active: true,
   });
@@ -242,6 +229,7 @@ export default function AdminUsersPage() {
       password: "",
       role_id: u.role_id ?? 0,
       department_id: u.department_id ?? 0,
+      factory_code: u.factory_code || "MIL",
       extra_permissions: uniquePermissions(u.extra_permissions ?? []),
       is_active: u.is_active,
     });
@@ -258,6 +246,7 @@ export default function AdminUsersPage() {
         email: edit.email,
         role_id: edit.role_id || null,
         department_id: edit.department_id || null,
+        factory_code: edit.factory_code,
         extra_permissions: uniquePermissions(edit.extra_permissions).filter((permission) => {
           const role = roles?.find((r) => r.id === edit.role_id);
           return !roleIncludesPermission(role, permission);
@@ -285,24 +274,6 @@ export default function AdminUsersPage() {
       mutate();
     } catch (e: any) {
       await dialogs.notify(e.message);
-    }
-  }
-
-  async function sendSetupLink(u: User) {
-    setSetupSendingUserId(u.id);
-    setSetupMessages((current) => ({ ...current, [u.id]: "" }));
-    setSetupErrors((current) => ({ ...current, [u.id]: false }));
-    try {
-      const result = await api.post<User>(`/api/users/${u.id}/password-setup`);
-      mutate();
-      const delivery = emailDeliveryText(result, "page.admin.users.setupEmailResent", "page.admin.users.setupEmailResendFailed");
-      setSetupErrors((current) => ({ ...current, [u.id]: delivery.error }));
-      setSetupMessages((current) => ({ ...current, [u.id]: delivery.message }));
-    } catch (e: any) {
-      setSetupErrors((current) => ({ ...current, [u.id]: true }));
-      setSetupMessages((current) => ({ ...current, [u.id]: e.message }));
-    } finally {
-      setSetupSendingUserId(null);
     }
   }
 
@@ -402,12 +373,6 @@ export default function AdminUsersPage() {
     <div>
       <PageHeader title={t("page.admin.users")} />
 
-      {setupEmailStatus?.available === false && (
-        <div className="mb-4 rounded-md border border-[#e6d8b8] bg-[#fff9eb] p-3 text-sm text-[#5f4a1f]">
-          {t("page.admin.users.setupEmailUnavailable", { message: setupEmailStatus.message || "" })}
-        </div>
-      )}
-
       <form onSubmit={create} autoComplete="off" className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-5">
         <input className="input" placeholder={t("common.name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />
         <input className="input" name="new_user_email" autoComplete="off" placeholder={t("auth.email")} type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required />
@@ -425,6 +390,9 @@ export default function AdminUsersPage() {
         <select className="input" value={f.department_id} onChange={(e) => setF({ ...f, department_id: Number(e.target.value) })}>
           <option value={0}>{t("ph.dept")}</option>
           {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        <select className="input" value={f.factory_code} onChange={(e) => setF({ ...f, factory_code: e.target.value as "MIL" | "BST" | "ECO" })}>
+          <option value="MIL">Milana</option><option value="BST">Besttex</option><option value="ECO">Eco Cotton</option>
         </select>
         <button className="btn btn-primary">{t("btn.create")}</button>
         {createMsg && <div className={`text-sm ${createError ? "text-red-600" : "text-green-700"} md:col-span-5`}>{createMsg}</div>}
@@ -453,6 +421,7 @@ export default function AdminUsersPage() {
               <th>{t("auth.email")}</th>
               <th>{t("field.role")}</th>
               <th>{t("field.department")}</th>
+              <th>Factory</th>
               <th>{t("field.active")}</th>
               <th>{t("field.activity")}</th>
               <th>{t("field.actions")}</th>
@@ -470,6 +439,7 @@ export default function AdminUsersPage() {
                   <td>{u.email}</td>
                   <td>{role?.name ?? u.role_id ?? "-"}</td>
                   <td>{depts?.find((d) => d.id === u.department_id)?.name ?? u.department_id ?? "-"}</td>
+                  <td>{u.factory_code}</td>
                   <td>
                     <span className={`badge ${u.is_active ? "badge-green" : "badge-red"}`}>
                       {u.is_active ? t("field.yes") : t("field.no")}
@@ -486,44 +456,23 @@ export default function AdminUsersPage() {
                       </span>
                     </div>
                   </td>
-                  <td>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
-                        disabled={restrictedAdminAccount}
-                        title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
-                        onClick={() => openEdit(u)}
-                      >
-                        {t("btn.edit")}
-                      </button>
-                      {!u.last_login_at && u.is_active && (
-                        <>
-                          {setupEmailAvailable && (
-                            <button
-                              className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
-                              disabled={restrictedAdminAccount || setupSendingUserId === u.id}
-                              title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
-                              onClick={() => sendSetupLink(u)}
-                            >
-                              {setupSendingUserId === u.id ? t("page.admin.users.setupEmailSending") : t("page.admin.users.resendSetupLink")}
-                            </button>
-                          )}
-                        </>
-                      )}
-                      <button
-                        className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
-                        disabled={adminAccount && !canManageAdmins}
-                        title={adminAccount && !canManageAdmins ? t("page.admin.users.superAdminOnly") : undefined}
-                        onClick={() => deleteUser(u)}
-                      >
-                        {t("btn.delete")}
-                      </button>
-                    </div>
-                    {setupMessages[u.id] && (
-                      <div className={`mt-1 text-xs ${setupErrors[u.id] ? "text-red-600" : "text-green-700"}`}>
-                        {setupMessages[u.id]}
-                      </div>
-                    )}
+                  <td className="flex gap-2">
+                    <button
+                      className={`text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline`}
+                      disabled={restrictedAdminAccount}
+                      title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
+                      onClick={() => openEdit(u)}
+                    >
+                      {t("btn.edit")}
+                    </button>
+                    <button
+                      className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+                      disabled={adminAccount && !canManageAdmins}
+                      title={adminAccount && !canManageAdmins ? t("page.admin.users.superAdminOnly") : undefined}
+                      onClick={() => deleteUser(u)}
+                    >
+                      {t("btn.delete")}
+                    </button>
                   </td>
                 </tr>
               );
@@ -566,6 +515,12 @@ export default function AdminUsersPage() {
               <select className="input" value={edit.department_id} onChange={(e) => setEdit({ ...edit, department_id: Number(e.target.value) })}>
                 <option value={0}>-</option>
                 {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Factory</label>
+              <select className="input" value={edit.factory_code} onChange={(e) => setEdit({ ...edit, factory_code: e.target.value as "MIL" | "BST" | "ECO" })}>
+                <option value="MIL">Milana</option><option value="BST">Besttex</option><option value="ECO">Eco Cotton</option>
               </select>
             </div>
           </div>

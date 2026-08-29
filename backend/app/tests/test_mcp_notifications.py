@@ -35,3 +35,4 @@ def test_mcp_notification_send_creates_notification_and_audit(client, auth_heade
         and row["new_value"]["title"] == payload["title"]
         for row in audit.json()
     )
+

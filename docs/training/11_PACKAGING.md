@@ -108,3 +108,4 @@ For batched orders:
 | Package count too high | Copies or capacity set wrong | Correct before creating labels. |
 | Ready Storage cannot receive | Package not packed or wrong status | Check package detail and scan history. |
 | Damaged goods not reflected | Damaged quantity not recorded | Save packaging record with damaged quantity. |
+

@@ -13,16 +13,12 @@ export type ManualModelIdentityValue = {
 export default function ManualModelIdentityFields({
   value,
   onChange,
-  detectedModelNo,
-  detectedVariantNo,
   inputIdPrefix,
   alwaysVisible = false,
   modelNoRequired = false,
 }: {
   value: ManualModelIdentityValue;
   onChange: (value: ManualModelIdentityValue) => void;
-  detectedModelNo?: string | null;
-  detectedVariantNo?: string | null;
   inputIdPrefix: string;
   alwaysVisible?: boolean;
   modelNoRequired?: boolean;
@@ -36,8 +32,8 @@ export default function ManualModelIdentityFields({
         className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[#56503f] underline decoration-[#c9c1ae] underline-offset-4 hover:text-[#14110b]"
         onClick={() => onChange({
           enabled: true,
-          modelNo: value.modelNo || detectedModelNo || "",
-          variantNo: value.variantNo || detectedVariantNo || "",
+          modelNo: value.modelNo,
+          variantNo: value.variantNo,
         })}
       >
         <Pencil className="h-3.5 w-3.5" />

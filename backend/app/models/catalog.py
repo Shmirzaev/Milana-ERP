@@ -1,8 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
-
-from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric, LargeBinary
+from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -33,8 +32,20 @@ class Collection(Base, PkMixin, TimestampMixin):
 
 class Model(Base, PkMixin, TimestampMixin):
     __tablename__ = "models"
+    __table_args__ = (
+        CheckConstraint("catalog_scope IN ('standard', 'usluga')", name="ck_models_catalog_scope"),
+        CheckConstraint(
+            "catalog_scope <> 'usluga' OR factory_code = 'ECO'",
+            name="ck_models_usluga_factory",
+        ),
+    )
     code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Usluga models are intentionally kept out of the shared PLM catalogue.
+    # They still use the Model table so bundles, packages, labels, and existing
+    # production screens retain their proven foreign-key evidence.
+    catalog_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="standard", server_default="standard", index=True)
+    factory_code: Mapped[str | None] = mapped_column(String(3), index=True)
     category: Mapped[str | None] = mapped_column(String(64))
     description: Mapped[str | None] = mapped_column(Text)
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
@@ -120,7 +131,9 @@ class ModelColor(Base, PkMixin, TimestampMixin):
 class ModelBOM(Base, PkMixin, TimestampMixin):
     __tablename__ = "model_bom"
     model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
-    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), nullable=False)
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True)
+    material_name: Mapped[str | None] = mapped_column(String(255))
+    material_role: Mapped[str | None] = mapped_column(String(16))
     stock_batch_id: Mapped[int | None] = mapped_column(ForeignKey("stock_batches.id"))
     size: Mapped[str | None] = mapped_column(String(32))
     color: Mapped[str | None] = mapped_column(String(64))
@@ -129,7 +142,7 @@ class ModelBOM(Base, PkMixin, TimestampMixin):
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     waste_percent: Mapped[float] = mapped_column(Numeric(6, 2), default=0, nullable=False)
     model: Mapped["Model"] = relationship("Model", back_populates="bom")
-    item: Mapped["Item"] = relationship("Item", lazy="joined")
+    item: Mapped["Item | None"] = relationship("Item", lazy="joined")
     stock_batch: Mapped["StockBatch | None"] = relationship("StockBatch", lazy="joined")
 
     @property

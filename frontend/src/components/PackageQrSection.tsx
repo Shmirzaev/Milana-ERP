@@ -384,7 +384,7 @@ export default function PackageQrSection({
               </div>
               <div className="space-y-2">
                 {editForm.items.map((item, idx) => (
-                  <div key={`${idx}-${item.size}`} className="grid grid-cols-[minmax(0,1fr)_110px_auto] gap-2">
+                  <div key={`${idx}-${item.size}`} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_110px_auto]">
                     <input className="input" value={item.size} onChange={(e) => setItemField(idx, "size", e.target.value)} placeholder={t("common.size")} required />
                     <input className="input" type="number" min={1} value={item.quantity} onChange={(e) => setItemField(idx, "quantity", e.target.value)} required />
                     <button type="button" className="btn" onClick={() => removeItemRow(idx)} disabled={editForm.items.length <= 1}>{t("common.remove")}</button>
@@ -399,7 +399,7 @@ export default function PackageQrSection({
                 <div className="mb-2 text-sm font-medium text-slate-900">{t("page.packages.batchAllocations")}</div>
                 <div className="space-y-2">
                   {editForm.batch_allocations.map((row, idx) => (
-                    <div key={row.production_batch_id} className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
+                    <div key={row.production_batch_id} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px]">
                       <div className="input flex items-center bg-slate-50 text-slate-600">#{row.production_batch_id}</div>
                       <input className="input" type="number" min={1} value={row.quantity} onChange={(e) => setBatchQuantity(idx, e.target.value)} required />
                     </div>

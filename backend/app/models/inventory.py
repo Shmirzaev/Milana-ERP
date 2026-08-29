@@ -45,6 +45,7 @@ class StockBatch(Base, PkMixin, TimestampMixin):
     )
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), nullable=False)
     batch_no: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    internal_batch_no: Mapped[str | None] = mapped_column(String(64), index=True)
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"))
     color: Mapped[str | None] = mapped_column(String(64))
     old_code: Mapped[str | None] = mapped_column(String(64))
@@ -55,6 +56,7 @@ class StockBatch(Base, PkMixin, TimestampMixin):
     gsm: Mapped[float | None] = mapped_column(Numeric(14, 6))
     quantity: Mapped[float] = mapped_column(Numeric(14, 4), nullable=False)
     piece_count: Mapped[int | None] = mapped_column(Integer)
+    roll_weights_kg: Mapped[list[float]] = mapped_column(JSON, default=list, nullable=False)
     processes: Mapped[str | None] = mapped_column(String(255))
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     cost_per_unit: Mapped[float] = mapped_column(Numeric(12, 4), default=0, nullable=False)
@@ -62,6 +64,8 @@ class StockBatch(Base, PkMixin, TimestampMixin):
     received_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), nullable=False)
     qc_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    archived_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     item: Mapped["Item"] = relationship("Item", lazy="joined")
 

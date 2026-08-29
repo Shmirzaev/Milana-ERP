@@ -6,22 +6,22 @@ planned, deadlines, sewing-flow assignment, overdue and block flags.
 """
 from datetime import date, datetime, timezone
 from fastapi import APIRouter
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser
 from app.core.pagination import clamp_pagination
+from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models import (
-    SalesOrder, ProductionOrder, Customer, Model, ModelBOM, SewingFlow, SewingAssignment,
+    SalesOrder, ProductionOrder, WorkOrder, Customer, Model, ModelBOM, SewingFlow, SewingAssignment,
     CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord, SewingReplacementRequest,
-    PackagingRecord, Package, PackageBatchAllocation, StockBatch,
+    PackagingRecord, Package, PackageBatchAllocation, StockBatch, Department, Bundle,
 )
 from app.core.dt import as_utc, date_filter_bounds
-from app.services.model_images import (
-    material_preview_image_url,
-    model_preview_image_url,
-    model_variant_picture_url,
-)
+from app.services.bundles import SEWING_FACTORY_CODES, resolve_sewing_factory_code
+from app.services.factory_scope import selected_factory_code
+from app.services.model_images import material_preview_image_url, model_display_image_url
+from app.services.payroll_factory_scope import production_order_factory_condition
 
 router = APIRouter(prefix="/process-tracking", tags=["process-tracking"])
 _OP_ORDER = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
@@ -38,6 +38,13 @@ _STATUS_PRIORITY = [
     "new",
 ]
 _STARTED_STATUSES = {"in_progress", "pending", "collected", "ready"}
+
+
+def _department_ref(department: Department) -> dict[str, str]:
+    return {
+        "code": str(department.code or "").strip().upper(),
+        "name": str(department.name or department.code or "").strip(),
+    }
 
 
 def _positive_int(value) -> int:
@@ -436,6 +443,269 @@ def _internal_batch_stage_rows(db, po: ProductionOrder, base_stages: list[dict])
     return out
 
 
+def _bulk_internal_batch_evidence(
+    db,
+    production_orders: list[ProductionOrder],
+) -> dict[int, dict[tuple[int, str], dict[str, int]]]:
+    """Load internal-batch operation evidence for the whole page.
+
+    The previous serializer executed five to eight aggregate statements per
+    production order. This keeps the exact calculation but groups each source
+    once for all orders in the bounded page.
+    """
+    internal_orders = [
+        po
+        for po in production_orders
+        if po.batches and all(wo.production_batch_id is None for wo in po.work_orders)
+    ]
+    if not internal_orders:
+        return {}
+
+    order_ids = {int(po.id) for po in internal_orders}
+    batch_to_order = {
+        int(batch.id): int(po.id)
+        for po in internal_orders
+        for batch in po.batches
+    }
+    all_batch_ids = set(batch_to_order)
+    work_order_ids_by_operation: dict[str, set[int]] = {}
+    for po in internal_orders:
+        for wo in po.work_orders:
+            if wo.operation in _OP_ORDER:
+                work_order_ids_by_operation.setdefault(str(wo.operation), set()).add(int(wo.id))
+
+    totals_by_order: dict[int, dict[tuple[int, str], dict[str, int]]] = {
+        order_id: {} for order_id in order_ids
+    }
+
+    def add_total(
+        batch_id,
+        operation: str,
+        *,
+        completed: int = 0,
+        failed: int = 0,
+        rework: int = 0,
+        activity: int = 0,
+    ) -> None:
+        if batch_id is None:
+            return
+        bid = int(batch_id)
+        order_id = batch_to_order.get(bid)
+        if order_id is None:
+            return
+        row = totals_by_order[order_id].setdefault(
+            (bid, operation),
+            {"completed": 0, "failed": 0, "rework": 0, "activity": 0},
+        )
+        row["completed"] += int(completed or 0)
+        row["failed"] += int(failed or 0)
+        row["rework"] += int(rework or 0)
+        row["activity"] += int(activity or 0)
+
+    cutting_ids = work_order_ids_by_operation.get("cutting", set())
+    if cutting_ids:
+        for batch_id, cut_sum, passed_sum, defective_sum in (
+            db.query(
+                CuttingRecord.production_batch_id,
+                func.coalesce(func.sum(CuttingRecord.cut_pieces), 0),
+                func.coalesce(func.sum(CuttingRecord.passed_pieces), 0),
+                func.coalesce(func.sum(CuttingRecord.defective_pieces), 0),
+            )
+            .filter(CuttingRecord.work_order_id.in_(cutting_ids))
+            .group_by(CuttingRecord.production_batch_id)
+            .all()
+        ):
+            add_total(
+                batch_id,
+                "cutting",
+                completed=int(passed_sum or 0),
+                failed=int(defective_sum or 0),
+                activity=int(cut_sum or 0) + int(passed_sum or 0) + int(defective_sum or 0),
+            )
+
+    printing_ids = work_order_ids_by_operation.get("printing", set())
+    if printing_ids:
+        for batch_id, input_sum, printed_sum, passed_sum, rejected_sum in (
+            db.query(
+                PrintingRecord.production_batch_id,
+                func.coalesce(func.sum(PrintingRecord.input_qty), 0),
+                func.coalesce(func.sum(PrintingRecord.printed_qty), 0),
+                func.coalesce(func.sum(PrintingRecord.passed_qty), 0),
+                func.coalesce(func.sum(PrintingRecord.rejected_qty), 0),
+            )
+            .filter(PrintingRecord.work_order_id.in_(printing_ids))
+            .group_by(PrintingRecord.production_batch_id)
+            .all()
+        ):
+            add_total(
+                batch_id,
+                "printing",
+                completed=int(passed_sum or 0),
+                failed=int(rejected_sum or 0),
+                activity=int(input_sum or 0) + int(printed_sum or 0) + int(passed_sum or 0) + int(rejected_sum or 0),
+            )
+
+    sewing_ids = work_order_ids_by_operation.get("sewing", set())
+    if sewing_ids:
+        for batch_id, input_sum, sewn_sum, passed_sum, failed_sum, rework_sum, rejected_sum in (
+            db.query(
+                SewingRecord.production_batch_id,
+                func.coalesce(func.sum(SewingRecord.input_qty), 0),
+                func.coalesce(func.sum(SewingRecord.sewn_qty), 0),
+                func.coalesce(func.sum(SewingRecord.passed_qty), 0),
+                func.coalesce(func.sum(SewingRecord.failed_qty), 0),
+                func.coalesce(func.sum(SewingRecord.rework_qty), 0),
+                func.coalesce(func.sum(SewingRecord.rejected_qty), 0),
+            )
+            .filter(SewingRecord.work_order_id.in_(sewing_ids))
+            .group_by(SewingRecord.production_batch_id)
+            .all()
+        ):
+            add_total(
+                batch_id,
+                "sewing",
+                completed=int(passed_sum or 0),
+                failed=int(failed_sum or 0),
+                rework=int(rework_sum or 0),
+                activity=sum(int(value or 0) for value in (
+                    input_sum, sewn_sum, passed_sum, failed_sum, rework_sum, rejected_sum
+                )),
+            )
+
+    packaging_ids = work_order_ids_by_operation.get("packaging", set())
+    if packaging_ids:
+        for batch_id, input_sum, packed_sum, damaged_sum in (
+            db.query(
+                PackagingRecord.production_batch_id,
+                func.coalesce(func.sum(PackagingRecord.input_qty), 0),
+                func.coalesce(func.sum(PackagingRecord.packed_qty), 0),
+                func.coalesce(func.sum(PackagingRecord.damaged_qty), 0),
+            )
+            .filter(PackagingRecord.work_order_id.in_(packaging_ids))
+            .group_by(PackagingRecord.production_batch_id)
+            .all()
+        ):
+            add_total(
+                batch_id,
+                "packaging",
+                completed=int(packed_sum or 0),
+                failed=int(damaged_sum or 0),
+                activity=int(input_sum or 0) + int(packed_sum or 0) + int(damaged_sum or 0),
+            )
+
+    if work_order_ids_by_operation.get("storage_transfer"):
+        storage_statuses = ["received_in_storage", "reserved", "shipped", "delivered"]
+        allocated_package_ids: set[int] = set()
+        direct_storage_by_batch: dict[int, int] = {}
+        allocation_rows = (
+            db.query(
+                PackageBatchAllocation.package_id,
+                PackageBatchAllocation.production_batch_id,
+                func.coalesce(func.sum(PackageBatchAllocation.quantity), 0),
+            )
+            .join(Package, Package.id == PackageBatchAllocation.package_id)
+            .filter(
+                Package.production_order_id.in_(order_ids),
+                PackageBatchAllocation.production_batch_id.in_(all_batch_ids),
+                Package.status.in_(storage_statuses),
+            )
+            .group_by(PackageBatchAllocation.package_id, PackageBatchAllocation.production_batch_id)
+            .all()
+        )
+        for package_id, batch_id, received_sum in allocation_rows:
+            allocated_package_ids.add(int(package_id))
+            qty = int(received_sum or 0)
+            bid = int(batch_id)
+            direct_storage_by_batch[bid] = direct_storage_by_batch.get(bid, 0) + qty
+            add_total(bid, "storage_transfer", completed=qty, activity=qty)
+
+        fallback_qry = db.query(
+            Package.production_batch_id,
+            func.coalesce(func.sum(Package.total_quantity), 0),
+        ).filter(
+            Package.production_order_id.in_(order_ids),
+            Package.production_batch_id.in_(all_batch_ids),
+            Package.status.in_(storage_statuses),
+        )
+        if allocated_package_ids:
+            fallback_qry = fallback_qry.filter(~Package.id.in_(allocated_package_ids))
+        for batch_id, received_sum in fallback_qry.group_by(Package.production_batch_id).all():
+            qty = int(received_sum or 0)
+            bid = int(batch_id)
+            direct_storage_by_batch[bid] = direct_storage_by_batch.get(bid, 0) + qty
+            add_total(bid, "storage_transfer", completed=qty, activity=qty)
+
+        unassigned_qry = db.query(
+            Package.production_order_id,
+            func.coalesce(func.sum(Package.total_quantity), 0),
+        ).filter(
+            Package.production_order_id.in_(order_ids),
+            Package.production_batch_id.is_(None),
+            Package.status.in_(storage_statuses),
+        )
+        if allocated_package_ids:
+            unassigned_qry = unassigned_qry.filter(~Package.id.in_(allocated_package_ids))
+        unassigned_by_order = {
+            int(order_id): int(quantity or 0)
+            for order_id, quantity in unassigned_qry.group_by(Package.production_order_id).all()
+        }
+        for po in internal_orders:
+            remaining = unassigned_by_order.get(int(po.id), 0)
+            for batch in sorted(po.batches, key=lambda row: (int(row.batch_index or 0), int(row.id or 0))):
+                if remaining <= 0:
+                    break
+                bid = int(batch.id)
+                planned_qty = max(0, int(batch.planned_quantity or 0))
+                packaged_qty = int(totals_by_order[int(po.id)].get((bid, "packaging"), {}).get("completed", 0))
+                capacity = packaged_qty if packaged_qty > 0 else planned_qty
+                if planned_qty > 0:
+                    capacity = min(capacity, planned_qty)
+                capacity = max(0, capacity - direct_storage_by_batch.get(bid, 0))
+                take = min(remaining, capacity)
+                if take > 0:
+                    add_total(bid, "storage_transfer", completed=take, activity=take)
+                    remaining -= take
+
+    return totals_by_order
+
+
+def _internal_batch_stage_rows_from_totals(
+    po: ProductionOrder,
+    base_stages: list[dict],
+    totals: dict[tuple[int, str], dict[str, int]],
+) -> dict[int, list[dict]]:
+    base_by_op = {str(stage["operation"]): stage for stage in base_stages}
+    out: dict[int, list[dict]] = {}
+    for batch in sorted(po.batches, key=lambda row: (int(row.batch_index or 0), int(row.id or 0))):
+        planned = int(batch.planned_quantity or 0)
+        rows: list[dict] = []
+        for operation in _OP_ORDER:
+            base = base_by_op.get(operation)
+            if not base:
+                continue
+            total = totals.get((int(batch.id), operation), {})
+            completed = int(total.get("completed", 0))
+            failed = int(total.get("failed", 0))
+            activity = int(total.get("activity", 0))
+            row = dict(base)
+            row["planned"] = planned
+            row["completed"] = completed
+            row["failed"] = failed
+            row["processed"] = completed + (0 if operation == "sewing" else failed)
+            row["rework"] = int(total.get("rework", 0))
+            row["progress_pct"] = round(100.0 * int(row["processed"]) / planned, 1) if planned > 0 else 0.0
+            row["status"] = _batch_stage_status(
+                str(base.get("status") or "waiting"),
+                planned,
+                int(row["processed"]),
+                activity,
+            )
+            rows.append(row)
+        _apply_upstream_loss_progress(rows)
+        out[int(batch.id)] = rows
+    return out
+
+
 def _process_summary(stages: list[dict], po_status: str) -> dict:
     blocked = next((s for s in stages if s.get("is_blocked")), None)
     if not stages:
@@ -488,6 +758,7 @@ def list_processes(
     created_to: date | None = None,
     sort: str = "created_desc",
     only_active: bool = True,
+    sewing_completed_only: bool = False,
     page: int = 1,
     page_size: int = 100,
     include_total: bool = False,
@@ -507,11 +778,23 @@ def list_processes(
         Customer, Customer.id == SalesOrder.customer_id,
     ).outerjoin(
         Model, Model.id == ProductionOrder.model_id,
-    )
+    ).filter(ProductionOrder.source_type == "standard")
     if status:
         qry = qry.filter(ProductionOrder.status == status)
     if only_active:
         qry = qry.filter(ProductionOrder.status.not_in(["closed", "cancelled", "delivered"]))
+    if sewing_completed_only:
+        # Process QR labels are created only after the sewing team explicitly
+        # closes every sewing work order. Do not infer closure from cutting,
+        # plans, or downstream stage progress.
+        qry = qry.filter(
+            production_order_factory_condition(selected_factory_code(current)),
+            ProductionOrder.work_orders.any(WorkOrder.operation == "sewing"),
+            ~ProductionOrder.work_orders.any(and_(
+                WorkOrder.operation == "sewing",
+                WorkOrder.status != "completed",
+            )),
+        )
     start, end = date_filter_bounds(created_from, created_to)
     if start:
         qry = qry.filter(ProductionOrder.created_at >= start)
@@ -520,17 +803,18 @@ def list_processes(
     search = (q or "").strip()
     if search:
         like = f"%{search}%"
+        model_code_like = normalized_model_code_pattern(search)
         qry = qry.filter(or_(
             ProductionOrder.production_no.ilike(like),
             ProductionOrder.production_type.ilike(like),
             ProductionOrder.status.ilike(like),
             SalesOrder.order_no.ilike(like),
             Customer.name.ilike(like),
-            Model.code.ilike(like),
+            normalized_model_code_column(Model.code).ilike(model_code_like),
             Model.name.ilike(like),
         ))
 
-    safe_page, safe_size, offset = clamp_pagination(page, page_size)
+    safe_page, safe_size, offset = clamp_pagination(page, page_size, max_page_size=100)
     total = qry.count() if include_total else 0
     sort_map = {
         "created_asc": ProductionOrder.id.asc(),
@@ -567,6 +851,48 @@ def list_processes(
 
     flow_ids = {w.sewing_flow_id for p in pos for w in p.work_orders if w.sewing_flow_id}
     flow_ids.update({a.sewing_flow_id for a in assignment_rows if a.sewing_flow_id})
+    department_ids = {w.department_id for p in pos for w in p.work_orders if w.department_id}
+    bundle_factory_rows = (
+        db.query(Bundle.production_order_id, Bundle.sewing_factory_code)
+        .filter(
+            Bundle.production_order_id.in_(production_order_ids),
+            Bundle.sewing_factory_code.isnot(None),
+            Bundle.status != "cancelled",
+        )
+        .distinct()
+        .all()
+        if production_order_ids
+        else []
+    )
+    bundle_factory_codes_by_order: dict[int, set[str]] = {}
+    for production_order_id, factory_code in bundle_factory_rows:
+        bundle_factory_codes_by_order.setdefault(int(production_order_id), set()).add(
+            resolve_sewing_factory_code(factory_code)
+        )
+    routed_factory_codes = {
+        factory_code
+        for codes in bundle_factory_codes_by_order.values()
+        for factory_code in codes
+    }
+    lookup_department_codes = routed_factory_codes | (set(SEWING_FACTORY_CODES) if pos else set())
+    department_query = db.query(Department)
+    if department_ids and lookup_department_codes:
+        department_query = department_query.filter(or_(
+            Department.id.in_(department_ids),
+            Department.code.in_(lookup_department_codes),
+        ))
+    elif department_ids:
+        department_query = department_query.filter(Department.id.in_(department_ids))
+    elif lookup_department_codes:
+        department_query = department_query.filter(Department.code.in_(lookup_department_codes))
+    else:
+        department_query = None
+    departments = department_query.all() if department_query is not None else []
+    departments_by_id = {int(department.id): department for department in departments}
+    departments_by_code = {
+        str(department.code or "").strip().upper(): department
+        for department in departments
+    }
 
     models = {
         m.id: m
@@ -626,6 +952,55 @@ def list_processes(
             "open_qty": max(0, int(open_qty or 0)),
         }
 
+    sewing_output_by_order: dict[int, dict] = {}
+    sewing_output_by_batch: dict[tuple[int, int], dict] = {}
+    if sewing_completed_only and production_order_ids:
+        sewing_rows = (
+            db.query(
+                WorkOrder.production_order_id,
+                SewingRecord.production_batch_id,
+                SewingRecord.passed_qty,
+                SewingRecord.size_quantities,
+            )
+            .join(WorkOrder, WorkOrder.id == SewingRecord.work_order_id)
+            .filter(
+                WorkOrder.operation == "sewing",
+                WorkOrder.production_order_id.in_(production_order_ids),
+            )
+            .order_by(SewingRecord.id)
+            .all()
+        )
+
+        def add_sewing_output(bucket: dict, passed_qty: int, size_quantities) -> None:
+            bucket["completed_quantity"] = int(bucket.get("completed_quantity", 0)) + _positive_int(passed_qty)
+            sizes = bucket.setdefault("sizes", {})
+            allocated = 0
+            for size_row in size_quantities or []:
+                size = str((size_row or {}).get("size") or "").strip()
+                quantity = _positive_int((size_row or {}).get("quantity"))
+                if not size or quantity <= 0:
+                    continue
+                key = size.casefold()
+                current = sizes.setdefault(key, {"size": size, "completed_quantity": 0})
+                current["completed_quantity"] += quantity
+                allocated += quantity
+            bucket["allocated_quantity"] = int(bucket.get("allocated_quantity", 0)) + allocated
+
+        for production_order_id, production_batch_id, passed_qty, size_quantities in sewing_rows:
+            order_id = int(production_order_id)
+            add_sewing_output(
+                sewing_output_by_order.setdefault(order_id, {}),
+                passed_qty,
+                size_quantities,
+            )
+            if production_batch_id is not None:
+                add_sewing_output(
+                    sewing_output_by_batch.setdefault((order_id, int(production_batch_id)), {}),
+                    passed_qty,
+                    size_quantities,
+                )
+
+    internal_batch_totals_by_order = _bulk_internal_batch_evidence(db, pos)
     now = datetime.now(timezone.utc)
     out: list[dict] = []
     for po in pos:
@@ -634,6 +1009,28 @@ def list_processes(
         so = sos.get(po.sales_order_id) if po.sales_order_id else None
         customer = customers.get(so.customer_id) if so and so.customer_id else None
         cutting_passports = passports_by_order.get(int(po.id), [])
+        cutting_departments = {
+            str(department.code or "").strip().upper(): department
+            for wo in po.work_orders
+            if wo.operation == "cutting"
+            for department in [departments_by_id.get(int(wo.department_id)) if wo.department_id else None]
+            if department is not None
+        }
+        sewing_factory_codes = bundle_factory_codes_by_order.get(int(po.id), set())
+        if not sewing_factory_codes:
+            sewing_factory_codes = {
+                resolve_sewing_factory_code(department.code)
+                for wo in po.work_orders
+                if wo.operation == "sewing"
+                for department in [departments_by_id.get(int(wo.department_id)) if wo.department_id else None]
+                if department is not None
+            }
+        sewing_factories = {
+            factory_code: departments_by_code[factory_code]
+            for factory_code in sewing_factory_codes
+            if factory_code in departments_by_code
+        }
+        sewing_output = sewing_output_by_order.get(int(po.id), {})
 
         by_batch: dict[int | None, list[dict]] = {}
         all_stage_rows: list[dict] = []
@@ -668,12 +1065,21 @@ def list_processes(
         _apply_upstream_loss_progress(stages)
         summary = _process_summary(stages, po.status)
         internal_batch_mode = bool(po.batches) and all(w.production_batch_id is None for w in po.work_orders)
-        internal_batch_stages = _internal_batch_stage_rows(db, po, stages) if internal_batch_mode else {}
+        internal_batch_stages = (
+            _internal_batch_stage_rows_from_totals(
+                po,
+                stages,
+                internal_batch_totals_by_order.get(int(po.id), {}),
+            )
+            if internal_batch_mode
+            else {}
+        )
 
         batches_out: list[dict] = []
         for b in sorted(po.batches, key=lambda x: (int(x.batch_index or 0), int(x.id or 0))):
             batch_stages = internal_batch_stages.get(int(b.id), []) if internal_batch_mode else by_batch.get(b.id, [])
             batch_summary = _process_summary(batch_stages, po.status)
+            batch_sewing_output = sewing_output_by_batch.get((int(po.id), int(b.id)), {})
             batches_out.append({
                 "id": b.id,
                 "batch_no": b.batch_no,
@@ -681,6 +1087,22 @@ def list_processes(
                 "name": b.name,
                 "planned_quantity": b.planned_quantity,
                 "actual_quantity": _actual_output_quantity(batch_stages),
+                **({
+                    "sewing_completed_quantity": int(batch_sewing_output.get("completed_quantity", 0)),
+                    "sewing_unallocated_quantity": max(
+                        0,
+                        int(batch_sewing_output.get("completed_quantity", 0))
+                        - int(batch_sewing_output.get("allocated_quantity", 0)),
+                    ),
+                    "sewing_sizes": [
+                        {
+                            "size": row["size"],
+                            "completed_quantity": int(row["completed_quantity"]),
+                            "sewing_completed_quantity": int(row["completed_quantity"]),
+                        }
+                        for row in batch_sewing_output.get("sizes", {}).values()
+                    ],
+                } if sewing_completed_only else {}),
                 "start_date": b.start_date,
                 "deadline": b.deadline,
                 "notes": b.notes,
@@ -694,12 +1116,22 @@ def list_processes(
 
         po_deadline_utc = as_utc(po.deadline)
         po_overdue = bool(po_deadline_utc and po.status not in ("delivered", "closed", "cancelled") and po_deadline_utc < now)
-        size_totals: dict[str, dict[str, int]] = {}
+        size_totals: dict[str, dict] = {}
         for item in po.items:
             size = str(item.size or "").strip() or "-"
-            bucket = size_totals.setdefault(size, {"planned_quantity": 0, "completed_quantity": 0})
+            size_key = size.casefold()
+            bucket = size_totals.setdefault(
+                size_key,
+                {"size": size, "planned_quantity": 0, "completed_quantity": 0},
+            )
             bucket["planned_quantity"] += int(item.planned_quantity or 0)
             bucket["completed_quantity"] += int(item.completed_quantity or 0)
+        if sewing_completed_only:
+            for size_key, sewing_size in sewing_output.get("sizes", {}).items():
+                size_totals.setdefault(
+                    size_key,
+                    {"planned_quantity": 0, "completed_quantity": 0, "size": sewing_size["size"]},
+                )
 
         out.append({
             "production_order_id": po.id,
@@ -711,6 +1143,14 @@ def list_processes(
             "po_overdue": po_overdue,
             "planned_quantity": po.planned_quantity,
             "actual_quantity": _actual_output_quantity(stages),
+            **({
+                "sewing_completed_quantity": int(sewing_output.get("completed_quantity", 0)),
+                "sewing_unallocated_quantity": max(
+                    0,
+                    int(sewing_output.get("completed_quantity", 0))
+                    - int(sewing_output.get("allocated_quantity", 0)),
+                ),
+            } if sewing_completed_only else {}),
             "sales_order_id": po.sales_order_id,
             "sales_order_no": so.order_no if so else None,
             "customer_id": so.customer_id if so else None,
@@ -718,16 +1158,28 @@ def list_processes(
             "model_id": po.model_id,
             "model_code": model.code if model else None,
             "model_name": model.name if model else None,
+            "cutting_factories": [
+                _department_ref(department)
+                for _, department in sorted(cutting_departments.items())
+            ],
+            "sewing_factories": [
+                _department_ref(department)
+                for _, department in sorted(sewing_factories.items())
+            ],
             "sizes": [
                 {
-                    "size": size,
+                    "size": quantities.get("size", size),
                     "planned_quantity": quantities["planned_quantity"],
                     "completed_quantity": quantities["completed_quantity"],
+                    **({
+                        "sewing_completed_quantity": int(
+                            sewing_output.get("sizes", {}).get(size.casefold(), {}).get("completed_quantity", 0)
+                        ),
+                    } if sewing_completed_only else {}),
                 }
                 for size, quantities in size_totals.items()
             ],
-            "model_image_url": model_preview_image_url(model),
-            "variant_picture_url": model_variant_picture_url(model),
+            "model_image_url": model_display_image_url(model),
             "material_image_url": (
                 fabric_batch.image_url if fabric_batch else None
             ) or material_preview_image_url(model),
@@ -756,7 +1208,7 @@ def list_processes(
 
 
 @router.get("/summary")
-def summary(db: DbSession, current: CurrentUser):
+def summary(db: DbSession, _: CurrentUser):
     """Counts per status — useful for the top-row cards on the page."""
     rows = (
         db.query(ProductionOrder.status, func.count(ProductionOrder.id))

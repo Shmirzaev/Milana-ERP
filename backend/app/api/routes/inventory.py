@@ -13,14 +13,18 @@ from app.core.deps import (
     INVENTORY_READ_PERMISSIONS,
     WAREHOUSE_READ_PERMISSIONS,
     PRODUCTION_READ_PERMISSIONS,
+    is_admin,
     require_permissions,
+    user_permissions,
 )
 from app.models import (
     Item,
     CuttingRecord,
+    CuttingMaterialUsage,
     MaterialReservation,
     ModelBOM,
     ProductionOrder,
+    ProductionOrderMaterial,
     PurchaseOrderLine,
     PurchaseRequestLine,
     StockBatch,
@@ -32,13 +36,14 @@ from app.models import (
 )
 from app.schemas.inventory import (
     ItemImageIn, ItemIn, ItemOut, WarehouseIn, WarehouseOut,
-    AccessoryReturnIn, StockBatchIn, StockBatchOut, StockBatchUpdate, StockMovementIn, StockMovementOut, StockLine,
+    AccessoryReturnIn, StockBatchIn, StockBatchOut, StockBatchRollWeightsIn, StockBatchUpdate, StockMovementIn, StockMovementOut, StockLine,
     AccessoryIssueIn, AccessoryIssueOut, AccessoryIssuePlanOut, AccessoryIssueRequestRow, AccessoryIssueSummaryRow,
     MaterialReservationAutoIn, MaterialReservationConsumeIn, MaterialReservationIn,
     MaterialReservationOut, MaterialReservationPlanOut, StockQuantityAdjustmentIn, StockQuantityAdjustmentOut,
 )
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
+from app.services.material_rolls import normalize_material_roll_weights
 from app.services.inventory import (
     accessory_issue_plan,
     accessory_issue_requests,
@@ -55,8 +60,6 @@ from app.services.inventory import (
     current_stock_for_item,
     reserved_stock_for_item,
     reserved_stock_for_batch,
-    stock_summary_count,
-    stock_summary_line_count,
     stock_summary,
 )
 from app.services.inventory_reports import (
@@ -64,7 +67,6 @@ from app.services.inventory_reports import (
     build_material_inventory_pdf,
     build_material_inventory_xlsx,
     material_inventory_report_rows,
-    material_inventory_supplier_scope_label,
 )
 from app.core.pagination import clamp_pagination
 from app.core.config import settings
@@ -75,6 +77,26 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 EPSILON = 1e-9
 
 
+def _validate_receiving_warehouse(item: Item, warehouse: Warehouse) -> None:
+    material_categories = categories_for_group("materials") or ()
+    accessory_categories = categories_for_group("accessories") or ()
+    expected_type = None
+    expected_name = None
+    if item.category in material_categories:
+        expected_type = "fabric_storage"
+        expected_name = "Fabric Storage"
+    elif item.category in accessory_categories:
+        expected_type = "accessory_storage"
+        expected_name = "Accessory Storage"
+    if expected_type and warehouse.type != expected_type:
+        raise HTTPException(400, f"{item.name} must be received into {expected_name}")
+
+
+def _require_admin_force(current: User, force: bool) -> None:
+    if force and not (is_admin(current) or "inventory.force_override" in user_permissions(current)):
+        raise HTTPException(403, "Missing permission: inventory.force_override")
+
+
 def _locked_stock_batch_statement(batch_id: int):
     # StockBatch.item is joined eagerly by default. PostgreSQL rejects a broad
     # FOR UPDATE when that optional eager relationship adds an outer join, so
@@ -82,8 +104,23 @@ def _locked_stock_batch_statement(batch_id: int):
     return (
         select(StockBatch)
         .options(lazyload(StockBatch.item))
-        .where(StockBatch.id == batch_id)
+        .where(StockBatch.id == batch_id, StockBatch.archived_at.is_(None))
         .with_for_update()
+    )
+
+
+def _locked_active_batch_reservations_statement(batch_id: int):
+    # MaterialReservation relationships are joined eagerly by default. Locking
+    # that generated outer-join query is rejected by PostgreSQL, so suppress
+    # relationship loading and lock only the reservation table rows.
+    return (
+        select(MaterialReservation)
+        .options(lazyload("*"))
+        .where(
+            MaterialReservation.stock_batch_id == batch_id,
+            MaterialReservation.status.in_(("reserved", "partially_consumed")),
+        )
+        .with_for_update(of=MaterialReservation)
     )
 
 
@@ -93,6 +130,28 @@ def _delete_stock_batch_receipt_movements(db: DbSession, movements: list[StockMo
     # StockBatch has no ORM relationship to StockMovement, so SQLAlchemy cannot
     # infer the FK delete order. Flush child deletions before deleting the batch.
     db.flush()
+
+
+def _relink_stock_batch_item_references(
+    db: DbSession,
+    batch_id: int,
+    target_item_id: int,
+    movements: list[StockMovement],
+) -> dict[str, int]:
+    for movement in movements:
+        movement.item_id = target_item_id
+    return {
+        "stock_movements": len(movements),
+        "material_reservations": db.query(MaterialReservation).filter(
+            MaterialReservation.stock_batch_id == batch_id,
+        ).update({MaterialReservation.item_id: target_item_id}, synchronize_session=False),
+        "model_bom": db.query(ModelBOM).filter(
+            ModelBOM.stock_batch_id == batch_id,
+        ).update({ModelBOM.item_id: target_item_id}, synchronize_session=False),
+        "waste_records": db.query(WasteRecord).filter(
+            WasteRecord.batch_id == batch_id,
+        ).update({WasteRecord.item_id: target_item_id}, synchronize_session=False),
+    }
 
 
 def _validate_item_image_url(image_url: str | None) -> str | None:
@@ -162,46 +221,26 @@ def _material_report_timestamp() -> tuple[str, str]:
     return timestamp.strftime("%Y-%m-%d %H:%M"), timestamp.strftime("%Y%m%d_%H%M")
 
 
-def _resolve_supplier_scope(
-    db: DbSession,
-    supplier_id: int | None,
-    supplier_unassigned: bool,
-) -> Supplier | None:
-    if supplier_id is not None and supplier_unassigned:
-        raise HTTPException(400, "Choose either a supplier or unassigned stock, not both")
-    if supplier_id is None:
-        return None
-    if supplier_id <= 0:
-        raise HTTPException(400, "supplier_id must be a positive integer")
-    supplier = db.get(Supplier, supplier_id)
-    if not supplier:
-        raise HTTPException(404, "Supplier not found")
-    return supplier
-
-
 @router.get("/reports/material-stock.xlsx")
 def download_material_stock_excel(
     db: DbSession,
     lang: ReportLanguage = "uz",
     supplier_id: int | None = None,
-    supplier_unassigned: bool = False,
+    created_from: date | None = None,
+    created_to: date | None = None,
     _: User = Depends(require_permissions(*INVENTORY_READ_PERMISSIONS)),
 ):
-    supplier = _resolve_supplier_scope(db, supplier_id, supplier_unassigned)
     generated_label, filename_timestamp = _material_report_timestamp()
+    start, end = date_filter_bounds(created_from, created_to)
     content = build_material_inventory_xlsx(
         material_inventory_report_rows(
             db,
             supplier_id=supplier_id,
-            supplier_unassigned=supplier_unassigned,
+            created_from=start,
+            created_to=end,
         ),
         generated_label,
         lang,
-        scope_label=material_inventory_supplier_scope_label(
-            lang,
-            supplier.name if supplier else None,
-            supplier_unassigned,
-        ),
     )
     return Response(
         content=content,
@@ -210,7 +249,6 @@ def download_material_stock_excel(
             "Content-Disposition": (
                 f'attachment; filename="material_inventory_report_{filename_timestamp}.xlsx"'
             ),
-            "Cache-Control": "no-store",
         },
     )
 
@@ -220,24 +258,21 @@ def download_material_stock_pdf(
     db: DbSession,
     lang: ReportLanguage = "uz",
     supplier_id: int | None = None,
-    supplier_unassigned: bool = False,
+    created_from: date | None = None,
+    created_to: date | None = None,
     _: User = Depends(require_permissions(*INVENTORY_READ_PERMISSIONS)),
 ):
-    supplier = _resolve_supplier_scope(db, supplier_id, supplier_unassigned)
     generated_label, filename_timestamp = _material_report_timestamp()
+    start, end = date_filter_bounds(created_from, created_to)
     content = build_material_inventory_pdf(
         material_inventory_report_rows(
             db,
             supplier_id=supplier_id,
-            supplier_unassigned=supplier_unassigned,
+            created_from=start,
+            created_to=end,
         ),
         generated_label,
         lang,
-        scope_label=material_inventory_supplier_scope_label(
-            lang,
-            supplier.name if supplier else None,
-            supplier_unassigned,
-        ),
     )
     return Response(
         content=content,
@@ -246,44 +281,8 @@ def download_material_stock_pdf(
             "Content-Disposition": (
                 f'attachment; filename="material_inventory_report_{filename_timestamp}.pdf"'
             ),
-            "Cache-Control": "no-store",
         },
     )
-
-
-@router.get("/supplier-options")
-def list_inventory_supplier_options(
-    db: DbSession,
-    group: str = "materials",
-    _: User = Depends(require_permissions(*INVENTORY_READ_PERMISSIONS)),
-):
-    categories = categories_for_group(group)
-    if not categories:
-        raise HTTPException(400, "Invalid inventory group")
-    suppliers = (
-        db.query(Supplier.id, Supplier.name)
-        .join(StockBatch, StockBatch.supplier_id == Supplier.id)
-        .join(Item, Item.id == StockBatch.item_id)
-        .filter(
-            Item.category.in_(categories),
-            StockBatch.quantity > 0,
-        )
-        .group_by(Supplier.id, Supplier.name)
-        .order_by(func.lower(Supplier.name), Supplier.name, Supplier.id)
-        .all()
-    )
-    has_unassigned = bool(
-        stock_summary(
-            db,
-            group=group,
-            supplier_unassigned=True,
-            positive_only=True,
-        )
-    )
-    return {
-        "rows": [{"id": int(supplier_id), "name": name} for supplier_id, name in suppliers],
-        "has_unassigned": has_unassigned,
-    }
 
 
 # ===== Items =====
@@ -324,14 +323,17 @@ async def upload_item_image(
     file: UploadFile = File(...),
     _: User = Depends(require_permissions("storage.items", "storage.receive", "*")),
 ):
-    ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS)
-    os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
-    safe_name = f"item_{uuid4().hex}{ext}"
-    abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
-    content = await read_validated_upload_content(file, ext, 10 * 1024 * 1024)
-    with open(abs_path, "wb") as f:
-        f.write(content)
-    return {"file_url": f"/storage/model-files/{safe_name}"}
+    from app.services.image_storage import store_uploaded_image
+
+    stored = await store_uploaded_image(
+        file,
+        target_dir=settings.MODEL_FILES_DIR,
+        file_url_base="/storage/model-files",
+        name_prefix="item",
+        max_bytes=10 * 1024 * 1024,
+        prebuild_thumbnails=True,
+    )
+    return {"file_url": stored.file_url}
 
 
 @router.patch("/items/{item_id}/image", response_model=ItemOut)
@@ -398,7 +400,9 @@ def delete_item(
     item_id: int,
     db: DbSession,
     current: User = Depends(require_permissions("storage.items", "*")),
+    force: bool = False,
 ):
+    _require_admin_force(current, force)
     it = db.get(Item, item_id)
     if not it:
         raise HTTPException(404, "Item not found")
@@ -410,8 +414,22 @@ def delete_item(
         or db.query(PurchaseOrderLine.id).filter(PurchaseOrderLine.item_id == item_id).first()
         or db.query(WasteRecord.id).filter(WasteRecord.item_id == item_id).first()
     )
-    if linked:
+    if linked and not force:
         raise HTTPException(409, "Item is linked to stock, BOM, purchasing, or waste records")
+    if linked:
+        old_value = {"sku": it.sku, "name": it.name, "is_active": it.is_active}
+        it.is_active = False
+        log_action(
+            db,
+            current,
+            "force_archive",
+            "Item",
+            item_id,
+            old_value=old_value,
+            new_value={"is_active": False, "linked_records_preserved": True},
+        )
+        db.commit()
+        return Response(status_code=204)
     db.delete(it)
     log_action(db, current, "delete", "Item", item_id, new_value={"sku": it.sku, "name": it.name})
     db.commit()
@@ -440,60 +458,32 @@ def get_stock(
     category: str | None = None,
     group: str | None = None,
     q: str | None = None,
+    supplier_id: int | None = None,
     created_from: date | None = None,
     created_to: date | None = None,
-    supplier_id: int | None = None,
-    supplier_unassigned: bool = False,
-    positive_only: bool = False,
     page: int = 1,
     page_size: int = 500,
     include_total: bool = False,
 ):
-    _resolve_supplier_scope(db, supplier_id, supplier_unassigned)
     safe_page, safe_size, _ = clamp_pagination(page, page_size)
     start, end = date_filter_bounds(created_from, created_to)
-    total = (
-        stock_summary_count(
-            db,
-            category,
-            group,
-            q,
-            created_from=start,
-            created_to=end,
-            supplier_id=supplier_id,
-            supplier_unassigned=supplier_unassigned,
-            positive_only=positive_only,
-        )
-        if include_total
-        else 0
-    )
-    line_total = (
-        stock_summary_line_count(
-            db,
-            category,
-            group,
-            q,
-            created_from=start,
-            created_to=end,
-            supplier_id=supplier_id,
-            supplier_unassigned=supplier_unassigned,
-        )
-        if include_total
-        else 0
-    )
-    rows = stock_summary(
+    summary = stock_summary(
         db,
         category,
         group,
         q,
+        supplier_id=supplier_id,
         created_from=start,
         created_to=end,
         page=safe_page,
         page_size=safe_size,
-        supplier_id=supplier_id,
-        supplier_unassigned=supplier_unassigned,
-        positive_only=positive_only,
+        include_total=include_total,
     )
+    if include_total:
+        rows, total = summary
+    else:
+        rows = summary
+        total = 0
     # adapt -> StockLine
     out = []
     for r in rows:
@@ -509,14 +499,7 @@ def get_stock(
             available_quantity=r.get("available_quantity", r["quantity"]),
         ).model_dump())
     if include_total:
-        return {
-            "rows": out,
-            "total": total,
-            "item_total": total,
-            "line_total": line_total,
-            "page": safe_page,
-            "page_size": safe_size,
-        }
+        return {"rows": out, "total": total, "page": safe_page, "page_size": safe_size}
     return out
 
 
@@ -625,7 +608,9 @@ def set_stock_quantity(
     payload: StockQuantityAdjustmentIn,
     db: DbSession,
     current: User = Depends(require_permissions("storage.items", "storage.receive", "storage.transfer", "*")),
+    force: bool = False,
 ):
+    _require_admin_force(current, force)
     item = db.get(Item, item_id)
     if not item:
         raise HTTPException(404, "Item not found")
@@ -637,7 +622,7 @@ def set_stock_quantity(
     target_quantity = float(payload.quantity or 0)
     previous_quantity = current_stock_for_item(db, item_id)
     reserved_quantity = reserved_stock_for_item(db, item_id)
-    if target_quantity + EPSILON < reserved_quantity:
+    if target_quantity + EPSILON < reserved_quantity and not force:
         raise HTTPException(409, f"Stock quantity cannot be lower than reserved quantity ({reserved_quantity:g} {item.unit})")
     delta = target_quantity - previous_quantity
     if abs(delta) <= EPSILON:
@@ -661,7 +646,7 @@ def set_stock_quantity(
             .limit(2)
             .count()
         )
-        if active_batch_count > 1:
+        if active_batch_count > 1 and not force:
             raise HTTPException(409, "Batch-tracked stock has multiple active batches; adjust a specific batch instead")
         movements = _apply_batch_tracked_stock_adjustment(
             db,
@@ -706,6 +691,28 @@ def set_stock_quantity(
 
 
 # ===== Receive (creates a batch + movement) =====
+@router.get("/colors", response_model=list[str])
+def list_received_stock_colors(
+    db: DbSession,
+    _: User = Depends(require_permissions(*INVENTORY_READ_PERMISSIONS)),
+):
+    rows = (
+        db.query(StockBatch.color)
+        .filter(
+            StockBatch.color.isnot(None),
+            func.length(func.trim(StockBatch.color)) > 0,
+        )
+        .distinct()
+        .all()
+    )
+    colors_by_key: dict[str, str] = {}
+    for (raw_color,) in rows:
+        color = str(raw_color or "").strip()
+        if color:
+            colors_by_key.setdefault(color.casefold(), color)
+    return sorted(colors_by_key.values(), key=str.casefold)
+
+
 @router.post("/receive", response_model=StockBatchOut, status_code=201)
 def receive_stock(
     payload: StockBatchIn,
@@ -718,11 +725,23 @@ def receive_stock(
     if replay:
         return replay
 
-    if not db.get(Item, payload.item_id):
+    item = db.get(Item, payload.item_id)
+    if not item:
         raise HTTPException(404, "Item not found")
-    if not db.get(Warehouse, payload.warehouse_id):
+    warehouse = db.get(Warehouse, payload.warehouse_id)
+    if not warehouse:
         raise HTTPException(404, "Warehouse not found")
+    _validate_receiving_warehouse(item, warehouse)
     batch_data = payload.model_dump()
+    roll_weights, piece_count = normalize_material_roll_weights(
+        item_category=item.category,
+        unit=payload.unit,
+        quantity=payload.quantity,
+        roll_weights_kg=payload.roll_weights_kg,
+        piece_count=payload.piece_count,
+    )
+    batch_data["roll_weights_kg"] = roll_weights
+    batch_data["piece_count"] = piece_count
     batch_data["image_url"] = _validate_item_image_url(batch_data.get("image_url"))
     batch = StockBatch(**batch_data)
     db.add(batch); db.flush()
@@ -778,8 +797,10 @@ def collect_back_accessory(
     accessory_categories = categories_for_group("accessories") or ()
     if item.category not in accessory_categories:
         raise HTTPException(400, "Only accessory or packaging items can be collected back here")
-    if not db.get(Warehouse, payload.warehouse_id):
+    warehouse = db.get(Warehouse, payload.warehouse_id)
+    if not warehouse:
         raise HTTPException(404, "Warehouse not found")
+    _validate_receiving_warehouse(item, warehouse)
 
     unit = str(payload.unit or item.unit or "").strip() or item.unit
     issued_rows = accessory_issue_summary(db, production_order_id=int(po.id))
@@ -1186,13 +1207,55 @@ def transfer_stock(
 
 
 # ===== Batches =====
+@router.put("/batches/{batch_id}/roll-weights", response_model=StockBatchOut)
+def save_batch_roll_weights(
+    batch_id: int,
+    payload: StockBatchRollWeightsIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("storage.items", "storage.receive", "*")),
+):
+    batch = db.get(StockBatch, batch_id)
+    if not batch:
+        raise HTTPException(404, "Stock batch not found")
+    item = db.get(Item, batch.item_id)
+    if not item:
+        raise HTTPException(404, "Item not found")
+
+    old_weights = [float(value) for value in (batch.roll_weights_kg or [])]
+    old_piece_count = batch.piece_count
+    roll_weights, piece_count = normalize_material_roll_weights(
+        item_category=item.category,
+        unit=batch.unit,
+        quantity=float(batch.quantity),
+        roll_weights_kg=payload.roll_weights_kg,
+        piece_count=None,
+        require_weights=True,
+    )
+    batch.roll_weights_kg = roll_weights
+    batch.piece_count = piece_count
+    log_action(
+        db,
+        current,
+        "save_roll_weights",
+        "StockBatch",
+        batch.id,
+        old_value={"piece_count": old_piece_count, "roll_weights_kg": old_weights},
+        new_value={"piece_count": piece_count, "roll_weights_kg": roll_weights},
+    )
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
 @router.patch("/batches/{batch_id}", response_model=StockBatchOut)
 def update_batch(
     batch_id: int,
     payload: StockBatchUpdate,
     db: DbSession,
     current: User = Depends(require_permissions("storage.items", "storage.receive", "*")),
+    force: bool = False,
 ):
+    _require_admin_force(current, force)
     batch = db.get(StockBatch, batch_id)
     if not batch:
         raise HTTPException(404, "Stock batch not found")
@@ -1243,7 +1306,7 @@ def update_batch(
         values["image_url"] = _validate_item_image_url(values["image_url"])
 
     target_quantity = float(values.get("quantity", old_quantity))
-    if target_quantity + EPSILON < reserved_quantity:
+    if target_quantity + EPSILON < reserved_quantity and not force:
         raise HTTPException(
             409,
             f"Quantity cannot be lower than reserved stock ({reserved_quantity:g} {old_unit})",
@@ -1271,7 +1334,9 @@ def update_batch(
                 db.query(MaterialReservation.id).filter(MaterialReservation.stock_batch_id == batch_id).first()
                 or db.query(ModelBOM.id).filter(ModelBOM.stock_batch_id == batch_id).first()
                 or db.query(ProductionOrder.id).filter(ProductionOrder.fabric_batch_id == batch_id).first()
+                or db.query(ProductionOrderMaterial.id).filter(ProductionOrderMaterial.stock_batch_id == batch_id).first()
                 or db.query(CuttingRecord.id).filter(CuttingRecord.fabric_batch_id == batch_id).first()
+                or db.query(CuttingMaterialUsage.id).filter(CuttingMaterialUsage.stock_batch_id == batch_id).first()
                 or db.query(WasteRecord.id).filter(WasteRecord.batch_id == batch_id).first()
             )
             item_movements = db.query(StockMovement).filter(StockMovement.batch_id == batch_id).all()
@@ -1281,7 +1346,7 @@ def update_batch(
                 or int(movement.reference_id or 0) != batch_id
                 for movement in item_movements
             )
-            if reserved_quantity > EPSILON or linked or has_downstream_movement:
+            if (reserved_quantity > EPSILON or linked or has_downstream_movement) and not force:
                 raise HTTPException(409, "Stock batch is already reserved or used and cannot change material")
 
     old_value = {
@@ -1308,9 +1373,14 @@ def update_batch(
 
     for key, value in values.items():
         setattr(batch, key, value)
+    relinked_item_references: dict[str, int] | None = None
     if target_item.id != item.id:
-        for movement in item_movements:
-            movement.item_id = target_item.id
+        relinked_item_references = _relink_stock_batch_item_references(
+            db,
+            batch_id,
+            target_item.id,
+            item_movements,
+        )
         item = target_item
 
     if abs(delta) > EPSILON:
@@ -1345,6 +1415,8 @@ def update_batch(
         key: (value.isoformat() if isinstance(value, datetime) else value)
         for key, value in values.items()
     }
+    if relinked_item_references is not None:
+        new_value["relinked_item_references"] = relinked_item_references
     log_action(db, current, "update", "StockBatch", batch.id, old_value=old_value, new_value=new_value)
     db.commit()
     db.refresh(batch)
@@ -1368,7 +1440,9 @@ def delete_unused_batch(
     batch_id: int,
     db: DbSession,
     current: User = Depends(require_permissions("inventory.batches.delete", "*")),
+    force: bool = False,
 ):
+    _require_admin_force(current, force)
     batch = db.execute(_locked_stock_batch_statement(batch_id)).scalar_one_or_none()
     if not batch:
         raise HTTPException(404, "Stock batch not found")
@@ -1377,7 +1451,9 @@ def delete_unused_batch(
         db.query(MaterialReservation.id).filter(MaterialReservation.stock_batch_id == batch_id).first()
         or db.query(ModelBOM.id).filter(ModelBOM.stock_batch_id == batch_id).first()
         or db.query(ProductionOrder.id).filter(ProductionOrder.fabric_batch_id == batch_id).first()
+        or db.query(ProductionOrderMaterial.id).filter(ProductionOrderMaterial.stock_batch_id == batch_id).first()
         or db.query(CuttingRecord.id).filter(CuttingRecord.fabric_batch_id == batch_id).first()
+        or db.query(CuttingMaterialUsage.id).filter(CuttingMaterialUsage.stock_batch_id == batch_id).first()
         or db.query(WasteRecord.id).filter(WasteRecord.batch_id == batch_id).first()
     )
     movements = db.query(StockMovement).filter(StockMovement.batch_id == batch_id).all()
@@ -1387,8 +1463,6 @@ def delete_unused_batch(
         or int(movement.reference_id or 0) != batch_id
         for movement in movements
     )
-    if linked or has_downstream_movement:
-        raise HTTPException(409, "Stock batch is already reserved or used and cannot be deleted")
 
     old_value = {
         "batch_no": batch.batch_no,
@@ -1397,7 +1471,59 @@ def delete_unused_batch(
         "unit": batch.unit,
         "warehouse_id": batch.warehouse_id,
         "supplier_id": batch.supplier_id,
+        "qc_status": batch.qc_status,
     }
+    if linked or has_downstream_movement:
+        reservations = db.execute(
+            _locked_active_batch_reservations_statement(batch_id)
+        ).scalars().all()
+        released_quantity = 0.0
+        for reservation in reservations:
+            remaining = max(
+                0.0,
+                float(reservation.reserved_quantity or 0)
+                - float(reservation.consumed_quantity or 0)
+                - float(reservation.released_quantity or 0),
+            )
+            release_material_reservation(db, int(reservation.id))
+            released_quantity += remaining
+
+        removed_quantity = float(batch.quantity or 0)
+        if removed_quantity > EPSILON:
+            db.add(StockMovement(
+                movement_type="issue",
+                item_id=batch.item_id,
+                batch_id=batch.id,
+                from_warehouse_id=batch.warehouse_id,
+                quantity=removed_quantity,
+                unit=batch.unit,
+                reference_type="StockBatchDelete",
+                reference_id=batch.id,
+                created_by=current.id,
+            ))
+        batch.quantity = 0
+        batch.qc_status = "hold"
+        batch.archived_at = datetime.now(ZoneInfo("Asia/Tashkent"))
+        batch.archived_by = current.id
+        log_action(
+            db,
+            current,
+            "archive",
+            "StockBatch",
+            batch_id,
+            old_value=old_value,
+            new_value={
+                "quantity": 0,
+                "qc_status": "hold",
+                "removed_quantity": removed_quantity,
+                "released_reservation_count": len(reservations),
+                "released_reservation_quantity": released_quantity,
+                "linked_records_preserved": True,
+            },
+        )
+        db.commit()
+        return
+
     _delete_stock_batch_receipt_movements(db, movements)
     db.delete(batch)
     log_action(db, current, "delete", "StockBatch", batch_id, old_value=old_value)
@@ -1413,26 +1539,21 @@ def list_batches(
     category: str | None = None,
     group: str | None = None,
     q: str | None = None,
+    supplier_id: int | None = None,
     created_from: date | None = None,
     created_to: date | None = None,
-    supplier_id: int | None = None,
-    supplier_unassigned: bool = False,
     page: int = 1,
     page_size: int = 500,
     include_total: bool = False,
     hide_empty: bool = False,
 ):
-    _resolve_supplier_scope(db, supplier_id, supplier_unassigned)
     qry = (
         db.query(StockBatch, Item, Warehouse, Supplier)
         .join(Item, Item.id == StockBatch.item_id)
         .join(Warehouse, Warehouse.id == StockBatch.warehouse_id)
         .outerjoin(Supplier, Supplier.id == StockBatch.supplier_id)
+        .filter(StockBatch.archived_at.is_(None))
     )
-    if supplier_id is not None:
-        qry = qry.filter(StockBatch.supplier_id == supplier_id)
-    elif supplier_unassigned:
-        qry = qry.filter(StockBatch.supplier_id.is_(None))
     item_filter_ids: set[int] = set()
     if item_id:
         item_filter_ids.add(int(item_id))
@@ -1454,6 +1575,8 @@ def list_batches(
         qry = qry.filter(Item.category.in_(categories))
     if category:
         qry = qry.filter(Item.category == category)
+    if supplier_id:
+        qry = qry.filter(StockBatch.supplier_id == supplier_id)
     if hide_empty:
         qry = qry.filter(StockBatch.quantity > 0)
     search = str(q or "").strip()
@@ -1465,6 +1588,7 @@ def list_batches(
                 Item.name.ilike(like),
                 Item.unit.ilike(like),
                 StockBatch.batch_no.ilike(like),
+                StockBatch.internal_batch_no.ilike(like),
                 StockBatch.color.ilike(like),
                 StockBatch.old_code.ilike(like),
                 StockBatch.color_code.ilike(like),
@@ -1483,12 +1607,26 @@ def list_batches(
     if end:
         qry = qry.filter(StockBatch.received_date <= end)
     safe_page, safe_size, offset = clamp_pagination(page, page_size)
-    total = qry.count() if include_total else 0
-    qry = qry.order_by(StockBatch.received_date.desc(), StockBatch.id.desc())
-    qry = qry.offset(offset).limit(safe_size)
-    rows = qry.all()
+    unpaged_qry = qry
+    if include_total:
+        qry = qry.add_columns(func.count(StockBatch.id).over().label("page_total"))
+    raw_rows = (
+        qry.order_by(StockBatch.received_date.desc(), StockBatch.id.desc())
+        .offset(offset)
+        .limit(safe_size)
+        .all()
+    )
+    if include_total:
+        total = int(raw_rows[0][4] or 0) if raw_rows else 0
+        if not raw_rows and safe_page > 1:
+            total = unpaged_qry.count()
+        rows = [tuple(row[:4]) for row in raw_rows]
+    else:
+        total = 0
+        rows = raw_rows
     batch_ids = [int(batch.id) for batch, _, _, _ in rows]
     active_reservations: dict[int, list[dict]] = {batch_id: [] for batch_id in batch_ids}
+    reserved_by_batch: dict[int, float] = {batch_id: 0.0 for batch_id in batch_ids}
     if batch_ids:
         reservation_rows = (
             db.query(MaterialReservation)
@@ -1500,13 +1638,18 @@ def list_batches(
             .all()
         )
         for reservation in reservation_rows:
-            remaining = max(
-                0.0,
+            batch_id = int(reservation.stock_batch_id)
+            raw_remaining = (
                 float(reservation.reserved_quantity or 0)
                 - float(reservation.consumed_quantity or 0)
-                - float(reservation.released_quantity or 0),
+                - float(reservation.released_quantity or 0)
             )
-            active_reservations.setdefault(int(reservation.stock_batch_id), []).append({
+            remaining = max(
+                0.0,
+                raw_remaining,
+            )
+            reserved_by_batch[batch_id] = reserved_by_batch.get(batch_id, 0.0) + raw_remaining
+            active_reservations.setdefault(batch_id, []).append({
                 "id": int(reservation.id),
                 "reservation_no": reservation.reservation_no,
                 "production_order_id": int(reservation.production_order_id),
@@ -1517,7 +1660,7 @@ def list_batches(
             })
     out = []
     for batch, item, warehouse, supplier in rows:
-        reserved_qty = reserved_stock_for_batch(db, int(batch.id))
+        reserved_qty = max(0.0, reserved_by_batch.get(int(batch.id), 0.0))
         out.append({
             **StockBatchOut.model_validate(batch).model_dump(),
             "item_sku": item.sku if item else None,
@@ -1526,7 +1669,7 @@ def list_batches(
             "supplier_name": supplier.name if supplier else None,
             "warehouse_name": warehouse.name if warehouse else None,
             "reserved_quantity": reserved_qty,
-            "available_quantity": available_stock_for_batch(db, int(batch.id)),
+            "available_quantity": float(batch.quantity or 0) - reserved_qty,
             "active_reservations": active_reservations.get(int(batch.id), []),
         })
     if include_total:

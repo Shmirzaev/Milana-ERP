@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
-# This helper escapes report output and does not parse XML.
-from xml.sax.saxutils import escape  # nosec B406
+from xml.sax.saxutils import escape
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -30,8 +31,6 @@ REPORT_TEXT = {
         "title": "Material Inventory Report",
         "subtitle": "Positive on-hand material stock grouped by material",
         "generated": "Generated",
-        "supplier": "Supplier",
-        "no_supplier": "No supplier",
         "number": "No.",
         "material": "Material name",
         "sku": "SKU",
@@ -45,8 +44,6 @@ REPORT_TEXT = {
         "title": "Отчёт по складу материалов",
         "subtitle": "Положительные остатки материалов, сгруппированные по материалу",
         "generated": "Сформировано",
-        "supplier": "Поставщик",
-        "no_supplier": "Без поставщика",
         "number": "№",
         "material": "Наименование материала",
         "sku": "SKU",
@@ -60,8 +57,6 @@ REPORT_TEXT = {
         "title": "Materiallar ombori hisoboti",
         "subtitle": "Material bo'yicha guruhlangan musbat ombor qoldiqlari",
         "generated": "Yaratildi",
-        "supplier": "Yetkazib beruvchi",
-        "no_supplier": "Yetkazib beruvchi ko'rsatilmagan",
         "number": "№",
         "material": "Material nomi",
         "sku": "SKU",
@@ -76,21 +71,21 @@ REPORT_TEXT = {
 
 def material_inventory_report_rows(
     db: Session,
-    *,
     supplier_id: int | None = None,
-    supplier_unassigned: bool = False,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
 ) -> list[dict]:
     stock_rows = stock_summary(
         db,
         group="materials",
         supplier_id=supplier_id,
-        supplier_unassigned=supplier_unassigned,
-        positive_only=True,
+        created_from=created_from,
+        created_to=created_to,
     )
     item_ids = [int(row["item_id"]) for row in stock_rows]
     batch_totals: dict[int, tuple[int, int]] = {}
     if item_ids:
-        query = (
+        batch_totals_query = (
             db.query(
                 StockBatch.item_id,
                 func.count(StockBatch.id),
@@ -98,11 +93,13 @@ def material_inventory_report_rows(
             )
             .filter(StockBatch.item_id.in_(item_ids), StockBatch.quantity > 0)
         )
-        if supplier_id is not None:
-            query = query.filter(StockBatch.supplier_id == supplier_id)
-        elif supplier_unassigned:
-            query = query.filter(StockBatch.supplier_id.is_(None))
-        rows = query.group_by(StockBatch.item_id).all()
+        if supplier_id:
+            batch_totals_query = batch_totals_query.filter(StockBatch.supplier_id == supplier_id)
+        if created_from:
+            batch_totals_query = batch_totals_query.filter(StockBatch.received_date >= created_from)
+        if created_to:
+            batch_totals_query = batch_totals_query.filter(StockBatch.received_date <= created_to)
+        rows = batch_totals_query.group_by(StockBatch.item_id).all()
         batch_totals = {
             int(item_id): (int(batch_count or 0), int(piece_count or 0))
             for item_id, batch_count, piece_count in rows
@@ -126,25 +123,7 @@ def material_inventory_report_rows(
     return sorted(report_rows, key=lambda row: (row["material_name"].casefold(), row["sku"].casefold()))
 
 
-def material_inventory_supplier_scope_label(
-    lang: ReportLanguage,
-    supplier_name: str | None,
-    supplier_unassigned: bool,
-) -> str | None:
-    if not supplier_name and not supplier_unassigned:
-        return None
-    text = REPORT_TEXT[lang]
-    supplier_value = text["no_supplier"] if supplier_unassigned else str(supplier_name or "")
-    return f'{text["supplier"]}: {supplier_value}'
-
-
-def build_material_inventory_xlsx(
-    rows: list[dict],
-    generated_label: str,
-    lang: ReportLanguage,
-    *,
-    scope_label: str | None = None,
-) -> bytes:
+def build_material_inventory_xlsx(rows: list[dict], generated_label: str, lang: ReportLanguage) -> bytes:
     text = REPORT_TEXT[lang]
     workbook = Workbook()
     sheet = workbook.active
@@ -166,11 +145,7 @@ def build_material_inventory_xlsx(
     sheet["A2"] = text["subtitle"]
     sheet["A2"].font = Font(size=10, color="625B4B")
     sheet.merge_cells("A3:F3")
-    sheet["A3"] = " | ".join(
-        value
-        for value in (f'{text["generated"]}: {generated_label}', scope_label)
-        if value
-    )
+    sheet["A3"] = f'{text["generated"]}: {generated_label}'
     sheet["A3"].font = Font(size=9, color="7A725F")
 
     header_row = 5
@@ -269,13 +244,7 @@ def _register_report_fonts() -> tuple[str, str]:
     return regular_name, bold_name
 
 
-def build_material_inventory_pdf(
-    rows: list[dict],
-    generated_label: str,
-    lang: ReportLanguage,
-    *,
-    scope_label: str | None = None,
-) -> bytes:
+def build_material_inventory_pdf(rows: list[dict], generated_label: str, lang: ReportLanguage) -> bytes:
     text = REPORT_TEXT[lang]
     regular_font, bold_font = _register_report_fonts()
     output = BytesIO()
@@ -334,16 +303,7 @@ def build_material_inventory_pdf(
     elements = [
         Paragraph(escape(text["title"]), title_style),
         Paragraph(escape(text["subtitle"]), meta_style),
-        Paragraph(
-            escape(
-                " | ".join(
-                    value
-                    for value in (f'{text["generated"]}: {generated_label}', scope_label)
-                    if value
-                )
-            ),
-            meta_style,
-        ),
+        Paragraph(escape(f'{text["generated"]}: {generated_label}'), meta_style),
         Spacer(1, 5 * mm),
     ]
     table_data = [[

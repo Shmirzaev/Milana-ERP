@@ -90,14 +90,17 @@ async def upload_company_logo(
     file: UploadFile = File(...),
     current: User = Depends(require_permissions("*")),
 ):
-    ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS)
-    os.makedirs(app_settings.MODEL_FILES_DIR, exist_ok=True)
-    safe_name = f"company_logo_{uuid4().hex}{ext}"
-    abs_path = os.path.join(app_settings.MODEL_FILES_DIR, safe_name)
-    content = await read_validated_upload_content(file, ext, 5 * 1024 * 1024)
-    with open(abs_path, "wb") as f:
-        f.write(content)
-    logo_url = f"/storage/model-files/{safe_name}"
+    from app.services.image_storage import store_uploaded_image
+
+    stored = await store_uploaded_image(
+        file,
+        target_dir=app_settings.MODEL_FILES_DIR,
+        file_url_base="/storage/model-files",
+        name_prefix="company_logo",
+        max_bytes=5 * 1024 * 1024,
+        prebuild_thumbnails=True,
+    )
+    logo_url = stored.file_url
 
     company = _get_or_default(db, "company_info")
     company["logo_url"] = logo_url

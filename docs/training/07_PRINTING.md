@@ -115,3 +115,4 @@ If payroll QR labels are used:
 | Output form locked | Work Order not collected/in progress | Use Collect if allowed. |
 | Wrong print file | Sales uploaded wrong or old file | Stop and ask Sales/Planning. |
 | Sewing cannot receive | Printing did not send bundle to Sewing | Scan and send bundle forward. |
+

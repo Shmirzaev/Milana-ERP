@@ -10,8 +10,8 @@ import { statusLabel } from "@/components/StagePipeline";
 import { fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
+import { modelSearchIncludes } from "@/lib/modelCode";
 import { orderReference } from "@/lib/orderRef";
 
 type StoragePlacement = {
@@ -115,11 +115,7 @@ export default function WarehouseStockPage() {
     const qs = params.toString();
     return `/api/packages/storage-map${qs ? `?${qs}` : ""}`;
   }, [createdFrom, createdTo]);
-  const { data, isLoading } = useSWR<StorageMapResponse>(
-    stockUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data, isLoading } = useSWR<StorageMapResponse>(stockUrl, fetcher);
 
   const placements = useMemo(() => data?.placements || [], [data?.placements]);
   const filtered = useMemo(() => {
@@ -130,7 +126,6 @@ export default function WarehouseStockPage() {
         row.order_no,
         row.sales_order_no,
         row.production_no,
-        row.model_code,
         row.model_name,
         row.package_no,
         row.barcode,
@@ -139,7 +134,7 @@ export default function WarehouseStockPage() {
         row.storage_shelf,
         row.status,
       ];
-      return fields.some((field) => clean(field).includes(q));
+      return modelSearchIncludes(row.model_code, q) || fields.some((field) => clean(field).includes(q));
     });
   }, [placements, query]);
 

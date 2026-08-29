@@ -8,10 +8,12 @@ from app.api.routes import (
     traceability,
     forecasting,
     payroll,
+    attendance, usluga, hr_workspace, price_calculation,
 )
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth.router)
+api_router.include_router(auth.session_router)
 api_router.include_router(admin.router)
 api_router.include_router(partners.router)
 api_router.include_router(catalog.router)
@@ -28,6 +30,7 @@ api_router.include_router(waste.router)
 api_router.include_router(finance.router)
 api_router.include_router(dashboards.router)
 api_router.include_router(hr.router)
+api_router.include_router(hr_workspace.router)
 api_router.include_router(barcode.router)
 api_router.include_router(tasks.router)
 api_router.include_router(notifications.router)
@@ -43,3 +46,6 @@ api_router.include_router(traceability.router)
 api_router.include_router(forecasting.router)
 api_router.include_router(super_data.router)
 api_router.include_router(payroll.router)
+api_router.include_router(attendance.router)
+api_router.include_router(usluga.router)
+api_router.include_router(price_calculation.router)

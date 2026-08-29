@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import smtplib
 import ssl
+import json
 from email.message import EmailMessage
 from email.utils import formataddr
 
@@ -10,78 +11,42 @@ import httpx
 from app.core.config import settings
 
 
-class EmailDeliveryError(RuntimeError):
-    def __init__(self, message: str, safe_message: str):
-        super().__init__(message)
-        self.safe_message = safe_message
-
-
-HF_SMTP_UNAVAILABLE_MESSAGE = (
-    "Automatic email is unavailable on Hugging Face because SMTP ports are blocked. "
-    "Configure RESEND_API_KEY and RESEND_FROM_EMAIL to send email from this host."
-)
-EMAIL_NOT_CONFIGURED_MESSAGE = (
-    "Automatic email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL, "
-    "or configure SMTP on a host that allows SMTP ports."
-)
-
-
 def email_configured() -> bool:
-    return resend_configured() or smtp_available()
-
-
-def email_unavailable_reason() -> str | None:
-    if resend_configured() or smtp_available():
-        return None
-    if smtp_configured() and smtp_blocked_by_host():
-        return HF_SMTP_UNAVAILABLE_MESSAGE
-    return EMAIL_NOT_CONFIGURED_MESSAGE
+    return resend_configured() or smtp_configured()
 
 
 def resend_configured() -> bool:
-    return bool(settings.RESEND_API_KEY and settings.RESEND_FROM_EMAIL)
+    return bool(settings.RESEND_API_KEY and (settings.RESEND_FROM_EMAIL or settings.SMTP_FROM_EMAIL))
 
 
 def smtp_configured() -> bool:
     return bool(settings.SMTP_HOST and settings.SMTP_FROM_EMAIL)
 
 
-def smtp_blocked_by_host() -> bool:
-    return settings.is_hugging_face_space and settings.SMTP_PORT not in {80, 443, 8080}
-
-
-def smtp_available() -> bool:
-    return smtp_configured() and not smtp_blocked_by_host()
-
-
 def send_email(to_email: str, subject: str, text_body: str) -> bool:
     if resend_configured():
-        try:
-            return _send_resend_email(to_email, subject, text_body)
-        except EmailDeliveryError:
-            if not smtp_available():
-                raise
-    if smtp_available():
+        return _send_resend_email(to_email, subject, text_body)
+    if smtp_configured():
         return _send_smtp_email(to_email, subject, text_body)
-    if smtp_configured() and smtp_blocked_by_host():
-        raise EmailDeliveryError("SMTP blocked by host", HF_SMTP_UNAVAILABLE_MESSAGE)
     return False
 
 
 def _send_resend_email(to_email: str, subject: str, text_body: str) -> bool:
-    from_value = formataddr((settings.SMTP_FROM_NAME, settings.RESEND_FROM_EMAIL))
-    payload = {
+    from_email = settings.RESEND_FROM_EMAIL or settings.SMTP_FROM_EMAIL
+    from_value = formataddr((settings.SMTP_FROM_NAME, from_email))
+    payload = json.dumps({
         "from": from_value,
         "to": [to_email],
         "subject": subject,
         "text": text_body,
-    }
+    }).encode("utf-8")
     try:
         response = httpx.post(
             "https://api.resend.com/emails",
-            json=payload,
+            content=payload,
             headers={
                 "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                "Content-Type": "application/json",
                 "User-Agent": "milana-erp/1.0",
             },
             timeout=settings.SMTP_TIMEOUT_SECONDS,
@@ -92,26 +57,7 @@ def _send_resend_email(to_email: str, subject: str, text_body: str) -> bool:
         # Response bodies from email providers can echo submitted message content
         # (including password-reset URLs). Do not propagate provider text into
         # logs, notifications, or error handlers.
-        status_code = exc.response.status_code
-        raise EmailDeliveryError(
-            f"Resend API error {status_code}",
-            _resend_safe_error(status_code),
-        ) from exc
-    except httpx.RequestError as exc:
-        raise EmailDeliveryError(
-            "Resend API request failed",
-            "Email delivery failed: could not reach the Resend API. Check network access or use SMTP settings.",
-        ) from exc
-
-
-def _resend_safe_error(status_code: int) -> str:
-    if status_code in {401, 403}:
-        return "Email delivery failed: Resend rejected the API key or sender. Check RESEND_API_KEY and RESEND_FROM_EMAIL."
-    if status_code == 422:
-        return "Email delivery failed: Resend rejected the sender or recipient. Check that RESEND_FROM_EMAIL is verified."
-    if status_code == 429:
-        return "Email delivery failed: Resend rate limit was reached. Try again later or use SMTP settings."
-    return f"Email delivery failed: Resend API returned HTTP {status_code}. Check RESEND_API_KEY and RESEND_FROM_EMAIL."
+        raise RuntimeError(f"Resend API error {exc.response.status_code}") from exc
 
 
 def _send_smtp_email(to_email: str, subject: str, text_body: str) -> bool:
@@ -124,47 +70,21 @@ def _send_smtp_email(to_email: str, subject: str, text_body: str) -> bool:
     message["Subject"] = subject
     message.set_content(text_body)
 
-    try:
-        if settings.SMTP_USE_SSL:
-            with smtplib.SMTP_SSL(
-                settings.SMTP_HOST,
-                settings.SMTP_PORT,
-                timeout=settings.SMTP_TIMEOUT_SECONDS,
-                context=ssl.create_default_context(),
-            ) as smtp:
-                _login_if_needed(smtp)
-                smtp.send_message(message)
-        else:
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=settings.SMTP_TIMEOUT_SECONDS) as smtp:
-                if settings.SMTP_USE_TLS:
-                    smtp.starttls(context=ssl.create_default_context())
-                _login_if_needed(smtp)
-                smtp.send_message(message)
-    except smtplib.SMTPAuthenticationError as exc:
-        raise EmailDeliveryError(
-            "SMTP authentication failed",
-            "Email delivery failed: SMTP authentication failed. Check SMTP_USERNAME and SMTP_PASSWORD/app password.",
-        ) from exc
-    except smtplib.SMTPSenderRefused as exc:
-        raise EmailDeliveryError(
-            "SMTP sender refused",
-            "Email delivery failed: SMTP rejected SMTP_FROM_EMAIL. Check the sender email and mailbox permissions.",
-        ) from exc
-    except smtplib.SMTPRecipientsRefused as exc:
-        raise EmailDeliveryError(
-            "SMTP recipient refused",
-            "Email delivery failed: SMTP rejected the recipient email address.",
-        ) from exc
-    except (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, TimeoutError, OSError) as exc:
-        raise EmailDeliveryError(
-            "SMTP connection failed",
-            "Email delivery failed: could not connect to SMTP. Check SMTP_HOST, SMTP_PORT, SMTP_USE_TLS, and SMTP_USE_SSL.",
-        ) from exc
-    except smtplib.SMTPException as exc:
-        raise EmailDeliveryError(
-            "SMTP delivery failed",
-            "Email delivery failed: SMTP provider rejected the message. Check SMTP settings and sender permissions.",
-        ) from exc
+    if settings.SMTP_USE_SSL:
+        with smtplib.SMTP_SSL(
+            settings.SMTP_HOST,
+            settings.SMTP_PORT,
+            timeout=settings.SMTP_TIMEOUT_SECONDS,
+            context=ssl.create_default_context(),
+        ) as smtp:
+            _login_if_needed(smtp)
+            smtp.send_message(message)
+    else:
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=settings.SMTP_TIMEOUT_SECONDS) as smtp:
+            if settings.SMTP_USE_TLS:
+                smtp.starttls(context=ssl.create_default_context())
+            _login_if_needed(smtp)
+            smtp.send_message(message)
 
     return True
 

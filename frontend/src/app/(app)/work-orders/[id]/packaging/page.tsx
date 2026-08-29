@@ -505,6 +505,7 @@ export default function PackagingPage() {
   async function submitRec(e: React.FormEvent) {
     e.preventDefault();
     setRecMsg("");
+    setPkgNotice(null);
     if (isAlreadyBatched && !rec.production_batch_id) {
       setRecMsg(t("batch.selectBeforeSaving", { operation: operationLabel("packaging", t).toLowerCase() }));
       return;
@@ -823,7 +824,8 @@ export default function PackagingPage() {
           )}
 
           <h4 className="text-sm font-medium">{t("page.packaging.sizesInPackage")}</h4>
-          <table className="table">
+          <div className="overflow-x-auto">
+            <table className="table">
             <thead>
               <tr>
                 <th>{t("field.size")}</th>
@@ -840,7 +842,8 @@ export default function PackagingPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
           <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: "" }])}>{t("btn.addSize")}</button>
           <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 

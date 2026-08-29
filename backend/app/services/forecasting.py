@@ -32,7 +32,13 @@ ACTIVE_PRODUCTION_STATUSES = (
     "printing",
     "sewing",
     "packaging",
+    "storage_transfer",
 )
+
+BRANDED_SALES_EXCLUDED_STATUSES = ("draft", "cancelled")
+BRANDED_PRODUCTION_HISTORY_STATUSES = ("finished_storage", "closed", "delivered")
+
+BrandedKey = tuple[int, int | None, int | None, str, str]
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -66,66 +72,157 @@ def _collection_name(db: Session, collection_id: int | None) -> str | None:
     return collection.name if collection else None
 
 
-def branded_stock_suggestions(db: Session, *, horizon_weeks: int = 4) -> list[dict]:
-    rows = (
+def _add_demand_event(
+    groups: dict[BrandedKey, dict[str, Any]],
+    *,
+    key: BrandedKey,
+    quantity: int,
+    order_id: int,
+    created_at: datetime | None,
+    source: str,
+) -> None:
+    row = groups.setdefault(
+        key,
+        {
+            "quantity": 0,
+            "order_ids": set(),
+            "first_at": created_at,
+            "last_at": created_at,
+            "events": [],
+            "source": source,
+        },
+    )
+    row["quantity"] += max(0, int(quantity or 0))
+    row["order_ids"].add(int(order_id))
+    row["events"].append((created_at, max(0, int(quantity or 0))))
+    if created_at and (not row["first_at"] or created_at < row["first_at"]):
+        row["first_at"] = created_at
+    if created_at and (not row["last_at"] or created_at > row["last_at"]):
+        row["last_at"] = created_at
+
+
+def _branded_demand_groups(db: Session) -> dict[BrandedKey, dict[str, Any]]:
+    sales_rows = (
         db.query(SalesOrderItem, SalesOrder)
         .join(SalesOrder, SalesOrder.id == SalesOrderItem.sales_order_id)
-        .filter(SalesOrder.order_type == "branded_stock_sale")
+        .filter(
+            SalesOrder.order_type == "branded_stock_sale",
+            SalesOrder.status.notin_(BRANDED_SALES_EXCLUDED_STATUSES),
+        )
         .order_by(SalesOrder.created_at.asc(), SalesOrderItem.id.asc())
         .all()
     )
-    if not rows:
+    sales_groups: dict[BrandedKey, dict[str, Any]] = {}
+    for item, order in sales_rows:
+        _add_demand_event(
+            sales_groups,
+            key=(
+                int(item.model_id),
+                int(item.brand_id) if item.brand_id else None,
+                int(item.collection_id) if item.collection_id else None,
+                str(item.color or ""),
+                str(item.size or ""),
+            ),
+            quantity=int(item.quantity or 0),
+            order_id=int(order.id),
+            created_at=order.created_at,
+            source="sales_orders",
+        )
+
+    production_rows = (
+        db.query(ProductionOrderItem, ProductionOrder)
+        .join(ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id)
+        .filter(
+            ProductionOrder.production_type == "branded_stock",
+            ProductionOrder.status.in_(BRANDED_PRODUCTION_HISTORY_STATUSES),
+        )
+        .order_by(ProductionOrder.created_at.asc(), ProductionOrderItem.id.asc())
+        .all()
+    )
+    production_groups: dict[BrandedKey, dict[str, Any]] = {}
+    for item, order in production_rows:
+        _add_demand_event(
+            production_groups,
+            key=(
+                int(item.model_id),
+                int(order.brand_id) if order.brand_id else None,
+                int(order.collection_id) if order.collection_id else None,
+                str(item.color or ""),
+                str(item.size or ""),
+            ),
+            quantity=int(item.planned_quantity or 0),
+            order_id=int(order.id),
+            created_at=order.created_at,
+            source="branded_production_orders",
+        )
+
+    # Sales are the authoritative demand signal for a variant. Until Sales is
+    # used for that variant, its branded planning/production history is a
+    # conservative fallback so Forecasting is useful in the current workflow.
+    groups = dict(production_groups)
+    groups.update(sales_groups)
+    return groups
+
+
+def _branded_stock_analysis(db: Session, *, horizon_weeks: int = 4) -> list[dict]:
+    groups = _branded_demand_groups(db)
+    if not groups:
         return []
 
-    groups: dict[tuple[int, int | None, int | None, str, str], dict[str, Any]] = {}
-    for item, order in rows:
-        key = (
-            int(item.model_id),
-            int(item.brand_id) if item.brand_id else None,
-            int(item.collection_id) if item.collection_id else None,
-            str(item.color or ""),
-            str(item.size or ""),
-        )
-        row = groups.setdefault(
-            key,
-            {
-                "quantity": 0,
-                "order_ids": set(),
-                "first_at": order.created_at,
-                "last_at": order.created_at,
-            },
-        )
-        row["quantity"] += int(item.quantity or 0)
-        row["order_ids"].add(int(order.id))
-        if order.created_at and (not row["first_at"] or order.created_at < row["first_at"]):
-            row["first_at"] = order.created_at
-        if order.created_at and (not row["last_at"] or order.created_at > row["last_at"]):
-            row["last_at"] = order.created_at
-
+    effective_brand_id = func.coalesce(FinishedGoodsStock.brand_id, ProductionOrder.brand_id)
+    effective_collection_id = func.coalesce(FinishedGoodsStock.collection_id, ProductionOrder.collection_id)
     available_rows = (
         db.query(
             FinishedGoodsStock.model_id,
-            FinishedGoodsStock.brand_id,
-            FinishedGoodsStock.collection_id,
+            effective_brand_id,
+            effective_collection_id,
             FinishedGoodsStock.color,
             FinishedGoodsStock.size,
             func.coalesce(func.sum(FinishedGoodsStock.available_qty), 0),
         )
-        .filter(FinishedGoodsStock.model_id.isnot(None))
+        .outerjoin(ProductionOrder, ProductionOrder.id == FinishedGoodsStock.production_order_id)
         .group_by(
             FinishedGoodsStock.model_id,
-            FinishedGoodsStock.brand_id,
-            FinishedGoodsStock.collection_id,
+            effective_brand_id,
+            effective_collection_id,
             FinishedGoodsStock.color,
             FinishedGoodsStock.size,
         )
         .all()
     )
-    available: dict[tuple[int, int | None, int | None, str, str], int] = {}
+    available: dict[BrandedKey, int] = {}
     for model_id, brand_id, collection_id, color, size, qty in available_rows:
-        available[(int(model_id), int(brand_id) if brand_id else None, int(collection_id) if collection_id else None, str(color or ""), str(size or ""))] = int(qty or 0)
+        available[
+            (
+                int(model_id),
+                int(brand_id) if brand_id else None,
+                int(collection_id) if collection_id else None,
+                str(color or ""),
+                str(size or ""),
+            )
+        ] = int(qty or 0)
 
-    suggestions: list[dict] = []
+    pipeline_rows = (
+        db.query(ProductionOrderItem, ProductionOrder)
+        .join(ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id)
+        .filter(
+            ProductionOrder.production_type == "branded_stock",
+            ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES),
+        )
+        .all()
+    )
+    pipeline: dict[BrandedKey, int] = defaultdict(int)
+    for item, order in pipeline_rows:
+        key = (
+            int(item.model_id),
+            int(order.brand_id) if order.brand_id else None,
+            int(order.collection_id) if order.collection_id else None,
+            str(item.color or ""),
+            str(item.size or ""),
+        )
+        pipeline[key] += max(0, int(item.planned_quantity or 0))
+
+    analysis: list[dict] = []
     for (model_id, brand_id, collection_id, color, size), row in groups.items():
         first_at = row["first_at"]
         last_at = row["last_at"]
@@ -139,12 +236,12 @@ def branded_stock_suggestions(db: Session, *, horizon_weeks: int = 4) -> list[di
         avg_weekly = total_qty / observed_weeks
         projected = int(math.ceil(avg_weekly * max(1, horizon_weeks)))
         on_hand = int(available.get((model_id, brand_id, collection_id, color, size), 0))
-        suggested = max(0, projected - on_hand)
-        if suggested <= 0:
-            continue
+        pipeline_qty = int(pipeline.get((model_id, brand_id, collection_id, color, size), 0))
+        suggested = max(0, projected - on_hand - pipeline_qty)
         model_code, model_name = _model_label(db, model_id)
         order_count = len(row["order_ids"])
-        suggestions.append(
+        source_label = "branded-stock sale" if row["source"] == "sales_orders" else "branded production plan"
+        analysis.append(
             {
                 "recommendation_type": "branded_stock_production",
                 "model_id": model_id,
@@ -162,16 +259,24 @@ def branded_stock_suggestions(db: Session, *, horizon_weeks: int = 4) -> list[di
                 "horizon_weeks": horizon_weeks,
                 "projected_demand": projected,
                 "available_quantity": on_hand,
+                "pipeline_quantity": pipeline_qty,
                 "suggested_quantity": suggested,
                 "unit": "pcs",
                 "confidence": _confidence(order_count),
+                "demand_source": row["source"],
+                "is_low_stock": on_hand < max(1, int(math.ceil(avg_weekly))),
                 "reason": (
                     f"Projected {horizon_weeks}-week demand is {projected} pcs based on "
-                    f"{order_count} branded-stock order(s); available stock is {on_hand} pcs."
+                    f"{order_count} {source_label}(s); available stock is {on_hand} pcs and "
+                    f"active production is {pipeline_qty} pcs."
                 ),
             }
         )
-    return sorted(suggestions, key=lambda r: (-(r["suggested_quantity"]), r.get("model_code") or "", r.get("color") or "", r.get("size") or ""))
+    return sorted(analysis, key=lambda r: (-(r["suggested_quantity"]), r.get("model_code") or "", r.get("color") or "", r.get("size") or ""))
+
+
+def branded_stock_suggestions(db: Session, *, horizon_weeks: int = 4) -> list[dict]:
+    return [row for row in _branded_stock_analysis(db, horizon_weeks=horizon_weeks) if row["suggested_quantity"] > 0]
 
 
 def _planned_bom_demand(db: Session) -> dict[tuple[int, str], float]:
@@ -233,7 +338,7 @@ def _recent_usage_by_item(db: Session, *, days: int = 90) -> dict[tuple[int, str
 
 
 def item_reorder_suggestions(db: Session) -> list[dict]:
-    item_rows = db.query(Item).filter(Item.is_active.is_(True), Item.reorder_level > 0).order_by(Item.sku.asc()).all()
+    item_rows = db.query(Item).filter(Item.is_active.is_(True)).order_by(Item.sku.asc()).all()
     if not item_rows:
         return []
     stock_rows = {int(row["item_id"]): row for row in stock_summary(db)}
@@ -253,7 +358,8 @@ def item_reorder_suggestions(db: Session) -> list[dict]:
         recent_monthly = recent_90 / 3.0
         level_shortage = max(0.0, reorder_level - available)
         bom_shortage = max(0.0, bom_demand - available)
-        suggested = max(level_shortage, bom_shortage, recent_monthly if level_shortage > 0 or bom_shortage > 0 else 0.0)
+        usage_shortage = max(0.0, recent_monthly - available)
+        suggested = max(level_shortage, bom_shortage, usage_shortage)
         if suggested <= 0:
             continue
         reason_parts = []
@@ -288,22 +394,15 @@ def item_reorder_suggestions(db: Session) -> list[dict]:
 def demand_trend(db: Session, *, weeks: int = 8) -> list[dict]:
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=7 * max(1, weeks - 1))
-    rows = (
-        db.query(SalesOrder.created_at, SalesOrderItem.quantity)
-        .join(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id)
-        .filter(SalesOrder.order_type == "branded_stock_sale", SalesOrder.created_at >= start)
-        .all()
-    )
     buckets = {i: 0 for i in range(weeks)}
-    for created_at, qty in rows:
-        if not created_at:
-            continue
-        created_utc = _aware(created_at)
-        if not created_utc:
-            continue
-        days = max(0, (now - created_utc).days)
-        idx = weeks - 1 - min(weeks - 1, days // 7)
-        buckets[idx] += int(qty or 0)
+    for row in _branded_demand_groups(db).values():
+        for created_at, qty in row["events"]:
+            created_utc = _aware(created_at)
+            if not created_utc or created_utc < start:
+                continue
+            days = max(0, (now - created_utc).days)
+            idx = weeks - 1 - min(weeks - 1, days // 7)
+            buckets[idx] += int(qty or 0)
     out = []
     for idx in range(weeks):
         week_start = (start + timedelta(days=7 * idx)).date().isoformat()
@@ -312,14 +411,10 @@ def demand_trend(db: Session, *, weeks: int = 8) -> list[dict]:
 
 
 def forecasting_dashboard(db: Session) -> dict:
-    branded = branded_stock_suggestions(db)
+    branded_analysis = _branded_stock_analysis(db)
+    branded = [row for row in branded_analysis if row["suggested_quantity"] > 0]
     reorder = item_reorder_suggestions(db)
-    low_stock_fg = int(
-        db.query(func.count(FinishedGoodsStock.id))
-        .filter(FinishedGoodsStock.available_qty <= 0, FinishedGoodsStock.quantity > 0)
-        .scalar()
-        or 0
-    )
+    low_stock_fg = sum(1 for row in branded_analysis if row["is_low_stock"])
     trend = demand_trend(db)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),

@@ -11,6 +11,7 @@ from sqlalchemy.orm import joinedload
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.config import settings
 from app.core.dt import date_filter_bounds
+from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.core.signing import sign_path, strip_signature
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
@@ -35,7 +36,6 @@ from app.services.numbering import next_sales_order_no
 from app.services.numbering import next_invoice_no
 from app.services.workflow import notify_department
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.legacy_stock import package_legacy_identity
 from app.services.model_images import material_preview_image_url, model_display_image_url
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
@@ -102,12 +102,8 @@ def _serialize_sales_order(
         }
         for item in payload.get("items", []):
             model_ref = model_map.get(int(item.get("model_id") or 0))
-            item["model_code"] = (
-                model_ref["code"] if model_ref else item.get("source_model_code")
-            )
-            item["model_name"] = (
-                model_ref["name"] if model_ref else item.get("source_model_name")
-            )
+            item["model_code"] = model_ref["code"] if model_ref else None
+            item["model_name"] = model_ref["name"] if model_ref else None
             item["model"] = model_ref
 
     return payload
@@ -421,24 +417,9 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         sewing_records = []
         packaging_records = []
 
-    reserved_package_ids = [
-        int(package_id)
-        for (package_id,) in (
-            db.query(StockReservation.package_id)
-            .filter(
-                StockReservation.sales_order_id == so.id,
-                StockReservation.package_id.isnot(None),
-            )
-            .distinct()
-            .all()
-        )
-        if package_id is not None
-    ]
     package_filters = [Package.sales_order_id == so.id]
     if po_ids:
         package_filters.append(Package.production_order_id.in_(po_ids))
-    if reserved_package_ids:
-        package_filters.append(Package.id.in_(reserved_package_ids))
     packages = (
         db.query(Package)
         .options(joinedload(Package.items))
@@ -638,28 +619,6 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             product_model_ids.add(int(production_order.model_id))
         product_model_ids.update(int(item.model_id) for item in (production_order.items or []) if item.model_id)
 
-    history_products = _history_products(db, product_model_ids)
-    legacy_product_keys: set[tuple[int | None, str]] = set()
-    for item in sales_items:
-        code = str(item.source_model_code or "").strip()
-        if item.model_id is not None or not code:
-            continue
-        key = (item.finished_goods_stock_id, code)
-        if key in legacy_product_keys:
-            continue
-        legacy_product_keys.add(key)
-        history_products.append(
-            {
-                "model_id": None,
-                "finished_goods_stock_id": item.finished_goods_stock_id,
-                "model_no": code,
-                "variant_no": None,
-                "code": code,
-                "name": item.source_model_name,
-                "picture_url": None,
-            }
-        )
-
     row = {
         "id": so.id,
         "record_type": "sales_order",
@@ -675,7 +634,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         "completed_at": completed_at,
         "last_activity_at": last_activity_at,
         "total_amount": _num(so.total_amount),
-        "products": history_products,
+        "products": _history_products(db, product_model_ids),
         "summary": summary,
     }
     customer = db.get(Customer, so.customer_id) if so.customer_id else None
@@ -690,8 +649,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         model_ids.add(int(po.model_id))
         model_ids.update(int(item.model_id) for item in (po.items or []) if item.model_id)
     for pkg in packages:
-        if pkg.model_id:
-            model_ids.add(int(pkg.model_id))
+        model_ids.add(int(pkg.model_id))
         model_ids.update(int(item.model_id) for item in (pkg.items or []) if item.model_id)
     model_map = _model_refs(db, model_ids)
 
@@ -739,20 +697,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             {
                 "id": item.id,
                 "model_id": item.model_id,
-                "finished_goods_stock_id": item.finished_goods_stock_id,
-                "model": model_map.get(int(item.model_id)) if item.model_id else None,
-                "model_code": (
-                    model_map[int(item.model_id)]["code"]
-                    if item.model_id and int(item.model_id) in model_map
-                    else item.source_model_code
-                ),
-                "model_name": (
-                    model_map[int(item.model_id)]["name"]
-                    if item.model_id and int(item.model_id) in model_map
-                    else item.source_model_name
-                ),
-                "source_model_code": item.source_model_code,
-                "source_model_name": item.source_model_name,
+                "model": model_map.get(int(item.model_id)),
                 "brand_id": item.brand_id,
                 "collection_id": item.collection_id,
                 "color": item.color,
@@ -861,17 +806,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "production_order_id": pkg.production_order_id,
                 "production_batch_id": pkg.production_batch_id,
                 "model_id": pkg.model_id,
-                "model": model_map.get(int(pkg.model_id)) if pkg.model_id else None,
-                "model_code": (
-                    model_map[int(pkg.model_id)]["code"]
-                    if pkg.model_id and int(pkg.model_id) in model_map
-                    else package_legacy_identity(db, pkg).get("model_code")
-                ),
-                "model_name": (
-                    model_map[int(pkg.model_id)]["name"]
-                    if pkg.model_id and int(pkg.model_id) in model_map
-                    else package_legacy_identity(db, pkg).get("model_name")
-                ),
+                "model": model_map.get(int(pkg.model_id)),
                 "color": pkg.color,
                 "package_type": pkg.package_type,
                 "total_quantity": _int_qty(pkg.total_quantity),
@@ -899,7 +834,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                     {
                         "id": item.id,
                         "model_id": item.model_id,
-                        "model": model_map.get(int(item.model_id)) if item.model_id else None,
+                        "model": model_map.get(int(item.model_id)),
                         "color": item.color,
                         "size": item.size,
                         "quantity": _int_qty(item.quantity),
@@ -1173,51 +1108,29 @@ def _is_any_stock_token(value: str | None) -> bool:
     return token in {"", "*", "any", "mixed", "__any__", "pack60", "bag"}
 
 
-def _stock_variant_key(
-    model_id: int | None,
-    color: str,
-    size: str,
-    brand_id: int | None,
-    finished_goods_stock_id: int | None = None,
-) -> tuple[str, int, str, str, int | None]:
-    if finished_goods_stock_id is not None:
-        return ("stock", int(finished_goods_stock_id), "", "", None)
-    if model_id is None:
-        raise HTTPException(400, "A model or ready-stock product is required")
-    return (
-        "model",
-        int(model_id),
-        str(color or "").strip(),
-        str(size or "").strip(),
-        brand_id,
-    )
+def _stock_variant_key(model_id: int, color: str, size: str, brand_id: int | None) -> tuple[int, str, str, int | None]:
+    return (int(model_id), str(color or "").strip(), str(size or "").strip(), brand_id)
 
 
 def _stock_rows_for_variant(
     db: DbSession,
     *,
-    model_id: int | None,
+    model_id: int,
     color: str,
     size: str,
     brand_id: int | None,
-    finished_goods_stock_id: int | None = None,
 ) -> list[FinishedGoodsStock]:
     qry = db.query(FinishedGoodsStock).filter(
+        FinishedGoodsStock.model_id == model_id,
         FinishedGoodsStock.status == "available",
         FinishedGoodsStock.available_qty > 0,
     )
-    if finished_goods_stock_id is not None:
-        qry = qry.filter(FinishedGoodsStock.id == finished_goods_stock_id)
-    else:
-        if model_id is None:
-            return []
-        qry = qry.filter(FinishedGoodsStock.model_id == model_id)
-        if not _is_any_stock_token(color):
-            qry = qry.filter(FinishedGoodsStock.color == color)
-        if not _is_any_stock_token(size):
-            qry = qry.filter(FinishedGoodsStock.size == size)
-        if brand_id is not None:
-            qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
+    if not _is_any_stock_token(color):
+        qry = qry.filter(FinishedGoodsStock.color == color)
+    if not _is_any_stock_token(size):
+        qry = qry.filter(FinishedGoodsStock.size == size)
+    if brand_id is not None:
+        qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
     if db.bind and db.bind.dialect.name == "postgresql":
         qry = qry.with_for_update(of=FinishedGoodsStock)
     return qry.order_by(FinishedGoodsStock.id.asc()).all()
@@ -1242,14 +1155,7 @@ def _notify_planning_shortage(
         else None
     )
     if planning_user:
-        summary = ", ".join(
-            (
-                f"S{r['finished_goods_stock_id']}: {r['shortage']}"
-                if r.get("finished_goods_stock_id")
-                else f"M{r['model_id']} {r['color']}/{r['size']}: {r['shortage']}"
-            )
-            for r in shortages[:6]
-        )
+        summary = ", ".join(f"M{r['model_id']} {r['color']}/{r['size']}: {r['shortage']}" for r in shortages[:6])
         if len(shortages) > 6:
             summary += f" (+{len(shortages) - 6} more)"
         db.add(
@@ -1273,6 +1179,36 @@ def _notify_planning_shortage(
     )
 
 
+def _shipment_handoff_details(
+    db: DbSession,
+    *,
+    so: SalesOrder,
+    lines: list[SalesOrderItem],
+) -> tuple[int, str]:
+    model_ids = sorted({int(line.model_id) for line in lines if line.model_id})
+    model_rows = db.query(Model.id, Model.code, Model.name).filter(Model.id.in_(model_ids)).all() if model_ids else []
+    model_by_id = {
+        int(model_id): str(code or name or f"Model {model_id}")
+        for model_id, code, name in model_rows
+    }
+    item_parts: list[str] = []
+    total_qty = 0
+    for line in lines:
+        quantity = max(0, int(line.quantity or 0))
+        total_qty += quantity
+        model_label = model_by_id.get(int(line.model_id), f"Model {line.model_id}")
+        variant = " / ".join(part for part in (str(line.color or "").strip(), str(line.size or "").strip()) if part)
+        item_parts.append(f"{model_label}{f' ({variant})' if variant else ''} x {quantity}")
+
+    customer = db.get(Customer, so.customer_id) if so.customer_id else None
+    destination = str(customer.address or "").strip() if customer else ""
+    customer_name = str(customer.name or "").strip() if customer else ""
+    item_summary = "; ".join(item_parts) if item_parts else "No item lines"
+    destination_summary = destination or "Not specified"
+    customer_summary = f" for {customer_name}" if customer_name else ""
+    return total_qty, f"{item_summary}. Destination{customer_summary}: {destination_summary}."
+
+
 def _reserve_branded_stock(
     db: DbSession,
     *,
@@ -1285,15 +1221,9 @@ def _reserve_branded_stock(
 ) -> tuple[list[dict], list[dict]]:
     repair_missing_brand_metadata(db)
     line_rows = lines if lines is not None else db.query(SalesOrderItem).filter(SalesOrderItem.sales_order_id == so.id).all()
-    requested_by_variant: dict[tuple[str, int, str, str, int | None], int] = defaultdict(int)
+    requested_by_variant: dict[tuple[int, str, str, int | None], int] = defaultdict(int)
     for line in line_rows:
-        key = _stock_variant_key(
-            line.model_id,
-            line.color,
-            line.size,
-            line.brand_id,
-            line.finished_goods_stock_id,
-        )
+        key = _stock_variant_key(line.model_id, line.color, line.size, line.brand_id)
         requested_by_variant[key] += int(line.quantity or 0)
 
     existing_rows = (
@@ -1303,25 +1233,21 @@ def _reserve_branded_stock(
         .all()
     )
 
-    outstanding_by_variant: dict[tuple[str, int, str, str, int | None], int] = {}
+    outstanding_by_variant: dict[tuple[int, str, str, int | None], int] = {}
     for key, requested_qty in requested_by_variant.items():
-        reference_type, reference_id, color, size, brand_id = key
+        model_id, color, size, brand_id = key
         any_color = _is_any_stock_token(color)
         any_size = _is_any_stock_token(size)
         already_reserved = 0
         for reservation, stock in existing_rows:
-            if reference_type == "stock":
-                if int(stock.id) != int(reference_id):
-                    continue
-            else:
-                if stock.model_id is None or int(stock.model_id) != int(reference_id):
-                    continue
-                if not any_color and str(stock.color or "").strip() != color:
-                    continue
-                if not any_size and str(stock.size or "").strip() != size:
-                    continue
-                if brand_id is not None and int(stock.brand_id or 0) != int(brand_id):
-                    continue
+            if int(stock.model_id) != int(model_id):
+                continue
+            if not any_color and str(stock.color or "").strip() != color:
+                continue
+            if not any_size and str(stock.size or "").strip() != size:
+                continue
+            if brand_id is not None and int(stock.brand_id or 0) != int(brand_id):
+                continue
             already_reserved += int(reservation.quantity or 0)
         outstanding_by_variant[key] = max(0, int(requested_qty) - already_reserved)
 
@@ -1329,11 +1255,9 @@ def _reserve_branded_stock(
         raise HTTPException(409, "Stock has already been fully reserved for this sales order")
 
     shortages_precheck: list[dict] = []
-    for (reference_type, reference_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
+    for (model_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
-        model_id = reference_id if reference_type == "model" else None
-        stock_id = reference_id if reference_type == "stock" else None
         available_qty = sum(
             int(row.available_qty or 0)
             for row in _stock_rows_for_variant(
@@ -1342,14 +1266,12 @@ def _reserve_branded_stock(
                 color=color,
                 size=size,
                 brand_id=brand_id,
-                finished_goods_stock_id=stock_id,
             )
         )
         if available_qty < requested_qty:
             shortages_precheck.append(
                 {
                     "model_id": model_id,
-                    "finished_goods_stock_id": stock_id,
                     "brand_id": brand_id,
                     "color": color,
                     "size": size,
@@ -1361,11 +1283,7 @@ def _reserve_branded_stock(
 
     if fail_on_shortage and shortages_precheck:
         summary = "; ".join(
-            (
-                f"S{s['finished_goods_stock_id']} need {s['requested']}, available {s['available']}"
-                if s.get("finished_goods_stock_id")
-                else f"M{s['model_id']} {s['color']}/{s['size']} need {s['requested']}, available {s['available']}"
-            )
+            f"M{s['model_id']} {s['color']}/{s['size']} need {s['requested']}, available {s['available']}"
             for s in shortages_precheck[:4]
         )
         if len(shortages_precheck) > 4:
@@ -1374,11 +1292,9 @@ def _reserve_branded_stock(
 
     reservations: list[dict] = []
     shortages: list[dict] = []
-    for (reference_type, reference_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
+    for (model_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
-        model_id = reference_id if reference_type == "model" else None
-        stock_id = reference_id if reference_type == "stock" else None
         needed = int(requested_qty)
         stocks = _stock_rows_for_variant(
             db,
@@ -1386,7 +1302,6 @@ def _reserve_branded_stock(
             color=color,
             size=size,
             brand_id=brand_id,
-            finished_goods_stock_id=stock_id,
         )
         for s in stocks:
             if needed <= 0:
@@ -1413,7 +1328,6 @@ def _reserve_branded_stock(
             shortages.append(
                 {
                     "model_id": model_id,
-                    "finished_goods_stock_id": stock_id,
                     "brand_id": brand_id,
                     "color": color,
                     "size": size,
@@ -1426,12 +1340,13 @@ def _reserve_branded_stock(
         auto_note = "[Auto route] Branded stock reserved and sent to storage team for shipment prep."
         so.notes = f"{so.notes}\n{auto_note}".strip() if so.notes else auto_note
         if notify_storage_when_ready:
+            total_qty, handoff_message = _shipment_handoff_details(db, so=so, lines=line_rows)
             notify_department(
                 db,
                 department_code="FGS",
-                title=f"{so.order_no} ready for shipment prep",
-                message="Branded stock order has been auto-reserved. Prepare shipment from ready-goods storage.",
-                link=f"/sales-orders/{so.id}",
+                title=f"{so.order_no}: {total_qty} pcs ready to ship",
+                message=handoff_message,
+                link=f"/departments/FGS#shipping-order-{so.id}",
                 exclude_user_id=current.id,
             )
 
@@ -1448,19 +1363,33 @@ async def upload_printing_attachment(
 ):
     _ = current
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
-    os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
-    safe_name = f"so_print_{uuid4().hex}{ext}"
-    abs_path = os.path.join(settings.SALES_ORDER_FILES_DIR, safe_name)
-    content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-    with open(abs_path, "wb") as f:
-        f.write(content)
+    if ext in SAFE_IMAGE_EXTENSIONS:
+        from app.services.image_storage import store_uploaded_image
+
+        stored = await store_uploaded_image(
+            file,
+            target_dir=settings.SALES_ORDER_FILES_DIR,
+            file_url_base="/storage/sales-order-files",
+            name_prefix="so_print",
+            max_bytes=20 * 1024 * 1024,
+        )
+        safe_name = stored.file_name
+        content_type = stored.content_type
+    else:
+        os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
+        safe_name = f"so_print_{uuid4().hex}{ext}"
+        abs_path = os.path.join(settings.SALES_ORDER_FILES_DIR, safe_name)
+        content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+        with open(abs_path, "wb") as f:
+            f.write(content)
+        content_type = safe_content_type(ext)
     file_url = f"/storage/sales-order-files/{safe_name}"
     return {
         # Signed for immediate <img> preview; the bare path is what gets stored
         # when the order is saved (create/update strip the signature).
         "file_url": sign_path(file_url),
         "file_name": file.filename or safe_name,
-        "content_type": safe_content_type(ext),
+        "content_type": content_type,
     }
 
 
@@ -1479,13 +1408,28 @@ def list_sales_orders(
     if order_type: qry = qry.filter(SalesOrder.order_type == order_type)
     if customer_id: qry = qry.filter(SalesOrder.customer_id == customer_id)
     if q:
-        like = f"%{q.strip()}%"
+        term = q.strip()
+        like = f"%{term}%"
+        model_code_like = normalized_model_code_pattern(term)
+        model_match = (
+            db.query(SalesOrderItem.id)
+            .join(Model, Model.id == SalesOrderItem.model_id)
+            .filter(
+                SalesOrderItem.sales_order_id == SalesOrder.id,
+                (
+                    normalized_model_code_column(Model.code).ilike(model_code_like)
+                    | Model.name.ilike(like)
+                ),
+            )
+            .exists()
+        )
         qry = qry.filter(
             or_(
                 SalesOrder.order_no.ilike(like),
                 SalesOrder.status.ilike(like),
                 SalesOrder.order_type.ilike(like),
                 Customer.name.ilike(like),
+                model_match,
             )
         )
     start, end = date_filter_bounds(created_from, created_to)
@@ -1556,12 +1500,26 @@ def list_sales_order_history(
             stock_qry = stock_qry.filter(BrandedPlanningOrder.order_no == term)
         else:
             like = f"%{term}%"
+            model_code_like = normalized_model_code_pattern(term)
+            sales_model_match = (
+                db.query(SalesOrderItem.id)
+                .join(Model, Model.id == SalesOrderItem.model_id)
+                .filter(
+                    SalesOrderItem.sales_order_id == SalesOrder.id,
+                    (
+                        normalized_model_code_column(Model.code).ilike(model_code_like)
+                        | Model.name.ilike(like)
+                    ),
+                )
+                .exists()
+            )
             qry = qry.filter(
                 or_(
                     SalesOrder.order_no.ilike(like),
                     SalesOrder.status.ilike(like),
                     SalesOrder.order_type.ilike(like),
                     Customer.name.ilike(like),
+                    sales_model_match,
                 )
             )
             stock_qry = stock_qry.filter(
@@ -1569,7 +1527,7 @@ def list_sales_order_history(
                     ProductionOrder.production_no.ilike(like),
                     ProductionOrder.status.ilike(like),
                     ProductionOrder.production_type.ilike(like),
-                    Model.code.ilike(like),
+                    normalized_model_code_column(Model.code).ilike(model_code_like),
                     Model.name.ilike(like),
                     BrandedPlanningOrder.order_no.ilike(like),
                     BrandedPlanningOrder.ordered_for_name.ilike(like),
@@ -1646,51 +1604,9 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
     total = 0.0
     created_lines: list[SalesOrderItem] = []
     for item in payload.items:
-        if int(item.quantity or 0) <= 0:
-            raise HTTPException(400, "Sales order quantity must be greater than zero")
-        if float(item.unit_price or 0) < 0:
-            raise HTTPException(400, "Sales order unit price cannot be negative")
-
-        item_data = item.model_dump()
-        stock = None
-        source_model_code = None
-        source_model_name = None
-        if item.finished_goods_stock_id is not None:
-            if payload.order_type != "branded_stock_sale":
-                raise HTTPException(400, "Ready-stock selection only applies to stock sales")
-            stock = db.get(FinishedGoodsStock, int(item.finished_goods_stock_id))
-            if not stock:
-                raise HTTPException(404, f"Ready stock {item.finished_goods_stock_id} not found")
-            if stock.model_id is not None:
-                if item.model_id is not None and int(item.model_id) != int(stock.model_id):
-                    raise HTTPException(409, "Selected stock does not match the requested model")
-                item_data["model_id"] = int(stock.model_id)
-            elif item.model_id is not None:
-                raise HTTPException(409, "Model-less legacy stock cannot be assigned a model during sale")
-            else:
-                package = db.get(Package, stock.package_id) if stock.package_id else None
-                identity = package_legacy_identity(db, package)
-                source_model_code = identity.get("model_code")
-                source_model_name = identity.get("model_name")
-                if not package or not package.legacy_receipt_id or not source_model_code:
-                    raise HTTPException(409, "Model-less stock is missing its legacy receipt identity")
-                item_data["source_type"] = "legacy_stock"
-            if item_data.get("brand_id") is None and stock.brand_id is not None:
-                item_data["brand_id"] = int(stock.brand_id)
-            if item_data.get("collection_id") is None and stock.collection_id is not None:
-                item_data["collection_id"] = int(stock.collection_id)
-        else:
-            if item.model_id is None:
-                raise HTTPException(400, "Select a model or an old inventory product")
-            if not db.get(Model, item.model_id):
-                raise HTTPException(404, f"Model {item.model_id} not found")
-
-        line = SalesOrderItem(
-            sales_order_id=so.id,
-            source_model_code=source_model_code,
-            source_model_name=source_model_name,
-            **item_data,
-        )
+        if not db.query(Model.id).filter(Model.id == item.model_id, Model.catalog_scope == "standard").first():
+            raise HTTPException(404, f"Model {item.model_id} not found")
+        line = SalesOrderItem(sales_order_id=so.id, **item.model_dump())
         db.add(line)
         created_lines.append(line)
         total += float(item.unit_price) * item.quantity

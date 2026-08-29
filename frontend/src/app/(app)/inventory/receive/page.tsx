@@ -3,11 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 import { orderReference } from "@/lib/orderRef";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { MATERIAL_COLOR_OPTIONS, materialColorLabelKey } from "@/lib/materialColors";
+import { divideBatchQuantityByRollCount } from "@/lib/materialRollWeights";
 
 type ReceiveFormState = {
   item_id: number;
@@ -59,6 +61,8 @@ type StockFormProps = {
   showOrder?: boolean;
   showReturnCondition?: boolean;
   showGramaj?: boolean;
+  showFabricDetails?: boolean;
+  requireRollCount?: boolean;
   noOrderOptionsMessage?: string;
   showItemImage?: boolean;
   uploadingImage?: boolean;
@@ -147,15 +151,16 @@ function numberOrZero(value: number | string | ""): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function toReceivePayload(form: ReceiveFormState) {
+function toReceivePayload(form: ReceiveFormState, deriveRollWeights = false) {
   const processNote = form.processes.trim();
   const pieceCount = numberOrZero(form.piece_count);
+  const quantity = numberOrZero(form.quantity);
 
   return {
     item_id: form.item_id,
     batch_no: form.batch_no,
     color: form.color,
-    quantity: numberOrZero(form.quantity),
+    quantity,
     unit: form.unit,
     cost_per_unit: numberOrZero(form.cost_per_unit),
     warehouse_id: form.warehouse_id,
@@ -167,6 +172,7 @@ function toReceivePayload(form: ReceiveFormState) {
     order_no: form.order_no.trim() || null,
     gsm: form.gsm === "" ? null : Number(form.gsm),
     piece_count: pieceCount > 0 ? pieceCount : null,
+    roll_weights_kg: deriveRollWeights ? divideBatchQuantityByRollCount(quantity, pieceCount) : [],
     processes: processNote || null,
     image_url: form.image_url.trim() || null,
   };
@@ -229,6 +235,8 @@ function StockForm({
   showOrder = true,
   showReturnCondition = false,
   showGramaj = false,
+  showFabricDetails = false,
+  requireRollCount = false,
   noOrderOptionsMessage,
   showItemImage = false,
   uploadingImage = false,
@@ -316,69 +324,73 @@ function StockForm({
         <label className="label">{t("field.batch")}</label>
         <input className="input" placeholder={t("field.batch")} value={form.batch_no} onChange={(e) => onChange({ ...form, batch_no: e.target.value })} required />
       </div>
-      <div>
-        <label className="label">{t("field.materialColor")}</label>
-        <div className="flex items-center gap-2">
-          <select className="input min-w-0 flex-1" value={form.color} onChange={(e) => onChange({ ...form, color: e.target.value })}>
-            <option value="">{t("page.receiveStock.selectMaterialColor")}</option>
-            {MATERIAL_COLOR_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
-            ))}
-            {visibleCustomColors.map((color) => (
-              <option key={color} value={color}>{color}</option>
-            ))}
-          </select>
-          <button type="button" className="btn shrink-0" onClick={() => setShowColorInput(true)}>
-            {t("page.receiveStock.addColor")}
-          </button>
-        </div>
-        {showColorInput && (
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              className="input min-w-0 flex-1"
-              autoFocus
-              placeholder={t("page.receiveStock.colorName")}
-              value={newColor}
-              onChange={(event) => setNewColor(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addColor();
-                }
-                if (event.key === "Escape") {
-                  setNewColor("");
-                  setShowColorInput(false);
-                }
-              }}
-            />
-            <button type="button" className="btn btn-primary shrink-0" disabled={!newColor.trim()} onClick={addColor}>
-              {t("common.add")}
-            </button>
-            <button
-              type="button"
-              className="btn shrink-0"
-              onClick={() => {
-                setNewColor("");
-                setShowColorInput(false);
-              }}
-            >
-              {t("common.cancel")}
-            </button>
+      {showFabricDetails && (
+        <>
+          <div>
+            <label className="label">{t("field.materialColor")}</label>
+            <div className="flex items-center gap-2">
+              <select className="input min-w-0 flex-1" value={form.color} onChange={(e) => onChange({ ...form, color: e.target.value })}>
+                <option value="">{t("page.receiveStock.selectMaterialColor")}</option>
+                {MATERIAL_COLOR_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
+                ))}
+                {visibleCustomColors.map((color) => (
+                  <option key={color} value={color}>{color}</option>
+                ))}
+              </select>
+              <button type="button" className="btn shrink-0" onClick={() => setShowColorInput(true)}>
+                {t("page.receiveStock.addColor")}
+              </button>
+            </div>
+            {showColorInput && (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  className="input min-w-0 flex-1"
+                  autoFocus
+                  placeholder={t("page.receiveStock.colorName")}
+                  value={newColor}
+                  onChange={(event) => setNewColor(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addColor();
+                    }
+                    if (event.key === "Escape") {
+                      setNewColor("");
+                      setShowColorInput(false);
+                    }
+                  }}
+                />
+                <button type="button" className="btn btn-primary shrink-0" disabled={!newColor.trim()} onClick={addColor}>
+                  {t("common.add")}
+                </button>
+                <button
+                  type="button"
+                  className="btn shrink-0"
+                  onClick={() => {
+                    setNewColor("");
+                    setShowColorInput(false);
+                  }}
+                >
+                  {t("common.cancel")}
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      <div>
-        <label className="label">{t("field.oldCode")}</label>
-        <input className="input" placeholder={t("field.oldCode")} value={form.old_code} onChange={(e) => onChange({ ...form, old_code: e.target.value })} />
-      </div>
-      <div>
-        <label className="label">{t("field.colorCode")}</label>
-        <input className="input" placeholder={t("field.colorCode")} value={form.color_code} onChange={(e) => onChange({ ...form, color_code: e.target.value })} />
-      </div>
-      <div>
-        <label className="label">{t("field.colorStatus")}</label>
-        <input className="input" placeholder={t("field.colorStatus")} value={form.color_status} onChange={(e) => onChange({ ...form, color_status: e.target.value })} />
-      </div>
+          <div>
+            <label className="label">{t("field.oldCode")}</label>
+            <input className="input" placeholder={t("field.oldCode")} value={form.old_code} onChange={(e) => onChange({ ...form, old_code: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">{t("field.colorCode")}</label>
+            <input className="input" placeholder={t("field.colorCode")} value={form.color_code} onChange={(e) => onChange({ ...form, color_code: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">{t("field.colorStatus")}</label>
+            <input className="input" placeholder={t("field.colorStatus")} value={form.color_status} onChange={(e) => onChange({ ...form, color_status: e.target.value })} />
+          </div>
+        </>
+      )}
 
       {showOrder && (
         <div>
@@ -421,7 +433,7 @@ function StockForm({
       )}
       <div>
         <label className="label">{t("field.netto")}</label>
-        <input className="input" type="number" step="0.01" placeholder={t("field.netto")} value={form.quantity} onChange={(e) => onChange({ ...form, quantity: numericInputValue(e.target.value) })} required />
+        <input className="input" type="number" min={0} step="0.01" placeholder={t("field.netto")} value={form.quantity} onChange={(e) => onChange({ ...form, quantity: numericInputValue(e.target.value) })} required />
       </div>
       {showGramaj && (
         <div>
@@ -431,7 +443,16 @@ function StockForm({
       )}
       <div>
         <label className="label">{t("field.pieceCount")}</label>
-        <input className="input" type="number" min={0} placeholder={t("field.pieceCount")} value={form.piece_count} onChange={(e) => onChange({ ...form, piece_count: numericInputValue(e.target.value) })} />
+        <input
+          className="input"
+          type="number"
+          min={requireRollCount ? 1 : 0}
+          step={1}
+          placeholder={t("field.pieceCount")}
+          value={form.piece_count}
+          onChange={(e) => onChange({ ...form, piece_count: numericInputValue(e.target.value) })}
+          required={requireRollCount}
+        />
       </div>
       <div>
         <label className="label">{t("ph.supplier")}</label>
@@ -485,15 +506,22 @@ function fmtQty(value: number | string | null | undefined) {
 export default function ReceiveStockPage() {
   const { t } = useT();
   const searchParams = useSearchParams();
+  const receiveGroup = searchParams.get("group") === "accessories" ? "accessories" : "materials";
+  const isFabricReceiving = receiveGroup === "materials";
+  const isAccessoryReceiving = receiveGroup === "accessories";
   const preselectedIssueProductionOrderId = Number(searchParams.get("issue_production_order_id") || 0);
-  const { data: materialItems } = useSWR<any[]>("/api/inventory/items?group=materials", fetcher);
-  const { data: accessoryItems } = useSWR<any[]>("/api/inventory/items?group=accessories", fetcher);
+  const { data: receiveItems } = useSWR<ReceiveItem[]>(`/api/inventory/items?group=${receiveGroup}`, fetcher);
   const { data: warehouses } = useSWR<any[]>("/api/inventory/warehouses", fetcher);
   const { data: suppliers } = useSWR<any[]>("/api/suppliers", fetcher);
-  const { data: productionOrders } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
-  const { data: models } = useSWR<any[]>("/api/models", fetcher);
-  const { data: batches, mutate: refreshBatches } = useSWR<any[]>("/api/inventory/batches", fetcher);
-  const { data: accessoryIssueRows, mutate: refreshAccessoryIssues } = useSWR<AccessoryIssueSummaryRow[]>("/api/inventory/accessory-issues?page_size=500", fetcher);
+  const { data: productionOrders } = useSWR<any[]>(isAccessoryReceiving ? "/api/production-orders?page_size=500" : null, fetcher);
+  const { data: savedColors, mutate: refreshColors } = useSWR<string[]>(isFabricReceiving ? "/api/inventory/colors" : null, fetcher);
+  const receiveModelOptionsKey = modelOptionsByIdsKey((productionOrders || []).map((row) => row.model_id));
+  const { data: models } = useSWR<any[]>(receiveModelOptionsKey, modelOptionsByIdsFetcher);
+  const { data: batches, mutate: refreshBatches } = useSWR<any[]>(`/api/inventory/batches?group=${receiveGroup}`, fetcher);
+  const { data: accessoryIssueRows, mutate: refreshAccessoryIssues } = useSWR<AccessoryIssueSummaryRow[]>(
+    isAccessoryReceiving ? "/api/inventory/accessory-issues?page_size=500" : null,
+    fetcher,
+  );
   const [receiveForm, setReceiveForm] = useState(DEFAULT_RECEIVE_FORM);
   const [accessoryReturnForm, setAccessoryReturnForm] = useState(DEFAULT_ACCESSORY_RETURN_FORM);
   const [issueProductionOrderId, setIssueProductionOrderId] = useState(0);
@@ -502,20 +530,28 @@ export default function ReceiveStockPage() {
   const [accessoryMsg, setAccessoryMsg] = useState("");
   const [issueMsg, setIssueMsg] = useState("");
   const [issueBusy, setIssueBusy] = useState(false);
-  const [customColors, setCustomColors] = useState<string[]>([]);
+  const [pendingColors, setPendingColors] = useState<string[]>([]);
   const [uploadingReceiveImage, setUploadingReceiveImage] = useState(false);
   const { data: issuePlan, mutate: refreshIssuePlan } = useSWR<AccessoryIssuePlan>(
-    issueProductionOrderId ? `/api/inventory/accessory-issue-plan?production_order_id=${issueProductionOrderId}` : null,
+    isAccessoryReceiving && issueProductionOrderId
+      ? `/api/inventory/accessory-issue-plan?production_order_id=${issueProductionOrderId}`
+      : null,
     fetcher,
   );
   const modelById = useMemo(() => new Map((models || []).map((m) => [Number(m.id), m])), [models]);
-  const receiveItems = useMemo<ReceiveItem[]>(() => {
-    return [...(materialItems || []), ...(accessoryItems || [])].sort((a, b) => {
+  const sortedReceiveItems = useMemo<ReceiveItem[]>(() => {
+    return [...(receiveItems || [])].sort((a, b) => {
       const left = `${a.category || ""} ${a.name || ""}`;
       const right = `${b.category || ""} ${b.name || ""}`;
       return left.localeCompare(right);
     });
-  }, [accessoryItems, materialItems]);
+  }, [receiveItems]);
+  const receiveWarehouses = useMemo(
+    () => (warehouses || []).filter((warehouse) => (
+      String(warehouse.type || "") === (isFabricReceiving ? "fabric_storage" : "accessory_storage")
+    )),
+    [isFabricReceiving, warehouses],
+  );
   const returnableAccessoryIssueRows = useMemo(() => {
     return (accessoryIssueRows || []).filter((row) => Number(row.returnable_quantity ?? row.issued_quantity ?? 0) > 0);
   }, [accessoryIssueRows]);
@@ -546,6 +582,19 @@ export default function ReceiveStockPage() {
       unit: row.unit,
     }));
   }, [selectedAccessoryReturnRows]);
+  const customColors = useMemo(() => {
+    const colorsByKey = new Map<string, string>();
+    for (const rawColor of [...(savedColors || []), ...pendingColors]) {
+      const color = String(rawColor || "").trim();
+      if (color) colorsByKey.set(color.toLowerCase(), color);
+    }
+    return [...colorsByKey.values()].sort((left, right) => left.localeCompare(right));
+  }, [pendingColors, savedColors]);
+
+  useEffect(() => {
+    setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs" });
+    setReceiveMsg("");
+  }, [isFabricReceiving]);
 
   useEffect(() => {
     if (preselectedIssueProductionOrderId > 0) {
@@ -569,11 +618,18 @@ export default function ReceiveStockPage() {
   async function submitReceive(e: React.FormEvent) {
     e.preventDefault();
     setReceiveMsg("");
+    const quantity = numberOrZero(receiveForm.quantity);
+    const rollCount = numberOrZero(receiveForm.piece_count);
+    if (isFabricReceiving && (quantity <= 0 || !Number.isInteger(rollCount) || rollCount <= 0)) {
+      setReceiveMsg(t("page.inventory.rollWeightsRequired"));
+      return;
+    }
     try {
-      await api.post("/api/inventory/receive", toReceivePayload(receiveForm));
+      await api.post("/api/inventory/receive", toReceivePayload(receiveForm, isFabricReceiving));
       setReceiveMsg(t("msg.recorded"));
-      setReceiveForm(DEFAULT_RECEIVE_FORM);
+      setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs" });
       refreshBatches();
+      refreshColors();
     } catch (e: any) {
       setReceiveMsg(e.message);
     }
@@ -656,27 +712,32 @@ export default function ReceiveStockPage() {
   const selectedPoModel = selectedPo ? modelById.get(Number(selectedPo.model_id)) : null;
 
   function addCustomColor(color: string) {
-    setCustomColors((current) => (
+    setPendingColors((current) => (
       current.some((option) => option.toLowerCase() === color.toLowerCase()) ? current : [...current, color]
     ));
   }
 
   return (
     <div>
-      <PageHeader title={t("page.receiveStock.title")} subtitle={t("page.receiveStock.subtitle")} />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <PageHeader
+        title={t(isFabricReceiving ? "page.receiveStock.fabricTitle" : "page.receiveStock.accessoryTitle")}
+        subtitle={t(isFabricReceiving ? "page.receiveStock.fabricSubtitle" : "page.receiveStock.accessorySubtitle")}
+      />
+      <div className={isAccessoryReceiving ? "grid grid-cols-1 gap-4 xl:grid-cols-2" : "max-w-4xl"}>
         <StockForm
-          title={t("page.receiveStock.materialForm")}
-          itemLabel={`${t("field.materialName")} / ${t("field.accessory")}`}
+          title={t(isFabricReceiving ? "page.receiveStock.fabricForm" : "page.receiveStock.accessoryForm")}
+          itemLabel={t(isFabricReceiving ? "field.materialName" : "field.accessory")}
           submitLabel={t("btn.receive")}
           form={receiveForm}
-          items={receiveItems}
-          warehouses={warehouses}
+          items={sortedReceiveItems}
+          warehouses={receiveWarehouses}
           suppliers={suppliers}
           message={receiveMsg}
           showOrder={false}
-          showGramaj
-          showItemImage
+          showGramaj={isFabricReceiving}
+          showFabricDetails={isFabricReceiving}
+          requireRollCount={isFabricReceiving}
+          showItemImage={isFabricReceiving}
           uploadingImage={uploadingReceiveImage}
           customColors={customColors}
           onChange={setReceiveForm}
@@ -684,27 +745,30 @@ export default function ReceiveStockPage() {
           onUploadItemImage={uploadReceiveItemImage}
           onSubmit={submitReceive}
         />
-        <StockForm
-          title={t("page.receiveStock.accessoryReturnTitle")}
-          subtitle={t("page.receiveStock.accessoryReturnSubtitle")}
-          itemLabel={t("field.accessory")}
-          submitLabel={t("btn.collectBack")}
-          form={accessoryReturnForm}
-          items={returnableAccessoryItems}
-          warehouses={warehouses}
-          suppliers={suppliers}
-          orderOptions={accessoryReturnOrderOptions}
-          message={accessoryMsg}
-          requireOrder
-          showReturnCondition
-          noOrderOptionsMessage={t("page.receiveStock.noReturnableAccessories")}
-          customColors={customColors}
-          onChange={setAccessoryReturnForm}
-          onAddColor={addCustomColor}
-          onSubmit={submitAccessoryReturn}
-        />
+        {isAccessoryReceiving && (
+          <StockForm
+            title={t("page.receiveStock.accessoryReturnTitle")}
+            subtitle={t("page.receiveStock.accessoryReturnSubtitle")}
+            itemLabel={t("field.accessory")}
+            submitLabel={t("btn.collectBack")}
+            form={accessoryReturnForm}
+            items={returnableAccessoryItems}
+            warehouses={receiveWarehouses}
+            suppliers={suppliers}
+            orderOptions={accessoryReturnOrderOptions}
+            message={accessoryMsg}
+            requireOrder
+            showReturnCondition
+            noOrderOptionsMessage={t("page.receiveStock.noReturnableAccessories")}
+            customColors={customColors}
+            onChange={setAccessoryReturnForm}
+            onAddColor={addCustomColor}
+            onSubmit={submitAccessoryReturn}
+          />
+        )}
       </div>
 
+      {isAccessoryReceiving && (
       <form onSubmit={submitAccessoryIssue} className="card mt-4 overflow-hidden">
         <div className="border-b border-[#ecebe3] p-6">
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,380px)] lg:items-end">
@@ -799,20 +863,21 @@ export default function ReceiveStockPage() {
           </button>
         </div>
       </form>
+      )}
 
       <div className="card mt-4 overflow-x-auto">
         <table className="table">
           <thead>
             <tr>
               <th>{t("field.batch").toUpperCase()}</th>
-              <th>{t("field.materialName").toUpperCase()}</th>
-              <th>{t("field.materialColor").toUpperCase()}</th>
-              <th>{t("field.oldCode").toUpperCase()}</th>
-              <th>{t("field.colorCode").toUpperCase()}</th>
-              <th>{t("field.colorStatus").toUpperCase()}</th>
+              <th>{t(isFabricReceiving ? "field.materialName" : "field.accessory").toUpperCase()}</th>
+              {isFabricReceiving && <th>{t("field.materialColor").toUpperCase()}</th>}
+              {isFabricReceiving && <th>{t("field.oldCode").toUpperCase()}</th>}
+              {isFabricReceiving && <th>{t("field.colorCode").toUpperCase()}</th>}
+              {isFabricReceiving && <th>{t("field.colorStatus").toUpperCase()}</th>}
               <th>{t("field.orderNo").toUpperCase()}</th>
               <th>{t("field.netto").toUpperCase()}</th>
-              <th>{t("field.gramaj").toUpperCase()}</th>
+              {isFabricReceiving && <th>{t("field.gramaj").toUpperCase()}</th>}
               <th>{t("field.pieceCount").toUpperCase()}</th>
               <th>{t("field.processes").toUpperCase()}</th>
             </tr>
@@ -822,13 +887,13 @@ export default function ReceiveStockPage() {
               <tr key={b.id}>
                 <td>{b.batch_no}</td>
                 <td>{b.item_name || b.item_id}</td>
-                <td>{materialColorLabel(b.color, t)}</td>
-                <td>{b.old_code || "-"}</td>
-                <td>{b.color_code || "-"}</td>
-                <td>{b.color_status || "-"}</td>
+                {isFabricReceiving && <td>{materialColorLabel(b.color, t)}</td>}
+                {isFabricReceiving && <td>{b.old_code || "-"}</td>}
+                {isFabricReceiving && <td>{b.color_code || "-"}</td>}
+                {isFabricReceiving && <td>{b.color_status || "-"}</td>}
                 <td>{b.order_no || "-"}</td>
                 <td>{Number(b.quantity).toFixed(2)}</td>
-                <td>{b.gsm != null ? Number(b.gsm).toFixed(3) : "-"}</td>
+                {isFabricReceiving && <td>{b.gsm != null ? Number(b.gsm).toFixed(3) : "-"}</td>}
                 <td>{b.piece_count ?? "-"}</td>
                 <td>{b.processes || "-"}</td>
               </tr>

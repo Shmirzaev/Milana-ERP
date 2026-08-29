@@ -54,6 +54,14 @@ def _sync_package_production(db: Session, production_order_id: int | None) -> No
     sync_production_order_status(db, production_order_id)
 
 
+def _require_warehouse_package(db: Session, pkg: Package) -> None:
+    if not pkg.production_order_id:
+        return
+    source_type = db.query(ProductionOrder.source_type).filter(ProductionOrder.id == pkg.production_order_id).scalar()
+    if source_type == "usluga":
+        raise HTTPException(400, "Usluga packages are handed directly to the customer and cannot enter warehouse flow")
+
+
 def normalize_storage_cell(cell: str | None) -> str | None:
     if cell is None:
         return None
@@ -267,6 +275,7 @@ def create_package(
     is_admin: bool = False,
     user_id: int | None = None,
     notes: str | None = None,
+    packaging_department_code: str | None = None,
 ) -> Package:
     if not items:
         raise HTTPException(400, "Package must contain at least one size line")
@@ -309,6 +318,15 @@ def create_package(
     po = db.get(ProductionOrder, production_order_id)
     if not po:
         raise HTTPException(404, "Production order not found")
+
+    if packaging_department_code is None:
+        from app.services.packaging_scope import packaging_department_for_order
+
+        packaging_department_code = packaging_department_for_order(
+            db,
+            production_order_id,
+            production_batch_id,
+        )
 
     batch_id = int(production_batch_id) if production_batch_id else None
     has_batches = db.query(ProductionBatch.id).filter(ProductionBatch.production_order_id == po.id).first()
@@ -373,6 +391,7 @@ def create_package(
     pkg = Package(
         package_no=pkg_no,
         barcode=barcode_value,
+        packaging_department_code=packaging_department_code,
         production_order_id=production_order_id,
         production_batch_id=batch_id,
         sales_order_id=resolved_sales_order_id,
@@ -417,36 +436,40 @@ def create_package(
         package_id=pkg.id, scanned_by=user_id, scan_type="packed",
     ))
 
-    # Add to finished goods stock (per size line)
-    cost = _compute_cost(db, model_id)
-    for it in items:
-        db.add(FinishedGoodsStock(
-            production_order_id=production_order_id,
-            sales_order_id=resolved_sales_order_id,
-            package_id=pkg.id,
-            model_id=int(it.get("model_id", model_id)),
-            brand_id=resolved_brand_id,
-            collection_id=resolved_collection_id,
-            color=it["color"],
-            size=it["size"],
-            quantity=int(it["quantity"]),
-            available_qty=int(it["quantity"]),
-            cost_per_piece=cost,
-            warehouse_id=warehouse_id,
-            status="available",
-        ))
+    # Usluga is a processing service: the customer's goods must never mint
+    # Milana finished-goods stock. Standard production retains its existing
+    # stock behavior unchanged.
+    if po.source_type != "usluga":
+        cost = _compute_cost(db, model_id)
+        for it in items:
+            db.add(FinishedGoodsStock(
+                production_order_id=production_order_id,
+                sales_order_id=resolved_sales_order_id,
+                package_id=pkg.id,
+                model_id=int(it.get("model_id", model_id)),
+                brand_id=resolved_brand_id,
+                collection_id=resolved_collection_id,
+                color=it["color"],
+                size=it["size"],
+                quantity=int(it["quantity"]),
+                available_qty=int(it["quantity"]),
+                cost_per_piece=cost,
+                warehouse_id=warehouse_id,
+                status="available",
+            ))
 
     db.flush()
     # Storage transfer stage becomes actionable as soon as a package exists.
     sync_production_order_status(db, production_order_id)
-    notify_department(
-        db,
-        department_code="FGS",
-        title="New package packed",
-        message=f"Package {pkg.package_no} is ready for storage receive.",
-        link="/packages/scan",
-        exclude_user_id=user_id,
-    )
+    if po.source_type != "usluga":
+        notify_department(
+            db,
+            department_code="FGS",
+            title="New package packed",
+            message=f"Package {pkg.package_no} is ready for storage receive.",
+            link="/packages/scan",
+            exclude_user_id=user_id,
+        )
     return pkg
 
 
@@ -472,6 +495,7 @@ def create_packages_bulk(
     is_admin: bool = False,
     user_id: int | None = None,
     notes: str | None = None,
+    packaging_department_code: str | None = None,
 ) -> list[Package]:
     if count <= 0:
         raise HTTPException(400, "count must be > 0")
@@ -515,6 +539,7 @@ def create_packages_bulk(
                 is_admin=is_admin,
                 user_id=user_id,
                 notes=notes,
+                packaging_department_code=packaging_department_code,
             )
         )
     return created
@@ -1033,6 +1058,7 @@ def receive_at_storage(
     storage_cell: str | None = None,
     storage_shelf: str | None = None,
 ):
+    _require_warehouse_package(db, pkg)
     if pkg.status not in ("packed",):
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be received at storage")
     cell, shelf = validate_storage_location(storage_cell, storage_shelf, require_cell=False)
@@ -1065,6 +1091,7 @@ def place_on_storage_map(
     storage_shelf: str | None,
     user_id: int | None,
 ):
+    _require_warehouse_package(db, pkg)
     if pkg.status in ("shipped", "delivered", "damaged"):
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be moved on storage map")
     cell, shelf = validate_storage_location(storage_cell, storage_shelf, require_cell=True)
@@ -1088,6 +1115,7 @@ def place_on_storage_map(
 
 
 def reserve_package(db: Session, pkg: Package, user_id: int | None):
+    _require_warehouse_package(db, pkg)
     if pkg.status not in ("received_in_storage", "packed"):
         raise HTTPException(400, f"Package cannot be reserved from status '{pkg.status}'")
     pkg.status = "reserved"
@@ -1097,6 +1125,7 @@ def reserve_package(db: Session, pkg: Package, user_id: int | None):
 
 
 def ship_package(db: Session, pkg: Package, user_id: int | None):
+    _require_warehouse_package(db, pkg)
     if pkg.status not in ("received_in_storage", "reserved"):
         raise HTTPException(400, f"Package cannot be shipped from status '{pkg.status}'")
     pkg.status = "shipped"

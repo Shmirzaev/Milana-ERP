@@ -70,7 +70,7 @@ export default function CollectionsPage() {
   return (
     <div>
       <PageHeader title={t("page.collections.title")} />
-      <form onSubmit={submit} className="card p-4 mb-6 grid grid-cols-1 md:grid-cols-5 gap-3">
+      <form onSubmit={submit} className="card mb-6 grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
         <select className="input" value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: Number(e.target.value) })} required>
           <option value={0}>{t("ph.brand")}</option>
           {brands?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -80,7 +80,7 @@ export default function CollectionsPage() {
         <input className="input" type="number" placeholder={t("field.year")} value={form.year} onChange={(e) => setForm({ ...form, year: parseNumberInput(e.target.value) })} required />
         <button className="btn btn-primary">{t("btn.create")}</button>
       </form>
-      <div className="card">
+      <div className="card overflow-x-auto">
         <table className="table">
           <thead>
             <tr>

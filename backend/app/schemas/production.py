@@ -31,6 +31,21 @@ class ProductionOrderPrintingAttachment(BaseModel):
     content_type: Optional[str] = None
 
 
+class ProductionOrderMaterialIn(BaseModel):
+    stock_batch_id: int
+    estimated_quantity: float = Field(gt=0)
+    unit: str = Field(min_length=1, max_length=32)
+
+
+class ProductionOrderMaterialOut(ORMModel):
+    id: int
+    production_order_id: int
+    stock_batch_id: int
+    estimated_quantity: float
+    unit: str
+    position: int
+
+
 class ProductionBatchIn(BaseModel):
     batch_no: str | None = None
     name: str | None = None
@@ -66,10 +81,12 @@ class ProductionOrderIn(SchemaModel):
     estimated_material_code: Optional[str] = None
     estimated_material_amount: Optional[float] = None
     estimated_material_unit: Optional[str] = None
+    materials: list[ProductionOrderMaterialIn] = Field(default_factory=list)
     printing_instructions: Optional[str] = None
     printing_attachments: list[ProductionOrderPrintingAttachment] = Field(default_factory=list)
     destination_warehouse_id: Optional[int] = None
     cutting_department_code: str = "CUT"
+    sewing_factory_code: Optional[str] = None
     items: list[ProductionOrderItemIn] = []
     batches: list[ProductionBatchIn] = []
 
@@ -80,6 +97,7 @@ class ProductionOrderOut(ORMModel):
     order_no: Optional[str] = None
     sales_order_no: Optional[str] = None
     production_type: str
+    source_type: str = "standard"
     planning_order_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     collection_id: Optional[int] = None
@@ -93,13 +111,23 @@ class ProductionOrderOut(ORMModel):
     estimated_material_code: Optional[str] = None
     estimated_material_amount: Optional[float] = None
     estimated_material_unit: Optional[str] = None
+    materials: list[ProductionOrderMaterialOut] = Field(default_factory=list)
     printing_instructions: Optional[str] = None
     printing_attachments: Optional[list[ProductionOrderPrintingAttachment]] = Field(default_factory=list)
     estimated_material_composition: list[ItemComposition] = Field(default_factory=list)
     model_image_url: Optional[str] = None
-    variant_picture_url: Optional[str] = None
     material_image_url: Optional[str] = None
     destination_warehouse_id: Optional[int] = None
+    sewing_factory_code: Optional[str] = None
+    service_customer_name: Optional[str] = None
+    service_customer_reference: Optional[str] = None
+    service_material_description: Optional[str] = None
+    service_material_usage_kg: Optional[float] = None
+    service_material_notes: Optional[str] = None
+    service_handover_recipient: Optional[str] = None
+    service_handover_notes: Optional[str] = None
+    handed_over_at: Optional[datetime] = None
+    handed_over_by: Optional[int] = None
     created_at: datetime
     actual_quantity: Optional[int] = None
     actual_bundle_quantity: Optional[int] = None
@@ -154,7 +182,6 @@ class WorkOrderOut(ORMModel):
     assigned_qty: int = 0
     assignable_qty: int = 0
     model_image_url: Optional[str] = None
-    variant_picture_url: Optional[str] = None
     material_image_url: Optional[str] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
@@ -167,6 +194,8 @@ class WorkOrderOut(ORMModel):
 
 
 class ProductionOrderDetail(ProductionOrderOut):
+    model_code: Optional[str] = None
+    model_name: Optional[str] = None
     batches: list[ProductionBatchOut] = []
     items: list[ProductionOrderItemOut] = []
     work_orders: list[WorkOrderOut] = []
@@ -185,13 +214,32 @@ class WorkOrderUpdate(BaseModel):
     rework_qty: Optional[int] = None
 
 
+class CuttingMaterialUsageIn(BaseModel):
+    stock_batch_id: int
+    quantity: float = Field(gt=0)
+    unit: str = Field(min_length=1, max_length=32)
+
+
+class CuttingMaterialUsageOut(ORMModel):
+    id: int
+    cutting_record_id: int
+    stock_batch_id: int
+    quantity: float
+    unit: str
+    position: int
+
+
 class CuttingRecordIn(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     work_order_id: int
     production_batch_id: Optional[int] = None
     fabric_batch_id: Optional[int] = None
+    model_bom_id: Optional[int] = None
     input_quantity: float
     input_unit: str = "kg"
     cut_pieces: int
+    report_piece_count: int = Field(default=0, ge=0)
     passed_pieces: int
     defective_pieces: int = 0
     waste_quantity: float = 0
@@ -200,7 +248,9 @@ class CuttingRecordIn(BaseModel):
     beika_kg: float = Field(default=0, ge=0)
     material_rolls_used: float = Field(default=0, ge=0)
     operator_id: Optional[int] = None
+    layup_operator_name: Optional[str] = Field(default=None, max_length=128)
     notes: Optional[str] = None
+    materials: list[CuttingMaterialUsageIn] = Field(default_factory=list)
     # Bundle plan: list of {color, size, quantity, count}
     bundles: list[dict] = []
 
@@ -218,6 +268,11 @@ class PrintingRecordIn(BaseModel):
     notes: Optional[str] = None
 
 
+class SewingSizeQuantityIn(BaseModel):
+    size: str = Field(min_length=1, max_length=32)
+    quantity: int = Field(gt=0)
+
+
 class SewingRecordIn(BaseModel):
     work_order_id: int
     production_batch_id: Optional[int] = None
@@ -227,6 +282,7 @@ class SewingRecordIn(BaseModel):
     failed_qty: int = 0
     rework_qty: int = 0
     rejected_qty: int = 0
+    size_quantities: list[SewingSizeQuantityIn] = Field(default_factory=list)
     defect_reason: Optional[str] = None
     line_name: Optional[str] = None
     sewing_assignment_id: Optional[int] = None

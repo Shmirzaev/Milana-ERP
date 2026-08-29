@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import func
 
 from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
 from app.models import Task, User
@@ -59,6 +60,20 @@ def list_tasks(
     if status:
         qry = qry.filter(Task.status == status)
     return qry.order_by(Task.id.desc()).all()
+
+
+@router.get("/open-count")
+def open_task_count(db: DbSession, current: CurrentUser):
+    count = (
+        db.query(func.count(Task.id))
+        .filter(
+            Task.assigned_to == current.id,
+            Task.status.in_(("pending", "in_progress")),
+        )
+        .scalar()
+        or 0
+    )
+    return {"count": int(count)}
 
 
 @router.post("", response_model=TaskOut, status_code=201)

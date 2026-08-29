@@ -32,6 +32,7 @@ export default function LoginPage() {
   const { t, lang, setLang } = useT();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [factoryCode, setFactoryCode] = useState<"MIL" | "BST" | "ECO">("MIL");
   const [error, setError] = useState("");
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
@@ -98,8 +99,12 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      await api.login(email, password);
-      window.location.href = "/";
+      await api.login(email, password, factoryCode);
+      window.location.href = factoryCode === "BST"
+        ? "/departments/BST"
+        : factoryCode === "ECO"
+          ? "/departments/ECT"
+          : "/";
     } catch (err: any) {
       setError(err.message || t("auth.loginFailed"));
     } finally {
@@ -299,6 +304,19 @@ export default function LoginPage() {
           <p className="m-0 mb-8 text-sm text-[#56503f]">{t("login.subtitle")}</p>
 
           <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+            <div>
+              <label className="label" htmlFor="login-factory">Factory</label>
+              <select
+                id="login-factory"
+                className="input mt-1"
+                value={factoryCode}
+                onChange={(event) => setFactoryCode(event.target.value as "MIL" | "BST" | "ECO")}
+              >
+                <option value="MIL">Milana</option>
+                <option value="BST">Besttex</option>
+                <option value="ECO">Eco Cotton</option>
+              </select>
+            </div>
             <Field
               id="login-email"
               name="email"

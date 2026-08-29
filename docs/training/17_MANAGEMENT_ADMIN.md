@@ -176,3 +176,4 @@ Notifications should be checked at the start and end of shift.
 | Department cannot be deleted | It is used by users/employees/work orders | Reassign records or keep department active. |
 | Wrong production data | User saved incorrect record | Review audit log and correct through authorized workflow. |
 | Cutting blocked by reservation | Setting requires full reservation | Resolve reservations or management exception. |
+

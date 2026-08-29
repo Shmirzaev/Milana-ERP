@@ -6,6 +6,7 @@ import { ChevronDown, Plus, Search } from "lucide-react";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { modelSearchIncludes, normalizeModelSearch } from "@/lib/modelCode";
 
 export type BrandedPlanningOrder = {
   id: number;
@@ -22,6 +23,7 @@ export type BrandedPlanningOrder = {
     order_no: string;
     production_no: string;
     model_id: number;
+    model?: ModelOption | null;
     planned_quantity: number;
     status: string;
   }[];
@@ -58,15 +60,15 @@ export default function BrandedOrderHistory({
   const [searchText, setSearchText] = useState("");
   const [query, setQuery] = useState("");
   const modelById = useMemo(() => new Map(models.map((model) => [Number(model.id), model])), [models]);
-  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const normalizedQuery = normalizeModelSearch(query);
   const filteredOrders = useMemo(() => {
     return orders.flatMap((order) => {
       if (!normalizedQuery) return [{ ...order, visibleProductions: order.productions }];
-      const orderMatches = order.order_no.toLocaleLowerCase().includes(normalizedQuery);
+      const orderMatches = normalizeModelSearch(order.order_no).includes(normalizedQuery);
       const visibleProductions = orderMatches
         ? order.productions
-        : order.productions.filter((production) => {
-            const model = modelById.get(Number(production.model_id));
+          : order.productions.filter((production) => {
+            const model = production.model || modelById.get(Number(production.model_id));
             return [
               production.order_no,
               production.production_no,
@@ -74,7 +76,7 @@ export default function BrandedOrderHistory({
               model?.code,
               model?.name,
               model?.variant_fabric,
-            ].some((value) => String(value || "").toLocaleLowerCase().includes(normalizedQuery));
+            ].some((value) => modelSearchIncludes(value, normalizedQuery));
           });
       return orderMatches || visibleProductions.length ? [{ ...order, visibleProductions }] : [];
     });
@@ -162,8 +164,8 @@ export default function BrandedOrderHistory({
                       </thead>
                       <tbody>
                         {order.visibleProductions.map((production) => {
-                          const model = modelById.get(Number(production.model_id));
-                          const modelLabel = model ? [model.code, model.name].filter(Boolean).join(" - ") : `#${production.model_id}`;
+                          const model = production.model || modelById.get(Number(production.model_id));
+                          const modelLabel = [model?.code, model?.name].filter(Boolean).join(" - ") || "-";
                           const fabricLabel = String(model?.variant_fabric || "").trim() || "-";
                           return (
                             <tr key={production.id}>

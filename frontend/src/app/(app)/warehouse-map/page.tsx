@@ -6,7 +6,6 @@ import { Bookmark, Clock3, MoveHorizontal, QrCode } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { api, fetcher } from "@/lib/api";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 
@@ -159,18 +158,15 @@ export default function WarehouseMapPage() {
   const [messageError, setMessageError] = useState("");
   const [busyAction, setBusyAction] = useState<"move" | "label" | null>(null);
   const [bookmarkedPackages, setBookmarkedPackages] = useState<number[]>([]);
-  const [moveSource, setMoveSource] = useState<StoragePlacement | null>(null);
+  const [moveSources, setMoveSources] = useState<StoragePlacement[]>([]);
   const [allowMixedModels, setAllowMixedModels] = useState(false);
   const [selectedPackageId, setSelectedPackageId] = useState<number | null>(null);
+  const [selectedPackageIds, setSelectedPackageIds] = useState<number[]>([]);
 
   const mapQueryPath = modelQuery.trim()
     ? `/api/packages/storage-map?model_query=${encodeURIComponent(modelQuery.trim())}`
     : "/api/packages/storage-map";
-  const { data: mapData, mutate: mutateMap } = useSWR<any>(
-    mapQueryPath,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data: mapData, mutate: mutateMap } = useSWR<any>(mapQueryPath, fetcher);
 
   const normalizedCells = useMemo(() => {
     const source = (mapData?.cells || []) as StorageMapCell[];
@@ -226,20 +222,33 @@ export default function WarehouseMapPage() {
   useEffect(() => {
     if (!candidatePlacements.length) {
       setSelectedPackageId(null);
+      setSelectedPackageIds([]);
       return;
     }
     if (selectedPackageId == null) {
       setSelectedPackageId(candidatePlacements[0].id);
-      return;
+    } else {
+      const exists = candidatePlacements.some((row) => row.id === selectedPackageId);
+      if (!exists) setSelectedPackageId(candidatePlacements[0].id);
     }
-    const exists = candidatePlacements.some((row) => row.id === selectedPackageId);
-    if (!exists) setSelectedPackageId(candidatePlacements[0].id);
+
+    const candidateIds = new Set(candidatePlacements.map((row) => row.id));
+    setSelectedPackageIds((current) => {
+      const retained = current.filter((id) => candidateIds.has(id));
+      const next = retained.length ? retained : [candidatePlacements[0].id];
+      return next.length === current.length && next.every((id, index) => id === current[index])
+        ? current
+        : next;
+    });
   }, [candidatePlacements, selectedPackageId]);
 
   const selectedPlacement =
     candidatePlacements.find((row) => row.id === selectedPackageId) ||
     candidatePlacements[0] ||
     null;
+  const selectedMovePlacements = candidatePlacements.filter((row) => selectedPackageIds.includes(row.id));
+  const allCandidatePackagesSelected =
+    candidatePlacements.length > 0 && selectedMovePlacements.length === candidatePlacements.length;
   const selectedCellQty = selectedCellPlacements.reduce((sum, row) => sum + (row.total_quantity || 0), 0);
 
   const zoneCells = useMemo(() => normalizedCells.filter((row) => row.zone === selectedZone), [normalizedCells, selectedZone]);
@@ -369,6 +378,30 @@ export default function WarehouseMapPage() {
     setMessage(already ? t("page.warehouseMap.bookmarkRemoved") : t("page.warehouseMap.bookmarkAdded"));
   }
 
+  function togglePackageSelection(packageId: number) {
+    if (moveSources.length) return;
+    setSelectedPackageId(packageId);
+    setSelectedPackageIds((current) =>
+      current.includes(packageId)
+        ? current.filter((id) => id !== packageId)
+        : [...current, packageId],
+    );
+    clearMessages();
+  }
+
+  function selectAllPackages() {
+    if (moveSources.length) return;
+    setSelectedPackageIds(candidatePlacements.map((row) => row.id));
+    if (candidatePlacements.length) setSelectedPackageId(candidatePlacements[0].id);
+    clearMessages();
+  }
+
+  function clearPackageSelection() {
+    if (moveSources.length) return;
+    setSelectedPackageIds([]);
+    clearMessages();
+  }
+
   async function handleMove() {
     clearMessages();
     if (!selectedCell) {
@@ -376,55 +409,76 @@ export default function WarehouseMapPage() {
       return;
     }
 
-    if (!moveSource) {
-      if (!selectedPlacement) {
+    if (!moveSources.length) {
+      if (!selectedMovePlacements.length) {
         setMessageError(t("page.warehouseMap.noPackageSelected"));
         return;
       }
-      setMoveSource(selectedPlacement);
-      setMessage(
-        t("page.warehouseMap.moveArmed", {
-          package: selectedPlacement.package_no,
-          cell: selectedPlacement.storage_cell,
-          shelf: normalizeShelf(selectedPlacement.storage_shelf),
-        }),
-      );
+      setMoveSources(selectedMovePlacements);
+      const firstSource = selectedMovePlacements[0];
+      setMessage(selectedMovePlacements.length === 1
+        ? t("page.warehouseMap.moveArmed", {
+            package: firstSource.package_no,
+            cell: firstSource.storage_cell,
+            shelf: normalizeShelf(firstSource.storage_shelf),
+          })
+        : t("page.warehouseMap.bulkMoveArmed", {
+            count: selectedMovePlacements.length,
+            cell: firstSource.storage_cell,
+            shelf: normalizeShelf(firstSource.storage_shelf),
+          }));
       return;
     }
 
-    const sourceShelf = normalizeShelf(moveSource.storage_shelf);
-    if (moveSource.storage_cell === selectedCell && sourceShelf === selectedShelf) {
+    const packagesToMove = moveSources.filter(
+      (row) => row.storage_cell !== selectedCell || normalizeShelf(row.storage_shelf) !== selectedShelf,
+    );
+    if (!packagesToMove.length) {
       setMessageError(t("page.warehouseMap.moveSameTarget"));
       return;
     }
 
-    const sourceModel = String(moveSource.model_code || moveSource.model_id || "");
-    const targetPlacements = placements.filter((row) => row.storage_cell === selectedCell && row.id !== moveSource.id);
-    const targetHasDifferentModel = targetPlacements.some((row) => {
-      const targetModel = String(row.model_code || row.model_id || "");
-      if (!targetModel || !sourceModel) return false;
-      return targetModel !== sourceModel;
-    });
-    if (!allowMixedModels && targetHasDifferentModel) {
+    const movingIds = new Set(packagesToMove.map((row) => row.id));
+    const targetPlacements = placements.filter(
+      (row) => row.storage_cell === selectedCell && !movingIds.has(row.id),
+    );
+    const targetModels = new Set(
+      [...packagesToMove, ...targetPlacements]
+        .map((row) => String(row.model_code || row.model_id || ""))
+        .filter(Boolean),
+    );
+    if (!allowMixedModels && targetModels.size > 1) {
       setMessageError(t("page.warehouseMap.mixedModelBlocked"));
       return;
     }
 
     try {
       setBusyAction("move");
-      await api.post(`/api/packages/${moveSource.id}/place-on-map`, {
-        storage_cell: selectedCell,
-        storage_shelf: selectedShelf,
-      });
+      if (packagesToMove.length === 1) {
+        await api.post(`/api/packages/${packagesToMove[0].id}/place-on-map`, {
+          storage_cell: selectedCell,
+          storage_shelf: selectedShelf,
+        });
+      } else {
+        await api.post("/api/packages/batch/place-on-map", {
+          package_ids: packagesToMove.map((row) => row.id),
+          storage_cell: selectedCell,
+          storage_shelf: selectedShelf,
+        });
+      }
       await mutateMap();
-      setMessage(
-        t("page.warehouseMap.moveSuccess", {
-          package: moveSource.package_no,
-          cell: selectedCell,
-          shelf: selectedShelf,
-        }),
-      );
-      setMoveSource(null);
+      setMessage(packagesToMove.length === 1
+        ? t("page.warehouseMap.moveSuccess", {
+            package: packagesToMove[0].package_no,
+            cell: selectedCell,
+            shelf: selectedShelf,
+          })
+        : t("page.warehouseMap.bulkMoveSuccess", {
+            count: packagesToMove.length,
+            cell: selectedCell,
+            shelf: selectedShelf,
+          }));
+      setMoveSources([]);
     } catch (err: any) {
       setMessageError(err?.message || t("page.warehouseMap.actionFailed"));
     } finally {
@@ -433,7 +487,7 @@ export default function WarehouseMapPage() {
   }
 
   function cancelMove() {
-    setMoveSource(null);
+    setMoveSources([]);
     clearMessages();
     setMessage(t("page.warehouseMap.moveCancelled"));
   }
@@ -735,30 +789,73 @@ export default function WarehouseMapPage() {
             <div className="mt-1 text-sm text-[#8a8472]">{selectedPlacement?.model_name || selectedPlacement?.package_no || t("page.warehouseMap.empty")}</div>
             {candidatePlacements.length > 1 && (
               <div className="mt-3">
-                <label className="label">{t("field.package")}</label>
-                <select
-                  className="input h-10"
-                  value={selectedPlacement?.id ?? ""}
-                  onChange={(e) => setSelectedPackageId(Number(e.target.value))}
-                >
+                <div className="flex items-center justify-between gap-3">
+                  <label className="label !mb-0">{t("field.packages")}</label>
+                  <div className="text-xs text-[#8a8472]">
+                    {t("page.warehouseMap.selectedPackages", {
+                      count: selectedMovePlacements.length,
+                      total: candidatePlacements.length,
+                    })}
+                  </div>
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    className="btn h-8 px-3 text-xs"
+                    onClick={selectAllPackages}
+                    disabled={allCandidatePackagesSelected || moveSources.length > 0 || busyAction !== null}
+                  >
+                    {t("page.warehouseMap.selectAllPackages")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn h-8 px-3 text-xs"
+                    onClick={clearPackageSelection}
+                    disabled={!selectedMovePlacements.length || moveSources.length > 0 || busyAction !== null}
+                  >
+                    {t("page.warehouseMap.clearPackageSelection")}
+                  </button>
+                </div>
+                <div className="mt-2 max-h-52 overflow-y-auto rounded-md border border-[#ded9ca] bg-white">
                   {candidatePlacements.map((row) => (
-                    <option key={row.id} value={row.id}>
-                      {`${row.package_no} · ${row.model_code || row.model_id || "-"} · ${row.total_quantity}`}
-                    </option>
+                    <label
+                      key={row.id}
+                      className={`flex cursor-pointer items-center gap-3 border-b border-[#ebe7dc] px-3 py-2 last:border-b-0 ${
+                        selectedPackageId === row.id ? "bg-[#f8f6ef]" : "hover:bg-[#fbfaf6]"
+                      }`}
+                      onClick={() => setSelectedPackageId(row.id)}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 shrink-0 accent-[#c2410c]"
+                        checked={selectedPackageIds.includes(row.id)}
+                        onChange={() => togglePackageSelection(row.id)}
+                        disabled={moveSources.length > 0 || busyAction !== null}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="mono block truncate text-sm font-medium text-[#14110b]">{row.package_no}</span>
+                        <span className="block truncate text-xs text-[#8a8472]">
+                          {row.model_code || row.model_id || "-"} · {row.total_quantity} {t("field.qty")}
+                        </span>
+                      </span>
+                    </label>
                   ))}
-                </select>
-                <div className="mt-1 text-xs text-[#8a8472]">
-                  {t("field.packages")}: {candidatePlacements.length}
                 </div>
               </div>
             )}
-            {moveSource && (
+            {moveSources.length > 0 && (
               <div className="mt-2 rounded-md border border-[#f1d4be] bg-[#fbe9dd] px-2 py-1 text-xs text-[#9a3308]">
-                {t("page.warehouseMap.movePending", {
-                  package: moveSource.package_no,
-                  cell: moveSource.storage_cell,
-                  shelf: normalizeShelf(moveSource.storage_shelf),
-                })}
+                {moveSources.length === 1
+                  ? t("page.warehouseMap.movePending", {
+                      package: moveSources[0].package_no,
+                      cell: moveSources[0].storage_cell,
+                      shelf: normalizeShelf(moveSources[0].storage_shelf),
+                    })
+                  : t("page.warehouseMap.bulkMovePending", {
+                      count: moveSources.length,
+                      cell: moveSources[0].storage_cell,
+                      shelf: normalizeShelf(moveSources[0].storage_shelf),
+                    })}
               </div>
             )}
 
@@ -802,10 +899,10 @@ export default function WarehouseMapPage() {
               <button
                 className="btn btn-accent flex-1 disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={handleMove}
-                disabled={busyAction === "move" || busyAction === "label"}
+                disabled={busyAction === "move" || busyAction === "label" || (!moveSources.length && !selectedMovePlacements.length)}
               >
                 <MoveHorizontal className="h-4 w-4" />
-                {moveSource ? t("page.warehouseMap.confirmMove") : t("page.warehouseMap.move")}
+                {moveSources.length ? t("page.warehouseMap.confirmMove") : t("page.warehouseMap.moveSelected")}
               </button>
               <button
                 className={`btn ${selectedPlacementBookmarked ? "border-[#c2410c] text-[#9a3308]" : ""}`}
@@ -831,7 +928,7 @@ export default function WarehouseMapPage() {
               >
                 <QrCode className="h-4 w-4" />
               </button>
-              {moveSource && (
+              {moveSources.length > 0 && (
                 <button className="btn" onClick={cancelMove} disabled={busyAction === "move"}>
                   {t("btn.cancel")}
                 </button>

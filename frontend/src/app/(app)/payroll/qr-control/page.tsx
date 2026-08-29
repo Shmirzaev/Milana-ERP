@@ -10,6 +10,7 @@ import { useDialogs } from "@/components/DialogProvider";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { removePayrollScanHistoryForLabel } from "@/lib/payrollScanStorage";
 
 type QrLabel = {
   id: number;
@@ -170,6 +171,7 @@ export default function PayrollQrControlPage() {
     setActionError("");
     try {
       await api.post(`/api/payroll/qr-labels/${row.id}/return`);
+      removePayrollScanHistoryForLabel(row.label_uid, window.localStorage);
       setMessage(t("page.payrollQrControl.returned"));
       await mutate();
     } catch (err: any) {

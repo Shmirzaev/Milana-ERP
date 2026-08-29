@@ -5,6 +5,11 @@ from pydantic import BaseModel, ConfigDict
 from app.schemas.common import ORMModel
 
 
+class CuttingOperatorOut(ORMModel):
+    id: int
+    name: str
+
+
 class CuttingPassportIn(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 

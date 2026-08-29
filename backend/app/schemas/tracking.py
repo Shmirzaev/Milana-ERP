@@ -8,6 +8,7 @@ from app.schemas.common import ORMModel, SchemaModel
 class BundleIn(SchemaModel):
     production_order_id: int
     production_batch_id: Optional[int] = None
+    cutting_record_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
@@ -74,7 +75,7 @@ class PackageItemIn(SchemaModel):
 class PackageItemOut(ORMModel):
     id: int
     package_id: int
-    model_id: Optional[int] = None
+    model_id: int
     color: str
     size: str
     quantity: int
@@ -125,6 +126,14 @@ class PackageBatchReceiveStorageIn(PackageReceiveStorageIn):
     package_ids: list[int]
 
 
+class PackageReceivingQueueRemoveIn(BaseModel):
+    package_ids: list[int]
+
+
+class PackageReceivingQueueScanIn(BaseModel):
+    code: str
+
+
 class PackageStoragePlacementIn(BaseModel):
     storage_cell: str
     storage_shelf: Optional[str] = "S1"
@@ -168,6 +177,7 @@ class PackageOut(ORMModel):
     id: int
     package_no: str
     barcode: str
+    packaging_department_code: str = "PKG"
     qr_code_url: Optional[str] = None
     production_order_id: Optional[int] = None
     legacy_receipt_id: Optional[int] = None
@@ -180,7 +190,7 @@ class PackageOut(ORMModel):
     order_type: Optional[str] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
-    model_id: Optional[int] = None
+    model_id: int
     model_code: Optional[str] = None
     model_name: Optional[str] = None
     model_image_url: Optional[str] = None
@@ -213,6 +223,7 @@ class PackageDetail(PackageOut):
     items: list[PackageItemOut] = []
     batch_allocations: list[PackageBatchAllocationOut] = []
     scan_logs: list[PackageScanLogOut] = []
+    legacy_source: Optional[dict] = None
 
 
 class PackageChangeRequestOut(ORMModel):
@@ -237,7 +248,7 @@ class FinishedGoodsStockOut(ORMModel):
     production_order_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     package_id: Optional[int] = None
-    model_id: Optional[int] = None
+    model_id: int
     model_code: Optional[str] = None
     model_name: Optional[str] = None
     brand_id: Optional[int] = None

@@ -2,11 +2,8 @@ type UnknownRecord = Record<string, unknown>;
 
 export type OldErpGeneralInfo = {
   sourceDate: string;
-  sewModelCode: string;
-  product: string;
   originalName: string;
-  modelVariant: string;
-  description: string;
+  product: string;
   style: string;
   company: string;
   planningType: string;
@@ -31,21 +28,10 @@ const GENERAL_SECTION_KEYS = new Set([
   "date",
   "source_date",
   "sourcedate",
-  "sew_model_code",
-  "sewmodelcode",
-  "model_code",
-  "modelcode",
-  "code",
-  "product",
   "name",
   "original_name",
   "originalname",
-  "variant",
-  "model_variant",
-  "modelvariant",
-  "variant_no",
-  "variantno",
-  "description",
+  "product",
   "style",
   "company",
   "planning_type",
@@ -134,8 +120,8 @@ function flagValue(value: unknown): boolean | string | null {
   }
   const text = textValue(value);
   const normalized = text.toLowerCase();
-  if (["true", "yes", "1", "\u0434\u0430", "ha"].includes(normalized)) return true;
-  if (["false", "no", "0", "\u043d\u0435\u0442", "yo'q", "yo\u02bbq"].includes(normalized)) return false;
+  if (["true", "yes", "1", "да", "ha"].includes(normalized)) return true;
+  if (["false", "no", "0", "нет", "yo'q", "yoʻq"].includes(normalized)) return false;
   return text || null;
 }
 
@@ -294,11 +280,8 @@ function buildGeneralInfo(
 
   const general: OldErpGeneralInfo = {
     sourceDate: textValue(firstValue(sources, ["source_date", "sourceDate", "date", "legacy_source_date", "legacySourceDate"])),
-    sewModelCode: textValue(firstValue(sources, ["sew_model_code", "sewModelCode", "model_code", "modelCode", "code", "legacy_sew_model_code", "legacySewModelCode"])),
+    originalName: textValue(firstValue(sources, ["original_name", "originalName", "name", "sew_model_name", "sewModelName", "legacy_name", "legacyName"])),
     product: textValue(firstValue(sources, ["product", "legacy_product", "legacyProduct"])),
-    originalName: textValue(firstValue(sources, ["original_name", "originalName", "name", "sew_model_name", "sewModelName", "legacy_name", "legacyName", "legacy_sew_model_name", "legacySewModelName"])),
-    modelVariant: textValue(firstValue(sources, ["variant", "model_variant", "modelVariant", "variant_no", "variantNo", "legacy_model_variant", "legacyModelVariant"])),
-    description: textValue(firstValue(sources, ["description", "legacy_description", "legacyDescription"])),
     style: textValue(firstValue(sources, ["style", "legacy_style", "legacyStyle"])),
     company: textValue(firstValue(sources, ["company", "legacy_company", "legacyCompany"])),
     planningType: textValue(firstValue(sources, ["planning_type", "planningType", "legacy_planning_type", "legacyPlanningType"])),
@@ -338,7 +321,7 @@ function buildRecipes(containers: UnknownRecord[]): OldErpRecipeRow[] {
 
   return rawRows
     .map((row, index) => ({
-      order: textValue(firstValue([row], ["no", "number", "order", "sequence", "source_order", "sourceOrder", "index", "\u2116"])) || String(index + 1),
+      order: textValue(firstValue([row], ["no", "number", "order", "sequence", "source_order", "sourceOrder", "index", "№"])) || String(index + 1),
       product: textValue(firstValue([row], ["product", "name", "item", "material"])),
       quantity: textValue(firstValue([row], ["qty", "quantity", "amount"])),
       sewingTypeList: textValue(firstValue([row], ["sewingTypeList", "sewing_type_list", "sewingType", "sewing_type", "type"])),

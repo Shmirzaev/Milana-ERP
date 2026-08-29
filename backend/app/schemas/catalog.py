@@ -35,6 +35,7 @@ class UserIn(BaseModel):
     password: Optional[str] = None
     role_id: Optional[int] = None
     department_id: Optional[int] = None
+    factory_code: str = "MIL"
     extra_permissions: list[str] = Field(default_factory=list)
     is_active: bool = True
 
@@ -45,6 +46,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     role_id: Optional[int] = None
     department_id: Optional[int] = None
+    factory_code: Optional[str] = None
     extra_permissions: Optional[list[str]] = None
     is_active: Optional[bool] = None
 
@@ -55,18 +57,12 @@ class UserOut(ORMModel):
     email: str
     role_id: Optional[int] = None
     department_id: Optional[int] = None
+    factory_code: str = "MIL"
     extra_permissions: list[str] = Field(default_factory=list)
     is_active: bool
     last_login_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None
     created_at: datetime
-    password_setup_email_sent: Optional[bool] = None
-    password_setup_email_error: Optional[str] = None
-
-
-class PasswordSetupEmailStatusOut(BaseModel):
-    available: bool
-    message: Optional[str] = None
 
 
 # Customers / Suppliers
@@ -163,7 +159,9 @@ class ModelColorOut(ORMModel):
 
 
 class ModelBOMIn(BaseModel):
-    item_id: int
+    item_id: Optional[int] = None
+    material_name: Optional[str] = Field(None, max_length=255)
+    material_role: Optional[str] = Field(None, max_length=16)
     stock_batch_id: Optional[int] = None
     size: Optional[str] = None
     color: Optional[str] = None
@@ -175,6 +173,8 @@ class ModelBOMIn(BaseModel):
 
 class ModelBOMUpdate(BaseModel):
     item_id: Optional[int] = None
+    material_name: Optional[str] = Field(None, max_length=255)
+    material_role: Optional[str] = Field(None, max_length=16)
     stock_batch_id: Optional[int] = None
     size: Optional[str] = None
     color: Optional[str] = None
@@ -186,7 +186,9 @@ class ModelBOMUpdate(BaseModel):
 
 class ModelBOMOut(ORMModel):
     id: int
-    item_id: int
+    item_id: Optional[int] = None
+    material_name: Optional[str] = None
+    material_role: Optional[str] = None
     item: Optional[ItemOut] = None
     stock_batch_id: Optional[int] = None
     stock_batch_no: Optional[str] = None
@@ -216,8 +218,12 @@ class ModelIn(BaseModel):
     sam_minutes: float = 0
 
 
+class ModelPaidOperationsIn(BaseModel):
+    paid_operations: list[dict] = Field(default_factory=list)
+
+
 class ModelVariantCreateIn(BaseModel):
-    variant_no: str = Field(min_length=1, max_length=64)
+    variant_no: Optional[str] = Field(default=None, min_length=1, max_length=64)
     fabric_item_id: Optional[int] = Field(default=None, gt=0)
     color: Optional[str] = Field(default=None, max_length=128)
     picture_url: Optional[str] = None
@@ -227,7 +233,7 @@ class ModelVariantCreateIn(BaseModel):
 
 
 class ModelVariantUpdateIn(ModelVariantCreateIn):
-    pass
+    variant_no: str = Field(min_length=1, max_length=64)
 
 
 class ModelOut(ORMModel):
@@ -257,3 +263,29 @@ class ModelDetail(ModelOut):
     sizes: list[ModelSizeOut] = []
     colors: list[ModelColorOut] = []
     bom: list[ModelBOMOut] = []
+
+
+class ModelSummaryOut(BaseModel):
+    id: int
+    code: str
+    name: str
+    category: Optional[str] = None
+    brand_id: Optional[int] = None
+    status: str
+    thumbnail_url: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ModelOptionOut(BaseModel):
+    id: int
+    code: str
+    name: str
+    thumbnail_url: Optional[str] = None
+
+
+class ModelOptionPage(BaseModel):
+    items: list[ModelOptionOut]
+    page: int
+    page_size: int
+    has_more: bool

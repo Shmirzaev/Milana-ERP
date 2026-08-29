@@ -15,6 +15,22 @@ def test_admin_login(client):
     assert "access_token" not in body
 
 
+def test_browser_session_alias_supports_cookie_auth(client):
+    login = client.post(
+        "/api/session/login",
+        data={"username": "admin@example.com", "password": "test-admin-password-123!"},
+    )
+    assert login.status_code == 200
+
+    current = client.get("/api/session/me")
+    assert current.status_code == 200
+    assert current.json()["email"] == "admin@example.com"
+
+    logout = client.post("/api/session/logout")
+    assert logout.status_code == 200
+    assert client.get("/api/session/me").status_code == 401
+
+
 def test_login_records_user_activity(client):
     from app.db.session import SessionLocal
     from app.models import User

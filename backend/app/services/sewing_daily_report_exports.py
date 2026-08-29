@@ -4,8 +4,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
-# This helper escapes report output and does not parse XML.
-from xml.sax.saxutils import escape  # nosec B406
+from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
 
 from openpyxl import Workbook
@@ -83,7 +82,7 @@ REPORT_TEXT = {
         "date": "Hisobot sanasi",
         "saved_at": "Saqlangan vaqt",
         "line": "Tikuv liniyasi",
-        "section": "Seksiya",
+        "section": "Qator",
         "order": "Buyurtma",
         "model_no": "Model raqami",
         "variant_no": "Variant raqami",

@@ -47,18 +47,9 @@ class SalesOrderItem(Base, PkMixin, TimestampMixin):
     __table_args__ = (
         CheckConstraint("quantity >= 0", name="ck_sales_order_items_quantity_nonnegative"),
         CheckConstraint("unit_price >= 0", name="ck_sales_order_items_unit_price_nonnegative"),
-        CheckConstraint(
-            "model_id IS NOT NULL OR finished_goods_stock_id IS NOT NULL",
-            name="ck_sales_order_items_product_reference",
-        ),
     )
     sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), nullable=False)
-    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
-    finished_goods_stock_id: Mapped[int | None] = mapped_column(
-        ForeignKey("finished_goods_stock.id"), index=True
-    )
-    source_model_code: Mapped[str | None] = mapped_column(String(64))
-    source_model_name: Mapped[str | None] = mapped_column(String(255))
+    model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
     color: Mapped[str] = mapped_column(String(64), nullable=False)

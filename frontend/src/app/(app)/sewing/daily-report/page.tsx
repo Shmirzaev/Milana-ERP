@@ -6,6 +6,7 @@ import {
   ClipboardList,
   FileSpreadsheet,
   FileText,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
@@ -17,19 +18,25 @@ import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import DefectReasonSelect from "@/components/DefectReasonSelect";
 import ManualModelIdentityFields, { type ManualModelIdentityValue } from "@/components/ManualModelIdentityFields";
+import SewingDailyReportEditModal, {
+  type EditableSewingReportRow,
+} from "@/components/SewingDailyReportEditModal";
 import SewingWorkPicker, {
   SewingModelCell,
   sewingWorkKey,
   type SewingModelIdentity,
 } from "@/components/SewingWorkPicker";
 import { api, fetcher } from "@/lib/api";
+import { can, useMe } from "@/lib/auth";
 import { defectReasonLabel } from "@/lib/defectReasons";
 import { formatBatchLabel } from "@/lib/batchSerial";
 import { useT } from "@/lib/i18n";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import { supportsDynamicSewingReportSections } from "@/lib/sewingDailyReportSections";
 
 type Flow = {
   id: number;
+  factory_code: string;
   name: string;
   code: string;
   is_active: boolean;
@@ -61,24 +68,11 @@ type LineContext = {
   active_work_orders: LineWorkOrder[];
 };
 
-type ReportRow = SewingModelIdentity & {
-  id: number;
-  order_no: string | null;
+type ReportRow = SewingModelIdentity & EditableSewingReportRow & {
   production_no: string | null;
   sales_order_no: string | null;
-  line_code: string;
-  line_name: string;
-  sewn_qty: number;
-  section_quantities: number[] | null;
-  section_no: number | null;
-  section_name: string | null;
-  top_qty: number | null;
-  bottom_qty: number | null;
-  defective_qty: number;
-  defect_reason: string | null;
-  notes: string | null;
-  kroy_no: string | null;
   created_at: string;
+  updated_at: string;
 };
 
 type SummaryLine = {
@@ -156,11 +150,15 @@ function formatDateTime(value: string) {
   return new Date(value).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
 }
 
-const SECTIONED_LINE_CODES = new Set(["SEW-01", "SEW-06", "SEW-07", "SEW-09"]);
 const MAX_SECTION_COUNT = 20;
 
 export default function SewingDailyReportPage() {
   const { t, lang } = useT();
+  const { me } = useMe();
+  const sessionFactory = (me?.factory_code || "MIL").toUpperCase();
+  const factoryCode = sessionFactory === "BST" || sessionFactory === "ECO" ? sessionFactory : "MIL";
+  const factoryName = factoryCode === "BST" ? "Besttex" : factoryCode === "ECO" ? "Eco Cotton" : "Milana";
+  const canManageReport = can(me, "sewing.workspace", "*");
   const [reportDate, setReportDate] = useState(todayInputDate());
   const [exportFromDate, setExportFromDate] = useState(todayInputDate());
   const [exportToDate, setExportToDate] = useState(todayInputDate());
@@ -176,16 +174,19 @@ export default function SewingDailyReportPage() {
   const [defectReason, setDefectReason] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editingRow, setEditingRow] = useState<ReportRow | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher, { refreshInterval: 30_000 });
+  const { data: flows } = useSWR<Flow[]>(canManageReport ? `/api/sewing-flows?factory_code=${factoryCode}` : null, fetcher, { refreshInterval: 30_000 });
   const activeFlows = useMemo(() => (flows || []).filter((flow) => flow.is_active), [flows]);
   const selectedFlow = useMemo(
     () => activeFlows.find((flow) => flow.id === selectedFlowId) || null,
     [activeFlows, selectedFlowId],
   );
-  const usesSectionEntry = Boolean(selectedFlow && SECTIONED_LINE_CODES.has(selectedFlow.code));
+  const usesSectionEntry = Boolean(
+    selectedFlow && supportsDynamicSewingReportSections(selectedFlow.factory_code, selectedFlow.code),
+  );
   const sectionTotal = sectionEntries.reduce(
     (total, entry) => total + (
       entry.isTwoPart
@@ -197,16 +198,22 @@ export default function SewingDailyReportPage() {
   const sectionDefectiveTotal = sectionEntries.reduce((total, entry) => total + numberOrZero(entry.defectiveQty), 0);
 
   useEffect(() => {
-    if (selectedFlowId === "" && activeFlows.length > 0) setSelectedFlowId(activeFlows[0].id);
+    if (activeFlows.length === 0) {
+      if (selectedFlowId !== "") setSelectedFlowId("");
+      return;
+    }
+    if (selectedFlowId === "" || !activeFlows.some((flow) => flow.id === selectedFlowId)) {
+      setSelectedFlowId(activeFlows[0].id);
+    }
   }, [activeFlows, selectedFlowId]);
 
-  const lineContextUrl = selectedFlowId === "" ? null : `/api/sewing-daily-reports/line-context?sewing_flow_id=${selectedFlowId}`;
+  const lineContextUrl = !canManageReport || selectedFlowId === "" ? null : `/api/sewing-daily-reports/line-context?sewing_flow_id=${selectedFlowId}`;
   const { data: lineContext, mutate: mutateLineContext, isLoading: loadingLine } = useSWR<LineContext>(
     lineContextUrl,
     fetcher,
     { refreshInterval: 15_000 },
   );
-  const reportUrl = `/api/sewing-daily-reports?report_date=${encodeURIComponent(reportDate)}`;
+  const reportUrl = `/api/sewing-daily-reports?report_date=${encodeURIComponent(reportDate)}&factory_code=${factoryCode}`;
   const { data: report, mutate: mutateReport, isLoading: loadingReport } = useSWR<ReportList>(
     reportUrl,
     fetcher,
@@ -266,6 +273,7 @@ export default function SewingDailyReportPage() {
         from_date: exportFromDate,
         to_date: exportToDate,
         lang,
+        factory_code: factoryCode,
       });
       const response = await fetch(`/api/sewing-daily-reports/export.${format}?${params.toString()}`, {
         credentials: "same-origin",
@@ -320,7 +328,8 @@ export default function SewingDailyReportPage() {
           continue;
         }
         const work = activeWork.find((candidate) => sewingWorkKey(candidate) === entry.workKey);
-        if (!work && !entry.manualModel.modelNo.trim()) {
+        const usesManualIdentity = entry.manualModel.enabled || !work;
+        if (usesManualIdentity && !entry.manualModel.modelNo.trim()) {
           setError(t("page.sewingDailyReport.manualModelRequired"));
           return;
         }
@@ -331,10 +340,10 @@ export default function SewingDailyReportPage() {
         payloads.push({
           report_date: reportDate,
           sewing_flow_id: selectedFlowId,
-          work_order_id: work?.work_order_id ?? null,
-          sewing_assignment_id: work?.sewing_assignment_id ?? null,
-          manual_model_no: entry.manualModel.enabled || !work ? entry.manualModel.modelNo.trim() || null : null,
-          manual_variant_no: entry.manualModel.enabled || !work ? entry.manualModel.variantNo.trim() || null : null,
+          work_order_id: usesManualIdentity ? null : work?.work_order_id ?? null,
+          sewing_assignment_id: usesManualIdentity ? null : work?.sewing_assignment_id ?? null,
+          manual_model_no: usesManualIdentity ? entry.manualModel.modelNo.trim() || null : null,
+          manual_variant_no: usesManualIdentity ? entry.manualModel.variantNo.trim() || null : null,
           kroy_no: entry.kroyNo.trim() || null,
           section_no: index + 1,
           top_qty: top,
@@ -356,7 +365,8 @@ export default function SewingDailyReportPage() {
     } else {
       const sewn = numberOrZero(sewnQty);
       const defective = numberOrZero(defectiveQty);
-      if (!selectedWork && !manualModel.modelNo.trim()) {
+      const usesManualIdentity = manualModel.enabled || !selectedWork;
+      if (usesManualIdentity && !manualModel.modelNo.trim()) {
         setError(t("page.sewingDailyReport.manualModelRequired"));
         return;
       }
@@ -375,10 +385,10 @@ export default function SewingDailyReportPage() {
       payloads.push({
         report_date: reportDate,
         sewing_flow_id: selectedFlowId,
-        work_order_id: selectedWork?.work_order_id ?? null,
-        sewing_assignment_id: selectedWork?.sewing_assignment_id ?? null,
-        manual_model_no: manualModel.enabled || !selectedWork ? manualModel.modelNo.trim() || null : null,
-        manual_variant_no: manualModel.enabled || !selectedWork ? manualModel.variantNo.trim() || null : null,
+        work_order_id: usesManualIdentity ? null : selectedWork?.work_order_id ?? null,
+        sewing_assignment_id: usesManualIdentity ? null : selectedWork?.sewing_assignment_id ?? null,
+        manual_model_no: usesManualIdentity ? manualModel.modelNo.trim() || null : null,
+        manual_variant_no: usesManualIdentity ? manualModel.variantNo.trim() || null : null,
         kroy_no: kroyNo.trim() || null,
         sewn_qty: sewn,
         defective_qty: defective,
@@ -411,10 +421,10 @@ export default function SewingDailyReportPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.sewingDailyReport.title")} subtitle={t("page.sewingDailyReport.subtitle")} />
+      <PageHeader title={`${factoryName} - ${t("page.sewingDailyReport.title")}`} subtitle={t("page.sewingDailyReport.subtitle")} />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <section className="card p-4">
+      <div className={canManageReport ? "grid grid-cols-1 gap-4 xl:grid-cols-[420px_minmax(0,1fr)]" : "grid grid-cols-1 gap-4"}>
+        {canManageReport && <section className="card p-4">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h2 className="text-base font-semibold text-[#14110b]">{t("page.sewingDailyReport.entryTitle")}</h2>
@@ -485,24 +495,28 @@ export default function SewingDailyReportPage() {
               )}
               {(lineContext?.active_work_orders || []).length > 0 && (
                 <div className="space-y-2">
-                  <SewingWorkPicker
-                    options={lineContext!.active_work_orders}
-                    value={selectedWorkKey}
-                    onChange={(value) => {
-                      setSelectedWorkKey(value);
-                      setManualModel({ enabled: false, modelNo: "", variantNo: "" });
-                      const work = lineContext!.active_work_orders.find((item) => sewingWorkKey(item) === value);
-                      setKroyNo(work?.kroy_no || "");
-                    }}
-                  />
+                  {!manualModel.enabled && (
+                    <SewingWorkPicker
+                      options={lineContext!.active_work_orders}
+                      value={selectedWorkKey}
+                      onChange={(value) => {
+                        setSelectedWorkKey(value);
+                        setManualModel({ enabled: false, modelNo: "", variantNo: "" });
+                        const work = lineContext!.active_work_orders.find((item) => sewingWorkKey(item) === value);
+                        setKroyNo(work?.kroy_no || "");
+                      }}
+                    />
+                  )}
                   <ManualModelIdentityFields
                     value={manualModel}
-                    onChange={setManualModel}
-                    detectedModelNo={selectedWork?.model_no || selectedWork?.model_code}
-                    detectedVariantNo={selectedWork?.variant_no}
+                    onChange={(manualValue) => {
+                      if (manualValue.enabled && !manualModel.enabled) setKroyNo("");
+                      if (!manualValue.enabled && manualModel.enabled) setKroyNo(selectedWork?.kroy_no || "");
+                      setManualModel(manualValue);
+                    }}
                     inputIdPrefix="daily-sewing-manual"
                   />
-                  {selectedWork && (
+                  {selectedWork && !manualModel.enabled && (
                     <div className="space-y-2">
                       {workBatchLabel(selectedWork) && (
                         <div className="text-xs text-[#56503f]">
@@ -569,7 +583,7 @@ export default function SewingDailyReportPage() {
                         </button>
                       )}
                     </div>
-                    {(lineContext?.active_work_orders || []).length > 0 && (
+                    {(lineContext?.active_work_orders || []).length > 0 && !entry.manualModel.enabled && (
                       <SewingWorkPicker
                         options={lineContext!.active_work_orders}
                         value={entry.workKey}
@@ -592,11 +606,17 @@ export default function SewingDailyReportPage() {
                       value={entry.manualModel}
                       onChange={(manualValue) => {
                         setSectionEntries((current) => current.map((item) => (
-                          item.id === entry.id ? { ...item, manualModel: manualValue } : item
+                          item.id === entry.id
+                            ? {
+                                ...item,
+                                manualModel: manualValue,
+                                kroyNo: manualValue.enabled
+                                  ? (entry.manualModel.enabled ? item.kroyNo : "")
+                                  : sectionWork?.kroy_no || "",
+                              }
+                            : item
                         )));
                       }}
-                      detectedModelNo={sectionWork?.model_no || sectionWork?.model_code}
-                      detectedVariantNo={sectionWork?.variant_no}
                       inputIdPrefix={`daily-sewing-section-${index + 1}-manual`}
                       alwaysVisible={!sectionWork}
                       modelNoRequired={!sectionWork}
@@ -814,7 +834,7 @@ export default function SewingDailyReportPage() {
               {saving ? t("common.saving") : t("page.sewingDailyReport.save")}
             </button>
           </div>
-        </section>
+        </section>}
 
         <div className="space-y-4">
           <section className="card p-4">
@@ -828,6 +848,25 @@ export default function SewingDailyReportPage() {
                 {t("btn.refresh")}
               </button>
             </div>
+
+            {!canManageReport && (
+              <div className="mb-4 flex flex-wrap items-end gap-2 border-y border-[#e3dfd3] py-3">
+                <div className="min-w-[180px] flex-1">
+                  <label className="label" htmlFor="daily-sewing-view-date">{t("field.date")}</label>
+                  <input
+                    id="daily-sewing-view-date"
+                    className="input"
+                    type="date"
+                    value={reportDate}
+                    onChange={(event) => setReportDate(event.target.value || todayInputDate())}
+                  />
+                </div>
+                <button type="button" className="btn h-10" onClick={refresh}>
+                  <RefreshCw />
+                  {t("btn.refresh")}
+                </button>
+              </div>
+            )}
 
             <div className="mb-4 border-y border-[#e3dfd3] py-3">
               <div className="mb-3">
@@ -955,7 +994,7 @@ export default function SewingDailyReportPage() {
               <h2 className="text-base font-semibold text-[#14110b]">{t("page.sewingDailyReport.entriesTitle")}</h2>
             </div>
             <div className="overflow-x-auto">
-              <table className="table min-w-[860px]">
+              <table className="table min-w-[940px]">
                 <thead>
                   <tr>
                     <th>{t("field.when")}</th>
@@ -966,6 +1005,7 @@ export default function SewingDailyReportPage() {
                     <th className="text-right">{t("page.sewingDailyReport.defectiveQty")}</th>
                     <th>{t("field.defectReason")}</th>
                     <th>{t("field.notes")}</th>
+                    {canManageReport && <th className="text-right">{t("common.actions")}</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -996,18 +1036,36 @@ export default function SewingDailyReportPage() {
                       <td className="text-right tabular-nums">{row.defective_qty}</td>
                       <td>{defectReasonLabel(row.defect_reason, t)}</td>
                       <td className="max-w-[260px] truncate" title={row.notes || ""}>{row.notes || "-"}</td>
+                      {canManageReport && <td className="text-right">
+                        <button
+                          type="button"
+                          className="btn h-8 px-2"
+                          onClick={() => setEditingRow(row)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          {t("common.edit")}
+                        </button>
+                      </td>}
                     </tr>
                   ))}
                   {!loadingReport && (report?.rows || []).length === 0 && (
-                    <tr><td colSpan={8} className="text-sm text-[#8a8472]">{t("page.sewingDailyReport.noReports")}</td></tr>
+                    <tr><td colSpan={canManageReport ? 9 : 8} className="text-sm text-[#8a8472]">{t("page.sewingDailyReport.noReports")}</td></tr>
                   )}
-                  {loadingReport && <tr><td colSpan={8} className="text-sm text-[#8a8472]">{t("common.loading")}</td></tr>}
+                  {loadingReport && <tr><td colSpan={canManageReport ? 9 : 8} className="text-sm text-[#8a8472]">{t("common.loading")}</td></tr>}
                 </tbody>
               </table>
             </div>
           </section>
         </div>
       </div>
+      {canManageReport && <SewingDailyReportEditModal
+        row={editingRow}
+        onClose={() => setEditingRow(null)}
+        onSaved={async () => {
+          setMessage(t("page.sewingDailyReport.updated"));
+          await mutateReport();
+        }}
+      />}
     </div>
   );
 }

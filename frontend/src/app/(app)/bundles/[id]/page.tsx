@@ -32,7 +32,7 @@ export default function BundleDetail() {
           </dl>
           {b.qr_code_url && <img className="mt-3 w-40" src={b.qr_code_url} alt="QR" />}
         </div>
-        <div className="card p-4">
+        <div className="card overflow-x-auto p-4">
           <h3 className="mb-2 font-medium">{t("page.bundleDetail.history")}</h3>
           <table className="table">
             <thead>

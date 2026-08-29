@@ -5,6 +5,7 @@ import useSWR from "swr";
 import Link from "next/link";
 import { PackageCheck, RotateCcw } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
+import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import { formatBatchLabel } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
@@ -216,13 +217,16 @@ export default function ProductionOrderDetail() {
   const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
   const { data: flowUtil } = useSWR<FlowUtil[]>("/api/sewing-flows/utilization-snapshot", fetcher, { refreshInterval: 60_000 });
   const { data: users } = useSWR<any[]>(canPlan ? "/api/users" : null, fetcher);
-  const { data: models } = useSWR<ModelSummary[]>("/api/models", fetcher);
+  const { data: selectedModelDetail } = useSWR<ModelSummary>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
   const { data: salesOrders } = useSWR<SalesOrderSummary[]>("/api/sales-orders?page_size=500", fetcher);
   const utilByFlow = new Map((flowUtil || []).map((u) => [u.flow_id, u]));
   const batchById = new Map<number, BatchMeta>(((po?.batches || []) as BatchMeta[]).map((b) => [b.id, b]));
-  const modelById = new Map((models || []).map((m) => [m.id, m]));
   const salesOrderById = new Map((salesOrders || []).map((so) => [so.id, so]));
-  const selectedModel = modelById.get(Number(po?.model_id));
+  const selectedModel = selectedModelDetail || (
+    po?.model_id && (po?.model_code || po?.model_name)
+      ? { id: Number(po.model_id), code: po.model_code, name: po.model_name }
+      : undefined
+  );
   const selectedModelComposition = formatModelComposition(selectedModel);
   const workOrders = (po?.work_orders || []) as WO[];
   const cuttingWO = workOrders.find((w) => w.operation === "cutting");
@@ -449,7 +453,7 @@ export default function ProductionOrderDetail() {
       {repairMsg && <div className="mb-3 text-sm text-slate-600">{repairMsg}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div className="card p-4">
+        <div className="card overflow-x-auto p-4">
           <h3 className="font-medium mb-2">{t("page.poDetail.plan")}</h3>
           <table className="table">
             <thead>
@@ -479,19 +483,14 @@ export default function ProductionOrderDetail() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="label">{t("field.model")}</label>
-                  <select
-                    className="input"
-                    value={summaryDraft.model_id}
-                    onChange={(e) => setSummaryDraft({ ...summaryDraft, model_id: e.target.value })}
-                  >
-                    <option value="">{t("newso.selectModel")}</option>
-                    {po?.model_id && !modelById.has(Number(po.model_id)) && (
-                      <option value={po.model_id}>{modelLabel(undefined, po.model_id)}</option>
-                    )}
-                    {models?.map((m) => (
-                      <option key={m.id} value={m.id}>{modelLabel(m, m.id)}</option>
-                    ))}
-                  </select>
+                  <ModelAsyncSelect
+                    value={Number(summaryDraft.model_id) || null}
+                    onChange={(modelId) => setSummaryDraft({ ...summaryDraft, model_id: String(modelId) })}
+                    placeholder={t("newso.selectModel")}
+                    noResultsText={t("page.search.noMatches")}
+                    loadingText={t("common.loading")}
+                    loadMoreText={t("common.loadMore")}
+                  />
                 </div>
                 <div>
                   <label className="label">{t("page.poDetail.salesOrder")}</label>
@@ -568,10 +567,10 @@ export default function ProductionOrderDetail() {
             </form>
           ) : (
           <>
-          {(po.model_image_url || po.variant_picture_url) && (
+          {(po.model_image_url || po.material_image_url) && (
             <div className="mb-3 grid grid-cols-2 gap-3">
               <SummaryImage label={t("page.workOrder.modelPicture")} imageUrl={po.model_image_url} />
-              <SummaryImage label={t("page.workOrder.variantPicture")} imageUrl={po.variant_picture_url} />
+              <SummaryImage label={t("page.workOrder.materialPicture")} imageUrl={po.material_image_url} />
             </div>
           )}
           <dl className="text-sm space-y-1">
@@ -914,7 +913,8 @@ function SewingAssignmentsPanel({
       <div className="text-xs font-medium text-slate-500 uppercase mb-2">
         {t("page.poDetail.splitSummary", { committed, planned: plannedQty, remaining })}
       </div>
-      <table className="table text-xs">
+      <div className="overflow-x-auto">
+        <table className="table text-xs">
         <thead>
           <tr><th>{t("field.line")}</th><th>{t("field.qty")}</th><th>{t("page.poDetail.done")}</th><th>{t("field.plannedStart")}</th><th>{t("field.plannedEnd")}</th><th>{t("common.status")}</th><th></th></tr>
         </thead>
@@ -931,8 +931,9 @@ function SewingAssignmentsPanel({
             </tr>
           ))}
         </tbody>
-      </table>
-      <form onSubmit={add} className="grid grid-cols-1 md:grid-cols-6 gap-2 mt-3">
+        </table>
+      </div>
+      <form onSubmit={add} className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-6">
         <select className="input" value={draft.sewing_flow_id} onChange={(e) => setDraft({ ...draft, sewing_flow_id: Number(e.target.value) })} required>
           <option value={0}>{t("ph.pickLine")}</option>
           {flows.map((f) => {
@@ -948,13 +949,13 @@ function SewingAssignmentsPanel({
         <input className="input" type="number" placeholder={t("field.qty")} value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: parseNumberInput(e.target.value) })} required />
         <input className="input" type="date" value={draft.planned_start} onChange={(e) => setDraft({ ...draft, planned_start: e.target.value })} />
         <input className="input" type="date" value={draft.planned_end} onChange={(e) => setDraft({ ...draft, planned_end: e.target.value })} />
-        <button className="btn btn-primary md:col-span-2" disabled={draft.sewing_flow_id > 0 && !!utilByFlow.get(draft.sewing_flow_id)?.is_full}>
+        <button className="btn btn-primary sm:col-span-2" disabled={draft.sewing_flow_id > 0 && !!utilByFlow.get(draft.sewing_flow_id)?.is_full}>
           {t("btn.addAssignment")}
         </button>
         {draft.sewing_flow_id > 0 && utilByFlow.get(draft.sewing_flow_id)?.is_full && (
-          <div className="text-sm text-red-600 md:col-span-6">{t("msg.selectedLineFull")}</div>
+          <div className="text-sm text-red-600 sm:col-span-2 xl:col-span-6">{t("msg.selectedLineFull")}</div>
         )}
-        {msg && <div className="text-sm text-red-600 md:col-span-6">{msg}</div>}
+        {msg && <div className="text-sm text-red-600 sm:col-span-2 xl:col-span-6">{msg}</div>}
       </form>
     </div>
   );

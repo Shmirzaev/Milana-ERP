@@ -1,14 +1,19 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
 import base64
+from functools import lru_cache
 from html import escape
 import os
+from pathlib import Path
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions, user_permissions
+from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models import (
     Bundle,
     BundleScanLog,
@@ -19,6 +24,8 @@ from app.models import (
     ProductionOrder,
     ProductionBatch,
     SalesOrder,
+    SewingAssignment,
+    SewingFlow,
     User,
     WorkOrder,
     public_production_order_no,
@@ -32,11 +39,13 @@ from app.services.bundles import (
     receive_at_sewing,
     bundle_qr_payload,
     format_batch_passport,
+    resolve_sewing_factory_code,
 )
 from app.services.barcode import save_qr_image
 from app.services.label_images import material_label_image_src
 from app.services.model_images import material_preview_image_url
 from app.services.audit import log_action
+from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
 
 router = APIRouter(prefix="/bundles", tags=["bundles"])
 
@@ -48,6 +57,25 @@ class SewingManualReceiveIn(BaseModel):
 
     production_order_id: int
     model_id: int | None = None
+    factory_code: str | None = None
+
+
+class SewingBatchAcceptIn(BaseModel):
+    sewing_flow_id: int
+
+
+def _scope_to_cutting_department(qry, db: DbSession, current, cutting_department_code: str | None):
+    from app.services.factory_scope import cutting_department_scope
+    scope = cutting_department_scope(current, cutting_department_code)
+    eco_order_ids = (
+        db.query(WorkOrder.production_order_id)
+        .join(Department, Department.id == WorkOrder.department_id)
+        .filter(WorkOrder.operation == "cutting", Department.code == "ECT")
+        .distinct()
+    )
+    if scope == "ECT":
+        return qry.filter(Bundle.production_order_id.in_(eco_order_ids))
+    return qry.filter(Bundle.production_order_id.notin_(eco_order_ids))
 
 
 def _material_images_by_model_id(db: DbSession, model_ids) -> dict[int, str | None]:
@@ -69,6 +97,31 @@ def _material_images_by_model_id(db: DbSession, model_ids) -> dict[int, str | No
 
 def _h(value) -> str:
     return escape(str(value or ""), quote=True)
+
+
+@lru_cache(maxsize=1)
+def _unicode_label_font_css() -> str:
+    font_candidates = (
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("C:/Windows/Fonts/arial.ttf"),
+    )
+    for font_path in font_candidates:
+        if font_path.is_file():
+            encoded = base64.b64encode(font_path.read_bytes()).decode("ascii")
+            return (
+                "@font-face{font-family:'Milana Label Unicode';"
+                "src:url(data:font/ttf;base64," + encoded + ") format('truetype');"
+                "font-weight:100 900;font-style:normal;font-display:block;}"
+            )
+    return ""
+
+
+def _bundle_label_head(title: str, page_css: str) -> str:
+    return (
+        "<head><meta charset='utf-8'>"
+        f"<title>{title}</title><style>{_unicode_label_font_css()}"
+        f"{page_css}</style></head>"
+    )
 
 
 def _qr_data_uri_for_bundle(db: DbSession, b: Bundle) -> str:
@@ -140,6 +193,10 @@ def _bundle_payload(
     row["order_no"] = order_no or public_production_order_no(production_no) or production_no
     row["model_code"] = model_code
     row.update(_batch_meta(db, bundle.production_order_id, bundle.production_batch_id))
+    if bundle.cutting_record_id:
+        row["cutting_record_id"] = int(bundle.cutting_record_id)
+        row["cutting_inventory_adjustable"] = True
+        return row
     cutting_record_ids = (
         db.query(CuttingRecord.id)
         .join(WorkOrder, WorkOrder.id == CuttingRecord.work_order_id)
@@ -282,11 +339,12 @@ def _sewing_receive_eligible_filter(db: DbSession):
 
 
 @router.get("")
-def list_bundles(db: DbSession, _: CurrentUser,
+def list_bundles(db: DbSession, current: CurrentUser,
                  production_order_id: int | None = None, status: str | None = None,
                  production_batch_id: int | None = None,
                  model_id: int | None = None, page: int = 1, page_size: int = 50,
-                 include_total: bool = False):
+                 include_total: bool = False,
+                 cutting_department_code: str | None = None):
     qry = db.query(Bundle, ProductionOrder.production_no, SalesOrder.order_no, Model.code).outerjoin(
         ProductionOrder, Bundle.production_order_id == ProductionOrder.id
     ).outerjoin(
@@ -294,6 +352,7 @@ def list_bundles(db: DbSession, _: CurrentUser,
     ).outerjoin(
         Model, Bundle.model_id == Model.id
     )
+    qry = _scope_to_cutting_department(qry, db, current, cutting_department_code)
     if production_order_id: qry = qry.filter(Bundle.production_order_id == production_order_id)
     if production_batch_id is not None: qry = qry.filter(Bundle.production_batch_id == production_batch_id)
     if status: qry = qry.filter(Bundle.status == status)
@@ -328,10 +387,11 @@ def list_bundles(db: DbSession, _: CurrentUser,
 @router.get("/cutting-inventory")
 def cutting_inventory(
     db: DbSession,
-    _: User = Depends(require_permissions("cutting.bundles", "cutting.records", "planning.production", "*")),
+    current: User = Depends(require_permissions("cutting.bundles", "cutting.records", "planning.production", "*")),
     q: str | None = None,
     page: int = 1,
     page_size: int = 50,
+    cutting_department_code: str | None = None,
 ):
     received_printing_log = (
         db.query(BundleScanLog.id)
@@ -353,9 +413,11 @@ def cutting_inventory(
             and_(Bundle.status == "sent_to_sewing", ~received_printing_log),
         )
     )
+    qry = _scope_to_cutting_department(qry, db, current, cutting_department_code)
     search = str(q or "").strip()
     if search:
         like = f"%{search}%"
+        model_code_like = normalized_model_code_pattern(search)
         qry = qry.filter(
             or_(
                 Bundle.bundle_no.ilike(like),
@@ -364,7 +426,7 @@ def cutting_inventory(
                 Bundle.size.ilike(like),
                 ProductionOrder.production_no.ilike(like),
                 SalesOrder.order_no.ilike(like),
-                Model.code.ilike(like),
+                normalized_model_code_column(Model.code).ilike(model_code_like),
             )
         )
 
@@ -409,10 +471,12 @@ def cutting_inventory(
 @router.get("/sewing-receive-options")
 def sewing_receive_options(
     db: DbSession,
-    _: User = Depends(require_permissions("sewing.bundles", "*")),
+    current: User = Depends(require_permissions("sewing.bundles", "*")),
     q: str | None = None,
     limit: int = 25,
+    factory_code: str | None = None,
 ):
+    factory = sewing_line_factory_scope(current, factory_code)
     qry = db.query(
         Bundle.production_order_id,
         Bundle.model_id,
@@ -430,18 +494,20 @@ def sewing_receive_options(
     ).outerjoin(
         Model, Bundle.model_id == Model.id
     ).filter(
-        _sewing_receive_eligible_filter(db)
+        _sewing_receive_eligible_filter(db),
+        Bundle.sewing_factory_code == factory,
     )
     search = str(q or "").strip()
     if search:
         like = f"%{search}%"
+        model_code_like = normalized_model_code_pattern(search)
         qry = qry.filter(
             or_(
                 Bundle.bundle_no.ilike(like),
                 Bundle.barcode.ilike(like),
                 ProductionOrder.production_no.ilike(like),
                 SalesOrder.order_no.ilike(like),
-                Model.code.ilike(like),
+                normalized_model_code_column(Model.code).ilike(model_code_like),
                 Model.name.ilike(like),
             )
         )
@@ -492,9 +558,11 @@ def manual_receive_sewing(
     db: DbSession,
     current: User = Depends(require_permissions("sewing.bundles", "*")),
 ):
+    factory = sewing_line_factory_scope(current, payload.factory_code)
     qry = db.query(Bundle).filter(
         _sewing_receive_eligible_filter(db),
         Bundle.production_order_id == payload.production_order_id,
+        Bundle.sewing_factory_code == factory,
     )
     if payload.model_id is not None:
         qry = qry.filter(Bundle.model_id == payload.model_id)
@@ -516,6 +584,253 @@ def manual_receive_sewing(
         "received_quantity": received_quantity,
         "bundle_ids": received_ids,
     }
+
+
+def _sewing_work_order_for_batch(db: DbSession, batch: ProductionBatch) -> WorkOrder | None:
+    qry = db.query(WorkOrder).filter(
+        WorkOrder.production_order_id == batch.production_order_id,
+        WorkOrder.operation == "sewing",
+    )
+    scoped = qry.filter(WorkOrder.production_batch_id == batch.id).order_by(WorkOrder.id.asc()).first()
+    if scoped:
+        return scoped
+    return (
+        qry.filter(WorkOrder.production_batch_id.is_(None)).order_by(WorkOrder.id.asc()).first()
+        or qry.order_by(WorkOrder.id.asc()).first()
+    )
+
+
+def _sewing_batch_payload(db: DbSession, batch: ProductionBatch) -> dict:
+    bundles = (
+        db.query(Bundle)
+        .filter(
+            Bundle.production_batch_id == batch.id,
+            Bundle.production_order_id == batch.production_order_id,
+            Bundle.status != "cancelled",
+        )
+        .order_by(Bundle.id.asc())
+        .all()
+    )
+    po = db.get(ProductionOrder, batch.production_order_id)
+    model = db.get(Model, po.model_id) if po and po.model_id else None
+    wo = _sewing_work_order_for_batch(db, batch)
+    assignments = []
+    if wo:
+        assignments = (
+            db.query(SewingAssignment, SewingFlow)
+            .join(SewingFlow, SewingFlow.id == SewingAssignment.sewing_flow_id)
+            .filter(
+                SewingAssignment.work_order_id == wo.id,
+                SewingAssignment.production_batch_id == batch.id,
+                SewingAssignment.status.in_(("planned", "in_progress", "completed")),
+            )
+            .order_by(SewingAssignment.id.asc())
+            .all()
+        )
+    status_counts: dict[str, int] = {}
+    for bundle in bundles:
+        status = str(bundle.status or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    batch_meta = _batch_meta(db, batch.production_order_id, batch.id)
+    return {
+        "production_batch_id": int(batch.id),
+        "production_order_id": int(batch.production_order_id),
+        "production_no": po.production_no if po else None,
+        "order_no": (po.order_no if po else None) or public_production_order_no(po.production_no if po else None),
+        "model_code": model.code if model else None,
+        **batch_meta,
+        "bundle_count": len(bundles),
+        "quantity": sum(int(bundle.quantity or 0) for bundle in bundles),
+        "status_counts": status_counts,
+        "assignment_ids": [int(assignment.id) for assignment, _flow in assignments],
+        "assigned_flow_ids": sorted({int(flow.id) for _assignment, flow in assignments}),
+        "assigned_flow_names": sorted({str(flow.name or flow.code) for _assignment, flow in assignments}),
+    }
+
+
+@router.get("/sewing-batches/{production_batch_id}")
+def get_sewing_batch(
+    production_batch_id: int,
+    db: DbSession,
+    _: User = Depends(require_permissions("sewing.bundles", "*")),
+):
+    batch = db.get(ProductionBatch, production_batch_id)
+    if not batch:
+        raise HTTPException(404, "Production batch not found")
+    return _sewing_batch_payload(db, batch)
+
+
+@router.post("/sewing-batches/{production_batch_id}/accept")
+def accept_sewing_batch(
+    production_batch_id: int,
+    payload: SewingBatchAcceptIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("sewing.bundles", "*")),
+):
+    batch = (
+        db.query(ProductionBatch)
+        .filter(ProductionBatch.id == production_batch_id)
+        .with_for_update()
+        .first()
+    )
+    if not batch:
+        raise HTTPException(404, "Production batch not found")
+
+    flow = db.get(SewingFlow, payload.sewing_flow_id)
+    if not flow:
+        raise HTTPException(404, "Sewing line not found")
+    require_sewing_flow_access(current, flow)
+    if not flow.is_active:
+        raise HTTPException(400, "Sewing line is inactive")
+
+    bundles = (
+        db.query(Bundle)
+        .filter(
+            Bundle.production_batch_id == batch.id,
+            Bundle.production_order_id == batch.production_order_id,
+            Bundle.status != "cancelled",
+        )
+        .order_by(Bundle.id.asc())
+        .with_for_update()
+        .all()
+    )
+    if not bundles:
+        raise HTTPException(404, "No bundles found for this production batch")
+
+    factory_codes = {resolve_sewing_factory_code(bundle.sewing_factory_code) for bundle in bundles}
+    if len(factory_codes) != 1 or factory_codes != {flow.factory_code}:
+        raise HTTPException(409, "The selected sewing line belongs to a different sewing factory")
+
+    sewing_department_ids = set(_sewing_receive_department_ids(db))
+    blocked = [
+        bundle
+        for bundle in bundles
+        if bundle.status != "received_sewing"
+        and bundle.status != "sent_to_sewing"
+        and not (bundle.status == "created" and bundle.next_department_id in sewing_department_ids)
+    ]
+    if blocked:
+        statuses = ", ".join(sorted({str(bundle.status) for bundle in blocked}))
+        raise HTTPException(
+            409,
+            f"This batch is not fully ready for sewing acceptance. Blocking bundle status: {statuses}",
+        )
+
+    wo = _sewing_work_order_for_batch(db, batch)
+    if not wo:
+        raise HTTPException(404, "Sewing work order not found for this production batch")
+
+    managed_statuses = ("planned", "in_progress", "completed")
+    all_assignments = (
+        db.query(SewingAssignment)
+        .filter(
+            SewingAssignment.work_order_id == wo.id,
+            SewingAssignment.status.in_(managed_statuses),
+        )
+        .with_for_update()
+        .all()
+    )
+    unscoped = [assignment for assignment in all_assignments if assignment.production_batch_id is None]
+    if unscoped:
+        raise HTTPException(409, "This sewing work order already has an order-level line assignment")
+
+    batch_assignments = [
+        assignment
+        for assignment in all_assignments
+        if int(assignment.production_batch_id or 0) == int(batch.id)
+    ]
+    has_unreceived_bundles = any(bundle.status != "received_sewing" for bundle in bundles)
+    if has_unreceived_bundles and any(assignment.status == "completed" for assignment in batch_assignments):
+        raise HTTPException(409, "This batch has a completed sewing assignment and cannot be accepted again")
+    assigned_flow_ids = {int(assignment.sewing_flow_id) for assignment in batch_assignments}
+    if assigned_flow_ids and assigned_flow_ids != {int(flow.id)}:
+        assigned_names = [
+            row.name or row.code
+            for row in db.query(SewingFlow).filter(SewingFlow.id.in_(assigned_flow_ids)).all()
+        ]
+        raise HTTPException(409, f"This batch is already assigned to: {', '.join(assigned_names)}")
+
+    if not all_assignments and wo.sewing_flow_id and int(wo.sewing_flow_id) != int(flow.id):
+        current_flow = db.get(SewingFlow, wo.sewing_flow_id)
+        raise HTTPException(
+            409,
+            f"This sewing work order is already assigned to {current_flow.name if current_flow else wo.sewing_flow_id}",
+        )
+
+    total_quantity = sum(int(bundle.quantity or 0) for bundle in bundles)
+    assignment: SewingAssignment
+    if batch_assignments:
+        assigned_quantity = sum(int(row.quantity or 0) for row in batch_assignments)
+        if assigned_quantity != total_quantity:
+            can_resize = (
+                len(batch_assignments) == 1
+                and int(batch_assignments[0].completed_qty or 0) == 0
+                and assigned_quantity <= total_quantity
+            )
+            if not can_resize:
+                raise HTTPException(
+                    409,
+                    f"Existing batch assignment quantity ({assigned_quantity}) does not match bundle quantity ({total_quantity})",
+                )
+            batch_assignments[0].quantity = total_quantity
+        assignment = batch_assignments[0]
+    else:
+        now = datetime.now(timezone.utc)
+        assignment = SewingAssignment(
+            work_order_id=wo.id,
+            production_batch_id=batch.id,
+            sewing_flow_id=flow.id,
+            quantity=total_quantity,
+            planned_start=now,
+            planned_end=batch.deadline,
+            actual_start=now,
+            status="in_progress",
+            notes="Accepted from cutting-sheet batch QR",
+            created_by=current.id,
+        )
+        db.add(assignment)
+        db.flush()
+
+    if assignment.status == "planned":
+        assignment.status = "in_progress"
+    if assignment.actual_start is None:
+        assignment.actual_start = datetime.now(timezone.utc)
+    if not wo.sewing_flow_id:
+        wo.sewing_flow_id = flow.id
+
+    received_ids: list[int] = []
+    for bundle in bundles:
+        if bundle.status == "received_sewing":
+            continue
+        receive_at_sewing(db, bundle, current.id)
+        received_ids.append(int(bundle.id))
+
+    log_action(
+        db,
+        current,
+        "accept_sewing_batch_qr",
+        "ProductionBatch",
+        batch.id,
+        new_value={
+            "sewing_flow_id": int(flow.id),
+            "sewing_assignment_id": int(assignment.id),
+            "bundle_ids": [int(bundle.id) for bundle in bundles],
+            "received_bundle_ids": received_ids,
+            "quantity": total_quantity,
+        },
+    )
+    db.commit()
+
+    result = _sewing_batch_payload(db, batch)
+    result.update({
+        "sewing_assignment_id": int(assignment.id),
+        "sewing_flow_id": int(flow.id),
+        "sewing_flow_code": flow.code,
+        "sewing_flow_name": flow.name,
+        "received_count": len(received_ids),
+        "already_accepted": len(received_ids) == 0,
+    })
+    return result
 
 
 @router.post("", response_model=BundleOut, status_code=201)
@@ -693,9 +1008,9 @@ def bundle_label(bid: int, db: DbSession, _: User = Depends(require_permissions(
     if not b: raise HTTPException(404, "Bundle not found")
     qr = _qr_data_uri_for_bundle(db, b)
     ctx = _label_context(db, b)
+    page_css = "@page{margin:8mm} body{font-family:'Milana Label Unicode','DejaVu Sans',Arial,sans-serif;margin:0;padding:8mm} .label{box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;border:1px solid #000;padding:5mm;width:88mm} .row{display:flex;justify-content:space-between;gap:4mm;font-size:8.5pt;line-height:1.22} .row span{text-align:right;overflow-wrap:anywhere} .label-visuals{display:flex;align-items:center;justify-content:center;gap:4mm;margin-top:2.5mm} .qr img,.material-picture img{display:block;width:25mm;height:25mm;object-fit:contain} .material-picture{box-sizing:border-box;width:27mm;height:27mm;border:1px solid #ddd;padding:1mm;display:flex;align-items:center;justify-content:center} h2{margin:0 0 2mm 0;font-size:12pt;letter-spacing:0}@media print{body{margin:0;padding:0} button{display:none}}"
     return f"""<!doctype html>
-<html><head><title>Bundle Label {ctx['bundle_no']}</title>
-<style>@page{{margin:8mm}} body{{font-family:Arial;margin:0;padding:8mm}} .label{{box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;border:1px solid #000;padding:5mm;width:88mm}} .row{{display:flex;justify-content:space-between;gap:4mm;font-size:8.5pt;line-height:1.22}} .row span{{text-align:right;overflow-wrap:anywhere}} .label-visuals{{display:flex;align-items:center;justify-content:center;gap:4mm;margin-top:2.5mm}} .qr img,.material-picture img{{display:block;width:25mm;height:25mm;object-fit:contain}} .material-picture{{box-sizing:border-box;width:27mm;height:27mm;border:1px solid #ddd;padding:1mm;display:flex;align-items:center;justify-content:center}} h2{{margin:0 0 2mm 0;font-size:12pt;letter-spacing:0}}@media print{{body{{margin:0;padding:0}} button{{display:none}}}}</style></head>
+<html>{_bundle_label_head(f"Bundle Label {ctx['bundle_no']}", page_css)}
 <body>{_bundle_label_card(ctx, qr)}
 <button onclick=\"window.print()\">Print</button>
 </body></html>"""
@@ -725,22 +1040,22 @@ def bundle_label_sheet(ids: str, db: DbSession, _: User = Depends(require_permis
         qr = _qr_data_uri_for_bundle(db, b)
         cards.append(_bundle_label_card(_label_context(db, b), qr))
 
+    page_css = """
+@page{margin:6mm}
+html,body{font-family:'Milana Label Unicode','DejaVu Sans',Arial,sans-serif;margin:0;padding:0}
+.sheet{font-size:0}
+.label{display:inline-block;vertical-align:top;box-sizing:border-box;width:96mm;min-height:56mm;margin:0 4mm 4mm 0;border:1px solid #000;padding:4mm;font-size:8.5pt;break-inside:avoid;page-break-inside:avoid}
+.label:nth-child(2n){margin-right:0}
+.row{display:flex;justify-content:space-between;gap:3mm;font-size:8.5pt;line-height:1.18}
+.row span{text-align:right;overflow-wrap:anywhere}
+.label-visuals{display:flex;align-items:center;justify-content:center;gap:3mm;margin-top:2mm}
+.qr img,.material-picture img{display:block;width:23mm;height:23mm;object-fit:contain}
+.material-picture{box-sizing:border-box;width:25mm;height:25mm;border:1px solid #ddd;padding:1mm;display:flex;align-items:center;justify-content:center}
+h2{margin:0 0 1.5mm 0;font-size:11pt;letter-spacing:0}
+@media print{button{display:none} .label{break-inside:avoid;page-break-inside:avoid}}
+"""
     return f"""<!doctype html>
-<html><head><title>Bundle Label Sheet</title>
-<style>
-@page{{margin:6mm}}
-html,body{{font-family:Arial;margin:0;padding:0}}
-.sheet{{font-size:0}}
-.label{{display:inline-block;vertical-align:top;box-sizing:border-box;width:96mm;min-height:56mm;margin:0 4mm 4mm 0;border:1px solid #000;padding:4mm;font-size:8.5pt;break-inside:avoid;page-break-inside:avoid}}
-.label:nth-child(2n){{margin-right:0}}
-.row{{display:flex;justify-content:space-between;gap:3mm;font-size:8.5pt;line-height:1.18}}
-.row span{{text-align:right;overflow-wrap:anywhere}}
-.label-visuals{{display:flex;align-items:center;justify-content:center;gap:3mm;margin-top:2mm}}
-.qr img,.material-picture img{{display:block;width:23mm;height:23mm;object-fit:contain}}
-.material-picture{{box-sizing:border-box;width:25mm;height:25mm;border:1px solid #ddd;padding:1mm;display:flex;align-items:center;justify-content:center}}
-h2{{margin:0 0 1.5mm 0;font-size:11pt;letter-spacing:0}}
-@media print{{button{{display:none}} .label{{break-inside:avoid;page-break-inside:avoid}}}}
-</style></head>
+<html>{_bundle_label_head("Bundle Label Sheet", page_css)}
 <body>
 <div class='sheet'>{''.join(cards)}</div>
 <button onclick="window.print()" style="margin-top:6mm">Print</button>

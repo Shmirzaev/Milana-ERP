@@ -10,10 +10,12 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Undo2,
   Unlock,
 } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
+import SearchableSelect from "@/components/SearchableSelect";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useDialogs } from "@/components/DialogProvider";
@@ -94,6 +96,7 @@ type PayrollSummary = {
 type PayrollAdjustment = {
   id: number;
   payroll_period_id?: number | null;
+  source_payroll_record_id?: number | null;
   employee_id: number;
   adjustment_type: "bonus" | "deduction";
   amount: number | string;
@@ -106,6 +109,8 @@ type PayrollAdjustment = {
 type Employee = {
   id: number;
   full_name: string;
+  employee_no?: string | null;
+  position?: string | null;
   department_id?: number | null;
   status: string;
 };
@@ -199,6 +204,11 @@ export default function PayrollPage() {
     amount: "",
     reason: "",
   });
+  const [reversalForm, setReversalForm] = useState<{
+    record: PayrollRecord | null;
+    target_period_id: string;
+    reason: string;
+  }>({ record: null, target_period_id: "", reason: "" });
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error" | "info">("info");
 
@@ -206,10 +216,10 @@ export default function PayrollPage() {
   const { data: employees = [] } = useSWR<Employee[]>("/api/employees", fetcher);
   const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
 
-  const recordsQuery = buildPayrollQuery(filters, true);
+  const recordsQuery = [buildPayrollQuery(filters, true), "status=active"].filter(Boolean).join("&");
   const summaryQuery = buildPayrollQuery(filters);
   const { data: records = [], mutate: mutateRecords } = useSWR<PayrollRecord[]>(
-    `/api/payroll/records${recordsQuery ? `?${recordsQuery}` : "?limit=300"}`,
+    `/api/payroll/records?${recordsQuery}`,
     fetcher,
   );
   const { data: summary, mutate: mutateSummary } = useSWR<PayrollSummary>(
@@ -224,6 +234,23 @@ export default function PayrollPage() {
   const periodById = useMemo(() => new Map(periods.map((period) => [Number(period.id), period])), [periods]);
   const employeeById = useMemo(() => new Map(employees.map((employee) => [Number(employee.id), employee])), [employees]);
   const departmentById = useMemo(() => new Map(departments.map((department) => [Number(department.id), department])), [departments]);
+  const employeeFilterOptions = useMemo(() => [
+    { value: "", label: t("page.payroll.allEmployees") },
+    ...employees.map((employee) => {
+      const department = employee.department_id ? departmentById.get(Number(employee.department_id)) : null;
+      return {
+        value: String(employee.id),
+        label: employee.full_name,
+        searchText: [
+          employee.employee_no,
+          employee.id,
+          employee.position,
+          department?.code,
+          department?.name,
+        ].filter(Boolean).join(" "),
+      };
+    }),
+  ], [departmentById, employees, t]);
   const adjustmentPeriod = adjustmentForm.payroll_period_id ? periodById.get(Number(adjustmentForm.payroll_period_id)) : null;
   const adjustmentPeriodFinalized = Boolean(adjustmentPeriod && FINALIZED_PERIOD_STATUSES.has(adjustmentPeriod.status));
   const operationRows = useMemo(() => (
@@ -320,6 +347,35 @@ export default function PayrollPage() {
       await refreshAll();
     } catch (error: any) {
       notice(error?.message || t("page.payroll.recordVoidFailed"), "error");
+    }
+  }
+
+  function startReversal(record: PayrollRecord) {
+    const target = periods.find((period) => (
+      !FINALIZED_PERIOD_STATUSES.has(period.status) && Number(period.id) !== Number(record.payroll_period_id)
+    ));
+    setReversalForm({ record, target_period_id: target ? String(target.id) : "", reason: "" });
+  }
+
+  async function createReversal(event: React.FormEvent) {
+    event.preventDefault();
+    const record = reversalForm.record;
+    const targetPeriodId = Number(reversalForm.target_period_id || 0);
+    const reason = reversalForm.reason.trim();
+    if (!record || !targetPeriodId || reason.length < 3) {
+      notice(t("page.payroll.invalidReversal"), "error");
+      return;
+    }
+    try {
+      await api.post(`/api/payroll/records/${record.id}/reverse-as-adjustment`, {
+        target_period_id: targetPeriodId,
+        reason,
+      });
+      setReversalForm({ record: null, target_period_id: "", reason: "" });
+      notice(t("page.payroll.reversalCreated"), "success");
+      await refreshAll();
+    } catch (error: any) {
+      notice(error?.message || t("page.payroll.reversalFailed"), "error");
     }
   }
 
@@ -459,13 +515,15 @@ export default function PayrollPage() {
             </select>
           </div>
           <div className="min-w-[220px] flex-1">
-            <label className="label">{t("page.payroll.employee")}</label>
-            <select className="input" value={filters.employeeId} onChange={(event) => setFilters({ ...filters, employeeId: event.target.value })}>
-              <option value="">{t("page.payroll.allEmployees")}</option>
-              {employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>{employee.full_name}</option>
-              ))}
-            </select>
+            <label className="label" htmlFor="payroll-summary-employee">{t("page.payroll.employee")}</label>
+            <SearchableSelect<string>
+              inputId="payroll-summary-employee"
+              value={filters.employeeId}
+              options={employeeFilterOptions}
+              placeholder={t("page.payroll.searchEmployee")}
+              noResultsText={t("page.payroll.noEmployeeResults")}
+              onChange={(employeeId) => setFilters((current) => ({ ...current, employeeId }))}
+            />
           </div>
           <div className="min-w-[200px] flex-1">
             <label className="label">{t("field.department")}</label>
@@ -618,7 +676,14 @@ export default function PayrollPage() {
                       <td>{period?.period_no || "-"}</td>
                       <td><span className={`badge ${adjustmentBadge(adjustment.adjustment_type)}`}>{t(`page.payroll.${adjustment.adjustment_type}`)}</span></td>
                       <td className="font-semibold">{money(adjustment.signed_amount, adjustment.currency)}</td>
-                      <td>{adjustment.reason}</td>
+                      <td>
+                        <div>{adjustment.reason}</div>
+                        {adjustment.source_payroll_record_id && (
+                          <div className="mt-1 text-xs text-[#8a8472]">
+                            {t("page.payroll.reversalOfRecord", { id: adjustment.source_payroll_record_id })}
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -710,6 +775,67 @@ export default function PayrollPage() {
         <div className="border-b border-[#ecebe3] p-4">
           <h2 className="app-card-title">{t("page.payroll.payrollRecords")}</h2>
         </div>
+        {reversalForm.record && (
+          <form onSubmit={createReversal} className="border-b border-[#ecebe3] bg-[#faf9f5] p-4">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-[#28251d]">{t("page.payroll.reversalTitle")}</h3>
+                <p className="mt-1 text-xs text-[#746e5d]">
+                  {t("page.payroll.reversalSource", {
+                    id: reversalForm.record.id,
+                    employee: reversalForm.record.employee_name || t("page.payroll.employeeId", { id: reversalForm.record.employee_id }),
+                    amount: money(reversalForm.record.total_amount, reversalForm.record.currency),
+                  })}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn h-8 px-3 text-xs"
+                onClick={() => setReversalForm({ record: null, target_period_id: "", reason: "" })}
+              >
+                {t("common.cancel")}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(220px,320px)_minmax(280px,1fr)_auto] md:items-end">
+              <div>
+                <label className="label">{t("page.payroll.targetPeriod")}</label>
+                <select
+                  className="select"
+                  value={reversalForm.target_period_id}
+                  onChange={(event) => setReversalForm({ ...reversalForm, target_period_id: event.target.value })}
+                  required
+                >
+                  <option value="">{t("page.payroll.selectEditablePeriod")}</option>
+                  {periods.filter((period) => (
+                    !FINALIZED_PERIOD_STATUSES.has(period.status)
+                    && Number(period.id) !== Number(reversalForm.record?.payroll_period_id)
+                  )).map((period) => (
+                    <option key={period.id} value={period.id}>{period.period_no} — {period.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">{t("page.payroll.reversalReason")}</label>
+                <input
+                  className="input"
+                  value={reversalForm.reason}
+                  onChange={(event) => setReversalForm({ ...reversalForm, reason: event.target.value })}
+                  placeholder={t("page.payroll.reversalReasonPlaceholder")}
+                  minLength={3}
+                  maxLength={255}
+                  required
+                />
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={!reversalForm.target_period_id || reversalForm.reason.trim().length < 3}>
+                <Undo2 />
+                <span>{t("page.payroll.postReversal")}</span>
+              </button>
+            </div>
+            {periods.every((period) => FINALIZED_PERIOD_STATUSES.has(period.status) || Number(period.id) === Number(reversalForm.record?.payroll_period_id)) && (
+              <p className="mt-3 text-xs text-amber-700">{t("page.payroll.noEditablePeriod")}</p>
+            )}
+          </form>
+        )}
         <div className="overflow-x-auto">
           <table className="table min-w-[1280px]">
             <thead>
@@ -733,6 +859,12 @@ export default function PayrollPage() {
               )}
               {records.map((record) => {
                 const period = record.payroll_period_id ? periodById.get(Number(record.payroll_period_id)) : null;
+                const sourceFinalized = record.status === "approved" || record.status === "paid" || Boolean(
+                  period && ["locked", "approved", "paid"].includes(period.status)
+                );
+                const canVoidRecord = record.status !== "voided" && !sourceFinalized && !Boolean(
+                  period && FINALIZED_PERIOD_STATUSES.has(period.status)
+                );
                 const employeeDept = record.department_name || (
                   employees.find((employee) => Number(employee.id) === Number(record.employee_id))?.department_id
                     ? departmentById.get(Number(employees.find((employee) => Number(employee.id) === Number(record.employee_id))?.department_id))?.name
@@ -760,10 +892,15 @@ export default function PayrollPage() {
                     <td className="font-semibold">{money(record.total_amount, record.currency)}</td>
                     <td><span className={`badge ${statusBadge(record.status)}`}>{t(`statusValue.${record.status}`)}</span></td>
                     <td>
-                      {canManage && record.status !== "voided" ? (
+                      {canManage && canVoidRecord ? (
                         <button type="button" className="btn h-8 px-2 text-[11px]" onClick={() => voidRecord(record)}>
                           <Ban />
                           <span>{t("page.payroll.void")}</span>
+                        </button>
+                      ) : canManage && sourceFinalized ? (
+                        <button type="button" className="btn h-8 px-2 text-[11px]" onClick={() => startReversal(record)}>
+                          <Undo2 />
+                          <span>{t("page.payroll.reverseAsAdjustment")}</span>
                         </button>
                       ) : "-"}
                     </td>
