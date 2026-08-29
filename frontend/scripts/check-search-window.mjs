@@ -12,5 +12,7 @@ assert.match(inventory, /const INVENTORY_RENDER_PAGE_SIZE = 80;/, "Inventory mus
 assert.match(inventory, /inventoryRows\.slice\(0, inventoryRenderLimit\)/, "Inventory rendering must use the current window.");
 assert.equal((inventory.match(/visibleInventoryRows\.map/g) || []).length, 2, "Desktop and mobile Inventory layouts must share the bounded window.");
 assert.match(inventory, /Math\.min\(current \+ INVENTORY_RENDER_PAGE_SIZE, inventoryRows\.length\)/, "Inventory Load more must retain access to every fetched row.");
+assert.match(inventory, /const searchTimerRef = useRef<number \| null>\(null\);/, "Inventory must retain the pending type-to-search timer.");
+assert.match(inventory, /window\.clearTimeout\(searchTimerRef\.current\);/, "Explicit Inventory search must cancel its pending automatic navigation.");
 
 console.log("Bounded global and inventory search rendering contract passed.");

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Download, Edit3, PackageCheck, Plus, QrCode, Search, Trash2, X } from "lucide-react";
 import useSWR from "swr";
@@ -376,6 +376,7 @@ export default function InventoryPage() {
   const canEditItems = can(me, "storage.items", "*");
   const canDeleteBatches = can(me, "inventory.batches.delete", "*");
   const [searchDraft, setSearchDraft] = useState(q);
+  const searchTimerRef = useRef<number | null>(null);
   const [supplierFilter, setSupplierFilter] = useState(initialSupplierFilter);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -612,6 +613,7 @@ export default function InventoryPage() {
     if (nextQuery === q) return;
 
     const timer = window.setTimeout(() => {
+      searchTimerRef.current = null;
       const params = new URLSearchParams();
       params.set("group", group);
       if (nextQuery) params.set("q", nextQuery);
@@ -621,8 +623,12 @@ export default function InventoryPage() {
       router.replace(`/inventory?${params.toString()}`);
       setPage(1);
     }, 200);
+    searchTimerRef.current = timer;
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      if (searchTimerRef.current === timer) searchTimerRef.current = null;
+    };
   }, [createdFrom, createdTo, group, q, router, searchDraft, supplierFilter]);
 
   useEffect(() => {
@@ -651,6 +657,10 @@ export default function InventoryPage() {
   }
 
   function applySearch() {
+    if (searchTimerRef.current !== null) {
+      window.clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = null;
+    }
     router.push(inventoryHref(group, searchDraft));
     setPage(1);
   }
@@ -661,6 +671,10 @@ export default function InventoryPage() {
   }
 
   function clearSearch() {
+    if (searchTimerRef.current !== null) {
+      window.clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = null;
+    }
     setSearchDraft("");
     router.push(inventoryHref(group, ""));
     setPage(1);
