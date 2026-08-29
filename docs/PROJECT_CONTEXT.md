@@ -2,6 +2,14 @@
 
 Last updated: 2026-08-29
 
+## Sewing assignment moves and reduced Daily Sewing Excel ready locally (2026-08-29)
+
+- Every expanded Sewing Flows line now shows a compact Move action for each active assigned work row. Supervisors select another active line in the same factory; the assignment, its completed quantity, status, batch scope, and deadline remain intact, while both line views and workload summaries refresh immediately.
+- The assignment update API now verifies access to the current and destination lines, blocks cross-factory and inactive-line moves, rejects moves of finished assignments, revalidates the bundle factory route, updates the work order's convenience primary line when appropriate, and records the existing dedicated transfer audit event.
+- Daily Sewing Report Excel exports now contain one Saved entries worksheet with only the requested columns: number, sewing line, model number, Kroy number, and sewn quantity. The report period and generated timestamp remain above the table; the PDF export is unchanged.
+- Focused validation passed Ruff, Python compilation, 14 sewing assignment/report/workspace tests, scoped frontend ESLint, strict TypeScript, every inherited frontend build contract, and the optimized 82-route Next.js build. The repository-wide i18n checker still reports 12 unrelated pre-existing Inventory roll/label keys; the new Move key is present in English, Russian, and Uzbek.
+- This work is local only. No production source, release, schema, migration, assignment, sewing report, inventory quantity, order, bundle, package, user, role, permission, or other business row changed. Verified production remains on release `20260829_081957`, source-manifest SHA-256 `8f3e00f7cb41e08d6ad11aa54a44c0980bb79eb46d1a58c5564596bca9e2cfe8`, and database revision `0112_price_calc_requests`.
+
 ## Payroll Scan latency fix deployed (2026-08-29)
 
 - Active backend/frontend release is `20260829_081957` in the blue slot, built from Git commit `2ac412103901c1c70db326194f92ecce7784b4de`. Its 660-file source-manifest SHA-256 is `8f3e00f7cb41e08d6ad11aa54a44c0980bb79eb46d1a58c5564596bca9e2cfe8`. Release `20260829_065045` remains running in the green rollback slot. Database head remains `0112_price_calc_requests`.

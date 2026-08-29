@@ -263,6 +263,7 @@ export default {
     "field.samHint": "Bir dona uchun standart ruxsat etilgan daqiqa",
     "field.deadline2": "Muddat",
     "btn.assign": "Tayinlash",
+    "btn.move": "Ko'chirish",
     "btn.assignFlow": "Potokka biriktirish",
     "btn.setDeadline": "Muddat belgilash",
 

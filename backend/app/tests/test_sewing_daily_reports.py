@@ -531,21 +531,24 @@ def test_sewing_daily_report_exports_saved_rows_for_chosen_dates(client, auth_he
     )
     assert ".xlsx" in excel_response.headers["content-disposition"]
     workbook = load_workbook(BytesIO(excel_response.content), data_only=False)
-    assert workbook.sheetnames == ["Summary", "Entries"]
-    summary_sheet = workbook["Summary"]
+    assert workbook.sheetnames == ["Entries"]
     entries_sheet = workbook["Entries"]
-    assert summary_sheet["A1"].value == "Daily Sewing Report"
-    assert summary_sheet["A7"].value == f"{flow['name']} ({flow['code']})"
-    assert summary_sheet["B7"].value == 48
-    assert summary_sheet["C7"].value == 2
-    assert str(summary_sheet.cell(summary_sheet.max_row, 2).value).startswith("=SUM(")
-    assert entries_sheet["G6"].value == "EXPORT-2048"
-    assert entries_sheet["H6"].value == "V-29"
-    assert entries_sheet["I6"].value == "KR-EXPORT-29"
-    assert entries_sheet["J6"].value == 48
-    assert entries_sheet["K6"].value == 2
-    assert entries_sheet["L6"].value == "Hole present"
-    assert entries_sheet["M6"].value == "Export verification row"
+    assert entries_sheet["A1"].value == "Saved entries"
+    assert [entries_sheet.cell(5, column).value for column in range(1, 6)] == [
+        "No.",
+        "Sewing line",
+        "Model No.",
+        "Kroy No.",
+        "Sewn qty",
+    ]
+    assert [entries_sheet.cell(6, column).value for column in range(1, 6)] == [
+        1,
+        f"{flow['name']} ({flow['code']})",
+        "EXPORT-2048",
+        "KR-EXPORT-29",
+        48,
+    ]
+    assert entries_sheet.max_column == 5
 
     pdf_response = client.get(
         (

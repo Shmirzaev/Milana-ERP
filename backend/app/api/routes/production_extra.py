@@ -96,6 +96,23 @@ def _sewing_assignment_limit(db: DbSession, wo: WorkOrder, production_batch_id: 
     )
 
 
+def _received_sewing_factories(
+    db: DbSession,
+    wo: WorkOrder,
+    production_batch_id: int | None,
+) -> set[str]:
+    routed_qry = db.query(Bundle.sewing_factory_code).filter(
+        Bundle.production_order_id == wo.production_order_id,
+        Bundle.status == "received_sewing",
+    )
+    if production_batch_id is not None:
+        routed_qry = routed_qry.filter(Bundle.production_batch_id == production_batch_id)
+    return {
+        resolve_sewing_factory_code(factory_code)
+        for (factory_code,) in routed_qry.distinct().all()
+    }
+
+
 def _h(value) -> str:
     return escape(str(value or ""), quote=True)
 
@@ -160,16 +177,7 @@ def create_assignment(
     if payload.quantity <= 0:
         raise HTTPException(400, "Quantity must be > 0")
     batch_id = _normalize_assignment_batch_id(db, wo, payload.production_batch_id)
-    routed_qry = db.query(Bundle.sewing_factory_code).filter(
-        Bundle.production_order_id == wo.production_order_id,
-        Bundle.status == "received_sewing",
-    )
-    if batch_id is not None:
-        routed_qry = routed_qry.filter(Bundle.production_batch_id == batch_id)
-    routed_factories = {
-        resolve_sewing_factory_code(factory_code)
-        for (factory_code,) in routed_qry.distinct().all()
-    }
+    routed_factories = _received_sewing_factories(db, wo, batch_id)
     if routed_factories and routed_factories != {flow.factory_code}:
         raise HTTPException(409, "This sewing work is routed to a different sewing factory")
 
@@ -231,6 +239,11 @@ def update_assignment(
     if not wo:
         raise HTTPException(404, "Work order not found")
 
+    previous_flow = db.get(SewingFlow, a.sewing_flow_id)
+    if not previous_flow:
+        raise HTTPException(404, "Current sewing flow not found")
+    require_sewing_flow_access(current, previous_flow)
+
     next_flow_id = changes.get("sewing_flow_id", a.sewing_flow_id)
     next_qty = int(changes.get("quantity", a.quantity))
     next_start = changes.get("planned_start", a.planned_start)
@@ -241,8 +254,17 @@ def update_assignment(
     flow = db.get(SewingFlow, next_flow_id)
     if not flow:
         raise HTTPException(404, "Sewing flow not found")
+    require_sewing_flow_access(current, flow)
     if not flow.is_active:
         raise HTTPException(400, "Sewing flow is inactive")
+    is_transfer = int(flow.id) != int(previous_flow.id)
+    if is_transfer and a.status not in ("planned", "in_progress"):
+        raise HTTPException(409, "Only active sewing assignments can be moved")
+    if is_transfer and flow.factory_code != previous_flow.factory_code:
+        raise HTTPException(409, "Sewing work cannot be moved to another factory")
+    routed_factories = _received_sewing_factories(db, wo, next_batch_id)
+    if routed_factories and routed_factories != {flow.factory_code}:
+        raise HTTPException(409, "This sewing work is routed to a different sewing factory")
 
     siblings = db.query(SewingAssignment).filter(
         SewingAssignment.work_order_id == a.work_order_id,
@@ -264,7 +286,7 @@ def update_assignment(
 
     capacity_warning = None
 
-    previous_flow = a.sewing_flow_id
+    previous_flow_id = int(a.sewing_flow_id)
     for k, v in changes.items():
         setattr(a, k, v)
     if a.production_batch_id != next_batch_id:
@@ -273,10 +295,23 @@ def update_assignment(
     if changes.get("status") == "completed" and not a.actual_end:
         a.actual_end = datetime.now(timezone.utc)
     log_action(db, current, "update", "SewingAssignment", a.id, new_value=changes)
-    if "sewing_flow_id" in changes and changes["sewing_flow_id"] != previous_flow:
+    primary_flow_updated = False
+    if is_transfer and int(wo.sewing_flow_id or 0) == previous_flow_id:
+        remaining_on_previous = db.query(SewingAssignment.id).filter(
+            SewingAssignment.work_order_id == wo.id,
+            SewingAssignment.id != a.id,
+            SewingAssignment.sewing_flow_id == previous_flow_id,
+            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
+        ).first()
+        if not remaining_on_previous:
+            wo.sewing_flow_id = int(flow.id)
+            primary_flow_updated = True
+    if is_transfer:
         # Audit the transfer specifically — useful for line-breakdown investigations.
         log_action(db, current, "transfer", "SewingAssignment", a.id, new_value={
-            "from_flow": previous_flow, "to_flow": changes["sewing_flow_id"],
+            "from_flow": previous_flow_id,
+            "to_flow": int(flow.id),
+            "work_order_primary_flow_updated": primary_flow_updated,
         })
     db.commit(); db.refresh(a)
     return a

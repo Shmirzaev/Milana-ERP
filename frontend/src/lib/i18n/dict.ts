@@ -340,6 +340,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "field.samHint": "Standard Allowed Minutes per piece",
     "field.deadline2": "Deadline",
     "btn.assign": "Assign",
+    "btn.move": "Move",
     "btn.assignFlow": "Assign to flow",
     "btn.setDeadline": "Set deadline",
 
@@ -2413,6 +2414,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "field.samHint": "Норматив стандартного времени на единицу",
     "field.deadline2": "Срок",
     "btn.assign": "Назначить",
+    "btn.move": "Переместить",
     "btn.assignFlow": "Назначить на поток",
     "btn.setDeadline": "Установить срок",
 
@@ -4433,6 +4435,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "field.samHint": "Bir dona uchun standart ruxsat etilgan daqiqa",
     "field.deadline2": "Muddat",
     "btn.assign": "Tayinlash",
+    "btn.move": "Ko'chirish",
     "btn.assignFlow": "Potokka biriktirish",
     "btn.setDeadline": "Muddat belgilash",
 

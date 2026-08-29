@@ -263,6 +263,7 @@ export default {
     "field.samHint": "Норматив стандартного времени на единицу",
     "field.deadline2": "Срок",
     "btn.assign": "Назначить",
+    "btn.move": "Переместить",
     "btn.assignFlow": "Назначить на поток",
     "btn.setDeadline": "Установить срок",
 
