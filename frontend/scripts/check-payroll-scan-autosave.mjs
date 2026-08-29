@@ -7,6 +7,12 @@ const source = fs.readFileSync(path.join(root, "src/app/(app)/payroll/scan/page.
 
 const required = [
   ["immediate save after scan", "await saveRecordsToPayroll([nextRecord], true);"],
+  ["numeric work scan resolves and saves in one request", "/api/payroll/scan/numeric-work"],
+  ["numeric scanner tokens submit without the legacy pause", "NUMERIC_AUTO_SUBMIT_DELAY_MS = 0"],
+  ["automatic single-row fallback avoids the bulk endpoint", "rows.length === 1"],
+  ["single-row fallback uses the record endpoint", '"/api/payroll/records"'],
+  ["restored multi-row recovery retains the bulk endpoint", '"/api/payroll/records/bulk"'],
+  ["session history persists during browser idle time", "requestIdleCallback"],
   ["new scan enters saving state", "? { ...record, saveStatus: \"saving\", saveError: null }"],
   ["automatic success feedback", "page.payrollScan.autoSavedRecord"],
   ["restored pending scans resume automatically", "if (restoredPending.length > 0) void saveRecordsToPayrollRef.current(restoredPending);"],

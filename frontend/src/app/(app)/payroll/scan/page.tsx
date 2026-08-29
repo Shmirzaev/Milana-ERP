@@ -107,6 +107,16 @@ type BackendPayrollRecord = {
   duplicate?: boolean;
 };
 
+type NumericWorkScanResponse = {
+  work: Record<string, unknown>;
+  record: BackendPayrollRecord;
+};
+
+type IdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
 type EmployeeSummary = {
   employeeId: number;
   employeeNo: string;
@@ -140,6 +150,7 @@ const LEGACY_STORAGE_KEYS = ["milana_payroll_scan_records_v1"];
 const EMPTY_RECORDS: PayrollRecord[] = [];
 const HISTORY_RENDER_LIMIT = 100;
 const AUTO_SUBMIT_DELAY_MS = 140;
+const NUMERIC_AUTO_SUBMIT_DELAY_MS = 0;
 const PAYROLL_WORK_UNITS = new Set(["piece", "work_unit"]);
 
 function newId(): string {
@@ -576,13 +587,24 @@ export default function PayrollScanPage() {
 
   useEffect(() => {
     if (!recordsLoaded) return;
-    const timeout = window.setTimeout(() => {
+    const persistRecords = () => {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
       } catch {}
-    }, 250);
+    };
+    const idleWindow = window as IdleWindow;
+    let timeoutHandle: number | null = null;
+    let idleHandle: number | null = null;
+    if (idleWindow.requestIdleCallback) {
+      idleHandle = idleWindow.requestIdleCallback(persistRecords, { timeout: 2_000 });
+    } else {
+      timeoutHandle = window.setTimeout(persistRecords, 750);
+    }
 
-    return () => window.clearTimeout(timeout);
+    return () => {
+      if (idleHandle != null) idleWindow.cancelIdleCallback?.(idleHandle);
+      if (timeoutHandle != null) window.clearTimeout(timeoutHandle);
+    };
   }, [records, recordsLoaded]);
 
   useEffect(() => {
@@ -753,8 +775,50 @@ export default function PayrollScanPage() {
     setInputHasTextState(Boolean(value.trim()));
     clearAutoSubmitTimer();
     if (looksCompleteScan(value)) {
-      autoSubmitTimerRef.current = window.setTimeout(() => void submitScan(), AUTO_SUBMIT_DELAY_MS);
+      const delay = /^[12]\d{8}$/.test(value.trim()) ? NUMERIC_AUTO_SUBMIT_DELAY_MS : AUTO_SUBMIT_DELAY_MS;
+      autoSubmitTimerRef.current = window.setTimeout(() => void submitScan(), delay);
     }
+  }
+
+  async function recordNumericWorkScan(raw: string, employee: EmployeePayload) {
+    const response = await api.post<NumericWorkScanResponse>("/api/payroll/scan/numeric-work", {
+      token: raw,
+      employee_id: employee.employee_id,
+      scanned_at: new Date().toISOString(),
+    }, 30_000);
+    const payload = normalizeScanPayload(response.work);
+    if (!payload || payload.type !== "process_payroll") {
+      throw new Error(t("page.payrollScan.unknownQr"));
+    }
+
+    const existingWorkRecord = workRecordByKeyRef.current.get(buildWorkKey(payload));
+    if (response.record.duplicate && existingWorkRecord) {
+      setNotice(
+        t("page.payrollScan.duplicateWork", { name: existingWorkRecord.employeeName }),
+        "warning",
+      );
+      return;
+    }
+
+    const nextRecord = {
+      ...toPayrollRecord(employee, payload, t),
+      backendId: response.record.id,
+      backendStatus: response.record.status,
+      savedAt: new Date().toISOString(),
+      saveStatus: "saved" as const,
+      saveError: null,
+    };
+    const priorRecords = response.record.duplicate
+      ? recordsRef.current
+      : recordsRef.current.filter((record) => !payrollScanRecordMatchesLabel(record, payload.label_id || ""));
+    replaceRecords([nextRecord, ...priorRecords]);
+    setNotice(
+      t("page.payrollScan.autoSavedRecord", {
+        count: numberOrZero(nextRecord.quantity).toLocaleString(),
+        name: nextRecord.employeeName,
+      }),
+      "success",
+    );
   }
 
   async function submitScan(event?: React.FormEvent) {
@@ -770,6 +834,11 @@ export default function PayrollScanPage() {
     lastScanRef.current = { raw, at: now };
 
     try {
+      const selectedEmployee = currentEmployeeRef.current;
+      if (/^2\d{8}$/.test(raw) && selectedEmployee && canSavePayroll) {
+        await recordNumericWorkScan(raw, selectedEmployee);
+        return;
+      }
       const payload = await resolveScanPayload(raw, t);
       if (payload.type === "employee_payroll") {
         selectEmployee(payload);
@@ -851,13 +920,23 @@ export default function PayrollScanPage() {
     );
 
     try {
-      const response = await api.post<{
-        records: BackendPayrollRecord[];
-        created_count: number;
-        duplicate_count: number;
-      }>("/api/payroll/records/bulk", {
-        records: rows.map(payrollPayloadFromRecord),
-      }, 30_000);
+      const response = rows.length === 1
+        ? await api.post<BackendPayrollRecord>(
+          "/api/payroll/records",
+          payrollPayloadFromRecord(rows[0]),
+          30_000,
+        ).then((record) => ({
+          records: [record],
+          created_count: record.duplicate ? 0 : 1,
+          duplicate_count: record.duplicate ? 1 : 0,
+        }))
+        : await api.post<{
+          records: BackendPayrollRecord[];
+          created_count: number;
+          duplicate_count: number;
+        }>("/api/payroll/records/bulk", {
+          records: rows.map(payrollPayloadFromRecord),
+        }, 30_000);
 
       const resultById = new Map(rows.map((record, index) => [record.id, response.records[index]]));
       const savedAt = new Date().toISOString();

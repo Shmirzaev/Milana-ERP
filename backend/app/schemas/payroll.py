@@ -77,6 +77,12 @@ class PayrollRecordBulkIn(BaseModel):
     records: list[PayrollRecordIn] = Field(default_factory=list)
 
 
+class PayrollNumericWorkScanIn(BaseModel):
+    token: str
+    employee_id: int
+    scanned_at: datetime | None = None
+
+
 class PayrollRecordOut(ORMModel):
     id: int
     factory_code: str
@@ -120,6 +126,11 @@ class PayrollBulkOut(BaseModel):
     records: list[PayrollRecordOut]
     created_count: int
     duplicate_count: int
+
+
+class PayrollNumericWorkScanOut(BaseModel):
+    work: dict[str, Any]
+    record: PayrollRecordOut
 
 
 class PayrollQrLabelIssueIn(BaseModel):

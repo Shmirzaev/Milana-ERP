@@ -645,6 +645,74 @@ def test_payroll_qr_control_tracks_issued_and_scanned_labels(client, auth_header
     assert row["payroll_record_id"] == scanned.json()["id"]
 
 
+def test_numeric_work_scan_resolves_and_records_atomically(client, auth_headers):
+    employee = _create_employee(client, auth_headers, "Atomic QR Worker")
+    other_employee = _create_employee(client, auth_headers, "Other Atomic QR Worker")
+    label_uid = f"PY:{uuid4().hex}"
+    issued = client.post(
+        "/api/payroll/qr-labels/issue",
+        json={
+            "labels": [{
+                "label_uid": label_uid,
+                "sales_order_no": "SO-ATOMIC-SCAN",
+                "batch_no": "BT-ATOMIC-SCAN",
+                "model_code": "MODEL-ATOMIC",
+                "operation_section": "sewing",
+                "operation_code": "SEW-ATOMIC",
+                "operation_name": "Atomic scan sewing",
+                "size": "L",
+                "copy_index": 1,
+                "quantity": 12,
+                "rate_per_piece": 250,
+                "currency": "UZS",
+            }],
+        },
+        headers=auth_headers,
+    )
+    assert issued.status_code == 200, issued.text
+    qr_token = issued.json()["labels"][0]["qr_token"]
+    scanned_at = datetime.now(timezone.utc).isoformat()
+
+    created = client.post(
+        "/api/payroll/scan/numeric-work",
+        json={"token": qr_token, "employee_id": employee["id"], "scanned_at": scanned_at},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["record"]["duplicate"] is False
+    assert body["record"]["employee_id"] == employee["id"]
+    assert body["record"]["scan_uid"] == label_uid
+    assert body["record"]["operation_code"] == "SEW-ATOMIC"
+    assert float(body["record"]["quantity"]) == 12
+    assert body["work"]["label_id"] == label_uid
+    assert body["work"]["label_status"] == "scanned"
+
+    duplicate = client.post(
+        "/api/payroll/scan/numeric-work",
+        json={"token": qr_token, "employee_id": employee["id"], "scanned_at": scanned_at},
+        headers=auth_headers,
+    )
+    assert duplicate.status_code == 201, duplicate.text
+    assert duplicate.json()["record"]["duplicate"] is True
+    assert duplicate.json()["record"]["id"] == body["record"]["id"]
+
+    wrong_employee = client.post(
+        "/api/payroll/scan/numeric-work",
+        json={"token": qr_token, "employee_id": other_employee["id"]},
+        headers=auth_headers,
+    )
+    assert wrong_employee.status_code == 409, wrong_employee.text
+    assert "already recorded" in wrong_employee.text
+
+    bad_token = client.post(
+        "/api/payroll/scan/numeric-work",
+        json={"token": f"1{employee['id']:08d}", "employee_id": employee["id"]},
+        headers=auth_headers,
+    )
+    assert bad_token.status_code == 400, bad_token.text
+
+
 def test_qr_size_batch_delete_requires_every_label_to_be_never_scanned(client, auth_headers):
     employee = _create_employee(client, auth_headers, "QR Delete Safety Worker")
     order_no = f"SO-QR-DELETE-{uuid4().hex[:8]}"

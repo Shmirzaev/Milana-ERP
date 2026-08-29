@@ -9,6 +9,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 from sqlalchemy import func, or_
 
@@ -35,6 +36,8 @@ from app.schemas.payroll import (
     PayrollAdjustmentIn,
     PayrollAdjustmentOut,
     PayrollBulkOut,
+    PayrollNumericWorkScanIn,
+    PayrollNumericWorkScanOut,
     PayrollPeriodIn,
     PayrollPeriodOut,
     PayrollPeriodUpdate,
@@ -2034,6 +2037,100 @@ def resolve_employee_number(
     )
 
 
+def _qr_label_scan_payload(label: PayrollQrLabel) -> dict[str, Any]:
+    return {
+        "type": "process_payroll",
+        "source": "milana_erp_token",
+        "label_id": label.label_uid,
+        "production_order_id": label.production_order_id,
+        "production_no": label.production_no,
+        "sales_order_id": label.sales_order_id,
+        "sales_order_no": label.sales_order_no,
+        "work_order_id": label.work_order_id,
+        "batch_id": label.production_batch_id,
+        "batch_no": _normalize_production_batch_no(label.batch_no),
+        "model_id": label.model_id,
+        "model_code": label.model_code,
+        "size": label.size,
+        "operation_section": label.operation_section,
+        "operation_code": label.operation_code,
+        "operation_name": label.operation_name,
+        "quantity": label.quantity,
+        "rate_per_piece": label.rate_per_piece,
+        "currency": label.currency,
+        "payroll_unit": "piece",
+        "copy_index": label.copy_index,
+        "sewing_flow_id": label.sewing_flow_id,
+        "sewing_line_code": label.sewing_line_code,
+        "sewing_line_name": label.sewing_line_name,
+        "cutting_passport_id": label.cutting_passport_id,
+        "cutting_passport_no": label.cutting_passport_no,
+        "label_status": label.status,
+    }
+
+
+@router.post("/scan/numeric-work", response_model=PayrollNumericWorkScanOut, status_code=201)
+def record_numeric_work_scan(
+    payload: PayrollNumericWorkScanIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
+):
+    normalized = payload.token.strip()
+    if (
+        len(normalized) != PAYROLL_QR_TOKEN_LENGTH
+        or not normalized.isdigit()
+        or not normalized.startswith(PAYROLL_WORK_TOKEN_PREFIX)
+    ):
+        raise HTTPException(400, "Payroll work QR token must contain exactly 9 digits and start with 2")
+
+    factory_code = selected_factory_code(current)
+    label = db.query(PayrollQrLabel).filter(
+        PayrollQrLabel.id == int(normalized[1:]),
+        PayrollQrLabel.factory_code == factory_code,
+    ).first()
+    if not label:
+        raise HTTPException(404, "Payroll work QR was not found")
+    if label.status == "superseded":
+        raise HTTPException(409, "This payroll QR was replaced by split labels and can no longer be scanned")
+
+    employee = db.query(Employee).filter(
+        Employee.id == payload.employee_id,
+        Employee.factory_code == factory_code,
+    ).first()
+    if not employee:
+        raise HTTPException(404, "Employee not found")
+
+    work_payload = jsonable_encoder(_qr_label_scan_payload(label))
+    employee_payload = _employee_scan_payload(
+        employee,
+        badge_id=employee.employee_no or _numeric_qr_token(PAYROLL_EMPLOYEE_TOKEN_PREFIX, int(employee.id)),
+        source="milana_erp_numeric_work_scan",
+        db=db,
+    )
+    record_input = PayrollRecordIn(
+        scan_uid=label.label_uid,
+        employee_id=int(employee.id),
+        employee_user_id=employee.user_id,
+        employee=employee_payload,
+        work=work_payload,
+        scanned_at=payload.scanned_at,
+        source="payroll_scan",
+    )
+    record, created = _create_record_from_payload(db, record_input, current=current)
+    db.commit()
+    db.refresh(record)
+    employees, departments = _load_employee_maps(db, {int(record.employee_id)})
+    return {
+        "work": _qr_label_scan_payload(label),
+        "record": _serialize_record(
+            record,
+            duplicate=not created,
+            employees=employees,
+            departments=departments,
+        ),
+    }
+
+
 @router.get("/qr/resolve/{token}")
 def resolve_qr_token(
     token: str,
@@ -2069,35 +2166,7 @@ def resolve_qr_token(
             raise HTTPException(404, "Payroll work QR was not found")
         if label.status == "superseded":
             raise HTTPException(409, "This payroll QR was replaced by split labels and can no longer be scanned")
-        return {
-            "type": "process_payroll",
-            "source": "milana_erp_token",
-            "label_id": label.label_uid,
-            "production_order_id": label.production_order_id,
-            "production_no": label.production_no,
-            "sales_order_id": label.sales_order_id,
-            "sales_order_no": label.sales_order_no,
-            "work_order_id": label.work_order_id,
-            "batch_id": label.production_batch_id,
-            "batch_no": _normalize_production_batch_no(label.batch_no),
-            "model_id": label.model_id,
-            "model_code": label.model_code,
-            "size": label.size,
-            "operation_section": label.operation_section,
-            "operation_code": label.operation_code,
-            "operation_name": label.operation_name,
-            "quantity": label.quantity,
-            "rate_per_piece": label.rate_per_piece,
-            "currency": label.currency,
-            "payroll_unit": "piece",
-            "copy_index": label.copy_index,
-            "sewing_flow_id": label.sewing_flow_id,
-            "sewing_line_code": label.sewing_line_code,
-            "sewing_line_name": label.sewing_line_name,
-            "cutting_passport_id": label.cutting_passport_id,
-            "cutting_passport_no": label.cutting_passport_no,
-            "label_status": label.status,
-        }
+        return _qr_label_scan_payload(label)
 
     raise HTTPException(400, "Unknown payroll QR token type")
 
