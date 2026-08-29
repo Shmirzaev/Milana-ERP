@@ -2,6 +2,16 @@
 
 Last updated: 2026-08-29
 
+## Payroll Scan latency fix deployed (2026-08-29)
+
+- Active backend/frontend release is `20260829_081957` in the blue slot, built from Git commit `2ac412103901c1c70db326194f92ecce7784b4de`. Its 660-file source-manifest SHA-256 is `8f3e00f7cb41e08d6ad11aa54a44c0980bb79eb46d1a58c5564596bca9e2cfe8`. Release `20260829_065045` remains running in the green rollback slot. Database head remains `0112_price_calc_requests`.
+- Exact 9-digit numeric work scans no longer wait for the legacy 140 ms input-settling timer. When an employee is already selected, one factory-scoped `POST /api/payroll/scan/numeric-work` now resolves the authoritative issued label and persists through the existing payroll ledger/idempotency logic in one round trip. Compact and legacy QR formats keep their previous parsing and timing behavior.
+- Single-row fallback saves now use the existing single-record endpoint; the bulk endpoint remains reserved for restored multi-row recovery. Scanner-history serialization is deferred to browser idle time with a synchronous unload flush, removing whole-history JSON work from the scan interaction. Existing duplicate, return, retry, permission, factory, and automatic-save behavior remains intact.
+- Validation passed 498 backend tests, Ruff, Python compilation, full frontend lint, strict TypeScript, every build contract, and the optimized 82-route Next.js build locally and in GitHub Actions. Candidate production parity checks returned identical result counts and payload bytes with no regression failures.
+- The isolated production candidate replayed an already-recorded label 15 times through the new endpoint: median `17.31 ms`, p95 `37.85 ms`, every response returned the same existing record, and pre/post label, record, table-count, and audit-count fingerprints were identical. The gate created or changed no payroll or other business row.
+- Verified pre-deployment backup: `/opt/milana-erp/shared/backups/milana_erp_pre_20260829_081957.dump`, 47,772,826 bytes and 1,067 restore objects; dump SHA-256 `dcb61743ede11f3031c45b4888482e4641fdd40c146512e90f467466d5698ca4`, restore-list SHA-256 `dbeb69c6d8238eb83778d4695e1b6cc7c159108550d0f59ac2cbb4814f2c8b27`.
+- Cutover switched backend first and frontend second. Internal and public health/login checks returned HTTP 200, both blue containers had zero restarts and zero OOM events, PostgreSQL used 26 of 100 connections with zero invalid indexes, and immediate post-cutover logs had no matched traceback, exception, critical, or HTTP 5xx markers.
+
 ## Guarded performance and zero-downtime production release (2026-08-29)
 
 - Active backend/frontend release is `20260829_065045` in the green slot, built from Git commit `6748e54e7334715cbf4c653d4749a608e66c19c6`. Its 660-file source-manifest SHA-256 is `e6bf06953240e994afe72e0d2f55d55bd689d98b2e4a70711065e3da617a5b8a`. Release `20260829_060947` remains live in the blue rollback slot. Both public health and login returned HTTP 200 after cutover; database head remains `0112_price_calc_requests`.
