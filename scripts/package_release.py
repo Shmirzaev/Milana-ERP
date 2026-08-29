@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 ROOTS = ("backend/", "frontend/", "connectors/", "docs/", "deploy/", "scripts/")
-ROOT_FILES = {"DEPLOYMENT.md"}
+ROOT_FILES = {"DEPLOYMENT.md", "pyproject.toml"}
 FORBIDDEN = {".git", ".next", "node_modules", "__pycache__", ".pytest_cache", ".venv"}
 
 

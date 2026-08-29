@@ -12,6 +12,7 @@ from pathlib import Path
 FORBIDDEN_PARTS = {".git", ".next", "node_modules", "__pycache__", ".pytest_cache", ".venv"}
 REQUIRED = {
     "DEPLOYMENT.md",
+    "pyproject.toml",
     "backend/Dockerfile",
     "backend/alembic.ini",
     "backend/app/main.py",
