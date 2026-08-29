@@ -276,7 +276,8 @@ def activate(role: str, slot: str, release: str) -> None:
 def benchmark(slot: str, output: Path) -> None:
     name = container_name("backend", slot)
     result = run(
-        "docker", "exec", name, "python", "/app/scripts/benchmark_release_search.py",
+        "docker", "exec", "-e", "PYTHONPATH=/app:/app/backend", name,
+        "python", "/app/scripts/benchmark_release_search.py",
         "--base-url", "http://127.0.0.1:10000", capture=True,
     )
     parsed = json.loads(result)

@@ -2,6 +2,16 @@
 
 Last updated: 2026-08-29
 
+## Guarded performance and zero-downtime production release (2026-08-29)
+
+- Active backend/frontend release is `20260829_060947`, built from Git commit `dc0abcef52bb547e5e8dbd2dee88ea0ea396214b`. Its 660-file source-manifest SHA-256 is `b83563f872e0a7f611d6b4d97e967716d02a0eb22651758b25dada2a3ce5e066`. Both public health and login returned HTTP 200 after cutover; database head remains `0112_price_calc_requests`.
+- Production now uses prebuilt immutable GHCR images, loopback-only blue/green application slots, and a stable HAProxy `milana-router` on each application VM. Production VMs no longer install application dependencies or compile backend/frontend releases during a normal deployment.
+- The release preserves application behavior while adding a deterministic source/base drift gate, complete backend/frontend CI, validated PostgreSQL backup, inactive-slot warm-up, production-data result/payload parity checks, and median/p95 regression budgets before graceful traffic activation. The complete backend suite passed 497 tests; frontend lint, strict TypeScript, production contracts, and optimized build passed in CI.
+- Pre-cutover production-data benchmarks returned identical row counts and payload bytes. Candidate medians improved by 15.42% for global search, 7.10% for inventory batches, 5.17% for inventory stock, 10.11% for model groups, and 11.61% for model options; corresponding p95 changes were -17.98%, -4.91%, -1.95%, -11.64%, and -15.79%.
+- Verified pre-deployment backup: `/opt/milana-erp/shared/backups/milana_erp_pre_20260829_060947.dump`, 47,770,459 bytes, 1,067 restore objects, dump SHA-256 `5d33ff69ea0614bbb6bfcfeff65c0ce4613a3daacc8c7b7b7584b2ead9c3fb40`, restore-list SHA-256 `4acb6a5f5a49a7ee99f86f05df1176dc6cfa20044239d5e1518a9234645b976d`.
+- Deployment created no business rows and changed no business data. Manifest-verified retention archived and removed 199 old generated release trees on the backend and 196 on the frontend while protecting the active and newest five releases; archived source remains under `/opt/milana-erp/shared/release-archives`. Frontend disk use fell from 83% to 52%, removing the main repeated-deploy degradation/failure pressure.
+- `DEPLOYMENT.md` is the required future workflow: start from the recorded clean production baseline, push a reviewed commit, let GitHub Actions build once, stage the inactive slot, back up/migrate, run parity/performance and signed-in read-only QA gates, activate backend then frontend, observe, and retain rollback capacity. Never deploy from the historically dirty `C:\ERP` checkout.
+
 ## Bounded inventory-search rendering follow-up (2026-08-29)
 
 - Follow-up release `20260829_100455` is based on exact active release `20260829_100015` and keeps that release/image as immediate rollback. Signed-in browser QA proved a broad inventory unit search completed its server request quickly but mounted 418 detailed batch rows in both responsive rendering paths, causing unnecessary client work.

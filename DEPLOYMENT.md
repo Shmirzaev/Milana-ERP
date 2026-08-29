@@ -53,7 +53,7 @@ Both VMs must name the same release and manifest. If either differs from `deploy
 
    ```sh
    git fetch origin
-   git worktree add ../milana-change -b change/<short-name> <production-baseline-branch>
+   git worktree add ../milana-change -b codex/<short-name> <production-baseline-commit>
    cd ../milana-change
    git status --short
    ```
