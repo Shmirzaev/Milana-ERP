@@ -145,7 +145,7 @@ def _normalize_model_number(value: object) -> str:
     Longer business identifiers such as ``FAMILY-123`` and ``HISTORY-123``
     retain their meaningful separator.
     """
-    return re.sub(r"^([^\W\d_]{1,4})-(?=\d)", r"\1", _clean_text(value), count=1)
+    return re.sub(r"^([^\W\d_]{2})-(?=\d)", r"\1", _clean_text(value), count=1)
 
 
 def _normalize_model_code(value: object) -> str:
