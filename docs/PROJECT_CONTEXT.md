@@ -13,6 +13,7 @@ Last updated: 2026-08-29
 - Verified final pre-deployment backup: `/opt/milana-erp/shared/backups/milana_erp_pre_20260829_065045.dump`, 47,770,451 bytes, 1,067 restore objects, dump SHA-256 `cad9fd60415151a9316ba2ec40838d52bcebd608bd560a467b78d647ad614a31`, restore-list SHA-256 `59807f8ac505b01cf513f754caff40b47aba5c4756ed23ae05a420c11d84d1c0`.
 - Deployment created no business rows and changed no business data. Manifest-verified retention archived and removed 199 old generated release trees on the backend and 196 on the frontend while protecting the active and newest five releases; archived source remains under `/opt/milana-erp/shared/release-archives`. Frontend disk use fell from 83% to 52%, removing the main repeated-deploy degradation/failure pressure.
 - `DEPLOYMENT.md` is the required future workflow: start from the recorded clean production baseline, push a reviewed commit, let GitHub Actions build once, stage the inactive slot, back up/migrate, run parity/performance and signed-in read-only QA gates, activate backend then frontend, observe, and retain rollback capacity. Never deploy from the historically dirty `C:\ERP` checkout.
+- Repository `AGENTS.md` now requires every file-changing Codex task to create or use a clean dedicated worktree from verified `origin/main` before its first edit, stage only named paths, and report its worktree/branch/commit/test/deployment state. Direct deployable edits and releases from the legacy `C:\ERP` checkout are prohibited.
 
 ## Bounded inventory-search rendering follow-up (2026-08-29)
 

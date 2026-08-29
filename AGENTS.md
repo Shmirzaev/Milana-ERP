@@ -45,8 +45,34 @@ title, local checkout, GitHub `main`, or a historical release is current.
 
 The legacy `C:\ERP` checkout contains extensive preserved work and must not
 be used as a release source. Never reset, discard, overwrite, or broadly
-reformat it. New work starts in a clean worktree from the latest exact
-production-baseline branch. Port only the reviewed change.
+reformat it.
+
+For every task that will change repository files, Codex must work in a clean,
+dedicated Git worktree before the first code, configuration, migration, test,
+or documentation edit. Read-only questions and diagnostics do not require a
+new worktree.
+
+1. Do not make deployable changes directly in the legacy `C:\ERP` checkout.
+2. Fetch and inspect current Git state, active production state, and
+   `deploy/production-base.json`. If they disagree, stop before editing and
+   report the mismatch.
+3. If the task is not already running in a clean Codex-managed worktree, create
+   `C:\ERP\.codex-work\<task-slug>` from verified `origin/main` on a dedicated
+   `codex/<task-slug>` branch. Create it before the first edit.
+4. Make, test, and review every task change only inside that worktree.
+5. Stage only explicitly intended paths. Never use `git add .`, `git add -A`,
+   broad formatting, reset, clean, or stash against the legacy checkout.
+6. If requested work already exists only in `C:\ERP`, preserve it in place,
+   identify the exact relevant files/hunks, and port only that reviewed patch
+   into the clean worktree. Never copy unrelated root-checkout changes.
+7. Commit and push the dedicated branch only after proportional tests pass.
+   Merge to `main` and deploy only when authorized by the user.
+8. Production releases must come from the exact reviewed Git commit through
+   the immutable-image and blue/green procedure in `DEPLOYMENT.md`; never from
+   an uncommitted checkout.
+
+At handoff, report the worktree path, branch, commit, tests, push/merge state,
+and whether deployment occurred.
 
 Before deployment reconcile:
 
@@ -107,4 +133,3 @@ changes:
 4. mirror durable context to
    `C:\Users\User\Documents\Obsidian Vault\Milana ERP - Project Context.md`
    when accessible.
-
