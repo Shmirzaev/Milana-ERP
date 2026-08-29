@@ -336,6 +336,7 @@ export default {
     "field.samHint": "Standard Allowed Minutes per piece",
     "field.deadline2": "Deadline",
     "btn.assign": "Assign",
+    "btn.move": "Move",
     "btn.assignFlow": "Assign to flow",
     "btn.setDeadline": "Set deadline",
 

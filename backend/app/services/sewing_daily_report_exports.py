@@ -170,121 +170,34 @@ def build_sewing_daily_report_xlsx(
 ) -> bytes:
     text = REPORT_TEXT[lang]
     workbook = Workbook()
-    summary_sheet = workbook.active
-    summary_sheet.title = "Summary"
-    entries_sheet = workbook.create_sheet("Entries")
+    entries_sheet = workbook.active
+    entries_sheet.title = "Entries"
     workbook.properties.title = text["title"]
     workbook.properties.subject = f'{text["period"]}: {_period_label(report)}'
     workbook.properties.creator = "Milana ERP"
 
     dark_fill = PatternFill("solid", fgColor="1F1C17")
-    light_fill = PatternFill("solid", fgColor="EEEAE0")
     white_font = Font(color="FFFFFF", bold=True)
     title_font = Font(size=16, bold=True, color="1F1C17")
     muted_font = Font(size=9, color="625B4B")
     thin_bottom = Border(bottom=Side(style="thin", color="D8D1C0"))
-    total_border = Border(top=Side(style="medium", color="1F1C17"))
 
-    summary_sheet.merge_cells("A1:F1")
-    summary_sheet["A1"] = text["title"]
-    summary_sheet["A1"].font = title_font
-    summary_sheet.merge_cells("A2:F2")
-    summary_sheet["A2"] = f'{text["period"]}: {_period_label(report)}'
-    summary_sheet["A2"].font = muted_font
-    summary_sheet.merge_cells("A3:F3")
-    summary_sheet["A3"] = f'{text["generated"]}: {generated_label}'
-    summary_sheet["A3"].font = muted_font
-
-    summary_sheet["A5"] = text["summary"]
-    summary_sheet["A5"].font = Font(size=12, bold=True, color="1F1C17")
-    summary_headers = [
-        text["line"],
-        text["sewn"],
-        text["defective"],
-        text["report_count"],
-        text["model_no"],
-        text["kroy_no"],
-    ]
-    for column, value in enumerate(summary_headers, 1):
-        cell = summary_sheet.cell(6, column, value)
-        cell.fill = dark_fill
-        cell.font = white_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    for index, line in enumerate(report.summary, 7):
-        model_labels = sorted({
-            " / ".join(filter(None, [model.model_no or model.model_code, model.variant_no]))
-            for model in line.models
-            if model.model_no or model.model_code or model.variant_no
-        })
-        values = [
-            f"{line.line_name} ({line.line_code})",
-            int(line.total_sewn_qty or 0),
-            int(line.total_defective_qty or 0),
-            int(line.report_count or 0),
-            ", ".join(model_labels) or text["none"],
-            ", ".join(line.kroy_nos) or text["none"],
-        ]
-        for column, value in enumerate(values, 1):
-            cell = summary_sheet.cell(index, column, value)
-            cell.border = thin_bottom
-            cell.alignment = Alignment(
-                horizontal="right" if column in {2, 3, 4} else "left",
-                vertical="top",
-                wrap_text=column in {1, 5, 6},
-            )
-
-    total_row = 7 + len(report.summary)
-    summary_sheet.cell(total_row, 1, text["grand_total"])
-    if report.summary:
-        summary_sheet.cell(total_row, 2, f"=SUM(B7:B{total_row - 1})")
-        summary_sheet.cell(total_row, 3, f"=SUM(C7:C{total_row - 1})")
-        summary_sheet.cell(total_row, 4, f"=SUM(D7:D{total_row - 1})")
-    else:
-        for column in (2, 3, 4):
-            summary_sheet.cell(total_row, column, 0)
-    for column in range(1, 7):
-        cell = summary_sheet.cell(total_row, column)
-        cell.fill = light_fill
-        cell.font = Font(bold=True, color="1F1C17")
-        cell.border = total_border
-
-    summary_sheet.column_dimensions["A"].width = 34
-    summary_sheet.column_dimensions["B"].width = 16
-    summary_sheet.column_dimensions["C"].width = 16
-    summary_sheet.column_dimensions["D"].width = 14
-    summary_sheet.column_dimensions["E"].width = 38
-    summary_sheet.column_dimensions["F"].width = 28
-    summary_sheet.freeze_panes = "A7"
-    summary_sheet.auto_filter.ref = f"A6:F{max(6, total_row - 1)}"
-    summary_sheet.sheet_view.showGridLines = False
-    summary_sheet.page_setup.orientation = "landscape"
-    summary_sheet.page_setup.fitToWidth = 1
-
-    entries_sheet.merge_cells("A1:M1")
+    entries_sheet.merge_cells("A1:E1")
     entries_sheet["A1"] = text["entries"]
     entries_sheet["A1"].font = title_font
-    entries_sheet.merge_cells("A2:M2")
+    entries_sheet.merge_cells("A2:E2")
     entries_sheet["A2"] = f'{text["period"]}: {_period_label(report)}'
     entries_sheet["A2"].font = muted_font
-    entries_sheet.merge_cells("A3:M3")
+    entries_sheet.merge_cells("A3:E3")
     entries_sheet["A3"] = f'{text["generated"]}: {generated_label}'
     entries_sheet["A3"].font = muted_font
 
     entry_headers = [
         text["number"],
-        text["date"],
-        text["saved_at"],
         text["line"],
-        text["section"],
-        text["order"],
         text["model_no"],
-        text["variant_no"],
         text["kroy_no"],
         text["sewn"],
-        text["defective"],
-        text["reason"],
-        text["notes"],
     ]
     for column, value in enumerate(entry_headers, 1):
         cell = entries_sheet.cell(5, column, value)
@@ -293,44 +206,40 @@ def build_sewing_daily_report_xlsx(
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     for row_index, report_row in enumerate(report.rows, 6):
-        for column, value in enumerate(_entry_values(report_row, row_index - 5, lang), 1):
+        values = [
+            row_index - 5,
+            f"{report_row.line_name} ({report_row.line_code})",
+            report_row.model_no or report_row.model_code or text["none"],
+            report_row.kroy_no or text["none"],
+            int(report_row.sewn_qty or 0),
+        ]
+        for column, value in enumerate(values, 1):
             cell = entries_sheet.cell(row_index, column, value)
             cell.border = thin_bottom
             cell.alignment = Alignment(
-                horizontal="right" if column in {1, 10, 11} else "left",
+                horizontal="right" if column in {1, 5} else "left",
                 vertical="top",
-                wrap_text=column in {4, 12, 13},
+                wrap_text=column == 2,
             )
-        entries_sheet.cell(row_index, 2).number_format = "yyyy-mm-dd"
-        entries_sheet.cell(row_index, 3).number_format = "yyyy-mm-dd hh:mm"
 
     widths = {
         "A": 8,
-        "B": 14,
-        "C": 19,
-        "D": 28,
-        "E": 13,
-        "F": 20,
-        "G": 18,
-        "H": 16,
-        "I": 17,
-        "J": 14,
-        "K": 14,
-        "L": 28,
-        "M": 42,
+        "B": 32,
+        "C": 20,
+        "D": 20,
+        "E": 18,
     }
     for column, width in widths.items():
         entries_sheet.column_dimensions[column].width = width
     entries_sheet.freeze_panes = "A6"
-    entries_sheet.auto_filter.ref = f"A5:M{max(5, 5 + len(report.rows))}"
+    entries_sheet.auto_filter.ref = f"A5:E{max(5, 5 + len(report.rows))}"
     entries_sheet.sheet_view.showGridLines = False
     entries_sheet.page_setup.orientation = "landscape"
     entries_sheet.page_setup.fitToWidth = 1
-    for sheet in (summary_sheet, entries_sheet):
-        sheet.page_margins.left = 0.25
-        sheet.page_margins.right = 0.25
-        sheet.page_margins.top = 0.4
-        sheet.page_margins.bottom = 0.4
+    entries_sheet.page_margins.left = 0.25
+    entries_sheet.page_margins.right = 0.25
+    entries_sheet.page_margins.top = 0.4
+    entries_sheet.page_margins.bottom = 0.4
     workbook.calculation.fullCalcOnLoad = True
     workbook.calculation.forceFullCalc = True
 

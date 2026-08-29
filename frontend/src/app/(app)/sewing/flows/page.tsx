@@ -101,6 +101,7 @@ function WorkOrderMiniRow({
   showActions = false,
   isBusy = false,
   onAssign,
+  onMove,
   showImage = false,
   showReceivedQty = false,
 }: {
@@ -108,6 +109,7 @@ function WorkOrderMiniRow({
   showActions?: boolean;
   isBusy?: boolean;
   onAssign?: (wo: WO) => void;
+  onMove?: (wo: WO) => void;
   showImage?: boolean;
   showReceivedQty?: boolean;
 }) {
@@ -142,6 +144,16 @@ function WorkOrderMiniRow({
           {formatDeadline(workOrder.deadline)}
         </div>
         <div className="flex flex-col gap-1">
+          {workOrder.sewing_assignment_id && onMove && (
+            <button
+              type="button"
+              className="btn h-7 w-full px-2 text-[11px]"
+              onClick={() => onMove(workOrder)}
+              disabled={isBusy}
+            >
+              {isBusy ? t("common.loading") : t("btn.move")}
+            </button>
+          )}
           {showActions && (
             <button
               type="button"
@@ -181,6 +193,16 @@ function WorkOrderMiniRow({
         {formatDeadline(workOrder.deadline)}
       </div>
       <div className="flex flex-col gap-1">
+        {workOrder.sewing_assignment_id && onMove && (
+          <button
+            type="button"
+            className="btn h-7 w-full px-2 text-[11px]"
+            onClick={() => onMove(workOrder)}
+            disabled={isBusy}
+          >
+            {isBusy ? t("common.loading") : t("btn.move")}
+          </button>
+        )}
         {showActions && (
           <button
             type="button"
@@ -298,7 +320,14 @@ export default function SewingFlowsPage() {
                   ? t("btn.cancel")
                   : (f.active_work_orders > 0 ? t("page.sewingFlows.assigned") : t("page.sewingFlows.readyForWork"))}
               </button>
-              {isExpanded && <FlowDetail flowId={f.id} factoryCode={factoryCode} flowsUrl={flowsUrl} />}
+              {isExpanded && (
+                <FlowDetail
+                  flow={f}
+                  flows={visibleFlows}
+                  factoryCode={factoryCode}
+                  flowsUrl={flowsUrl}
+                />
+              )}
             </div>
           );
         })}
@@ -307,17 +336,31 @@ export default function SewingFlowsPage() {
   );
 }
 
-function FlowDetail({ flowId, factoryCode, flowsUrl }: { flowId: number; factoryCode: string; flowsUrl: string }) {
+function FlowDetail({
+  flow,
+  flows,
+  factoryCode,
+  flowsUrl,
+}: {
+  flow: Flow;
+  flows: Flow[];
+  factoryCode: string;
+  flowsUrl: string;
+}) {
   const { t } = useT();
   const { mutate: mutateGlobal } = useSWRConfig();
-  const { data: wos, mutate: mutateAssigned } = useSWR<WO[]>(`/api/sewing-flows/${flowId}/work-orders?only_active=true`, fetcher);
+  const flowId = flow.id;
+  const assignedUrl = `/api/sewing-flows/${flowId}/work-orders?only_active=true`;
+  const { data: wos, mutate: mutateAssigned } = useSWR<WO[]>(assignedUrl, fetcher);
   const { data: availableWos, mutate: mutateAvailableWos } = useSWR<WO[]>(
     `/api/work-orders?operation=sewing&only_active=true&only_received_sewing=true&sewing_factory_code=${factoryCode}`,
     fetcher,
   );
   const [claimingKey, setClaimingKey] = useState<string | null>(null);
   const [loadingPickKey, setLoadingPickKey] = useState<string | null>(null);
+  const [movingAssignmentId, setMovingAssignmentId] = useState<number | null>(null);
   const [msg, setMsg] = useState("");
+  const [moveMsg, setMoveMsg] = useState("");
   const [pick, setPick] = useState<{
     wo: WO | null;
     qty: NumberInputValue;
@@ -325,6 +368,46 @@ function FlowDetail({ flowId, factoryCode, flowsUrl }: { flowId: number; factory
     productionBatchId: number | null;
     batchLabel: string;
   }>({ wo: null, qty: "", maxQty: 0, productionBatchId: null, batchLabel: "" });
+  const [movePick, setMovePick] = useState<{ wo: WO | null; destinationFlowId: number | null }>({
+    wo: null,
+    destinationFlowId: null,
+  });
+  const destinationFlows = flows.filter((candidate) => candidate.is_active && candidate.id !== flowId);
+
+  function closeMove() {
+    setMovePick({ wo: null, destinationFlowId: null });
+    setMoveMsg("");
+  }
+
+  function openMove(wo: WO) {
+    if (!wo.sewing_assignment_id) return;
+    setMoveMsg("");
+    setMovePick({ wo, destinationFlowId: null });
+  }
+
+  async function moveWork() {
+    const assignmentId = movePick.wo?.sewing_assignment_id;
+    const destinationFlowId = movePick.destinationFlowId;
+    if (!assignmentId || !destinationFlowId) return;
+    setMoveMsg("");
+    setMovingAssignmentId(assignmentId);
+    try {
+      await api.patch(`/api/sewing-assignments/${assignmentId}`, {
+        sewing_flow_id: destinationFlowId,
+      });
+      closeMove();
+      await Promise.all([
+        mutateAssigned(),
+        mutateAvailableWos(),
+        mutateGlobal(`/api/sewing-flows/${destinationFlowId}/work-orders?only_active=true`),
+        mutateGlobal(flowsUrl),
+      ]);
+    } catch (e: any) {
+      setMoveMsg(e.message);
+    } finally {
+      setMovingAssignmentId(null);
+    }
+  }
 
   async function openPick(wo: WO) {
     const rowKey = workOrderRowKey(wo);
@@ -408,7 +491,13 @@ function FlowDetail({ flowId, factoryCode, flowsUrl }: { flowId: number; factory
         <div className="overflow-x-auto rounded-md border border-[#e3dfd3]">
           <WorkOrderMiniHeader showImage />
           {wos.map((w) => (
-            <WorkOrderMiniRow key={workOrderRowKey(w)} workOrder={w} showImage />
+            <WorkOrderMiniRow
+              key={workOrderRowKey(w)}
+              workOrder={w}
+              showImage
+              isBusy={movingAssignmentId === w.sewing_assignment_id}
+              onMove={openMove}
+            />
           ))}
         </div>
       ) : (
@@ -472,6 +561,50 @@ function FlowDetail({ flowId, factoryCode, flowsUrl }: { flowId: number; factory
             <button type="button" className="btn" onClick={() => setPick({ wo: null, qty: "", maxQty: 0, productionBatchId: null, batchLabel: "" })}>{t("btn.cancel")}</button>
             <button type="button" className="btn btn-primary" onClick={takeWork} disabled={!!claimingKey}>
               {claimingKey ? t("common.loading") : t("btn.assign")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!movePick.wo} onClose={closeMove} title={t("btn.move")}>
+        <div className="space-y-3">
+          <div className="text-xs text-slate-500">
+            {movePick.wo ? orderReference(movePick.wo, `#${movePick.wo.production_order_id}`) : ""}
+          </div>
+          <div className="text-xs text-slate-500">
+            {t("field.line")}: {flow.name} ({flow.code})
+          </div>
+          <div>
+            <label className="label" htmlFor={`move-destination-${movePick.wo?.sewing_assignment_id || flowId}`}>
+              {t("field.line")}
+            </label>
+            <select
+              id={`move-destination-${movePick.wo?.sewing_assignment_id || flowId}`}
+              className="input"
+              value={movePick.destinationFlowId ?? ""}
+              onChange={(event) => {
+                const value = Number(event.target.value || 0);
+                setMovePick((current) => ({ ...current, destinationFlowId: value > 0 ? value : null }));
+              }}
+            >
+              <option value="">-</option>
+              {destinationFlows.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name} ({candidate.code})
+                </option>
+              ))}
+            </select>
+          </div>
+          {moveMsg && <div className="text-xs text-red-600">{moveMsg}</div>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" className="btn" onClick={closeMove}>{t("btn.cancel")}</button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={moveWork}
+              disabled={!movePick.destinationFlowId || !!movingAssignmentId}
+            >
+              {movingAssignmentId ? t("common.loading") : t("btn.move")}
             </button>
           </div>
         </div>
