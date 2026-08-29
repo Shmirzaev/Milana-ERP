@@ -231,6 +231,8 @@ sudo python /opt/milana-erp/shared/deploy/slotctl.py activate \
 
 Do not downgrade the database without an explicit reviewed procedure and verified backup.
 
+The one-time router bootstrap release `20260829_060947` has no registered rollback slot because it replaced the legacy single-instance services. Until the next blue-green release populates the green slot, its emergency rollback is: repoint `current` to retained release `20260829_100455`, stop `milana-router`, stop the blue container, then start legacy `milana-backend` on the backend VM and `milana-frontend` on the frontend VM. Perform backend first, frontend second, and run all four health checks. Do not use this transitional procedure after a rollback slot is present.
+
 ## Retention and disk safety
 
 Dry-run first on each VM:
