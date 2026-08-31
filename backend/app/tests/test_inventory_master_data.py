@@ -418,6 +418,14 @@ def test_material_inventory_batch_details_include_receive_fields_and_search(clie
     assert batch["color_code"] == receive_payload["color_code"]
     assert batch["color_status"] == receive_payload["color_status"]
     assert batch["order_no"] == receive_payload["order_no"]
+    assert {
+        "item_image_url",
+        "archived_by",
+        "archived_at",
+        "archive_reason",
+        "received_quantity",
+        "used_quantity",
+    }.isdisjoint(batch)
     assert round(float(batch["quantity"]), 2) == 123.45
     assert round(float(batch["gsm"]), 6) == 0.145678
     assert batch["piece_count"] == receive_payload["piece_count"]

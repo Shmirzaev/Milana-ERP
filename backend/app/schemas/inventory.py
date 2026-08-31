@@ -113,7 +113,6 @@ class StockBatchOut(ORMModel):
     item_sku: Optional[str] = None
     item_name: Optional[str] = None
     item_category: Optional[str] = None
-    item_image_url: Optional[str] = None
     batch_no: str
     internal_batch_no: Optional[str] = None
     supplier_id: Optional[int] = None
@@ -136,11 +135,6 @@ class StockBatchOut(ORMModel):
     warehouse_id: int
     warehouse_name: Optional[str] = None
     qc_status: str
-    archived_at: Optional[datetime] = None
-    archived_by: Optional[int] = None
-    archive_reason: Optional[str] = None
-    received_quantity: float = 0
-    used_quantity: float = 0
     reserved_quantity: float = 0
     available_quantity: float = 0
     active_reservations: list[dict] = []
