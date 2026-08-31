@@ -19,7 +19,7 @@ from app.models import (
 )
 from app.core.dt import as_utc, date_filter_bounds
 from app.services.bundles import SEWING_FACTORY_CODES, resolve_sewing_factory_code
-from app.services.factory_scope import selected_factory_code
+from app.services.factory_scope import require_factory_access, selected_factory_code
 from app.services.model_images import material_preview_image_url, model_display_image_url
 from app.services.payroll_factory_scope import production_order_factory_condition
 
@@ -752,6 +752,7 @@ def _process_summary(stages: list[dict], po_status: str) -> dict:
 @router.get("")
 def list_processes(
     db: DbSession, current: CurrentUser,
+    factory: str | None = None,
     status: str | None = None,
     q: str | None = None,
     created_from: date | None = None,
@@ -779,6 +780,9 @@ def list_processes(
     ).outerjoin(
         Model, Model.id == ProductionOrder.model_id,
     ).filter(ProductionOrder.source_type == "standard")
+    if factory:
+        factory_code = require_factory_access(current, factory)
+        qry = qry.filter(production_order_factory_condition(factory_code))
     if status:
         qry = qry.filter(ProductionOrder.status == status)
     if only_active:

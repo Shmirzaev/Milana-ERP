@@ -189,6 +189,12 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    titleKey: "section.ecoCottonTracking",
+    items: [
+      { href: "/processes?factory=ECO", labelKey: "nav.processes", icon: ClipboardList },
+    ],
+  },
+  {
     titleKey: "section.usluga",
     items: [
       { href: "/usluga", labelKey: "nav.uslugaPlanning", perms: ["usluga.view", "usluga.manage", "usluga.handover", "*"], icon: ClipboardList },
@@ -324,6 +330,7 @@ export default function Sidebar() {
           "section.ecoCottonCutting",
           "section.ecoCottonSewing",
           "section.ecoCottonPackaging",
+          "section.ecoCottonTracking",
           "section.usluga",
           "section.attendance",
         ]);
