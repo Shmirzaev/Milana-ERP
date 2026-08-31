@@ -1,6 +1,17 @@
 # Milana ERP Project Context
 
-Last updated: 2026-08-29
+Last updated: 2026-08-31
+
+## Guarded old-ERP sticker inventory import (2026-08-31)
+
+- The user-provided `stiiicker.zip` was processed as data only. Its 250 submitted PDFs contained 248 unique files and 859 physical label records after exact-file and repeated-QR reconciliation. Strict PDF table-cell extraction preserved printed numeric children's sizes and prevented blank Weight cells from being misread as Quantity.
+- Production received only 536 complete QR-coded packs whose model number and variant resolved to exactly one approved catalog model and whose QR, package number, receipt key, and alias had zero pre-existing collisions. The import added 34,026 available pieces and 12,779.37 kg across 87 production models. Warehouse 8 rose from 1,358 to 1,894 packages and from 95,892 to 129,918 available pieces; reserved and sold quantities remained zero.
+- Each imported pack has one immutable legacy receipt, package, package item, finished-goods stock row, old-ERP QR alias, and scan-evidence row. Required source values (sizes, weight, quantity, model number, and variant number), original PDF name/page/quadrant, exact PDF hash, and source ZIP hash are retained in the receipt payload. Import audit row `15952` has entry hash `90d6dc6bfe890e7a6c994e9947310cbf742d66d1817fb8e2fa5466121db62e03`.
+- Import manifest SHA-256: `74cc3c218316e305b2bab0f89438ee1f30c4974ca587d36d14784f6bea72301d`; immutable transfer archive SHA-256: `24c868ee887b6b5e775db4c280bd5d83dae7b4f35717366e1f10fb03bbbbd697`; source ZIP SHA-256: `8933b3f7db2d65c7835423e827bfed5ebeaddfa0373c930aafbee52a6d267ff5`.
+- A verified pre-import PostgreSQL custom-format backup is `/opt/milana-erp/shared/backups/milana_erp_pre_20260831_051202.dump`, 47,931,446 bytes, mode `0600`, 1,067 restore objects, SHA-256 `415977d2ff1284552c6a44cc5ca7057426d2cfbbdb2eb1c2f3ab2265824927fe`; restore-list SHA-256 is `e6e388e34eae740495187a97aae8e721ecad9714118261e35600caedcaff374e`.
+- Exactly 323 submitted records were withheld: 318 have no exact production model/variant, two printed labels have no old-ERP QR, two have a blank Weight cell, and one repeated QR has conflicting Weight/Quantity values. No guessed field or new catalog model was created.
+- Post-import verification reconciled all six 536-row evidence/data tables and exact totals. Signed authenticated QR lookups through both the stable backend and public domain returned the correct model, variant, sizes, weight, quantity, QR, and received-in-storage status for representative ordinary, numeric-size/318-piece, and high-size/150-piece packs. All four internal/public health/login checks passed; both routers and HAProxy configurations were valid; the active backend had two configured workers, zero restarts/OOM, zero recent critical markers, 23/100 database connections, and zero invalid indexes.
+- This was a production data import, not an application deployment. Backend/frontend remain on release `20260829_112849` in green with source-manifest SHA-256 `9b0eee10f6ef3e2ed172f81934e182fd67e0d9dd462a764baeadde867e27380e`; release `20260829_081957` remains the blue rollback slot, and database head remains `0112_price_calc_requests`.
 
 ## Sewing assignment moves and reduced Daily Sewing Excel deployed (2026-08-29)
 
