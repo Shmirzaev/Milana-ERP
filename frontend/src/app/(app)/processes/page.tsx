@@ -123,7 +123,8 @@ function positiveInt(value: string | null, fallback: number) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function buildProcessUrl({ q, status, createdFrom, createdTo, sort, page, pageSize }: {
+function buildProcessUrl({ factory, q, status, createdFrom, createdTo, sort, page, pageSize }: {
+  factory: string;
   q: string;
   status: string;
   createdFrom: string;
@@ -138,6 +139,7 @@ function buildProcessUrl({ q, status, createdFrom, createdTo, sort, page, pageSi
     page_size: String(pageSize),
     sort,
   });
+  if (factory) params.set("factory", factory);
   if (q.trim()) params.set("q", q.trim());
   if (status) params.set("status", status);
   if (createdFrom) params.set("created_from", createdFrom);
@@ -153,6 +155,7 @@ export default function ProcessTrackingPage() {
   const { t } = useT();
   const searchParams = useSearchParams();
   const searchString = searchParams.toString();
+  const factory = searchParams.get("factory") ?? "";
 
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get("q") ?? "");
@@ -186,8 +189,8 @@ export default function ProcessTrackingPage() {
   }, [createdFrom, createdTo, debouncedSearch, status, sort, pageSize]);
 
   const processUrl = useMemo(
-    () => buildProcessUrl({ q: debouncedSearch, status, createdFrom, createdTo, sort, page, pageSize }),
-    [createdFrom, createdTo, debouncedSearch, status, sort, page, pageSize],
+    () => buildProcessUrl({ factory, q: debouncedSearch, status, createdFrom, createdTo, sort, page, pageSize }),
+    [createdFrom, createdTo, debouncedSearch, factory, status, sort, page, pageSize],
   );
   const { data, error, isLoading, isValidating, mutate } = useSWR<ProcessResponse>(
     processUrl,
@@ -196,7 +199,10 @@ export default function ProcessTrackingPage() {
   );
 
   function openExport() {
-    api.openLabel("/api/process-tracking/export");
+    const params = new URLSearchParams();
+    if (factory) params.set("factory", factory);
+    const query = params.toString();
+    api.openLabel(`/api/process-tracking/export${query ? `?${query}` : ""}`);
   }
 
   const rows = data?.rows ?? [];
@@ -211,8 +217,8 @@ export default function ProcessTrackingPage() {
   return (
     <div>
       <PageHeader
-        title={t("page.processes.title")}
-        subtitle={t("page.processes.subtitle")}
+        title={t(factory === "ECO" ? "page.processes.ecoTitle" : "page.processes.title")}
+        subtitle={t(factory === "ECO" ? "page.processes.ecoSubtitle" : "page.processes.subtitle")}
         actions={(
           <div className="flex flex-wrap gap-2">
             <button className="btn" onClick={() => mutate()} title={t("page.processes.refresh")} aria-label={t("page.processes.refresh")}>
