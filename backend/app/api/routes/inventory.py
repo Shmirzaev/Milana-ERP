@@ -1711,24 +1711,29 @@ def list_batches(
     for batch, item, warehouse, supplier in rows:
         reserved_qty = max(0.0, reserved_by_batch.get(int(batch.id), 0.0))
         summary = movement_summary.get(int(batch.id), {})
-        out.append({
+        row = {
             **StockBatchOut.model_validate(batch).model_dump(),
             "item_sku": item.sku if item else None,
             "item_name": item.name if item else None,
             "item_category": item.category if item else None,
-            "item_image_url": item.image_url if item else None,
             "supplier_name": supplier.name if supplier else None,
             "warehouse_name": warehouse.name if warehouse else None,
             "reserved_quantity": reserved_qty,
             "available_quantity": float(batch.quantity or 0) - reserved_qty,
             "active_reservations": active_reservations.get(int(batch.id), []),
-            "archived_at": (
-                batch.archived_at or summary.get("last_archive_activity_at") or batch.updated_at
-            ) if archived else None,
-            "archive_reason": "deleted" if summary.get("deleted") else "used" if archived else None,
-            "received_quantity": float(summary.get("received_quantity") or 0),
-            "used_quantity": float(summary.get("used_quantity") or 0),
-        })
+        }
+        if archived:
+            row.update({
+                "item_image_url": item.image_url if item else None,
+                "archived_by": batch.archived_by,
+                "archived_at": (
+                    batch.archived_at or summary.get("last_archive_activity_at") or batch.updated_at
+                ),
+                "archive_reason": "deleted" if summary.get("deleted") else "used",
+                "received_quantity": float(summary.get("received_quantity") or 0),
+                "used_quantity": float(summary.get("used_quantity") or 0),
+            })
+        out.append(row)
     if include_total:
         return {"rows": out, "total": total, "page": safe_page, "page_size": safe_size}
     return out
