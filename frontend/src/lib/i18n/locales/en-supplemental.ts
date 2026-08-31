@@ -82,7 +82,7 @@ export default {
     "section.ecoCottonPackaging": "Eco Cotton Packaging",
     "section.ecoCottonTracking": "Eco Cotton Process Tracking",
     "page.processes.ecoTitle": "Eco Cotton Process Tracking",
-    "page.processes.ecoSubtitle": "Live status of Eco Cotton Cutting, Sewing, and Packaging orders",
+    "page.processes.ecoSubtitle": "Live status of Eco Cotton standard and Usluga Cutting, Sewing, and Packaging orders",
     "section.usluga": "Usluga",
     "nav.uslugaOrders": "Outside service orders",
     "nav.uslugaPlanning": "Usluga planning",

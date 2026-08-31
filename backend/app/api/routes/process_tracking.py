@@ -779,10 +779,18 @@ def list_processes(
         Customer, Customer.id == SalesOrder.customer_id,
     ).outerjoin(
         Model, Model.id == ProductionOrder.model_id,
-    ).filter(ProductionOrder.source_type == "standard")
+    )
     if factory:
         factory_code = require_factory_access(current, factory)
-        qry = qry.filter(production_order_factory_condition(factory_code))
+        source_types = ("standard", "usluga") if factory_code == "ECO" else ("standard",)
+        qry = qry.filter(
+            ProductionOrder.source_type.in_(source_types),
+            production_order_factory_condition(factory_code),
+        )
+    else:
+        # Existing unscoped consumers are the ordinary production workspace.
+        # Usluga joins the dedicated Eco view only and must not leak globally.
+        qry = qry.filter(ProductionOrder.source_type == "standard")
     if status:
         qry = qry.filter(ProductionOrder.status == status)
     if only_active:
@@ -814,6 +822,8 @@ def list_processes(
             ProductionOrder.status.ilike(like),
             SalesOrder.order_no.ilike(like),
             Customer.name.ilike(like),
+            ProductionOrder.service_customer_name.ilike(like),
+            ProductionOrder.service_customer_reference.ilike(like),
             normalized_model_code_column(Model.code).ilike(model_code_like),
             Model.name.ilike(like),
         ))
@@ -1158,7 +1168,7 @@ def list_processes(
             "sales_order_id": po.sales_order_id,
             "sales_order_no": so.order_no if so else None,
             "customer_id": so.customer_id if so else None,
-            "customer_name": customer.name if customer else None,
+            "customer_name": customer.name if customer else po.service_customer_name,
             "model_id": po.model_id,
             "model_code": model.code if model else None,
             "model_name": model.name if model else None,
