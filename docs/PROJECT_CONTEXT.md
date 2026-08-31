@@ -1,6 +1,17 @@
 # Milana ERP Project Context
 
-Last updated: 2026-08-29
+Last updated: 2026-08-31
+
+## Earlier withheld old-ERP sticker packs imported (2026-08-31)
+
+- Reconciled the earlier first-batch and organized-picture sticker holds against both the signed-in old ERP variant registry and current production before writing. The immutable import contains `1,022` distinct missing QR packages: `172` from the filled 882-row batch and `850` from the organized-picture batch, totaling `65,767` pieces and `25,689.354 kg` across `249` resolved catalog identities. One QR already present before reconciliation was excluded and no target collision remained.
+- Twenty sticker identity groups had a model value that differed from the authoritative parent of the same variant ID in old ERP; this affected `33` packages / `2,227` pieces. Those packs retain the original sticker identity in their receipt payload while resolving to the old-ERP parent model. All source photo hashes and required fields were preserved.
+- Created exactly `20` missing approved catalog variants (model IDs `7403`-`7422`) with `116` size relations, `20` color relations, and both an old-ERP parent-model picture and old-ERP variant/material picture per variant. The source-native highest-resolution images were preserved byte-for-byte without upscaling; repeated identical source images are deduplicated by stored URL. Model count rose from `6,711` to `6,731`.
+- The seven XJ3062 / V-5709 packages (`420` pieces) were imported as `Mixed material` against approved base model ID `325`; no V-5709 catalog variant was created, following the user's prior instruction and the old ERP's absence of that variant.
+- Created exactly `1,022` receipts, packages, package items, finished-goods rows, QR aliases, and scan logs. Finished Goods warehouse ID `8` rose from `2,217` packages / `151,526` available pieces to `3,239` packages / `217,293` available pieces. Post-import reconciliation found all `1,022` target QRs present and zero missing rows.
+- Catalog audit `16106` and inventory audit `16107` have valid hash-chain entries. All `1,022` authenticated internal QR lookups resolved to `1,022` unique packages; twelve public samples, including all seven mixed-material QRs, returned HTTP 200. The 20 new variants had 20 primary and 20 variant image relations; all 64 unique internal/public image checks were byte-identical to storage. Backend/frontend internal checks and public health/login returned HTTP 200, with zero active backend restarts or OOM events.
+- Verified pre-mutation backup: `/opt/milana-erp/shared/backups/milana_erp_pre_20260831_122927.dump`, `48,076,668` bytes, `1,067` restore objects, dump SHA-256 `8286a4f0d7ef0ff2df75837184891ecca17e48b5a2d674c335a48832fa58c01e`; restore-list SHA-256 `f285c0505077cfc125c25a50a4d90346dfb078fa8352fc8c7fc7f2ff6f3f3bf9`.
+- This was a guarded production business-data import only. No application release, image, schema, symlink, or code was deployed; active release remains `20260829_112849`, source-manifest SHA-256 remains `9b0eee10f6ef3e2ed172f81934e182fd67e0d9dd462a764baeadde867e27380e`, and Alembic remains `0112_price_calc_requests`.
 
 ## Sewing assignment moves and reduced Daily Sewing Excel deployed (2026-08-29)
 
