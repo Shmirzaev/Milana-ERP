@@ -1398,7 +1398,10 @@ def test_material_inventory_report_exports_grouped_counts_kg_and_grand_total(cli
     assert len(pdf_response.content) > 10_000
 
 
-def test_admin_can_delete_unused_stock_receipt_batch(client, auth_headers):
+def test_admin_archives_unused_fabric_receipt_batch(client, auth_headers):
+    from app.db import session as session_module
+    from app.models import StockBatch, StockMovement
+
     suffix = uuid4().hex[:8].upper()
     item_response = client.post(
         "/api/inventory/items",
@@ -1435,12 +1438,116 @@ def test_admin_can_delete_unused_stock_receipt_batch(client, auth_headers):
 
     deleted = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
     assert deleted.status_code == 204, deleted.text
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        assert batch is not None
+        assert float(batch.quantity) == 0
+        assert batch.archived_at is not None
+        deletion_issue = db.query(StockMovement).filter(
+            StockMovement.batch_id == batch_id,
+            StockMovement.reference_type == "StockBatchDelete",
+        ).one()
+        assert float(deletion_issue.quantity) == 10
     batches = client.get(
         f"/api/inventory/batches?item_id={item_response.json()['id']}",
         headers=auth_headers,
     )
     assert batches.status_code == 200, batches.text
     assert all(int(row["id"]) != batch_id for row in batches.json())
+
+    archive = client.get(
+        f"/api/inventory/batches?item_id={item_response.json()['id']}&archived=true",
+        headers=auth_headers,
+    )
+    assert archive.status_code == 200, archive.text
+    archived_row = next(row for row in archive.json() if int(row["id"]) == batch_id)
+    assert archived_row["archive_reason"] == "deleted"
+    assert archived_row["received_quantity"] == 10
+    assert archived_row["used_quantity"] == 0
+    assert archived_row["archived_at"]
+
+
+def test_fully_consumed_fabric_batch_moves_to_archive(client, auth_headers):
+    from app.db import session as session_module
+    from app.models import StockBatch, User
+    from app.services.workflow import consume_stock_batch
+
+    suffix = uuid4().hex[:8].upper()
+    item_response = client.post(
+        "/api/inventory/items",
+        json={
+            "sku": f"FAB-BATCH-CONSUMED-{suffix}",
+            "name": f"Consumed receipt {suffix}",
+            "category": "fabric",
+            "unit": "kg",
+            "default_cost": 1,
+            "reorder_level": 0,
+            "track_batch": True,
+            "is_active": True,
+        },
+        headers=auth_headers,
+    )
+    assert item_response.status_code == 201, item_response.text
+    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
+    receive = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_id": item_response.json()["id"],
+            "batch_no": f"CONSUMED-{suffix}",
+            "quantity": 8,
+            "unit": "kg",
+            "cost_per_unit": 1,
+            "warehouse_id": warehouses.json()[0]["id"],
+            "qc_status": "passed",
+        },
+        headers=auth_headers,
+    )
+    assert receive.status_code == 201, receive.text
+    batch_id = int(receive.json()["id"])
+
+    with session_module.SessionLocal() as db:
+        user = db.query(User).filter(User.email == "admin@example.com").one()
+        consume_stock_batch(
+            db,
+            batch_id=batch_id,
+            quantity=8,
+            unit="kg",
+            reference_type="CuttingRecord",
+            reference_id=987654,
+            user_id=int(user.id),
+        )
+        db.commit()
+        batch = db.get(StockBatch, batch_id)
+        assert batch is not None
+        assert float(batch.quantity) == 0
+        assert batch.archived_at is not None
+        assert batch.archived_by == user.id
+
+    active = client.get(
+        f"/api/inventory/batches?item_id={item_response.json()['id']}",
+        headers=auth_headers,
+    )
+    assert active.status_code == 200, active.text
+    assert all(int(row["id"]) != batch_id for row in active.json())
+
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        # Legacy depleted rows had no archived_at value. The archive endpoint
+        # must still surface them without a production data rewrite.
+        batch.archived_at = None
+        batch.archived_by = None
+        db.commit()
+
+    archive = client.get(
+        f"/api/inventory/batches?item_id={item_response.json()['id']}&archived=true",
+        headers=auth_headers,
+    )
+    assert archive.status_code == 200, archive.text
+    archived_row = next(row for row in archive.json() if int(row["id"]) == batch_id)
+    assert archived_row["archive_reason"] == "used"
+    assert archived_row["received_quantity"] == 8
+    assert archived_row["used_quantity"] == 8
+    assert archived_row["archived_at"]
 
 
 def test_stock_batch_delete_lock_does_not_lock_outer_join():
