@@ -82,7 +82,7 @@ export default {
     "section.ecoCottonPackaging": "Eco Cotton qadoqlash",
     "section.ecoCottonTracking": "Eco Cotton jarayonlari",
     "page.processes.ecoTitle": "Eco Cotton jarayonlarini kuzatish",
-    "page.processes.ecoSubtitle": "Eco Cotton bichish, tikuv va qadoqlash buyurtmalarining joriy holati",
+    "page.processes.ecoSubtitle": "Eco Cotton standart va Usluga buyurtmalarining bichish, tikuv va qadoqlashdagi joriy holati",
     "section.usluga": "Usluga",
     "nav.uslugaOrders": "Tashqi xizmat buyurtmalari",
     "nav.uslugaPlanning": "Usluga rejalashtirish",

@@ -21,7 +21,7 @@ def test_process_tracking_factory_filter_returns_only_selected_factory(client):
     from uuid import uuid4
 
     from app.core.security import create_access_token
-    from app.models import Bundle, Model, ProductionOrder
+    from app.models import Bundle, Department, Model, ProductionOrder, WorkOrder
     from app.tests.conftest import TestSessionLocal
 
     suffix = uuid4().hex[:8].upper()
@@ -52,6 +52,34 @@ def test_process_tracking_factory_filter_returns_only_selected_factory(client):
                 status="created",
             ))
             orders[factory_code] = order.production_no
+
+        departments = {
+            row.code: row.id
+            for row in db.query(Department).filter(Department.code.in_(("ECT", "ECO", "ECP"))).all()
+        }
+        assert set(departments) == {"ECT", "ECO", "ECP"}
+        usluga = ProductionOrder(
+            production_no=f"USL-TRACK-{suffix}",
+            production_type="service_order",
+            source_type="usluga",
+            model_id=model_id,
+            status="new",
+            planned_quantity=12,
+            service_customer_name=f"Usluga customer {suffix}",
+            service_customer_reference=f"REF-{suffix}",
+        )
+        db.add(usluga)
+        db.flush()
+        for operation, department_code in (("cutting", "ECT"), ("sewing", "ECO"), ("packaging", "ECP")):
+            db.add(WorkOrder(
+                production_order_id=usluga.id,
+                department_id=departments[department_code],
+                operation=operation,
+                status="waiting",
+                planned_input_qty=12,
+                planned_output_qty=12,
+            ))
+        orders["USLUGA"] = usluga.production_no
         db.commit()
 
     eco_headers = {
@@ -65,7 +93,29 @@ def test_process_tracking_factory_filter_returns_only_selected_factory(client):
     assert response.status_code == 200, response.text
     production_numbers = {row["production_no"] for row in response.json()}
     assert orders["ECO"] in production_numbers
+    assert orders["USLUGA"] in production_numbers
     assert orders["MIL"] not in production_numbers
+
+    usluga_row = next(row for row in response.json() if row["production_no"] == orders["USLUGA"])
+    assert usluga_row["customer_name"] == f"Usluga customer {suffix}"
+
+    customer_search = client.get(
+        f"/api/process-tracking?factory=ECO&q=Usluga%20customer%20{suffix}",
+        headers=eco_headers,
+    )
+    assert customer_search.status_code == 200, customer_search.text
+    assert [row["production_no"] for row in customer_search.json()] == [orders["USLUGA"]]
+
+    unscoped = client.get(f"/api/process-tracking?q=TRACK-{suffix}", headers=eco_headers)
+    assert unscoped.status_code == 200, unscoped.text
+    assert orders["USLUGA"] not in {row["production_no"] for row in unscoped.json()}
+
+    exported = client.get("/api/process-tracking/export?factory=ECO", headers=eco_headers)
+    assert exported.status_code == 200, exported.text
+    assert orders["ECO"] in exported.text
+    assert orders["USLUGA"] in exported.text
+    assert f"Usluga customer {suffix}" in exported.text
+    assert orders["MIL"] not in exported.text
 
     denied = client.get("/api/process-tracking?factory=MIL", headers=eco_headers)
     assert denied.status_code == 403

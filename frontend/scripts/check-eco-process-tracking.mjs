@@ -33,6 +33,10 @@ for (const language of ["en", "ru", "uz"]) {
       throw new Error(`${language} is missing ${key}`);
     }
   }
+  const subtitle = translations.match(/"page\.processes\.ecoSubtitle":\s*"([^"]+)"/)?.[1] || "";
+  if (!subtitle.includes("Usluga")) {
+    throw new Error(`${language} Eco Cotton Process Tracking subtitle must include Usluga`);
+  }
 }
 
 console.log("Eco Cotton Process Tracking contract passed.");

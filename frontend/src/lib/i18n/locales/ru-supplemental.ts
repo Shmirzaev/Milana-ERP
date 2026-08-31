@@ -82,7 +82,7 @@ export default {
     "section.ecoCottonPackaging": "Упаковка Eco Cotton",
     "section.ecoCottonTracking": "Процессы Eco Cotton",
     "page.processes.ecoTitle": "Отслеживание процессов Eco Cotton",
-    "page.processes.ecoSubtitle": "Текущий статус заказов Eco Cotton в раскрое, пошиве и упаковке",
+    "page.processes.ecoSubtitle": "Текущий статус стандартных и Usluga-заказов Eco Cotton в раскрое, пошиве и упаковке",
     "section.usluga": "Услуга",
     "nav.uslugaOrders": "Внешние заказы-услуги",
     "nav.uslugaPlanning": "Планирование Usluga",

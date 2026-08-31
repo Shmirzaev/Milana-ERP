@@ -24,6 +24,8 @@ from app.services.audit import log_action
 from app.services.model_images import model_display_image_url
 from app.services.notifications import notify
 from app.services.bundles import resolve_sewing_factory_code
+from app.services.factory_scope import require_factory_access
+from app.services.payroll_factory_scope import production_order_factory_condition
 from app.services.sewing_scope import require_sewing_flow_access
 
 router = APIRouter(tags=["production_extra"])
@@ -452,11 +454,21 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
 
 # ===== Printable HTML export of process tracking =====
 @router.get("/process-tracking/export", response_class=HTMLResponse)
-def export_process_html(db: DbSession, _: CurrentUser):
+def export_process_html(db: DbSession, current: CurrentUser, factory: str | None = None):
     """A printable HTML view (use browser's "Save as PDF" — keeps deps minimal)."""
-    pos = db.query(ProductionOrder).filter(
+    qry = db.query(ProductionOrder).filter(
         ProductionOrder.status.not_in(["closed", "cancelled", "delivered"]),
-    ).options(
+    )
+    if factory:
+        factory_code = require_factory_access(current, factory)
+        source_types = ("standard", "usluga") if factory_code == "ECO" else ("standard",)
+        qry = qry.filter(
+            ProductionOrder.source_type.in_(source_types),
+            production_order_factory_condition(factory_code),
+        )
+    else:
+        qry = qry.filter(ProductionOrder.source_type == "standard")
+    pos = qry.options(
         selectinload(ProductionOrder.work_orders),
     ).order_by(ProductionOrder.id.desc()).all()
 
@@ -481,7 +493,7 @@ def export_process_html(db: DbSession, _: CurrentUser):
           <tr>
             <td><b>{_h(po.production_no)}</b></td>
             <td>{_h(sales_order_no) or '&mdash;'}</td>
-            <td>{_h(cust.name if cust else '')}</td>
+            <td>{_h(cust.name if cust else po.service_customer_name or '')}</td>
             <td><div class='model-cell'>{model_image}<div>{_h(model.code if model else po.model_id)}<br><span class='sub'>{_h(model.name if model else '')}</span></div></div></td>
             <td style='text-align:right'>{_h(po.planned_quantity)}</td>
             <td>{_h(po.status)}</td>
