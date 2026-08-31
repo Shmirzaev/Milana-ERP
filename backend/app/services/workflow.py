@@ -26,11 +26,42 @@ from app.models import (
     CuttingRecord,
     SewingReplacementRequest,
 )
+from app.services.audit import log_action
 from app.services.numbering import next_invoice_no
 
 WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
 _OP_INDEX = {op: idx for idx, op in enumerate(WORKFLOW_SEQUENCE)}
 _STARTED_WORK_ORDER_STATUSES = {"in_progress", "pending", "collected", "ready"}
+_MATERIAL_BATCH_CATEGORIES = {"fabric", "semi_finished"}
+_STOCK_EPSILON = 1e-9
+
+
+def archive_depleted_material_batch(
+    db: Session,
+    batch: StockBatch,
+    *,
+    user_id: int | None,
+) -> bool:
+    """Move a fully used fabric batch out of active stock without losing history."""
+    if batch.archived_at is not None or float(batch.quantity or 0) > _STOCK_EPSILON:
+        return False
+    item = db.get(Item, int(batch.item_id))
+    if not item or str(item.category or "").strip().lower() not in _MATERIAL_BATCH_CATEGORIES:
+        return False
+    batch.quantity = 0
+    batch.archived_at = datetime.now(timezone.utc)
+    batch.archived_by = user_id
+    user = db.get(User, user_id) if user_id else None
+    log_action(
+        db,
+        user,
+        "archive_depleted",
+        "StockBatch",
+        int(batch.id),
+        old_value={"quantity": 0, "archived_at": None},
+        new_value={"quantity": 0, "archive_reason": "used"},
+    )
+    return True
 
 
 def _work_orders_by_op(
@@ -444,6 +475,7 @@ def consume_stock_batch(
             created_by=user_id,
         )
     )
+    archive_depleted_material_batch(db, batch, user_id=user_id)
 
 
 def consume_item_from_batches(
@@ -500,6 +532,7 @@ def consume_item_from_batches(
                 created_by=user_id,
             )
         )
+        archive_depleted_material_batch(db, b, user_id=user_id)
         consumed += take
         left -= take
 

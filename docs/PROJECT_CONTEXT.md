@@ -2,6 +2,14 @@
 
 Last updated: 2026-08-31
 
+## Fabric inventory archive completed locally (2026-08-31)
+
+- Fabric and semi-finished stock-batch deletion is now an archive operation. The batch row, receipt/usage movements, linked planning/cutting history, and released reservation history remain intact; any remaining quantity is removed through the existing audited `StockBatchDelete` issue movement. Unused fabric receipts are no longer physically deleted. Accessory deletion behavior is unchanged.
+- A fabric batch is automatically archived when consumption or a stock adjustment reduces it to zero. The normal active Inventory and Planning selectors continue to exclude archived/empty stock. The archive query also includes legacy zero-balance material batches that predate `archived_at`, deriving their archive date and used quantity from their movement history without a production data rewrite.
+- Fabric Storage now links to a read-only EN/RU/UZ archive page with server-side search, received-date and supplier filters, pagination, pictures, received/used quantities, warehouse/supplier details, archive time, and a truthful Deleted or Used up reason. There is no restore action, so viewing history cannot mint stock.
+- Local validation passed Ruff, Python compilation, all 501 backend tests, full frontend lint, strict TypeScript, the new archive contract, every inherited production build contract, and the optimized 83-route Next.js build. The i18n checker reports only the same 12 unrelated pre-existing Inventory roll/label keys.
+- This work is on branch `codex/fabric-inventory-archive` in its dedicated clean worktree and is not deployed. No production host, database, schema, inventory quantity, reservation, movement, order, user, role, or other business row was changed. Active production remains release `20260831_111523`, rollback `20260831_100414`, at database revision `0112_price_calc_requests`.
+
 ## Eco Cotton process tracking includes Usluga (2026-08-31)
 
 - Active backend/frontend release is `20260831_111523` in the green slot, built from merge commit `a93c576a6a1d07801a5c7364534300baa2b31849` (implementation PR `#19`). Its 662-file source-manifest SHA-256 is `d3a0047ad4aedfa65bbbb487f957562ba500371ac02fb4a45ace60268a914531`; deterministic archive SHA-256 is `69b4a1b9ca52215749527ef7653bd0704d78267208c2f55c30c5089fc338cf01`. Backend image digest is `sha256:b08dc06847de5fea74b9e9211e137934d45266e705524054f347283cf17d2e48`; frontend image digest is `sha256:45a5c9e49029fd5e1232c7df6914cb8af5534a8128138fc7c0cb185743d9b948`. Release `20260831_100414` remains running in the blue rollback slot.

@@ -66,6 +66,7 @@ from app.services.inventory_reports import (
     build_material_inventory_xlsx,
     material_inventory_report_rows,
 )
+from app.services.workflow import archive_depleted_material_batch
 from app.core.pagination import clamp_pagination
 from app.core.config import settings
 
@@ -538,7 +539,11 @@ def _apply_batch_tracked_stock_adjustment(
         return []
     batches = (
         db.query(StockBatch)
-        .filter(StockBatch.item_id == item.id, StockBatch.unit == item.unit)
+        .filter(
+            StockBatch.item_id == item.id,
+            StockBatch.unit == item.unit,
+            StockBatch.archived_at.is_(None),
+        )
         .order_by(StockBatch.id.desc())
         .all()
     )
@@ -592,6 +597,7 @@ def _apply_batch_tracked_stock_adjustment(
             created_by=user_id,
         )
         db.add(movement)
+        archive_depleted_material_batch(db, batch, user_id=user_id)
         movements.append(movement)
         left -= qty
     if left > EPSILON:
@@ -1407,6 +1413,8 @@ def update_batch(
             created_by=current.id,
         ))
 
+    archive_depleted_material_batch(db, batch, user_id=current.id)
+
     db.flush()
     new_value = {
         key: (value.isoformat() if isinstance(value, datetime) else value)
@@ -1433,7 +1441,7 @@ def update_batch(
 
 
 @router.delete("/batches/{batch_id}", status_code=204)
-def delete_unused_batch(
+def archive_or_delete_batch(
     batch_id: int,
     db: DbSession,
     current: User = Depends(require_permissions("inventory.batches.delete", "*")),
@@ -1470,7 +1478,11 @@ def delete_unused_batch(
         "supplier_id": batch.supplier_id,
         "qc_status": batch.qc_status,
     }
-    if linked or has_downstream_movement:
+    item = db.get(Item, int(batch.item_id))
+    is_material_batch = bool(
+        item and str(item.category or "").strip().lower() in {"fabric", "semi_finished"}
+    )
+    if is_material_batch or linked or has_downstream_movement:
         reservations = db.execute(
             _locked_active_batch_reservations_statement(batch_id)
         ).scalars().all()
@@ -1515,7 +1527,8 @@ def delete_unused_batch(
                 "removed_quantity": removed_quantity,
                 "released_reservation_count": len(reservations),
                 "released_reservation_quantity": released_quantity,
-                "linked_records_preserved": True,
+                "linked_records_preserved": bool(linked),
+                "archive_reason": "deleted",
             },
         )
         db.commit()
@@ -1543,14 +1556,20 @@ def list_batches(
     page_size: int = 500,
     include_total: bool = False,
     hide_empty: bool = False,
+    archived: bool = False,
 ):
     qry = (
         db.query(StockBatch, Item, Warehouse, Supplier)
         .join(Item, Item.id == StockBatch.item_id)
         .join(Warehouse, Warehouse.id == StockBatch.warehouse_id)
         .outerjoin(Supplier, Supplier.id == StockBatch.supplier_id)
-        .filter(StockBatch.archived_at.is_(None))
     )
+    if archived:
+        # Include legacy zero-balance batches that predate automatic archiving,
+        # so the archive is complete on the first release without rewriting data.
+        qry = qry.filter(or_(StockBatch.archived_at.isnot(None), StockBatch.quantity <= EPSILON))
+    else:
+        qry = qry.filter(StockBatch.archived_at.is_(None))
     item_filter_ids: set[int] = set()
     if item_id:
         item_filter_ids.add(int(item_id))
@@ -1624,6 +1643,15 @@ def list_batches(
     batch_ids = [int(batch.id) for batch, _, _, _ in rows]
     active_reservations: dict[int, list[dict]] = {batch_id: [] for batch_id in batch_ids}
     reserved_by_batch: dict[int, float] = {batch_id: 0.0 for batch_id in batch_ids}
+    movement_summary: dict[int, dict[str, object]] = {
+        batch_id: {
+            "received_quantity": 0.0,
+            "used_quantity": 0.0,
+            "deleted": False,
+            "last_archive_activity_at": None,
+        }
+        for batch_id in batch_ids
+    }
     if batch_ids:
         reservation_rows = (
             db.query(MaterialReservation)
@@ -1655,19 +1683,51 @@ def list_batches(
                 "unit": reservation.unit,
                 "status": reservation.status,
             })
+        if archived:
+            movement_rows = (
+                db.query(StockMovement)
+                .filter(StockMovement.batch_id.in_(batch_ids))
+                .order_by(StockMovement.created_at.asc(), StockMovement.id.asc())
+                .all()
+            )
+            for movement in movement_rows:
+                batch_id = int(movement.batch_id)
+                summary = movement_summary[batch_id]
+                quantity = float(movement.quantity or 0)
+                if movement.reference_type == "StockBatchDelete":
+                    summary["deleted"] = True
+                    summary["last_archive_activity_at"] = movement.created_at
+                    continue
+                if movement.movement_type in {"receive", "return", "produce"} or (
+                    movement.movement_type == "adjustment"
+                    and movement.to_warehouse_id is not None
+                    and movement.from_warehouse_id is None
+                ):
+                    summary["received_quantity"] = float(summary["received_quantity"]) + quantity
+                elif movement.movement_type in {"issue", "consume", "waste", "shipment"}:
+                    summary["used_quantity"] = float(summary["used_quantity"]) + quantity
+                    summary["last_archive_activity_at"] = movement.created_at
     out = []
     for batch, item, warehouse, supplier in rows:
         reserved_qty = max(0.0, reserved_by_batch.get(int(batch.id), 0.0))
+        summary = movement_summary.get(int(batch.id), {})
         out.append({
             **StockBatchOut.model_validate(batch).model_dump(),
             "item_sku": item.sku if item else None,
             "item_name": item.name if item else None,
             "item_category": item.category if item else None,
+            "item_image_url": item.image_url if item else None,
             "supplier_name": supplier.name if supplier else None,
             "warehouse_name": warehouse.name if warehouse else None,
             "reserved_quantity": reserved_qty,
             "available_quantity": float(batch.quantity or 0) - reserved_qty,
             "active_reservations": active_reservations.get(int(batch.id), []),
+            "archived_at": (
+                batch.archived_at or summary.get("last_archive_activity_at") or batch.updated_at
+            ) if archived else None,
+            "archive_reason": "deleted" if summary.get("deleted") else "used" if archived else None,
+            "received_quantity": float(summary.get("received_quantity") or 0),
+            "used_quantity": float(summary.get("used_quantity") or 0),
         })
     if include_total:
         return {"rows": out, "total": total, "page": safe_page, "page_size": safe_size}

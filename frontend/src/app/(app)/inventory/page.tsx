@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Download, Edit3, PackageCheck, Plus, QrCode, Search, Trash2, X } from "lucide-react";
+import { Archive, Download, Edit3, PackageCheck, Plus, QrCode, Search, Trash2, X } from "lucide-react";
 import useSWR from "swr";
 import Modal from "@/components/Modal";
 import { api, fetcher } from "@/lib/api";
@@ -1176,18 +1177,15 @@ export default function InventoryPage() {
 
   return (
     <div>
-      <PageHeader title={t(selectedGroup.titleKey)} subtitle={t(selectedGroup.subtitleKey)} />
-      {group === "materials" && scannedRoll > 0 && (
-        <div className="mb-4 rounded-md border border-[#cfc7b4] bg-[#f5f2e9] px-3 py-2 text-sm text-[#332d20]" role="status">
-          {t("page.inventory.scannedRoll", {
-            roll: scannedRoll,
-            count: scannedRollTotal || scannedRoll,
-            batch: q || "-",
-          })}
-        </div>
-      )}
-      {group === "materials" && (
-        <div className="mb-4 flex justify-end gap-2">
+      <PageHeader
+        title={t(selectedGroup.titleKey)}
+        subtitle={t(selectedGroup.subtitleKey)}
+        actions={group === "materials" ? (
+          <>
+            <Link href="/inventory/archive" className="btn">
+              <Archive />
+              {t("page.inventory.openArchive")}
+            </Link>
             <button
               type="button"
               className="btn"
@@ -1206,6 +1204,16 @@ export default function InventoryPage() {
               <Download />
               {downloadingReport === "pdf" ? t("common.loading") : t("page.inventory.pdfReport")}
             </button>
+          </>
+        ) : undefined}
+      />
+      {group === "materials" && scannedRoll > 0 && (
+        <div className="mb-4 rounded-md border border-[#cfc7b4] bg-[#f5f2e9] px-3 py-2 text-sm text-[#332d20]" role="status">
+          {t("page.inventory.scannedRoll", {
+            roll: scannedRoll,
+            count: scannedRollTotal || scannedRoll,
+            batch: q || "-",
+          })}
         </div>
       )}
       <form onSubmit={submitSearch} className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
