@@ -1,6 +1,15 @@
 # Milana ERP Project Context
 
-Last updated: 2026-08-31
+Last updated: 2026-09-02
+
+## Old-ERP correction workbook warehouse import (2026-09-02)
+
+- The returned workbook `organized-packs-required-fields-corrections (2).xlsx` (SHA-256 `b4069fbb56b9324fdffa51a8614e0ec3281b8d9e23f2c6258c688448a0b0d130`) contained 3,057 pictured rows. The guarded review accepted 200 complete rows plus 78 rows whose only absent sticker field was weight, excluded 27 QR codes already represented in the earlier 3,239-pack manifests, and left 2,752 rows blocked by another required field or unreadable QR. Two clearly readable photo corrections were applied before import: `uzerp_ii_7891_3` uses model `PJ1076` / variant `V-2179`, and `uzerp_ii_19291_3` uses model `PJ1023V` / variant `V-4056`.
+- Production Finished Goods warehouse `8` received exactly 278 legacy packages representing 18,521 pieces across 111 existing approved catalog identities. Known package weight totals 4,913.50 kg; 78 package weights intentionally remain null under the user's explicit approval. The import created one receipt, package, item, finished-goods stock row, barcode alias, and scan record per pack; committed audit `16185` has entry hash `deb82d0a9f1e1df44153cbad0869345125fe2ebcc7d358af5a06acb718ddb3e2`.
+- Post-import Finished Goods totals are 3,517 packages, 235,814 package pieces, 3,517 stock rows, and 235,814 available pieces. Exact readback passed for all 278 imported records, every internal QR lookup returned the intended package, and eight representative public QR lookups returned HTTP 200, including a blank-weight row and both photo-corrected rows.
+- A verified pre-import PostgreSQL backup is `/opt/milana-erp/shared/backups/milana_erp_pre_20260902_103916.dump`, 48,358,599 bytes and 1,067 restore objects; dump SHA-256 `05c4ba39555a2fe4975b4866e2bcadf8a41701c9016341b5825e99762bae14cd`, restore-list SHA-256 `14c23ba5868f34ebc1f22466a8f1ee0aff55fc7529826751ce3e5cb26ad7324e`.
+- Active backend/frontend release remained unchanged at `20260831_130708` in the blue slot, with source-manifest SHA-256 `77b0b6ade002cffc1a55820c29ffb6df8bb2cd778c16ee1ef59e34b21b308c89`; Alembic remains at `0112_price_calc_requests`. Backend/internal, frontend/internal, public health, and public login checks all passed, and the active backend retained zero restarts and zero OOM events.
+- Before production, the same guarded importer passed an isolated local dry-run, applied and exactly verified 258 non-colliding rows (17,291 pieces, 65 null weights); 20 candidate QR codes already existed only in that local test database and were intentionally untouched. The remaining 2,752 pictured rows were split into nine validated correction workbooks grouped by primary blocker, with one embedded photo per row and no formula or ZIP integrity errors.
 
 ## Fabric inventory archive deployed (2026-08-31)
 
