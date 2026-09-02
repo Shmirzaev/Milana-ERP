@@ -32,6 +32,10 @@ for (const token of [
   if (!workspace.includes(token)) throw new Error(`Shipment workspace is missing ${token}`);
 }
 
+if (workspace.includes("page.shipments.awaitingPackages")) {
+  throw new Error("Unattached shipment rows must use the plain not-scanned state");
+}
+
 for (const banned of ["rounded-2xl", "rounded-3xl", "shadow-xl", "shadow-2xl", "tracking-[0.18em]"]) {
   if (workspace.includes(banned) || page.includes(banned)) {
     throw new Error(`Shipment workspace uses banned UI class ${banned}`);
