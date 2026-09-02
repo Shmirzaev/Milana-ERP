@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Check, PackageCheck, ScanLine } from "lucide-react";
+import { useId } from "react";
 
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
@@ -90,6 +91,8 @@ export default function ShipmentPreparationWorkspace({
   onAddReadyPackages,
   onShip,
   onDeliver,
+  onCreate,
+  isCreating = false,
   canTraceability,
 }: {
   preparation?: ShipmentPreparation | null;
@@ -100,9 +103,12 @@ export default function ShipmentPreparationWorkspace({
   onAddReadyPackages: () => void;
   onShip: () => void;
   onDeliver: () => void;
+  onCreate?: () => void;
+  isCreating?: boolean;
   canTraceability: boolean;
 }) {
   const { t } = useT();
+  const scanInputId = useId();
 
   if (isLoading) {
     return <section className="card px-4 py-10 text-center text-sm text-[#6f6a5b]">{t("page.shipments.loadingPreparation")}</section>;
@@ -121,8 +127,8 @@ export default function ShipmentPreparationWorkspace({
   const packages = (preparation.packages || []).slice().sort((a, b) => Number(a.scanned) - Number(b.scanned));
 
   return (
-    <section className="card overflow-hidden">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#ded9ca] px-4 py-3 sm:px-5">
+    <section className={`card overflow-hidden ${preparation.is_complete ? "border-emerald-200" : ""}`}>
+      <div className={`flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3 sm:px-5 ${preparation.is_complete ? "border-emerald-200 bg-emerald-50" : "border-[#ded9ca] bg-[#f1efe8]"}`}>
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="app-card-title mono">{shipment.shipment_no || shipment.sales_order_no}</h2>
@@ -144,7 +150,7 @@ export default function ShipmentPreparationWorkspace({
         <div className="grid gap-3 lg:grid-cols-[minmax(320px,1fr)_auto] lg:items-end">
           <div>
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-              <label className="label mb-0" htmlFor="shipment-package-scan">{t("page.shipments.scanPackageBeforeShipping")}</label>
+              <label className="label mb-0" htmlFor={scanInputId}>{t("page.shipments.scanPackageBeforeShipping")}</label>
               <span className={`text-xs font-medium ${preparation.is_complete ? "text-emerald-700" : "text-[#6f6a5b]"}`}>
                 {isPreview
                   ? t("page.shipments.createToScan")
@@ -159,7 +165,7 @@ export default function ShipmentPreparationWorkspace({
               <div className="relative min-w-0 flex-1">
                 <ScanLine className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a8472]" aria-hidden="true" />
                 <input
-                  id="shipment-package-scan"
+                  id={scanInputId}
                   className="input pl-9"
                   value={scanCode}
                   onChange={(event) => onScanCodeChange(event.target.value)}
@@ -195,7 +201,13 @@ export default function ShipmentPreparationWorkspace({
                 {t("page.shipments.traceability")}
               </Link>
             ) : null}
-          </div> : null}
+          </div> : onCreate ? (
+            <div className="flex lg:justify-end">
+              <button type="button" className="btn btn-primary" onClick={onCreate} disabled={isCreating}>
+                {isCreating ? t("common.loading") : t("btn.createShipment")}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
 
