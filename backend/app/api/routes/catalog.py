@@ -27,7 +27,8 @@ from app.models import (
 from app.schemas.catalog import (
     BrandIn, BrandOut, CollectionIn, CollectionOut,
     ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelColorIn, ModelBOMIn,
-    ModelBOMUpdate, ModelOptionPage, ModelPaidOperationsIn, ModelSummaryOut, ModelVariantCreateIn, ModelVariantUpdateIn,
+    ModelBOMUpdate, ModelOptionPage, ModelPaidOperationsIn, ModelSellingPriceOut, ModelSummaryOut,
+    ModelVariantCreateIn, ModelVariantUpdateIn,
 )
 from app.schemas.inventory import ItemOut
 from app.services.audit import log_action
@@ -680,8 +681,6 @@ def _model_summary_query(db: DbSession, catalog_scope: str = "standard"):
         Model.category,
         Model.brand_id,
         Model.status,
-        Model.selling_price,
-        Model.selling_price_currency,
         Model.created_at,
         Model.updated_at,
         _model_thumbnail_subquery().label("thumbnail_url"),
@@ -709,8 +708,6 @@ def _model_summary_payload(row) -> dict:
         brand_id=row.brand_id,
         status=row.status,
         thumbnail_url=row.thumbnail_url,
-        selling_price=float(row.selling_price) if row.selling_price is not None else None,
-        selling_price_currency=row.selling_price_currency,
         created_at=row.created_at,
         updated_at=row.updated_at,
     ).model_dump()
@@ -1199,8 +1196,6 @@ def list_model_options(
                 "code": row.code,
                 "name": row.name,
                 "thumbnail_url": row.thumbnail_url,
-                "selling_price": float(row.selling_price) if row.selling_price is not None else None,
-                "selling_price_currency": row.selling_price_currency,
             }
             for row in result[:page_size]
         ]
@@ -1234,8 +1229,6 @@ def list_model_options(
             "code": row.code,
             "name": row.name,
             "thumbnail_url": row.thumbnail_url,
-            "selling_price": float(row.selling_price) if row.selling_price is not None else None,
-            "selling_price_currency": row.selling_price_currency,
         }
         for row in rows[:page_size]
     ]
@@ -1543,6 +1536,25 @@ def create_model(
     log_action(db, current, "create", "Model", m.id, new_value={"code": m.code})
     db.commit(); db.refresh(m)
     return _model_payload(m, factory_scope)
+
+
+@router.get("/models/{mid}/selling-price", response_model=ModelSellingPriceOut)
+def get_model_selling_price(
+    mid: int,
+    db: DbSession,
+    _: CurrentUser,
+):
+    model = _standard_model(db, mid)
+    if not model:
+        raise HTTPException(404, "Model not found")
+    return {
+        "id": model.id,
+        "selling_price": float(model.selling_price) if model.selling_price is not None else None,
+        "selling_price_currency": model.selling_price_currency,
+        "selling_price_source": model.selling_price_source,
+        "selling_price_request_id": model.selling_price_request_id,
+        "selling_price_updated_at": model.selling_price_updated_at,
+    }
 
 
 @router.get("/models/{mid}", response_model=ModelDetail)

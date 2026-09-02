@@ -278,8 +278,6 @@ class ModelSummaryOut(BaseModel):
     brand_id: Optional[int] = None
     status: str
     thumbnail_url: Optional[str] = None
-    selling_price: Optional[float] = None
-    selling_price_currency: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -289,8 +287,15 @@ class ModelOptionOut(BaseModel):
     code: str
     name: str
     thumbnail_url: Optional[str] = None
+
+
+class ModelSellingPriceOut(BaseModel):
+    id: int
     selling_price: Optional[float] = None
     selling_price_currency: Optional[str] = None
+    selling_price_source: Optional[str] = None
+    selling_price_request_id: Optional[int] = None
+    selling_price_updated_at: Optional[datetime] = None
 
 
 class ModelOptionPage(BaseModel):
