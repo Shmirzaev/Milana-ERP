@@ -2,13 +2,22 @@
 
 Last updated: 2026-09-02
 
-## Shipment preparation workspace implemented (not deployed, 2026-09-02)
+## Old ERP model/variant catalog synchronized to production (2026-09-02)
+
+- The authenticated old ERP catalog contained 5,613 variant rows representing 5,588 unique normalized model/variant identities. A guarded comparison found 5,324 already present in Milana ERP and added the remaining 261 safe, authoritative identities. Production `models` increased from 6,735 to 6,996; the import also created 536 image relations, 1,610 size rows, and 265 color rows. Twenty-three duplicate old-ERP identity groups were merged instead of duplicated, and the two unrelated duplicate groups already present in production (`PJ1013 / 3846` and `PJ1118 / 2922`) were left unchanged.
+- Production now contains 5,585 of the 5,588 unique old-ERP identities. Three were deliberately withheld: `XJ3062 / V-5709` is the user-confirmed mixed-material case that must not become a catalog variant; `00000000 / V-5889` is an all-zero placeholder; and `PJ1211 / V-5746` has no usable model or variant picture, so it was not guessed or added.
+- The 323 unique old-ERP source pictures were decoded and normalized to lossless WebP. Pixel hashes before and after normalization match, 646 precomputed thumbnails were created, and all 536 model/material image relations resolve to the normalized files. Signed-in production QA showed the new catalog groups and a representative `XJ3187 / 6023` detail page with five variants, six sizes, old-ERP metadata, and a successfully loaded 240x320 thumbnail.
+- The production mutation was protected by `/opt/milana-erp/shared/backups/milana_erp_pre_20260902_151627.dump`, mode `0600`, 48,419,432 bytes and 1,067 restore objects; dump SHA-256 is `9309596e29fe8b4edbe947f47a6215a996cbd2c461b5275788f630dd48bc27bf`, and restore-list SHA-256 is `a55a0ab1afaff0913c9605c111ef89008582e353e6d78a5072b2c55e8c9e0d40`. Import audit is `16213`; image-normalization audit is `16215`.
+- Independent exact verification passed for all 261 models, 536 image relations, 1,610 sizes, 265 colors, 323 normalized media files, and 646 thumbnails. All four internal/public health and login checks returned HTTP 200; the active backend retained zero restarts and OOM events, and its recent logs contained zero traceback, exception, critical, or HTTP-5xx markers.
+- This was a production business-data synchronization, not an application release. No migration or traffic cutover occurred. Active backend/frontend release remains `20260902_084754`, built from commit `b817ffdd31d2f7b3cfef9c4e998e2eac3806f568`, with source-manifest SHA-256 `2a5844f513283c8cb3f4128865159d8a0f47a81f95acf979bc6e9353967fb0ac`.
+
+## Shipment preparation workspace deployed (2026-09-02)
 
 - The Shipments page has been reorganized into one continuous preparation workspace: create/select a shipment, scan packages, review every model/variant and ordered color/size quantity, inspect the package checklist and storage locations, complete shipment actions, and search shipment history without leaving the page. Desktop uses dense tables; phone/scanner widths use readable cards.
 - Preparation rows are visible from the Sales order before any package exists. Each row shows the model-catalog picture, variant/material picture, business model and variant numbers, requested color/size breakdown, prepared versus required quantity, package verification count, and readiness state. Physical package rows show their contents, storage location, quantity, and scanned state.
 - New read-only `GET /api/shipments/{shipment_id}/preparation` composes the expected Sales-order lines with package-backed quantities and scan state. Existing package eligibility, stock, shipping, and delivery mutation rules remain authoritative and unchanged.
 - English, Russian, and Uzbek runtime labels were added. Local validation passed all 502 backend tests, full frontend lint, strict TypeScript, every production build contract, and the optimized 83-route Next.js build. Signed-in local browser QA covered desktop and phone layouts and reported zero browser warnings or errors.
-- No schema migration was added, no production business data was touched, and no deployment occurred. Production remains on release `20260902_065540` pending completion of the guarded merge and deployment workflow.
+- No schema migration or shipment-related production business-data mutation was included. Active backend/frontend release is `20260902_084754`, built from merge commit `b817ffdd31d2f7b3cfef9c4e998e2eac3806f568`; release `20260902_065540` remains the rollback slot.
 
 ## Searchable sales-order models and inline customer creation deployed (2026-09-02)
 
