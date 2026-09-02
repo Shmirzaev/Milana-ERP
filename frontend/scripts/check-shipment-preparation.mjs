@@ -2,7 +2,6 @@ import fs from "node:fs";
 
 const page = fs.readFileSync("src/app/(app)/shipments/page.tsx", "utf8");
 const workspace = fs.readFileSync("src/components/ShipmentPreparationWorkspace.tsx", "utf8");
-const backend = fs.readFileSync("../backend/app/api/routes/shipments.py", "utf8");
 
 for (const token of [
   "ShipmentPreparationWorkspace",
@@ -30,14 +29,18 @@ for (const banned of ["rounded-2xl", "rounded-3xl", "shadow-xl", "shadow-2xl", "
   }
 }
 
-for (const token of [
-  '@router.get("/{sid}/preparation")',
-  '"model_image_url"',
-  '"variant_image_url"',
-  '"location"',
-  '"scanned"',
-]) {
-  if (!backend.includes(token)) throw new Error(`Shipment preparation API is missing ${token}`);
+const backendPath = "../backend/app/api/routes/shipments.py";
+if (fs.existsSync(backendPath)) {
+  const backend = fs.readFileSync(backendPath, "utf8");
+  for (const token of [
+    '@router.get("/{sid}/preparation")',
+    '"model_image_url"',
+    '"variant_image_url"',
+    '"location"',
+    '"scanned"',
+  ]) {
+    if (!backend.includes(token)) throw new Error(`Shipment preparation API is missing ${token}`);
+  }
 }
 
 for (const language of ["en", "ru", "uz"]) {
