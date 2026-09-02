@@ -1397,6 +1397,8 @@ export default {
     "newso.orderDetailsSub": "Mijoz, muddat va ishlab chiqarish maqsadi.",
     "newso.draft": "Qoralama",
     "newso.customerSelect": "Mijozni tanlang...",
+    "newso.addCustomer": "Mijoz qo‘shish",
+    "newso.customerCreateFailed": "Mijozni yaratib bo‘lmadi.",
     "newso.lines": "Qatorlar",
     "newso.linesSummary": "{lines} qator · {qty} dona",
     "newso.addLine": "Qator qo‘shish",

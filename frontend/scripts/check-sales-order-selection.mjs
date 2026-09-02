@@ -5,6 +5,10 @@ const page = readFileSync(
   new URL("../src/app/(app)/sales-orders/new/page.tsx", import.meta.url),
   "utf8",
 );
+const localeSources = ["en", "ru", "uz"].map((language) => readFileSync(
+  new URL(`../src/lib/i18n/locales/${language}-base.ts`, import.meta.url),
+  "utf8",
+));
 
 assert.match(
   page,
@@ -36,5 +40,17 @@ assert.match(
   /setCustomerId\(created\.id\)/,
   "A newly created customer must be selected without discarding the order draft.",
 );
+for (const localeSource of localeSources) {
+  assert.match(
+    localeSource,
+    /"newso\.addCustomer":/,
+    "Every runtime locale must translate the add-customer action.",
+  );
+  assert.match(
+    localeSource,
+    /"newso\.customerCreateFailed":/,
+    "Every runtime locale must translate customer-creation failures.",
+  );
+}
 
 console.log("Sales-order searchable selection contract passed.");
