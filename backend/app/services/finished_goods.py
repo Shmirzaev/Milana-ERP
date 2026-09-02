@@ -124,12 +124,16 @@ def infer_brand_and_collection(
     return resolved_brand_id, resolved_collection_id
 
 
-def repair_missing_brand_metadata(db: Session) -> int:
-    rows = (
-        db.query(FinishedGoodsStock)
-        .filter((FinishedGoodsStock.brand_id.is_(None)) | (FinishedGoodsStock.collection_id.is_(None)))
-        .all()
+def repair_missing_brand_metadata(db: Session, *, model_ids: set[int] | None = None) -> int:
+    query = db.query(FinishedGoodsStock).filter(
+        (FinishedGoodsStock.brand_id.is_(None)) | (FinishedGoodsStock.collection_id.is_(None))
     )
+    if model_ids is not None:
+        normalized_model_ids = {int(model_id) for model_id in model_ids}
+        if not normalized_model_ids:
+            return 0
+        query = query.filter(FinishedGoodsStock.model_id.in_(normalized_model_ids))
+    rows = query.all()
     updated = 0
     for row in rows:
         next_brand_id, next_collection_id = infer_brand_and_collection(
