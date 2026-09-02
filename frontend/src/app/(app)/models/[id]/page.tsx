@@ -117,6 +117,8 @@ type FabricVariant = {
   picture_url?: string | null;
   fabric_item_id?: number | null;
   color?: string | null;
+  selling_price?: number | null;
+  selling_price_currency?: string | null;
 };
 
 const MODEL_SIZE_OPTIONS = GARMENT_SIZE_OPTIONS;
@@ -1530,6 +1532,7 @@ export default function ModelDetail() {
                     <th>{t("field.picture")}</th>
                     <th>{t("field.variantNo")}</th>
                     <th>{t("page.cuttingPassports.field.fabric")}</th>
+                    <th>{t("page.priceCalculation.sellingPrice")}</th>
                     {isEditable && <th className="text-right">{t("field.actions")}</th>}
                   </tr>
                 </thead>
@@ -1560,6 +1563,11 @@ export default function ModelDetail() {
                           )}
                         </td>
                         <td>{v.fabric || "-"}</td>
+                        <td className="font-medium tabular-nums">
+                          {v.selling_price === null || v.selling_price === undefined
+                            ? "-"
+                            : `${v.selling_price_currency === "USD" ? "$" : `${v.selling_price_currency || ""} `}${Number(v.selling_price).toFixed(2)}`}
+                        </td>
                         {isEditable && (
                           <td>
                             <div className="flex justify-end gap-2">
@@ -1590,7 +1598,7 @@ export default function ModelDetail() {
                   })}
                   {variants.length === 0 && (
                     <tr>
-                      <td colSpan={isEditable ? 4 : 3} className="text-sm text-slate-500">{t("page.models.empty")}</td>
+                      <td colSpan={isEditable ? 5 : 4} className="text-sm text-slate-500">{t("page.models.empty")}</td>
                     </tr>
                   )}
                 </tbody>

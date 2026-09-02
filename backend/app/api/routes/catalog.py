@@ -471,6 +471,8 @@ def _model_variant_payload(model: Model) -> dict:
         "fabric_item_id": fabric_item_id,
         "color": _clean_text(getattr(fabric_row, "color", None)) or _clean_text(general.get("variant_color")) or None,
         "stock_batch_id": None,
+        "selling_price": float(model.selling_price) if model.selling_price is not None else None,
+        "selling_price_currency": model.selling_price_currency,
     }
 
 
@@ -559,6 +561,8 @@ def _compact_model_payload(model: Model) -> dict:
         "variant_fabric": variant_payload["fabric"],
         "variant_picture_url": variant_payload["picture_url"],
         "fabric_image_url": _fabric_picture_url_for_model(model),
+        "selling_price": float(model.selling_price) if model.selling_price is not None else None,
+        "selling_price_currency": model.selling_price_currency,
     }
 
 
@@ -676,6 +680,8 @@ def _model_summary_query(db: DbSession, catalog_scope: str = "standard"):
         Model.category,
         Model.brand_id,
         Model.status,
+        Model.selling_price,
+        Model.selling_price_currency,
         Model.created_at,
         Model.updated_at,
         _model_thumbnail_subquery().label("thumbnail_url"),
@@ -703,6 +709,8 @@ def _model_summary_payload(row) -> dict:
         brand_id=row.brand_id,
         status=row.status,
         thumbnail_url=row.thumbnail_url,
+        selling_price=float(row.selling_price) if row.selling_price is not None else None,
+        selling_price_currency=row.selling_price_currency,
         created_at=row.created_at,
         updated_at=row.updated_at,
     ).model_dump()
@@ -1191,6 +1199,8 @@ def list_model_options(
                 "code": row.code,
                 "name": row.name,
                 "thumbnail_url": row.thumbnail_url,
+                "selling_price": float(row.selling_price) if row.selling_price is not None else None,
+                "selling_price_currency": row.selling_price_currency,
             }
             for row in result[:page_size]
         ]
@@ -1224,6 +1234,8 @@ def list_model_options(
             "code": row.code,
             "name": row.name,
             "thumbnail_url": row.thumbnail_url,
+            "selling_price": float(row.selling_price) if row.selling_price is not None else None,
+            "selling_price_currency": row.selling_price_currency,
         }
         for row in rows[:page_size]
     ]

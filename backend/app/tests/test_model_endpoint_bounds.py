@@ -102,7 +102,7 @@ def test_models_default_and_filtered_requests_are_always_bounded(client, auth_he
 
     allowed_keys = {
         "id", "code", "name", "category", "brand_id", "status",
-        "thumbnail_url", "created_at", "updated_at",
+        "thumbnail_url", "selling_price", "selling_price_currency", "created_at", "updated_at",
     }
     assert set(filtered.json()[0]) == allowed_keys
     assert not ({"images", "bom", "sizes", "colors", "details_json"} & set(filtered.json()[0]))
@@ -161,7 +161,9 @@ def test_model_options_are_compact_searchable_and_support_selected_ids(client, a
     body = page.json()
     assert len(body["items"]) == 30
     assert body["has_more"] is True
-    assert set(body["items"][0]) == {"id", "code", "name", "thumbnail_url"}
+    assert set(body["items"][0]) == {
+        "id", "code", "name", "thumbnail_url", "selling_price", "selling_price_currency",
+    }
     model_statements = [statement for statement in statements if " FROM models " in f" {statement} "]
     assert len(model_statements) == 1
     assert "model_bom" not in model_statements[0].lower()

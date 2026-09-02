@@ -32,6 +32,8 @@ class PriceCalculationRequest(Base, PkMixin, TimestampMixin):
     exchange_rate: Mapped[float | None] = mapped_column(Numeric(14, 4))
     finance_updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
-    model = relationship("Model", lazy="joined")
+    # ``models`` also points back to the request that supplied its current price,
+    # so this relationship must state which foreign key identifies the variant.
+    model = relationship("Model", foreign_keys=[model_id], lazy="joined")
     cutting_passport = relationship("CuttingPassport", lazy="joined")
 

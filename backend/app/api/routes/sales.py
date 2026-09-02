@@ -1618,13 +1618,29 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
     db.add(so); db.flush()
     total = 0.0
     created_lines: list[SalesOrderItem] = []
+    selected_model_ids = {int(item.model_id) for item in payload.items}
+    selected_models = {
+        model.id: model
+        for model in db.query(Model).filter(
+            Model.id.in_(selected_model_ids),
+            Model.catalog_scope == "standard",
+        ).all()
+    } if selected_model_ids else {}
     for item in payload.items:
-        if not db.query(Model.id).filter(Model.id == item.model_id, Model.catalog_scope == "standard").first():
+        model = selected_models.get(item.model_id)
+        if not model:
             raise HTTPException(404, f"Model {item.model_id} not found")
-        line = SalesOrderItem(sales_order_id=so.id, **item.model_dump())
+        unit_price = item.unit_price
+        if unit_price is None:
+            unit_price = float(model.selling_price) if model.selling_price is not None else 0.0
+        line = SalesOrderItem(
+            sales_order_id=so.id,
+            unit_price=unit_price,
+            **item.model_dump(exclude={"unit_price"}),
+        )
         db.add(line)
         created_lines.append(line)
-        total += float(item.unit_price) * item.quantity
+        total += float(unit_price) * item.quantity
     so.total_amount = total
     if payload.order_type == "branded_stock_sale":
         reservations, shortages = _reserve_branded_stock(

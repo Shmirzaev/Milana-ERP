@@ -251,6 +251,11 @@ class ModelOut(ORMModel):
     details_json: Optional[dict] = None
     status: str
     sam_minutes: float = 0
+    selling_price: Optional[float] = None
+    selling_price_currency: Optional[str] = None
+    selling_price_source: Optional[str] = None
+    selling_price_request_id: Optional[int] = None
+    selling_price_updated_at: Optional[datetime] = None
     material_composition: list[ItemComposition] = Field(default_factory=list)
     created_by: Optional[int] = None
     approved_by: Optional[int] = None
@@ -273,6 +278,8 @@ class ModelSummaryOut(BaseModel):
     brand_id: Optional[int] = None
     status: str
     thumbnail_url: Optional[str] = None
+    selling_price: Optional[float] = None
+    selling_price_currency: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -282,6 +289,8 @@ class ModelOptionOut(BaseModel):
     code: str
     name: str
     thumbnail_url: Optional[str] = None
+    selling_price: Optional[float] = None
+    selling_price_currency: Optional[str] = None
 
 
 class ModelOptionPage(BaseModel):

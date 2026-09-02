@@ -62,6 +62,20 @@ class Model(Base, PkMixin, TimestampMixin):
     # Standard Allowed Minutes per piece. Used by planning to estimate sewing
     # duration accurately instead of the static 45% share.
     sam_minutes: Mapped[float] = mapped_column(Numeric(8, 2), default=0, nullable=False)
+    # Selling price belongs to this exact model/variant row. It is intentionally
+    # not stored on a model group because every fabric variant may have its own price.
+    selling_price: Mapped[float | None] = mapped_column(Numeric(14, 4))
+    selling_price_currency: Mapped[str | None] = mapped_column(String(3))
+    selling_price_source: Mapped[str | None] = mapped_column(String(32))
+    selling_price_request_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "price_calculation_requests.id",
+            name="fk_models_selling_price_request_id",
+            use_alter=True,
+        ),
+        index=True,
+    )
+    selling_price_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     images: Mapped[list["ModelImage"]] = relationship("ModelImage", back_populates="model", cascade="all, delete-orphan")
     sizes: Mapped[list["ModelSize"]] = relationship("ModelSize", back_populates="model", cascade="all, delete-orphan")

@@ -13,6 +13,7 @@ const cutting = read("src/app/(app)/cutting/price-calculation/page.tsx");
 const purchasing = read("src/app/(app)/purchasing/price-calculation/page.tsx");
 const card = read("src/components/price-calculation/PriceRequestCard.tsx");
 const images = read("src/components/ImageThumbnail.tsx");
+const modelDetail = read("src/app/(app)/models/[id]/page.tsx");
 
 requireText(sales, 'api.post("/api/price-calculation/requests", { model_id: draft.modelId })', "Sales must create price requests with the selected model only.");
 if (/api\.post\([^\n]+kroy_no/.test(sales)) throw new Error("Sales must not own the Kroy number.");
@@ -23,5 +24,7 @@ if (/api\.patch\([^\n]+purchasing[\s\S]{0,160}kroy_no/.test(purchasing)) throw n
 requireText(card, "modelImageUrl", "Every shared department card must show the model picture.");
 requireText(card, "variantImageUrl", "Every shared department card must show the variant picture.");
 requireText(images, 'target="_blank"', "Picture previews must open in a new tab.");
+requireText(modelDetail, 't("page.priceCalculation.sellingPrice")', "Model variants must expose their attached selling price.");
+requireText(modelDetail, "v.selling_price", "The variant table must render the price stored on each exact variant.");
 
 console.log("Price calculation department workflow contract passed.");

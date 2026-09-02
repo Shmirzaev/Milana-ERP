@@ -13,6 +13,7 @@ from app.schemas.price_calculation import (
 )
 from app.services.audit import log_action
 from app.services.price_calculation import (
+    attach_completed_selling_price,
     can_view_price_requests,
     create_price_request,
     cutting_status,
@@ -102,6 +103,8 @@ def update_finance(request_id: int, payload: PriceCalculationFinanceIn, db: DbSe
         setattr(request, key, value)
     request.finance_updated_by_id = current.id
     log_action(db, current, "update_finance_price", "PriceCalculationRequest", request.id, old_value=old_value, new_value=changes)
+    db.flush()
+    attach_completed_selling_price(db, request, current)
     db.commit()
     db.refresh(request)
     return serialize_price_request(request)

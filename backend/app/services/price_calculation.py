@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -170,6 +171,60 @@ def overall_status(request: PriceCalculationRequest) -> str:
     return "in_progress"
 
 
+def attach_completed_selling_price(
+    db: Session,
+    request: PriceCalculationRequest,
+    current: User,
+) -> bool:
+    """Persist a completed request price on its exact model/variant.
+
+    Incomplete or cleared requests never erase a previously approved variant
+    price. A later completed request replaces it and becomes the traceable source.
+    """
+    if overall_status(request) != "complete":
+        return False
+    price = _decimal(request.selling_price)
+    if price is None or price <= 0:
+        return False
+    model = request.model
+    previous_price = _decimal(model.selling_price)
+    unchanged = (
+        previous_price == price
+        and model.selling_price_currency == "USD"
+        and model.selling_price_source == "price_request"
+        and model.selling_price_request_id == request.id
+    )
+    if unchanged:
+        return False
+    old_value = {
+        "selling_price": float(previous_price) if previous_price is not None else None,
+        "selling_price_currency": model.selling_price_currency,
+        "selling_price_source": model.selling_price_source,
+        "selling_price_request_id": model.selling_price_request_id,
+    }
+    model.selling_price = price
+    model.selling_price_currency = "USD"
+    model.selling_price_source = "price_request"
+    model.selling_price_request_id = request.id
+    model.selling_price_updated_at = datetime.now(timezone.utc)
+    db.flush()
+    log_action(
+        db,
+        current,
+        "attach_selling_price",
+        "Model",
+        model.id,
+        old_value=old_value,
+        new_value={
+            "selling_price": float(price),
+            "selling_price_currency": "USD",
+            "selling_price_source": "price_request",
+            "selling_price_request_id": request.id,
+        },
+    )
+    return True
+
+
 def _calculation(request: PriceCalculationRequest) -> dict:
     ready = cutting_status(request) == "complete" and purchasing_status(request) == "complete" and accessories_status(request) == "complete"
     if not ready:
@@ -240,6 +295,13 @@ def serialize_price_request(request: PriceCalculationRequest) -> dict:
         "accessories": accessories,
         "cost_price_uzs": float(request.cost_price_uzs) if request.cost_price_uzs is not None else None,
         "selling_price": float(request.selling_price) if request.selling_price is not None else None,
+        "variant_selling_price": float(model.selling_price) if model.selling_price is not None else None,
+        "variant_selling_price_request_id": model.selling_price_request_id,
+        "selling_price_attached": bool(
+            model.selling_price_source == "price_request"
+            and model.selling_price_request_id == request.id
+            and _decimal(model.selling_price) == _decimal(request.selling_price)
+        ),
         "profit_percentage": float(request.profit_percentage) if request.profit_percentage is not None else None,
         "exchange_rate": float(request.exchange_rate) if request.exchange_rate is not None else None,
         "purchasing_status": purchasing_status(request),

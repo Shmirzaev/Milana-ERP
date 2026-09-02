@@ -40,6 +40,16 @@ assert.match(
   /setCustomerId\(created\.id\)/,
   "A newly created customer must be selected without discarding the order draft.",
 );
+assert.match(
+  page,
+  /function selectLineModel[\s\S]*selected\?\.selling_price[\s\S]*unit_price: unitPrice/,
+  "Selecting an exact model variant must autofill that variant's selling price.",
+);
+assert.match(
+  page,
+  /unit_price: line\.unit_price === "" \? null : numberOrZero\(line\.unit_price\)/,
+  "A blank Sales Order price must reach the backend as missing so its variant-price fallback is authoritative.",
+);
 for (const localeSource of localeSources) {
   assert.match(
     localeSource,
