@@ -20,6 +20,11 @@ assert.match(
   /searchText: `\$\{group\.label\} \$\{modelOrderLabel\(item\.model\)\}`/,
   "Branded-stock searches must include the model-family and variant identity.",
 );
+assert.match(
+  page,
+  /imageUrl: item\.model\.thumbnail_url/,
+  "Branded-stock search results must show each model thumbnail.",
+);
 assert.doesNotMatch(
   page,
   /<optgroup key=\{group\.key\}/,

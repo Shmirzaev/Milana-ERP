@@ -284,6 +284,7 @@ export default function NewSalesOrderPage() {
         value: Number(item.model.id),
         label: `${variant} - ${packLabel}${partialLabel}`,
         searchText: `${group.label} ${modelOrderLabel(item.model)}`,
+        imageUrl: item.model.thumbnail_url,
       };
     })
   )), [availableModelGroups, includePartialPacks, t]);
