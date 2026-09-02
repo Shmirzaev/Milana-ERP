@@ -13,6 +13,8 @@ export type SearchableSelectOption<T extends string | number = string | number> 
   label: string;
   searchText?: string;
   imageUrl?: string | null;
+  metaText?: string;
+  tone?: "default" | "success";
 };
 
 export default function SearchableSelect<T extends string | number>({
@@ -285,6 +287,10 @@ export default function SearchableSelect<T extends string | number>({
             const selected = String(option.value) === String(value ?? "");
             const showImage = Object.prototype.hasOwnProperty.call(option, "imageUrl");
             const imageUrl = storageThumbnailUrl(option.imageUrl, 128);
+            const success = option.tone === "success";
+            const rowClass = success
+              ? index === activeIndex ? "bg-emerald-100 text-emerald-950" : "bg-emerald-50 text-emerald-950 hover:bg-emerald-100"
+              : index === activeIndex ? "bg-[#f3f0e7]" : "hover:bg-[#f8f6ef]";
             return (
               <button
                 type="button"
@@ -292,7 +298,7 @@ export default function SearchableSelect<T extends string | number>({
                 id={`${listboxId}-option-${index}`}
                 aria-selected={selected}
                 key={String(option.value)}
-                className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm ${index === activeIndex ? "bg-[#f3f0e7]" : "hover:bg-[#f8f6ef]"}`}
+                className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm ${rowClass}`}
                 onMouseEnter={() => setActiveIndex(index)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => choose(option)}
@@ -317,7 +323,14 @@ export default function SearchableSelect<T extends string | number>({
                     </span>
                   )
                 )}
-                <span className="min-w-0 flex-1 self-center break-words">{option.label}</span>
+                <span className="min-w-0 flex-1 self-center break-words">
+                  <span className="block">{option.label}</span>
+                  {option.metaText ? (
+                    <span className={`mt-0.5 block text-xs ${success ? "text-emerald-700" : "text-[#6f6a5b]"}`}>
+                      {option.metaText}
+                    </span>
+                  ) : null}
+                </span>
                 <Check className={`h-4 w-4 shrink-0 self-center ${selected ? "text-[#14110b]" : "invisible"}`} aria-hidden="true" />
               </button>
             );

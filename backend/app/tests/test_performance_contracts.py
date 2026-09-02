@@ -1,6 +1,8 @@
 from sqlalchemy import event
 
 from app.db import session as session_module
+from app.db.session import SessionLocal
+from app.models import Brand, FinishedGoodsStock, Model
 
 
 def _captured_statements(call):
@@ -63,3 +65,74 @@ def test_notification_and_task_summaries_return_counts(client, auth_headers):
     task_response = client.get("/api/tasks/open-count", headers=auth_headers)
     assert task_response.status_code == 200, task_response.text
     assert isinstance(task_response.json()["count"], int)
+
+
+def test_branded_order_create_does_not_scan_unrelated_legacy_stock(client, auth_headers):
+    db = SessionLocal()
+    try:
+        target_model = db.query(Model).filter(Model.code == "T-SHIRT-001").one()
+        brand = db.query(Brand).filter(Brand.name == "Urban Co.").one()
+        unrelated_model = Model(
+            code="PERF-UNRELATED-STOCK",
+            name="Unrelated performance stock",
+            status="approved",
+        )
+        db.add(unrelated_model)
+        db.flush()
+        db.add_all(
+            [
+                FinishedGoodsStock(
+                    model_id=unrelated_model.id,
+                    color="mixed",
+                    size="pack60",
+                    quantity=60,
+                    available_qty=60,
+                    reserved_qty=0,
+                    sold_qty=0,
+                    status="available",
+                )
+                for _ in range(250)
+            ]
+        )
+        db.add(
+            FinishedGoodsStock(
+                model_id=target_model.id,
+                brand_id=brand.id,
+                color="mixed",
+                size="pack60",
+                quantity=60,
+                available_qty=60,
+                reserved_qty=0,
+                sold_qty=0,
+                status="available",
+            )
+        )
+        db.commit()
+        target_model_id = int(target_model.id)
+        brand_id = int(brand.id)
+    finally:
+        db.close()
+
+    response, statements = _captured_statements(
+        lambda: client.post(
+            "/api/sales-orders",
+            json={
+                "order_type": "branded_stock_sale",
+                "items": [
+                    {
+                        "model_id": target_model_id,
+                        "brand_id": brand_id,
+                        "color": "mixed",
+                        "size": "pack60",
+                        "quantity": 60,
+                        "unit_price": 12,
+                    }
+                ],
+            },
+            headers=auth_headers,
+        )
+    )
+
+    assert response.status_code == 201, response.text
+    selects = [statement for statement in statements if statement.upper().startswith("SELECT")]
+    assert len(selects) <= 30, selects

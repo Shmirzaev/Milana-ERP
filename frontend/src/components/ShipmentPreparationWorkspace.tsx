@@ -12,7 +12,7 @@ export type ShipmentSummary = {
   sales_order_id?: number | null;
   sales_order_no?: string | null;
   customer_name?: string | null;
-  shipment_no: string;
+  shipment_no: string | null;
   status: string;
   notes?: string | null;
   packages_count?: number | null;
@@ -66,6 +66,7 @@ export type ShipmentPreparation = {
   scanned_count: number;
   remaining_count: number;
   is_complete: boolean;
+  is_preview?: boolean;
 };
 
 function formatQuantity(value: number | null | undefined) {
@@ -112,7 +113,8 @@ export default function ShipmentPreparationWorkspace({
   }
 
   const shipment = preparation.shipment;
-  const isOpen = ["draft", "created"].includes(String(shipment.status || ""));
+  const isPreview = Boolean(preparation.is_preview);
+  const isOpen = !isPreview && ["draft", "created"].includes(String(shipment.status || ""));
   const canScan = isOpen;
   const shipDisabled = !isOpen || preparation.required_count <= 0 || preparation.remaining_count > 0;
   const items = preparation.items || [];
@@ -123,8 +125,8 @@ export default function ShipmentPreparationWorkspace({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#ded9ca] px-4 py-3 sm:px-5">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="app-card-title mono">{shipment.shipment_no}</h2>
-            <span className="badge">{statusLabel(shipment.status, t)}</span>
+            <h2 className="app-card-title mono">{shipment.shipment_no || shipment.sales_order_no}</h2>
+            <span className="badge">{isPreview ? t("page.shipments.notCreated") : statusLabel(shipment.status, t)}</span>
           </div>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[#56503f]">
             <span>{t("page.shipments.salesOrder")}: <strong className="font-semibold text-[#14110b]">{shipment.sales_order_no || "-"}</strong></span>
@@ -143,12 +145,14 @@ export default function ShipmentPreparationWorkspace({
           <div>
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <label className="label mb-0" htmlFor="shipment-package-scan">{t("page.shipments.scanPackageBeforeShipping")}</label>
-              <span className={`text-xs font-medium ${preparation.is_complete ? "text-emerald-700" : "text-amber-700"}`}>
-                {t("page.shipments.scanProgress", {
-                  scanned: preparation.scanned_count,
-                  required: preparation.required_count,
-                  remaining: preparation.remaining_count,
-                })}
+              <span className={`text-xs font-medium ${preparation.is_complete ? "text-emerald-700" : "text-[#6f6a5b]"}`}>
+                {isPreview
+                  ? t("page.shipments.createToScan")
+                  : t("page.shipments.scanProgress", {
+                      scanned: preparation.scanned_count,
+                      required: preparation.required_count,
+                      remaining: preparation.remaining_count,
+                    })}
               </span>
             </div>
             <div className="flex gap-2">
@@ -176,7 +180,7 @@ export default function ShipmentPreparationWorkspace({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 lg:justify-end">
+          {!isPreview ? <div className="flex flex-wrap gap-2 lg:justify-end">
             {shipment.sales_order_id && isOpen ? (
               <button type="button" className="btn" onClick={onAddReadyPackages}>{t("page.shipments.addReadyPackages")}</button>
             ) : null}
@@ -191,7 +195,7 @@ export default function ShipmentPreparationWorkspace({
                 {t("page.shipments.traceability")}
               </Link>
             ) : null}
-          </div>
+          </div> : null}
         </div>
       </div>
 
@@ -204,10 +208,11 @@ export default function ShipmentPreparationWorkspace({
           <>
             <div className="divide-y divide-[#ded9ca] border-t border-[#ded9ca] md:hidden">
               {items.map((item) => {
-                const ready = item.required_qty > 0 && item.prepared_qty >= item.required_qty;
-                const partial = item.prepared_qty > 0 && !ready;
+                const prepared = item.required_qty > 0 && item.prepared_qty >= item.required_qty;
+                const scanned = item.packages_count > 0 && item.scanned_packages_count >= item.packages_count;
+                const partial = item.prepared_qty > 0 && !prepared;
                 return (
-                  <article key={item.model_id} className={`p-4 ${ready ? "bg-emerald-50/60" : partial ? "bg-amber-50/60" : ""}`}>
+                  <article key={item.model_id} className={`p-4 ${scanned ? "bg-emerald-50/60" : partial ? "bg-amber-50/60" : ""}`}>
                     <div className="flex items-start gap-3">
                       <div className="flex shrink-0 gap-2">
                         <ImageThumbnail
@@ -242,8 +247,14 @@ export default function ShipmentPreparationWorkspace({
                         <div>{t("page.shipments.prepared")}: <strong className="font-semibold tabular-nums text-[#14110b]">{formatQuantity(item.prepared_qty)} / {formatQuantity(item.required_qty)}</strong></div>
                         <div>{t("field.packages")}: {item.scanned_packages_count} / {item.packages_count} {t("page.shipments.verifiedShort")}</div>
                       </div>
-                      <span className={`text-right text-xs font-medium ${ready ? "text-emerald-700" : partial ? "text-amber-700" : "text-[#6f6a5b]"}`}>
-                        {ready ? t("page.shipments.readyForScan") : partial ? t("page.shipments.partiallyPrepared") : t("page.shipments.awaitingPackages")}
+                      <span className={`text-right text-xs font-medium ${scanned ? "text-emerald-700" : partial ? "text-amber-700" : "text-[#56503f]"}`}>
+                        {scanned
+                          ? t("page.shipments.scanned")
+                          : prepared
+                            ? t("page.shipments.notScanned")
+                            : partial
+                              ? t("page.shipments.partiallyPrepared")
+                              : t("page.shipments.awaitingPackages")}
                       </span>
                     </div>
                   </article>
@@ -265,10 +276,11 @@ export default function ShipmentPreparationWorkspace({
               </thead>
               <tbody>
                 {items.map((item) => {
-                  const ready = item.required_qty > 0 && item.prepared_qty >= item.required_qty;
-                  const partial = item.prepared_qty > 0 && !ready;
+                  const prepared = item.required_qty > 0 && item.prepared_qty >= item.required_qty;
+                  const scanned = item.packages_count > 0 && item.scanned_packages_count >= item.packages_count;
+                  const partial = item.prepared_qty > 0 && !prepared;
                   return (
-                    <tr key={item.model_id} className={ready ? "bg-emerald-50/60" : partial ? "bg-amber-50/60" : ""}>
+                    <tr key={item.model_id} className={scanned ? "bg-emerald-50/60" : partial ? "bg-amber-50/60" : ""}>
                       <td>
                         <ImageThumbnail
                           imageUrl={item.model_image_url}
@@ -307,8 +319,14 @@ export default function ShipmentPreparationWorkspace({
                       <td className="whitespace-nowrap tabular-nums">
                         {item.scanned_packages_count} / {item.packages_count} {t("page.shipments.verifiedShort")}
                       </td>
-                      <td className={`whitespace-nowrap font-medium ${ready ? "text-emerald-700" : partial ? "text-amber-700" : "text-[#6f6a5b]"}`}>
-                        {ready ? t("page.shipments.readyForScan") : partial ? t("page.shipments.partiallyPrepared") : t("page.shipments.awaitingPackages")}
+                      <td className={`whitespace-nowrap font-medium ${scanned ? "text-emerald-700" : partial ? "text-amber-700" : "text-[#56503f]"}`}>
+                        {scanned
+                          ? t("page.shipments.scanned")
+                          : prepared
+                            ? t("page.shipments.notScanned")
+                            : partial
+                              ? t("page.shipments.partiallyPrepared")
+                              : t("page.shipments.awaitingPackages")}
                       </td>
                     </tr>
                   );
@@ -333,15 +351,15 @@ export default function ShipmentPreparationWorkspace({
           <>
             <div className="divide-y divide-[#ded9ca] border-t border-[#ded9ca] md:hidden">
               {packages.map((pkg) => (
-                <article key={pkg.id} className={`p-4 ${pkg.scanned ? "bg-emerald-50/60" : "bg-amber-50/50"}`}>
+                <article key={pkg.id} className={`p-4 ${pkg.scanned ? "bg-emerald-50/60" : ""}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="mono font-semibold text-[#14110b]">{pkg.package_no}</div>
                       <div className="mt-1 text-xs text-[#56503f]">{modelLabel(pkg)} · {t("field.variantNo")}: {pkg.variant_no || "-"}</div>
                     </div>
-                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${pkg.scanned ? "text-emerald-700" : "text-amber-700"}`}>
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${pkg.scanned ? "text-emerald-700" : "text-[#56503f]"}`}>
                       {pkg.scanned ? <Check className="h-4 w-4" aria-hidden="true" /> : <PackageCheck className="h-4 w-4" aria-hidden="true" />}
-                      {pkg.scanned ? t("page.shipments.verified") : t("page.shipments.waitingForScan")}
+                      {pkg.scanned ? t("page.shipments.scanned") : t("page.shipments.notScanned")}
                     </span>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[#ded9ca] pt-3 text-xs">
@@ -376,7 +394,7 @@ export default function ShipmentPreparationWorkspace({
               </thead>
               <tbody>
                 {packages.map((pkg) => (
-                  <tr key={pkg.id} className={pkg.scanned ? "bg-emerald-50/60" : "bg-amber-50/50"}>
+                  <tr key={pkg.id} className={pkg.scanned ? "bg-emerald-50/60" : ""}>
                     <td className="mono whitespace-nowrap font-semibold text-[#14110b]">{pkg.package_no}</td>
                     <td>
                       <div className="font-medium text-[#14110b]">{modelLabel(pkg)}</div>
@@ -394,9 +412,9 @@ export default function ShipmentPreparationWorkspace({
                     <td className="whitespace-nowrap">{pkg.location || "-"}</td>
                     <td className="tabular-nums">{formatQuantity(pkg.quantity)}</td>
                     <td>
-                      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap font-medium ${pkg.scanned ? "text-emerald-700" : "text-amber-700"}`}>
+                      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap font-medium ${pkg.scanned ? "text-emerald-700" : "text-[#56503f]"}`}>
                         {pkg.scanned ? <Check className="h-4 w-4" aria-hidden="true" /> : <PackageCheck className="h-4 w-4" aria-hidden="true" />}
-                        {pkg.scanned ? t("page.shipments.verified") : t("page.shipments.waitingForScan")}
+                        {pkg.scanned ? t("page.shipments.scanned") : t("page.shipments.notScanned")}
                       </span>
                     </td>
                   </tr>

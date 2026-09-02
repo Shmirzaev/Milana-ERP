@@ -6,6 +6,10 @@ const workspace = fs.readFileSync("src/components/ShipmentPreparationWorkspace.t
 for (const token of [
   "ShipmentPreparationWorkspace",
   "/api/shipments/${activeShipmentId}/preparation",
+  "/api/shipments/sales-order/${salesOrderId}/preparation",
+  "SearchableSelect<number>",
+  "shipmentOrderChoices",
+  "order.is_scanned ? \"success\" : \"default\"",
   "historyQuery",
   "max-w-[1440px]",
 ]) {
@@ -18,7 +22,7 @@ for (const token of [
   "itemsToPrepare",
   "packageChecklist",
   "storageLocation",
-  "waitingForScan",
+  "notScanned",
 ]) {
   if (!workspace.includes(token)) throw new Error(`Shipment workspace is missing ${token}`);
 }
@@ -38,6 +42,8 @@ if (fs.existsSync(backendPath)) {
     '"variant_image_url"',
     '"location"',
     '"scanned"',
+    '"is_preview"',
+    '@router.get("/sales-order/{sales_order_id}/preparation")',
   ]) {
     if (!backend.includes(token)) throw new Error(`Shipment preparation API is missing ${token}`);
   }
@@ -50,6 +56,10 @@ for (const language of ["en", "ru", "uz"]) {
     "page.shipments.variantPicture",
     "page.shipments.packageChecklist",
     "page.shipments.history",
+    "page.shipments.orderSelectorHint",
+    "page.shipments.noOrderMatches",
+    "page.shipments.scanned",
+    "page.shipments.notScanned",
   ]) {
     if (!locale.includes(`"${key}"`)) throw new Error(`${language} locale is missing ${key}`);
   }

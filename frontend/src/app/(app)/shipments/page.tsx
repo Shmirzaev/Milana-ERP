@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
 import PageHeader from "@/components/PageHeader";
+import SearchableSelect, { type SearchableSelectOption } from "@/components/SearchableSelect";
 import ShipmentPreparationWorkspace, {
   type ShipmentPreparation,
   type ShipmentSummary,
@@ -21,6 +22,10 @@ type ShipmentRow = ShipmentSummary & {
   shipped_at?: string | null;
   delivered_at?: string | null;
   created_at?: string | null;
+  required_count?: number | null;
+  scanned_count?: number | null;
+  remaining_count?: number | null;
+  is_complete?: boolean;
 };
 
 type EligibleOrder = {
@@ -30,6 +35,13 @@ type EligibleOrder = {
   customer_name?: string | null;
   status: string;
   ready_qty?: number | null;
+};
+
+type ShipmentOrderChoice = EligibleOrder & {
+  shipment_id?: number | null;
+  shipment_no?: string | null;
+  shipment_status?: string | null;
+  is_scanned: boolean;
 };
 
 function errorMessage(error: unknown): string {
@@ -65,26 +77,68 @@ export default function ShipmentsPage() {
     if (searchParams.get("mode") === "warehouse_exit") setShipmentMode("warehouse_exit");
   }, [searchParams]);
 
-  const shipmentCandidateOrders = useMemo(
-    () => (orders || []).slice().sort((a, b) => Number(b.id || 0) - Number(a.id || 0)),
-    [orders],
+  const shipmentOrderChoices = useMemo<ShipmentOrderChoice[]>(() => {
+    const byOrder = new Map<number, ShipmentOrderChoice>();
+    for (const shipment of data || []) {
+      const orderId = Number(shipment.sales_order_id || 0);
+      if (!orderId || String(shipment.status || "") === "cancelled" || byOrder.has(orderId)) continue;
+      byOrder.set(orderId, {
+        id: orderId,
+        order_no: shipment.sales_order_no || `#${orderId}`,
+        customer_name: shipment.customer_name,
+        status: shipment.status,
+        ready_qty: shipment.total_qty,
+        shipment_id: Number(shipment.id),
+        shipment_no: shipment.shipment_no,
+        shipment_status: shipment.status,
+        is_scanned: Boolean(shipment.is_complete),
+      });
+    }
+    for (const order of orders || []) {
+      if (byOrder.has(Number(order.id))) continue;
+      byOrder.set(Number(order.id), {
+        ...order,
+        shipment_id: null,
+        shipment_no: null,
+        shipment_status: null,
+        is_scanned: false,
+      });
+    }
+    return Array.from(byOrder.values()).sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+  }, [data, orders]);
+
+  const shipmentOrderOptions = useMemo<SearchableSelectOption<number>[]>(
+    () => shipmentOrderChoices.map((order) => ({
+      value: Number(order.id),
+      label: `${order.order_no} — ${order.customer_name || "-"}`,
+      searchText: `${order.shipment_no || ""} ${order.shipment_status || order.status || ""}`,
+      metaText: order.is_scanned ? t("page.shipments.scanned") : t("page.shipments.notScanned"),
+      tone: order.is_scanned ? "success" : "default",
+    })),
+    [shipmentOrderChoices, t],
   );
 
   useEffect(() => {
-    if (!orders || !salesOrderId) return;
-    if (!shipmentCandidateOrders.some((order) => Number(order.id) === Number(salesOrderId))) {
+    if ((!orders && !data) || !salesOrderId) return;
+    if (!shipmentOrderChoices.some((order) => Number(order.id) === Number(salesOrderId))) {
       setSalesOrderId(0);
     }
-  }, [orders, salesOrderId, shipmentCandidateOrders]);
+  }, [data, orders, salesOrderId, shipmentOrderChoices]);
 
   useEffect(() => {
     if (!Array.isArray(data) || data.length === 0) return;
     if (data.some((shipment) => Number(shipment.id) === Number(activeShipmentId))) return;
+    if (salesOrderId > 0) return;
     const next = data.find((shipment) => ["draft", "created"].includes(String(shipment.status || ""))) || data[0];
     setActiveShipmentId(Number(next.id || 0));
-  }, [data, activeShipmentId]);
+    setSalesOrderId(Number(next.sales_order_id || 0));
+  }, [data, activeShipmentId, salesOrderId]);
 
-  const preparationKey = activeShipmentId > 0 ? `/api/shipments/${activeShipmentId}/preparation` : null;
+  const preparationKey = activeShipmentId > 0
+    ? `/api/shipments/${activeShipmentId}/preparation`
+    : shipmentMode === "sales_order" && salesOrderId > 0
+      ? `/api/shipments/sales-order/${salesOrderId}/preparation`
+      : null;
   const {
     data: preparation,
     isLoading: isPreparationLoading,
@@ -112,7 +166,6 @@ export default function ShipmentsPage() {
         notes: warehouseExit ? warehouseExitReference.trim() : null,
       });
       setActiveShipmentId(Number(shipment.id));
-      setSalesOrderId(0);
       setWarehouseExitReference("");
       setMessage(
         warehouseExit
@@ -197,8 +250,18 @@ export default function ShipmentsPage() {
     setScanResult(null);
     setScanCode("");
     setError("");
-    setSalesOrderId(0);
+    setSalesOrderId(Number(shipment.sales_order_id || 0));
     setMessage(t("page.shipments.shipmentSelected", { shipment: shipment.shipment_no }));
+  }
+
+  function selectSalesOrder(orderId: number) {
+    const choice = shipmentOrderChoices.find((order) => Number(order.id) === Number(orderId));
+    setSalesOrderId(Number(orderId));
+    setActiveShipmentId(Number(choice?.shipment_id || 0));
+    setScanResult(null);
+    setScanCode("");
+    setError("");
+    setMessage("");
   }
 
   async function markRowShipped(shipment: ShipmentRow) {
@@ -249,14 +312,15 @@ export default function ShipmentsPage() {
             {shipmentMode === "sales_order" ? (
               <div className="min-w-0">
                 <label className="label">{t("page.shipments.salesOrder")}</label>
-                <select className="input" value={salesOrderId} onChange={(event) => setSalesOrderId(Number(event.target.value))}>
-                  <option value={0}>{t("page.shipments.chooseSalesOrder")}</option>
-                  {shipmentCandidateOrders.map((order) => (
-                    <option key={order.id} value={order.id}>
-                      {order.order_no} — {order.customer_name || order.customer_id || "-"} — {statusLabel(order.status, t)} — {Number(order.ready_qty || 0).toLocaleString()} {t("page.shipments.readyPieces")}
-                    </option>
-                  ))}
-                </select>
+                <SearchableSelect<number>
+                  inputId="shipment-sales-order"
+                  value={salesOrderId || null}
+                  options={shipmentOrderOptions}
+                  onChange={(value) => selectSalesOrder(Number(value))}
+                  placeholder={t("page.shipments.chooseSalesOrder")}
+                  noResultsText={t("page.shipments.noOrderMatches")}
+                />
+                <p className="mt-1.5 text-xs text-[#6f6a5b]">{t("page.shipments.orderSelectorHint")}</p>
               </div>
             ) : (
               <div className="min-w-0">
@@ -273,9 +337,13 @@ export default function ShipmentsPage() {
               type="button"
               className="btn btn-primary"
               onClick={createShipment}
-              disabled={shipmentMode === "sales_order" ? !salesOrderId : !warehouseExitReference.trim()}
+              disabled={shipmentMode === "sales_order" ? !salesOrderId || activeShipmentId > 0 : !warehouseExitReference.trim()}
             >
-              {shipmentMode === "warehouse_exit" ? t("page.shipments.createWarehouseExit") : t("btn.createShipment")}
+              {shipmentMode === "warehouse_exit"
+                ? t("page.shipments.createWarehouseExit")
+                : activeShipmentId > 0
+                  ? t("page.shipments.shipmentAlreadyCreated")
+                  : t("btn.createShipment")}
             </button>
           </div>
           {shipmentMode === "warehouse_exit" ? <p className="mt-2 text-xs text-[#6f6a5b]">{t("page.shipments.warehouseExitHint")}</p> : null}

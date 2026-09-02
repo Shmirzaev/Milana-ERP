@@ -39,6 +39,7 @@ from app.services.idempotency import replay_idempotent_response, store_idempoten
 from app.services.model_images import material_preview_image_url, model_display_image_url
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
+_SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
 
 
 def _attachments_for_storage(attachments) -> list[dict]:
@@ -1120,10 +1121,18 @@ def _stock_rows_for_variant(
     size: str,
     brand_id: int | None,
 ) -> list[FinishedGoodsStock]:
-    qry = db.query(FinishedGoodsStock).filter(
-        FinishedGoodsStock.model_id == model_id,
-        FinishedGoodsStock.status == "available",
-        FinishedGoodsStock.available_qty > 0,
+    qry = (
+        db.query(FinishedGoodsStock)
+        .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
+        .filter(
+            FinishedGoodsStock.model_id == model_id,
+            FinishedGoodsStock.status == "available",
+            FinishedGoodsStock.available_qty > 0,
+            or_(
+                FinishedGoodsStock.package_id.is_(None),
+                Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
+            ),
+        )
     )
     if not _is_any_stock_token(color):
         qry = qry.filter(FinishedGoodsStock.color == color)
@@ -1219,12 +1228,22 @@ def _reserve_branded_stock(
     notify_shortage: bool = True,
     notify_storage_when_ready: bool = False,
 ) -> tuple[list[dict], list[dict]]:
-    repair_missing_brand_metadata(db)
     line_rows = lines if lines is not None else db.query(SalesOrderItem).filter(SalesOrderItem.sales_order_id == so.id).all()
     requested_by_variant: dict[tuple[int, str, str, int | None], int] = defaultdict(int)
     for line in line_rows:
         key = _stock_variant_key(line.model_id, line.color, line.size, line.brand_id)
         requested_by_variant[key] += int(line.quantity or 0)
+
+    # Legacy rows need inferred metadata only when a requested brand must be
+    # matched. Keep that repair scoped to the models in this order instead of
+    # scanning the entire finished-goods warehouse on every submission.
+    branded_model_ids = {
+        int(model_id)
+        for model_id, _color, _size, brand_id in requested_by_variant
+        if brand_id is not None
+    }
+    if branded_model_ids:
+        repair_missing_brand_metadata(db, model_ids=branded_model_ids)
 
     existing_rows = (
         db.query(StockReservation, FinishedGoodsStock)
@@ -1255,19 +1274,20 @@ def _reserve_branded_stock(
         raise HTTPException(409, "Stock has already been fully reserved for this sales order")
 
     shortages_precheck: list[dict] = []
-    for (model_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
+    stock_rows_by_variant: dict[tuple[int, str, str, int | None], list[FinishedGoodsStock]] = {}
+    for key, requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
-        available_qty = sum(
-            int(row.available_qty or 0)
-            for row in _stock_rows_for_variant(
-                db,
-                model_id=model_id,
-                color=color,
-                size=size,
-                brand_id=brand_id,
-            )
+        model_id, color, size, brand_id = key
+        stock_rows = _stock_rows_for_variant(
+            db,
+            model_id=model_id,
+            color=color,
+            size=size,
+            brand_id=brand_id,
         )
+        stock_rows_by_variant[key] = stock_rows
+        available_qty = sum(int(row.available_qty or 0) for row in stock_rows)
         if available_qty < requested_qty:
             shortages_precheck.append(
                 {
@@ -1292,17 +1312,12 @@ def _reserve_branded_stock(
 
     reservations: list[dict] = []
     shortages: list[dict] = []
-    for (model_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
+    for key, requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
+        model_id, color, size, brand_id = key
         needed = int(requested_qty)
-        stocks = _stock_rows_for_variant(
-            db,
-            model_id=model_id,
-            color=color,
-            size=size,
-            brand_id=brand_id,
-        )
+        stocks = stock_rows_by_variant[key]
         for s in stocks:
             if needed <= 0:
                 break

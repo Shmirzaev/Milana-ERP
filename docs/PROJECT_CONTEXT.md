@@ -2,6 +2,22 @@
 
 Last updated: 2026-09-02
 
+## Shipment order selector and package-readiness correction ready (2026-09-02)
+
+- The Shipments page now has one searchable Sales-order selector that combines eligible orders with orders that already have shipments. Every choice shows the Sales-order number and customer; fully scanned orders are green, while incomplete and not-yet-created orders remain plain. Selecting an existing shipment opens it directly, and selecting an order without a shipment immediately previews its model/variant pictures, requested quantities, ready packages, storage locations, and scan state on the same page.
+- Preparation rows and package rows are green only after every attached package for that row is actually scanned. A package that is prepared but not scanned is now labelled **Not scanned** and remains plain; **Awaiting packages** is reserved for an order line with no prepared package quantity.
+- New read-only `GET /api/shipments/sales-order/{sales_order_id}/preparation` provides the pre-creation view. Shipment list responses now include required, scanned, and remaining package counts plus a completion flag using only matched scans for packages actually attached to that shipment.
+- Root-cause diagnosis for the reported `SO-2026-000002` mismatch found that branded-order reservation could choose finished-goods rows whose packages were still only `packed`. Future allocation now accepts package-backed stock only when its package is `received_in_storage` or `reserved`, while retaining compatibility with legacy package-less stock rows. Regression coverage proves a lower-ID packed package is skipped in favor of a received package.
+- Local validation passed Ruff, Python compilation, all 504 backend tests, frontend lint, strict TypeScript, the shipment contract, every inherited production build contract, an optimized 83-route Next.js build, and signed-in browser QA of scanned, unscanned, existing-shipment, and pre-creation states. The repository-wide i18n checker still reports only the same 12 unrelated pre-existing Inventory roll/label keys.
+- This correction is not deployed. Active production remains release `20260902_084754`. No production Sales order, reservation, package, shipment, stock, audit, schema, source, or runtime state changed; the already-created `SO-2026-000002` reservation/package mismatch still requires a separately reviewed, backed-up production correction after the code release is approved.
+
+## Sales-order create performance fix ready (2026-09-02)
+
+- Production slow-request evidence showed the three recent `POST /api/sales-orders` calls completing in 8,650.0 ms, 8,158.3 ms, and 8,103.3 ms. The create path synchronously ran a legacy metadata repair across every finished-goods row; production has 4,634 rows and every row is missing a brand or collection value, so each submission caused thousands of unnecessary database lookups.
+- The reviewed local fix limits legacy metadata repair to models in the submitted order and runs it only when a selected brand requires metadata matching. It also reuses each locked eligible-stock result for validation and allocation instead of querying the same stock twice. Reservation, shortage, warehouse-notification, audit, and transaction behavior remain unchanged.
+- The new regression seeds 250 unrelated legacy stock rows and verifies branded-order creation stays within 30 SELECT statements; its measured local request call completed in 0.04 seconds. Ruff, Python compilation, 16 focused sales/performance tests, and the complete 503-test backend suite pass.
+- This fix is not deployed. Active production remains release `20260902_084754`; no production business data, schema, source, or runtime state changed during diagnosis or local validation.
+
 ## Shipment preparation workspace deployed (2026-09-02)
 
 - The Shipments page is now one continuous preparation workspace: create/select a shipment, scan packages, review every model/variant and ordered color/size quantity, inspect the package checklist and storage locations, complete shipment actions, and search shipment history without leaving the page. Desktop uses dense tables; phone/scanner widths use readable cards.
