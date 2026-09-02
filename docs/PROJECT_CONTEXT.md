@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-02
 
+## Sales-order create performance fix ready (2026-09-02)
+
+- Production slow-request evidence showed the three recent `POST /api/sales-orders` calls completing in 8,650.0 ms, 8,158.3 ms, and 8,103.3 ms. The create path synchronously ran a legacy metadata repair across every finished-goods row; production has 4,634 rows and every row is missing a brand or collection value, so each submission caused thousands of unnecessary database lookups.
+- The reviewed local fix limits legacy metadata repair to models in the submitted order and runs it only when a selected brand requires metadata matching. It also reuses each locked eligible-stock result for validation and allocation instead of querying the same stock twice. Reservation, shortage, warehouse-notification, audit, and transaction behavior remain unchanged.
+- The new regression seeds 250 unrelated legacy stock rows and verifies branded-order creation stays within 30 SELECT statements; its measured local request call completed in 0.04 seconds. Ruff, Python compilation, 16 focused sales/performance tests, and the complete 503-test backend suite pass.
+- This fix is not deployed. Active production remains release `20260902_084754`; no production business data, schema, source, or runtime state changed during diagnosis or local validation.
+
 ## Shipment preparation workspace deployed (2026-09-02)
 
 - The Shipments page is now one continuous preparation workspace: create/select a shipment, scan packages, review every model/variant and ordered color/size quantity, inspect the package checklist and storage locations, complete shipment actions, and search shipment history without leaving the page. Desktop uses dense tables; phone/scanner widths use readable cards.
