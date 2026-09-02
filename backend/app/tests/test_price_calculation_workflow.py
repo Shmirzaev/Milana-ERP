@@ -102,6 +102,8 @@ def test_price_calculation_department_workflow_and_authorization(client):
     assert request["overall_status"] == "new"
     assert request["cost_price"] is None
     assert request["packaging_cost"] == 0.1
+    assert request["selling_price_attached"] is False
+    assert request["variant_selling_price"] is None
     finance_queue = client.get("/api/price-calculation/requests", headers=finance)
     assert finance_queue.status_code == 200, finance_queue.text
     assert any(row["id"] == request_id for row in finance_queue.json())
@@ -183,6 +185,50 @@ def test_price_calculation_department_workflow_and_authorization(client):
     request = finalized.json()
     assert request["overall_status"] == "complete"
     assert request["difference"] is not None
+    assert request["selling_price_attached"] is True
+    assert request["variant_selling_price"] == 2.0
+    assert request["variant_selling_price_request_id"] == request_id
+
+    db = SessionLocal()
+    try:
+        priced_model = db.get(Model, data["model_id"])
+        assert float(priced_model.selling_price) == 2.0
+        assert priced_model.selling_price_currency == "USD"
+        assert priced_model.selling_price_source == "price_request"
+        assert priced_model.selling_price_request_id == request_id
+        assert priced_model.selling_price_updated_at is not None
+    finally:
+        db.close()
+
+    options = client.get(f"/api/model-options?ids={data['model_id']}", headers=sales)
+    assert options.status_code == 200, options.text
+    option = options.json()["items"][0]
+    assert option["selling_price"] == 2.0
+    assert option["selling_price_currency"] == "USD"
+
+    sales_order = client.post(
+        "/api/sales-orders",
+        json={
+            "items": [
+                {"model_id": data["model_id"], "color": "gray", "size": "S", "quantity": 10},
+                {"model_id": data["model_id"], "color": "gray", "size": "M", "quantity": 4, "unit_price": 1.25},
+            ],
+        },
+        headers=sales,
+    )
+    assert sales_order.status_code == 201, sales_order.text
+    created_order = sales_order.json()
+    assert [line["unit_price"] for line in created_order["items"]] == [2.0, 1.25]
+    assert created_order["total_amount"] == 25.0
+
+    revised = client.patch(
+        f"/api/price-calculation/requests/{request_id}/finance",
+        json={"selling_price": 2.25},
+        headers=finance,
+    )
+    assert revised.status_code == 200, revised.text
+    assert revised.json()["variant_selling_price"] == 2.25
+    assert revised.json()["selling_price_attached"] is True
 
 
 def test_cutting_can_enter_details_manually_when_kroy_is_not_in_passports(client):

@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel, SchemaModel
 
@@ -12,7 +12,9 @@ class SalesOrderItemIn(SchemaModel):
     color: str
     size: str
     quantity: int
-    unit_price: float = 0
+    # When omitted, the backend uses the selected variant's current selling price.
+    # An explicitly entered zero remains an intentional zero-price override.
+    unit_price: Optional[float] = Field(default=None, ge=0)
     printing_required: bool = False
     source_type: str = "produce_new"
     notes: Optional[str] = None

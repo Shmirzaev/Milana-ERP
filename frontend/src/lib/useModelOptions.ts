@@ -10,6 +10,8 @@ export type ModelOption = {
   code: string;
   name: string;
   thumbnail_url?: string | null;
+  selling_price?: number | null;
+  selling_price_currency?: string | null;
 };
 
 export type ModelOptionPage = {

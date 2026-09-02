@@ -84,6 +84,9 @@ class PriceCalculationRequestOut(BaseModel):
     accessories: list[PriceCalculationAccessoryOut] = Field(default_factory=list)
     cost_price_uzs: float | None = None
     selling_price: float | None = None
+    variant_selling_price: float | None = None
+    variant_selling_price_request_id: int | None = None
+    selling_price_attached: bool = False
     profit_percentage: float | None = None
     exchange_rate: float | None = None
     fabric_consumption: float | None = None

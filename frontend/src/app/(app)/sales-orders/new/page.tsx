@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
-import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
+import { modelOptionsByIdsFetcher, modelOptionsByIdsKey, type ModelOption } from "@/lib/useModelOptions";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
@@ -350,6 +350,7 @@ export default function NewSalesOrderPage() {
         return {
           ...line,
           model_id: nextModelId,
+          unit_price: nextModelId ? line.unit_price : "",
           color: BRANDED_PACK_COLOR,
           size: brandedPackSize,
           pack_count: selection.packCount,
@@ -439,6 +440,27 @@ export default function NewSalesOrderPage() {
     setLines((prev) => prev.map((line, i) => {
       if (index !== i) return line;
       const next = { ...line, [field]: value };
+      if (isBrandedOrder) {
+        const selection = brandedPackSelection(next);
+        next.full_pack_count = selection.fullPackCount;
+        next.partial_pack_count = selection.partialPackCount;
+        next.pack_count = selection.packCount;
+        next.quantity = selection.quantity;
+        next.color = BRANDED_PACK_COLOR;
+        next.size = brandedPackSize;
+      }
+      return next;
+    }));
+  }
+
+  function selectLineModel(index: number, modelId: number, model?: ModelOption | null) {
+    const selected = model || modelMap.get(Number(modelId));
+    const rawPrice = selected?.selling_price;
+    const parsedPrice = rawPrice === null || rawPrice === undefined ? NaN : Number(rawPrice);
+    const unitPrice: NumberInputValue = Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : "";
+    setLines((prev) => prev.map((line, i) => {
+      if (index !== i) return line;
+      const next = { ...line, model_id: modelId, unit_price: unitPrice };
       if (isBrandedOrder) {
         const selection = brandedPackSelection(next);
         next.full_pack_count = selection.fullPackCount;
@@ -625,7 +647,7 @@ export default function NewSalesOrderPage() {
           color: isBrandedOrder ? BRANDED_PACK_COLOR : line.color,
           size: isBrandedOrder ? brandedPackSize : line.size,
           quantity: linePieces(line),
-          unit_price: numberOrZero(line.unit_price),
+          unit_price: line.unit_price === "" ? null : numberOrZero(line.unit_price),
           printing_required: line.printing_required,
           brand_id: brandId || null,
         })),
@@ -832,7 +854,7 @@ export default function NewSalesOrderPage() {
                               <SearchableSelect<number>
                                 value={l.model_id || null}
                                 options={availableModelSelectOptions}
-                                onChange={(modelId) => updateLine(i, "model_id", modelId)}
+                                onChange={(modelId) => selectLineModel(i, modelId, availableModelOptionById.get(Number(modelId))?.model)}
                                 placeholder={t("newso.selectModel")}
                                 noResultsText={t("page.search.noMatches")}
                                 disabled={!availableModelOptions.length}
@@ -851,7 +873,7 @@ export default function NewSalesOrderPage() {
                             <div className="min-w-72">
                               <ModelAsyncSelect
                                 value={l.model_id || null}
-                                onChange={(modelId) => updateLine(i, "model_id", modelId)}
+                                onChange={(modelId, option) => selectLineModel(i, modelId, option)}
                                 placeholder={t("newso.selectModel")}
                                 noResultsText={t("page.search.noMatches")}
                                 loadingText={t("common.loading")}
