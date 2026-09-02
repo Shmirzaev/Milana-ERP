@@ -124,6 +124,10 @@ class ShipmentOut(ORMModel):
     shipment_type: str = "sales_order"
     packages_count: int = 0
     total_qty: int = 0
+    required_count: int = 0
+    scanned_count: int = 0
+    remaining_count: int = 0
+    is_complete: bool = False
     created_at: datetime
 
 

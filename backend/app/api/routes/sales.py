@@ -39,6 +39,7 @@ from app.services.idempotency import replay_idempotent_response, store_idempoten
 from app.services.model_images import material_preview_image_url, model_display_image_url
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
+_SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
 
 
 def _attachments_for_storage(attachments) -> list[dict]:
@@ -1120,10 +1121,18 @@ def _stock_rows_for_variant(
     size: str,
     brand_id: int | None,
 ) -> list[FinishedGoodsStock]:
-    qry = db.query(FinishedGoodsStock).filter(
-        FinishedGoodsStock.model_id == model_id,
-        FinishedGoodsStock.status == "available",
-        FinishedGoodsStock.available_qty > 0,
+    qry = (
+        db.query(FinishedGoodsStock)
+        .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
+        .filter(
+            FinishedGoodsStock.model_id == model_id,
+            FinishedGoodsStock.status == "available",
+            FinishedGoodsStock.available_qty > 0,
+            or_(
+                FinishedGoodsStock.package_id.is_(None),
+                Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
+            ),
+        )
     )
     if not _is_any_stock_token(color):
         qry = qry.filter(FinishedGoodsStock.color == color)

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Header
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -47,11 +47,17 @@ _SHIPMENT_ORDER_STATUSES = {
 }
 
 
-def _shipment_payload(db: DbSession, sh: Shipment) -> dict:
+def _shipment_payload(db: DbSession, sh: Shipment, *, scanned_count: int | None = None) -> dict:
     so = db.get(SalesOrder, sh.sales_order_id) if sh.sales_order_id else None
     customer = db.get(Customer, sh.customer_id or (so.customer_id if so else None)) if (sh.customer_id or (so.customer_id if so else None)) else None
     packages_count = len(sh.packages or [])
     total_qty = sum(int(sp.quantity or 0) for sp in (sh.packages or []))
+    if scanned_count is None:
+        scanned_count = len(
+            _matched_package_ids_for_shipment(db, int(sh.id))
+            & {int(sp.package_id) for sp in (sh.packages or []) if sp.package_id is not None}
+        )
+    remaining_count = max(0, packages_count - scanned_count)
     return {
         "id": sh.id,
         "sales_order_id": sh.sales_order_id,
@@ -67,6 +73,10 @@ def _shipment_payload(db: DbSession, sh: Shipment) -> dict:
         "shipment_type": "sales_order" if sh.sales_order_id else "warehouse_exit",
         "packages_count": packages_count,
         "total_qty": total_qty,
+        "required_count": packages_count,
+        "scanned_count": scanned_count,
+        "remaining_count": remaining_count,
+        "is_complete": packages_count > 0 and remaining_count == 0,
     }
 
 
@@ -84,14 +94,41 @@ def _model_identity(model: Model | None) -> tuple[str | None, str | None]:
     return model_no or None, variant_no or None
 
 
-def _shipment_preparation_payload(db: DbSession, sh: Shipment) -> dict:
-    package_rows = (
-        db.query(ShipmentPackage, Package)
-        .join(Package, Package.id == ShipmentPackage.package_id)
-        .filter(ShipmentPackage.shipment_id == sh.id)
-        .order_by(Package.id.asc())
-        .all()
-    )
+def _preparation_payload(
+    db: DbSession,
+    *,
+    shipment: Shipment | None = None,
+    sales_order: SalesOrder | None = None,
+) -> dict:
+    if shipment is None and sales_order is None:
+        raise ValueError("shipment or sales_order is required")
+
+    sales_order_id = int(shipment.sales_order_id) if shipment and shipment.sales_order_id else None
+    if sales_order is None and sales_order_id:
+        sales_order = db.get(SalesOrder, sales_order_id)
+    if sales_order is not None:
+        sales_order_id = int(sales_order.id)
+
+    if shipment is not None:
+        linked_rows = (
+            db.query(ShipmentPackage, Package)
+            .join(Package, Package.id == ShipmentPackage.package_id)
+            .filter(ShipmentPackage.shipment_id == shipment.id)
+            .order_by(Package.id.asc())
+            .all()
+        )
+        package_rows = [(int(link.quantity or 0), package) for link, package in linked_rows]
+        scanned_ids = _matched_package_ids_for_shipment(db, int(shipment.id))
+    elif sales_order_id:
+        package_rows = [
+            (int(package.total_quantity or 0), package)
+            for package, _model in _ready_packages_for_sales_order(db, sales_order_id)
+        ]
+        scanned_ids = set()
+    else:
+        package_rows = []
+        scanned_ids = set()
+
     package_ids = [int(package.id) for _, package in package_rows]
     package_items = (
         db.query(PackageItem)
@@ -107,10 +144,10 @@ def _shipment_preparation_payload(db: DbSession, sh: Shipment) -> dict:
 
     order_items = (
         db.query(SalesOrderItem)
-        .filter(SalesOrderItem.sales_order_id == sh.sales_order_id)
+        .filter(SalesOrderItem.sales_order_id == sales_order_id)
         .order_by(SalesOrderItem.id.asc())
         .all()
-        if sh.sales_order_id
+        if sales_order_id
         else []
     )
     model_ids = {
@@ -134,10 +171,8 @@ def _shipment_preparation_payload(db: DbSession, sh: Shipment) -> dict:
         else []
     )
     model_by_id = {int(model.id): model for model in models}
-    scanned_ids = _matched_package_ids_for_shipment(db, int(sh.id))
-
     prepared_by_variant: dict[tuple[int, str, str], int] = {}
-    for shipment_package, package in package_rows:
+    for package_quantity, package in package_rows:
         items = package_items_by_id.get(int(package.id), [])
         if items:
             for item in items:
@@ -145,7 +180,7 @@ def _shipment_preparation_payload(db: DbSession, sh: Shipment) -> dict:
                 prepared_by_variant[key] = prepared_by_variant.get(key, 0) + int(item.quantity or 0)
         else:
             key = (int(package.model_id), str(package.color or "").strip(), "")
-            prepared_by_variant[key] = prepared_by_variant.get(key, 0) + int(shipment_package.quantity or 0)
+            prepared_by_variant[key] = prepared_by_variant.get(key, 0) + package_quantity
 
     required_by_variant: dict[tuple[int, str, str], int] = {}
     if order_items:
@@ -195,7 +230,7 @@ def _shipment_preparation_payload(db: DbSession, sh: Shipment) -> dict:
         )
 
     packages: list[dict] = []
-    for shipment_package, package in package_rows:
+    for package_quantity, package in package_rows:
         model = model_by_id.get(int(package.model_id))
         model_no, variant_no = _model_identity(model)
         item_lines = [
@@ -218,7 +253,7 @@ def _shipment_preparation_payload(db: DbSession, sh: Shipment) -> dict:
                 "model_image_url": model_preview_image_url(model) or model_variant_picture_url(model),
                 "variant_image_url": model_variant_picture_url(model),
                 "color": package.color,
-                "quantity": int(shipment_package.quantity or 0),
+                "quantity": package_quantity,
                 "status": package.status,
                 "location": format_storage_location(package.storage_cell, package.storage_shelf),
                 "scanned": int(package.id) in scanned_ids,
@@ -231,16 +266,39 @@ def _shipment_preparation_payload(db: DbSession, sh: Shipment) -> dict:
             if int(package.id) in scanned_ids:
                 group["scanned_packages_count"] += 1
 
-    required_count, scanned_count, remaining_count, is_complete, _, _ = _scan_progress(db, sh)
+    if shipment is not None:
+        required_count, scanned_count, remaining_count, is_complete, _, _ = _scan_progress(db, shipment)
+        shipment_payload = _shipment_payload(db, shipment, scanned_count=scanned_count)
+    else:
+        required_count = len(package_rows)
+        scanned_count = 0
+        remaining_count = required_count
+        is_complete = False
+        customer = db.get(Customer, sales_order.customer_id) if sales_order and sales_order.customer_id else None
+        shipment_payload = {
+            "id": 0,
+            "sales_order_id": sales_order_id,
+            "sales_order_no": sales_order.order_no if sales_order else None,
+            "customer_name": customer.name if customer else None,
+            "shipment_no": None,
+            "status": "not_created",
+            "packages_count": required_count,
+            "total_qty": sum(quantity for quantity, _package in package_rows),
+        }
     return {
-        "shipment": _shipment_payload(db, sh),
+        "shipment": shipment_payload,
         "items": list(grouped.values()),
         "packages": packages,
         "required_count": required_count,
         "scanned_count": scanned_count,
         "remaining_count": remaining_count,
         "is_complete": is_complete,
+        "is_preview": shipment is None,
     }
+
+
+def _shipment_preparation_payload(db: DbSession, sh: Shipment) -> dict:
+    return _preparation_payload(db, shipment=sh)
 
 
 def _commit_scan_response(
@@ -685,11 +743,41 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
 
 @router.get("", response_model=list[ShipmentOut])
 def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = None):
-    qry = db.query(Shipment)
+    qry = db.query(Shipment).options(selectinload(Shipment.packages))
     if sales_order_id:
         qry = qry.filter(Shipment.sales_order_id == sales_order_id)
     rows = qry.order_by(Shipment.id.desc()).all()
-    return [_shipment_payload(db, sh) for sh in rows]
+    shipment_ids = [int(sh.id) for sh in rows]
+    scanned_by_shipment = (
+        {
+            int(shipment_id): int(count or 0)
+            for shipment_id, count in (
+                db.query(
+                    ShipmentScanLog.shipment_id,
+                    func.count(func.distinct(ShipmentScanLog.package_id)),
+                )
+                .join(
+                    ShipmentPackage,
+                    and_(
+                        ShipmentPackage.shipment_id == ShipmentScanLog.shipment_id,
+                        ShipmentPackage.package_id == ShipmentScanLog.package_id,
+                    ),
+                )
+                .filter(
+                    ShipmentScanLog.shipment_id.in_(shipment_ids),
+                    ShipmentScanLog.scan_result == "matched",
+                )
+                .group_by(ShipmentScanLog.shipment_id)
+                .all()
+            )
+        }
+        if shipment_ids
+        else {}
+    )
+    return [
+        _shipment_payload(db, sh, scanned_count=scanned_by_shipment.get(int(sh.id), 0))
+        for sh in rows
+    ]
 
 
 @router.get("/eligible-orders")
@@ -952,6 +1040,14 @@ def add_ready_packages(
     )
     db.commit()
     return response
+
+
+@router.get("/sales-order/{sales_order_id}/preparation")
+def sales_order_preparation(sales_order_id: int, db: DbSession, _: CurrentUser):
+    sales_order = db.get(SalesOrder, sales_order_id)
+    if not sales_order:
+        raise HTTPException(404, "Sales order not found")
+    return _preparation_payload(db, sales_order=sales_order)
 
 
 @router.get("/{sid}/preparation")
