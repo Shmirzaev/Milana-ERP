@@ -1397,6 +1397,8 @@ export default {
     "newso.orderDetailsSub": "Клиент, срок и производственное назначение.",
     "newso.draft": "Черновик",
     "newso.customerSelect": "Выберите клиента...",
+    "newso.addCustomer": "Добавить клиента",
+    "newso.customerCreateFailed": "Не удалось создать клиента.",
     "newso.lines": "Позиции",
     "newso.linesSummary": "{lines} строк · {qty} шт",
     "newso.addLine": "Добавить строку",

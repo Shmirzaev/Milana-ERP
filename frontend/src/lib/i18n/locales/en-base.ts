@@ -1512,6 +1512,8 @@ export default {
     "newso.orderDetailsSub": "Customer, deadline and production intent.",
     "newso.draft": "Draft",
     "newso.customerSelect": "Select customer...",
+    "newso.addCustomer": "Add customer",
+    "newso.customerCreateFailed": "Could not create customer.",
     "newso.lines": "Lines",
     "newso.linesSummary": "{lines} lines - {qty} pcs",
     "newso.addLine": "Add line",
