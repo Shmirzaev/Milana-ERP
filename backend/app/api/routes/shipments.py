@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Header
 from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import (
@@ -9,18 +10,22 @@ from app.models import (
     ShipmentPackage,
     ShipmentScanLog,
     Package,
+    PackageItem,
     PackageBarcodeAlias,
     SalesOrder,
+    SalesOrderItem,
     StockReservation,
     User,
     Model,
+    ModelBOM,
     Customer,
 )
 from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.numbering import next_shipment_no
-from app.services.packages import ship_package, mark_delivered
+from app.services.model_images import model_preview_image_url, model_variant_picture_url
+from app.services.packages import format_storage_location, ship_package, mark_delivered
 from app.services.workflow import ensure_invoice_for_delivered_shipment, notify_department
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
@@ -62,6 +67,179 @@ def _shipment_payload(db: DbSession, sh: Shipment) -> dict:
         "shipment_type": "sales_order" if sh.sales_order_id else "warehouse_exit",
         "packages_count": packages_count,
         "total_qty": total_qty,
+    }
+
+
+def _model_identity(model: Model | None) -> tuple[str | None, str | None]:
+    if not model:
+        return None, None
+    details = model.details_json if isinstance(model.details_json, dict) else {}
+    general = details.get("general") if isinstance(details.get("general"), dict) else {}
+    code = str(model.code or "").strip()
+    code_model_no, separator, code_variant_no = code.rpartition("-")
+    if not separator:
+        code_model_no, code_variant_no = code, ""
+    model_no = str(general.get("model_no") or general.get("modelNo") or code_model_no or "").strip()
+    variant_no = str(general.get("variant_no") or general.get("variantNo") or code_variant_no or "").strip()
+    return model_no or None, variant_no or None
+
+
+def _shipment_preparation_payload(db: DbSession, sh: Shipment) -> dict:
+    package_rows = (
+        db.query(ShipmentPackage, Package)
+        .join(Package, Package.id == ShipmentPackage.package_id)
+        .filter(ShipmentPackage.shipment_id == sh.id)
+        .order_by(Package.id.asc())
+        .all()
+    )
+    package_ids = [int(package.id) for _, package in package_rows]
+    package_items = (
+        db.query(PackageItem)
+        .filter(PackageItem.package_id.in_(package_ids))
+        .order_by(PackageItem.package_id.asc(), PackageItem.id.asc())
+        .all()
+        if package_ids
+        else []
+    )
+    package_items_by_id: dict[int, list[PackageItem]] = {}
+    for item in package_items:
+        package_items_by_id.setdefault(int(item.package_id), []).append(item)
+
+    order_items = (
+        db.query(SalesOrderItem)
+        .filter(SalesOrderItem.sales_order_id == sh.sales_order_id)
+        .order_by(SalesOrderItem.id.asc())
+        .all()
+        if sh.sales_order_id
+        else []
+    )
+    model_ids = {
+        int(model_id)
+        for model_id in [
+            *(row.model_id for row in order_items),
+            *(package.model_id for _, package in package_rows),
+            *(row.model_id for row in package_items),
+        ]
+        if model_id
+    }
+    models = (
+        db.query(Model)
+        .options(
+            selectinload(Model.images),
+            selectinload(Model.bom).joinedload(ModelBOM.item),
+        )
+        .filter(Model.id.in_(model_ids))
+        .all()
+        if model_ids
+        else []
+    )
+    model_by_id = {int(model.id): model for model in models}
+    scanned_ids = _matched_package_ids_for_shipment(db, int(sh.id))
+
+    prepared_by_variant: dict[tuple[int, str, str], int] = {}
+    for shipment_package, package in package_rows:
+        items = package_items_by_id.get(int(package.id), [])
+        if items:
+            for item in items:
+                key = (int(item.model_id), str(item.color or "").strip(), str(item.size or "").strip())
+                prepared_by_variant[key] = prepared_by_variant.get(key, 0) + int(item.quantity or 0)
+        else:
+            key = (int(package.model_id), str(package.color or "").strip(), "")
+            prepared_by_variant[key] = prepared_by_variant.get(key, 0) + int(shipment_package.quantity or 0)
+
+    required_by_variant: dict[tuple[int, str, str], int] = {}
+    if order_items:
+        for item in order_items:
+            key = (int(item.model_id), str(item.color or "").strip(), str(item.size or "").strip())
+            required_by_variant[key] = required_by_variant.get(key, 0) + int(item.quantity or 0)
+    else:
+        required_by_variant.update(prepared_by_variant)
+
+    variant_keys = list(required_by_variant)
+    for key in prepared_by_variant:
+        if key not in required_by_variant:
+            variant_keys.append(key)
+
+    grouped: dict[int, dict] = {}
+    for model_id, color, size in variant_keys:
+        model = model_by_id.get(model_id)
+        model_no, variant_no = _model_identity(model)
+        group = grouped.setdefault(
+            model_id,
+            {
+                "model_id": model_id,
+                "model_code": model.code if model else None,
+                "model_no": model_no,
+                "variant_no": variant_no,
+                "model_name": model.name if model else None,
+                "model_image_url": model_preview_image_url(model) or model_variant_picture_url(model),
+                "variant_image_url": model_variant_picture_url(model),
+                "required_qty": 0,
+                "prepared_qty": 0,
+                "packages_count": 0,
+                "scanned_packages_count": 0,
+                "lines": [],
+            },
+        )
+        required_qty = int(required_by_variant.get((model_id, color, size), 0))
+        prepared_qty = int(prepared_by_variant.get((model_id, color, size), 0))
+        group["required_qty"] += required_qty
+        group["prepared_qty"] += prepared_qty
+        group["lines"].append(
+            {
+                "color": color or None,
+                "size": size or None,
+                "required_qty": required_qty,
+                "prepared_qty": prepared_qty,
+            }
+        )
+
+    packages: list[dict] = []
+    for shipment_package, package in package_rows:
+        model = model_by_id.get(int(package.model_id))
+        model_no, variant_no = _model_identity(model)
+        item_lines = [
+            {
+                "color": str(item.color or "").strip() or None,
+                "size": str(item.size or "").strip() or None,
+                "quantity": int(item.quantity or 0),
+            }
+            for item in package_items_by_id.get(int(package.id), [])
+        ]
+        packages.append(
+            {
+                "id": int(package.id),
+                "package_no": package.package_no,
+                "model_id": int(package.model_id),
+                "model_code": model.code if model else None,
+                "model_no": model_no,
+                "variant_no": variant_no,
+                "model_name": model.name if model else None,
+                "model_image_url": model_preview_image_url(model) or model_variant_picture_url(model),
+                "variant_image_url": model_variant_picture_url(model),
+                "color": package.color,
+                "quantity": int(shipment_package.quantity or 0),
+                "status": package.status,
+                "location": format_storage_location(package.storage_cell, package.storage_shelf),
+                "scanned": int(package.id) in scanned_ids,
+                "items": item_lines,
+            }
+        )
+        group = grouped.get(int(package.model_id))
+        if group:
+            group["packages_count"] += 1
+            if int(package.id) in scanned_ids:
+                group["scanned_packages_count"] += 1
+
+    required_count, scanned_count, remaining_count, is_complete, _, _ = _scan_progress(db, sh)
+    return {
+        "shipment": _shipment_payload(db, sh),
+        "items": list(grouped.values()),
+        "packages": packages,
+        "required_count": required_count,
+        "scanned_count": scanned_count,
+        "remaining_count": remaining_count,
+        "is_complete": is_complete,
     }
 
 
@@ -774,6 +952,14 @@ def add_ready_packages(
     )
     db.commit()
     return response
+
+
+@router.get("/{sid}/preparation")
+def shipment_preparation(sid: int, db: DbSession, _: CurrentUser):
+    sh = db.get(Shipment, sid)
+    if not sh:
+        raise HTTPException(404, "Shipment not found")
+    return _shipment_preparation_payload(db, sh)
 
 
 @router.get("/{sid}/scan-status", response_model=ShipmentScanOut)

@@ -1,98 +1,68 @@
 "use client";
+
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
-import { api, fetcher } from "@/lib/api";
-import { can, useMe } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
-import { useT } from "@/lib/i18n";
+import ShipmentPreparationWorkspace, {
+  type ShipmentPreparation,
+  type ShipmentSummary,
+} from "@/components/ShipmentPreparationWorkspace";
 import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
+import { api, fetcher } from "@/lib/api";
+import { can, useMe } from "@/lib/auth";
+import { useT } from "@/lib/i18n";
 
-const warehouseExitText = {
-  en: {
-    createType: "Exit source",
-    fromSalesOrder: "From sales order",
-    withoutSalesOrder: "Without sales order",
-    exitReference: "Recipient / exit reference",
-    exitReferencePlaceholder: "Recipient, destination, or approved reason",
-    createWarehouseExit: "Create warehouse exit",
-    warehouseExitHint: "Only unreserved packages not owned by a sales order can be issued here. Scan every package before confirming the exit.",
-    warehouseExitCreated: "Warehouse exit {shipment} created. Scan the package labels to add products.",
-    salesShipmentCreated: "Shipment {shipment} created with {count} package(s).",
-    confirmWarehouseExit: "Confirm exit",
-    type: "Type",
-    reference: "Reference",
-    warehouseExit: "Warehouse exit",
-  },
-  ru: {
-    createType: "Источник выдачи",
-    fromSalesOrder: "По заказу продажи",
-    withoutSalesOrder: "Без заказа продажи",
-    exitReference: "Получатель / основание выдачи",
-    exitReferencePlaceholder: "Получатель, назначение или утверждённая причина",
-    createWarehouseExit: "Создать выдачу со склада",
-    warehouseExitHint: "Здесь можно выдать только незарезервированные упаковки, не закреплённые за заказом. Перед подтверждением отсканируйте каждую упаковку.",
-    warehouseExitCreated: "Выдача со склада {shipment} создана. Отсканируйте этикетки упаковок, чтобы добавить товар.",
-    salesShipmentCreated: "Отгрузка {shipment} создана с упаковками: {count}.",
-    confirmWarehouseExit: "Подтвердить выдачу",
-    type: "Тип",
-    reference: "Основание",
-    warehouseExit: "Выдача со склада",
-  },
-  uz: {
-    createType: "Chiqim asosi",
-    fromSalesOrder: "Savdo buyurtmasi bo'yicha",
-    withoutSalesOrder: "Savdo buyurtmasisiz",
-    exitReference: "Qabul qiluvchi / chiqim asosi",
-    exitReferencePlaceholder: "Qabul qiluvchi, manzil yoki tasdiqlangan sabab",
-    createWarehouseExit: "Ombor chiqimini yaratish",
-    warehouseExitHint: "Bu yerda faqat savdo buyurtmasiga biriktirilmagan va band qilinmagan paketlar chiqariladi. Tasdiqlashdan oldin har bir paketni skanerlang.",
-    warehouseExitCreated: "{shipment} ombor chiqimi yaratildi. Mahsulot qo'shish uchun paket yorliqlarini skanerlang.",
-    salesShipmentCreated: "{shipment} jo'natmasi {count} ta paket bilan yaratildi.",
-    confirmWarehouseExit: "Chiqimni tasdiqlash",
-    type: "Turi",
-    reference: "Asos",
-    warehouseExit: "Ombor chiqimi",
-  },
-} as const;
+type ShipmentRow = ShipmentSummary & {
+  shipment_type?: "sales_order" | "warehouse_exit";
+  shipped_at?: string | null;
+  delivered_at?: string | null;
+  created_at?: string | null;
+};
 
-type WarehouseExitTextKey = keyof typeof warehouseExitText.en;
+type EligibleOrder = {
+  id: number;
+  order_no: string;
+  customer_id?: number | null;
+  customer_name?: string | null;
+  status: string;
+  ready_qty?: number | null;
+};
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return "Action failed.";
+}
 
 export default function ShipmentsPage() {
-  const { lang, t } = useT();
-  const exitT = (key: WarehouseExitTextKey, vars?: Record<string, string | number>) => {
-    let value: string = warehouseExitText[lang][key];
-    for (const [name, replacement] of Object.entries(vars || {})) {
-      value = value.replace(new RegExp(`\\{${name}\\}`, "g"), String(replacement));
-    }
-    return value;
-  };
+  const { t } = useT();
   const dialogs = useDialogs();
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const searchParams = useSearchParams();
-  const { data, mutate } = useSWR<any[]>("/api/shipments", fetcher);
-  const { data: orders, mutate: mutateOrders } = useSWR<any[]>("/api/shipments/eligible-orders", fetcher);
+  const { data, mutate } = useSWR<ShipmentRow[]>("/api/shipments", fetcher);
+  const { data: orders, mutate: mutateOrders } = useSWR<EligibleOrder[]>("/api/shipments/eligible-orders", fetcher);
 
-  const [salesOrderId, setSoId] = useState(0);
+  const [salesOrderId, setSalesOrderId] = useState(0);
   const [shipmentMode, setShipmentMode] = useState<"sales_order" | "warehouse_exit">("sales_order");
   const [warehouseExitReference, setWarehouseExitReference] = useState("");
-  const [activeShip, setActive] = useState(0);
+  const [activeShipmentId, setActiveShipmentId] = useState(0);
   const [scanCode, setScanCode] = useState("");
-  const [err, setErr] = useState("");
-  const [scanResult, setScanResult] = useState<any | null>(null);
-  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+  const [scanResult, setScanResult] = useState<Record<string, unknown> | null>(null);
+  const [message, setMessage] = useState("");
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyStatus, setHistoryStatus] = useState("all");
 
   useEffect(() => {
-    const so = Number(searchParams.get("so_id") || 0);
-    const sh = Number(searchParams.get("shipment_id") || 0);
-    const mode = searchParams.get("mode");
-    if (so > 0) setSoId(so);
-    if (sh > 0) setActive(sh);
-    if (mode === "warehouse_exit") setShipmentMode("warehouse_exit");
+    const salesOrder = Number(searchParams.get("so_id") || 0);
+    const shipment = Number(searchParams.get("shipment_id") || 0);
+    if (salesOrder > 0) setSalesOrderId(salesOrder);
+    if (shipment > 0) setActiveShipmentId(shipment);
+    if (searchParams.get("mode") === "warehouse_exit") setShipmentMode("warehouse_exit");
   }, [searchParams]);
 
   const shipmentCandidateOrders = useMemo(
@@ -102,340 +72,371 @@ export default function ShipmentsPage() {
 
   useEffect(() => {
     if (!orders || !salesOrderId) return;
-    const stillEligible = shipmentCandidateOrders.some((order) => Number(order.id) === Number(salesOrderId));
-    if (!stillEligible) setSoId(0);
+    if (!shipmentCandidateOrders.some((order) => Number(order.id) === Number(salesOrderId))) {
+      setSalesOrderId(0);
+    }
   }, [orders, salesOrderId, shipmentCandidateOrders]);
-
-  const activeShipment = useMemo(
-    () => (data || []).find((s) => Number(s.id) === Number(activeShip)) || null,
-    [data, activeShip],
-  );
 
   useEffect(() => {
     if (!Array.isArray(data) || data.length === 0) return;
-    const exists = data.some((s) => Number(s.id) === Number(activeShip));
-    if (!exists) {
-      setActive(Number(data[0].id || 0));
-    }
-  }, [data, activeShip]);
+    if (data.some((shipment) => Number(shipment.id) === Number(activeShipmentId))) return;
+    const next = data.find((shipment) => ["draft", "created"].includes(String(shipment.status || ""))) || data[0];
+    setActiveShipmentId(Number(next.id || 0));
+  }, [data, activeShipmentId]);
 
-  const { data: scanStatus, mutate: mutateScanStatus } = useSWR<any>(
-    activeShip > 0 ? `/api/shipments/${activeShip}/scan-status` : null,
-    fetcher,
-  );
-  const shipBlockedByScan =
-    Number(scanStatus?.required_count || 0) <= 0 || Number(scanStatus?.remaining_count || 0) > 0;
+  const preparationKey = activeShipmentId > 0 ? `/api/shipments/${activeShipmentId}/preparation` : null;
+  const {
+    data: preparation,
+    isLoading: isPreparationLoading,
+    mutate: mutatePreparation,
+  } = useSWR<ShipmentPreparation>(preparationKey, fetcher);
 
-  function messageFromError(error: unknown): string {
-    if (error instanceof Error && error.message) return error.message;
-    return "Action failed.";
-  }
+  const filteredHistory = useMemo(() => {
+    const query = historyQuery.trim().toLocaleLowerCase();
+    return (data || []).filter((shipment) => {
+      if (historyStatus !== "all" && String(shipment.status || "") !== historyStatus) return false;
+      if (!query) return true;
+      return [shipment.shipment_no, shipment.sales_order_no, shipment.customer_name, shipment.notes]
+        .some((value) => String(value || "").toLocaleLowerCase().includes(query));
+    });
+  }, [data, historyQuery, historyStatus]);
 
-  async function create() {
-    const isWarehouseExit = shipmentMode === "warehouse_exit";
-    if ((!isWarehouseExit && !salesOrderId) || (isWarehouseExit && !warehouseExitReference.trim())) return;
-    setErr("");
-    setMsg("");
+  async function createShipment() {
+    const warehouseExit = shipmentMode === "warehouse_exit";
+    if ((!warehouseExit && !salesOrderId) || (warehouseExit && !warehouseExitReference.trim())) return;
+    setError("");
+    setMessage("");
     try {
-      const sh = await api.post("/api/shipments", {
-        sales_order_id: isWarehouseExit ? null : salesOrderId,
-        notes: isWarehouseExit ? warehouseExitReference.trim() : null,
+      const shipment = await api.post<ShipmentRow>("/api/shipments", {
+        sales_order_id: warehouseExit ? null : salesOrderId,
+        notes: warehouseExit ? warehouseExitReference.trim() : null,
       });
-      setActive(sh.id);
-      setSoId(0);
+      setActiveShipmentId(Number(shipment.id));
+      setSalesOrderId(0);
       setWarehouseExitReference("");
-      setMsg(
-        isWarehouseExit
-          ? exitT("warehouseExitCreated", { shipment: sh.shipment_no })
-          : exitT("salesShipmentCreated", {
-              shipment: sh.shipment_no,
-              count: Number(sh.packages_count || 0),
+      setMessage(
+        warehouseExit
+          ? t("page.shipments.warehouseExitCreated", { shipment: shipment.shipment_no })
+          : t("page.shipments.salesShipmentCreated", {
+              shipment: shipment.shipment_no,
+              count: Number(shipment.packages_count || 0),
             }),
       );
       setScanResult(null);
       setScanCode("");
-      await mutate();
-      await mutateOrders();
-      await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      await Promise.all([mutate(), mutateOrders()]);
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
   async function addAllReady() {
-    setErr("");
-    setMsg("");
+    if (!activeShipmentId) return;
+    setError("");
+    setMessage("");
     try {
-      await api.post(`/api/shipments/${activeShip}/add-ready-packages`);
-      setMsg(t("page.shipments.allReadyAdded"));
-      await mutate();
-      await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      await api.post(`/api/shipments/${activeShipmentId}/add-ready-packages`);
+      setMessage(t("page.shipments.allReadyAdded"));
+      await Promise.all([mutate(), mutatePreparation()]);
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
-  async function scanPkg() {
-    if (!activeShip || !scanCode.trim()) return;
-    setErr("");
-    setMsg("");
+  async function scanPackage() {
+    if (!activeShipmentId || !scanCode.trim()) return;
+    setError("");
+    setMessage("");
     try {
-      const result = await api.post(`/api/shipments/${activeShip}/scan-package`, { code: scanCode.trim() });
+      const result = await api.post<Record<string, unknown>>(`/api/shipments/${activeShipmentId}/scan-package`, {
+        code: scanCode.trim(),
+      });
       setScanResult(result);
-      if (String(result?.sign || "") === "error") {
-        setErr(String(result?.message || "Scanned package does not match this shipment."));
+      if (String(result.sign || "") === "error") {
+        setError(String(result.message || t("page.shipments.scanMismatch")));
       } else {
-        setMsg(String(result?.message || "Scan processed."));
+        setMessage(String(result.message || t("page.shipments.scanProcessed")));
       }
       setScanCode("");
-      await mutate();
-      await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      await Promise.all([mutate(), mutatePreparation()]);
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
-  async function ship() {
-    setErr("");
-    setMsg("");
+  async function shipActive() {
+    if (!activeShipmentId) return;
+    setError("");
+    setMessage("");
     if (!(await dialogs.ask({ message: t("page.shipments.confirmMarkShipped") }))) return;
     try {
-      await api.post(`/api/shipments/${activeShip}/ship`);
-      setMsg(t("page.shipments.markedShipped"));
-      await mutate();
-      await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      await api.post(`/api/shipments/${activeShipmentId}/ship`);
+      setMessage(t("page.shipments.markedShipped"));
+      await Promise.all([mutate(), mutatePreparation()]);
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
-  async function deliver() {
-    setErr("");
-    setMsg("");
+  async function deliverActive() {
+    if (!activeShipmentId) return;
+    setError("");
+    setMessage("");
     if (!(await dialogs.ask({ message: t("page.shipments.confirmMarkDelivered") }))) return;
     try {
-      await api.post(`/api/shipments/${activeShip}/deliver`);
-      setMsg(t("page.shipments.markedDelivered"));
-      await mutate();
-      await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      await api.post(`/api/shipments/${activeShipmentId}/deliver`);
+      setMessage(t("page.shipments.markedDelivered"));
+      await Promise.all([mutate(), mutatePreparation()]);
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
-  function selectShipment(sh: any) {
-    setActive(Number(sh.id || 0));
+  function selectShipment(shipment: ShipmentRow) {
+    setActiveShipmentId(Number(shipment.id || 0));
     setScanResult(null);
     setScanCode("");
-    setErr("");
-    setSoId(0);
-    setMsg(`Selected ${sh.shipment_no}`);
+    setError("");
+    setSalesOrderId(0);
+    setMessage(t("page.shipments.shipmentSelected", { shipment: shipment.shipment_no }));
   }
 
-  async function markRowShipped(sh: any) {
-    if (!(await dialogs.ask({ message: `Mark ${sh.shipment_no} as shipped?` }))) return;
-    setErr("");
+  async function markRowShipped(shipment: ShipmentRow) {
+    if (!(await dialogs.ask({ message: t("page.shipments.confirmRowShipped", { shipment: shipment.shipment_no }) }))) return;
+    setError("");
     try {
-      await api.post(`/api/shipments/${sh.id}/ship`);
+      await api.post(`/api/shipments/${shipment.id}/ship`);
       await mutate();
-      if (Number(activeShip) === Number(sh.id)) await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      if (Number(activeShipmentId) === Number(shipment.id)) await mutatePreparation();
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
-  async function markRowDelivered(sh: any) {
-    if (!(await dialogs.ask({ message: `Mark ${sh.shipment_no} as delivered?` }))) return;
-    setErr("");
+  async function markRowDelivered(shipment: ShipmentRow) {
+    if (!(await dialogs.ask({ message: t("page.shipments.confirmRowDelivered", { shipment: shipment.shipment_no }) }))) return;
+    setError("");
     try {
-      await api.post(`/api/shipments/${sh.id}/deliver`);
+      await api.post(`/api/shipments/${shipment.id}/deliver`);
       await mutate();
-      if (Number(activeShip) === Number(sh.id)) await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      if (Number(activeShipmentId) === Number(shipment.id)) await mutatePreparation();
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
   return (
     <div>
       <PageHeader title={t("page.shipments.title")} />
-      <div className="max-w-5xl space-y-4">
-        <div className="card flex flex-wrap items-end gap-3 p-4">
-          <div className="w-full sm:w-56">
-            <label className="label">{exitT("createType")}</label>
-            <select
-              className="input"
-              value={shipmentMode}
-              onChange={(e) => setShipmentMode(e.target.value as "sales_order" | "warehouse_exit")}
-            >
-              <option value="sales_order">{exitT("fromSalesOrder")}</option>
-              <option value="warehouse_exit">{exitT("withoutSalesOrder")}</option>
-            </select>
+      <div className="max-w-[1440px] space-y-4">
+        <section className="card p-4 sm:p-5">
+          <div className="mb-3">
+            <h2 className="app-card-title">{t("page.shipments.createShipment")}</h2>
+            <p className="mt-1 text-sm text-[#6f6a5b]">{t("page.shipments.createShipmentHint")}</p>
           </div>
-          {shipmentMode === "sales_order" ? (
-          <div className="w-full min-w-0 sm:flex-1 lg:max-w-md">
-            <label className="label">{t("page.shipments.salesOrder")}</label>
-            <select className="input" value={salesOrderId} onChange={(e) => setSoId(Number(e.target.value))}>
-              <option value={0}>-</option>
-              {shipmentCandidateOrders.map((o) => <option key={o.id} value={o.id}>{o.order_no} - {o.customer_name || o.customer_id || "-"} ({statusLabel(o.status, t)})</option>)}
-            </select>
-          </div>
-          ) : (
-            <div className="w-full min-w-0 sm:flex-1 lg:max-w-md">
-              <label className="label">{exitT("exitReference")}</label>
-              <input
+          <div className="grid gap-3 lg:grid-cols-[220px_minmax(320px,1fr)_auto] lg:items-end">
+            <div>
+              <label className="label">{t("page.shipments.createType")}</label>
+              <select
                 className="input"
-                value={warehouseExitReference}
-                onChange={(e) => setWarehouseExitReference(e.target.value)}
-                placeholder={exitT("exitReferencePlaceholder")}
-              />
+                value={shipmentMode}
+                onChange={(event) => setShipmentMode(event.target.value as "sales_order" | "warehouse_exit")}
+              >
+                <option value="sales_order">{t("page.shipments.fromSalesOrder")}</option>
+                <option value="warehouse_exit">{t("page.shipments.withoutSalesOrder")}</option>
+              </select>
             </div>
-          )}
-          <button
-            className="btn btn-primary"
-            onClick={create}
-            disabled={shipmentMode === "sales_order" ? !salesOrderId : !warehouseExitReference.trim()}
-          >
-            {shipmentMode === "warehouse_exit" ? exitT("createWarehouseExit") : t("btn.createShipment")}
-          </button>
-          {shipmentMode === "warehouse_exit" && (
-            <p className="w-full text-xs text-[#6f6a5b]">{exitT("warehouseExitHint")}</p>
-          )}
-          {activeShip > 0 && (
-            <>
-              {activeShipment?.sales_order_id ? (
-                <button className="btn" onClick={addAllReady}>{t("page.shipments.addAllReady")}</button>
-              ) : null}
-              <div className="w-full min-w-0 sm:flex-1 lg:max-w-md">
-                <label className="label">{t("page.shipments.scanPackageBeforeShipping")}</label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    className="input min-w-0 flex-1"
-                    value={scanCode}
-                    onChange={(e) => setScanCode(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        scanPkg();
-                      }
-                    }}
-                    placeholder={t("ph.packageBarcode")}
-                  />
-                  <button className="btn w-full sm:w-auto" onClick={scanPkg} disabled={!scanCode.trim()}>{t("btn.scan")}</button>
-                </div>
+            {shipmentMode === "sales_order" ? (
+              <div className="min-w-0">
+                <label className="label">{t("page.shipments.salesOrder")}</label>
+                <select className="input" value={salesOrderId} onChange={(event) => setSalesOrderId(Number(event.target.value))}>
+                  <option value={0}>{t("page.shipments.chooseSalesOrder")}</option>
+                  {shipmentCandidateOrders.map((order) => (
+                    <option key={order.id} value={order.id}>
+                      {order.order_no} — {order.customer_name || order.customer_id || "-"} — {statusLabel(order.status, t)} — {Number(order.ready_qty || 0).toLocaleString()} {t("page.shipments.readyPieces")}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <button
-                className="btn"
-                onClick={ship}
-                disabled={
-                  shipBlockedByScan ||
-                  !activeShipment ||
-                  !["draft", "created"].includes(String(activeShipment.status || ""))
-                }
-              >
-                {activeShipment?.sales_order_id ? t("btn.ship") : exitT("confirmWarehouseExit")}
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={deliver}
-                disabled={!activeShipment || String(activeShipment.status || "") !== "shipped"}
-              >
-                {t("btn.markDelivered")}
-              </button>
-            </>
-          )}
-          {msg && <div className="w-full text-sm text-emerald-700">{msg}</div>}
-          {err && <div className="w-full text-sm text-rose-700">{err}</div>}
-          {activeShip > 0 && scanStatus && (
-            <div className={`w-full text-xs ${scanStatus.remaining_count > 0 ? "text-amber-700" : "text-emerald-700"}`}>
-              {t("page.shipments.scanCheck", { scanned: scanStatus.scanned_count, required: scanStatus.required_count })}
-              {scanStatus.remaining_count > 0 ? `, ${t("page.shipments.remaining", { count: scanStatus.remaining_count })}` : "."}
-            </div>
-          )}
-          {scanResult && (
-            <div
-              className={`w-full text-xs ${
-                String(scanResult.sign || "") === "error"
-                  ? "text-rose-700"
-                  : String(scanResult.sign || "") === "warning"
-                    ? "text-amber-700"
-                    : "text-emerald-700"
-              }`}
+            ) : (
+              <div className="min-w-0">
+                <label className="label">{t("page.shipments.exitReference")}</label>
+                <input
+                  className="input"
+                  value={warehouseExitReference}
+                  onChange={(event) => setWarehouseExitReference(event.target.value)}
+                  placeholder={t("page.shipments.exitReferencePlaceholder")}
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={createShipment}
+              disabled={shipmentMode === "sales_order" ? !salesOrderId : !warehouseExitReference.trim()}
             >
-              {scanResult.message}
-              {scanResult.package_no ? ` (${scanResult.package_no})` : ""}
-            </div>
-          )}
-          {activeShipment && (
-            <div className="w-full text-xs text-slate-600">
-              {t("page.shipments.activeShipment")} <span className="font-medium">{activeShipment.shipment_no}</span> ({statusLabel(String(activeShipment.status || ""), t)})
-            </div>
-          )}
-        </div>
+              {shipmentMode === "warehouse_exit" ? t("page.shipments.createWarehouseExit") : t("btn.createShipment")}
+            </button>
+          </div>
+          {shipmentMode === "warehouse_exit" ? <p className="mt-2 text-xs text-[#6f6a5b]">{t("page.shipments.warehouseExitHint")}</p> : null}
+        </section>
 
-        <div className="card overflow-x-auto">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>{t("field.shipmentNo")}</th>
-                <th>{exitT("type")}</th>
-                <th>{t("field.salesOrderShort")}</th>
-                <th>{t("field.customer")}</th>
-                <th>{exitT("reference")}</th>
-                <th>{t("field.packages")}</th>
-                <th>{t("field.totalQty")}</th>
-                <th>{t("field.status")}</th>
-                <th>{t("field.shipped")}</th>
-                <th>{t("field.delivered")}</th>
-                <th>{t("field.actions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data?.map((s) => (
-                <tr
-                  key={s.id}
-                  className={`${s.id === activeShip ? "bg-yellow-50" : ""} cursor-pointer`}
-                  onClick={() => selectShipment(s)}
-                >
-                  <td>{s.shipment_no}</td>
-                  <td>{s.sales_order_id ? exitT("fromSalesOrder") : exitT("warehouseExit")}</td>
-                  <td>{s.sales_order_no || s.sales_order_id || "-"}</td>
-                  <td>{s.customer_name || s.customer_id || "-"}</td>
-                  <td className="max-w-[220px] whitespace-normal">{s.notes || "-"}</td>
-                  <td>{Number(s.packages_count || 0)}</td>
-                  <td>{Number(s.total_qty || 0)}</td>
-                  <td><span className="badge">{statusLabel(s.status, t)}</span></td>
-                  <td>{s.shipped_at ? new Date(s.shipped_at).toLocaleString() : "-"}</td>
-                  <td>{s.delivered_at ? new Date(s.delivered_at).toLocaleString() : "-"}</td>
-                  <td className="flex flex-wrap gap-2">
-                    <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); selectShipment(s); }}>
-                      {Number(s.id) === Number(activeShip) ? t("page.shipments.selected") : t("page.shipments.select")}
+        {message ? <div className="border-l-2 border-emerald-600 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{message}</div> : null}
+        {error ? <div className="border-l-2 border-rose-600 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</div> : null}
+        {scanResult?.package_no ? <div className="text-xs text-[#56503f]">{t("page.shipments.lastScan")}: {String(scanResult.package_no)}</div> : null}
+
+        <ShipmentPreparationWorkspace
+          preparation={preparation}
+          isLoading={Boolean(activeShipmentId) && isPreparationLoading}
+          scanCode={scanCode}
+          onScanCodeChange={setScanCode}
+          onScan={scanPackage}
+          onAddReadyPackages={addAllReady}
+          onShip={shipActive}
+          onDeliver={deliverActive}
+          canTraceability={canTraceability}
+        />
+
+        <section className="card overflow-hidden">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#ded9ca] px-4 py-3 sm:px-5">
+            <div>
+              <h2 className="app-card-title">{t("page.shipments.history")}</h2>
+              <p className="mt-1 text-xs text-[#6f6a5b]">{t("page.shipments.historyHint")}</p>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <input
+                className="input w-full sm:w-72"
+                value={historyQuery}
+                onChange={(event) => setHistoryQuery(event.target.value)}
+                placeholder={t("page.shipments.historySearch")}
+                aria-label={t("page.shipments.historySearch")}
+              />
+              <select
+                className="input w-full sm:w-44"
+                value={historyStatus}
+                onChange={(event) => setHistoryStatus(event.target.value)}
+                aria-label={t("field.status")}
+              >
+                <option value="all">{t("page.shipments.allStatuses")}</option>
+                {["created", "shipped", "delivered", "cancelled"].map((status) => (
+                  <option key={status} value={status}>{statusLabel(status, t)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="divide-y divide-[#ded9ca] md:hidden">
+            {filteredHistory.map((shipment) => (
+              <article
+                key={shipment.id}
+                className={`p-4 ${shipment.id === activeShipmentId ? "bg-yellow-50" : ""}`}
+                onClick={() => selectShipment(shipment)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="mono font-semibold text-[#14110b]">{shipment.shipment_no}</div>
+                  <span className="badge">{statusLabel(shipment.status, t)}</span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#56503f]">
+                  <span>{shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</span>
+                  <span className="text-right mono">{shipment.sales_order_no || "-"}</span>
+                  <span>{shipment.customer_name || "-"}</span>
+                  <span className="text-right tabular-nums">{Number(shipment.packages_count || 0)} {t("field.packages")} · {Number(shipment.total_qty || 0).toLocaleString()} {t("page.shipments.pieces")}</span>
+                </div>
+                {shipment.notes ? <div className="mt-2 text-xs text-[#56503f]">{t("page.shipments.reference")}: {shipment.notes}</div> : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" className="btn h-8 px-2.5 text-[11px]" onClick={(event) => { event.stopPropagation(); selectShipment(shipment); }}>
+                    {Number(shipment.id) === Number(activeShipmentId) ? t("page.shipments.selected") : t("page.shipments.select")}
+                  </button>
+                  {canTraceability ? (
+                    <Link
+                      className="btn h-8 px-2.5 text-[11px]"
+                      href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {t("page.shipments.traceability")}
+                    </Link>
+                  ) : null}
+                  {["draft", "created"].includes(String(shipment.status || "")) ? (
+                    <button type="button" className="btn h-8 px-2.5 text-[11px]" onClick={(event) => { event.stopPropagation(); void markRowShipped(shipment); }}>
+                      {t("page.shipments.markAsShipped")}
                     </button>
-                    {canTraceability && (
-                      <Link
-                        className="btn h-7 px-2 text-[11px]"
-                        href={`/traceability?shipment=${encodeURIComponent(s.shipment_no || s.id)}`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {t("page.shipments.traceability")}
-                      </Link>
-                    )}
-                    {["draft", "created"].includes(String(s.status || "")) && (
-                      <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); markRowShipped(s); }}>
-                        {t("page.shipments.markAsShipped")}
-                      </button>
-                    )}
-                    {String(s.status || "") === "shipped" && (
-                      <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); markRowDelivered(s); }}>
-                        {t("page.shipments.markAsDelivered")}
-                      </button>
-                    )}
-                  </td>
+                  ) : null}
+                  {String(shipment.status || "") === "shipped" ? (
+                    <button type="button" className="btn h-8 px-2.5 text-[11px]" onClick={(event) => { event.stopPropagation(); void markRowDelivered(shipment); }}>
+                      {t("page.shipments.markAsDelivered")}
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+            {!filteredHistory.length ? <div className="p-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</div> : null}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="table min-w-[1280px]">
+              <thead>
+                <tr>
+                  <th>{t("field.shipmentNo")}</th>
+                  <th>{t("page.shipments.type")}</th>
+                  <th>{t("page.shipments.salesOrder")}</th>
+                  <th>{t("field.customer")}</th>
+                  <th>{t("page.shipments.reference")}</th>
+                  <th>{t("field.packages")}</th>
+                  <th>{t("field.totalQty")}</th>
+                  <th>{t("field.status")}</th>
+                  <th>{t("field.shipped")}</th>
+                  <th>{t("field.delivered")}</th>
+                  <th>{t("field.actions")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredHistory.map((shipment) => (
+                  <tr
+                    key={shipment.id}
+                    className={`${shipment.id === activeShipmentId ? "bg-yellow-50" : ""} cursor-pointer`}
+                    onClick={() => selectShipment(shipment)}
+                  >
+                    <td className="mono whitespace-nowrap font-semibold text-[#14110b]">{shipment.shipment_no}</td>
+                    <td>{shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</td>
+                    <td className="mono whitespace-nowrap">{shipment.sales_order_no || "-"}</td>
+                    <td>{shipment.customer_name || "-"}</td>
+                    <td className="max-w-56 whitespace-normal">{shipment.notes || "-"}</td>
+                    <td className="tabular-nums">{Number(shipment.packages_count || 0)}</td>
+                    <td className="tabular-nums">{Number(shipment.total_qty || 0).toLocaleString()}</td>
+                    <td><span className="badge">{statusLabel(shipment.status, t)}</span></td>
+                    <td className="whitespace-nowrap">{shipment.shipped_at ? new Date(shipment.shipped_at).toLocaleString() : "-"}</td>
+                    <td className="whitespace-nowrap">{shipment.delivered_at ? new Date(shipment.delivered_at).toLocaleString() : "-"}</td>
+                    <td>
+                      <div className="flex flex-wrap gap-2 whitespace-nowrap">
+                        <button type="button" className="btn h-8 px-2.5 text-[11px]" onClick={(event) => { event.stopPropagation(); selectShipment(shipment); }}>
+                          {Number(shipment.id) === Number(activeShipmentId) ? t("page.shipments.selected") : t("page.shipments.select")}
+                        </button>
+                        {canTraceability ? (
+                          <Link
+                            className="btn h-8 px-2.5 text-[11px]"
+                            href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {t("page.shipments.traceability")}
+                          </Link>
+                        ) : null}
+                        {["draft", "created"].includes(String(shipment.status || "")) ? (
+                          <button type="button" className="btn h-8 px-2.5 text-[11px]" onClick={(event) => { event.stopPropagation(); void markRowShipped(shipment); }}>
+                            {t("page.shipments.markAsShipped")}
+                          </button>
+                        ) : null}
+                        {String(shipment.status || "") === "shipped" ? (
+                          <button type="button" className="btn h-8 px-2.5 text-[11px]" onClick={(event) => { event.stopPropagation(); void markRowDelivered(shipment); }}>
+                            {t("page.shipments.markAsDelivered")}
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!filteredHistory.length ? <tr><td colSpan={11} className="py-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </div>
   );
