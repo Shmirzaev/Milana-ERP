@@ -5,15 +5,20 @@ const workspace = fs.readFileSync("src/components/ShipmentPreparationWorkspace.t
 
 for (const token of [
   "ShipmentPreparationWorkspace",
-  "/api/shipments/${activeShipmentId}/preparation",
-  "/api/shipments/sales-order/${salesOrderId}/preparation",
-  "SearchableSelect<number>",
-  "shipmentOrderChoices",
-  "order.is_scanned ? \"success\" : \"default\"",
+  "/api/shipments/${shipmentId}/preparation",
+  "/api/shipments/sales-order/${order.id}/preparation",
+  "filteredOrders.map",
+  "ShipmentOrderWorkspace",
+  "orderFloorTitle",
+  "orderFloorSearch",
   "historyQuery",
   "max-w-[1440px]",
 ]) {
   if (!page.includes(token)) throw new Error(`Shipments page is missing ${token}`);
+}
+
+for (const banned of ["SearchableSelect", "shipment-sales-order", "selectSalesOrder", "selectedSalesOrder"]) {
+  if (page.includes(banned)) throw new Error(`Shipments page still uses the removed order selector: ${banned}`);
 }
 
 for (const token of [
@@ -57,6 +62,9 @@ for (const language of ["en", "ru", "uz"]) {
     "page.shipments.packageChecklist",
     "page.shipments.history",
     "page.shipments.orderSelectorHint",
+    "page.shipments.orderFloorTitle",
+    "page.shipments.orderFloorHint",
+    "page.shipments.orderFloorSearch",
     "page.shipments.noOrderMatches",
     "page.shipments.scanned",
     "page.shipments.notScanned",
