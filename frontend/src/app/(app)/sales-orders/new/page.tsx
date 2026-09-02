@@ -5,7 +5,10 @@ import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
 import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import PageHeader from "@/components/PageHeader";
+import Modal from "@/components/Modal";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
+import SearchableSelect from "@/components/SearchableSelect";
+import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
@@ -53,11 +56,25 @@ type AvailableModelOption = {
 };
 type ModelDetailSize = { size?: string | null };
 type ModelDetailResponse = { sizes?: ModelDetailSize[] };
+type Customer = {
+  id: number;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+};
+type CustomerDraft = {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+};
 
 const SIZE_OPTIONS = GARMENT_SIZE_OPTIONS;
 const DEFAULT_SIZE = SIZE_OPTIONS[0];
 const DEFAULT_PACK_PIECES = 60;
 const BRANDED_PACK_COLOR = "mixed";
+const EMPTY_CUSTOMER: CustomerDraft = { name: "", phone: "", email: "", address: "" };
 
 function normalizePackPieces(value: unknown): number {
   const parsed = Math.floor(Number(value));
@@ -126,10 +143,15 @@ function buildModelSizeRange(values: Array<string | null | undefined>): string |
 
 export default function NewSalesOrderPage() {
   const { t } = useT();
-  const { data: customers } = useSWR<any[]>("/api/customers", fetcher);
+  const { me } = useMe();
+  const { data: customers, mutate: mutateCustomers } = useSWR<Customer[]>("/api/customers", fetcher);
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
   const { data: brandedStockRows } = useSWR<BrandedStockRow[]>("/api/finished-goods/branded-stock", fetcher);
   const [customerId, setCustomerId] = useState<number | "">("");
+  const [customerModalOpen, setCustomerModalOpen] = useState(false);
+  const [customerDraft, setCustomerDraft] = useState<CustomerDraft>(EMPTY_CUSTOMER);
+  const [customerSaving, setCustomerSaving] = useState(false);
+  const [customerError, setCustomerError] = useState("");
   const [brandId, setBrandId] = useState<number | "">("");
   const [orderType, setOrderType] = useState("client_order");
   const [deadline, setDeadline] = useState("");
@@ -153,6 +175,7 @@ export default function NewSalesOrderPage() {
   const { data: models } = useSWR<any[]>(salesModelOptionsKey, modelOptionsByIdsFetcher);
 
   const isBrandedOrder = orderType === "branded_stock_sale";
+  const canCreateCustomer = can(me, "sales.customers");
   const effectivePackPieces = normalizePackPieces(packPieces);
   const brandedPackSize = `pack${effectivePackPieces}`;
   const modelMap = useMemo(() => new Map((models ?? []).map((m) => [Number(m.id), m])), [models]);
@@ -249,6 +272,21 @@ export default function NewSalesOrderPage() {
       }))
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }));
   }, [availableModelOptions, modelGroupByKey, modelGroupKeyByModelId]);
+
+  const availableModelSelectOptions = useMemo(() => availableModelGroups.flatMap((group) => (
+    group.items.map((item) => {
+      const variant = modelVariantLabel(modelVariantOption(item.model));
+      const packLabel = `${item.saleablePacks.toLocaleString()} ${t("newso.packsShort")}`;
+      const partialLabel = item.partialPacks > 0 && includePartialPacks
+        ? ` (${item.fullPacks.toLocaleString()} + ${item.partialPacks.toLocaleString()} ${t("newso.notFullShort")})`
+        : "";
+      return {
+        value: Number(item.model.id),
+        label: `${variant} - ${packLabel}${partialLabel}`,
+        searchText: `${group.label} ${modelOrderLabel(item.model)}`,
+      };
+    })
+  )), [availableModelGroups, includePartialPacks, t]);
 
   const availableModelOptionById = useMemo(() => {
     return new Map(availableModelOptions.map((item) => [Number(item.model.id), item]));
@@ -500,6 +538,26 @@ export default function NewSalesOrderPage() {
     }
   }
 
+  async function createCustomer(e: React.FormEvent) {
+    e.preventDefault();
+    setCustomerError("");
+    setCustomerSaving(true);
+    try {
+      const created = await api.post<Customer>("/api/customers", customerDraft);
+      await mutateCustomers(
+        (current) => [created, ...(current || []).filter((customer) => customer.id !== created.id)],
+        { revalidate: false },
+      );
+      setCustomerId(created.id);
+      setCustomerDraft(EMPTY_CUSTOMER);
+      setCustomerModalOpen(false);
+    } catch (e: any) {
+      setCustomerError(e.message || t("newso.customerCreateFailed"));
+    } finally {
+      setCustomerSaving(false);
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
@@ -609,7 +667,22 @@ export default function NewSalesOrderPage() {
                 </select>
               </div>
               <div>
-                <label className="label">{t("field.customer")}</label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="label">{t("field.customer")}</label>
+                  {canCreateCustomer && (
+                    <button
+                      type="button"
+                      className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-[#56503f] hover:text-[#14110b] hover:underline"
+                      onClick={() => {
+                        setCustomerError("");
+                        setCustomerModalOpen(true);
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("newso.addCustomer")}
+                    </button>
+                  )}
+                </div>
                 <select className="input" value={customerId} onChange={(e) => setCustomerId(Number(e.target.value) || "")}>
                   <option value="">{t("newso.customerSelect")}</option>
                   {customers?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -756,23 +829,15 @@ export default function NewSalesOrderPage() {
                         <td className="min-w-72 align-top">
                           {isBrandedOrder ? (
                             <>
-                              <select
-                                className="input h-9"
-                                value={l.model_id || ""}
-                                onChange={(e) => updateLine(i, "model_id", Number(e.target.value) || 0)}
+                              <SearchableSelect<number>
+                                value={l.model_id || null}
+                                options={availableModelSelectOptions}
+                                onChange={(modelId) => updateLine(i, "model_id", modelId)}
+                                placeholder={t("newso.selectModel")}
+                                noResultsText={t("page.search.noMatches")}
                                 disabled={!availableModelOptions.length}
-                              >
-                                <option value="">{t("newso.selectModel")}</option>
-                                {availableModelGroups.map((group) => (
-                                  <optgroup key={group.key} label={group.label}>
-                                    {group.items.map((item) => (
-                                      <option key={item.model.id} value={item.model.id}>
-                                        {`${modelVariantLabel(modelVariantOption(item.model))} - ${item.saleablePacks.toLocaleString()} ${t("newso.packsShort")}${item.partialPacks > 0 && includePartialPacks ? ` (${item.fullPacks.toLocaleString()} + ${item.partialPacks.toLocaleString()} ${t("newso.notFullShort")})` : ""}`}
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                ))}
-                              </select>
+                                required
+                              />
                               {l.model_id > 0 && (
                                 <div className="inline-flex rounded-md bg-[#edf7f1] px-2.5 py-1 text-xs font-medium text-[#246845]">
                                   {t("newso.modelInStockPack", {
@@ -967,6 +1032,68 @@ export default function NewSalesOrderPage() {
           </div>
         </aside>
       </form>
+
+      <Modal
+        open={customerModalOpen}
+        onClose={() => {
+          if (!customerSaving) setCustomerModalOpen(false);
+        }}
+        title={t("newso.addCustomer")}
+        closeOnOutsideClick={!customerSaving}
+      >
+        <form onSubmit={createCustomer} className="space-y-3">
+          <div>
+            <label className="label" htmlFor="new-sales-order-customer-name">{t("common.name")}</label>
+            <input
+              id="new-sales-order-customer-name"
+              className="input"
+              value={customerDraft.name}
+              onChange={(e) => setCustomerDraft((current) => ({ ...current, name: e.target.value }))}
+              required
+              autoFocus
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="label" htmlFor="new-sales-order-customer-phone">{t("field.phone")}</label>
+              <input
+                id="new-sales-order-customer-phone"
+                className="input"
+                value={customerDraft.phone}
+                onChange={(e) => setCustomerDraft((current) => ({ ...current, phone: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="new-sales-order-customer-email">{t("field.email")}</label>
+              <input
+                id="new-sales-order-customer-email"
+                className="input"
+                type="email"
+                value={customerDraft.email}
+                onChange={(e) => setCustomerDraft((current) => ({ ...current, email: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label" htmlFor="new-sales-order-customer-address">{t("field.address")}</label>
+            <input
+              id="new-sales-order-customer-address"
+              className="input"
+              value={customerDraft.address}
+              onChange={(e) => setCustomerDraft((current) => ({ ...current, address: e.target.value }))}
+            />
+          </div>
+          {customerError && <div className="text-sm text-red-600">{customerError}</div>}
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" className="btn" disabled={customerSaving} onClick={() => setCustomerModalOpen(false)}>
+              {t("btn.cancel")}
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={customerSaving}>
+              {customerSaving ? t("common.saving") : t("newso.addCustomer")}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
