@@ -266,7 +266,7 @@ export default function ShipmentPreparationWorkspace({
                             ? t("page.shipments.notScanned")
                             : partial
                               ? t("page.shipments.partiallyPrepared")
-                              : t("page.shipments.awaitingPackages")}
+                              : t("page.shipments.notScanned")}
                       </span>
                     </div>
                   </article>
@@ -338,7 +338,7 @@ export default function ShipmentPreparationWorkspace({
                             ? t("page.shipments.notScanned")
                             : partial
                               ? t("page.shipments.partiallyPrepared")
-                              : t("page.shipments.awaitingPackages")}
+                              : t("page.shipments.notScanned")}
                       </td>
                     </tr>
                   );
