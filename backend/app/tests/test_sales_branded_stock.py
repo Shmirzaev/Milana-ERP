@@ -1,7 +1,19 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import FinishedGoodsStock, LegacyStockReceipt, Package, ShipmentPackage, StockReservation
+from app.models import (
+    FinishedGoodsStock,
+    LegacyStockReceipt,
+    Model,
+    ModelImage,
+    Package,
+    PackageItem,
+    SalesOrder,
+    SalesOrderItem,
+    Shipment,
+    ShipmentPackage,
+    StockReservation,
+)
 
 
 def _find_model_id(client, headers, code: str) -> int:
@@ -721,6 +733,147 @@ def test_shipments_ready_packages_follow_stock_reservations(client, auth_headers
     r = client.post(f"/api/shipments/{shipment_id}/add-ready-packages", headers=auth_headers)
     assert r.status_code == 200, r.text
     assert int(r.json().get("added") or 0) == 1
+
+
+def test_shipment_preparation_returns_visual_items_packages_and_scan_state(client, auth_headers):
+    suffix = uuid4().hex[:8].upper()
+    barcode = f"SHIP-PREP-BC-{suffix}"
+    db = SessionLocal()
+    try:
+        model = Model(
+            code=f"SP{suffix}-9001",
+            name="Shipment preparation model",
+            status="approved",
+            details_json={"general": {"model_no": f"SP{suffix}", "variant_no": "9001"}},
+        )
+        db.add(model)
+        db.flush()
+        db.add_all(
+            [
+                ModelImage(
+                    model_id=model.id,
+                    file_url=f"/storage/model-files/shipment-model-{suffix}.webp",
+                    content_type="image/webp",
+                    image_type="model",
+                    is_primary=True,
+                ),
+                ModelImage(
+                    model_id=model.id,
+                    file_url=f"/storage/model-files/shipment-variant-{suffix}.webp",
+                    content_type="image/webp",
+                    image_type="material",
+                    is_primary=False,
+                ),
+            ]
+        )
+        sales_order = SalesOrder(
+            order_no=f"SO-PREP-{suffix}",
+            order_type="client_order",
+            status="ready",
+            total_amount=0,
+        )
+        db.add(sales_order)
+        db.flush()
+        db.add(
+            SalesOrderItem(
+                sales_order_id=sales_order.id,
+                model_id=model.id,
+                color="navy",
+                size="48",
+                quantity=24,
+                unit_price=0,
+            )
+        )
+        receipt = LegacyStockReceipt(
+            source_system="TEST",
+            source_warehouse_id="shipment-preparation",
+            source_record_id=suffix,
+            source_checksum=suffix.ljust(64, "0"),
+            source_payload={"test": True},
+        )
+        db.add(receipt)
+        db.flush()
+        package = Package(
+            package_no=f"PKG-PREP-{suffix}",
+            barcode=barcode,
+            legacy_receipt_id=receipt.id,
+            model_id=model.id,
+            color="navy",
+            total_quantity=24,
+            capacity=60,
+            storage_cell="A-04",
+            storage_shelf="B",
+            status="received_in_storage",
+        )
+        db.add(package)
+        db.flush()
+        db.add(PackageItem(package_id=package.id, model_id=model.id, color="navy", size="48", quantity=24))
+        shipment = Shipment(
+            sales_order_id=sales_order.id,
+            shipment_no=f"SH-PREP-{suffix}",
+            status="created",
+        )
+        db.add(shipment)
+        db.flush()
+        db.commit()
+        shipment_id = int(shipment.id)
+        package_id = int(package.id)
+    finally:
+        db.close()
+
+    response = client.get(f"/api/shipments/{shipment_id}/preparation", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["shipment"]["sales_order_no"] == f"SO-PREP-{suffix}"
+    assert body["required_count"] == 0
+    assert body["scanned_count"] == 0
+    assert body["remaining_count"] == 0
+    assert body["is_complete"] is False
+    assert len(body["items"]) == 1
+    item = body["items"][0]
+    assert item["model_no"] == f"SP{suffix}"
+    assert item["variant_no"] == "9001"
+    assert item["model_image_url"] == f"/storage/model-files/shipment-model-{suffix}.webp"
+    assert item["variant_image_url"] == f"/storage/model-files/shipment-variant-{suffix}.webp"
+    assert item["required_qty"] == 24
+    assert item["prepared_qty"] == 0
+    assert item["lines"] == [{"color": "navy", "size": "48", "required_qty": 24, "prepared_qty": 0}]
+    assert body["packages"] == []
+
+    db = SessionLocal()
+    try:
+        db.add(ShipmentPackage(shipment_id=shipment_id, package_id=package_id, quantity=24))
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get(f"/api/shipments/{shipment_id}/preparation", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["required_count"] == 1
+    assert body["scanned_count"] == 0
+    assert body["remaining_count"] == 1
+    assert body["is_complete"] is False
+    assert body["items"][0]["prepared_qty"] == 24
+    assert body["items"][0]["lines"] == [
+        {"color": "navy", "size": "48", "required_qty": 24, "prepared_qty": 24}
+    ]
+    assert len(body["packages"]) == 1
+    assert body["packages"][0]["id"] == package_id
+    assert body["packages"][0]["location"] == "A-04/B"
+    assert body["packages"][0]["scanned"] is False
+    assert body["packages"][0]["items"] == [{"color": "navy", "size": "48", "quantity": 24}]
+
+    scanned = client.post(
+        f"/api/shipments/{shipment_id}/scan-package",
+        json={"code": barcode},
+        headers=auth_headers,
+    )
+    assert scanned.status_code == 200, scanned.text
+    response = client.get(f"/api/shipments/{shipment_id}/preparation", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["packages"][0]["scanned"] is True
+    assert response.json()["is_complete"] is True
 
 
 def test_shipment_scan_accepts_unreserved_same_model_package_and_blocks_other_models(client, auth_headers):

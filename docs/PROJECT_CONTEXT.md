@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-02
 
+## Shipment preparation workspace implemented (not deployed, 2026-09-02)
+
+- The Shipments page has been reorganized into one continuous preparation workspace: create/select a shipment, scan packages, review every model/variant and ordered color/size quantity, inspect the package checklist and storage locations, complete shipment actions, and search shipment history without leaving the page. Desktop uses dense tables; phone/scanner widths use readable cards.
+- Preparation rows are visible from the Sales order before any package exists. Each row shows the model-catalog picture, variant/material picture, business model and variant numbers, requested color/size breakdown, prepared versus required quantity, package verification count, and readiness state. Physical package rows show their contents, storage location, quantity, and scanned state.
+- New read-only `GET /api/shipments/{shipment_id}/preparation` composes the expected Sales-order lines with package-backed quantities and scan state. Existing package eligibility, stock, shipping, and delivery mutation rules remain authoritative and unchanged.
+- English, Russian, and Uzbek runtime labels were added. Local validation passed all 502 backend tests, full frontend lint, strict TypeScript, every production build contract, and the optimized 83-route Next.js build. Signed-in local browser QA covered desktop and phone layouts and reported zero browser warnings or errors.
+- No schema migration was added, no production business data was touched, and no deployment occurred. Production remains on release `20260902_065540` pending completion of the guarded merge and deployment workflow.
+
 ## Searchable sales-order models and inline customer creation deployed (2026-09-02)
 
 - The Create sales order page now uses the existing searchable selector for branded-stock models. Search matches model labels plus their model-group identity, preserves full/not-full pack counts, and keeps the selected stock option and availability details visible. The old long native option-group menu is gone.
