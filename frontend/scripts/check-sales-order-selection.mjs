@@ -42,8 +42,8 @@ assert.match(
 );
 assert.match(
   page,
-  /function selectLineModel[\s\S]*selected\?\.selling_price[\s\S]*unit_price: unitPrice/,
-  "Selecting an exact model variant must autofill that variant's selling price.",
+  /async function selectLineModel[\s\S]*`\/api\/models\/\$\{modelId\}\/selling-price`[\s\S]*line\.model_id === modelId[\s\S]*unit_price: parsedPrice/,
+  "Selecting an exact model variant must fetch and autofill only that variant's selling price.",
 );
 assert.match(
   page,

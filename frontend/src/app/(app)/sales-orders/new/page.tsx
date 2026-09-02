@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
-import { modelOptionsByIdsFetcher, modelOptionsByIdsKey, type ModelOption } from "@/lib/useModelOptions";
+import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
@@ -453,14 +453,10 @@ export default function NewSalesOrderPage() {
     }));
   }
 
-  function selectLineModel(index: number, modelId: number, model?: ModelOption | null) {
-    const selected = model || modelMap.get(Number(modelId));
-    const rawPrice = selected?.selling_price;
-    const parsedPrice = rawPrice === null || rawPrice === undefined ? NaN : Number(rawPrice);
-    const unitPrice: NumberInputValue = Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : "";
+  async function selectLineModel(index: number, modelId: number) {
     setLines((prev) => prev.map((line, i) => {
       if (index !== i) return line;
-      const next = { ...line, model_id: modelId, unit_price: unitPrice };
+      const next = { ...line, model_id: modelId, unit_price: "" as NumberInputValue };
       if (isBrandedOrder) {
         const selection = brandedPackSelection(next);
         next.full_pack_count = selection.fullPackCount;
@@ -472,6 +468,23 @@ export default function NewSalesOrderPage() {
       }
       return next;
     }));
+    if (!modelId) return;
+    try {
+      const price = await api.get<{
+        id: number;
+        selling_price: number | null;
+        selling_price_currency: string | null;
+      }>(`/api/models/${modelId}/selling-price`);
+      const parsedPrice = price.selling_price === null ? NaN : Number(price.selling_price);
+      if (!Number.isFinite(parsedPrice) || parsedPrice < 0) return;
+      setLines((prev) => prev.map((line, i) => (
+        i === index && line.model_id === modelId && line.unit_price === ""
+          ? { ...line, unit_price: parsedPrice }
+          : line
+      )));
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : "Unable to load the variant price");
+    }
   }
   function addLine() {
     setLines([
@@ -854,7 +867,7 @@ export default function NewSalesOrderPage() {
                               <SearchableSelect<number>
                                 value={l.model_id || null}
                                 options={availableModelSelectOptions}
-                                onChange={(modelId) => selectLineModel(i, modelId, availableModelOptionById.get(Number(modelId))?.model)}
+                                onChange={(modelId) => void selectLineModel(i, modelId)}
                                 placeholder={t("newso.selectModel")}
                                 noResultsText={t("page.search.noMatches")}
                                 disabled={!availableModelOptions.length}
@@ -873,7 +886,7 @@ export default function NewSalesOrderPage() {
                             <div className="min-w-72">
                               <ModelAsyncSelect
                                 value={l.model_id || null}
-                                onChange={(modelId, option) => selectLineModel(i, modelId, option)}
+                                onChange={(modelId) => void selectLineModel(i, modelId)}
                                 placeholder={t("newso.selectModel")}
                                 noResultsText={t("page.search.noMatches")}
                                 loadingText={t("common.loading")}

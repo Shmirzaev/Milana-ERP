@@ -203,8 +203,12 @@ def test_price_calculation_department_workflow_and_authorization(client):
     options = client.get(f"/api/model-options?ids={data['model_id']}", headers=sales)
     assert options.status_code == 200, options.text
     option = options.json()["items"][0]
-    assert option["selling_price"] == 2.0
-    assert option["selling_price_currency"] == "USD"
+    assert "selling_price" not in option
+
+    selected_price = client.get(f"/api/models/{data['model_id']}/selling-price", headers=sales)
+    assert selected_price.status_code == 200, selected_price.text
+    assert selected_price.json()["selling_price"] == 2.0
+    assert selected_price.json()["selling_price_currency"] == "USD"
 
     sales_order = client.post(
         "/api/sales-orders",
