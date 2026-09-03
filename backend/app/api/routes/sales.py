@@ -1145,6 +1145,104 @@ def _stock_rows_for_variant(
     return qry.order_by(FinishedGoodsStock.id.asc()).all()
 
 
+def _package_allocation_candidates(
+    db: DbSession,
+    stock_rows: list[FinishedGoodsStock],
+) -> tuple[dict[int, tuple[Package, list[FinishedGoodsStock]]], list[FinishedGoodsStock]]:
+    """Split physical whole bags from legacy stock that permits piece allocation."""
+    rows_by_package: dict[int, list[FinishedGoodsStock]] = defaultdict(list)
+    for stock in stock_rows:
+        if stock.package_id is not None:
+            rows_by_package[int(stock.package_id)].append(stock)
+    if not rows_by_package:
+        return {}, [row for row in stock_rows if row.package_id is None]
+
+    package_query = db.query(Package).filter(Package.id.in_(rows_by_package))
+    if db.bind and db.bind.dialect.name == "postgresql":
+        package_query = package_query.with_for_update(of=Package)
+    packages = {int(package.id): package for package in package_query.all()}
+
+    partial_rows = [
+        row
+        for row in stock_rows
+        if row.package_id is None
+        or (
+            int(row.package_id) in packages
+            and packages[int(row.package_id)].legacy_receipt_id is not None
+        )
+    ]
+
+    groups: dict[int, tuple[Package, list[FinishedGoodsStock]]] = {}
+    for package_id, rows in rows_by_package.items():
+        package = packages.get(package_id)
+        if not package or package.status not in _SHIPMENT_READY_PACKAGE_STATUSES:
+            continue
+        if package.legacy_receipt_id is not None:
+            continue
+        package_qty = int(package.total_quantity or 0)
+        if package_qty <= 0:
+            continue
+        if any(
+            int(row.available_qty or 0) != int(row.quantity or 0)
+            or int(row.reserved_qty or 0) != 0
+            or int(row.sold_qty or 0) != 0
+            for row in rows
+        ):
+            continue
+        if sum(int(row.available_qty or 0) for row in rows) != package_qty:
+            continue
+        groups[package_id] = (package, rows)
+    return groups, partial_rows
+
+
+def _select_whole_packages(
+    package_groups: dict[int, tuple[Package, list[FinishedGoodsStock]]],
+    target_qty: int,
+) -> list[int]:
+    """Choose complete packages with the greatest total not exceeding target."""
+    target = max(0, int(target_qty or 0))
+    if target <= 0:
+        return []
+
+    candidates = sorted(
+        (
+            (package_id, int(package.total_quantity or 0))
+            for package_id, (package, _rows) in package_groups.items()
+            if 0 < int(package.total_quantity or 0) <= target
+        ),
+        key=lambda row: (-row[1], row[0]),
+    )
+    exact = next((package_id for package_id, quantity in candidates if quantity == target), None)
+    if exact is not None:
+        return [exact]
+    if not candidates:
+        return []
+
+    # A bitset keeps subset selection bounded by the requested quantity while
+    # predecessor entries allow reconstructing the best physical-package set.
+    reachable = 1
+    predecessor: dict[int, tuple[int, int]] = {}
+    mask = (1 << (target + 1)) - 1
+    for package_id, quantity in candidates:
+        shifted = (reachable << quantity) & mask
+        newly_reachable = shifted & ~reachable
+        pending = newly_reachable
+        while pending:
+            bit = pending & -pending
+            total = bit.bit_length() - 1
+            predecessor[total] = (total - quantity, package_id)
+            pending ^= bit
+        reachable |= shifted
+
+    best_total = reachable.bit_length() - 1
+    selected: list[int] = []
+    while best_total > 0:
+        previous_total, package_id = predecessor[best_total]
+        selected.append(package_id)
+        best_total = previous_total
+    return selected
+
+
 def _notify_planning_shortage(
     db: DbSession,
     *,
@@ -1287,7 +1385,14 @@ def _reserve_branded_stock(
             brand_id=brand_id,
         )
         stock_rows_by_variant[key] = stock_rows
-        available_qty = sum(int(row.available_qty or 0) for row in stock_rows)
+        package_groups, partial_stocks = _package_allocation_candidates(db, stock_rows)
+        available_qty = sum(
+            int(package.total_quantity or 0)
+            for package, _rows in package_groups.values()
+        ) + sum(
+            int(row.available_qty or 0)
+            for row in partial_stocks
+        )
         if available_qty < requested_qty:
             shortages_precheck.append(
                 {
@@ -1318,7 +1423,30 @@ def _reserve_branded_stock(
         model_id, color, size, brand_id = key
         needed = int(requested_qty)
         stocks = stock_rows_by_variant[key]
-        for s in stocks:
+        package_groups, partial_stocks = _package_allocation_candidates(db, stocks)
+        selected_package_ids = _select_whole_packages(package_groups, needed)
+        for package_id in selected_package_ids:
+            package, package_stocks = package_groups[package_id]
+            for s in package_stocks:
+                take = int(s.available_qty or 0)
+                s.available_qty = 0
+                s.reserved_qty = int(s.reserved_qty or 0) + take
+                s.status = "reserved"
+                db.add(
+                    StockReservation(
+                        sales_order_id=so.id,
+                        finished_goods_stock_id=s.id,
+                        package_id=package.id,
+                        quantity=take,
+                        reserved_by=current.id,
+                    )
+                )
+                reservations.append({"stock_id": s.id, "package_id": package.id, "qty": take})
+                needed -= take
+
+        # Legacy aggregate receipts and package-less rows retain their existing
+        # piece-level sales behavior. Factory-produced bags remain indivisible.
+        for s in partial_stocks:
             if needed <= 0:
                 break
             take = min(needed, int(s.available_qty or 0))
@@ -1337,7 +1465,7 @@ def _reserve_branded_stock(
                     reserved_by=current.id,
                 )
             )
-            reservations.append({"stock_id": s.id, "qty": take})
+            reservations.append({"stock_id": s.id, "package_id": None, "qty": take})
             needed -= take
         if needed > 0:
             shortages.append(
@@ -1350,16 +1478,26 @@ def _reserve_branded_stock(
                 }
             )
 
-    if not shortages and reservations:
-        so.status = "ready"
-        auto_note = "[Auto route] Branded stock reserved and sent to storage team for shipment prep."
+    if reservations:
+        is_complete = not shortages
+        so.status = "ready" if is_complete else "reserved"
+        auto_note = (
+            "[Auto route] Branded stock reserved and sent to storage team for shipment prep."
+            if is_complete
+            else "[Auto route] Complete packages reserved; remaining quantity awaits another package."
+        )
         so.notes = f"{so.notes}\n{auto_note}".strip() if so.notes else auto_note
         if notify_storage_when_ready:
             total_qty, handoff_message = _shipment_handoff_details(db, so=so, lines=line_rows)
+            reserved_qty = sum(int(row.get("qty") or 0) for row in reservations)
             notify_department(
                 db,
                 department_code="FGS",
-                title=f"{so.order_no}: {total_qty} pcs ready to ship",
+                title=(
+                    f"{so.order_no}: {total_qty} pcs ready to ship"
+                    if is_complete
+                    else f"{so.order_no}: {reserved_qty}/{total_qty} pcs ready to ship"
+                ),
                 message=handoff_message,
                 link=f"/departments/FGS#shipping-order-{so.id}",
                 exclude_user_id=current.id,
