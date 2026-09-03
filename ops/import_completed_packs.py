@@ -140,6 +140,13 @@ def validate_row(row: dict[str, Any], photo_root: Path) -> dict[str, Any]:
         raise ValueError(f"{qr}: source photo is missing, unsafe, or changed")
     if clean(row.get("review_status")).casefold() != "approved":
         raise ValueError(f"{qr}: row is not explicitly approved")
+    target_kind = clean(row.get("target_kind") or "catalog").casefold()
+    if target_kind not in {"catalog", "hidden_legacy"}:
+        raise ValueError(f"{qr}: unsupported target_kind {target_kind!r}")
+    original_model_number = clean(row.get("original_model_number") or row["model_number"])
+    original_article = clean(row.get("original_article") or row["article"])
+    if target_kind == "hidden_legacy" and (not original_model_number or not original_article):
+        raise ValueError(f"{qr}: hidden legacy identity is incomplete")
     return {
         **canonical_payload(row),
         "qr_code": qr,
@@ -150,6 +157,9 @@ def validate_row(row: dict[str, Any], photo_root: Path) -> dict[str, Any]:
         "sizes": sizes,
         "source_photo": photo_name,
         "source_photo_sha256": photo_hash,
+        "target_kind": target_kind,
+        "original_model_number": original_model_number,
+        "original_article": original_article,
     }
 
 
@@ -158,8 +168,8 @@ def read_manifest(path: Path, photo_root: Path, expected_hash: str) -> tuple[dic
     if actual_hash != expected_hash:
         raise ValueError(f"Manifest SHA-256 changed: {actual_hash}")
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("version") != 1 or not isinstance(payload.get("rows"), list):
-        raise ValueError("Manifest must be a version-1 object with rows")
+    if payload.get("version") not in {1, 2} or not isinstance(payload.get("rows"), list):
+        raise ValueError("Manifest must be a supported version object with rows")
     rows = [validate_row(dict(row), photo_root) for row in payload["rows"]]
     qrs = [row["qr_code"] for row in rows]
     if len(qrs) != len(set(qrs)):
@@ -170,7 +180,12 @@ def read_manifest(path: Path, photo_root: Path, expected_hash: str) -> tuple[dic
         "expected_known_weight_kg": str(sum((Decimal(row["weight_kg"]) for row in rows if row["weight_kg"] is not None), Decimal("0"))),
         "expected_null_weight_rows": sum(row["weight_kg"] is None for row in rows),
         "expected_unique_identities": len({
-            (normalized_base(row["model_number"]), normalized_variant(row["article"])) for row in rows
+            (
+                row["target_kind"],
+                normalized_base(row["model_number"]),
+                normalized_variant(row["article"]),
+            )
+            for row in rows
         }),
     }
     for key, value in expected.items():
@@ -201,12 +216,101 @@ def assert_target_guard(db, args: argparse.Namespace) -> tuple[Warehouse, User]:
     return warehouse, importer
 
 
-def resolve_all(db, rows: list[dict[str, Any]], expected_unique: int) -> dict[str, Model]:
+def is_internal_legacy_model(model: Model) -> bool:
+    details = model.details_json if isinstance(model.details_json, dict) else {}
+    return details.get("legacy_import") is True
+
+
+def hidden_model_code(row: dict[str, Any]) -> str:
+    identity = "\0".join(
+        (
+            normalized_base(row["original_model_number"]),
+            normalized_variant(row["original_article"]),
+        )
+    )
+    return f"LEGACY-STICKER-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:16].upper()}"
+
+
+def validate_hidden_model(model: Model, row: dict[str, Any]) -> None:
+    details = model.details_json if isinstance(model.details_json, dict) else {}
+    general = details.get("general") if isinstance(details.get("general"), dict) else {}
+    expected_identity = (
+        normalized_base(row["original_model_number"]),
+        normalized_variant(row["original_article"]),
+    )
+    actual_identity = (
+        normalized_base(general.get("model_no") or details.get("legacy_original_model_no")),
+        normalized_variant(general.get("variant_no") or details.get("legacy_original_variant_no")),
+    )
+    if (
+        details.get("legacy_import") is not True
+        or actual_identity != expected_identity
+        or clean(model.status).casefold() != "approved"
+    ):
+        raise ValueError(f"{row['qr_code']}: hidden model guard failed for {model.code}")
+
+
+def create_hidden_model(db, row: dict[str, Any], importer: User) -> Model:
+    model = Model(
+        code=hidden_model_code(row),
+        name=f"{row['original_model_number']} / {row['original_article']}",
+        category="Legacy finished goods",
+        description="Warehouse-only model created from unresolved old-ERP sticker evidence.",
+        details_json={
+            "legacy_import": True,
+            "legacy_source_system": SOURCE_SYSTEM,
+            "legacy_first_source_record_id": row["qr_code"],
+            "legacy_original_model_no": row["original_model_number"],
+            "legacy_original_variant_no": row["original_article"],
+            "general": {
+                "model_no": row["original_model_number"],
+                "variant_no": row["original_article"],
+            },
+        },
+        status="approved",
+        created_by=importer.id,
+        approved_by=importer.id,
+        approved_at=datetime.now(timezone.utc),
+    )
+    db.add(model)
+    db.flush()
+    validate_hidden_model(model, row)
+    return model
+
+
+def resolve_all(
+    db,
+    rows: list[dict[str, Any]],
+    expected_unique: int,
+    *,
+    importer: User | None = None,
+    create_hidden: bool = False,
+) -> tuple[dict[str, Model], int]:
     by_identity: dict[tuple[str, str], list[Model]] = {}
+    hidden_by_code: dict[str, Model] = {}
     for model in db.query(Model).all():
-        by_identity.setdefault(model_identity(model), []).append(model)
+        if is_internal_legacy_model(model):
+            hidden_by_code[model.code.casefold()] = model
+        else:
+            by_identity.setdefault(model_identity(model), []).append(model)
     resolved: dict[str, Model] = {}
+    created_hidden = 0
     for row in rows:
+        if row["target_kind"] == "hidden_legacy":
+            code = hidden_model_code(row)
+            model = hidden_by_code.get(code.casefold())
+            if model:
+                validate_hidden_model(model, row)
+            elif create_hidden:
+                if importer is None:
+                    raise ValueError("Importer is required to create hidden models")
+                model = create_hidden_model(db, row, importer)
+                hidden_by_code[code.casefold()] = model
+                created_hidden += 1
+            else:
+                raise ValueError(f"{row['qr_code']}: hidden model {code} does not exist")
+            resolved[row["qr_code"]] = model
+            continue
         key = (normalized_base(row["model_number"]), normalized_variant(row["article"]))
         matches = by_identity.get(key, [])
         if len(matches) != 1 or clean(matches[0].status).casefold() != "approved":
@@ -214,7 +318,24 @@ def resolve_all(db, rows: list[dict[str, Any]], expected_unique: int) -> dict[st
         resolved[row["qr_code"]] = matches[0]
     if len({model.id for model in resolved.values()}) != expected_unique:
         raise ValueError("Resolved unique model count changed")
-    return resolved
+    return resolved, created_hidden
+
+
+def count_planned_hidden_models(db, rows: list[dict[str, Any]]) -> tuple[int, int]:
+    unique_rows: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if row["target_kind"] == "hidden_legacy":
+            unique_rows.setdefault(hidden_model_code(row), row)
+    existing = {
+        model.code.casefold(): model
+        for model in db.query(Model).all()
+        if model.code.casefold() in {code.casefold() for code in unique_rows}
+    }
+    for code, row in unique_rows.items():
+        model = existing.get(code.casefold())
+        if model:
+            validate_hidden_model(model, row)
+    return len(unique_rows) - len(existing), len(existing)
 
 
 def assert_zero_collisions(db, rows: list[dict[str, Any]]) -> None:
@@ -304,6 +425,8 @@ def import_rows(db, rows, resolved, warehouse, importer, manifest_hash: str) -> 
             "rows": len(rows),
             "quantity": sum(row["quantity"] for row in rows),
             "null_weight_rows": sum(row["weight_kg"] is None for row in rows),
+            "catalog_rows": sum(row["target_kind"] == "catalog" for row in rows),
+            "hidden_legacy_rows": sum(row["target_kind"] == "hidden_legacy" for row in rows),
             "warehouse_id": warehouse.id,
             "source_system": SOURCE_SYSTEM,
             "source_workbook_sha256": rows[0]["source_workbook_sha256"] if rows else None,
@@ -387,7 +510,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     payload, rows = read_manifest(args.input, args.photo_root, args.expected_manifest_sha256)
     with SessionLocal() as db:
         warehouse, importer = assert_target_guard(db, args)
-        resolved = resolve_all(db, rows, int(payload["expected_unique_identities"]))
+        planned_hidden, existing_hidden = count_planned_hidden_models(db, rows)
+        created_hidden = 0
+        if args.mode == "dry-run":
+            catalog_rows = [row for row in rows if row["target_kind"] == "catalog"]
+            catalog_unique = len({
+                (normalized_base(row["model_number"]), normalized_variant(row["article"]))
+                for row in catalog_rows
+            })
+            resolved, _ = resolve_all(db, catalog_rows, catalog_unique)
+        else:
+            resolved, created_hidden = resolve_all(
+                db,
+                rows,
+                int(payload["expected_unique_identities"]),
+                importer=importer,
+                create_hidden=args.mode == "apply",
+            )
         base = {
             "mode": args.mode,
             "environment": args.environment,
@@ -396,7 +535,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "quantity": sum(row["quantity"] for row in rows),
             "known_weight_kg": payload["expected_known_weight_kg"],
             "null_weight_rows": payload["expected_null_weight_rows"],
-            "unique_models": len({model.id for model in resolved.values()}),
+            "catalog_rows": sum(row["target_kind"] == "catalog" for row in rows),
+            "hidden_legacy_rows": sum(row["target_kind"] == "hidden_legacy" for row in rows),
+            "unique_models": int(payload["expected_unique_identities"]),
+            "planned_hidden_model_creates": planned_hidden,
+            "existing_hidden_models": existing_hidden,
+            "created_hidden_models": created_hidden,
             "warehouse": {"id": warehouse.id, "name": warehouse.name},
         }
         if args.mode == "dry-run":
@@ -420,7 +564,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise
     with SessionLocal() as verify_db:
         assert_target_guard(verify_db, args)
-        resolved = resolve_all(verify_db, rows, int(payload["expected_unique_identities"]))
+        resolved, _ = resolve_all(verify_db, rows, int(payload["expected_unique_identities"]))
         committed_state = readback(verify_db, rows, resolved, args.imported_by)
         audit = verify_db.execute(
             text("select id, action, user_id, entry_hash from audit_logs where id=:id"), {"id": audit_id}
