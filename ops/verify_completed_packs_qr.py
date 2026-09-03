@@ -21,10 +21,12 @@ qrs = [row["qr_code"] for row in rows]
 with SessionLocal() as db:
     packages = db.query(Package).filter(Package.barcode.in_(qrs)).all()
     aliases = db.query(PackageBarcodeAlias).filter(PackageBarcodeAlias.code.in_(qrs)).all()
+    package_ids = {package.id for package in packages}
+    alias_package_ids = {alias.package_id for alias in aliases}
     db.rollback()
 if len(packages) != len(rows) or len(aliases) != len(rows):
     raise RuntimeError(f"Database QR evidence mismatch: packages={len(packages)}, aliases={len(aliases)}")
-if len({package.id for package in packages}) != len(rows) or len({alias.package_id for alias in aliases}) != len(rows):
+if len(package_ids) != len(rows) or len(alias_package_ids) != len(rows):
     raise RuntimeError("Database QR evidence does not resolve to distinct packages")
 
 sample_indices = [round(index * (len(rows) - 1) / 19) for index in range(20)]
