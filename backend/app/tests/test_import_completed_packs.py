@@ -83,3 +83,59 @@ def test_version_two_manifest_preserves_hidden_identity(tmp_path: Path):
     assert rows[0]["target_kind"] == "hidden_legacy"
     assert rows[0]["original_model_number"] == "XJ3142"
     assert rows[0]["original_article"] == "V-43"
+    assert "record_key" not in rows[0]
+
+
+def test_version_three_allows_no_qr_and_unknown_hidden_identity(tmp_path: Path):
+    photo = tmp_path / "unknown.jpg"
+    photo.write_bytes(b"unknown sticker evidence")
+    photo_hash = hashlib.sha256(photo.read_bytes()).hexdigest()
+    row = {
+        "record_key": "completed-workbook-record-2000-0123456789abcdef",
+        "qr_code": None,
+        "has_source_qr": False,
+        "package_barcode": "noqr-2000-0123456789abcdef",
+        "package_no": "OLD-NOQR-2000-0123456789ABCDEF",
+        "model_number": "",
+        "article": "",
+        "sizes": [],
+        "weight_kg": None,
+        "quantity": 60,
+        "quantity_defaulted": True,
+        "source_photo": photo.name,
+        "source_photo_sha256": photo_hash,
+        "source_reference": "Completed workbook row 2005",
+        "source_workbook_sha256": "a" * 64,
+        "review_status": "approved",
+        "allowed_blank_weight": True,
+        "allowed_blank_sizes": True,
+        "target_kind": "hidden_legacy",
+        "original_model_number": "",
+        "original_article": "",
+    }
+    payload = {
+        "version": 3,
+        "expected_rows": 1,
+        "expected_quantity": 60,
+        "expected_known_weight_kg": "0",
+        "expected_null_weight_rows": 1,
+        "expected_unique_identities": 1,
+        "expected_source_qr_rows": 0,
+        "expected_no_source_qr_rows": 1,
+        "expected_default_quantity_rows": 1,
+        "expected_catalog_rows": 0,
+        "expected_hidden_legacy_rows": 1,
+        "rows": [row],
+    }
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    manifest_hash = hashlib.sha256(manifest.read_bytes()).hexdigest()
+
+    _, rows = importer.read_manifest(manifest, tmp_path, manifest_hash)
+
+    assert rows[0]["qr_code"] is None
+    assert rows[0]["record_key"] == row["record_key"]
+    assert rows[0]["quantity"] == 60
+    assert rows[0]["sizes"] == []
+    assert importer.row_package_barcode(rows[0]) == row["package_barcode"]
+    assert importer.hidden_model_code(rows[0]).startswith("LEGACY-STICKER-")
