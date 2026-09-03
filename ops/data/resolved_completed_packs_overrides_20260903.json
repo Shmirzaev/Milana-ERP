@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "decisions": {
+    "uzerp_ii_10100_1": {"target_kind": "catalog", "model_number": "XJ3140", "article": "V-5297", "basis": "Sticker photo and old ERP variant row show XJ3140 / V-5297."},
+    "uzerp_ii_18503_1": {"target_kind": "catalog", "model_number": "TJ2038V", "article": "V-508", "basis": "Sticker photo and old ERP variant row show TJ2038V / V-508."},
+    "uzerp_ii_191138_1": {"target_kind": "catalog", "model_number": "BJ5027", "article": "V-4039", "basis": "Sticker photo and old ERP variant row show BJ5027 / V-4039."},
+    "uzerp_ii_19200_1": {"target_kind": "catalog", "model_number": "KJ13021", "article": "V-5394", "basis": "Sticker photo and old ERP variant row show KJ13021 / V-5394."},
+    "uzerp_ii_19202_9": {"target_kind": "catalog", "model_number": "XJ3044", "article": "V-5194", "basis": "Sticker photo and old ERP variant row show XJ3044 / V-5194."},
+    "uzerp_ii_19658_1": {"target_kind": "catalog", "model_number": "SJ4022", "article": "V-5537", "basis": "Sticker photo and old ERP variant row show SJ4022 / V-5537."},
+    "uzerp_ii_19809_1": {"target_kind": "hidden_legacy", "basis": "Sticker shows XJ3142 but the variant digits remain unreadable; old ERP has multiple possible variants."},
+    "uzerp_ii_19867_3": {"target_kind": "catalog", "model_number": "XJ3147", "article": "V-5563", "basis": "Sticker photo and old ERP variant row show XJ3147 / V-5563."},
+    "uzerp_ii_19988_7": {"target_kind": "hidden_legacy", "basis": "Sticker model and variant are truncated and cannot be matched uniquely in old ERP."},
+    "uzerp_ii_20059_3": {"target_kind": "catalog", "model_number": "PM7012", "article": "V-5670", "basis": "High-resolution sticker photo and old ERP variant row show PM7012 / V-5670."},
+    "uzerp_ii_20059_4": {"target_kind": "catalog", "model_number": "PM7012", "article": "V-5670", "basis": "High-resolution sticker photo and old ERP variant row show PM7012 / V-5670."},
+    "uzerp_ii_20085_1": {"target_kind": "catalog", "model_number": "XJ3003", "article": "V-5612", "basis": "High-resolution sticker photo and old ERP variant row show XJ3003 / V-5612."},
+    "uzerp_ii_20085_2": {"target_kind": "catalog", "model_number": "XJ3003", "article": "V-5612", "basis": "High-resolution sticker photo and old ERP variant row show XJ3003 / V-5612."},
+    "uzerp_ii_43702_1": {"target_kind": "hidden_legacy", "basis": "Sticker model and variant are too blurred for a unique old ERP match."},
+    "uzerp_ii_79900_5": {"target_kind": "hidden_legacy", "basis": "Sticker variant is obscured; FJ6011 has five possible old ERP variants."},
+    "uzerp_ii_8075_9": {"target_kind": "catalog", "model_number": "SJ4020", "article": "V-0001", "basis": "Sticker photo and old ERP variant row show SJ4020 / V-0001; V-0001 alone is not globally unique."},
+    "uzerp_ii_8207_3": {"target_kind": "catalog", "model_number": "DK18002", "article": "V-2039", "basis": "High-resolution sticker photo and old ERP variant row show DK18002 / V-2039."},
+    "uzerp_ii_8315_2": {"target_kind": "catalog", "model_number": "BJ5027", "article": "V-3891", "basis": "Old ERP has one globally unique V-3891 row, under BJ5027."},
+    "uzerp_ii_8832_8": {"target_kind": "hidden_legacy", "basis": "Sticker shows MK18002 / V-197x but the final digit is obscured; old ERP has three possible variants."},
+    "uzerp_ii_9408_2": {"target_kind": "catalog", "model_number": "PB10005", "article": "V-2777", "basis": "High-resolution sticker photo and old ERP variant row show PB10005 / V-2777."},
+    "uzerp_ii_9569_8": {"target_kind": "hidden_legacy", "basis": "Sticker identity is obscured and does not match a unique old ERP model/variant."}
+  }
+}
