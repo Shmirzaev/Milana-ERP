@@ -595,6 +595,30 @@ function operationNumberForLabel(label: IssuedLabelRow, numbers: Map<string, num
   );
 }
 
+function compareIssuedLabelOrder(
+  left: IssuedLabelRow,
+  right: IssuedLabelRow,
+  configuredSizeOrder: Map<string, number>,
+  operationNumbers: Map<string, number>,
+): number {
+  const leftSize = left.size?.trim() || "-";
+  const rightSize = right.size?.trim() || "-";
+  const leftSizeIndex = configuredSizeOrder.get(leftSize);
+  const rightSizeIndex = configuredSizeOrder.get(rightSize);
+  const configuredSizeDifference = (
+    (leftSizeIndex ?? Number.MAX_SAFE_INTEGER)
+    - (rightSizeIndex ?? Number.MAX_SAFE_INTEGER)
+  );
+
+  return (
+    configuredSizeDifference
+    || compareGarmentSizes(leftSize, rightSize)
+    || operationNumberForLabel(left, operationNumbers) - operationNumberForLabel(right, operationNumbers)
+    || left.copy_index - right.copy_index
+    || left.id - right.id
+  );
+}
+
 function equalSplitQuantities(totalQuantity: number, copies: number): number[] {
   const safeCopies = Math.max(1, Math.floor(numberOrZero(copies) || 1));
   const total = Math.max(0, numberOrZero(totalQuantity));
@@ -1140,33 +1164,24 @@ export default function ProcessQrPage() {
     }
     return numbers;
   }, [activeIssuedLabels, factoryOperations]);
+  const issuedSizeOrder = useMemo(
+    () => new Map(sizeOptions.map((row, index) => [row.size.trim() || "-", index])),
+    [sizeOptions],
+  );
+  const orderedIssuedLabels = useMemo(
+    () => [...activeIssuedLabels].sort((left, right) => (
+      compareIssuedLabelOrder(left, right, issuedSizeOrder, issuedOperationNumbers)
+    )),
+    [activeIssuedLabels, issuedOperationNumbers, issuedSizeOrder],
+  );
   const issuedLabelsBySize = useMemo(() => {
     const groups = new Map<string, IssuedLabelRow[]>();
-    for (const label of activeIssuedLabels) {
+    for (const label of orderedIssuedLabels) {
       const size = label.size?.trim() || "-";
       groups.set(size, [...(groups.get(size) || []), label]);
     }
-    const configuredOrder = new Map(sizeOptions.map((row, index) => [row.size, index]));
-    return Array.from(groups.entries()).map(([size, sizeLabels]) => [
-      size,
-      [...sizeLabels].sort((left, right) => (
-        operationNumberForLabel(left, issuedOperationNumbers) - operationNumberForLabel(right, issuedOperationNumbers)
-        || left.copy_index - right.copy_index
-        || left.id - right.id
-      )),
-    ] as [string, IssuedLabelRow[]]).sort(([left], [right]) => {
-      const leftIndex = configuredOrder.get(left);
-      const rightIndex = configuredOrder.get(right);
-      if (leftIndex !== undefined || rightIndex !== undefined) {
-        return (leftIndex ?? Number.MAX_SAFE_INTEGER) - (rightIndex ?? Number.MAX_SAFE_INTEGER);
-      }
-      return compareGarmentSizes(left, right);
-    });
-  }, [activeIssuedLabels, issuedOperationNumbers, sizeOptions]);
-  const orderedIssuedLabels = useMemo(
-    () => issuedLabelsBySize.flatMap(([, sizeLabels]) => sizeLabels),
-    [issuedLabelsBySize],
-  );
+    return Array.from(groups.entries());
+  }, [orderedIssuedLabels]);
   const editedIssuedLabels = useMemo(() => {
     const editedIds = new Set(editedLabelIds);
     return orderedIssuedLabels.filter((label) => editedIds.has(label.id));
@@ -1486,7 +1501,10 @@ export default function ProcessQrPage() {
     setPrintError("");
     setPreparingPrint(true);
     try {
-      const prepared = await Promise.all(rows.map(async (label) => ({
+      const rowsInPrintOrder = [...rows].sort((left, right) => (
+        compareIssuedLabelOrder(left, right, issuedSizeOrder, issuedOperationNumbers)
+      ));
+      const prepared = await Promise.all(rowsInPrintOrder.map(async (label) => ({
         label,
         qrImage: await qrDataUrl(label.qr_token),
         operationNumber: operationNumberForLabel(label, issuedOperationNumbers),

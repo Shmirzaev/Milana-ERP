@@ -3,7 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const source = fs.readFileSync(path.join(root, "src/app/(app)/process-qr/page.tsx"), "utf8");
+const source = fs
+  .readFileSync(path.join(root, "src/app/(app)/process-qr/page.tsx"), "utf8")
+  .replace(/\r\n/g, "\n");
 const runtimeLocaleFiles = ["en", "ru", "uz"].map((lang) => ({
   lang,
   source: fs.readFileSync(path.join(root, `src/lib/i18n/locales/${lang}-supplemental.ts`), "utf8"),
@@ -41,7 +43,11 @@ const required = [
   ["numeric garment-size comparator", "const leftNumber = leftNumbers.at(-1);"],
   ["configured sizes sorted smallest-first", "[...rows].sort((left, right) => compareGarmentSizes(left.size, right.size))"],
   ["size-major label generation", "for (const sizeOption of sizeOptions) {\n      for (const batch of batchesToPrint) {\n        for (const operation of selectedOperations)"],
-  ["model operation rank", "operationNumberForLabel(left, issuedOperationNumbers) - operationNumberForLabel(right, issuedOperationNumbers)"],
+  ["canonical issued-label comparator", "function compareIssuedLabelOrder("],
+  ["canonical order compares sizes before operations", "compareGarmentSizes(leftSize, rightSize)\n    || operationNumberForLabel(left, operationNumbers)"],
+  ["all bulk print requests are re-sorted at the print boundary", "const rowsInPrintOrder = [...rows].sort((left, right) => (\n        compareIssuedLabelOrder(left, right, issuedSizeOrder, issuedOperationNumbers)"],
+  ["QR preparation preserves the canonical print order", "Promise.all(rowsInPrintOrder.map(async (label)"],
+  ["model operation rank", "operationNumberForLabel(left, operationNumbers) - operationNumberForLabel(right, operationNumbers)"],
   ["stable copy ordering", "|| left.copy_index - right.copy_index"],
   ["stable label fallback", "|| left.id - right.id"],
   ["all-size printing uses ordered groups", "onClick={() => printIssuedLabels(orderedIssuedLabels)}"],
@@ -136,6 +142,25 @@ const labelsAcrossSizes = [
 const displayedNumbers = labelsAcrossSizes.map((label) => modelOperationNumbers.get(label.operation));
 if (displayedNumbers.join(",") !== "1,1,2") {
   throw new Error("The same model operation must keep the same printed number across sizes");
+}
+
+const mixedBulkPrintLabels = [
+  { size: "L-48", operation: "FIRST", copy: 1, id: 41 },
+  { size: "S-44", operation: "SECOND", copy: 1, id: 12 },
+  { size: "M-46", operation: "FIRST", copy: 1, id: 21 },
+  { size: "S-44", operation: "FIRST", copy: 2, id: 11 },
+  { size: "S-44", operation: "FIRST", copy: 1, id: 10 },
+].sort((left, right) => (
+  compareSizes(left.size, right.size)
+  || operationOrder.get(left.operation) - operationOrder.get(right.operation)
+  || left.copy - right.copy
+  || left.id - right.id
+));
+const mixedBulkPrintOrder = mixedBulkPrintLabels
+  .map((label) => `${label.size}:${label.operation}:${label.copy}`)
+  .join(",");
+if (mixedBulkPrintOrder !== "S-44:FIRST:1,S-44:FIRST:2,S-44:SECOND:1,M-46:FIRST:1,L-48:FIRST:1") {
+  throw new Error(`Bulk printing is not size-major: ${mixedBulkPrintOrder}`);
 }
 
 console.log("Process QR ordering contract passed.");
