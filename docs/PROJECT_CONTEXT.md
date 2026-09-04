@@ -1,6 +1,15 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-03
+Last updated: 2026-09-04
+
+## User-corrected QR conflict workbook imported (2026-09-04)
+
+- The user edited the prior nine-group QR-conflict workbook in place, retaining eight incoming sticker rows, correcting four misread QR values (`uzerp_ii_18287_1`, `uzerp_ii_18882_3`, `uzerp_ii_18919_1`, and `uzerp_ii_17965_1`), and deleting five unreadable or duplicate incoming rows. The five remaining `Existing production` rows were treated as reference evidence only and were not imported or altered. The revised 1,018,073-byte workbook SHA-256 is `d8c8ebfe720f502f46a14695cc0709fb7699ad1e4d4f36c77ff83f145494448d`; workbook inspection found 13 retained data rows, 18 embedded original images, and no formula errors.
+- Production comparison found all eight retained QR values unused. Six rows resolved to exactly one approved catalog model/variant. The BM-1877 / V-5209 and XJ3067 / V-5578 rows had no authoritative catalog match, so their packs use two deterministic `legacy_import` warehouse-only models that catalog endpoints exclude; postflight found zero hidden rows exposed in Models/Variants.
+- The immutable manifest contains eight packs / 558 pieces across eight identities and 194.23 kg, with all eight original photos hash-verified. Manifest SHA-256 is `1338cc2ba11a31aec188b1bc6600ef37a637b2b4eb32d54ce4513a728324c2c7`; the 200,274-byte guarded import bundle SHA-256 is `cd3f07948bcfc848f7062075c35d09f526b07d404738153c7f13398a481d673d`. Production-clone dry-run, atomic apply, and committed verify all passed before the live write.
+- Immediate pre-import backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260904_084618.dump` is 49,362,297 bytes with 1,069 restore objects and SHA-256 `443fc2198314b0f3005010031eb48d9d283fa62f20fe737c3455bcba8f987198`; its restore-list SHA-256 is `1a72a178b2288f55debf618b7eb3b7870f3d4dc7531742200e2d1186da4284ea`. Production dry-run reported zero collisions, then one transaction created exactly eight receipts, packages, package items, stock rows, scan rows, and QR aliases plus two hidden model rows. Audit row `16489` records the import with entry hash `fdfcbf1252c50256f256ba1094b39a81bbfb377814f33303886fde68fd7f0171`.
+- Committed production readback verified all eight package graphs and all eight public QR lookups at HTTP 200 with the correct quantities. Finished Goods now contains 6,183 package/stock rows, 451,833 total pieces, and 451,575 available pieces, with zero stock-balance failures.
+- This was a guarded data-only deployment. Active backend/frontend release `20260903_042100` remains unchanged in blue, green release `20260902_134732` remains the application rollback, and PostgreSQL remains at `0113_variant_selling_price`. The active backend remains running with zero restarts/OOM, and internal and public health checks returned OK.
 
 ## Remaining user-completed sticker packs imported under approved fallback rules (2026-09-03)
 
