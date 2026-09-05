@@ -1,5 +1,15 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+  "page.planning.cutting.not_started": "Not cut",
+  "page.planning.cutting.partial": "Partially cut",
+  "page.planning.cutting.completed": "Cut",
+  "page.planning.modelNumber": "Model number",
+  "page.planning.searchModelNumber": "Search model number...",
+  "page.planning.variantNumber": "Variant number",
+  "page.planning.selectVariant": "Select variant...",
+  "page.planning.noApprovedVariants": "No approved variants",
+  "page.planning.modelLoadFailed": "Unable to load models. Please try again.",
+
     "nav.priceCalculation": "Price calculation",
     "nav.salesPriceRequests": "Price requests",
     "nav.purchasingPriceRequests": "Price requests",
