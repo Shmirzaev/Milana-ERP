@@ -266,7 +266,7 @@ export default function ModelsPage() {
           return (
             <article key={m.id} className="model-list-card overflow-hidden rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm transition hover:border-[#d6ceb9] hover:shadow-md">
               <div className="grid min-h-[128px] grid-cols-[96px_minmax(0,1fr)] items-start sm:grid-cols-[120px_minmax(0,1fr)]">
-                <Link href={`${modelPageBase}/${m.id}`} prefetch={false} className="block w-full bg-[#f1efe8]">
+                <Link href={`${modelPageBase}/${m.id}`} prefetch={false} className="flex min-h-[128px] w-full items-center bg-[#f1efe8]">
                   {imageUrl ? (
                     <VerticalModelPhoto
                       src={imageUrl}
@@ -275,6 +275,7 @@ export default function ModelsPage() {
                       loading="lazy"
                       width={240}
                       height={320}
+                      adaptiveHeight
                     />
                   ) : (
                     <div className="flex aspect-[3/4] w-full flex-col items-center justify-center gap-2 border-r border-[#e3dfd3] px-3 text-center">

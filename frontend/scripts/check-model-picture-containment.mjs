@@ -12,11 +12,19 @@ const sources = files.map((file) => [file, fs.readFileSync(path.join(root, file)
 const errors = [];
 
 const vertical = sources[0][1];
-if (!vertical.includes('className="h-full w-full object-contain"')) {
+if (!vertical.includes('"h-full w-full object-contain"')) {
   errors.push("Vertical model photos must fit the complete source image.");
 }
 if (vertical.includes("rotate-90") || vertical.includes("object-cover")) {
   errors.push("Vertical model photos must not rotate or crop source images.");
+}
+if (!vertical.includes("adaptiveHeight") || !vertical.includes("block h-auto max-h-40 w-full object-contain")) {
+  errors.push("Adaptive catalogue photos must use their meaningful source aspect ratio.");
+}
+
+const modelsPage = sources[1][1];
+if (!modelsPage.includes("adaptiveHeight") || !modelsPage.includes("min-h-[128px]")) {
+  errors.push("The model list must center adaptive-height photos without a forced portrait canvas.");
 }
 
 for (const [file, source] of sources.slice(1)) {
