@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import BrandedPlanningOrder, Customer, Model, User, SalesOrder
+from app.models import BrandedPlanningOrder, Customer, Model, User, SalesOrder, WorkOrder
 from app.schemas.production import (
     BrandedPlanningOrderIn,
     MaterialRequirement,
@@ -59,9 +59,12 @@ def _branded_model_payload(model: Model) -> dict:
 def _branded_order_payload(
     order: BrandedPlanningOrder,
     model_by_id: dict[int, dict] | None = None,
+    cutting_by_id: dict[int, str] | None = None,
 ) -> dict:
     model_by_id = model_by_id or {}
+    cutting_by_id = cutting_by_id or {}
     productions = sorted(order.production_orders or [], key=lambda row: int(row.id))
+    cutting_states = [cutting_by_id.get(row.id, "not_started") for row in productions]
     return {
         "id": order.id,
         "order_no": order.order_no,
@@ -75,6 +78,11 @@ def _branded_order_payload(
         "updated_at": order.updated_at,
         "production_count": len(productions),
         "total_quantity": sum(int(row.planned_quantity or 0) for row in productions),
+        "cutting_status": (
+            "completed" if cutting_states and all(state == "completed" for state in cutting_states)
+            else "partial" if any(state != "not_started" for state in cutting_states)
+            else "not_started"
+        ),
         "productions": [
             {
                 "id": row.id,
@@ -84,6 +92,7 @@ def _branded_order_payload(
                 "model": model_by_id.get(int(row.model_id)),
                 "planned_quantity": row.planned_quantity,
                 "status": row.status,
+                "cutting_status": cutting_by_id.get(row.id, "not_started"),
             }
             for row in productions
         ],
@@ -127,7 +136,27 @@ def list_branded_orders(
         else []
     )
     model_by_id = {int(model.id): _branded_model_payload(model) for model in models}
-    return [_branded_order_payload(row, model_by_id) for row in rows]
+    production_ids = [production.id for order in rows for production in order.production_orders]
+    cutting_by_production: dict[int, list] = {}
+    if production_ids:
+        cutting_rows = db.query(
+            WorkOrder.production_order_id, WorkOrder.status, WorkOrder.actual_output_qty,
+        ).filter(
+            WorkOrder.production_order_id.in_(production_ids),
+            WorkOrder.operation == "cutting",
+            WorkOrder.status.notin_(("cancelled", "rejected")),
+        ).all()
+        for work in cutting_rows:
+            cutting_by_production.setdefault(work.production_order_id, []).append(work)
+    cutting_by_id = {
+        production_id: (
+            "completed" if all(work.status == "completed" for work in works)
+            else "partial" if any(work.status == "completed" or work.actual_output_qty > 0 for work in works)
+            else "not_started"
+        )
+        for production_id, works in cutting_by_production.items()
+    }
+    return [_branded_order_payload(row, model_by_id, cutting_by_id) for row in rows]
 
 
 @router.post("/branded-orders", status_code=201)

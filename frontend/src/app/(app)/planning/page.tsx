@@ -10,7 +10,7 @@ import PageHeader from "@/components/PageHeader";
 import BrandedOrderHistory, { type BrandedPlanningOrder } from "@/components/BrandedOrderHistory";
 import Modal from "@/components/Modal";
 import SearchableSelect from "@/components/SearchableSelect";
-import ModelAsyncSelect from "@/components/ModelAsyncSelect";
+import BrandedModelVariantSelect from "@/components/BrandedModelVariantSelect";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
@@ -358,6 +358,8 @@ export default function PlanningDashboard() {
   const [brandedDistributeQty, setBrandedDistributeQty] = useState<NumberInputValue>(6000);
   const [brandedLinesEditing, setBrandedLinesEditing] = useState(false);
   const [brandedLinesModelId, setBrandedLinesModelId] = useState(0);
+  const [brandedDialogOpen, setBrandedDialogOpen] = useState(false);
+  const [brandedSelectorKey, setBrandedSelectorKey] = useState(0);
   const [brandedSaving, setBrandedSaving] = useState(false);
   const [brandedErr, setBrandedErr] = useState("");
   const [brandedSuccess, setBrandedSuccess] = useState<{ id: number; orderNo: string } | null>(null);
@@ -887,9 +889,7 @@ export default function PlanningDashboard() {
     setSelectedBrandedOrderId(orderId);
     setBrandedErr("");
     setBrandedSuccess(null);
-    window.requestAnimationFrame(() => {
-      document.getElementById("branded-production-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    setBrandedDialogOpen(true);
   }
 
   async function createBranded(e: React.FormEvent) {
@@ -973,6 +973,7 @@ export default function PlanningDashboard() {
         try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
       }
       setBrandedSuccess({ id: po.id, orderNo: po.order_no || po.production_no || `#${po.id}` });
+      setBrandedSelectorKey((key) => key + 1);
       setBrandedForm((prev) => ({
         ...prev,
         model_id: 0,
@@ -1567,7 +1568,8 @@ export default function PlanningDashboard() {
       />
 
       {selectedBrandedOrder ? (
-      <form id="branded-production-form" onSubmit={createBranded} className="grid scroll-mt-24 grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <Modal open={brandedDialogOpen} onClose={() => { if (!brandedSaving && !newBrandTarget) setBrandedDialogOpen(false); }} title={`${t("page.planning.addBrandedProduction")} — ${selectedBrandedOrder.order_no}`} full closeOnOutsideClick={false}>
+      <form id="branded-production-form" onSubmit={createBranded} className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
         <section className="card">
           <div className="flex items-center justify-between border-b border-[#ecebe3] px-5 py-4">
@@ -1578,21 +1580,8 @@ export default function PlanningDashboard() {
             <span className="mono text-sm font-semibold text-[#56503f]">{selectedBrandedOrder?.order_no || "—"}</span>
           </div>
           <div className="border-b border-[#ecebe3] px-5 py-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <div>
-                <label className="label" htmlFor="branded-approved-model">{t("field.model")}</label>
-                <ModelAsyncSelect
-                  inputId="branded-approved-model"
-                  value={brandedForm.model_id || null}
-                  onChange={(modelId) => selectBrandedModel(Number(modelId))}
-                  status="approved"
-                  placeholder={t("ph.approvedModel")}
-                  noResultsText={t("page.search.noMatches")}
-                  loadingText={t("common.loading")}
-                  loadMoreText={t("common.loadMore")}
-                  required
-                />
-              </div>
+            <BrandedModelVariantSelect key={brandedSelectorKey} value={brandedForm.model_id} onChange={selectBrandedModel} />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label className="label">{t("field.brand")}</label>
                 <select
@@ -1961,6 +1950,7 @@ export default function PlanningDashboard() {
           </div>
         </aside>
       </form>
+      </Modal>
       ) : null}
         </>
       ) : null}
