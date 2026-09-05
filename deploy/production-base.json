@@ -1,6 +1,6 @@
 {
-  "release": "20260904_113556",
-  "source_manifest_sha256": "8ffb4aeff68756a68956b3b76157d06e7e5be7e2961b662b8a3cb6f767922cca",
+  "release": "20260905_044515",
+  "source_manifest_sha256": "677a4d4be3d5f83e5b9f171d83f8a1d47604679e86e426cb5db00f037e22c389",
   "database_revision": "0113_variant_selling_price",
-  "git_baseline_commit": "32bd0283619f9fa4e17defaffbc488b84edf6d07"
+  "git_baseline_commit": "4ee1a3db3cf4785094f1843483b7c97b5babc0a6"
 }
