@@ -90,25 +90,43 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GH_TOKEN" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - name: Resolve image names
+        id: images
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          owner="${REPOSITORY_OWNER,,}"
+          echo "backend=ghcr.io/$owner/milana-erp-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=ghcr.io/$owner/milana-erp-frontend" >> "$GITHUB_OUTPUT"
       - name: Build and publish backend image
-        env:
-          RELEASE_ID: ${{ inputs.release_id }}
-          REPOSITORY_OWNER: ${{ github.repository_owner }}
-        run: |
-          owner="${REPOSITORY_OWNER,,}"
-          docker build --pull -t "ghcr.io/$owner/milana-erp-backend:$RELEASE_ID" backend
-          docker push "ghcr.io/$owner/milana-erp-backend:$RELEASE_ID"
+        id: backend_image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ./backend
+          pull: true
+          push: true
+          tags: ${{ steps.images.outputs.backend }}:${{ inputs.release_id }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=milana-backend-v1
+          cache-to: type=gha,scope=milana-backend-v1,mode=max
       - name: Build and publish frontend image
-        env:
-          RELEASE_ID: ${{ inputs.release_id }}
-          REPOSITORY_OWNER: ${{ github.repository_owner }}
-        run: |
-          owner="${REPOSITORY_OWNER,,}"
-          docker build --pull \
-            --build-arg NEXT_PUBLIC_API_URL=https://erp.milanapremium.uz \
-            --build-arg API_URL=http://172.16.10.4:8000 \
-            -t "ghcr.io/$owner/milana-erp-frontend:$RELEASE_ID" frontend
-          docker push "ghcr.io/$owner/milana-erp-frontend:$RELEASE_ID"
+        id: frontend_image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ./frontend
+          pull: true
+          push: true
+          tags: ${{ steps.images.outputs.frontend }}:${{ inputs.release_id }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://erp.milanapremium.uz
+            API_URL=http://172.16.10.4:8000
+          # Reuse dependencies, but always compile the checked-out application.
+          no-cache-filters: builder
+          cache-from: type=gha,scope=milana-frontend-v1
+          cache-to: type=gha,scope=milana-frontend-v1,mode=max
       - uses: actions/upload-artifact@v4
         with:
           name: milana-erp-${{ inputs.release_id }}
@@ -117,3 +135,36 @@ jobs:
             milana-erp-${{ inputs.release_id }}.tar.gz.json
           if-no-files-found: error
           retention-days: 90
+      - name: Report artifacts ready
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
+          FRONTEND_IMAGE: ${{ steps.images.outputs.frontend }}@${{ steps.frontend_image.outputs.digest }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          release = os.environ["RELEASE_ID"]
+          metadata = json.loads(Path(f"milana-erp-{release}.tar.gz.json").read_text())
+          assert metadata["git_commit"] == os.environ["GITHUB_SHA"]
+          summary = "\n".join([
+              "## Artifacts ready — production activation pending",
+              "",
+              f"Release: `{release}`",
+              f"Source commit: `{metadata['git_commit']}`",
+              f"Source manifest: `{metadata['source_manifest_sha256']}`",
+              f"Backend: `{os.environ['BACKEND_IMAGE']}`",
+              f"Frontend: `{os.environ['FRONTEND_IMAGE']}`",
+              "",
+              "Backend/frontend validation passed and immutable artifacts were published.",
+              "This workflow does not activate production.",
+              "Follow DEPLOYMENT.md for source rechecks, backup, staging, QA and cutover.",
+              "Report Live only after both roles and postflight pass; report Observation complete",
+              "only after at least 30 minutes of monitoring and successful closing checks.",
+              "",
+          ])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              output.write(summary)
+          PY
