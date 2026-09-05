@@ -2,6 +2,17 @@
 
 Last updated: 2026-09-05
 
+## Old-ERP package size and quantity reconciliation completed (2026-09-05)
+
+- A read-only overlap audit compared the authenticated old-ERP Finished Goods report with the post-import production snapshot. The correction was intentionally limited to package quantity and size breakdowns: model, variant, color, weight, warehouse-only catalog visibility, and immutable legacy receipt evidence were not edited.
+- The guarded manifest corrected 1,127 unambiguous legacy QR groups. It consolidated 4,163 duplicate photo-derived package rows into 1,315 physical packages, removed 2,848 redundant package records, and changed the affected quantity from 292,828 to the old-ERP target of 93,491 pieces. Every corrected group's Package total, PackageItem size map, and FinishedGoodsStock size map passed committed readback. All 4,163 original package QR/barcode values remain resolvable through the retained package or aliases. Manifest SHA-256 is `29191f3dda0426dc5b66f017bc87fcf97b540dbf9961b689255a61f9682278ea`; the independent post-change snapshot SHA-256 is `25850b0be084fe8f84525ce9ada1c023f7f34a5529ec6dd4f885734c8e3b2b86`.
+- Sixty-seven QR groups / 258 package rows were deliberately unchanged. Sixty-five have conflicting or multiple model/model-record/color identities that are outside this size-and-quantity-only authorization. QRs `16818` and `17886` are linked to reserved or downstream activity, so their size breakdowns were not forced. The independent comparison confirmed all 67 excluded groups remained byte-for-byte unchanged.
+- Immediate pre-correction backup `/opt/milana-erp/shared/backups/milana_erp_pre_old_erp_package_size_quantity_20260905_112708.dump` is mode `0600`, 49,790,138 bytes, and has a 76,226-byte restore list with 1,069 objects. Dump SHA-256 is `eda3080316b672af3b54ceffc73a5cd54ecd95dd7c4de90cf220e49dd5a78dbe`; restore-list SHA-256 is `237daedfbb28efa7f94cd204b98f662ef37f1fb4f398e33c3ed75ffcd6a1111e`.
+- One atomic transaction, recorded by audit row `16560`, changed Finished Goods from 7,481 packages / 544,596 pieces to 4,633 packages / 345,259 pieces. Available quantity is 345,001; reserved remains 258; sold remains zero; all stock balances are valid. Stock rows increased from 11,176 to 14,163 because the corrected packages now carry the complete old-ERP per-size breakdown.
+- Local validation passed six focused tests, Python compilation, the production dry run, committed verification of all 1,127 QR groups, and the independent post-change audit with zero failures. All four internal/public health and login checks returned HTTP 200. Both active and rollback containers are running with zero restarts/OOM, routers and HAProxy validate, the active backend has exactly two workers, PostgreSQL is at `0113_variant_selling_price` with 33/100 connections and zero invalid indexes, and recent backend/frontend error-marker checks are clean.
+- This was a data-only correction. Active backend/frontend release `20260905_044515` remains unchanged in blue, and `20260904_113556` remains running in green as rollback. The correction implementation is on branch `codex/fix-old-erp-package-sizes-20260905` at commit `68af66e9`.
+
+
 ## Sewing bundle receiving factory guard deployed (2026-09-05)
 
 - Narrow audit follow-up: the direct bundle receiving endpoint previously accepted an Eco Cotton or Besttex bundle from a Milana login with `sewing.bundles`, without any factory query parameter. A regression reproduced the unauthorized successful transition before the fix.
