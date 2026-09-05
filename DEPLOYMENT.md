@@ -238,7 +238,50 @@ Also verify:
 - changed-workflow signed browser QA passes;
 - public post-cutover benchmark stays within budget.
 
-Observe at least 30 minutes and keep the previous slot live during observation.
+Choose and record the observation window before cutover, using the complete
+candidate-versus-production diff (including changes from other PCs):
+
+| Risk | Minimum observation | Criteria |
+| --- | --- | --- |
+| Low | 10 minutes | Small, isolated changes such as display wording or presentation, with no effect on data, authorization or workflow behavior. Record why the complete change is low risk. |
+| High or uncertain | 30 minutes | Any database/schema/data operation, permission or authentication change, inventory/stock behavior, payroll calculation or scan behavior, or major workflow change. Mixed or uncertain changes use this window. |
+
+Keep the previous slot live throughout either window and retain its release/image
+for rollback afterward. The shorter window changes only post-cutover observation;
+source reconciliation, all tests, backup/migration, candidate QA, performance and
+health gates remain required. It cannot be used to bypass unfinished checks.
+
+### Automatic health observation
+
+After immediate postflight passes, run the observer from the clean deployment
+worktree on a machine that can reach both internal VMs and the public domain:
+
+```sh
+python scripts/observe_release.py \
+  --release <active-release> --commit <full-reviewed-git-sha> \
+  --risk low --reason "Reviewed isolated display change; no data, permission or workflow effect" \
+  --output outputs/deployment/<active-release>-observation.json
+```
+
+For high or uncertain risk, use `--risk high` (the default); record the affected
+area in `--reason`. There is no arbitrary duration override. Before starting,
+verify that the supplied identity matches both active slot states and the reviewed
+artifact. The observer records this identity; HTTP health checks alone do not
+independently prove which release is serving traffic.
+
+The observer automatically checks all four required endpoints every 30 seconds
+using GET/HEAD only, records evidence, and reports start, failures and finish.
+Run it as a tracked background process during the deployment task so the user
+does not need to poll. Continue following that process through closing checks;
+do not abandon it when reporting Live. A failed probe stays a failure even if
+later probes recover; interruption or missed monitoring intervals cannot pass.
+Do not overwrite an earlier evidence file: investigate a failed/interrupted run
+and use a new evidence filename for a reviewed retry.
+
+Exit code zero means **health checks passed, closing checks still required**.
+After it finishes, repeat the runtime, slot/release, log, database and performance
+checks listed above. Report Observation complete only when these also pass. The
+observer never activates, rolls back, cleans up, or changes business data.
 
 ### Report deployment progress
 
@@ -250,12 +293,12 @@ Report these milestones separately, with the release and source commit:
    slot states agree, and every immediate postflight check above passed. Tell the
    user that the update is usable, give the observation end time, and keep the
    rollback release live. Continue monitoring; this is not task completion.
-3. **Observation complete:** at least 30 minutes after cutover, health monitoring
+3. **Observation complete:** after the full reviewed 10- or 30-minute window, health monitoring
    and closing runtime/performance checks passed. Record the evidence and finish
    the deployment handoff. If a check fails, report that failure and follow the
    rollback procedure as appropriate; never report success just because time elapsed.
 
-These are reporting milestones only. They do not shorten monitoring, waive a
+These are reporting milestones only. They do not shorten the selected window, waive a
 gate, authorize another deployment, or permit early rollback-slot cleanup.
 
 ## Rollback
