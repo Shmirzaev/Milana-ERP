@@ -1496,7 +1496,7 @@ export default function ModelDetail() {
                           <img
                             src={storageThumbnailUrl(selectedVariantPictureUrl, 160)}
                             alt={variantForm.variant_no || t("field.picture")}
-                            className="h-full w-full object-cover"
+                            className="h-full w-full object-contain p-1"
                           />
                         </a>
                       ) : (
@@ -1545,7 +1545,7 @@ export default function ModelDetail() {
                         <td>
                           {imageUrl ? (
                             <a href={imagePreviewHref(v.picture_url, v.variant_no || v.code || "")} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded-md border border-[#ded9ca] bg-white">
-                              <img src={imageUrl} alt={v.variant_no || v.code || t("field.picture")} className="h-full w-full object-cover" />
+                              <img src={imageUrl} alt={v.variant_no || v.code || t("field.picture")} className="h-full w-full object-contain p-1" />
                             </a>
                           ) : (
                             <div className="flex h-14 w-14 items-center justify-center rounded-md border border-dashed border-[#ded9ca] bg-[#f8f6ef] text-[10px] text-[#8a8472]">
@@ -1643,7 +1643,7 @@ export default function ModelDetail() {
                       <td>
                         {isImage ? (
                           <a href={imagePreviewHref(img.file_url, name)} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded">
-                            <img src={storageThumbnailUrl(img.file_url, 160)} alt={name} className="h-full w-full object-cover" />
+                            <img src={storageThumbnailUrl(img.file_url, 160)} alt={name} className="h-full w-full object-contain p-1" />
                           </a>
                         ) : (
                           <span className="badge">{t("page.modelDetail.file")}</span>

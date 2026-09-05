@@ -61,7 +61,7 @@ from app.services.packages import (
 )
 from app.services.barcode import save_qr_image
 from app.services.label_images import material_label_image_src, variant_label_image_src
-from app.services.model_images import model_display_image_url
+from app.services.model_images import model_display_image_url, warehouse_stock_image_url
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.packaging_scope import (
@@ -688,7 +688,7 @@ def storage_map(
             "model_id": pkg.model_id,
             "model_code": model_code,
             "model_name": model_name,
-            "model_image_url": model_display_image_url(model),
+            "model_image_url": warehouse_stock_image_url(model),
             "color": pkg.color,
             "package_type": pkg.package_type,
             "total_quantity": pkg.total_quantity,
@@ -790,7 +790,7 @@ def storage_map(
                 "model_id": model_id,
                 "model_code": model_code,
                 "model_name": model_name,
-                "model_image_url": model_display_image_url(model),
+                "model_image_url": warehouse_stock_image_url(model),
                 "color": color,
                 "package_type": package_type,
                 "total_quantity": int(total_quantity or 0),

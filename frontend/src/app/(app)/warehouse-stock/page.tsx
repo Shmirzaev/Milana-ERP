@@ -335,7 +335,7 @@ export default function WarehouseStockPage() {
                 <div className="bg-[#f1efe8]">
                   {group.model_image_url ? (
                     <a href={imagePreviewHref(group.model_image_url, group.model_name || group.model_code || "")} target="_blank" rel="noreferrer" className="block h-full min-h-[132px] w-full">
-                      <img src={storageThumbnailUrl(group.model_image_url, 320)} alt={group.model_name || group.model_code || ""} className="h-full min-h-[132px] w-full object-cover" loading="lazy" />
+                      <img src={storageThumbnailUrl(group.model_image_url, 320)} alt={group.model_name || group.model_code || ""} className="h-full min-h-[132px] w-full object-contain p-1" loading="lazy" />
                     </a>
                   ) : (
                     <div className="flex h-full min-h-[132px] items-center justify-center border-r border-[#e3dfd3] text-[#8a8472]">
@@ -397,7 +397,7 @@ export default function WarehouseStockPage() {
                   <td>
                     {row.model_image_url ? (
                       <a href={imagePreviewHref(row.model_image_url, row.model_name || row.model_code || "")} target="_blank" rel="noreferrer" className="block h-12 w-12 overflow-hidden rounded-md border border-[#e3dfd3]">
-                        <img src={storageThumbnailUrl(row.model_image_url, 160)} alt={row.model_name || row.model_code || ""} className="h-full w-full object-cover" loading="lazy" />
+                        <img src={storageThumbnailUrl(row.model_image_url, 160)} alt={row.model_name || row.model_code || ""} className="h-full w-full object-contain p-1" loading="lazy" />
                       </a>
                     ) : (
                       <div className="flex h-12 w-12 items-center justify-center rounded-md border border-[#e3dfd3] bg-[#f1efe8] text-[#8a8472]">

@@ -308,7 +308,7 @@ export default function ModelsPage() {
                           >
                             <div className="h-11 w-11 overflow-hidden rounded border border-[#e3dfd3] bg-[#f1efe8]">
                               {thumb ? (
-                                <img src={thumb} alt={option.variantNo || option.code} className="h-full w-full object-cover" loading="lazy" />
+                                <img src={thumb} alt={option.variantNo || option.code} className="h-full w-full object-contain p-1" loading="lazy" />
                               ) : (
                                 <div className="flex h-full items-center justify-center text-[10px] text-[#8a8472]">{t("page.models.noPreview")}</div>
                               )}
