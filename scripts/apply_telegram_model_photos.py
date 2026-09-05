@@ -1,10 +1,12 @@
 """Guarded model-picture replacement; never write variant/material images."""
 import argparse
 import hashlib
+import io
 import json
 import re
 from pathlib import Path
 from urllib.parse import urlparse
+from PIL import Image
 
 from sqlalchemy import text
 from sqlalchemy.orm import selectinload
@@ -68,13 +70,20 @@ def run(bundle, expected_hash, apply=False):
         assert re.fullmatch(r'telegram_model_20260905_\d+_[a-f0-9]{16}\.(png|jpe?g|webp)', name)
         data = (root/'files'/name).read_bytes()
         assert sha(data) == photo['sha256'] and len(data) == photo['stored_bytes']
+        displayed = re.search(r'\n([\d.]+)(KB|MB|GB)', photo['source']['text'])
+        assert displayed, 'Missing source size evidence'
+        scale = {'KB':1024, 'MB':1024**2, 'GB':1024**3}[displayed[2]]
+        assert abs(photo['original_bytes']/scale-float(displayed[1])) <= .11, 'Source size differs from original'
+        with Image.open(io.BytesIO(data)) as image:
+            assert image.size == (photo['width'], photo['height'])
+            image.verify()
         target = storage/name
         if target.exists():
             assert sha(target.read_bytes()) == photo['sha256'], 'Storage name collision'
         elif apply:
             with target.open('xb') as output:
                 output.write(data)
-        if apply:
+        if apply and not all((storage/'_thumbs'/f'{size}_{name}.webp').exists() for size in (160,320)):
             prebuild_webp_thumbnails(data, thumbnail_root=storage/'_thumbs', source_file_name=name)
     targets = [m for p in manifest['photos'] for m in p['models']]
     ids = [m['id'] for m in targets]

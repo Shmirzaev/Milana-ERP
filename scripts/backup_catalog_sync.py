@@ -1,4 +1,5 @@
 """Create and verify a PostgreSQL backup without logging connection secrets."""
+import argparse
 import hashlib
 import json
 import os
@@ -7,10 +8,14 @@ import subprocess
 from urllib.parse import urlparse, unquote
 from datetime import datetime, timezone
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--container", choices=("milana-backend-blue", "milana-backend-green"), default="milana-backend-blue")
+args = parser.parse_args()
+
 root = Path.home() / "catalog-sync-backups"
 root.mkdir(mode=0o700, exist_ok=True)
 raw = subprocess.check_output([
-    "docker", "exec", "milana-backend-blue", "python", "-c",
+    "docker", "exec", args.container, "python", "-c",
     "from app.core.config import settings; print(settings.DATABASE_URL)",
 ], text=True).strip()
 url = urlparse(raw.replace("postgresql+psycopg2://", "postgresql://"))

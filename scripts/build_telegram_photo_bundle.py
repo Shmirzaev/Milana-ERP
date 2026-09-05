@@ -36,7 +36,8 @@ def build(plan, prepared, safety, partial=False):
         assert photo['source']['id'] == family['source']['id'], 'Prepared source differs from selected source'
         assert photo['source']['name'] == family['source']['name']
         photos.append({key: photo[key] for key in ('model_no', 'source', 'stored_name', 'stored_bytes',
-                      'sha256', 'original_sha256', 'pixel_sha256', 'width', 'height', 'content_type')} | {'models': targets})
+                      'sha256', 'original_sha256', 'pixel_sha256', 'width', 'height', 'content_type')} |
+                      {'models': targets, 'original_bytes': photo['bytes']})
     assert partial or not missing, f'{len(missing)} model families still require photos'
     return {'source_group': plan['source_group'], 'source_group_id': plan['source_group_id'],
             'indexed_files': plan['indexed_files'], 'photos': photos, 'held': held,

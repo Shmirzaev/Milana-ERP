@@ -42,7 +42,7 @@ class PhotoTests(unittest.TestCase):
             {'id':3,'code':'3','general':{'variant_no':'V-3'},'independent_variant_url':'fabric','effective_variant_url':'fabric'},
             {'id':4,'code':'4','general':{'variant_no':'V-4'},'independent_variant_url':None,'effective_variant_url':None}]}
         photo={key:'x' for key in ('stored_name','sha256','original_sha256','pixel_sha256','content_type')}
-        photo.update(model_no='XJ3062', source=plan['selected'][0]['source'], stored_bytes=1,width=1,height=1)
+        photo.update(model_no='XJ3062', source=plan['selected'][0]['source'], stored_bytes=1,bytes=1,width=1,height=1)
         result=bundle(plan,[photo],safety)
         self.assertEqual([r['id'] for r in result['held']],[1])
         self.assertEqual([r['id'] for r in result['photos'][0]['models']],[2,3,4])
@@ -84,6 +84,7 @@ class PhotoTests(unittest.TestCase):
             original=source.read_bytes()
             row={'model_no':'XJ3062','local_path':str(source.relative_to(root)),
                  'bytes':len(original),'source':attachment(12,'XJ3062.png')}
+            row['source']['text']+='\n'+str(round(len(original)/1024,1))+'KB'
             result=prepare(root,row)
             self.assertEqual(source.read_bytes(),original)
             with Image.open(root/'evidence/telegram-prepared'/result['stored_name']) as prepared:
@@ -91,6 +92,8 @@ class PhotoTests(unittest.TestCase):
                     self.assertEqual(prepared.convert('RGB').tobytes(), initial.tobytes())
             self.assertEqual(prepare(root,row),result)
             json.dumps(result)
+            row['source']['text']='XJ3062.png\n15.8MB'
+            with self.assertRaises(AssertionError): prepare(root,row)
 
     def test_source_outside_task_originals_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 import time
 from pathlib import Path
 from PIL import Image
@@ -17,6 +18,10 @@ def prepare(root, row):
     assert source.is_relative_to(root.resolve() / 'evidence' / 'telegram-originals')
     original = source.read_bytes()
     assert len(original) == row['bytes']
+    displayed = re.search(r'\n([\d.]+)(KB|MB|GB)', row['source']['text'])
+    assert displayed, 'Missing source file size'
+    scale = {'KB':1024, 'MB':1024**2, 'GB':1024**3}[displayed[2]]
+    assert abs(len(original)/scale-float(displayed[1])) <= .11, 'Downloaded preview is not the indexed original'
     with Image.open(io.BytesIO(original)) as image:
         image.load()
         assert image.width * image.height <= 50_000_000
