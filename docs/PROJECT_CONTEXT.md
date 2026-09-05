@@ -2,6 +2,12 @@
 
 Last updated: 2026-09-05
 
+## Deployment caching and progress reporting prepared (2026-09-05)
+
+- Scoped pipeline update: persistent, separate Docker Buildx backend/frontend layer caches reduce repeated dependency installation. The frontend builder stage always recompiles the checked-out application; exact source packaging, base-image pulls, every existing backend/frontend validation job and trigger, production-base checks, and blue/green gates remain in place. No duplicate-validation removal or parallel image-build change is included.
+- Release artifacts now have a workflow summary containing their source commit, manifest and image digests, explicitly marked as activation pending. `DEPLOYMENT.md` distinguishes Artifacts ready, Live with observation in progress, and Observation complete after the full 30-minute window and closing checks. It reiterates the pre-activation GitHub/production recheck and reconciliation of work from other PCs; cache hits cannot bypass those checks or permit overlapping deployments.
+- Read-only preflight verified both application VMs on blue release `20260905_044515`, manifest `677a4d4be3d5f83e5b9f171d83f8a1d47604679e86e426cb5db00f037e22c389`, matching `deploy/production-base.json`; green rollback remains `20260904_113556`. The worktree starts from GitHub `153fd16ad860b7772e50dbab3c993f2840d33f39`, which includes the later package-reconciliation tooling and records. No application, database, production release, hosting integration or business data change is part of this work.
+
 ## Old-ERP package size and quantity reconciliation completed (2026-09-05)
 
 - A read-only overlap audit compared the authenticated old-ERP Finished Goods report with the post-import production snapshot. The correction was intentionally limited to package quantity and size breakdowns: model, variant, color, weight, warehouse-only catalog visibility, and immutable legacy receipt evidence were not edited.

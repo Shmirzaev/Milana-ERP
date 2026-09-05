@@ -88,6 +88,19 @@ Run `.github/workflows/ci.yml` with **Run workflow** and provide:
 
 The workflow validates backend/frontend, verifies the production base, packages deterministic source, builds both images once outside production, pushes release-tagged images to GHCR, and retains the source/evidence artifact.
 
+Docker Buildx imports and exports separate backend/frontend layer caches. A cache
+miss uses a normal build. Dependency-file changes invalidate their install layers;
+source changes invalidate dependent layers. The frontend `builder` stage explicitly
+disables cache reuse, so every release compiles the checked-out application even
+when its dependency layer is reused. Both builds still pull base images, and all
+local/CI validation and production gates remain required. The first cache export
+may add time; later releases can reuse those layers.
+
+The workflow summary reports **Artifacts ready**, the exact source commit and
+manifest, and both image digests. This means the candidate is built, not live.
+Use the recorded digests to identify the reviewed images; never substitute an
+older release or rebuild on a production VM to save time.
+
 Production only pulls these images:
 
 ```sh
@@ -177,6 +190,15 @@ The gate requires identical result rows and bounded median, p95, and payload cha
 
 ## Activate
 
+Immediately before activation, fetch GitHub again and recheck both active source
+manifests and slot states against the baseline used for this candidate. If another
+PC/task has changed production or introduced unreviewed changes on `main`, stop
+and reconcile before proceeding. Review candidate additions, modifications and
+deletions against active production; a passing cached build does not prove that
+another PC's work was included. Work from every PC must be committed, pushed and
+reconciled into the reviewed candidate. Do not overlap production deployments or
+replace a rollback slot while another release is still under observation.
+
 Switch backend first:
 
 ```sh
@@ -217,6 +239,24 @@ Also verify:
 - public post-cutover benchmark stays within budget.
 
 Observe at least 30 minutes and keep the previous slot live during observation.
+
+### Report deployment progress
+
+Report these milestones separately, with the release and source commit:
+
+1. **Artifacts ready — activation pending:** GitHub validation, image publication
+   and source artifact upload passed. Production has not switched.
+2. **Live — observation in progress:** both roles have switched, both symlinks and
+   slot states agree, and every immediate postflight check above passed. Tell the
+   user that the update is usable, give the observation end time, and keep the
+   rollback release live. Continue monitoring; this is not task completion.
+3. **Observation complete:** at least 30 minutes after cutover, health monitoring
+   and closing runtime/performance checks passed. Record the evidence and finish
+   the deployment handoff. If a check fails, report that failure and follow the
+   rollback procedure as appropriate; never report success just because time elapsed.
+
+These are reporting milestones only. They do not shorten monitoring, waive a
+gate, authorize another deployment, or permit early rollback-slot cleanup.
 
 ## Rollback
 
