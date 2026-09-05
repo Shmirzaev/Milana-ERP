@@ -1,5 +1,15 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+  "page.planning.cutting.not_started": "Bichilmagan",
+  "page.planning.cutting.partial": "Qisman bichilgan",
+  "page.planning.cutting.completed": "Bichilgan",
+  "page.planning.modelNumber": "Model raqami",
+  "page.planning.searchModelNumber": "Model raqami bo‘yicha qidirish...",
+  "page.planning.variantNumber": "Variant raqami",
+  "page.planning.selectVariant": "Variantni tanlang...",
+  "page.planning.noApprovedVariants": "Tasdiqlangan variantlar yo‘q",
+  "page.planning.modelLoadFailed": "Modellarni yuklab bo‘lmadi. Qayta urinib ko‘ring.",
+
     "nav.priceCalculation": "Narx hisoblash",
     "nav.salesPriceRequests": "Narx so'rovlari",
     "nav.purchasingPriceRequests": "Narx so'rovlari",
