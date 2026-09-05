@@ -18,13 +18,13 @@ def identity(row):
     g = row.get('general_details') or {}
     base, v = g.get('model_no'), g.get('variant_no')
     if not base:
-        match = re.fullmatch(r'([A-ZА-ЯІЈ]{2,3})-?(\d+)(?:-(?:V-?)?(\d+))?', row['code'].upper())
+        match = re.fullmatch(r'([A-ZА-ЯІЈ]{1,3})-?(\d+)(?:-(?:V-?)?(\d+))?', row['code'].upper())
         if match:
             base, v = match[1] + match[2], v or match[3]
     return norm(base), variant(v)
 
 def valid_master(row):
-    return bool(re.fullmatch(r'[A-ZА-ЯІЈ]{2,3}-?\d+',row['model_no'].upper()))
+    return bool(re.fullmatch(r'[A-ZА-ЯІЈ]{1,3}-?\d+V?',row['model_no'].upper()))
 
 def numeric_qolip(value):
     return bool(re.fullmatch(r'\d[\d /.,+\-]*', value.strip()))
@@ -59,7 +59,7 @@ def build(masters, variants, production):
             updates.append({'id':row['id'],'code':row['code'],'before_general':g,'qolip_no':q,'source_master_ids':[s['old_id'] for s in sources if s['qolip_no']==q]})
     for key, rows in old_by_identity.items():
         if key in new_by_identity:continue
-        if key==('XJ3062','5709') or not re.fullmatch(r'[A-Z]{2,3}\d+',key[0]) or not key[1].isdigit():
+        if key==('XJ3062','5709') or not re.fullmatch(r'[A-Z]{1,3}\d+',key[0]) or not key[1].isdigit():
             held.append({'kind':'excluded_or_invalid_variant','identity':key,'source_ids':[r['old_id'] for r in rows]});continue
         other_bases=[other for other in new_by_identity if other[1]==key[1] and other[0]!=key[0]]
         if other_bases:

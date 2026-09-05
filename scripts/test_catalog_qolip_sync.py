@@ -9,6 +9,14 @@ def new(code='XJ3062',v='V-100',scope='standard'):
     return dict(id=1,code=code+'-'+v,catalog_scope=scope,general_details={'model_no':code,'variant_no':v})
 
 class CatalogPlanTests(unittest.TestCase):
+    def test_single_letter_standalone_master_is_created(self):
+        plan=build([master('B3189','')],[],[])
+        self.assertEqual([r['code'] for r in plan['creates']], ['B3189'])
+        self.assertIsNone(plan['creates'][0]['qolip_no'])
+    def test_literal_v_suffix_is_a_distinct_model(self):
+        plan=build([master('PJ1032V','4321')],[],[new('PJ1032V')])
+        self.assertEqual(plan['creates'],[])
+        self.assertEqual(plan['qolip_updates'][0]['qolip_no'],'4321')
     def test_explicit_excluded_mixed_material_never_created(self):
         plan=build([master()],[old()],[new()])
         self.assertEqual(plan['creates'],[])
