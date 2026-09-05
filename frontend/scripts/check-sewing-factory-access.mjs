@@ -100,4 +100,39 @@ if (!bundleScan.includes('searchParams.get("factory") || me?.factory_code || "MI
   throw new Error("Sewing bundle scanning must inherit the signed-in factory when the URL omits the query.");
 }
 
-console.log("Factory-aware Sewing workspace access contract passed.");
+// Execute the scanner's actual action selection for every factory pairing.
+const actionStart = bundleScan.indexOf("  const nextDept =");
+const actionEnd = bundleScan.indexOf("\n  return (", actionStart);
+if (actionStart < 0 || actionEnd < 0) throw new Error("Scanner action selection was not found.");
+const actionCode = ts.transpileModule(
+  `${bundleScan.slice(actionStart, actionEnd)}\nglobalThis.actions = availableActions;`,
+  { compilerOptions: { target: ts.ScriptTarget.ES2020 } },
+).outputText;
+for (const sessionFactory of ["MIL", "BST", "ECO"]) {
+  for (const bundleFactory of ["MIL", "BST", "ECO"]) {
+    for (const status of ["created", "sent_to_sewing", "received_sewing"]) {
+      for (const permitted of [true, false]) {
+        const context = {
+          me: { factory_code: sessionFactory },
+          bundle: { status, sewing_factory_code: bundleFactory, next_department_id: 1 },
+          // Even a URL claiming the bundle's factory must not change session access.
+          factoryCode: bundleFactory,
+          departmentById: new Map([[1, { code: bundleFactory }]]),
+          SEWING_DEPARTMENT_CODES: new Set(["SEW", "MIL", "BST", "ECO"]),
+          canSewingScan: permitted, canCuttingScan: false, canPrintingScan: false,
+          includeSewing: true, includeCutting: false, includePrinting: false,
+          scope: "sewing", isLookingUp: false, sewingBatch: null, messageTone: "info", msg: "",
+          factoryLabel: (value) => value, t: (key) => key,
+        };
+        vm.runInNewContext(actionCode, context);
+        const shown = context.actions.some((action) => action.key === "receive-sewing");
+        const expected = permitted && sessionFactory === bundleFactory && status !== "received_sewing";
+        if (shown !== expected) {
+          throw new Error(`Incorrect receive action: ${sessionFactory}/${bundleFactory}/${status}/${permitted}`);
+        }
+      }
+    }
+  }
+}
+
+console.log("Factory-aware Sewing workspace access contract passed (54 scanner action cases).");

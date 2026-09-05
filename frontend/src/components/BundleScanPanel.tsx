@@ -367,6 +367,9 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const nextDeptCode = String(nextDept?.code || "").toUpperCase();
   const selectedFactory = factoryLabel(bundle?.sewing_factory_code || nextDeptCode);
   const nextIsSewingFactory = SEWING_DEPARTMENT_CODES.has(nextDeptCode);
+  const canReceiveBundle = canSewingScan && Boolean(
+    me && bundle && String(bundle.sewing_factory_code || "MIL").trim().toUpperCase() === me.factory_code,
+  );
   const scopeTitle = t(`page.bundleScan.${scope}Title`);
   const scopeSubtitle = t(`page.bundleScan.${scope}Subtitle`);
   const scanState = isLookingUp ? "loading" : bundle || sewingBatch ? "success" : messageTone === "error" && msg ? "error" : "ready";
@@ -385,10 +388,10 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   if (bundle?.status === "received_printing" && canPrintingScan && includePrinting) {
     availableActions.push({ key: "send-sewing", label: t("btn.sendToFactory", { factory: selectedFactory }), primary: true });
   }
-  if (bundle?.status === "created" && canSewingScan && includeSewing && nextIsSewingFactory) {
+  if (bundle?.status === "created" && canReceiveBundle && includeSewing && nextIsSewingFactory) {
     availableActions.push({ key: "receive-sewing", label: t("btn.receiveAtFactory", { factory: selectedFactory }), primary: true });
   }
-  if (bundle?.status === "sent_to_sewing" && canSewingScan && includeSewing) {
+  if (bundle?.status === "sent_to_sewing" && canReceiveBundle && includeSewing) {
     availableActions.push({ key: "receive-sewing", label: t("btn.receiveAtFactory", { factory: selectedFactory }), primary: true });
   }
 
