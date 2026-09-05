@@ -573,7 +573,7 @@ def manual_receive_sewing(
     received_quantity = 0
     received_ids: list[int] = []
     for bundle in bundles:
-        receive_at_sewing(db, bundle, current.id)
+        receive_at_sewing(db, bundle, current)
         log_action(db, current, "manual_receive_at_sewing", "Bundle", bundle.id)
         received_quantity += int(bundle.quantity or 0)
         received_ids.append(int(bundle.id))
@@ -802,7 +802,7 @@ def accept_sewing_batch(
     for bundle in bundles:
         if bundle.status == "received_sewing":
             continue
-        receive_at_sewing(db, bundle, current.id)
+        receive_at_sewing(db, bundle, current)
         received_ids.append(int(bundle.id))
 
     log_action(
@@ -981,7 +981,7 @@ def api_send_sewing(
 @router.post("/{bid}/receive-sewing", response_model=BundleDetail)
 def api_receive_sewing(bid: int, db: DbSession, current: User = Depends(require_permissions("sewing.bundles", "*"))):
     b = _get_bundle_for_update(db, bid)
-    receive_at_sewing(db, b, current.id)
+    receive_at_sewing(db, b, current)
     log_action(db, current, "receive_at_sewing", "Bundle", b.id)
     db.commit(); db.refresh(b)
     return _bundle_detail_payload(db, b)

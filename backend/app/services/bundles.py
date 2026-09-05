@@ -4,10 +4,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import (
-    Bundle, BundleScanLog, CuttingRecord, ProductionOrder, ProductionBatch, Department, SalesOrder, WorkOrder,
+    Bundle, BundleScanLog, CuttingRecord, ProductionOrder, ProductionBatch, Department, SalesOrder, User, WorkOrder,
 )
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
 from app.services.numbering import next_bundle_no
+from app.services.sewing_scope import sewing_line_factory_scope
 from app.services.workflow import notify_department, sync_production_order_status
 
 
@@ -392,7 +393,10 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
     sync_production_order_status(db, bundle.production_order_id)
 
 
-def receive_at_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
+def receive_at_sewing(db: Session, bundle: Bundle, current: User):
+    # Authorize the persisted destination before any receiving side effects.
+    sewing_line_factory_scope(current, resolve_sewing_factory_code(bundle.sewing_factory_code))
+    user_id = current.id
     if bundle.status == "received_sewing":
         raise HTTPException(409, "This bundle sticker was already received at sewing")
     from app.services.inventory import ensure_accessories_issued_for_sewing

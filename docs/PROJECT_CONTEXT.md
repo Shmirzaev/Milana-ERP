@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-05
 
+## Sewing bundle receiving factory guard prepared locally (2026-09-05)
+
+- Narrow audit follow-up: the direct bundle receiving endpoint previously accepted an Eco Cotton or Besttex bundle from a Milana login with `sewing.bundles`, without any factory query parameter. A regression reproduced the unauthorized successful transition before the fix.
+- The shared receiving service now requires the authenticated user and validates the persisted bundle's sewing destination against the selected login factory before receiving side effects. Direct scans, manual receiving, and batch acceptance pass this user context. Existing sewing permission checks remain required. Super admins and users granted another factory's sewing permission must select that factory at login before receiving its bundles.
+- The scanner only offers the individual Receive action when the bundle destination matches the authenticated factory. A URL factory parameter cannot override that boundary. Existing layout and translated labels are preserved.
+- Validation passed all 547 backend tests (including 30 new factory receiving regressions), Ruff, Python compilation, the single Alembic head check, frontend lint, strict TypeScript, all production build contracts (including 54 scanner action cases), the optimized 83-route production build, and diff checks. Tests cover every cross-factory direction, both eligible individual scan states, same-factory manual receiving and batch assignment, duplicate scans, missing sewing permission, and explicit factory switching for super admins and secondary-factory grants. Two existing test-client deprecation warnings remain.
+- Prepared in `C:\ERP\.codex-work\fix-sewing-bundle-factory` on `codex/fix-sewing-bundle-factory`, based on verified `origin/main` commit `f5845fd19af1a3443670b19810fa8d204819ebf1`. Production baseline manifests and both active slots were verified before editing. This fix is not merged or deployed; active backend/frontend release remains `20260904_113556` in green, with `20260903_042100` in blue as rollback and PostgreSQL at `0113_variant_selling_price`. No production business data or schema was changed. The other audit findings remain open.
+
 ## Live old-ERP finished-goods reconciliation imported (2026-09-05)
 
 - The authenticated old-ERP `TAYYOR MAHSULOT OMBORI` item-barcode report was audited across all 81 pages (40,228 report rows) against the 823 old-only candidate QR groups. Exactly 805 QRs had positive live stock and were imported; 18 QRs were absent/zero and remain held. The immutable manifest contains 805 packages / 60,513 pieces, 4,500 model/variant/size rows, four live-query quantity corrections, two mixed-model packages, and intentionally blank weights. Manifest SHA-256 is `8acf974442a9eda8866244e81846d2b0b1d60a3c94e2a957b9e8e721251f4f72`; the 133,962-byte guarded dry-run/import bundle SHA-256 is `a55863330db61b76db6bf059043a82235e290df39ca15d79f14205fe4c55376d`.
