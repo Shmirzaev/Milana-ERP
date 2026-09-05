@@ -47,6 +47,8 @@ jobs:
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q
+      - name: Deployment observation regression suite
+        run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
 
   frontend:
     runs-on: ubuntu-latest
@@ -162,7 +164,8 @@ jobs:
               "This workflow does not activate production.",
               "Follow DEPLOYMENT.md for source rechecks, backup, staging, QA and cutover.",
               "Report Live only after both roles and postflight pass; report Observation complete",
-              "only after at least 30 minutes of monitoring and successful closing checks.",
+              "only after the reviewed 10-minute low-risk or 30-minute high-risk window",
+              "and successful closing checks. Uncertain risk defaults to 30 minutes.",
               "",
           ])
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:

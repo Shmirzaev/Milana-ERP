@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-05
 
+## Risk-based deployment observation and automatic health checks (2026-09-05)
+
+- User-approved observation policy: small, isolated low-risk changes receive at least 10 minutes of observation; database/schema/data, permissions/authentication, inventory, payroll, major workflows, and uncertain or mixed changes receive at least 30 minutes. Classification uses the complete candidate-versus-production diff, including work from other PCs, with a recorded justification for the shorter window. This supersedes the previous blanket 30-minute policy; historical observation records below remain unchanged.
+- `scripts/observe_release.py` automates the four internal/public GET/HEAD health checks every 30 seconds. It defaults to high risk, records the reviewed release/commit and evidence, refuses to overwrite an existing record, and fails on bad probes, interruption or monitoring gaps. Successful health observation still requires the separate closing runtime, release, logs, database and performance checks; the observer does not mutate production or certify release identity from HTTP alone.
+- All source reconciliation, validation, backup, migration, candidate QA, performance and cutover gates remain required. Both windows keep the prior slot live; rollback artifacts remain available afterward, and deployments cannot overlap during observation. Progress continues to distinguish Live from Observation complete. The user does not need to poll the automatic health observer.
+- Local validation passed 11 deterministic observation tests covering both durations, preserved failures, early wake-ups, monitoring gaps, interruption, invalid identities, network errors and evidence preservation, plus Ruff, Python compilation, workflow lint and diff checks. A single read-only probe of each real endpoint returned HTTP 200; no new production observation window was claimed or started by this policy change.
+- Preflight verified both VMs still on blue `20260905_044515`, matching manifest `677a4d4be3d5f83e5b9f171d83f8a1d47604679e86e426cb5db00f037e22c389` and `deploy/production-base.json`; green rollback is `20260904_113556`. Work starts from GitHub `bdaa2cd839bc0db888e407753ac781a673d8044b`, including the previously merged dependency-cache changes. This update changes the deployment tooling/policy only; no application release, database/schema, business data or hosting integration is changed.
+
 ## Deployment caching and progress reporting prepared (2026-09-05)
 
 - Scoped pipeline update: persistent, separate Docker Buildx backend/frontend layer caches reduce repeated dependency installation. The frontend builder stage always recompiles the checked-out application; exact source packaging, base-image pulls, every existing backend/frontend validation job and trigger, production-base checks, and blue/green gates remain in place. No duplicate-validation removal or parallel image-build change is included.
