@@ -130,6 +130,30 @@ def model_display_image_url(model: Model | None) -> str | None:
     return model_preview_image_url(model) or material_preview_image_url(model)
 
 
+def warehouse_stock_image_url(model: Model | None) -> str | None:
+    """Return the picture shown for a finished-goods warehouse model.
+
+    Legacy stock can have a sticker evidence photo even when it intentionally
+    has no catalogue model or material image.  That evidence is a warehouse
+    fallback only: it must not make the hidden legacy row appear as a normal
+    Models/Variants catalogue image.
+    """
+    display_url = model_display_image_url(model)
+    if display_url or not model:
+        return display_url
+    warehouse_images = sorted(
+        [
+            img
+            for img in (model.images or [])
+            if is_preview_model_image(img)
+            and str(img.image_type or "").lower() == "warehouse_package"
+        ],
+        key=_image_id,
+        reverse=True,
+    )
+    return warehouse_images[0].file_url if warehouse_images else None
+
+
 def _bom_preview_url(row: ModelBOM) -> str | None:
     for value in (
         row.photo_url,

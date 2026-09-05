@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from app.services.label_images import fabric_label_image_src
-from app.services.model_images import material_preview_image_url
+from app.services.model_images import material_preview_image_url, warehouse_stock_image_url
 
 
 def _fabric_bom(row_id: int, photo_url: str):
@@ -60,3 +60,35 @@ def test_fabric_label_prefers_exact_variant_material_image_over_shared_bom():
     )
 
     assert fabric_label_image_src(model) == "https://example.com/exact-variant.jpg"
+
+
+def _image(row_id: int, image_type: str, url: str):
+    return SimpleNamespace(
+        id=row_id,
+        file_url=url,
+        file_name=url.rsplit("/", 1)[-1],
+        content_type="image/jpeg",
+        image_type=image_type,
+        is_primary=False,
+    )
+
+
+def test_warehouse_stock_uses_legacy_package_picture_as_last_resort():
+    model = SimpleNamespace(
+        bom=[],
+        images=[_image(92, "warehouse_package", "/storage/model-files/legacy-stock.jpg")],
+    )
+
+    assert warehouse_stock_image_url(model) == "/storage/model-files/legacy-stock.jpg"
+
+
+def test_warehouse_stock_prefers_catalog_picture_over_legacy_package_picture():
+    model = SimpleNamespace(
+        bom=[],
+        images=[
+            _image(92, "warehouse_package", "/storage/model-files/legacy-stock.jpg"),
+            _image(91, "model", "/storage/model-files/catalog-model.jpg"),
+        ],
+    )
+
+    assert warehouse_stock_image_url(model) == "/storage/model-files/catalog-model.jpg"
