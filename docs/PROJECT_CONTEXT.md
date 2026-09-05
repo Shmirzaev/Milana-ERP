@@ -2,6 +2,18 @@
 
 Last updated: 2026-09-05
 
+## Old-ERP catalog and Qolip refresh (2026-09-05)
+
+- The user explicitly authorized adding missing old-ERP models/variants, copying old Qolip numbers, and replacing model pictures from Telegram group Milana Fotosessiya while preserving variant pictures. The current authenticated source was captured completely: 3,198 master rows and 5,646 variant rows.
+- A guarded transaction created 42 draft catalog records (34 variants and 8 standalone models), 202 source-evidenced size rows, and the source variant colors. Blank old product names use the model code as the display name; missing source sizes remain empty. No approval, price, BOM, paid-operation, order, stock, package, shipment, or financial data was inferred or modified.
+- Exactly 337 existing standard catalog records received current, unambiguous source Qolip values in `details_json.general.qolip_no` and `mold_no`. This includes correcting obsolete legacy values where the current source uniquely identifies the model. Variant-to-master references disambiguate duplicate source model codes. Existing unrelated JSON was preserved.
+- Three source entries remain excluded: all-zero placeholder `00000000 / V-5889`, the previously user-confirmed mixed-material `XJ3062 / V-5709`, and cross-model conflict `SJ4070 / V-5976` (production already has V-5976 under SJ4004). SJ4070 itself was created as a standalone draft; the existing SJ4004 variant was not renamed or duplicated.
+- Backup: `/home/admilana/catalog-sync-backups/pre_catalog_qolip_photos_20260905_111329.dump`, mode 0600, 50,245,645 bytes, 1,069 restore objects; SHA-256 `4384538c6747d15c1eaad968db0fecb9a7502b23187bc1dfefba672ba2513de0`; restore-list SHA-256 `5815b7efef7654027c201341ee7f2e8d2774fa365c08dae7f2289a9c75bad0a1`.
+- Applied manifest SHA-256 `095d5e04126070225cb4b4a46dd54be0768599f2eef8412be6a314996d192719`, audit row `16613`. Committed readback passed. A repeat planner found zero creates and zero Qolip updates. Independent before/after comparison of all 7,255 existing records found no unexpected changes; all image relations and image-byte fingerprints were unchanged.
+- Six planner regression tests, compilation, guarded database dry run, signed-in PG10521 / V-6105 UI verification (six sizes and Qolip 4443/5683), and all four health checks passed. Production stays on release `20260905_085355`, manifest `357ad7c4ddcb44deff1e87a8d6cc3d8c6c437b358221ae13aacf224f7c7e1fed`, schema `0113_variant_selling_price`; no deployment or cutover occurred.
+- Worktree: `C:\ERP\.codex-work\catalog-qolip-photos-20260905`, branch `codex/catalog-qolip-photos-20260905`. Guarded tooling commit `26a020b0` is pushed, not merged. Full source captures, exact manifest, before/after snapshots, and verification evidence are retained in that worktree's `evidence/` directory.
+- Telegram model-photo replacement is still in progress. Telegram Web was signed in by the user; original labeled attachments are being indexed and downloaded. No photo replacement has been applied yet. Existing variant/material pictures must remain unchanged in the subsequent photo transaction.
+
 ## Full old-ERP catalogue photos deployed (2026-09-05)
 
 - The model-list photos reported as half-empty were not being cropped by the browser. A guarded production audit found 323 normalized old-ERP catalogue files; 70 contained an exact contiguous `#808080` tail of at least 16 rows, totalling 87,811 appended gray rows. Those 70 files were referenced by exactly 145 `ModelImage` rows across 143 models (140 model images and 5 material images).
