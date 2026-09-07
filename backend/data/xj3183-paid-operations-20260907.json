@@ -1,0 +1,269 @@
+{
+  "source_file": "1-3183.xlsx",
+  "source_sha256": "a824551e8dbb33d8f15d96e17b01d40b7853422549299d7a0d3422d0265a5be0",
+  "source_sheet": "Лист1",
+  "source_range": "A2:E37",
+  "model_codes": [
+    "XJ3183-5966",
+    "XJ3183-5967"
+  ],
+  "factories": [
+    "milana",
+    "besttex",
+    "eco_cotton"
+  ],
+  "operations": [
+    {
+      "source_order": 1,
+      "name": "Chontak overlo",
+      "duration": "1",
+      "rate": "210",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 2,
+      "name": "Chontak qoyish",
+      "duration": "1",
+      "rate": "260",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 3,
+      "name": "Chontak 0.5 bostirish",
+      "duration": "1",
+      "rate": "250",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 4,
+      "name": "Chontak qotirish",
+      "duration": "1",
+      "rate": "260",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 5,
+      "name": "oldi bel sborka",
+      "duration": "1",
+      "rate": "250",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 6,
+      "name": "orqa bel sborka",
+      "duration": "1",
+      "rate": "210",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 7,
+      "name": "oldi etak overlo",
+      "duration": "1",
+      "rate": "120",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 8,
+      "name": "orqa etak overlo",
+      "duration": "1",
+      "rate": "120",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 9,
+      "name": "oldi etak rastayajka",
+      "duration": "1",
+      "rate": "180",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 10,
+      "name": "orqa etak rastayajka",
+      "duration": "1",
+      "rate": "180",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 11,
+      "name": "oldi etak sborka 22 da",
+      "duration": "1",
+      "rate": "180",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 12,
+      "name": "orqa etak sborka 22 da",
+      "duration": "1",
+      "rate": "180",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 13,
+      "name": "oldi etak ulash 22 da",
+      "duration": "1",
+      "rate": "400",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 14,
+      "name": "orqa etak ulash 22 da",
+      "duration": "1",
+      "rate": "400",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 15,
+      "name": "oldi orqa beka",
+      "duration": "1",
+      "rate": "210",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 16,
+      "name": "oldi orqa beka 0.5 oldi 0.5 bostirish",
+      "duration": "1",
+      "rate": "850",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 17,
+      "name": "yelka ulash",
+      "duration": "1",
+      "rate": "200",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 18,
+      "name": "yeng qoyish",
+      "duration": "1",
+      "rate": "260",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 19,
+      "name": "yeng rashma",
+      "duration": "1",
+      "rate": "200",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 20,
+      "name": "etak rashma",
+      "duration": "1",
+      "rate": "350",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 21,
+      "name": "etak taqa taq",
+      "duration": "1",
+      "rate": "120",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 22,
+      "name": "yon overlo",
+      "duration": "1",
+      "rate": "520",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 23,
+      "name": "IZMA",
+      "duration": "1",
+      "rate": "360",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 24,
+      "name": "TUGMA",
+      "duration": "1",
+      "rate": "350",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 25,
+      "name": "TUGMA METKA",
+      "duration": "1",
+      "rate": "200",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 26,
+      "name": "Tugma qadash qolda",
+      "duration": "1",
+      "rate": "200",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 27,
+      "name": "oldi overlo",
+      "duration": "1",
+      "rate": "150",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 28,
+      "name": "chontak kesish",
+      "duration": "1",
+      "rate": "80",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 29,
+      "name": "razmer qoyish",
+      "duration": "1",
+      "rate": "200",
+      "stage": "Tikuv"
+    },
+    {
+      "source_order": 30,
+      "name": "chistka",
+      "duration": "1",
+      "rate": "300",
+      "stage": "Чистка"
+    },
+    {
+      "source_order": 31,
+      "name": "Kontrol",
+      "duration": "1",
+      "rate": "250",
+      "stage": "Контроль"
+    },
+    {
+      "source_order": 32,
+      "name": "dazmol",
+      "duration": "1",
+      "rate": "400",
+      "stage": "Упаковка"
+    },
+    {
+      "source_order": 33,
+      "name": "TAXLOV",
+      "duration": "1",
+      "rate": "100",
+      "stage": "Упаковка"
+    },
+    {
+      "source_order": 34,
+      "name": "RAZMER OTISH",
+      "duration": "1",
+      "rate": "80",
+      "stage": "Упаковка"
+    },
+    {
+      "source_order": 35,
+      "name": "Qadoqlash",
+      "duration": "1",
+      "rate": "100",
+      "stage": "Упаковка"
+    },
+    {
+      "source_order": 36,
+      "name": "Upakovka",
+      "duration": "1",
+      "rate": "0",
+      "stage": "Склад"
+    }
+  ]
+}

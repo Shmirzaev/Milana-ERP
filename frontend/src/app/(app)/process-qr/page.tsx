@@ -861,7 +861,7 @@ export default function ProcessQrPage() {
   const inferredPaidOperationFactory = useMemo<PaidOperationFactory | undefined>(() => {
     if (selectedProcess?.is_manual && selectedModel) {
       const manualFactories = new Set(
-        materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json))
+        materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json), [accountPaidOperationFactory])
           .map((operation) => operation.sewingFactory || "milana"),
       );
       if (manualFactories.size === 1) return Array.from(manualFactories)[0];
@@ -869,7 +869,7 @@ export default function ProcessQrPage() {
     const factories = selectedProcess?.sewing_factories || [];
     if (factories.length !== 1) return undefined;
     return paidOperationFactoryFromDepartmentCode(factories[0].code);
-  }, [selectedModel, selectedProcess?.is_manual, selectedProcess?.sewing_factories]);
+  }, [accountPaidOperationFactory, selectedModel, selectedProcess?.is_manual, selectedProcess?.sewing_factories]);
 
   useEffect(() => {
     if (accountPaidOperationFactory) {
@@ -996,7 +996,7 @@ export default function ProcessQrPage() {
     }
     if (!selectedModel) return;
 
-    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json));
+    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json), [accountPaidOperationFactory]);
     const nextSignature = JSON.stringify(serializePaidOperations(nextOperations));
     const sameModel = loadedOperationsModelId === selectedModelId;
     if (sameModel && operationModelDirty) return;
@@ -1008,6 +1008,7 @@ export default function ProcessQrPage() {
     setOperationModelDirty(false);
     setModelSaveMsg(t("page.processQr.loadedModel", { model: selectedModel.code || selectedProcess?.model_code || t("common.model") }));
   }, [
+    accountPaidOperationFactory,
     loadedOperationsModelId,
     loadedOperationsSignature,
     operationModelDirty,
@@ -1258,7 +1259,7 @@ export default function ProcessQrPage() {
 
   function loadOperationsFromSelectedModel() {
     if (!selectedModel || !selectedModelId) return;
-    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json));
+    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json), [accountPaidOperationFactory]);
     const nextSignature = JSON.stringify(serializePaidOperations(nextOperations));
     setOperations(nextOperations);
     setLoadedOperationsModelId(selectedModelId);
@@ -2008,6 +2009,7 @@ export default function ProcessQrPage() {
             <table className="table min-w-[850px]">
               <thead>
                 <tr>
+                  <th scope="col" className="w-12">№</th>
                   <th className="w-12">{t("page.processQr.use")}</th>
                   <th>{t("field.section")}</th>
                   <th>{t("common.code")}</th>
@@ -2023,6 +2025,7 @@ export default function ProcessQrPage() {
                   const splitInputs = splitQuantitiesForInputs(operation);
                   return (
                   <tr key={operation.id}>
+                    <td className="tabular-nums">{operationIndex + 1}</td>
                     <td>
                       <input
                         type="checkbox"
@@ -2152,7 +2155,7 @@ export default function ProcessQrPage() {
                 })}
                 {factoryOperations.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="py-6 text-center text-sm text-[#8a8472]">
+                    <td colSpan={9} className="py-6 text-center text-sm text-[#8a8472]">
                       {t("page.modelDetail.noFactoryPaidOperations")}
                     </td>
                   </tr>
