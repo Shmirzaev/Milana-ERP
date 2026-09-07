@@ -391,7 +391,7 @@ export default {
     "page.inventory.batchDeleteFailed": "The stock batch could not be moved to the archive.",
     "page.inventory.openArchive": "Fabric archive",
     "page.inventory.archiveTitle": "Fabric inventory archive",
-    "page.inventory.archiveSubtitle": "Deleted and fully used fabric batches remain here as read-only history.",
+    "page.inventory.archiveSubtitle": "Archived fabric batches with their receipt and usage history.",
     "page.inventory.restoreBatch": "Return to inventory",
     "page.inventory.restoreHelp": "Enter the quantity physically present and the reason for returning it. Previous usage and reservations stay in history. Quality status will be Pending; check roll weights again.",
     "page.inventory.restoreQuantity": "Physical quantity",

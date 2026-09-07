@@ -391,7 +391,7 @@ export default {
     "page.inventory.batchDeleteFailed": "Ombor partiyasini arxivga o‘tkazib bo‘lmadi.",
     "page.inventory.openArchive": "Mato arxivi",
     "page.inventory.archiveTitle": "Mato ombori arxivi",
-    "page.inventory.archiveSubtitle": "O‘chirilgan va to‘liq ishlatilgan mato partiyalari bu yerda faqat ko‘rish uchun saqlanadi.",
+    "page.inventory.archiveSubtitle": "Arxivdagi mato partiyalari, ularning kirim va sarf tarixi.",
     "page.inventory.restoreBatch": "Omborga qaytarish",
     "page.inventory.restoreHelp": "Amalda mavjud miqdorni va qaytarish sababini kiriting. Sarf va band qilish tarixi saqlanadi. Sifat holati: tekshiruv kutilmoqda; rulon vaznlarini qayta tekshiring.",
     "page.inventory.restoreQuantity": "Amaldagi miqdor",

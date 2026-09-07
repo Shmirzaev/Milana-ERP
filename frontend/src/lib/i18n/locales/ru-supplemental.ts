@@ -391,7 +391,7 @@ export default {
     "page.inventory.batchDeleteFailed": "Не удалось переместить складскую партию в архив.",
     "page.inventory.openArchive": "Архив ткани",
     "page.inventory.archiveTitle": "Архив склада ткани",
-    "page.inventory.archiveSubtitle": "Удалённые и полностью использованные партии ткани сохраняются здесь только для просмотра.",
+    "page.inventory.archiveSubtitle": "Архивные партии ткани с историей поступления и расхода.",
     "page.inventory.restoreBatch": "Вернуть на склад",
     "page.inventory.restoreHelp": "Укажите фактическое количество и причину возврата. История расхода и резервов сохранится. Статус качества: «Ожидает проверки»; проверьте вес рулонов заново.",
     "page.inventory.restoreQuantity": "Фактическое количество",
