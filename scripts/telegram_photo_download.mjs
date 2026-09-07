@@ -31,7 +31,7 @@ export async function makeDownloader(tab, cuaTab, root) {
       throw Error('Original-size check rejected a preview: '+stat.size+' bytes');
     }
     const record = { model_no: row.model_no, source: row.source, downloaded_name: name,
-      local_path: local, bytes: stat.size };
+      local_path: local, bytes: stat.size, source_message_text: row.source_message_text };
     log.push(record);
     await write('telegram-downloads.json', log);
     attempt = null;
@@ -105,7 +105,8 @@ export async function makeDownloader(tab, cuaTab, root) {
     if (await icon.count() === 0 || !(await icon.evaluate(el => {const r=el.getBoundingClientRect(); return r.top>80 && r.bottom<innerHeight-80;}))) {
       const input = tab.playwright.getByPlaceholder('Search', { exact: true }).nth(1);
       await fastClick(input); mark('focus');
-      await input.fill(row.source.name); mark('fill');
+      const query = row.source.name.includes('%') && row.source.labeled_models.length===1 ? (row.source.name.match(/^.*?V[ _-]*\d+/i)?.[0] || row.source.name) : row.source.name;
+      await input.fill(query); mark('fill');
       const variant = row.source.name.match(/V[ _-]*(\d+)/i);
       const pattern = new RegExp(variant ? 'V[ _-]*' + variant[1]
         : row.model_no.replace(/([A-Z]+)(\d+)/, '$1[ _-]*$2'), 'i');
@@ -115,6 +116,7 @@ export async function makeDownloader(tab, cuaTab, root) {
       await icon.waitFor({ state: 'visible', timeoutMs: 10000 });
       await cuaTab.getAXState({ emit: false });
     }
+    row.source_message_text = await tab.playwright.locator('#'+message).innerText();
     mark('ready'); try { await icon.click({timeoutMs:12000}); }
     catch (error) {
       if (!(await tab.playwright.getByRole('dialog').count())) {

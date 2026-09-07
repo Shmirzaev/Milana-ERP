@@ -10,7 +10,8 @@ MODEL_TOKEN = re.compile(r"(?<![A-Z0-9])([A-Z]{1,3}[ _-]*\d{3,6}(?:V(?![ _-]*\d)
 IMAGE_EXTENSION = re.compile(r"\.(?:png|jpe?g|webp)$", re.I)
 
 
-def build(files, models, downloaded=None):
+def build(files, models, downloaded=None, excluded=None):
+    excluded = set(excluded or [])
     downloaded = {row['model_no']: row['source']['id'] for row in (downloaded or [])}
     families = defaultdict(list)
     for model in models:
@@ -20,6 +21,8 @@ def build(files, models, downloaded=None):
                 families[base].append(model)
     candidates = defaultdict(list)
     for attachment in files:
+        if attachment['id'] in excluded:
+            continue
         name = attachment.get('name') or ''
         if not IMAGE_EXTENSION.search(name):
             continue
@@ -56,12 +59,14 @@ def build(files, models, downloaded=None):
 if __name__ == '__main__':
     root = Path(__file__).resolve().parents[1] / 'evidence'
     downloaded_path = root/'telegram-downloads.json'
+    exclusions_path = root/'telegram-photo-exclusions.json'
     catalog_path = root/'production-final-catalog.json'
     if not catalog_path.exists():
         catalog_path = root/'production-after-catalog.json'
     plan = build(json.loads((root/'telegram-shared-files.json').read_text('utf-8')),
                  json.loads(catalog_path.read_text('utf-8'))['models'],
-                 json.loads(downloaded_path.read_text('utf-8')) if downloaded_path.exists() else [])
+                 json.loads(downloaded_path.read_text('utf-8')) if downloaded_path.exists() else [],
+                 [r['id'] for r in json.loads(exclusions_path.read_text('utf-8'))] if exclusions_path.exists() else [])
     (root/'telegram-photo-plan.json').write_text(json.dumps(plan, ensure_ascii=False, indent=2), 'utf-8')
     print(json.dumps({'families': len(plan['selected']),
                       'model_records': sum(len(r['models']) for r in plan['selected']),

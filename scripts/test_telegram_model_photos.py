@@ -18,6 +18,11 @@ def attachment(mid, name):
 
 
 class PhotoTests(unittest.TestCase):
+    def test_visually_mislabeled_attachment_is_excluded_even_if_downloaded(self):
+        files=[attachment(1,'XJ3062.jpg'),attachment(2,'XJ3062.jpg')]
+        frozen=[{'model_no':'XJ3062','source':files[1]}]
+        result=build(files,[model()],frozen,[files[1]['id']])
+        self.assertEqual(result['selected'][0]['source']['id'],files[0]['id'])
     def test_single_letter_and_v_suffix_are_distinct(self):
         plan=build([attachment(1,'C1377 V-125.jpg'),attachment(2,'PJ1032V V-5759.jpg'),
                     attachment(3,'PJ1032V-5759.jpg')],
