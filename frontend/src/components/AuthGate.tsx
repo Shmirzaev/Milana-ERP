@@ -1,4 +1,5 @@
 "use client";
+import { hasInventoryPathAccess } from "@/lib/access";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { can, useMe } from "@/lib/auth";
@@ -186,7 +187,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   if (canSwitchOperationalFactory && !factorySwitchError) {
     return <div className="p-6 text-slate-500">{t("common.loading")}</div>;
   }
-  if (!hasRouteAccess(me, pathname) || (operationalFactory && operationalFactory !== me?.factory_code)) {
+  if (!hasInventoryPathAccess(me, `${pathname}?${searchParams}`) || !hasRouteAccess(me, pathname) || (operationalFactory && operationalFactory !== me?.factory_code)) {
     return <div className="p-6 text-slate-600">{t("auth.accessDenied")}</div>;
   }
   return <>{children}</>;

@@ -34,11 +34,12 @@ from app.models import (
 )
 from app.schemas.inventory import (
     ItemImageIn, ItemIn, ItemOut, WarehouseIn, WarehouseOut,
-    AccessoryReturnIn, StockBatchIn, StockBatchOut, StockBatchRollWeightsIn, StockBatchUpdate, StockMovementIn, StockMovementOut, StockLine,
+    AccessoryReturnIn, StockBatchIn, StockBatchOut, StockBatchRestoreIn, StockBatchRollWeightsIn, StockBatchUpdate, StockMovementIn, StockMovementOut, StockLine,
     AccessoryIssueIn, AccessoryIssueOut, AccessoryIssuePlanOut, AccessoryIssueRequestRow, AccessoryIssueSummaryRow,
     MaterialReservationAutoIn, MaterialReservationConsumeIn, MaterialReservationIn,
     MaterialReservationOut, MaterialReservationPlanOut, StockQuantityAdjustmentIn, StockQuantityAdjustmentOut,
 )
+from app.services import inventory_access
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.material_rolls import normalize_material_roll_weights
@@ -297,6 +298,7 @@ def list_items(
     page_size: int = 500,
     include_total: bool = False,
 ):
+    group = inventory_access.scoped_group(_, group, category)
     qry = db.query(Item).filter(Item.is_active.is_(True))
     categories = categories_for_group(group)
     if categories:
@@ -341,6 +343,7 @@ def update_item_image(
     db: DbSession,
     current: User = Depends(require_permissions("storage.items", "storage.receive", "*")),
 ):
+    inventory_access.require_item(db, current, item_id)
     it = db.get(Item, item_id)
     if not it:
         raise HTTPException(404, "Item not found")
@@ -353,6 +356,7 @@ def update_item_image(
 
 @router.post("/items", response_model=ItemOut, status_code=201)
 def create_item(payload: ItemIn, db: DbSession, current: User = Depends(require_permissions("storage.items", "*"))):
+    inventory_access.require_category(current, payload.category)
     if db.query(Item).filter(Item.sku == payload.sku).first():
         raise HTTPException(400, "SKU already exists")
     data = _item_payload(payload)
@@ -371,6 +375,8 @@ def update_item(
     db: DbSession,
     current: User = Depends(require_permissions("storage.items", "*")),
 ):
+    inventory_access.require_item(db, current, item_id)
+    inventory_access.require_category(current, payload.category)
     it = db.get(Item, item_id)
     if not it:
         raise HTTPException(404, "Item not found")
@@ -400,6 +406,7 @@ def delete_item(
     current: User = Depends(require_permissions("storage.items", "*")),
     force: bool = False,
 ):
+    inventory_access.require_item(db, current, item_id)
     _require_admin_force(current, force)
     it = db.get(Item, item_id)
     if not it:
@@ -436,7 +443,10 @@ def delete_item(
 # ===== Warehouses =====
 @router.get("/warehouses", response_model=list[WarehouseOut])
 def list_warehouses(db: DbSession, _: User = Depends(require_permissions(*WAREHOUSE_READ_PERMISSIONS))):
-    return db.query(Warehouse).order_by(Warehouse.id).all()
+    qry = db.query(Warehouse)
+    if inventory_access.materials_only(_):
+        qry = qry.filter(Warehouse.type != "accessory_storage")
+    return qry.order_by(Warehouse.id).all()
 
 
 @router.post("/warehouses", response_model=WarehouseOut, status_code=201)
@@ -463,6 +473,7 @@ def get_stock(
     page_size: int = 500,
     include_total: bool = False,
 ):
+    group = inventory_access.scoped_group(_, group, category)
     safe_page, safe_size, _ = clamp_pagination(page, page_size)
     start, end = date_filter_bounds(created_from, created_to)
     summary = stock_summary(
@@ -613,6 +624,7 @@ def set_stock_quantity(
     current: User = Depends(require_permissions("storage.items", "storage.receive", "storage.transfer", "*")),
     force: bool = False,
 ):
+    inventory_access.require_item(db, current, item_id)
     _require_admin_force(current, force)
     item = db.get(Item, item_id)
     if not item:
@@ -701,6 +713,7 @@ def list_received_stock_colors(
 ):
     rows = (
         db.query(StockBatch.color)
+        .filter(StockBatch.item_id.in_(db.query(Item.id).filter(Item.category.in_(inventory_access.MATERIAL_CATEGORIES))) if inventory_access.materials_only(_) else True)
         .filter(
             StockBatch.color.isnot(None),
             func.length(func.trim(StockBatch.color)) > 0,
@@ -723,6 +736,7 @@ def receive_stock(
     current: User = Depends(require_permissions("storage.receive", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    inventory_access.require_item(db, current, payload.item_id)
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="inventory.receive", key=idempotency_key, payload=fingerprint_payload)
     if replay:
@@ -784,6 +798,7 @@ def collect_back_accessory(
     current: User = Depends(require_permissions("storage.receive", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    inventory_access.require_accessories(current)
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="inventory.accessory-return", key=idempotency_key, payload=fingerprint_payload)
     if replay:
@@ -884,6 +899,7 @@ def get_accessory_issue_plan(
     db: DbSession,
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
 ):
+    inventory_access.require_accessories(_)
     return accessory_issue_plan(db, production_order_id)
 
 
@@ -898,6 +914,7 @@ def list_accessory_issues(
     page_size: int = 500,
     include_total: bool = False,
 ):
+    inventory_access.require_accessories(_)
     safe_page, safe_size, _ = clamp_pagination(page, page_size)
     rows = accessory_issue_summary(
         db,
@@ -930,6 +947,7 @@ def list_accessory_issue_requests(
     page_size: int = 500,
     include_total: bool = False,
 ):
+    inventory_access.require_accessories(_)
     safe_page, safe_size, _ = clamp_pagination(page, page_size)
     all_rows = accessory_issue_requests(
         db,
@@ -955,6 +973,7 @@ def issue_accessories(
     db: DbSession,
     current: User = Depends(require_permissions("storage.transfer", "*")),
 ):
+    inventory_access.require_accessories(current)
     result = issue_accessories_to_production_order(
         db,
         production_order_id=payload.production_order_id,
@@ -1005,6 +1024,8 @@ def list_material_reservations(
     status: str | None = None,
 ):
     qry = db.query(MaterialReservation)
+    if inventory_access.materials_only(_):
+        qry = qry.join(Item, Item.id == MaterialReservation.item_id).filter(Item.category.in_(inventory_access.MATERIAL_CATEGORIES))
     if production_order_id is not None:
         qry = qry.filter(MaterialReservation.production_order_id == production_order_id)
     if sales_order_id is not None:
@@ -1023,7 +1044,10 @@ def get_material_reservation_plan(
     db: DbSession,
     _: User = Depends(require_permissions("inventory.reservations.view", "planning.reserve_materials", "*")),
 ):
-    return reservation_plan_for_production_order(db, production_order_id)
+    return reservation_plan_for_production_order(
+        db, production_order_id,
+        categories=inventory_access.MATERIAL_CATEGORIES if inventory_access.materials_only(_) else None,
+    )
 
 
 @router.post("/reservations", response_model=MaterialReservationOut, status_code=201)
@@ -1033,6 +1057,8 @@ def create_material_reservation(
     current: User = Depends(require_permissions("inventory.reservations.create", "planning.reserve_materials", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    inventory_access.require_item(db, current, payload.item_id)
+    inventory_access.require_batch(db, current, payload.stock_batch_id)
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="inventory.reservations.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
@@ -1094,6 +1120,8 @@ def auto_create_material_reservations(
     db: DbSession,
     current: User = Depends(require_permissions("inventory.reservations.create", "planning.reserve_materials", "*")),
 ):
+    if payload.reserve_accessories or payload.reserve_packaging:
+        inventory_access.require_accessories(current)
     result = auto_reserve_materials_for_production_order(
         db,
         production_order_id=payload.production_order_id,
@@ -1103,6 +1131,8 @@ def auto_create_material_reservations(
         reserve_packaging=payload.reserve_packaging,
         user_id=current.id,
     )
+    if inventory_access.materials_only(current):
+        result["plan"] = reservation_plan_for_production_order(db, payload.production_order_id, categories=inventory_access.MATERIAL_CATEGORIES)
     reservations = result["reservations"]
     log_action(
         db,
@@ -1131,6 +1161,7 @@ def release_reservation(
     db: DbSession,
     current: User = Depends(require_permissions("inventory.reservations.release", "*")),
 ):
+    inventory_access.require_reservation(db, current, reservation_id)
     reservation = release_material_reservation(db, reservation_id)
     log_action(
         db,
@@ -1155,6 +1186,7 @@ def consume_reservation(
     db: DbSession,
     current: User = Depends(require_permissions("inventory.reservations.consume", "*")),
 ):
+    inventory_access.require_reservation(db, current, reservation_id)
     reservation = consume_material_reservation(
         db,
         reservation_id,
@@ -1186,6 +1218,8 @@ def transfer_stock(
     current: User = Depends(require_permissions("storage.transfer", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    inventory_access.require_item(db, current, payload.item_id)
+    inventory_access.require_batch(db, current, payload.batch_id)
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="inventory.transfer", key=idempotency_key, payload=fingerprint_payload)
     if replay:
@@ -1217,6 +1251,7 @@ def save_batch_roll_weights(
     db: DbSession,
     current: User = Depends(require_permissions("storage.items", "storage.receive", "*")),
 ):
+    inventory_access.require_batch(db, current, batch_id)
     batch = db.get(StockBatch, batch_id)
     if not batch:
         raise HTTPException(404, "Stock batch not found")
@@ -1258,6 +1293,8 @@ def update_batch(
     current: User = Depends(require_permissions("storage.items", "storage.receive", "*")),
     force: bool = False,
 ):
+    inventory_access.require_batch(db, current, batch_id)
+    inventory_access.require_item(db, current, payload.item_id)
     _require_admin_force(current, force)
     batch = db.get(StockBatch, batch_id)
     if not batch:
@@ -1447,6 +1484,7 @@ def archive_or_delete_batch(
     current: User = Depends(require_permissions("inventory.batches.delete", "*")),
     force: bool = False,
 ):
+    inventory_access.require_batch(db, current, batch_id)
     _require_admin_force(current, force)
     batch = db.execute(_locked_stock_batch_statement(batch_id)).scalar_one_or_none()
     if not batch:
@@ -1540,6 +1578,64 @@ def archive_or_delete_batch(
     db.commit()
 
 
+@router.post("/batches/{batch_id}/restore", response_model=StockBatchOut)
+def restore_material_batch(
+    batch_id: int,
+    payload: StockBatchRestoreIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("storage.receive", "*")),
+):
+    inventory_access.require_batch(db, current, batch_id)
+    # Lock only the batch table; joined nullable item loads cannot be locked on PostgreSQL.
+    batch = db.execute(
+        select(StockBatch).options(lazyload(StockBatch.item))
+        .where(StockBatch.id == batch_id).with_for_update(of=StockBatch)
+    ).scalar_one_or_none()
+    if not batch:
+        raise HTTPException(404, "Stock batch not found")
+    item = db.get(Item, batch.item_id)
+    if not item or item.category not in inventory_access.MATERIAL_CATEGORIES:
+        raise HTTPException(400, "Only material batches can be restored")
+    if not item.is_active:
+        raise HTTPException(409, "Reactivate or reassign the archived master material before restoring this batch")
+    if batch.archived_at is None and float(batch.quantity) > EPSILON:
+        raise HTTPException(409, "This batch is already in inventory")
+    if float(batch.quantity) > EPSILON:
+        raise HTTPException(409, "Archived batch has a nonzero balance; reconcile it before restoring")
+    reason = payload.reason.strip()
+    if len(reason) < 3:
+        raise HTTPException(422, "A restoration reason is required")
+    warehouse = db.get(Warehouse, batch.warehouse_id)
+    if not warehouse:
+        raise HTTPException(409, "Batch warehouse no longer exists")
+    _validate_receiving_warehouse(item, warehouse)
+    old_value = {
+        "quantity": float(batch.quantity), "archived_at": batch.archived_at,
+        "archived_by": batch.archived_by, "qc_status": batch.qc_status,
+        "piece_count": batch.piece_count, "roll_weights_kg": batch.roll_weights_kg,
+    }
+    # The user confirms physical stock, not a rollback of historical consumption.
+    # Past receipts, usage and released/consumed reservations remain unchanged.
+    batch.quantity = payload.quantity
+    batch.archived_at = None
+    batch.archived_by = None
+    batch.qc_status = "pending"
+    batch.roll_weights_kg = []
+    batch.piece_count = None
+    db.add(StockMovement(
+        movement_type="return", item_id=batch.item_id, batch_id=batch.id,
+        to_warehouse_id=batch.warehouse_id, quantity=payload.quantity, unit=batch.unit,
+        reference_type="StockBatchRestore", reference_id=batch.id, created_by=current.id,
+    ))
+    log_action(db, current, "restore", "StockBatch", batch.id, old_value=old_value, new_value={
+        "quantity": float(payload.quantity), "reason": reason, "qc_status": "pending",
+        "physical_stock_confirmed": True, "history_preserved": True,
+    })
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
 @router.get("/batches")
 def list_batches(
     db: DbSession,
@@ -1558,6 +1654,8 @@ def list_batches(
     hide_empty: bool = False,
     archived: bool = False,
 ):
+    group = inventory_access.scoped_group(_, group, category)
+    inventory_access.require_item(db, _, item_id)
     qry = (
         db.query(StockBatch, Item, Warehouse, Supplier)
         .join(Item, Item.id == StockBatch.item_id)
@@ -1694,6 +1792,8 @@ def list_batches(
                 batch_id = int(movement.batch_id)
                 summary = movement_summary[batch_id]
                 quantity = float(movement.quantity or 0)
+                if movement.reference_type == "StockBatchRestore":
+                    summary["deleted"] = False
                 if movement.reference_type == "StockBatchDelete":
                     summary["deleted"] = True
                     summary["last_archive_activity_at"] = movement.created_at

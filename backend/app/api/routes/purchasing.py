@@ -4,7 +4,8 @@ from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, require_permissions
 from app.core.config import settings
-from app.models import PurchaseOrder, PurchaseRequest, User
+from app.models import Item, PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, User
+from app.services import inventory_access
 from app.schemas.purchasing import (
     PurchaseOrderIn,
     PurchaseOrderOut,
@@ -34,6 +35,9 @@ def list_purchase_requests(
 ):
     return (
         db.query(PurchaseRequest)
+        .filter(~PurchaseRequest.lines.any(PurchaseRequestLine.item_id.in_(
+            db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
+        )) if inventory_access.materials_only(_) else True)
         .options(joinedload(PurchaseRequest.lines))
         .order_by(PurchaseRequest.id.desc())
         .all()
@@ -47,6 +51,8 @@ def create_request(
     current: User = Depends(require_permissions("purchasing.request", "*")),
 ):
     request = create_purchase_request(db, data=payload.model_dump(), current=current)
+    for line in request.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(request)
     return request
@@ -59,6 +65,8 @@ def create_request_from_sales_order(
     current: User = Depends(require_permissions("purchasing.request", "*")),
 ):
     request = create_purchase_request_from_sales_order(db, sales_order_id=sales_order_id, current=current)
+    for line in request.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(request)
     return request
@@ -72,6 +80,8 @@ def approve_request(
     current: User = Depends(require_permissions("purchasing.approve", "*")),
 ):
     request = approve_purchase_request(db, request_id=request_id, data=payload.model_dump(), current=current)
+    for line in request.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(request)
     return request
@@ -84,6 +94,8 @@ def reject_request(
     current: User = Depends(require_permissions("purchasing.approve", "*")),
 ):
     request = reject_purchase_request(db, request_id=request_id, current=current)
+    for line in request.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(request)
     return request
@@ -97,6 +109,8 @@ def convert_request_to_order(
     current: User = Depends(require_permissions("purchasing.order", "*")),
 ):
     order = convert_purchase_request_to_order(db, request_id=request_id, data=payload.model_dump(), current=current)
+    for line in order.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(order)
     return order
@@ -127,6 +141,9 @@ def list_purchase_orders(
 ):
     return (
         db.query(PurchaseOrder)
+        .filter(~PurchaseOrder.lines.any(PurchaseOrderLine.item_id.in_(
+            db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
+        )) if inventory_access.materials_only(_) else True)
         .options(joinedload(PurchaseOrder.lines))
         .order_by(PurchaseOrder.id.desc())
         .all()
@@ -140,6 +157,8 @@ def create_order(
     current: User = Depends(require_permissions("purchasing.order", "*")),
 ):
     order = create_purchase_order(db, data=payload.model_dump(), current=current)
+    for line in order.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(order)
     return order
@@ -152,7 +171,13 @@ def receive_order(
     db: DbSession,
     current: User = Depends(require_permissions("purchasing.receive", "*")),
 ):
+    if inventory_access.materials_only(current):
+        order_items = db.query(PurchaseOrderLine.item_id).filter(PurchaseOrderLine.purchase_order_id == order_id).all()
+        for (item_id,) in order_items:
+            inventory_access.require_item(db, current, item_id)
     order = receive_purchase_order(db, order_id=order_id, data=payload.model_dump(), current=current)
+    for line in order.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(order)
     return order

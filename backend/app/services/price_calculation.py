@@ -35,6 +35,9 @@ def is_price_purchaser(user: User) -> bool:
 
 
 def is_accessory_pricing_user(user: User) -> bool:
+    from app.services.inventory_access import materials_only
+    if materials_only(user):
+        return False
     granted = user_permissions(user)
     if "*" in granted or ACCESSORIES_PERMISSION in granted:
         return True

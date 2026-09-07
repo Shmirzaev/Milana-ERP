@@ -374,7 +374,7 @@ def _reservation_coverage_by_item_unit_batch(db: Session, production_order_id: i
     return coverage
 
 
-def reservation_plan_for_production_order(db: Session, production_order_id: int) -> dict:
+def reservation_plan_for_production_order(db: Session, production_order_id: int, categories: tuple[str, ...] | None = None) -> dict:
     po = db.get(ProductionOrder, production_order_id)
     if not po:
         raise HTTPException(404, "Production order not found")
@@ -383,7 +383,7 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int)
     coverage = _reservation_coverage_by_item_unit(db, int(po.id))
     batch_coverage = _reservation_coverage_by_item_unit_batch(db, int(po.id))
     rows = []
-    for row in _bom_requirement_rows(db, po, RESERVABLE_CATEGORIES):
+    for row in _bom_requirement_rows(db, po, categories or RESERVABLE_CATEGORIES):
         stock_batch_id = int(row["stock_batch_id"]) if row.get("stock_batch_id") else None
         if stock_batch_id is not None:
             coverage_key = (int(row["item_id"]), str(row["unit"]), stock_batch_id)

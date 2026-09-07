@@ -1,4 +1,5 @@
 "use client";
+import { hasInventoryPathAccess } from "@/lib/access";
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 import Link from "next/link";
@@ -341,6 +342,7 @@ export default function Sidebar() {
       }).map((sec) => ({
         ...sec,
         items: sec.items.filter((i) => {
+          if (!hasInventoryPathAccess(me, i.href)) return false;
           if (isSewingRole(me) && !isSewingWorkspaceNavItem(i.href)) return false;
           if (i.superOnly) return isSuperAdmin(me);
           if (i.audience === "abbosbekPricing" && !isAbbosbekPricingUser(me)) return false;
