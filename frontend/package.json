@@ -36,7 +36,7 @@
     "test:search-window": "node scripts/check-search-window.mjs",
     "test:sales-order-selection": "node scripts/check-sales-order-selection.mjs",
     "test:shipment-preparation": "node scripts/check-shipment-preparation.mjs",
-    "test:process-qr-ordering": "node scripts/check-process-qr-ordering.mjs",
+    "test:process-qr-ordering": "node scripts/check-process-qr-ordering.mjs && node scripts/check-process-qr-factory-operations.mjs",
     "test:process-qr-manual-order": "node scripts/check-process-qr-manual-order.mjs",
     "test:process-qr-label-identity": "node scripts/test-process-qr-label-identity.mjs",
     "test:payroll-scan-autosave": "node scripts/check-payroll-scan-autosave.mjs",
