@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-07
 
+
+## Mubina material-only access and archived-batch restoration prepared (2026-09-07)
+
+- User authorized removal of all Mubina accessory access and deployment. The additive `inventory.materials_only` restriction is applied only by the guarded `backend/scripts/restrict_mubina_access.py` operation to existing user 8 / `mubina@milanapremium.uz`; shared Storage roles and existing material permissions are preserved. Backend inventory lists, direct item/batch mutations, receiving, issuing, returns, reservations, accessory pricing, and accessory purchase receipts enforce the restriction. Navigation, direct accessory URLs and Master Data accessory tabs follow the same scope.
+- Archived Materials now offers Return to inventory on desktop/mobile. A receiving-authorized user enters the actual physically present quantity and a reason. A locked transaction restores the same fabric/semi-finished batch, adds one `StockBatchRestore` return movement and audit entry, and preserves historical receipts, usage and reservations. Duplicate submission to an already-active batch is rejected. Quality resets to Pending and old roll counts/weights are cleared for rechecking. Inactive master materials must be reactivated or reassigned before restoration. No actual stock is restored by deployment or QA.
+- Worktree `C:\ERP\.codex-work\mubina-access-archive`, branch `codex/mubina-access-archive`. Production baseline verified on both VMs: blue `20260907_065723`, rollback green `20260905_111623`, manifest `d85e5004a03d1b80104d957230edca38ebd57037965a83bb44fbf6d313decf17`, database `0113_variant_selling_price`. This section records preparation; activation and the single-user permission write must be recorded separately after verification. The release requires the high-risk 30-minute observation window.
+
 ## XJ3183 Payroll numbering and factory-scoped default saves deployed (2026-09-07)
 
 - The user authorized merge/deployment while explicitly requiring existing features to be preserved. PR `#65` merged as `1c1993c6ee7f789e67ff91d67cb9ab96aa45af99`; its tree exactly matches reviewed source `07963a8450902c6353df2ca2d0e8638b67b4d39c`. Against the previous production source, only eight intended paths changed and no files were deleted. The only application runtime change is in the Process QR frontend: a leftmost `№` column numbers visible paid operations from one, and all three legacy/default loads materialize only the session's selected factory. Explicitly configured other-factory rows remain available to existing administrator saves. Backend runtime, authorization, payroll calculations, issued labels, print ordering, and unrelated frontend features are unchanged.

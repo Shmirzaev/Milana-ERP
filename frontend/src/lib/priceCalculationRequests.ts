@@ -1,3 +1,4 @@
+import { isMaterialsOnly } from "@/lib/access";
 import type { Me } from "@/lib/auth";
 
 export type PriceRequestStatus = "new" | "in_progress" | "complete";
@@ -68,6 +69,7 @@ export function isAbbosbekPricingUser(me: Me | undefined): boolean {
 }
 
 export function isAccessoryPricingUser(me: Me | undefined): boolean {
+  if (isMaterialsOnly(me)) return false;
   if (!me) return false;
   return me.permissions.includes("*")
     || me.permissions.includes("price_calculation.accessories")

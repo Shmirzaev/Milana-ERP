@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -74,6 +75,11 @@ class StockBatchIn(BaseModel):
     image_url: Optional[str] = None
     warehouse_id: int
     qc_status: str = "pending"
+
+
+class StockBatchRestoreIn(BaseModel):
+    quantity: Decimal = Field(gt=0, max_digits=14, decimal_places=4, allow_inf_nan=False)
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class StockBatchUpdate(BaseModel):

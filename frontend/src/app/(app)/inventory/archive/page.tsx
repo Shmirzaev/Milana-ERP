@@ -2,12 +2,14 @@
 
 import { type FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Search, X } from "lucide-react";
+import { ArrowLeft, RotateCcw, Search, X } from "lucide-react";
 import useSWR from "swr";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
-import { fetcher } from "@/lib/api";
+import Modal from "@/components/Modal";
+import { can, useMe } from "@/lib/auth";
+import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 type ArchivedBatch = {
@@ -55,6 +57,14 @@ function formatDate(value: string | null | undefined, lang: string) {
 
 export default function FabricInventoryArchivePage() {
   const { t, lang } = useT();
+  const { me } = useMe();
+  const canRestore = can(me, "storage.receive", "*");
+  const [restoring, setRestoring] = useState<ArchivedBatch | null>(null);
+  const [restoreQuantity, setRestoreQuantity] = useState("");
+  const [restoreReason, setRestoreReason] = useState("");
+  const [restoreError, setRestoreError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [restored, setRestored] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
   const [query, setQuery] = useState("");
   const [createdFrom, setCreatedFrom] = useState("");
@@ -78,7 +88,7 @@ export default function FabricInventoryArchivePage() {
     return `/api/inventory/batches?${params.toString()}`;
   }, [createdFrom, createdTo, page, pageSize, query, supplierId]);
 
-  const { data, error, isLoading } = useSWR<ArchivedBatchPage>(archiveUrl, fetcher);
+  const { data, error, isLoading, mutate } = useSWR<ArchivedBatchPage>(archiveUrl, fetcher);
   const { data: suppliers } = useSWR<Supplier[]>("/api/suppliers", fetcher);
   const rows = data?.rows || [];
 
@@ -92,6 +102,42 @@ export default function FabricInventoryArchivePage() {
     setSearchDraft("");
     setQuery("");
     setPage(1);
+  }
+
+  function openRestore(batch: ArchivedBatch) {
+    setRestoring(batch);
+    setRestoreQuantity("");
+    setRestoreReason("");
+    setRestoreError("");
+    setRestored(false);
+  }
+
+  async function restoreBatch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!restoring || saving) return;
+    setSaving(true);
+    setRestoreError("");
+    try {
+      await api.post(`/api/inventory/batches/${restoring.id}/restore`, {
+        quantity: restoreQuantity,
+        reason: restoreReason.trim(),
+      });
+      setRestoring(null);
+      setRestored(true);
+      await mutate();
+    } catch (error: unknown) {
+      setRestoreError(error instanceof Error ? error.message : t("page.inventory.restoreFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function restoreButton(batch: ArchivedBatch) {
+    return canRestore ? (
+      <button type="button" className="btn" onClick={() => openRestore(batch)}>
+        <RotateCcw aria-hidden="true" />{t("page.inventory.restoreBatch")}
+      </button>
+    ) : null;
   }
 
   function reasonLabel(batch: ArchivedBatch) {
@@ -112,6 +158,8 @@ export default function FabricInventoryArchivePage() {
           </Link>
         )}
       />
+
+      {restored ? <p role="status" className="mb-4 text-sm text-green-800">{t("page.inventory.restoreSuccess")}</p> : null}
 
       <form onSubmit={submitSearch} className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3">
@@ -168,6 +216,28 @@ export default function FabricInventoryArchivePage() {
         </label>
       </div>
 
+      <Modal open={!!restoring} onClose={() => { if (!saving) setRestoring(null); }} title={t("page.inventory.restoreBatch")}>
+        <form onSubmit={restoreBatch} className="space-y-4">
+          <p className="text-sm font-medium">{restoring?.batch_no} · {restoring?.item_name}</p>
+          <p className="text-sm text-[#6f684f]">{t("page.inventory.restoreHelp")}</p>
+          <label className="block">
+            <span className="label">{t("page.inventory.restoreQuantity")} ({restoring?.unit})</span>
+            <input className="input" type="number" min="0.0001" max="9999999999.9999" step="0.0001" required value={restoreQuantity} onChange={(event) => setRestoreQuantity(event.target.value)} disabled={saving} />
+          </label>
+          <label className="block">
+            <span className="label">{t("page.inventory.restoreReason")}</span>
+            <textarea className="input" required minLength={3} maxLength={500} value={restoreReason} onChange={(event) => setRestoreReason(event.target.value)} disabled={saving} />
+          </label>
+          {restoreError ? <p role="alert" className="text-sm text-red-700">{restoreError}</p> : null}
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn" disabled={saving} onClick={() => setRestoring(null)}>{t("common.cancel")}</button>
+            <button type="submit" className="btn btn-primary" disabled={saving || !restoreQuantity || restoreReason.trim().length < 3}>
+              {saving ? t("common.loading") : t("page.inventory.restoreBatch")}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       <div className="card overflow-hidden">
         {isLoading ? <div className="p-4 text-sm text-[#8a8472]">{t("common.loading")}</div> : null}
         {error ? <div className="p-4 text-sm text-red-700">{t("page.inventory.archiveLoadFailed")}</div> : null}
@@ -205,6 +275,7 @@ export default function FabricInventoryArchivePage() {
                       <div><div className="label mb-0">{t("page.inventory.archivedAt")}</div><div>{formatDate(batch.archived_at, lang)}</div></div>
                     </div>
                   </div>
+                  <div className="mt-3">{restoreButton(batch)}</div>
                 </article>
               ))}
             </div>
@@ -221,6 +292,7 @@ export default function FabricInventoryArchivePage() {
                     <th>{t("page.inventory.usedQuantity")}</th>
                     <th>{t("page.inventory.archiveReason")}</th>
                     <th>{t("page.inventory.archivedAt")}</th>
+                    {canRestore ? <th>{t("common.actions")}</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -253,6 +325,7 @@ export default function FabricInventoryArchivePage() {
                         <div>{formatDate(batch.archived_at, lang)}</div>
                         <div className="mt-1 text-xs text-[#6f684f]">{formatDate(batch.received_date, lang)}</div>
                       </td>
+                      {canRestore ? <td>{restoreButton(batch)}</td> : null}
                     </tr>
                   ))}
                 </tbody>

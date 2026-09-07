@@ -34,3 +34,16 @@ export function isSewingWorkspaceNavItem(href: string): boolean {
   const pathname = href.split("?", 1)[0];
   return SEWING_WORKSPACE_NAV_ITEMS.some((route) => pathname === route);
 }
+
+export function isMaterialsOnly(me: Me | undefined): boolean {
+  return Boolean(me?.permissions.includes("inventory.materials_only"));
+}
+
+export function hasInventoryPathAccess(me: Me | undefined, href: string): boolean {
+  if (!isMaterialsOnly(me)) return true;
+  const [pathname = "", query = ""] = href.split("?", 2);
+  return !(pathname.startsWith("/inventory") && (
+    pathname === "/inventory/accessory-pricing"
+    || new URLSearchParams(query).get("group") === "accessories"
+  ));
+}

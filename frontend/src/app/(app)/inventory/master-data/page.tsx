@@ -1,5 +1,6 @@
 "use client";
 
+import { isMaterialsOnly } from "@/lib/access";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Edit3, Plus, Search, Trash2, X } from "lucide-react";
@@ -172,21 +173,23 @@ export default function InventoryMasterDataPage() {
   const [supplierForm, setSupplierForm] = useState<SupplierForm>(EMPTY_SUPPLIER);
   const [saving, setSaving] = useState(false);
   const canEditItems = can(me, "storage.items", "*");
+  const canEditAccessories = canEditItems && !isMaterialsOnly(me);
   const canEditSuppliers = can(me, "storage.suppliers", "*");
   const canView = canEditItems || canEditSuppliers;
   const availableTabs = useMemo<TabKey[]>(() => {
     const tabs: TabKey[] = [];
-    if (canEditItems) tabs.push("materials", "accessories");
+    if (canEditItems) tabs.push("materials");
+    if (canEditAccessories) tabs.push("accessories");
     if (canEditSuppliers) tabs.push("suppliers");
     return tabs;
-  }, [canEditItems, canEditSuppliers]);
+  }, [canEditItems, canEditAccessories, canEditSuppliers]);
 
   const { data: materials, mutate: refreshMaterials } = useSWR<Item[]>(
     canEditItems ? "/api/inventory/items?group=materials&page_size=500" : null,
     fetcher,
   );
   const { data: accessories, mutate: refreshAccessories } = useSWR<Item[]>(
-    canEditItems ? "/api/inventory/items?group=accessories&page_size=500" : null,
+    canEditAccessories ? "/api/inventory/items?group=accessories&page_size=500" : null,
     fetcher,
   );
   const { data: suppliers, mutate: refreshSuppliers } = useSWR<Supplier[]>(
