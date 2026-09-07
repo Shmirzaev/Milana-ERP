@@ -41,3 +41,12 @@ def test_import_rejects_changed_source(tmp_path):
     changed.write_bytes(MANIFEST.read_bytes().replace(b'"8680"', b'"9999"') + b" ")
     with pytest.raises(ValueError, match="SHA-256"):
         load_operations(changed)
+
+
+def test_import_accepts_git_line_endings_without_relaxing_content_checks(tmp_path):
+    expected = load_operations(MANIFEST)
+    lf = MANIFEST.read_bytes().replace(b"\r\n", b"\n")
+    for name, content in (("linux.json", lf), ("windows.json", lf.replace(b"\n", b"\r\n"))):
+        candidate = tmp_path / name
+        candidate.write_bytes(content)
+        assert load_operations(candidate) == expected

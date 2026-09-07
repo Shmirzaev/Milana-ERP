@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 MANIFEST_SHA256 = "1e97061867479739837d21d0c3ee7a6ce1835dd0155ebba631c7b56d76d91403"
+MANIFEST_LF_SHA256 = "04fcddd4b311c3af96da306370edd78b4897213c88cf2161a855c543898b59cd"
 MODEL_CODES = ("XJ3183-5966", "XJ3183-5967")
 FACTORIES = ("milana", "besttex", "eco_cotton")
 STAGES = {"Tikuv": "sewing", "Чистка": "pressing", "Контроль": "sewing", "Упаковка": "packaging", "Склад": "packaging"}
@@ -16,7 +17,9 @@ STAGES = {"Tikuv": "sewing", "Чистка": "pressing", "Контроль": "se
 
 def load_operations(manifest_path: Path) -> tuple[dict, list[dict]]:
     raw = manifest_path.read_bytes()
-    if hashlib.sha256(raw).hexdigest() != MANIFEST_SHA256:
+    # Git normalizes Windows CRLF to LF. Preserve the original import hash in
+    # audit provenance, while verifying identical content on either platform.
+    if hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest() != MANIFEST_LF_SHA256:
         raise ValueError("Workbook manifest does not match the reviewed SHA-256")
     manifest = json.loads(raw)
     if tuple(manifest["model_codes"]) != MODEL_CODES or tuple(manifest["factories"]) != FACTORIES:
