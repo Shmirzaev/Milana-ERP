@@ -89,6 +89,7 @@ export async function makeDownloader(tab, cuaTab, root) {
   }
 
   async function one() {
+    if (!(await tab.url()).endsWith('#-1002871659105')) throw Error('Telegram is no longer in Milana Fotosessiya');
     if (attempt) {
       const recovered = await recover();
       if (recovered) return recovered;
@@ -105,7 +106,7 @@ export async function makeDownloader(tab, cuaTab, root) {
     if (await icon.count() === 0 || !(await icon.evaluate(el => {const r=el.getBoundingClientRect(); return r.top>80 && r.bottom<innerHeight-80;}))) {
       const input = tab.playwright.getByPlaceholder('Search', { exact: true }).nth(1);
       await fastClick(input); mark('focus');
-      const query = row.source.name.includes('%') && row.source.labeled_models.length===1 ? (row.source.name.match(/^.*?V[ _-]*\d+/i)?.[0] || row.source.name) : row.source.name;
+      const query = row.source.name.includes('%') && row.source.labeled_models.length===1 ? (row.source.name.match(/^.*?V[ _-]*\d+/i)?.[0] || row.source.name.match(/^[A-Z]{1,3}[ _-]*\d{3,6}V?/i)?.[0] || row.source.name) : row.source.name;
       await input.fill(query); mark('fill');
       const variant = row.source.name.match(/V[ _-]*(\d+)/i);
       const pattern = new RegExp(variant ? 'V[ _-]*' + variant[1]
