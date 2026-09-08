@@ -39,7 +39,7 @@ function component(path, dependencies) {
   const exports = {};
   vm.runInNewContext(ts.transpile(fs.readFileSync(path, "utf8"), {
     module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
-  }), { exports, require: (name) => dependencies[name] || {}, document: {}, window: {} });
+  }), { exports, require: (name) => dependencies[name] || {}, document: {}, window: {}, URLSearchParams });
   return exports.default;
 }
 function descendants(node) {
@@ -83,3 +83,26 @@ assert.equal(calls, 0, "Disabled variants cannot be selected by click or Enter")
 rows[1].props.onClick();
 assert.equal(calls, 1, "Approved variants remain selectable");
 console.log("Mixed-status branded variants and disabled selection passed.");
+
+// The single family action follows the approval permission in both catalogs.
+let pagePath = "/models";
+let permissions = [];
+let familyStatus = "draft";
+const ModelsPage = component("src/app/(app)/models/page.tsx", {
+  ...dependencies,
+  "next/navigation": { useRouter: () => ({}), usePathname: () => pagePath, useSearchParams: () => new URLSearchParams() },
+  "@/components/DialogProvider": { useDialogs: () => ({ notify() {} }) },
+  "@/lib/modelComposition": { formatModelComposition: () => "" },
+  "@/lib/auth": { useMe: () => ({ me: { permissions } }), can: (me, ...wanted) => me.permissions.includes("*") || wanted.some((permission) => me.permissions.includes(permission)) },
+  swr: { default: () => ({ data: { rows: [{ id: 1, code: "MODEL1", name: "Model", status: familyStatus }] } }) },
+});
+for (const [path, allowed] of [["/models", "modeling.approve"], ["/usluga/models", "usluga.manage"]]) {
+  pagePath = path;
+  for (const [grants, status, expected] of [[[], "draft", 0], [["modeling.models"], "draft", 0], [[allowed], "draft", 1], [[allowed], "approved", 0], [["*"], "draft", 1]]) {
+    permissions = grants;
+    familyStatus = status;
+    const buttons = descendants(ModelsPage()).filter((node) => node.type === "button" && node.props?.children === "btn.approve");
+    assert.equal(buttons.length, expected, `${path}: ${grants} / ${status}`);
+  }
+}
+console.log("Model-family approval visibility and permissions passed.");

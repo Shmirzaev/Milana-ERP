@@ -586,6 +586,7 @@ def _model_group_payload(models: list[Model], *, compact: bool = False) -> dict:
             group_picture = model_image.file_url
             break
     payload.update({
+        "status": "approved" if any(model.status == "approved" for model in models) else representative.status,
         "group_key": _model_group_key(representative),
         "group_model_no": group_model_no,
         "group_name": _group_display_name(models),
@@ -595,6 +596,30 @@ def _model_group_payload(models: list[Model], *, compact: bool = False) -> dict:
         "primary_image_url": group_picture or payload.get("primary_image_url"),
     })
     return payload
+
+
+def _approval_family(db: DbSession, model: Model) -> list[Model]:
+    """Approval belongs to one catalog family, including its base row.
+
+    Older families may only have an approved variant. That is existing approval
+    evidence, even when their original base row still says Draft.
+    """
+    if (model.details_json or {}).get("legacy_import") is True:
+        return [model]
+    key = _model_group_key_from_values(
+        model_id=int(model.id or 0), code=model.code, name=model.name,
+        general=(model.details_json or {}).get("general"),
+    )
+    query = db.query(Model).filter(Model.catalog_scope == model.catalog_scope)
+    if db.get_bind().dialect.name == "postgresql":
+        # Serialize creation and approval, including families with no base row.
+        db.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"model-approval:{model.catalog_scope}:{key}"))))
+        return query.filter(
+            literal_column("models.is_legacy_import").is_(False),
+            literal_column("models.model_group_key") == key,
+        ).order_by(Model.id).populate_existing().all()
+    return [row for row in query.order_by(Model.id).all()
+            if (row.details_json or {}).get("legacy_import") is not True and _model_group_key(row) == key]
 
 
 def _model_payload(m: Model, factory_scope: str | None = None) -> dict:
@@ -1532,6 +1557,12 @@ def create_model(
         factory_code="ECO" if catalog_scope == "usluga" else None,
         created_by=current.id,
     )
+    if _model_code_parts(m)[1]:
+        approval = next((row for row in _approval_family(db, m) if row.status == "approved"), None)
+        if approval:
+            m.status = "approved"
+            m.approved_by = approval.approved_by
+            m.approved_at = approval.approved_at
     db.add(m); db.flush()
     log_action(db, current, "create", "Model", m.id, new_value={"code": m.code})
     db.commit(); db.refresh(m)
@@ -1772,7 +1803,7 @@ def create_model_variant(
     general.pop("variant_stock_batch_id", None)
     details["general"] = general
 
-    approved = source.status == "approved"
+    approval = next((row for row in _approval_family(db, source) if row.status == "approved"), None)
     cloned = Model(
         code=new_code,
         name=source.name,
@@ -1785,10 +1816,10 @@ def create_model_variant(
         constructor_employee_id=source.constructor_employee_id,
         designer_employee_id=source.designer_employee_id,
         details_json=details,
-        status=source.status,
+        status="approved" if approval else "draft",
         created_by=current.id,
-        approved_by=current.id if approved else None,
-        approved_at=datetime.now(timezone.utc) if approved else None,
+        approved_by=approval.approved_by if approval else None,
+        approved_at=approval.approved_at if approval else None,
         sam_minutes=source.sam_minutes or 0,
         catalog_scope=catalog_scope,
         factory_code="ECO" if catalog_scope == "usluga" else source.factory_code,
@@ -2140,17 +2171,23 @@ def approve_model(
 ):
     m = _catalog_model(db, mid, catalog_scope)
     if not m: raise HTTPException(404, "Model not found")
+    family = _approval_family(db, m)
+    pending = [row for row in family if row.status != "approved"]
     if _normalize_catalog_scope(catalog_scope) == "usluga":
-        main_count = db.query(ModelBOM.id).filter(
-            ModelBOM.model_id == m.id,
-            ModelBOM.material_role == "main",
-        ).count()
-        if main_count != 1:
-            raise HTTPException(409, "Usluga model approval requires exactly one main fabric")
-    m.status = "approved"
-    m.approved_by = current.id
-    m.approved_at = datetime.now(timezone.utc)
-    log_action(db, current, "approve", "Model", m.id)
+        for row in pending:
+            main_count = db.query(ModelBOM.id).filter(
+                ModelBOM.model_id == row.id,
+                ModelBOM.material_role == "main",
+            ).count()
+            if main_count != 1:
+                raise HTTPException(409, "Usluga model approval requires exactly one main fabric")
+    approved_at = datetime.now(timezone.utc)
+    for row in pending:
+        row.status = "approved"
+        row.approved_by = current.id
+        row.approved_at = approved_at
+        log_action(db, current, "approve", "Model", row.id,
+                   new_value={"approval_scope": "model_family", "requested_model_id": mid})
     db.commit(); db.refresh(m)
     return _model_payload(m, _catalog_paid_operation_factory_scope(current, catalog_scope))
 

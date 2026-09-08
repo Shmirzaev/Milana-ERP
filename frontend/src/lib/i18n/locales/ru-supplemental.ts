@@ -46,7 +46,7 @@ export default {
   "page.planning.variantNumber": "Номер варианта",
   "page.planning.selectVariant": "Выберите вариант...",
   "page.planning.noApprovedVariants": "Нет утверждённых вариантов",
-  "page.planning.variantApprovalRequired": "Перед производством требуется утверждение",
+  "page.planning.variantApprovalRequired": "Перед производством требуется утверждение модели",
   "page.planning.modelLoadFailed": "Не удалось загрузить модели. Повторите попытку.",
 
     "nav.priceCalculation": "Расчёт цены",

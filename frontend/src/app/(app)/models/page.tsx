@@ -72,6 +72,7 @@ export default function ModelsPage() {
   const modelApiBase = isUsluga ? "/api/usluga/models" : "/api/models";
   const modelPageBase = isUsluga ? "/usluga/models" : "/models";
   const canManage = isUsluga ? can(me, "usluga.manage", "*") : can(me, "modeling.models", "*");
+  const canApprove = isUsluga ? can(me, "usluga.manage", "*") : can(me, "modeling.approve", "*");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const [showFilters, setShowFilters] = useState(false);
@@ -135,7 +136,14 @@ export default function ModelsPage() {
     return storageThumbnailUrl(variant.picture_url || variant.variant_picture_url || variant.primary_image_url || "", 160);
   }
 
-  async function approve(id: number) { await api.post(`${modelApiBase}/${id}/approve`); mutate(); }
+  async function approve(id: number) {
+    try {
+      await api.post(`${modelApiBase}/${id}/approve`);
+      await mutate();
+    } catch (error: any) {
+      await dialogs.notify(error.message);
+    }
+  }
 
   async function cloneModel(m: Model) {
     setCloningId(m.id);
@@ -356,7 +364,7 @@ export default function ModelsPage() {
                     <div className="text-sm">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 xl:justify-end">
                         <Link href={`${modelPageBase}/${m.id}`} prefetch={false} className="font-medium text-brand-600 hover:underline">{t("btn.view")}</Link>
-                        {m.status !== "approved" && (
+                        {canApprove && m.status !== "approved" && (
                           <button type="button" className="font-medium text-green-700 hover:underline" onClick={() => approve(m.id)}>{t("btn.approve")}</button>
                         )}
                         {canManage && (
