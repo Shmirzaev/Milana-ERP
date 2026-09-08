@@ -215,6 +215,7 @@ export default {
     "nav.scanPackage": "Paketni skanerlash",
     "nav.finishedGoods": "Tayyor mahsulot",
     "nav.warehouseStock": "Ombor qoldigʻi",
+    "nav.stocktake": "Inventarizatsiya",
     "nav.warehouseMap": "Ombor xaritasi",
     "nav.shipments": "Yetkazib berish",
     "nav.wasteDash": "Chiqindilar paneli",

@@ -215,6 +215,7 @@ export default {
     "nav.scanPackage": "Сканировать упаковку",
     "nav.finishedGoods": "Готовая продукция",
     "nav.warehouseStock": "Остатки склада",
+    "nav.stocktake": "Инвентаризация",
     "nav.warehouseMap": "Карта склада",
     "nav.shipments": "Отгрузки",
     "nav.wasteDash": "Отходы",
