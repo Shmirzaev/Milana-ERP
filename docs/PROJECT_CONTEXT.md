@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-08
 
+## Combined Packaging Reports and warehouse count release preparation (2026-09-08)
+
+- The user explicitly authorized deployment of both features. Packaging Reports PR `#70` is reconciled with warehouse count PR `#69` and its runtime navigation translation correction `bfc0cd6df8b177dbf3d44dec98cb5cb1045c48b0`. Both routes, navigation entries, authorization checks and context records are preserved. Packaging uses creation dates as explicitly requested.
+- One coordinated release will contain both reviewed features. The warehouse count task owns production staging and activation; the Packaging task owns combined source reconciliation and Packaging read-only candidate/public QA. Separate Packaging artifact run `34189106132` was canceled before production changes to prevent overlapping deployments.
+- Combined source validation passed all 610 backend tests, Ruff, Python compilation, the single Alembic head check, 11 observation regressions, frontend lint, strict TypeScript, all inherited build contracts plus the stocktake runtime-locale contract, and the optimized 85-route build. The inherited Starlette/httpx test-client deprecation warning remains. Exact file comparisons confirmed both features' implementation files were preserved through reconciliation.
+- At reconciliation, both active source manifests still match green `20260907_104027` and the recorded baseline. The first warehouse candidate `20260908_050013` is staged but unactivated in blue. The warehouse task has verified a database backup and applied additive migration `0114_warehouse_stocktake`; application traffic has not switched. The final combined candidate requires full validation, both workflows' QA, the performance gate and a 30-minute observation. These preparation notes do not claim deployment completion; the final active release and baseline must be recorded after closing checks.
+
 ## Packaging date reports prepared locally (2026-09-08)
 
 - Added Packaging Reports to the Milana, Besttex and Eco Cotton packaging sections. Users choose an inclusive date range and view daily totals, package details with model photos, or completed Packaging jobs; Excel exports all three views with photos, typed dates, filters, frozen headers and formula totals. English, Russian and Uzbek are supported.
