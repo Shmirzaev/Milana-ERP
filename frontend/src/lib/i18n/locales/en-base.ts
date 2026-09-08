@@ -228,6 +228,7 @@ export default {
     "nav.scanPackage": "Scan Package",
     "nav.finishedGoods": "Finished Goods",
     "nav.warehouseStock": "Warehouse Stock",
+    "nav.stocktake": "Inventory count",
     "nav.warehouseMap": "Warehouse Map",
     "nav.shipments": "Shipments",
     "nav.wasteDash": "Waste Dashboard",
