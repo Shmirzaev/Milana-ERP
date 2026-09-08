@@ -159,6 +159,7 @@ const SECTIONS: Section[] = [
       { href: "/packages?packaging_department=BPK", labelKey: "nav.packages", perms: ["packaging.packages", "packaging.records"], icon: Boxes },
       { href: "/packaging/queue?packaging_department=BPK", labelKey: "nav.packingQueue", perms: ["packaging.records", "planning.production"], icon: PackageSearch },
       { href: "/packaging/receive?packaging_department=BPK", labelKey: "nav.receiveFromSewing", perms: ["packaging.records", "planning.production"], icon: QrCode },
+      { href: "/packaging/reports?packaging_department=BPK", labelKey: "packagingReport.title", perms: ["packaging.records", "packaging.packages", "planning.production"], icon: FileText },
     ],
   },
   {
@@ -187,6 +188,7 @@ const SECTIONS: Section[] = [
       { href: "/packages?packaging_department=ECP", labelKey: "nav.packages", perms: ["packaging.packages", "packaging.records"], icon: Boxes },
       { href: "/packaging/queue?packaging_department=ECP", labelKey: "nav.packingQueue", perms: ["packaging.records", "planning.production"], icon: PackageSearch },
       { href: "/packaging/receive?packaging_department=ECP", labelKey: "nav.receiveFromSewing", perms: ["packaging.records", "planning.production"], icon: QrCode },
+      { href: "/packaging/reports?packaging_department=ECP", labelKey: "packagingReport.title", perms: ["packaging.records", "packaging.packages", "planning.production"], icon: FileText },
     ],
   },
   {
@@ -209,6 +211,7 @@ const SECTIONS: Section[] = [
       { href: "/packages?packaging_department=PKG", labelKey: "nav.packages", perms: ["packaging.packages", "packaging.records"], icon: Boxes },
       { href: "/packaging/queue?packaging_department=PKG", labelKey: "nav.packingQueue", perms: ["packaging.records", "planning.production"], icon: PackageSearch },
       { href: "/packaging/receive?packaging_department=PKG", labelKey: "nav.receiveFromSewing", perms: ["packaging.records", "planning.production"], icon: QrCode },
+      { href: "/packaging/reports?packaging_department=PKG", labelKey: "packagingReport.title", perms: ["packaging.records", "packaging.packages", "planning.production"], icon: FileText },
     ],
   },
   {
@@ -396,7 +399,7 @@ export default function Sidebar() {
       && itemCuttingDepartment !== currentCuttingDepartment;
     const sewingFactoryMismatch = ["/sewing/flows", "/sewing/daily-report", "/bundles/scan/sewing"].includes(basePath)
       && itemFactory !== currentFactory;
-    const packagingDepartmentMismatch = ["/packages", "/packaging/queue", "/packaging/receive"].includes(basePath)
+    const packagingDepartmentMismatch = ["/packages", "/packaging/queue", "/packaging/receive", "/packaging/reports"].includes(basePath)
       && itemPackagingDepartment !== currentPackagingDepartment;
     const purchasingChildMismatch = basePath === "/purchasing" && pathname.startsWith("/purchasing/");
     const planningChildMismatch = basePath === "/planning" && pathname.startsWith("/planning/");

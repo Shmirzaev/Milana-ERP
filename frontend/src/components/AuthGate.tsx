@@ -49,6 +49,7 @@ const ROUTE_GUARDS: RouteGuard[] = [
   { prefix: "/warehouse-map", perms: ["storage.packages", "storage.shipment", "*"] },
   { prefix: "/shipments", perms: ["storage.shipment", "*"] },
   { prefix: "/packages/scan", perms: ["packaging.packages", "storage.packages", "*"] },
+  { prefix: "/packaging/reports", perms: ["packaging.records", "packaging.packages", "planning.production", "*"] },
   { prefix: "/packages", perms: ["packaging.packages", "storage.packages", "storage.shipment", "*"] },
   { prefix: "/bundles/scan/cutting", perms: ["cutting.bundles", "cutting.records", "*"] },
   { prefix: "/bundles/scan/printing", perms: ["printing.bundles", "printing.records", "*"] },

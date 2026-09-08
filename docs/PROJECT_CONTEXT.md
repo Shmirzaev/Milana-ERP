@@ -1,6 +1,17 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-07
+Last updated: 2026-09-08
+
+## Packaging date reports prepared locally (2026-09-08)
+
+- Added Packaging Reports to the Milana, Besttex and Eco Cotton packaging sections. Users choose an inclusive date range and view daily totals, package details with model photos, or completed Packaging jobs; Excel exports all three views with photos, typed dates, filters, frozen headers and formula totals. English, Russian and Uzbek are supported.
+- The user explicitly chose package creation dates. Package output uses `packed_at` with half-open UTC bounds representing whole Asia/Tashkent days. Counts use actual package rows and quantities, including partial packages and packages allocated across multiple batches exactly once. Historical legacy-stock imports are excluded from new packaging output.
+- Completed jobs use explicit Packaging work-order completion dates and lifetime saved planned/packed/damaged totals. Balance is packed plus damaged minus plan. Passport references are labelled as order passports because the existing schema does not bind each passport to an exact package/batch. Separately unrecorded 2x2, grade 1/2, cutting-defect and shortage quantities remain blank, with explanatory report notes; no values are inferred or invented.
+- Both API routes and direct frontend access require existing Packaging or Production Planning permissions and the selected factory. No permission grant, schema migration, workflow mutation or production business-data write was introduced. Requests exceeding 20,000 package/job rows require a shorter range rather than silently truncating; the UI initially renders 100 rows with access to the rest.
+- Baseline was verified read-only on both VMs: active green `20260907_104027`, rollback blue `20260907_065723`, source manifest `d8fa623cc917cdb2910de4c8a5d46d2e3a9abca78b33956a6245e8366f3e83a5`. GitHub `origin/main` was `7bd6d8049a379c3b6b646411fbaf52532324b3aa`; only deployment/context records differ from active source commit `32c6df5c89607daa0068005ef25f96dfec3ae2d3`. Production remains unchanged; no merge or deployment was requested.
+- Validation: all 598 backend tests passed, followed by all 10 focused report cases after adding image/legacy-import coverage; Ruff, compilation, frontend lint, strict TypeScript, all existing build contracts and the optimized 84-route build passed. Local mocked-API Chrome checks passed date selection, all three tabs, Excel download, mobile layout, empty/error states and direct permission denial without application console errors. All three Excel views were rendered and visually checked, with zero formula-error matches. Authenticated production report QA remains a deployment-stage check. The inherited test-client deprecation warning remains.
+- Worktree `C:\ERP\.codex-work\packaging-date-reports`; branch `codex/packaging-date-reports`. Local test/visual evidence is in its ignored `outputs` directory. The original workbook and legacy checkout were preserved.
+
 
 ## Mubina accessory restriction and material restoration deployed (2026-09-07)
 
