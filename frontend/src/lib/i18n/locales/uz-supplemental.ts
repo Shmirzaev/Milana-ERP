@@ -46,7 +46,7 @@ export default {
   "page.planning.variantNumber": "Variant raqami",
   "page.planning.selectVariant": "Variantni tanlang...",
   "page.planning.noApprovedVariants": "Tasdiqlangan variantlar yo‘q",
-  "page.planning.variantApprovalRequired": "Ishlab chiqarishdan oldin tasdiqlash kerak",
+  "page.planning.variantApprovalRequired": "Ishlab chiqarishdan oldin modelni tasdiqlash kerak",
   "page.planning.modelLoadFailed": "Modellarni yuklab bo‘lmadi. Qayta urinib ko‘ring.",
 
     "nav.priceCalculation": "Narx hisoblash",

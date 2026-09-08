@@ -46,7 +46,7 @@ export default {
   "page.planning.variantNumber": "Variant number",
   "page.planning.selectVariant": "Select variant...",
   "page.planning.noApprovedVariants": "No approved variants",
-  "page.planning.variantApprovalRequired": "Approval required before production",
+  "page.planning.variantApprovalRequired": "Model approval required before production",
   "page.planning.modelLoadFailed": "Unable to load models. Please try again.",
 
     "nav.priceCalculation": "Price calculation",
