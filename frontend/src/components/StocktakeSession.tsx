@@ -136,7 +136,7 @@ export default function StocktakeSession({ countId, userId, onBack }: { countId:
         <label className="flex flex-col gap-1">{text.result}<select className="input" value={filter} onChange={e => { setFilter(e.target.value); setOffset(0); input.current?.focus({ preventScroll: true }); }}>
           {["all", "found", "missing", "unknown", "unexpected", "ambiguous", "changed"].map(key => <option key={key} value={key}>{key === "missing" && completed ? text.missingFinal : text[key as keyof typeof text]}</option>)}
         </select></label>
-        <form className="flex flex-wrap gap-2 items-end flex-1" onSubmit={e => { e.preventDefault(); setSearch(query); setOffset(0); input.current?.focus({ preventScroll: true }); }}><label className="flex flex-col gap-1 flex-1 min-w-48">{text.search}<input className="input" value={query} onChange={e => setQuery(e.target.value)} maxLength={120} /></label><button className="btn">{t("common.search")}</button></form>
+        <form className="flex min-w-48 flex-wrap gap-2 items-end flex-1" onSubmit={e => { e.preventDefault(); setSearch(query); setOffset(0); input.current?.focus({ preventScroll: true }); }}><label className="flex flex-col gap-1 flex-1 min-w-48">{text.search}<input className="input" value={query} onChange={e => setQuery(e.target.value)} maxLength={120} /></label><button className="btn">{t("common.search")}</button></form>
       </div>
       <div className="overflow-x-auto border-y" aria-busy={isValidating}><table className="table"><thead><tr><th>{text.result}</th><th>{text.package}</th><th>{text.model}</th><th>{text.qty}</th><th>{text.location}</th><th>{text.status}</th><th /></tr></thead><tbody>
         {data.rows.map(row => <tr key={row.id}>
