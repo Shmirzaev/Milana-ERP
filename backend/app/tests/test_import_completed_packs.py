@@ -16,6 +16,10 @@ importer = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(importer)
 
 
+def test_production_migration_guard_matches_current_baseline():
+    assert importer.EXPECTED_ALEMBIC_HEAD == "0114_warehouse_stocktake"
+
+
 def _row(photo_hash: str) -> dict:
     return {
         "qr_code": "uzerp_ii_19809_1",

@@ -21,7 +21,7 @@ from app.models import LegacyStockReceipt, Model, Package, PackageBarcodeAlias
 
 SOURCE_SYSTEM = "UZERP_STICKER_PHOTO"
 SOURCE_WAREHOUSE_ID = "18"
-EXPECTED_ALEMBIC_HEAD = "0113_variant_selling_price"
+EXPECTED_ALEMBIC_HEAD = "0114_warehouse_stocktake"
 QR_RE = re.compile(r"^(?:uzerp_ii_(\d+)_(\d+)|(\d{7}))$", re.IGNORECASE)
 CONFUSABLES = str.maketrans(
     {
