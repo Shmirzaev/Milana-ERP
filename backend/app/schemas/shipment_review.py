@@ -1,5 +1,18 @@
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class ShipmentTransportDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    driver_name: str | None = Field(default=None, max_length=200)
+    vehicle_info: str | None = Field(default=None, max_length=200)
+    cargo_name: str | None = Field(default=None, max_length=200)
+    driver_phone: str | None = Field(default=None, max_length=50)
+
+    @field_validator("driver_name", "vehicle_info", "cargo_name", "driver_phone")
+    @classmethod
+    def strip_empty(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
 
 
 class ShipmentQuantityLine(BaseModel):

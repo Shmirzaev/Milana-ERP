@@ -9,7 +9,7 @@ from hashlib import sha256
 import json
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
     Customer, FinishedGoodsStock, Invoice, Model, Package, PackageBatchAllocation, Payment,
@@ -20,6 +20,7 @@ from app.schemas.shipment_review import ShipmentAmountReview, ShipmentQuantityRe
 from app.models.shipment_review import PackageQuantityAdjustment
 from app.core.deps import user_permissions
 from app.services.audit import log_action
+from app.services.shipment_invoice import build_invoice_rows, invoice_model_identity
 
 
 def locked_shipment(db: Session, shipment_id: int) -> Shipment:
@@ -158,7 +159,7 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
     customer_id = shipment.customer_id or (order.customer_id if order else None)
     customer = db.get(Customer, customer_id) if customer_id else None
     order_items = db.query(SalesOrderItem).filter_by(sales_order_id=order.id).all() if order else []
-    rows = db.query(ShipmentPackage, Package).join(Package, Package.id == ShipmentPackage.package_id).filter(
+    rows = db.query(ShipmentPackage, Package).options(selectinload(Package.legacy_receipt)).join(Package, Package.id == ShipmentPackage.package_id).filter(
         ShipmentPackage.shipment_id == shipment.id).order_by(Package.id).all()
     package_ids = [package.id for _, package in rows]
     contents = db.query(PackageItem).filter(PackageItem.package_id.in_(package_ids)).order_by(PackageItem.id).all() if package_ids else []
@@ -168,11 +169,14 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
     unknown_prices = False
     pieces = 0
     pack_count = 0
+    package_details = []
     for link, package in rows:
         if scanned_ids is not None and package.id not in scanned_ids:
             continue
         pack_count += 1
         pieces += link.quantity
+        package_details.append({"package_no": package.package_no, "quantity": link.quantity,
+                                "weight_kg": str(package.weight_kg) if package.weight_kg is not None else None})
         package_items = [item for item in contents if item.package_id == package.id]
         balanced = sum(item.quantity for item in package_items) == link.quantity
         if not balanced:
@@ -190,17 +194,32 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
             else:
                 total += amount
             model = models.get(item.model_id)
+            legacy_source = package.legacy_receipt.source_payload if package.legacy_receipt else {}
+            model_no, variant_no = invoice_model_identity(model, legacy_source)
+            model_details = model.details_json if model and isinstance(model.details_json, dict) else {}
+            hidden = bool(model_details.get("legacy_import")) or bool(model and model.code.startswith("LEGACY-"))
+            description = ((legacy_source.get("product") or legacy_source.get("finished_name")) if hidden else None) or ((model.name or model.description) if model else None)
             lines.append({"package_no": package.package_no, "model_code": model.code if model else "",
+                          "model_no": model_no, "variant_no": variant_no,
+                          "description": description,
                           "color": item.color, "size": item.size, "quantity": item.quantity,
                           "unit_price": str(price) if price is not None else None,
                           "amount": str(amount) if amount is not None else None})
     document = {"shipment_no": shipment.shipment_no, "sales_order_no": order.order_no if order else None,
-            "customer": customer.name if customer else shipment.notes, "supplier": "Milana",
+            "customer": customer.name if customer else shipment.notes, "supplier": "Milana Tex",
+            "transport_details": dict(shipment.transport_details or {}),
             "shipped_at": shipment.shipped_at.isoformat() if shipment.shipped_at else None,
             "packages_count": pack_count, "quantity": pieces, "lines": lines,
             "amount": None if unknown_prices else str(total.quantize(Decimal("0.01"))),
             "pricing_complete": not unknown_prices, "historical_reconstruction": False,
             "document_type": "commercial_invoice", "finance_posting_status": "unposted"}
+    known_weight = sum((Decimal(row["weight_kg"]) for row in package_details if row["weight_kg"] is not None), Decimal("0"))
+    missing_weight = sum(row["weight_kg"] is None for row in package_details)
+    document.update({"package_details": package_details,
+                     "invoice_rows": build_invoice_rows(lines, package_details),
+                     "known_weight_kg": str(known_weight), "missing_weight_packages": missing_weight,
+                     "total_weight_kg": str(known_weight) if not missing_weight else None,
+                     "invoice_layout_version": 2})
     document["basis"] = sha256(json.dumps({"packages": [(p.id, link.quantity) for link, p in rows
                                                         if scanned_ids is None or p.id in scanned_ids],
                                          "lines": lines}, sort_keys=True).encode()).hexdigest()

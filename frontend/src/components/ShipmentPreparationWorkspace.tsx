@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { Check, PackageCheck, ScanLine } from "lucide-react";
-import { useId } from "react";
+import { useId, useState } from "react";
 
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { shipmentReviewText } from "@/lib/shipmentReviewText";
 import ShipmentReviewPanel from "@/components/ShipmentReviewPanel";
+import ShipmentTransportDetails, { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
+import { shipmentTransportText } from "@/lib/shipmentTransportText";
+import { can, useMe } from "@/lib/auth";
 
 export type ShipmentSummary = {
   id: number;
@@ -18,6 +21,7 @@ export type ShipmentSummary = {
   shipment_no: string | null;
   status: string;
   notes?: string | null;
+  transport_details?: TransportDetails | null;
   packages_count?: number | null;
   total_qty?: number | null;
 };
@@ -109,12 +113,15 @@ export default function ShipmentPreparationWorkspace({
   onAddReadyPackages: () => void;
   onShip: () => void;
   onDeliver: () => void;
-  onCreate?: () => void;
+  onCreate?: (transportDetails: TransportDetails | null) => void;
   isCreating?: boolean;
   canTraceability: boolean;
   onReviewChanged: () => Promise<unknown>;
 }) {
   const { t, lang } = useT();
+  const { me } = useMe();
+  const canEditTransport = can(me, "storage.shipment");
+  const [transportDraft, setTransportDraft] = useState<TransportDetails>({});
   const reviewText = shipmentReviewText[lang];
   const scanInputId = useId();
 
@@ -212,7 +219,7 @@ export default function ShipmentPreparationWorkspace({
             {["shipped", "delivered"].includes(shipment.status) && <a className="btn" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={reviewText.reference}>{reviewText.print}</a>}
           </div> : onCreate ? (
             <div className="flex lg:justify-end">
-              <button type="button" className="btn btn-primary" onClick={onCreate} disabled={isCreating}>
+              <button type="button" className="btn btn-primary" onClick={() => onCreate(normalizeTransportDetails(transportDraft))} disabled={isCreating}>
                 {isCreating ? t("common.loading") : t("btn.createShipment")}
               </button>
             </div>
@@ -220,6 +227,12 @@ export default function ShipmentPreparationWorkspace({
         </div>
       </div>
 
+      {isPreview ? canEditTransport && <details className="border-b border-[#ded9ca] px-4 py-3 sm:px-5">
+        <summary className="cursor-pointer text-sm font-medium">{shipmentTransportText[lang].optional}</summary>
+        <div className="mt-3"><ShipmentTransportFields value={transportDraft} onChange={setTransportDraft} disabled={isCreating} /></div>
+      </details> : <div className="border-b border-[#ded9ca] px-4 py-1 sm:px-5">
+        <ShipmentTransportDetails key={shipment.id} shipment={shipment} onChanged={onReviewChanged} />
+      </div>}
       {!isPreview && <ShipmentReviewPanel preparation={preparation} onChanged={onReviewChanged} />}
 
       <details className="border-t border-b border-[#ded9ca]">

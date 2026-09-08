@@ -3,6 +3,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel, SchemaModel
+from app.schemas.shipment_review import ShipmentTransportDetails
 
 
 class SalesOrderItemIn(SchemaModel):
@@ -112,6 +113,7 @@ class ShipmentIn(BaseModel):
     sales_order_id: Optional[int] = None
     customer_id: Optional[int] = None
     notes: Optional[str] = None
+    transport_details: ShipmentTransportDetails | None = None
 
 
 class ShipmentOut(ORMModel):
@@ -123,6 +125,7 @@ class ShipmentOut(ORMModel):
     shipped_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
     notes: Optional[str] = None
+    transport_details: ShipmentTransportDetails | None = None
     sales_order_no: Optional[str] = None
     customer_name: Optional[str] = None
     shipment_type: str = "sales_order"

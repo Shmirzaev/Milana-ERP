@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse
+from pydantic import ValidationError
 from sqlalchemy import and_, func, exists
 from sqlalchemy.orm import selectinload, aliased
 
@@ -23,7 +24,7 @@ from app.models import (
     Invoice,
 )
 from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut
-from app.schemas.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview
+from app.schemas.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails
 from app.services.shipment_review import (
     correct_received_quantity, detach_shipment_package, freeze_dispatch_document, locked_shipment,
     invoice_for_frozen_delivery, review_shipment_amount, shipment_document,
@@ -75,6 +76,7 @@ def _shipment_payload(db: DbSession, sh: Shipment, *, scanned_count: int | None 
         "shipped_at": sh.shipped_at,
         "delivered_at": sh.delivered_at,
         "notes": sh.notes,
+        "transport_details": sh.transport_details or {},
         "created_at": sh.created_at,
         "sales_order_no": so.order_no if so else None,
         "customer_name": customer.name if customer else None,
@@ -937,12 +939,22 @@ def create_shipment(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = payload.model_dump(mode="json")
+    # Serialize every create for this order before replay/existence checks. A
+    # waiter must refresh its cached order and see the first transaction's
+    # idempotency record or shipment after that transaction commits.
+    so = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == payload.sales_order_id)
+        .with_for_update(of=SalesOrder)
+        .populate_existing()
+        .first()
+        if payload.sales_order_id else None
+    )
+    if payload.sales_order_id and not so:
+        raise HTTPException(404, "Sales order not found")
     replay = replay_idempotent_response(db, scope="shipments.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
-    so = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
-    if payload.sales_order_id and not so:
-        raise HTTPException(404, "Sales order not found")
     if not payload.sales_order_id and not str(payload.notes or "").strip():
         raise HTTPException(400, "Recipient or warehouse exit reference is required")
     if so:
@@ -957,6 +969,7 @@ def create_shipment(
         shipment_no=next_shipment_no(db),
         status="created",
         notes=payload.notes,
+        transport_details=payload.transport_details.model_dump() if payload.transport_details else None,
     )
     db.add(sh); db.flush()
     added = 0
@@ -981,6 +994,7 @@ def create_shipment(
             "shipment_type": "sales_order" if sh.sales_order_id else "warehouse_exit",
             "packages": added,
             "notes": sh.notes,
+            "transport_details": sh.transport_details,
         },
     )
     db.flush()
@@ -1014,17 +1028,25 @@ def update_shipment(
     sh = locked_shipment(db, sid)
     if sh.status not in _OPEN_SHIPMENT_STATUSES:
         raise HTTPException(409, "Dispatched shipment metadata is frozen")
-    if set(payload) - {"notes"}:
-        raise HTTPException(422, "Only shipment notes may be edited; use validated workflow actions")
+    if set(payload) - {"notes", "transport_details"}:
+        raise HTTPException(422, "Only shipment notes and transport details may be edited; use validated workflow actions")
     notes = payload.get("notes", sh.notes)
     if notes is not None and (not isinstance(notes, str) or len(notes) > 4000):
         raise HTTPException(422, "Notes must be text up to 4000 characters")
     if not sh.sales_order_id and not str(notes or "").strip():
         raise HTTPException(422, "Warehouse exit reference is required")
     previous_notes = sh.notes
+    previous_transport = sh.transport_details
+    if "transport_details" in payload:
+        try:
+            transport = ShipmentTransportDetails.model_validate(payload["transport_details"]).model_dump() if payload["transport_details"] is not None else None
+        except ValidationError:
+            raise HTTPException(422, "Transport details allow driver_name, vehicle_info, cargo_name (up to 200 characters), driver_phone (up to 50), or null")
+        sh.transport_details = transport if transport and any(transport.values()) else None
     sh.notes = notes
     log_action(db, current, "update", "Shipment", sh.id,
-               old_value={"notes": previous_notes}, new_value={"notes": notes})
+               old_value={"notes": previous_notes, "transport_details": previous_transport},
+               new_value={"notes": notes, "transport_details": sh.transport_details})
     db.flush()
     response = _shipment_payload(db, sh)
     store_idempotent_response(

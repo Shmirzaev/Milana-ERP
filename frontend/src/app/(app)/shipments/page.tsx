@@ -16,6 +16,8 @@ import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { shipmentReviewText } from "@/lib/shipmentReviewText";
+import ShipmentTransportDetails, { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
+import { shipmentTransportText } from "@/lib/shipmentTransportText";
 
 type ShipmentRow = ShipmentSummary & {
   shipment_type?: "sales_order" | "warehouse_exit";
@@ -72,13 +74,13 @@ function ShipmentOrderWorkspace({
     await Promise.all([mutate(), onChanged()]);
   }
 
-  async function createShipment() {
+  async function createShipment(transportDetails: TransportDetails | null) {
     if (shipmentId || isCreating) return;
     setError("");
     setMessage("");
     setIsCreating(true);
     try {
-      const shipment = await api.post<ShipmentRow>("/api/shipments", { sales_order_id: order.id, notes: null });
+      const shipment = await api.post<ShipmentRow>("/api/shipments", { sales_order_id: order.id, notes: null, transport_details: transportDetails });
       setMessage(t("page.shipments.salesShipmentCreated", {
         shipment: shipment.shipment_no,
         count: Number(shipment.packages_count || 0),
@@ -181,6 +183,8 @@ export default function ShipmentsPage() {
   const { data: orders, mutate: mutateOrders } = useSWR<EligibleOrder[]>("/api/shipments/eligible-orders", fetcher);
   const [orderQuery, setOrderQuery] = useState("");
   const [warehouseExitReference, setWarehouseExitReference] = useState("");
+  const [warehouseTransport, setWarehouseTransport] = useState<TransportDetails>({});
+  const [warehouseCreating, setWarehouseCreating] = useState(false);
   const [warehouseMessage, setWarehouseMessage] = useState("");
   const [warehouseError, setWarehouseError] = useState("");
   const [historyQuery, setHistoryQuery] = useState("");
@@ -230,16 +234,20 @@ export default function ShipmentsPage() {
   }
 
   async function createWarehouseExit() {
-    if (!warehouseExitReference.trim()) return;
+    if (!warehouseExitReference.trim() || warehouseCreating) return;
     setWarehouseError("");
     setWarehouseMessage("");
+    setWarehouseCreating(true);
     try {
-      const shipment = await api.post<ShipmentRow>("/api/shipments", { sales_order_id: null, notes: warehouseExitReference.trim() });
+      const shipment = await api.post<ShipmentRow>("/api/shipments", { sales_order_id: null, notes: warehouseExitReference.trim(), transport_details: normalizeTransportDetails(warehouseTransport) });
       setWarehouseExitReference("");
+      setWarehouseTransport({});
       setWarehouseMessage(t("page.shipments.warehouseExitCreated", { shipment: shipment.shipment_no }));
       await mutate();
     } catch (caught) {
       setWarehouseError(errorMessage(caught));
+    } finally {
+      setWarehouseCreating(false);
     }
   }
 
@@ -287,9 +295,13 @@ export default function ShipmentsPage() {
           {warehouseMessage ? <div className="mb-3 border-l-2 border-emerald-600 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{warehouseMessage}</div> : null}
           {warehouseError ? <div className="mb-3 border-l-2 border-rose-600 bg-rose-50 px-3 py-2 text-sm text-rose-800">{warehouseError}</div> : null}
           <div className="flex flex-col gap-2 sm:flex-row">
-            <input className="input min-w-0 flex-1" value={warehouseExitReference} onChange={(event) => setWarehouseExitReference(event.target.value)} placeholder={t("page.shipments.exitReferencePlaceholder")} />
-            <button type="button" className="btn btn-primary" onClick={createWarehouseExit} disabled={!warehouseExitReference.trim()}>{t("page.shipments.createWarehouseExit")}</button>
+            <input className="input min-w-0 flex-1" value={warehouseExitReference} onChange={(event) => setWarehouseExitReference(event.target.value)} placeholder={t("page.shipments.exitReferencePlaceholder")} disabled={warehouseCreating} />
+            <button type="button" className="btn btn-primary" onClick={createWarehouseExit} disabled={warehouseCreating || !warehouseExitReference.trim()}>{t("page.shipments.createWarehouseExit")}</button>
           </div>
+          {can(me, "storage.shipment") && <details className="mt-3">
+            <summary className="cursor-pointer text-sm font-medium">{shipmentTransportText[lang].optional}</summary>
+            <div className="mt-3"><ShipmentTransportFields value={warehouseTransport} onChange={setWarehouseTransport} disabled={warehouseCreating} /></div>
+          </details>}
         </section>
 
         <section className="card overflow-hidden">
@@ -309,6 +321,7 @@ export default function ShipmentsPage() {
                 <div className="flex items-start justify-between gap-3"><div className="mono font-semibold text-[#14110b]">{shipment.shipment_no}</div><span className="badge">{statusLabel(shipment.status, t)}</span></div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#56503f]"><span>{shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</span><span className="text-right mono">{shipment.sales_order_no || "-"}</span><span>{shipment.customer_name || "-"}</span><span className="text-right tabular-nums">{Number(shipment.packages_count || 0)} {t("field.packages")} · {Number(shipment.total_qty || 0).toLocaleString()} {t("page.shipments.pieces")}</span></div>
                 {["shipped", "delivered"].includes(shipment.status) && <a className="btn mt-3" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}
+                {(!shipment.sales_order_id || !["draft", "created"].includes(shipment.status)) && <ShipmentTransportDetails shipment={shipment} onChanged={mutate} />}
                 {canTraceability ? <Link className="btn mt-3 h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : null}
               </article>
             ))}
@@ -318,7 +331,7 @@ export default function ShipmentsPage() {
             <table className="table min-w-[1180px]">
               <thead><tr><th>{t("field.shipmentNo")}</th><th>{t("page.shipments.type")}</th><th>{t("page.shipments.salesOrder")}</th><th>{t("field.customer")}</th><th>{t("page.shipments.reference")}</th><th>{t("field.packages")}</th><th>{t("field.totalQty")}</th><th>{t("field.status")}</th><th>{t("field.shipped")}</th><th>{t("field.delivered")}</th><th>{t("field.actions")}</th></tr></thead>
               <tbody>
-                {filteredHistory.map((shipment) => <tr key={shipment.id}><td className="mono whitespace-nowrap font-semibold text-[#14110b]">{shipment.shipment_no}</td><td>{shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</td><td className="mono whitespace-nowrap">{shipment.sales_order_no || "-"}</td><td>{shipment.customer_name || "-"}</td><td className="max-w-56 whitespace-normal">{shipment.notes || "-"}</td><td className="tabular-nums">{Number(shipment.packages_count || 0)}</td><td className="tabular-nums">{Number(shipment.total_qty || 0).toLocaleString()}</td><td><span className="badge">{statusLabel(shipment.status, t)}</span></td><td className="whitespace-nowrap">{shipment.shipped_at ? new Date(shipment.shipped_at).toLocaleString() : "-"}</td><td className="whitespace-nowrap">{shipment.delivered_at ? new Date(shipment.delivered_at).toLocaleString() : "-"}</td><td>{["shipped", "delivered"].includes(shipment.status) && <a className="btn h-8 px-2.5 text-[11px]" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}{canTraceability ? <Link className="btn h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : "-"}</td></tr>)}
+                {filteredHistory.map((shipment) => <tr key={shipment.id}><td className="mono whitespace-nowrap font-semibold text-[#14110b]">{shipment.shipment_no}</td><td>{shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</td><td className="mono whitespace-nowrap">{shipment.sales_order_no || "-"}</td><td>{shipment.customer_name || "-"}</td><td className="max-w-56 whitespace-normal">{shipment.notes || "-"}{(!shipment.sales_order_id || !["draft", "created"].includes(shipment.status)) && <ShipmentTransportDetails shipment={shipment} onChanged={mutate} />}</td><td className="tabular-nums">{Number(shipment.packages_count || 0)}</td><td className="tabular-nums">{Number(shipment.total_qty || 0).toLocaleString()}</td><td><span className="badge">{statusLabel(shipment.status, t)}</span></td><td className="whitespace-nowrap">{shipment.shipped_at ? new Date(shipment.shipped_at).toLocaleString() : "-"}</td><td className="whitespace-nowrap">{shipment.delivered_at ? new Date(shipment.delivered_at).toLocaleString() : "-"}</td><td>{["shipped", "delivered"].includes(shipment.status) && <a className="btn h-8 px-2.5 text-[11px]" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}{canTraceability ? <Link className="btn h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : "-"}</td></tr>)}
                 {!filteredHistory.length ? <tr><td colSpan={11} className="py-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</td></tr> : null}
               </tbody>
             </table>

@@ -17,6 +17,7 @@ def upgrade():
             "requested_pack_count IS NULL OR requested_pack_count > 0",
         )
     op.add_column("shipments", sa.Column("dispatch_snapshot", sa.JSON(), nullable=True))
+    op.add_column("shipments", sa.Column("transport_details", sa.JSON(), nullable=True))
 
 
 def downgrade():
@@ -25,6 +26,9 @@ def downgrade():
         raise RuntimeError("Cannot remove recorded shipment invoice snapshots")
     if connection.execute(sa.text("SELECT count(*) FROM sales_order_items WHERE requested_pack_count IS NOT NULL")).scalar():
         raise RuntimeError("Cannot remove requested physical pack counts")
+    if connection.execute(sa.text("SELECT count(*) FROM shipments WHERE transport_details IS NOT NULL")).scalar():
+        raise RuntimeError("Cannot remove recorded shipment transport details")
+    op.drop_column("shipments", "transport_details")
     op.drop_column("shipments", "dispatch_snapshot")
     with op.batch_alter_table("sales_order_items") as batch:
         batch.drop_constraint("ck_sales_order_items_requested_packs_positive", type_="check")

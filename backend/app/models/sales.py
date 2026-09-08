@@ -78,6 +78,7 @@ class Shipment(Base, PkMixin, TimestampMixin):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)
     dispatch_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    transport_details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     packages: Mapped[list["ShipmentPackage"]] = relationship("ShipmentPackage", back_populates="shipment", cascade="all, delete-orphan")
     scan_logs: Mapped[list["ShipmentScanLog"]] = relationship(
