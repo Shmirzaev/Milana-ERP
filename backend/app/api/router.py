@@ -8,7 +8,7 @@ from app.api.routes import (
     traceability,
     forecasting,
     payroll,
-    attendance, usluga, hr_workspace, price_calculation,
+    attendance, usluga, hr_workspace, price_calculation, stocktake,
 )
 
 api_router = APIRouter(prefix="/api")
@@ -49,3 +49,4 @@ api_router.include_router(payroll.router)
 api_router.include_router(attendance.router)
 api_router.include_router(usluga.router)
 api_router.include_router(price_calculation.router)
+api_router.include_router(stocktake.router)

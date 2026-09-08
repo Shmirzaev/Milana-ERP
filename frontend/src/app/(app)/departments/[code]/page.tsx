@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
+import StocktakeLink from "@/components/StocktakeLink";
 import CuttingOrderList from "@/components/CuttingOrderList";
 import ShipmentItemLines from "@/components/ShipmentItemLines";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
@@ -286,6 +287,7 @@ export default function DepartmentInboxPage() {
       <PageHeader
         title={t("page.deptInbox.title", { dept: deptLabel })}
         subtitle={t("page.deptInbox.subtitle")}
+        actions={code === "FGS" ? <StocktakeLink /> : undefined}
       />
       {isLoading && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
       {!isLoading && (code === "CUT" || code === "ECT") && (

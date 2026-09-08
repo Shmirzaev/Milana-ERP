@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { Boxes, Grid2X2, ImageOff, PackageSearch, Search, Warehouse } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
+import StocktakeLink from "@/components/StocktakeLink";
 import { statusLabel } from "@/components/StagePipeline";
 import { fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
@@ -257,7 +258,7 @@ export default function WarehouseStockPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} />
+      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<StocktakeLink />} />
 
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="kpi-card">
