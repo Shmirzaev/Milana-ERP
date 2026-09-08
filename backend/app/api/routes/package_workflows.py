@@ -1,6 +1,7 @@
 """Package workflow routes mounted before /packages/{pid}."""
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+from app.services.print_response import warehouse_print_response
 
 from app.core.deps import DbSession, require_permissions, user_permissions
 from app.models import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
@@ -155,9 +156,9 @@ def print_run_label(rid: int, db: DbSession,
     <p>Pieces / Изделия / Dona: {current_quantity}</p>
     <img width='180' height='180' src='{qr_png_data_uri(run.code)}' alt='QR'>
     <p>{_h(run.code)}</p><p>{', '.join(_h(m.snapshot['package_no']) for m in members)}</p></section>"""
-    return f"""<!doctype html><html><head><meta charset='utf-8'><title>{_h(run.run_no)}</title>
+    return warehouse_print_response(f"""<!doctype html><html><head><meta charset='utf-8'><title>{_h(run.run_no)}</title>
     <style>@page{{size:A4 portrait;margin:5mm}}{_PACKAGE_LABEL_CSS}
     .cover{{font-family:sans-serif;break-after:page;padding:10mm}} .cover p{{overflow-wrap:anywhere}}
     .sheet{{display:grid;grid-template-columns:repeat(2,98.5mm);gap:3mm}}</style></head>
     <body>{cover}<div class='sheet'>{''.join(cards)}</div>
-    <button class='print-button' onclick='window.print()'>Print / Печать / Chop etish</button></body></html>"""
+    <button class='print-button' onclick='window.print()'>Print / Печать / Chop etish</button></body></html>""")

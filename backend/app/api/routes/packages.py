@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse
+from app.services.print_response import warehouse_print_response
 from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 import base64
@@ -1468,7 +1469,7 @@ def label(pid: int, db: DbSession, current: User = Depends(require_permissions(*
     package_no = _h(p.package_no)
     card = _package_label_card_html(db, p)
     cards = card * 4
-    return f"""<!doctype html>
+    return warehouse_print_response(f"""<!doctype html>
 <html><head><meta charset='utf-8'><title>Package Label {package_no}</title>
 <style>
 @page{{size:A4 portrait;margin:5mm}}
@@ -1478,7 +1479,7 @@ def label(pid: int, db: DbSession, current: User = Depends(require_permissions(*
 <body>
 <div class='sheet'>{cards}</div>
 <button class='print-button' onclick='window.print()'>Print</button>
-</body></html>"""
+</body></html>""")
 
 
 @router.get("/label-sheet/by-ids", response_class=HTMLResponse)
@@ -1503,7 +1504,7 @@ def label_sheet(ids: str, db: DbSession, current: User = Depends(require_permiss
         require_package_access(current, package)
 
     cards = [_package_label_card_html(db, p) for p in rows]
-    return f"""<!doctype html>
+    return warehouse_print_response(f"""<!doctype html>
 <html><head><meta charset='utf-8'><title>Package Label Sheet</title>
 <style>
 @page{{size:A4 portrait;margin:5mm}}
@@ -1513,4 +1514,4 @@ def label_sheet(ids: str, db: DbSession, current: User = Depends(require_permiss
 <body>
 <div class='sheet'>{''.join(cards)}</div>
 <button class='print-button' onclick='window.print()'>Print</button>
-</body></html>"""
+</body></html>""")
