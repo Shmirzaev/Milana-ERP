@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse
+from app.services.print_response import warehouse_print_response
 from pydantic import ValidationError
 from sqlalchemy import and_, func, exists
 from sqlalchemy.orm import selectinload, aliased
@@ -1222,8 +1223,7 @@ def print_shipment_invoice(sid: int, db: DbSession, lang: str = "en",
     shipment = db.get(Shipment, sid)
     if not shipment:
         raise HTTPException(404, "Shipment not found")
-    return HTMLResponse(render_shipment_invoice(_printed_document(db, shipment), lang),
-                        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+    return warehouse_print_response(render_shipment_invoice(_printed_document(db, shipment), lang))
 
 
 @router.get("/{sid}/scan-status", response_model=ShipmentScanOut)
