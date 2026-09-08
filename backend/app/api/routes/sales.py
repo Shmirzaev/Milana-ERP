@@ -32,6 +32,7 @@ from app.schemas.sales import (
 )
 from app.services.audit import log_action
 from app.services.finished_goods import repair_missing_brand_metadata
+from app.services.ready_stock_sales import ready_pack_candidates, reserve_ready_packs
 from app.services.numbering import next_sales_order_no
 from app.services.numbering import next_invoice_no
 from app.services.workflow import notify_department
@@ -1132,6 +1133,10 @@ def _stock_rows_for_variant(
                 FinishedGoodsStock.package_id.is_(None),
                 Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
             ),
+            ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
+                ShipmentPackage.package_id == FinishedGoodsStock.package_id,
+                Shipment.status != "cancelled",
+            ).exists(),
         )
     )
     if not _is_any_stock_token(color):
@@ -1141,6 +1146,9 @@ def _stock_rows_for_variant(
     if brand_id is not None:
         qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
     if db.bind and db.bind.dialect.name == "postgresql":
+        # Keep the same package -> stock lock order as warehouse dispatch.
+        package_ids = qry.with_entities(FinishedGoodsStock.package_id).filter(FinishedGoodsStock.package_id.isnot(None))
+        db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update(of=Package).all()
         qry = qry.with_for_update(of=FinishedGoodsStock)
     return qry.order_by(FinishedGoodsStock.id.asc()).all()
 
@@ -1160,7 +1168,7 @@ def _package_allocation_candidates(
     package_query = db.query(Package).filter(Package.id.in_(rows_by_package))
     if db.bind and db.bind.dialect.name == "postgresql":
         package_query = package_query.with_for_update(of=Package)
-    packages = {int(package.id): package for package in package_query.all()}
+    packages = {int(package.id): package for package in package_query.order_by(Package.id).all()}
 
     partial_rows = [
         row
@@ -1327,10 +1335,32 @@ def _reserve_branded_stock(
     notify_storage_when_ready: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     line_rows = lines if lines is not None else db.query(SalesOrderItem).filter(SalesOrderItem.sales_order_id == so.id).all()
+    if any(line.requested_pack_count is not None for line in line_rows):
+        reservations = reserve_ready_packs(db, so=so, lines=line_rows, user_id=current.id)
+        if notify_storage_when_ready:
+            _total_qty, handoff_message = _shipment_handoff_details(db, so=so, lines=line_rows)
+            pack_count = sum(line.requested_pack_count for line in line_rows)
+            notify_department(
+                db, department_code="FGS", title=f"{so.order_no}: {pack_count} packs to prepare",
+                message=handoff_message, link=f"/departments/FGS#shipping-order-{so.id}",
+                exclude_user_id=current.id,
+            )
+        return reservations, []
     requested_by_variant: dict[tuple[int, str, str, int | None], int] = defaultdict(int)
     for line in line_rows:
         key = _stock_variant_key(line.model_id, line.color, line.size, line.brand_id)
         requested_by_variant[key] += int(line.quantity or 0)
+
+    if db.bind and db.bind.dialect.name == "postgresql":
+        # Lock across all lines before metadata repair or any stock lock, so
+        # opposite model-line ordering cannot invert the package lock order.
+        db.query(Package).filter(
+            Package.model_id.in_({key[0] for key in requested_by_variant}),
+            Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
+            ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
+                ShipmentPackage.package_id == Package.id, Shipment.status != "cancelled",
+            ).exists(),
+        ).order_by(Package.id).with_for_update(of=Package).all()
 
     # Legacy rows need inferred metadata only when a requested brand must be
     # matched. Keep that repair scoped to the models in this order instead of
@@ -1507,6 +1537,19 @@ def _reserve_branded_stock(
         _notify_planning_shortage(db, so=so, current=current, shortages=shortages)
 
     return reservations, shortages
+
+
+@router.get("/ready-stock-options")
+def ready_stock_options(db: DbSession, _: User = Depends(require_permissions("sales.orders", "*"))):
+    groups: dict[tuple[int, int | None], dict] = {}
+    for package, rows in ready_pack_candidates(db):
+        brands = {row.brand_id for row in rows}
+        brand_id = next(iter(brands)) if len(brands) == 1 else None
+        key = (package.model_id, brand_id)
+        group = groups.setdefault(key, {"model_id": package.model_id, "brand_id": brand_id, "pack_count": 0, "quantity": 0})
+        group["pack_count"] += 1
+        group["quantity"] += package.total_quantity
+    return list(groups.values())
 
 
 @router.post("/printing-attachments/upload", status_code=201)
@@ -1740,6 +1783,18 @@ def get_sales_order_history(sid: int, db: DbSession, _: CurrentUser):
 def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Depends(require_permissions("sales.orders", "*"))):
     if payload.order_type not in ("client_order", "branded_stock_sale"):
         raise HTTPException(400, "Invalid order_type")
+    if payload.order_type == "branded_stock_sale" and not payload.items:
+        raise HTTPException(400, "A Ready stock order must have at least one line")
+    pack_order = any(item.requested_pack_count is not None for item in payload.items)
+    if pack_order:
+        if payload.order_type != "branded_stock_sale" or any(item.requested_pack_count is None for item in payload.items):
+            raise HTTPException(400, "Pack counts require a Ready stock order with pack counts on every line")
+        if len({item.model_id for item in payload.items}) != len(payload.items):
+            raise HTTPException(400, "Use one pack-count line per model variant")
+        if any(item.quantity is not None or item.printing_required for item in payload.items):
+            raise HTTPException(400, "Ready stock pack quantities come from warehouse packages; printing is not supported")
+    elif any(item.quantity is None for item in payload.items):
+        raise HTTPException(400, "A piece quantity is required")
     if payload.customer_id and not db.get(Customer, payload.customer_id):
         raise HTTPException(404, "Customer not found")
     so = SalesOrder(
@@ -1774,11 +1829,15 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         line = SalesOrderItem(
             sales_order_id=so.id,
             unit_price=unit_price,
-            **item.model_dump(exclude={"unit_price"}),
+            **item.model_dump(exclude={"unit_price", "quantity", "color", "size", "source_type"}),
+            quantity=0 if pack_order else item.quantity,
+            color="mixed" if pack_order else item.color,
+            size="any" if pack_order else item.size,
+            source_type="from_stock" if pack_order else item.source_type,
         )
         db.add(line)
         created_lines.append(line)
-        total += float(unit_price) * item.quantity
+        total += float(unit_price) * line.quantity
     so.total_amount = total
     if payload.order_type == "branded_stock_sale":
         reservations, shortages = _reserve_branded_stock(

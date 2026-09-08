@@ -55,6 +55,7 @@ class Package(Base, PkMixin, TimestampMixin):
     __tablename__ = "packages"
     __table_args__ = (
         CheckConstraint("total_quantity >= 0", name="ck_packages_total_quantity_nonnegative"),
+        CheckConstraint("quantity_shortfall >= 0", name="ck_packages_shortfall_nonnegative"),
         CheckConstraint("capacity > 0", name="ck_packages_capacity_positive"),
         CheckConstraint("weight_kg IS NULL OR weight_kg >= 0", name="ck_packages_weight_nonnegative"),
         CheckConstraint(
@@ -66,8 +67,12 @@ class Package(Base, PkMixin, TimestampMixin):
             name="ck_packages_status",
         ),
         CheckConstraint(
-            "production_order_id IS NOT NULL OR legacy_receipt_id IS NOT NULL",
+            "production_order_id IS NOT NULL OR legacy_receipt_id IS NOT NULL OR manual_receipt_id IS NOT NULL",
             name="ck_packages_source_evidence",
+        ),
+        CheckConstraint(
+            "manual_receipt_id IS NULL OR (production_order_id IS NULL AND legacy_receipt_id IS NULL AND production_batch_id IS NULL AND sales_order_id IS NULL)",
+            name="ck_packages_manual_source",
         ),
     )
     package_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
@@ -78,6 +83,7 @@ class Package(Base, PkMixin, TimestampMixin):
     legacy_receipt_id: Mapped[int | None] = mapped_column(
         ForeignKey("legacy_stock_receipts.id"), unique=True, index=True
     )
+    manual_receipt_id: Mapped[int | None] = mapped_column(ForeignKey("manual_package_receipts.id"), index=True)
     production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"), index=True)
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
@@ -86,6 +92,7 @@ class Package(Base, PkMixin, TimestampMixin):
     color: Mapped[str] = mapped_column(String(64), nullable=False)
     package_type: Mapped[str] = mapped_column(String(16), default="bag", nullable=False)
     total_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    quantity_shortfall: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     capacity: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     weight_kg: Mapped[float | None] = mapped_column(Numeric(14, 4))
     warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))

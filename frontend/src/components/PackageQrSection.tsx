@@ -4,6 +4,9 @@ import { Fragment, useMemo, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Modal from "@/components/Modal";
+import PackagePrintRuns from "@/components/PackagePrintRuns";
+import PendingPackageWorkflow from "@/components/PendingPackageWorkflow";
+import { packageWorkflowCopy, postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
@@ -30,7 +33,10 @@ export default function PackageQrSection({
   productionOrderId?: number | null;
   onChanged?: () => void | Promise<void>;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const copy = packageWorkflowCopy[lang];
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [runRefresh, setRunRefresh] = useState(0);
   const { me } = useMe();
   const canApprovePackageChange = can(me, "management.approve");
   const packagesKey = productionOrderId
@@ -248,6 +254,17 @@ export default function PackageQrSection({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {(can(me, "packaging.packages") || can(me, "storage.packages")) && <button
+            type="button" className="btn" disabled={!selectedIds.length || busy}
+            onClick={async () => {
+              setBusy(true); setError("");
+              try {
+                const run = await postPackageWorkflow<PackagePrintRun>("/api/packages/print-runs", { package_ids: selectedIds }, me!.id);
+                setSelectedIds([]); setRunRefresh(value => value + 1);
+                await api.openLabel(`/api/packages/print-runs/${run.id}/label`);
+              } catch (e: any) { setError(e.message); }
+              finally { setBusy(false); }
+            }}>{copy.createRun}</button>}
           <button
             type="button"
             className="btn"
@@ -294,6 +311,8 @@ export default function PackageQrSection({
                     )}
                   </td>
                   <td className="font-medium">
+                    {p.status === "packed" && <input type="checkbox" className="mr-2" aria-label={`${copy.select} ${p.package_no}`}
+                      checked={selectedIds.includes(p.id)} onChange={e => setSelectedIds(ids => e.target.checked ? [...ids, p.id] : ids.filter(id => id !== p.id))} />}
                     <div>{p.package_no}</div>
                     <div className="mt-1 text-xs text-slate-500">
                       {p.qr_code_url ? t("page.packaging.qrSaved") : t("page.packaging.qrMissing")}
@@ -341,6 +360,9 @@ export default function PackageQrSection({
         </table>
       </div>
 
+      <PackagePrintRuns productionOrderId={productionOrderId} refreshKey={runRefresh + totalPackages} />
+      <PendingPackageWorkflow path="/api/packages/print-runs/create-packages" onResolved={refreshPackages} />
+      <PendingPackageWorkflow path="/api/packages/print-runs" onResolved={async () => { setRunRefresh(value => value + 1); await refreshPackages(); }} />
       <Modal
         open={!!editing}
         onClose={() => { if (!busy) { setEditing(null); setEditForm(null); } }}

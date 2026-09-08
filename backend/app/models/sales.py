@@ -46,6 +46,7 @@ class SalesOrderItem(Base, PkMixin, TimestampMixin):
     __tablename__ = "sales_order_items"
     __table_args__ = (
         CheckConstraint("quantity >= 0", name="ck_sales_order_items_quantity_nonnegative"),
+        CheckConstraint("requested_pack_count IS NULL OR requested_pack_count > 0", name="ck_sales_order_items_requested_packs_positive"),
         CheckConstraint("unit_price >= 0", name="ck_sales_order_items_unit_price_nonnegative"),
     )
     sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), nullable=False)
@@ -55,6 +56,7 @@ class SalesOrderItem(Base, PkMixin, TimestampMixin):
     color: Mapped[str] = mapped_column(String(64), nullable=False)
     size: Mapped[str] = mapped_column(String(32), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    requested_pack_count: Mapped[int | None] = mapped_column(Integer)
     unit_price: Mapped[float] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     printing_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     source_type: Mapped[str] = mapped_column(String(32), default="produce_new", nullable=False)
@@ -75,6 +77,8 @@ class Shipment(Base, PkMixin, TimestampMixin):
     shipped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)
+    dispatch_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    transport_details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     packages: Mapped[list["ShipmentPackage"]] = relationship("ShipmentPackage", back_populates="shipment", cascade="all, delete-orphan")
     scan_logs: Mapped[list["ShipmentScanLog"]] = relationship(

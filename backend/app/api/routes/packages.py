@@ -111,6 +111,13 @@ def _package_out_payload(db: DbSession, pkg: Package) -> dict:
 def _package_detail_payload(db: DbSession, pkg: Package) -> dict:
     data = PackageDetail.model_validate(pkg).model_dump(mode="json")
     data.update(_package_context(db, pkg))
+    from app.models.package_workflows import ManualPackageReceipt, PackagePrintRunMember
+    member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
+    data["print_run_id"] = member.run_id if member else None
+    if pkg.manual_receipt_id:
+        manual = db.get(ManualPackageReceipt, pkg.manual_receipt_id)
+        data["manual_source"] = {"receipt_no": manual.receipt_no, "evidence": manual.evidence,
+                                 "created_by": manual.created_by, "created_at": manual.created_at} if manual else None
     receipt = pkg.legacy_receipt
     if receipt:
         payload = dict(receipt.source_payload or {})
@@ -1135,7 +1142,7 @@ def api_batch_receive_storage(
     if not package_ids:
         raise HTTPException(400, "package_ids is required")
 
-    packages = db.query(Package).filter(Package.id.in_(package_ids)).all()
+    packages = db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update().populate_existing().all()
     packages_by_id = {int(pkg.id): pkg for pkg in packages}
     missing = [package_id for package_id in package_ids if package_id not in packages_by_id]
     if missing:
@@ -1220,6 +1227,10 @@ def api_batch_place_on_map(
         "count": len(updated),
         "packages": updated,
     }
+
+
+from app.api.routes.package_workflows import router as package_workflows_router
+router.include_router(package_workflows_router)
 
 
 @router.get("/{pid}", response_model=PackageDetail)

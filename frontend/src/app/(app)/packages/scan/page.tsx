@@ -11,6 +11,9 @@ import { useT } from "@/lib/i18n";
 import { can, useMe } from "@/lib/auth";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import WarehouseMap from "@/components/WarehouseMap";
+import ManualPackageReceipt from "@/components/ManualPackageReceipt";
+import PackagePrintRuns from "@/components/PackagePrintRuns";
+import { packageWorkflowCopy, type PackagePrintRun } from "@/lib/packageWorkflow";
 
 type ScannedPackage = {
   id: number;
@@ -61,6 +64,9 @@ function packageModelLabel(pkg: ScannedPackage) {
 const BLOCKED_MAP_MOVE_STATUSES = new Set(["shipped", "delivered", "damaged"]);
 
 export default function ScanPackagePage() {
+  const { lang } = useT();
+  const copy = packageWorkflowCopy[lang];
+  const [runRefresh, setRunRefresh] = useState(0);
   const { t } = useT();
   const { me } = useMe();
   const codeInputRef = useRef<HTMLInputElement>(null);
@@ -124,6 +130,21 @@ export default function ScanPackagePage() {
     setMsg("");
     setBusy("lookup");
     try {
+      if (canStoragePackages) {
+        const resolved = await api.get<{ print_run: PackagePrintRun | null }>(`/api/packages/print-runs/resolve?code=${encodeURIComponent(scanCode)}`);
+        if (resolved.print_run) {
+          const result = await api.post<{ count: number; packages: ScannedPackage[]; run_no: string }>("/api/packages/print-runs/receive", {
+            code: scanCode, storage_cell: selectedCell || null, storage_shelf: selectedCell ? selectedShelf : null,
+          }, 60_000);
+          const ids = new Set(result.packages.map(p => p.id));
+          setScannedPackages(previous => [...result.packages, ...previous.filter(p => !ids.has(p.id))]);
+          setSelectedIds([]); setActivePackageId(result.packages[0]?.id || null);
+          setCode(""); setRunRefresh(value => value + 1);
+          setMsg(`${copy.runReceived}: ${result.run_no} (${result.count})`);
+          await mutateMap();
+          return;
+        }
+      }
       const pkg = await api.get<ScannedPackage>(`/api/packages/barcode/${encodeURIComponent(scanCode)}`);
       setScannedPackages((prev) => {
         const exists = prev.some((row) => row.id === pkg.id);
@@ -237,7 +258,16 @@ export default function ScanPackagePage() {
   return (
     <div>
       <PageHeader title={t("page.packageScan.title")} subtitle={t("page.packageScan.subtitle")} />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,700px)_minmax(0,1fr)]">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <ManualPackageReceipt onCreated={() => { setRunRefresh(value => value + 1); void mutateMap(); }} />
+        <button className="btn" type="button" disabled={!selectedIds.length} onClick={async () => {
+          try { await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${selectedIds.join(",")}`); }
+          catch (e: any) { setMsg(e.message); }
+        }}>{copy.printSelected}</button>
+      </div>
+      <p className="mb-4 text-sm">{copy.scanHint}</p>
+      <PackagePrintRuns refreshKey={runRefresh} />
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,700px)_minmax(0,1fr)]">
         <div className="space-y-4">
           <div className="card p-4">
             <div className="flex flex-col gap-3 lg:flex-row">

@@ -3,6 +3,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel, SchemaModel
+from app.schemas.shipment_review import ShipmentTransportDetails
 
 
 class SalesOrderItemIn(SchemaModel):
@@ -11,7 +12,8 @@ class SalesOrderItemIn(SchemaModel):
     collection_id: Optional[int] = None
     color: str
     size: str
-    quantity: int
+    quantity: Optional[int] = Field(default=None, ge=0)
+    requested_pack_count: Optional[int] = Field(default=None, gt=0, strict=True)
     # When omitted, the backend uses the selected variant's current selling price.
     # An explicitly entered zero remains an intentional zero-price override.
     unit_price: Optional[float] = Field(default=None, ge=0)
@@ -43,6 +45,7 @@ class SalesOrderItemOut(ORMModel):
     color: str
     size: str
     quantity: int
+    requested_pack_count: Optional[int] = None
     unit_price: float
     printing_required: bool
     source_type: str
@@ -110,6 +113,7 @@ class ShipmentIn(BaseModel):
     sales_order_id: Optional[int] = None
     customer_id: Optional[int] = None
     notes: Optional[str] = None
+    transport_details: ShipmentTransportDetails | None = None
 
 
 class ShipmentOut(ORMModel):
@@ -121,6 +125,7 @@ class ShipmentOut(ORMModel):
     shipped_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
     notes: Optional[str] = None
+    transport_details: ShipmentTransportDetails | None = None
     sales_order_no: Optional[str] = None
     customer_name: Optional[str] = None
     shipment_type: str = "sales_order"
