@@ -1,5 +1,6 @@
 export const stocktakeText = {
   en: {
+    scannerReady: "Scanner ready. Keep scanning with Enter or Tab; scans save automatically.",
     title: "Inventory count", intro: "Scan every pack in the finished-goods warehouse. Counts are saved automatically and do not adjust stock.",
     start: "Start count", name: "Count name", history: "Saved counts", open: "In progress", complete: "Completed", back: "All counts",
     empty: "No inventory counts yet.", loading: "Loading…", scan: "Scan package QR or barcode", add: "Record scan", retry: "Retry unsaved scans",
@@ -16,6 +17,7 @@ export const stocktakeText = {
     current: "Current", deleted: "No longer in ERP", denied: "Warehouse package or shipment access is required.", leave: "Some scans have not been saved yet.",
   },
   ru: {
+    scannerReady: "Сканер готов. Сканируйте подряд с Enter или Tab — сканы сохраняются автоматически.",
     title: "Инвентаризация", intro: "Сканируйте каждую упаковку на складе готовой продукции. Результаты сохраняются автоматически и не меняют остатки.",
     start: "Начать инвентаризацию", name: "Название проверки", history: "Сохранённые проверки", open: "В процессе", complete: "Завершена", back: "Все проверки",
     empty: "Проверок пока нет.", loading: "Загрузка…", scan: "Сканируйте QR или штрихкод упаковки", add: "Записать скан", retry: "Повторить несохранённые сканы",
@@ -32,6 +34,7 @@ export const stocktakeText = {
     current: "Сейчас", deleted: "Больше нет в ERP", denied: "Необходим доступ к упаковкам или отгрузкам склада.", leave: "Некоторые сканы ещё не сохранены.",
   },
   uz: {
+    scannerReady: "Skaner tayyor. Enter yoki Tab bilan ketma-ket skanerlang — skanlar avtomatik saqlanadi.",
     title: "Inventarizatsiya", intro: "Tayyor mahsulot omboridagi har bir qadoqni skanerlang. Natijalar avtomatik saqlanadi va qoldiqni o‘zgartirmaydi.",
     start: "Tekshiruvni boshlash", name: "Tekshiruv nomi", history: "Saqlangan tekshiruvlar", open: "Davom etmoqda", complete: "Yakunlangan", back: "Barcha tekshiruvlar",
     empty: "Hali tekshiruvlar yo‘q.", loading: "Yuklanmoqda…", scan: "Qadoq QR yoki shtrix-kodini skanerlang", add: "Skanni yozish", retry: "Saqlanmagan skanlarni qayta yuborish",

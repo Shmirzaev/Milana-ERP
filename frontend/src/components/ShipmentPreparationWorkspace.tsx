@@ -7,6 +7,8 @@ import { useId } from "react";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { shipmentReviewText } from "@/lib/shipmentReviewText";
+import ShipmentReviewPanel from "@/components/ShipmentReviewPanel";
 
 export type ShipmentSummary = {
   id: number;
@@ -38,6 +40,7 @@ type PreparationItem = {
   required_qty: number;
   prepared_qty: number;
   packages_count: number;
+  requested_pack_count?: number | null;
   scanned_packages_count: number;
   lines: PreparationItemLine[];
 };
@@ -57,6 +60,7 @@ type PreparationPackage = {
   location?: string | null;
   scanned: boolean;
   items: Array<{ color?: string | null; size?: string | null; quantity: number }>;
+  quantity_items?: Array<{ item_id: number; color: string; size: string; quantity: number }>;
 };
 
 export type ShipmentPreparation = {
@@ -68,6 +72,7 @@ export type ShipmentPreparation = {
   remaining_count: number;
   is_complete: boolean;
   is_preview?: boolean;
+  review?: { quantity: number; packages_count: number; amount: string | null; calculated_amount: string | null; basis: string; review_stale: boolean } | null;
 };
 
 function formatQuantity(value: number | null | undefined) {
@@ -94,6 +99,7 @@ export default function ShipmentPreparationWorkspace({
   onCreate,
   isCreating = false,
   canTraceability,
+  onReviewChanged,
 }: {
   preparation?: ShipmentPreparation | null;
   isLoading: boolean;
@@ -106,8 +112,10 @@ export default function ShipmentPreparationWorkspace({
   onCreate?: () => void;
   isCreating?: boolean;
   canTraceability: boolean;
+  onReviewChanged: () => Promise<unknown>;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const reviewText = shipmentReviewText[lang];
   const scanInputId = useId();
 
   if (isLoading) {
@@ -122,7 +130,7 @@ export default function ShipmentPreparationWorkspace({
   const isPreview = Boolean(preparation.is_preview);
   const isOpen = !isPreview && ["draft", "created"].includes(String(shipment.status || ""));
   const canScan = isOpen;
-  const shipDisabled = !isOpen || preparation.required_count <= 0 || preparation.remaining_count > 0;
+  const shipDisabled = !isOpen || preparation.required_count <= 0 || preparation.remaining_count > 0 || !!preparation.review?.review_stale;
   const items = preparation.items || [];
   const packages = (preparation.packages || []).slice().sort((a, b) => Number(a.scanned) - Number(b.scanned));
 
@@ -146,7 +154,7 @@ export default function ShipmentPreparationWorkspace({
         </div>
       </div>
 
-      <div className="border-b border-[#ded9ca] bg-[#f8f6ef] px-4 py-4 sm:px-5">
+      <div className="border-b border-[#ded9ca] px-4 py-3 sm:px-5">
         <div className="grid gap-3 lg:grid-cols-[minmax(320px,1fr)_auto] lg:items-end">
           <div>
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
@@ -201,6 +209,7 @@ export default function ShipmentPreparationWorkspace({
                 {t("page.shipments.traceability")}
               </Link>
             ) : null}
+            {["shipped", "delivered"].includes(shipment.status) && <a className="btn" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={reviewText.reference}>{reviewText.print}</a>}
           </div> : onCreate ? (
             <div className="flex lg:justify-end">
               <button type="button" className="btn btn-primary" onClick={onCreate} disabled={isCreating}>
@@ -211,11 +220,10 @@ export default function ShipmentPreparationWorkspace({
         </div>
       </div>
 
-      <div className="border-b border-[#ded9ca]">
-        <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
-          <h3 className="font-semibold text-[#14110b]">{t("page.shipments.itemsToPrepare")}</h3>
-          <span className="text-xs text-[#6f6a5b]">{t("page.shipments.modelVariantPictures")}</span>
-        </div>
+      {!isPreview && <ShipmentReviewPanel preparation={preparation} onChanged={onReviewChanged} />}
+
+      <details className="border-t border-b border-[#ded9ca]">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">{t("page.shipments.itemsToPrepare")} · {items.length} · {items.reduce((sum, item) => sum + Number(item.requested_pack_count || 0), 0) || shipment.packages_count} {reviewText.packs}</summary>
         {items.length ? (
           <>
             <div className="divide-y divide-[#ded9ca] border-t border-[#ded9ca] md:hidden">
@@ -258,6 +266,7 @@ export default function ShipmentPreparationWorkspace({
                       <div className="text-xs text-[#6f6a5b]">
                         <div>{t("page.shipments.prepared")}: <strong className="font-semibold tabular-nums text-[#14110b]">{formatQuantity(item.prepared_qty)} / {formatQuantity(item.required_qty)}</strong></div>
                         <div>{t("field.packages")}: {item.scanned_packages_count} / {item.packages_count} {t("page.shipments.verifiedShort")}</div>
+                        {item.requested_pack_count != null && <div>{reviewText.orderedPacks}: {item.requested_pack_count}</div>}
                       </div>
                       <span className={`text-right text-xs font-medium ${scanned ? "text-emerald-700" : partial ? "text-amber-700" : "text-[#56503f]"}`}>
                         {scanned
@@ -330,6 +339,7 @@ export default function ShipmentPreparationWorkspace({
                       </td>
                       <td className="whitespace-nowrap tabular-nums">
                         {item.scanned_packages_count} / {item.packages_count} {t("page.shipments.verifiedShort")}
+                        {item.requested_pack_count != null && <div className="text-xs">{reviewText.orderedPacks}: {item.requested_pack_count}</div>}
                       </td>
                       <td className={`whitespace-nowrap font-medium ${scanned ? "text-emerald-700" : partial ? "text-amber-700" : "text-[#56503f]"}`}>
                         {scanned
@@ -350,15 +360,10 @@ export default function ShipmentPreparationWorkspace({
         ) : (
           <div className="px-4 pb-6 text-sm text-[#6f6a5b] sm:px-5">{t("page.shipments.noPreparationItems")}</div>
         )}
-      </div>
+      </details>
 
-      <div>
-        <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
-          <h3 className="font-semibold text-[#14110b]">{t("page.shipments.packageChecklist")}</h3>
-          <span className="text-xs tabular-nums text-[#6f6a5b]">
-            {preparation.scanned_count} / {preparation.required_count} {t("page.shipments.verifiedShort")}
-          </span>
-        </div>
+      <details>
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">{t("page.shipments.packageChecklist")} · {preparation.scanned_count} / {preparation.required_count} {t("page.shipments.verifiedShort")}</summary>
         {packages.length ? (
           <>
             <div className="divide-y divide-[#ded9ca] border-t border-[#ded9ca] md:hidden">
@@ -438,7 +443,7 @@ export default function ShipmentPreparationWorkspace({
         ) : (
           <div className="px-4 pb-6 text-sm text-[#6f6a5b] sm:px-5">{t("page.shipments.noPackagesAttached")}</div>
         )}
-      </div>
+      </details>
     </section>
   );
 }

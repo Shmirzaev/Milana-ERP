@@ -205,7 +205,7 @@ def _existing_package_totals_by_batch(
         totals[key] = totals.get(key, 0) + int(qty or 0)
 
     fallback_qry = (
-        db.query(Package.production_batch_id, func.coalesce(func.sum(Package.total_quantity), 0))
+        db.query(Package.production_batch_id, func.coalesce(func.sum(Package.total_quantity + Package.quantity_shortfall), 0))
         .filter(Package.production_order_id == production_order_id)
     )
     if exclude_package_id:
@@ -315,7 +315,7 @@ def create_package(
     if len(distinct_colors) > 1 and not (override_capacity and is_admin):
         raise HTTPException(400, "Package contains different colors — admin override required")
 
-    po = db.get(ProductionOrder, production_order_id)
+    po = db.query(ProductionOrder).filter(ProductionOrder.id == production_order_id).with_for_update().populate_existing().first()
     if not po:
         raise HTTPException(404, "Production order not found")
 
@@ -760,6 +760,11 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
 
 
 def _ensure_package_can_change(db: Session, pkg: Package) -> list[FinishedGoodsStock]:
+    from app.models.package_workflows import PackagePrintRunMember
+    if pkg.manual_receipt_id:
+        raise HTTPException(409, "Manual receipt evidence cannot be edited or deleted through package correction")
+    if db.query(PackagePrintRunMember.id).filter(PackagePrintRunMember.package_id == pkg.id).first():
+        raise HTTPException(409, "Printed package membership is immutable; review the receiving run before correction")
     if pkg.status not in PACKAGE_CHANGE_ALLOWED_STATUSES:
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be edited or deleted")
     if db.query(StockReservation.id).filter(StockReservation.package_id == pkg.id).first():
@@ -901,7 +906,7 @@ def _replace_finished_goods_for_package(
 
 
 def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user_id: int | None) -> Package:
-    pkg = db.get(Package, request.package_id)
+    pkg = db.query(Package).filter(Package.id == request.package_id).with_for_update().populate_existing().first()
     if not pkg:
         raise HTTPException(404, "Package not found")
     _ensure_package_can_change(db, pkg)
@@ -977,7 +982,7 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
 
 
 def _apply_package_delete_request(db: Session, request: PackageChangeRequest) -> None:
-    pkg = db.get(Package, request.package_id)
+    pkg = db.query(Package).filter(Package.id == request.package_id).with_for_update().populate_existing().first()
     if not pkg:
         raise HTTPException(404, "Package not found")
     _ensure_package_can_change(db, pkg)
@@ -1000,6 +1005,7 @@ def approve_package_change_request(
     user_id: int | None,
     notes: str | None = None,
 ) -> PackageChangeRequest:
+    request = db.query(PackageChangeRequest).filter(PackageChangeRequest.id == request.id).with_for_update().populate_existing().one()
     if request.status != PACKAGE_CHANGE_PENDING_STATUS:
         raise HTTPException(400, f"Package change request is already {request.status}")
 
@@ -1057,7 +1063,13 @@ def receive_at_storage(
     *,
     storage_cell: str | None = None,
     storage_shelf: str | None = None,
+    print_run_id: int | None = None,
 ):
+    from app.models.package_workflows import PackagePrintRunMember
+    pkg = db.query(Package).filter(Package.id == pkg.id).with_for_update().populate_existing().one()
+    member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
+    if member and member.run_id != print_run_id:
+        raise HTTPException(409, "Scan a package in this print run to receive the complete run together")
     _require_warehouse_package(db, pkg)
     if pkg.status not in ("packed",):
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be received at storage")

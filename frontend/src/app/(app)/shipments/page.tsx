@@ -15,6 +15,7 @@ import { useDialogs } from "@/components/DialogProvider";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { shipmentReviewText } from "@/lib/shipmentReviewText";
 
 type ShipmentRow = ShipmentSummary & {
   shipment_type?: "sales_order" | "warehouse_exit";
@@ -165,13 +166,14 @@ function ShipmentOrderWorkspace({
         onCreate={createShipment}
         isCreating={isCreating}
         canTraceability={canTraceability}
+        onReviewChanged={refresh}
       />
     </article>
   );
 }
 
 export default function ShipmentsPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const searchParams = useSearchParams();
@@ -306,6 +308,7 @@ export default function ShipmentsPage() {
               <article key={shipment.id} className="p-4">
                 <div className="flex items-start justify-between gap-3"><div className="mono font-semibold text-[#14110b]">{shipment.shipment_no}</div><span className="badge">{statusLabel(shipment.status, t)}</span></div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#56503f]"><span>{shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</span><span className="text-right mono">{shipment.sales_order_no || "-"}</span><span>{shipment.customer_name || "-"}</span><span className="text-right tabular-nums">{Number(shipment.packages_count || 0)} {t("field.packages")} · {Number(shipment.total_qty || 0).toLocaleString()} {t("page.shipments.pieces")}</span></div>
+                {["shipped", "delivered"].includes(shipment.status) && <a className="btn mt-3" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}
                 {canTraceability ? <Link className="btn mt-3 h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : null}
               </article>
             ))}
@@ -315,7 +318,7 @@ export default function ShipmentsPage() {
             <table className="table min-w-[1180px]">
               <thead><tr><th>{t("field.shipmentNo")}</th><th>{t("page.shipments.type")}</th><th>{t("page.shipments.salesOrder")}</th><th>{t("field.customer")}</th><th>{t("page.shipments.reference")}</th><th>{t("field.packages")}</th><th>{t("field.totalQty")}</th><th>{t("field.status")}</th><th>{t("field.shipped")}</th><th>{t("field.delivered")}</th><th>{t("field.actions")}</th></tr></thead>
               <tbody>
-                {filteredHistory.map((shipment) => <tr key={shipment.id}><td className="mono whitespace-nowrap font-semibold text-[#14110b]">{shipment.shipment_no}</td><td>{shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</td><td className="mono whitespace-nowrap">{shipment.sales_order_no || "-"}</td><td>{shipment.customer_name || "-"}</td><td className="max-w-56 whitespace-normal">{shipment.notes || "-"}</td><td className="tabular-nums">{Number(shipment.packages_count || 0)}</td><td className="tabular-nums">{Number(shipment.total_qty || 0).toLocaleString()}</td><td><span className="badge">{statusLabel(shipment.status, t)}</span></td><td className="whitespace-nowrap">{shipment.shipped_at ? new Date(shipment.shipped_at).toLocaleString() : "-"}</td><td className="whitespace-nowrap">{shipment.delivered_at ? new Date(shipment.delivered_at).toLocaleString() : "-"}</td><td>{canTraceability ? <Link className="btn h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : "-"}</td></tr>)}
+                {filteredHistory.map((shipment) => <tr key={shipment.id}><td className="mono whitespace-nowrap font-semibold text-[#14110b]">{shipment.shipment_no}</td><td>{shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</td><td className="mono whitespace-nowrap">{shipment.sales_order_no || "-"}</td><td>{shipment.customer_name || "-"}</td><td className="max-w-56 whitespace-normal">{shipment.notes || "-"}</td><td className="tabular-nums">{Number(shipment.packages_count || 0)}</td><td className="tabular-nums">{Number(shipment.total_qty || 0).toLocaleString()}</td><td><span className="badge">{statusLabel(shipment.status, t)}</span></td><td className="whitespace-nowrap">{shipment.shipped_at ? new Date(shipment.shipped_at).toLocaleString() : "-"}</td><td className="whitespace-nowrap">{shipment.delivered_at ? new Date(shipment.delivered_at).toLocaleString() : "-"}</td><td>{["shipped", "delivered"].includes(shipment.status) && <a className="btn h-8 px-2.5 text-[11px]" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}{canTraceability ? <Link className="btn h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : "-"}</td></tr>)}
                 {!filteredHistory.length ? <tr><td colSpan={11} className="py-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</td></tr> : null}
               </tbody>
             </table>

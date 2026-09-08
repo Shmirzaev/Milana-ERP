@@ -174,6 +174,7 @@ class PackageChangeDecisionIn(BaseModel):
 
 
 class PackageOut(ORMModel):
+    manual_receipt_id: Optional[int] = None
     id: int
     package_no: str
     barcode: str
@@ -220,6 +221,8 @@ class PackageScanLogOut(ORMModel):
 
 
 class PackageDetail(PackageOut):
+    print_run_id: Optional[int] = None
+    manual_source: Optional[dict] = None
     items: list[PackageItemOut] = []
     batch_allocations: list[PackageBatchAllocationOut] = []
     scan_logs: list[PackageScanLogOut] = []

@@ -35,6 +35,8 @@ from app.models.attendance import AttendanceDevice, AttendancePerson, Attendance
 from app.models.hr import HrOrgUnit, HrPosition, HrEmployeeDocument, HrRecruitmentCandidate, HrCalendarEvent
 from app.models.price_calculation import PriceCalculationRequest
 from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
+from app.models.package_workflows import ManualPackageReceipt, PackagePrintRun, PackagePrintRunMember
+from app.models.shipment_review import PackageQuantityAdjustment
 
 __all__ = [
     "Role", "Department", "User", "Employee", "AuditLog", "Notification", "PasswordResetToken", "SystemSetting",
@@ -62,4 +64,6 @@ __all__ = [
     "HrOrgUnit", "HrPosition", "HrEmployeeDocument", "HrRecruitmentCandidate", "HrCalendarEvent",
     "PriceCalculationRequest",
     "WarehouseStocktake", "WarehouseStocktakeRow",
+    "ManualPackageReceipt", "PackagePrintRun", "PackagePrintRunMember",
+    "PackageQuantityAdjustment",
 ]

@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import PackageQrSection from "@/components/PackageQrSection";
+import { postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import PageHeader from "@/components/PageHeader";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
@@ -551,6 +552,23 @@ export default function PackagingPage() {
       };
       if (packagePlans.length === 0) {
         throw new Error("No package items to create.");
+      }
+
+      if (po?.source_type !== "usluga") {
+        const run = await postPackageWorkflow<PackagePrintRun>("/api/packages/print-runs/create-packages", {
+          packages: packagePlans.map((plan, index) => ({
+            ...payloadBase, weight_kg: weightValues[index], items: plan.items,
+            batch_allocations: plan.batch_allocations || [],
+          })),
+        }, me!.id);
+        setPkg({ id: run.package_ids[0], package_no: run.run_no, barcode: "bulk" });
+        setPkgNotice({ type: "success", text: t("page.packaging.bulkCreatedWithFirst", { count: run.count, no: run.run_no }) });
+        await refreshPackagingOutputs();
+        // Creation already succeeded: a blocked print window must not suggest
+        // repeating package creation. The saved run remains available below.
+        try { await api.openLabel(`/api/packages/print-runs/${run.id}/label`); }
+        catch (printError: any) { setPkgNotice({ type: "success", text: `${run.run_no}: ${printError.message}` }); }
+        return;
       }
 
       const createsPartialPackage = !packOnlyFullPackages && packingPreview.partialPackages.some((p) => p.total > 0);
