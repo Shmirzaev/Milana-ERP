@@ -34,6 +34,7 @@ from app.models.payroll import PayrollPeriod, PayrollRecord, PayrollQrLabel, Pay
 from app.models.attendance import AttendanceDevice, AttendancePerson, AttendanceEvent
 from app.models.hr import HrOrgUnit, HrPosition, HrEmployeeDocument, HrRecruitmentCandidate, HrCalendarEvent
 from app.models.price_calculation import PriceCalculationRequest
+from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
 
 __all__ = [
     "Role", "Department", "User", "Employee", "AuditLog", "Notification", "PasswordResetToken", "SystemSetting",
@@ -60,4 +61,5 @@ __all__ = [
     "AttendanceDevice", "AttendancePerson", "AttendanceEvent",
     "HrOrgUnit", "HrPosition", "HrEmployeeDocument", "HrRecruitmentCandidate", "HrCalendarEvent",
     "PriceCalculationRequest",
+    "WarehouseStocktake", "WarehouseStocktakeRow",
 ]
