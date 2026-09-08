@@ -1,6 +1,6 @@
 {
   "release": "20260908_080847",
   "source_manifest_sha256": "7f155e13f214f94044f2beb439641a572cea384fac4e309e6981672ac4a5a2a8",
-  "database_revision": "0114_warehouse_stocktake",
+  "database_revision": "0117_package_quantity_evidence",
   "git_baseline_commit": "3ca835e4c31418982f185279938e1f7f60e0c49e"
 }
