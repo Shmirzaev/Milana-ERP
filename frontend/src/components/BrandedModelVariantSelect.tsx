@@ -55,8 +55,8 @@ export default function BrandedModelVariantSelect({ value, onChange }: {
     for (const page of data || []) for (const row of page.rows) rows.set(row.group_key, row);
     return Array.from(rows.values());
   }, [data, group]);
-  const variants = (group?.variants || []).filter((variant) => variant.status === "approved");
-  const selectedVariant = variants.find((variant) => variant.id === value);
+  const variants = group?.variants || [];
+  const selectedVariant = variants.find((variant) => variant.id === value && variant.status === "approved");
   const modelLabel = group ? [group.group_model_no, group.group_name].filter(Boolean).join(" - ") : "";
 
   function preview(url: string | undefined, label: string) {
@@ -102,10 +102,10 @@ export default function BrandedModelVariantSelect({ value, onChange }: {
         <SearchableSelect
           inputId="branded-variant-number"
           value={selectedVariant?.id || null}
-          options={variants.map((variant) => ({ value: variant.id, label: [variant.variant_no || variant.code, variant.fabric].filter(Boolean).join(" - "), searchText: variant.variant_no || variant.code, imageUrl: variant.picture_url }))}
+          options={variants.map((variant) => ({ value: variant.id, label: [variant.variant_no || variant.code, variant.fabric].filter(Boolean).join(" - "), searchText: variant.variant_no || variant.code, imageUrl: variant.picture_url, disabled: variant.status !== "approved", metaText: variant.status !== "approved" ? t("page.planning.variantApprovalRequired") : undefined }))}
           onChange={(id) => onChange(Number(id))}
           placeholder={t(group ? "page.planning.selectVariant" : "newso.selectModel")}
-          noResultsText={t("page.planning.noApprovedVariants")}
+          noResultsText={t("page.search.noMatches")}
           disabled={!group || !variants.length}
           required={Boolean(group?.variants.length)}
         />

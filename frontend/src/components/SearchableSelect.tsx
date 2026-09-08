@@ -15,6 +15,7 @@ export type SearchableSelectOption<T extends string | number = string | number> 
   imageUrl?: string | null;
   metaText?: string;
   tone?: "default" | "success";
+  disabled?: boolean;
 };
 
 export default function SearchableSelect<T extends string | number>({
@@ -189,6 +190,7 @@ export default function SearchableSelect<T extends string | number>({
   }, [open, updateListboxPosition]);
 
   function choose(option: SearchableSelectOption<T>) {
+    if (option.disabled) return;
     onChange(option.value, option);
     setQuery(option.label);
     setOpen(false);
@@ -297,8 +299,10 @@ export default function SearchableSelect<T extends string | number>({
                 role="option"
                 id={`${listboxId}-option-${index}`}
                 aria-selected={selected}
+                aria-disabled={option.disabled || undefined}
+                disabled={option.disabled}
                 key={String(option.value)}
-                className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm ${rowClass}`}
+                className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60 ${rowClass}`}
                 onMouseEnter={() => setActiveIndex(index)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => choose(option)}
