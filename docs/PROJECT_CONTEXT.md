@@ -1,6 +1,13 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
+
+## Two pending shipment orders deleted at user request (2026-09-09)
+
+- The screenshot identified pending shipment cards for `SO-2026-000001` (Zafar Aksu, Sales Order 4) and `SO-2026-000002` (Nigina Buxoro, Sales Order 5). Neither had a shipment record. After this distinction was explained, the user explicitly requested permanent deletion of both Sales orders and release of their packs.
+- Verified there were no linked shipments, invoices, production orders or other mapped order/item dependents beyond six Sales order items and sixteen stock reservations. Existing authenticated ERP APIs released only reservation IDs 43–54, 57, 58, 68 and 69, cancelled the two orders, and deleted them using the guarded Sales-order deletion endpoint. Six packs / 378 pieces returned to available stock: package IDs 106, 107, 366, 458, 1322 and 1834. No package or package-item record was deleted or changed, and physical quantities, costs, prices, provenance and unrelated business rows matched pre-operation snapshots. The six Sales-order items were removed with their orders. Standard deletion audit records are 18143 and 18145.
+- Backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260909_032433.dump`: 51,410,128 bytes, mode 0600, 1141 restore objects; SHA-256 `2948a5538893f17f15950b6a97518c04439dbecd498e574ad1fadf6a19c6c6f5`. Restore-list SHA-256 `00dbf37d4f96e52105be72fab8d698ab3f252e9081fe33dd670f5c879bde7ed4`; mode 0600. Signed verification returned zero eligible shipment orders and zero shipment records; both deleted Sales orders return HTTP 404. All four internal/public health/login checks returned HTTP 200.
+- Active backend/frontend release remains `20260908_121327`, source `974eb7a31d8be2c09266f3f7179da45843cd8aa0`, green active / `20260908_080847` blue rollback, manifest `2b8140175727b6cf437f88a08d57b413fd9ac33ad8f573a1424db26815947f38`, database revision `0117_package_quantity_evidence`. No application deployment, schema change, permission change or customer deletion occurred. Clean worktree `C:/ERP/.codex-work/delete-shipment-orders-20260909`, branch `codex/delete-shipment-orders-20260909`; reviewed scripts, snapshots and verification evidence are in its ignored `outputs` directory. The legacy checkout was preserved.
 
 ## Ready storage workflows and reference invoice deployed (2026-09-08)
 
