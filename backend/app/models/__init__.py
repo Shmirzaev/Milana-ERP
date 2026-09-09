@@ -1,4 +1,5 @@
 from app.models.paid_process import PaidProcess
+from app.models.order_reference import BusinessOrderAlias
 from app.models.core import (
     Role, Department, User, Employee, AuditLog, Notification, PasswordResetToken, SystemSetting, IdempotencyRecord,
 )
@@ -41,6 +42,7 @@ from app.models.shipment_review import PackageQuantityAdjustment
 
 __all__ = [
     "PaidProcess",
+    "BusinessOrderAlias",
     "Role", "Department", "User", "Employee", "AuditLog", "Notification", "PasswordResetToken", "SystemSetting",
     "IdempotencyRecord",
     "Customer", "Supplier",

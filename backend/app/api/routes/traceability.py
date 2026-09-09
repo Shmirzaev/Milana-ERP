@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 from urllib.parse import parse_qs, unquote, urlparse
 
 from app.core.deps import DbSession, require_permissions
+from app.core.order_reference import resolve_order_id
 from app.models import Bundle, Package, ProductionBatch, ProductionOrder, Shipment
 from app.services.traceability import (
     bundle_traceability,
@@ -73,7 +74,8 @@ def _find_production_order(db: DbSession, key: str) -> ProductionOrder | None:
         po = db.get(ProductionOrder, int(decoded))
         if po:
             return po
-    return db.query(ProductionOrder).filter(ProductionOrder.production_no == decoded).first()
+    order_id = resolve_order_id(db, "PO", decoded)
+    return db.get(ProductionOrder, order_id) if order_id is not None else None
 
 
 def _find_production_batch(db: DbSession, key: str) -> ProductionBatch | None:

@@ -1,4 +1,4 @@
-from app.core.order_reference import order_reference_contains
+from app.core.order_reference import canonical_business_order_reference, order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import or_
 
@@ -427,6 +427,19 @@ def get_passport(pid: int, db: DbSession, _: CurrentUser):
     return _serialize(p, db)
 
 
+def _passport_values(db, payload: CuttingPassportIn) -> dict:
+    values = payload.model_dump()
+    if payload.production_order_id:
+        order = db.get(ProductionOrder, payload.production_order_id)
+        if order is None:
+            raise HTTPException(404, "Production order not found")
+        # A stale form must not overwrite the linked order's live reference.
+        values["order_no"] = order.order_no
+    else:
+        values["order_no"] = canonical_business_order_reference(db, payload.order_no)
+    return values
+
+
 @router.post("", response_model=CuttingPassportOut, status_code=201)
 def create_passport(
     payload: CuttingPassportIn,
@@ -441,7 +454,7 @@ def create_passport(
         ).first()
         if work_order:
             require_work_order_factory_access(current, db, work_order)
-    p = CuttingPassport(**payload.model_dump())
+    p = CuttingPassport(**_passport_values(db, payload))
     db.add(p)
     db.flush()
     log_action(db, current, "create", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
@@ -461,7 +474,7 @@ def update_passport(
     p = db.get(CuttingPassport, pid)
     if not p:
         raise HTTPException(404, "Cutting passport not found")
-    for k, v in payload.model_dump().items():
+    for k, v in _passport_values(db, payload).items():
         setattr(p, k, v)
     log_action(db, current, "update", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
     db.commit()

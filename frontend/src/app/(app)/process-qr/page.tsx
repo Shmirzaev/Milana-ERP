@@ -476,6 +476,8 @@ function compactWorkPayload(
   copyIndex: number,
   labelUid: string,
 ): string {
+  // Encode the canonical references from the API. Cosmetic suffix shortening
+  // would lose the migration's collision mapping and point at a different order.
   const workOrderId = workOrderIdForOperation(process, operation);
   return [
     "MW2",
@@ -2859,7 +2861,7 @@ export default function ProcessQrPage() {
           .process-label--work .process-label__details {
             display: grid !important;
             height: 100% !important;
-            grid-template-rows: 1fr 1fr 2.25fr 1fr 1fr 1fr !important;
+            grid-template-rows: 0.85fr 0.85fr 0.85fr 2.25fr 1fr 1fr 1fr !important;
             font-size: 8.4pt !important;
             line-height: 1 !important;
           }
@@ -3049,6 +3051,7 @@ function ProcessLabel({ label, qrToken }: { label: LabelRow; qrToken: string }) 
       <div className="process-label__body flex min-h-0 flex-1 gap-2">
         <div className="process-label__details min-w-0 flex-1 text-[10px] leading-tight">
           <LabelLine label={t("common.model")} value={process.model_code || "-"} />
+          <LabelLine label={t("field.orderNo")} value={orderReference(process)} valueClassName="process-label__identity-value" />
           <LabelLine label={t("page.processQr.kroyNo")} value={batch.cuttingPassportNo || process.cutting_passport_no || "-"} strong />
           <LabelLine label={t("field.batch")} value={batch.serial} />
           <LabelLine label={t("page.processQr.line")} value={sewingLineDisplay(sewingLine)} strong wrap />
@@ -3125,6 +3128,7 @@ function IssuedProcessLabel({
             value={label.model_code || "-"}
             valueClassName="process-label__identity-value"
           />
+          <LabelLine label={t("field.orderNo")} value={orderReference(label)} valueClassName="process-label__identity-value" />
           <LabelLine label={t("field.batch")} value={label.batch_no || "-"} />
           <LabelLine
             label={t("page.processQr.line")}

@@ -56,24 +56,6 @@ def expand_production_size_range_items(items: list[dict] | None) -> list[dict]:
     return expanded
 
 
-def _fit_production_no(value: str, suffix: str = "") -> str:
-    max_len = 64
-    if len(value) + len(suffix) <= max_len:
-        return f"{value}{suffix}"
-    return f"{value[: max_len - len(suffix)]}{suffix}"
-
-
-def _production_no_for_sales_order(db: Session, so: SalesOrder) -> str:
-    base = str(so.order_no)
-    index = 1
-    while True:
-        candidate = base if index == 1 else _fit_production_no(base, f"-{index}")
-        existing = db.query(ProductionOrder.id).filter(ProductionOrder.production_no == candidate).first()
-        if not existing:
-            return candidate
-        index += 1
-
-
 def _get_dept(db: Session, code: str) -> Department:
     dept = db.query(Department).filter(Department.code == code).first()
     if not dept:
@@ -240,9 +222,7 @@ def create_production_order(
             material_unit = material_unit or "kg"
 
     production_no = (
-        _production_no_for_sales_order(db, so)
-        if so
-        else next_usluga_order_no(db)
+        next_usluga_order_no(db)
         if source_type == "usluga"
         else next_production_order_no(db)
     )

@@ -9,10 +9,8 @@ from sqlalchemy.orm import selectinload
 import base64
 from functools import lru_cache
 from html import escape
-import os
 from pathlib import Path
 
-from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions, user_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models import (
@@ -42,7 +40,7 @@ from app.services.bundles import (
     format_batch_passport,
     resolve_sewing_factory_code,
 )
-from app.services.barcode import save_qr_image
+from app.services.barcode import qr_png_data_uri
 from app.services.label_images import material_label_image_src
 from app.services.model_images import material_preview_image_url
 from app.services.audit import log_action
@@ -126,18 +124,7 @@ def _bundle_label_head(title: str, page_css: str) -> str:
 
 
 def _qr_data_uri_for_bundle(db: DbSession, b: Bundle) -> str:
-    qr_rel = save_qr_image(bundle_qr_payload(db, b), f"bundle_qr_{b.bundle_no}")
-    if b.qr_code_url != qr_rel:
-        b.qr_code_url = qr_rel
-        db.add(b)
-        db.commit()
-        db.refresh(b)
-    fname = qr_rel.split("/storage/barcodes/", 1)[1]
-    qr_path = os.path.join(settings.BARCODE_STORAGE_DIR, fname)
-
-    with open(qr_path, "rb") as fh:
-        png = fh.read()
-    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+    return qr_png_data_uri(bundle_qr_payload(db, b))
 
 
 def _batch_meta(db: DbSession, production_order_id: int | None, production_batch_id: int | None) -> dict:

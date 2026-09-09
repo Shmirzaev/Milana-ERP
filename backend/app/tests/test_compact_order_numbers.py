@@ -19,6 +19,8 @@ class Reference(Base):
 def reference_db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
+    from app.models import BusinessOrderAlias
+    BusinessOrderAlias.__table__.create(engine)
     with Session(engine) as db:
         yield db
     engine.dispose()
@@ -46,6 +48,11 @@ def test_sequence_uses_numeric_order_and_never_wraps(reference_db):
     assert _next_order(reference_db, Reference, "number", "PO") == "PO-9999"
     reference_db.add(Reference(number="PO-9999"))
     reference_db.flush()
+    assert _next_order(reference_db, Reference, "number", "PO") == "PO-0001"
+    occupied = {value for (value,) in reference_db.query(Reference.number).all()}
+    reference_db.add_all([Reference(number=f"PO-{number:04d}") for number in range(1, 10000)
+                         if f"PO-{number:04d}" not in occupied])
+    reference_db.flush()
     with pytest.raises(HTTPException) as error:
         _next_order(reference_db, Reference, "number", "PO")
     assert error.value.status_code == 409
@@ -60,13 +67,38 @@ def test_high_volume_qr_references_keep_existing_format(reference_db):
     assert _next(reference_db, Reference, "number", "BND") == f"BND-{year}-010001"
 
 
-def test_compact_order_search_finds_all_legacy_years_without_cross_order_matches(reference_db):
+def test_order_search_uses_exact_collision_mapping_for_historical_years(reference_db):
     from app.core.order_reference import order_reference_contains
+    from app.models import BusinessOrderAlias
 
-    values = ["PO-2025-000202", "PO-2026-000202", "PO-0202", "PO-2026-001202", "SO-2026-000202"]
+    values = ["PO-0202", "PO-0001", "PO-1202", "SO-0202"]
     reference_db.add_all([Reference(number=number) for number in values])
+    reference_db.add_all([
+        BusinessOrderAlias(namespace="PO", entity_id=1, reference="PO-2025-000202", canonical_reference="PO-0202"),
+        BusinessOrderAlias(namespace="PO", entity_id=2, reference="PO-2026-000202", canonical_reference="PO-0001"),
+    ])
     reference_db.flush()
     found = reference_db.query(Reference.number).filter(order_reference_contains(Reference.number, "%po-0202%")).all()
-    assert {value for (value,) in found} == set(values[:3])
+    assert found == [("PO-0202",)]
     exact = reference_db.query(Reference.number).filter(order_reference_contains(Reference.number, "%PO-2025-000202%")).all()
-    assert exact == [("PO-2025-000202",)]
+    assert exact == [("PO-0202",)]
+    other = reference_db.query(Reference.number).filter(order_reference_contains(Reference.number, "%PO-2026-000202%")).all()
+    assert other == [("PO-0001",)]
+
+
+def test_branded_planning_sequence_stops_at_four_digit_capacity():
+    from app.models import BrandedPlanningOrder
+    from app.services.numbering import next_branded_planning_order_no
+    from app.tests.conftest import TestSessionLocal
+
+    with TestSessionLocal() as db:
+        db.add(BrandedPlanningOrder(order_no="9998", ordered_for_type="milana", ordered_for_name="Milana"))
+        db.flush()
+        assert next_branded_planning_order_no(db) == "9999"
+        db.add(BrandedPlanningOrder(order_no="9999", ordered_for_type="milana", ordered_for_name="Milana"))
+        db.flush()
+        with pytest.raises(HTTPException) as error:
+            next_branded_planning_order_no(db)
+        assert error.value.status_code == 409
+        assert "BSO" in error.value.detail
+        assert not db.query(BrandedPlanningOrder).filter(BrandedPlanningOrder.order_no == "10000").first()

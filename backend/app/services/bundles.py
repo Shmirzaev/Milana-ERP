@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     Bundle, BundleScanLog, CuttingRecord, ProductionOrder, ProductionBatch, Department, SalesOrder, User, WorkOrder,
 )
-from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
+from app.services.barcode import bundle_qr_image_url, generate_barcode_value, save_barcode_image
 from app.services.numbering import next_bundle_no
 from app.services.sewing_scope import sewing_line_factory_scope
 from app.services.workflow import notify_department, sync_production_order_status
@@ -284,7 +284,7 @@ def create_bundle(
     db.add(b)
     db.flush()
 
-    b.qr_code_url = save_qr_image(bundle_qr_payload(db, b), f"bundle_qr_{bundle_no}")
+    b.qr_code_url = bundle_qr_image_url(b.id)
     # also persist a barcode image for printing labels
     save_barcode_image(barcode_value, f"bundle_bc_{bundle_no}")
 

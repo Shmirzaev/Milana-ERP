@@ -57,7 +57,7 @@ def _next(db: Session, model, attr: str, prefix: str, *, width: int = 6) -> str:
 
 
 def _next_order(db: Session, model, attr: str, prefix: str) -> str:
-    """Issue a compact order reference without renumbering historical records."""
+    """Issue a canonical four-digit reference, reserving migrated aliases."""
     column = getattr(model, attr)
     _acquire_numbering_lock(db, f"{model.__tablename__}:{attr}:{prefix}:compact")
     # Include all historical years so removing the year does not restart the
@@ -73,9 +73,24 @@ def _next_order(db: Session, model, attr: str, prefix: str) -> str:
              if value and re.fullmatch(pattern, value)),
             default=0,
         )
-    if highest >= 9999:
+    reserved = set()
+    if model.__tablename__ in {"sales_orders", "production_orders", "purchase_requests", "purchase_orders"}:
+        from app.models import BusinessOrderAlias
+        for (value,) in db.query(BusinessOrderAlias.canonical_reference).filter(BusinessOrderAlias.namespace == prefix).all():
+            if re.fullmatch(rf"{prefix}-[0-9]{{4}}", value):
+                reserved.add(int(value.rsplit("-", 1)[-1]))
+        highest = max(highest, max(reserved, default=0))
+    if highest < 9999:
+        return f"{prefix}-{highest + 1:04d}"
+    # A valid pre-existing 9999 reference must not exhaust a mostly empty
+    # namespace. Reuse only never-issued gaps, including alias reservations.
+    for (value,) in db.query(column).filter(column.like(f"{prefix}-%")).all():
+        if value and re.fullmatch(pattern, value):
+            reserved.add(int(value.rsplit("-", 1)[-1]))
+    candidate = next((number for number in range(1, 10000) if number not in reserved), None)
+    if candidate is None:
         raise HTTPException(409, f"The four-digit {prefix} order number sequence is exhausted")
-    return f"{prefix}-{highest + 1:04d}"
+    return f"{prefix}-{candidate:04d}"
 
 
 def next_sales_order_no(db: Session) -> str:
@@ -107,6 +122,8 @@ def next_branded_planning_order_no(db: Session) -> str:
             raw = str(value or "").strip()
             if raw.isdigit():
                 highest = max(highest, int(raw))
+    if highest >= 9999:
+        raise HTTPException(409, "The four-digit BSO order number sequence is exhausted")
     return f"{highest + 1:04d}"
 
 
