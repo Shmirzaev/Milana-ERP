@@ -1,6 +1,6 @@
 import type { NumberInputValue } from "@/lib/numberInput";
 
-export type SectionCode = "sewing" | "pressing" | "packaging";
+export type SectionCode = "sewing" | "cutting" | "packaging" | "tikuv" | "cleaning" | "pressing" | "control" | "storage" | "transfer" | "snaps" | "buttons" | "cord" | "sorting";
 export type PaidOperationFactory = "milana" | "besttex" | "eco_cotton";
 
 export type QuantityMode = "batch" | "custom";
@@ -30,17 +30,19 @@ export type PaidOperation = {
 
 export const SECTION_LABELS: Record<SectionCode, string> = {
   sewing: "Sewing",
+  cutting: "Cutting", tikuv: "Tikuv", cleaning: "Cleaning", control: "Control", storage: "Storage", transfer: "Transfer", snaps: "Snaps", buttons: "Buttons", cord: "Cord", sorting: "Sorting",
   pressing: "Pressing",
   packaging: "Packaging",
 };
 
 export const SECTION_BADGES: Record<SectionCode, string> = {
   sewing: "bg-orange-100 text-orange-800",
+  cutting: "bg-amber-100 text-amber-800", tikuv: "bg-orange-100 text-orange-800", cleaning: "bg-stone-100 text-stone-800", control: "bg-yellow-100 text-yellow-900", storage: "bg-emerald-100 text-emerald-800", transfer: "bg-stone-100 text-stone-800", snaps: "bg-stone-100 text-stone-800", buttons: "bg-stone-100 text-stone-800", cord: "bg-stone-100 text-stone-800", sorting: "bg-stone-100 text-stone-800",
   pressing: "bg-sky-100 text-sky-800",
   packaging: "bg-emerald-100 text-emerald-800",
 };
 
-const VALID_SECTIONS: SectionCode[] = ["sewing", "pressing", "packaging"];
+export const VALID_SECTIONS: SectionCode[] = ["sewing", "cutting", "packaging", "tikuv", "cleaning", "pressing", "control", "storage", "transfer", "snaps", "buttons", "cord", "sorting"];
 const VALID_QUANTITY_MODES: QuantityMode[] = ["batch", "custom"];
 const VALID_SPLIT_MODES: SplitMode[] = ["none", "equal", "custom"];
 export const PAID_OPERATION_FACTORIES: PaidOperationFactory[] = ["milana", "besttex", "eco_cotton"];
@@ -143,9 +145,28 @@ function cleanId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function normalizeSection(value: unknown): SectionCode {
-  const normalized = String(value || "").toLowerCase();
+const LEGACY_SECTION_ALIASES: Record<string, SectionCode> = {
+  "пошив": "sewing", "крой": "cutting", kroy: "cutting", "упаковка": "packaging", upakovka: "packaging",
+  "чистка": "cleaning", chistka: "cleaning", "глажка": "pressing", dazmol: "pressing",
+  "контроль": "control", kontrol: "control", nazorat: "control", "склад": "storage",
+  "трансфер": "transfer", "кнопки": "snaps", "пуговицы": "buttons", "шнур": "cord", "тасниф": "sorting",
+};
+
+export function normalizePaidOperationSection(value: unknown, sourceStage?: unknown): SectionCode {
+  const normalized = String(value || "").trim().toLowerCase();
+  const source = String(sourceStage || "").trim().toLowerCase();
+  const legacySection = VALID_SECTIONS.includes(source as SectionCode) ? source as SectionCode : LEGACY_SECTION_ALIASES[source];
+  // Imported operations were flattened to these three sections. Recover their
+  // recorded stage while keeping sourceStage unchanged until a deliberate edit.
+  if (legacySection && (!normalized || ["sewing", "pressing", "packaging"].includes(normalized))) return legacySection;
+  if (LEGACY_SECTION_ALIASES[normalized]) return LEGACY_SECTION_ALIASES[normalized];
   return VALID_SECTIONS.includes(normalized as SectionCode) ? normalized as SectionCode : "sewing";
+}
+
+export function samePaidProcess(first: { name: string; section: string; sourceStage?: string }, second: { name: string; section: string; sourceStage?: string }): boolean {
+  const normalize = (value: string) => value.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  return normalize(first.name) === normalize(second.name)
+    && normalizePaidOperationSection(first.section, first.sourceStage) === normalizePaidOperationSection(second.section, second.sourceStage);
 }
 
 function normalizeQuantityMode(value: unknown): QuantityMode {
@@ -278,7 +299,7 @@ export function normalizePaidOperation(row: any, index = 0): PaidOperation {
   return {
     id: String(row?.id || fallback?.id || cleanId("op")),
     selected: row?.selected !== false,
-    section: normalizeSection(row?.section || fallback?.section),
+    section: normalizePaidOperationSection(row?.section || fallback?.section, sourceStage),
     code: String(row?.code || fallback?.code || "").toUpperCase(),
     name: String(row?.name || row?.operation_name || fallback?.name || ""),
     rate: row?.rate === null || row?.rate === undefined ? String(fallback?.rate || "") : String(row.rate),

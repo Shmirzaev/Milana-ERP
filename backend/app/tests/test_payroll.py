@@ -629,9 +629,17 @@ def test_payroll_qr_control_tracks_issued_and_scanned_labels(client, auth_header
 
     scan_payload = _record_payload(employee["id"], scan_uid=f"payroll:{label_uid}")
     scan_payload["work"]["label_id"] = label_uid
+    blocked = client.post("/api/payroll/records", json=scan_payload, headers=auth_headers)
+    assert blocked.status_code == 409, blocked.text
+    preview = client.post(
+        "/api/payroll/scan/control-preview",
+        json={"label_uid": label_uid, "employee_id": employee["id"]},
+        headers=auth_headers,
+    )
+    assert preview.status_code == 200, preview.text
     scanned = client.post(
-        "/api/payroll/records",
-        json=scan_payload,
+        "/api/payroll/scan/control-confirm",
+        json={"label_uid": label_uid, "employee_id": employee["id"], "review_token": preview.json()["review_token"]},
         headers=auth_headers,
     )
     assert scanned.status_code == 201, scanned.text

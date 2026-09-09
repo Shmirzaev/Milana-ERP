@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import { useEffect, useMemo, useState } from "react";
 import { Save } from "lucide-react";
@@ -156,7 +157,7 @@ export default function SewingDailyReportEditModal({ row, onClose, onSaved }: Pr
           <div className="rounded-md border border-[#e3dfd3] bg-[#fbfaf6] px-3 py-2 text-sm text-[#56503f]">
             <span className="font-medium text-[#14110b]">{row.line_name}</span>
             <span> · {row.line_code}</span>
-            {row.order_no && <span> · {row.order_no}</span>}
+            {row.order_no && <span> · {formatOrderReference(row.order_no)}</span>}
             <div className="mt-1 text-xs">{t("page.sewingDailyReport.editHint")}</div>
           </div>
 

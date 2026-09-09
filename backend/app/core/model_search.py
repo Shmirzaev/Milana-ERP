@@ -1,6 +1,7 @@
 import sqlite3
+import re
 
-from sqlalchemy import event, func
+from sqlalchemy import Numeric, event, func
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import FunctionElement
@@ -87,3 +88,23 @@ def normalized_model_code_pattern(value: object) -> str:
 def model_code_contains(value: object, query: object) -> bool:
     needle = normalized_model_code_key(query)
     return bool(needle) and needle in normalized_model_code_key(value)
+
+
+def model_search_prefix(query: object) -> str | None:
+    """Two-letter family searches use descending model numbers."""
+    normalized = normalized_model_code_key(query)
+    return normalized if re.fullmatch(r"[a-z]{2}", normalized) else None
+
+
+def model_prefix_number(value: object, prefix: str) -> int:
+    # Preserve numeric boundaries: XJ5614-0031 sorts by 5614, not 56140031.
+    normalized = normalized_model_code_key(str(value or "").replace("-", "/"))
+    match = re.match(rf"^{re.escape(prefix)}/?([0-9]+)", normalized)
+    return int(match.group(1)) if match else -1
+
+
+def model_group_prefix_number_column(column, prefix: str):
+    """PostgreSQL numeric family sort expression, applied before pagination."""
+    normalized = normalized_model_code_column(func.replace(column, "-", "/"))
+    number = func.substring(normalized, rf"^model:{prefix}/?([0-9]+)")
+    return func.coalesce(func.nullif(number, "").cast(Numeric), -1)

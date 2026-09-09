@@ -13,7 +13,7 @@ import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { modelSearchIncludes } from "@/lib/modelCode";
-import { orderReference } from "@/lib/orderRef";
+import { formatOrderReference, rawOrderReference } from "@/lib/orderRef";
 
 type StoragePlacement = {
   id: number;
@@ -191,7 +191,7 @@ export default function WarehouseStockPage() {
       existing.package_count += Number(row.package_count || 1);
       existing.total_quantity += Number(row.total_quantity || 0);
       existing.sections.add(sectionFromCell(row.storage_cell));
-      existing.orders.add(orderReference(row, t("page.warehouseStock.unassignedOrder")));
+      existing.orders.add(rawOrderReference(row, t("page.warehouseStock.unassignedOrder")));
       if (row.color) existing.colors.add(row.color);
       if (!existing.model_image_url && row.model_image_url) existing.model_image_url = row.model_image_url;
       map.set(key, existing);
@@ -211,7 +211,7 @@ export default function WarehouseStockPage() {
     for (const row of filtered) {
       const section = sectionFromCell(row.storage_cell);
       const shelf = storageShelf(row.storage_shelf);
-      const orderNo = orderReference(row, t("page.warehouseStock.unassignedOrder"));
+      const orderNo = rawOrderReference(row, t("page.warehouseStock.unassignedOrder"));
       const key = [
         row.model_id || row.model_code || row.model_name || "-",
         orderNo,
@@ -410,7 +410,7 @@ export default function WarehouseStockPage() {
                     <div className="mono font-semibold text-[#14110b]">{row.model_code || row.model_id || "-"}</div>
                     <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{row.model_name || "-"}</div>
                   </td>
-                  <td className="mono">{row.order_no}</td>
+                  <td className="mono">{formatOrderReference(row.order_no)}</td>
                   <td className="mono font-semibold text-[#14110b]">{row.section}</td>
                   <td className="mono">{row.storage_cell}</td>
                   <td className="mono">{row.storage_shelf}</td>

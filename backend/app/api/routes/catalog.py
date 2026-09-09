@@ -11,7 +11,10 @@ from sqlalchemy.orm import selectinload
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.core.config import settings
 from app.core.dt import date_filter_bounds
-from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
+from app.core.model_search import (
+    normalized_model_code_column, normalized_model_code_pattern,
+    model_search_prefix, model_prefix_number, model_group_prefix_number_column,
+)
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
@@ -1349,6 +1352,7 @@ def list_model_variant_groups(
 ):
     safe_page = max(1, int(page or 1))
     safe_size = max(1, min(int(page_size or 50), 100))
+    search_prefix = model_search_prefix(code) or model_search_prefix(q)
 
     if db.get_bind().dialect.name == "postgresql":
         # Migration 0084 materializes and indexes this family identity. Page
@@ -1372,9 +1376,12 @@ def list_model_variant_groups(
             catalog_scope=catalog_scope,
         ).group_by(group_key_column)
         total = filtered_keys_qry.count() if include_total else 0
+        group_order = [func.max(Model.id).desc()]
+        if search_prefix:
+            group_order.insert(0, model_group_prefix_number_column(group_key_column, search_prefix).desc())
         selected_groups = (
             filtered_keys_qry
-            .order_by(func.max(Model.id).desc())
+            .order_by(*group_order)
             .offset((safe_page - 1) * safe_size)
             .limit(safe_size)
             .all()
@@ -1418,6 +1425,14 @@ def list_model_variant_groups(
         )
         matching_groups = _model_group_members(identity_qry)
         total = len(matching_groups) if include_total else 0
+        if search_prefix:
+            matching_groups.sort(
+                key=lambda rows: (
+                    model_prefix_number(_model_code_parts_from_general(rows[0].code, rows[0].general_details)[0], search_prefix),
+                    int(rows[0].id),
+                ),
+                reverse=True,
+            )
         matching_groups = matching_groups[(safe_page - 1) * safe_size : safe_page * safe_size]
 
         has_member_filter = any(
@@ -1492,7 +1507,8 @@ def list_model_variant_groups(
     if factory_scope and not compact:
         for row in rows:
             row["details_json"] = filter_paid_operations_for_factory(row.get("details_json"), factory_scope)
-    rows.sort(key=lambda row: int(row.get("id") or 0), reverse=True)
+    if not search_prefix:
+        rows.sort(key=lambda row: int(row.get("id") or 0), reverse=True)
     if include_total:
         return _pagination_payload(rows, total=total, page=safe_page, page_size=safe_size)
     return rows

@@ -6,7 +6,7 @@ import { api, fetcher } from "@/lib/api";
 import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
-import { orderReference } from "@/lib/orderRef";
+import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { MATERIAL_COLOR_OPTIONS, materialColorLabelKey } from "@/lib/materialColors";
 import { divideBatchQuantityByRollCount } from "@/lib/materialRollWeights";
@@ -891,7 +891,7 @@ export default function ReceiveStockPage() {
                 {isFabricReceiving && <td>{b.old_code || "-"}</td>}
                 {isFabricReceiving && <td>{b.color_code || "-"}</td>}
                 {isFabricReceiving && <td>{b.color_status || "-"}</td>}
-                <td>{b.order_no || "-"}</td>
+                <td>{formatOrderReference(b.order_no || "-")}</td>
                 <td>{Number(b.quantity).toFixed(2)}</td>
                 {isFabricReceiving && <td>{b.gsm != null ? Number(b.gsm).toFixed(3) : "-"}</td>}
                 <td>{b.piece_count ?? "-"}</td>

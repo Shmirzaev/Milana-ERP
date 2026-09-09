@@ -1,3 +1,4 @@
+from app.core.order_reference import order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import or_
 
@@ -410,7 +411,7 @@ def list_passports(
             | CuttingPassport.lot_no.ilike(like)
             | CuttingPassport.variant.ilike(like)
             | normalized_model_code_column(CuttingPassport.model_code).ilike(model_code_like)
-            | CuttingPassport.order_no.ilike(like)
+            | order_reference_contains(CuttingPassport.order_no, like)
             | CuttingPassport.operator_name_manual.ilike(like)
         )
     rows = qry.limit(limit).all()

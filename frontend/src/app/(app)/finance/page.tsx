@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 
@@ -132,7 +133,7 @@ export default function FinancePage() {
               {(invoices || []).map((inv) => (
                 <tr key={inv.id}>
                   <td>{inv.invoice_no || inv.id}</td>
-                  <td>{inv.order_no}</td>
+                  <td>{formatOrderReference(inv.order_no)}</td>
                   <td>{inv.customer || "-"}</td>
                   <td>{money(Number(inv.amount || 0))}</td>
                   <td>
@@ -156,7 +157,7 @@ export default function FinancePage() {
       <Modal open={!!paying} onClose={() => setPaying(null)} title={t("page.finance.recordPayment")}>
         <form onSubmit={recordPayment} className="space-y-3">
           <div className="text-sm text-slate-600">
-            {paying?.invoice_no || "-"} - {paying?.order_no || "-"} - {money(Number(paying?.amount || 0))}
+            {paying?.invoice_no || "-"} - {formatOrderReference(paying?.order_no)} - {money(Number(paying?.amount || 0))}
           </div>
           <div><label className="label">{t("field.amountReceived")}</label><input className="input" type="number" step="0.01" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: parseNumberInput(e.target.value) })} required /></div>
           <div><label className="label">{t("field.date")}</label><input className="input" type="date" value={payment.date} onChange={(e) => setPayment({ ...payment, date: e.target.value })} required /></div>

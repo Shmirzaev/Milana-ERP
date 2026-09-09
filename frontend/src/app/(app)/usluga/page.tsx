@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -125,7 +126,7 @@ export default function UslugaPage() {
     return orders.filter((order) => {
       if (statusFilter && order.status !== statusFilter) return false;
       if (!query) return true;
-      return [order.order_no, order.customer_name, order.customer_reference, order.model?.code, order.model?.name]
+      return [order.order_no, formatOrderReference(order.order_no), order.customer_name, order.customer_reference, order.model?.code, order.model?.name]
         .some((value) => String(value || "").toLowerCase().includes(query));
     });
   }, [orders, search, statusFilter]);
@@ -292,7 +293,7 @@ export default function UslugaPage() {
             <div className="flex justify-between gap-4"><dt className="text-[#8a8472]">{t("field.deadline")}</dt><dd>{form.deadline || "—"}</dd></div>
             <div className="flex justify-between gap-4"><dt className="text-[#8a8472]">{t("usluga.routeLabel")}</dt><dd>ECT → ECO → ECP</dd></div>
           </dl>
-          {successOrder && <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{t("usluga.created", { order: successOrder.order_no })}</div>}
+          {successOrder && <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{t("usluga.created", { order: formatOrderReference(successOrder.order_no) })}</div>}
           {formError && <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{formError}</div>}
           <button className="btn btn-primary mt-4 w-full justify-center" type="button" disabled={busy || !selectedModel || activeLines.length === 0} onClick={() => void createOrder()}>{busy ? t("common.saving") : t("usluga.createPlan")}</button>
         </aside>
@@ -314,7 +315,7 @@ export default function UslugaPage() {
               {isLoading && <tr><td colSpan={9} className="p-6 text-center text-[#8a8472]">{t("common.loading")}</td></tr>}
               {!isLoading && filteredOrders.length === 0 && <tr><td colSpan={9} className="p-8 text-center text-[#8a8472]">{t("usluga.empty")}</td></tr>}
               {filteredOrders.map((order) => <tr key={order.id}>
-                <td><Link href={`/usluga/orders/${order.id}`} className="font-medium text-[#242117] hover:underline">{order.order_no}</Link><div className="mt-0.5 text-xs text-[#8a8472]">{order.customer_reference || "—"}</div></td>
+                <td><Link href={`/usluga/orders/${order.id}`} className="font-medium text-[#242117] hover:underline">{formatOrderReference(order.order_no)}</Link><div className="mt-0.5 text-xs text-[#8a8472]">{order.customer_reference || "—"}</div></td>
                 <td>{order.customer_name}</td>
                 <td>{order.model ? <Link className="hover:underline" href={`/usluga/models/${order.model.id}`}>{order.model.code} · {order.model.name}</Link> : `#${order.model_id}`}</td>
                 <td className="tabular-nums">{order.planned_quantity}</td>
@@ -329,7 +330,7 @@ export default function UslugaPage() {
       </section>
 
       <Modal open={Boolean(handoverOrder)} onClose={() => setHandoverOrder(null)} title={t("usluga.handOver")}>
-        <div className="mb-4 text-sm text-[#56503f]">{t("usluga.handoverHint", { order: handoverOrder?.order_no || "" })}</div>
+        <div className="mb-4 text-sm text-[#56503f]">{t("usluga.handoverHint", { order: formatOrderReference(handoverOrder?.order_no, "") })}</div>
         <div className="space-y-3">
           <label><span className="label">{t("usluga.recipient")}</span><input className="input" value={handoverForm.recipient} onChange={(event) => setHandoverForm({ ...handoverForm, recipient: event.target.value })} /></label>
           <label><span className="label">{t("field.notes")}</span><textarea className="input min-h-20" value={handoverForm.notes} onChange={(event) => setHandoverForm({ ...handoverForm, notes: event.target.value })} /></label>

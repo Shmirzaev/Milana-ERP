@@ -1,4 +1,5 @@
 ﻿"use client";
+import { formatOrderReference } from "@/lib/orderRef";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { CalendarDays, Download, Factory, Plus, TrendingDown, TrendingUp } from "lucide-react";
@@ -313,7 +314,7 @@ export default function HomePage() {
                 <article key={o.id} className="p-4">
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <a href={`/sales-orders/${o.id}`} className="mono block truncate font-semibold text-[#14110b]">{o.order_no}</a>
+                      <a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono block truncate font-semibold text-[#14110b]">{formatOrderReference(o.order_no)}</a>
                       <div className="mt-1 truncate text-sm font-medium text-[#14110b]">{o.customer || t("sales.unknownCustomer")}</div>
                     </div>
                     <span className="badge shrink-0 bg-[#fbe9dd] text-[#c2410c]">{statusLabel(o.status, t)}</span>
@@ -363,7 +364,7 @@ export default function HomePage() {
                   const pct = Math.max(0, Math.min(100, Number(o.progress || 0)));
                   return (
                     <tr key={o.id}>
-                      <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
+                      <td><a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono font-medium">{formatOrderReference(o.order_no)}</a></td>
                       <td>{o.customer || t("sales.unknownCustomer")}</td>
                       <td className="mono">{Number(o.qty || 0).toLocaleString()}</td>
                       <td className="min-w-36">

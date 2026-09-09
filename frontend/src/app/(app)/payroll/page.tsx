@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
@@ -879,8 +880,8 @@ export default function PayrollPage() {
                     </td>
                     <td>{period ? period.period_no : "-"}</td>
                     <td>
-                      <div>{record.production_no || "-"}</div>
-                      <div className="text-xs text-[#8a8472]">{record.sales_order_no || "-"}</div>
+                      <div>{formatOrderReference(record.production_no || "-")}</div>
+                      <div className="text-xs text-[#8a8472]">{formatOrderReference(record.sales_order_no || "-")}</div>
                     </td>
                     <td>{record.batch_no || "-"}</td>
                     <td>

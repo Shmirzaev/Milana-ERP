@@ -11,11 +11,13 @@ import {
 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import PayrollEmployeeSearch from "@/components/PayrollEmployeeSearch";
+import ControlScanReview, { controlScanMessages, isControlWork, type ControlPreview } from "@/components/payroll/ControlScanReview";
 import { api } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useDialogs } from "@/components/DialogProvider";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { normalizeBatchSerial } from "@/lib/batchSerial";
+import { formatOrderReference } from "@/lib/orderRef";
 import { useT, type CtxT } from "@/lib/i18n";
 import {
   PAYROLL_SCAN_STORAGE_KEY,
@@ -71,6 +73,7 @@ type WorkPayload = {
   cutting_passport_id?: number | null;
   cutting_passport_no?: string | null;
   label_status?: "available" | "scanned" | null;
+  requires_control_confirmation?: boolean;
 };
 
 type PayrollRecord = {
@@ -110,7 +113,8 @@ type BackendPayrollRecord = {
 
 type NumericWorkScanResponse = {
   work: Record<string, unknown>;
-  record: BackendPayrollRecord;
+  record: BackendPayrollRecord | null;
+  control_preview?: ControlPreview | null;
 };
 
 type IdleWindow = Window & {
@@ -540,6 +544,12 @@ export default function PayrollScanPage() {
   const lastScanRef = useRef<{ raw: string; at: number } | null>(null);
   const [inputHasText, setInputHasText] = useState(false);
   const [currentEmployee, setCurrentEmployee] = useState<EmployeePayload | null>(null);
+  const [controlReview, setControlReview] = useState<{ preview: ControlPreview; employee: EmployeePayload } | null>(null);
+  const controlReviewRef = useRef<typeof controlReview>(null);
+  const controlConfirmRef = useRef(false);
+  const scanSequenceRef = useRef(0);
+  const [controlBusy, setControlBusy] = useState(false);
+  const [controlError, setControlError] = useState("");
   const [records, setRecords] = useState<PayrollRecord[]>([]);
   const [recordsLoaded, setRecordsLoaded] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false);
@@ -755,8 +765,15 @@ export default function PayrollScanPage() {
   }
 
   function selectEmployee(payload: EmployeePayload) {
+    if (controlConfirmRef.current) return false;
+    // A chosen employee owns the next scan, never a previous in-flight review.
+    scanSequenceRef.current += 1;
+    controlReviewRef.current = null;
+    setControlReview(null);
+    setControlError("");
     currentEmployeeRef.current = payload;
     setCurrentEmployee(payload);
+    return true;
   }
 
   function replaceRecords(nextRecords: PayrollRecord[]) {
@@ -782,7 +799,53 @@ export default function PayrollScanPage() {
     }
   }
 
-  async function recordNumericWorkScan(raw: string, employee: EmployeePayload) {
+  function showControlReview(preview: ControlPreview, employee: EmployeePayload, sequence: number) {
+    if (sequence !== scanSequenceRef.current) return;
+    const review = { preview, employee };
+    controlReviewRef.current = review;
+    setControlReview(review);
+    setControlError("");
+    setNotice(controlScanMessages[lang].pending, "info");
+  }
+
+  function cancelControlReview() {
+    if (controlConfirmRef.current) return;
+    scanSequenceRef.current += 1;
+    controlReviewRef.current = null;
+    setControlReview(null);
+    setControlError("");
+    inputRef.current?.focus();
+  }
+
+  async function confirmControlReview() {
+    const review = controlReviewRef.current;
+    if (!review || controlConfirmRef.current || !canSavePayroll) return;
+    controlConfirmRef.current = true;
+    setControlBusy(true);
+    setControlError("");
+    try {
+      const saved = await api.post<BackendPayrollRecord>("/api/payroll/scan/control-confirm", {
+        label_uid: review.preview.work.label_id,
+        employee_id: review.employee.employee_id,
+        review_token: review.preview.review_token,
+      }, 30_000);
+      if (saved.status === "voided") throw new Error("Cancelled Control record");
+      const work = review.preview.work as WorkPayload;
+      const nextRecord = { ...toPayrollRecord(review.employee, work, t), backendId: saved.id, backendStatus: saved.status, savedAt: new Date().toISOString(), saveStatus: "saved" as const };
+      replaceRecords([nextRecord, ...recordsRef.current.filter((record) => !payrollScanRecordMatchesLabel(record, work.label_id || ""))]);
+      controlReviewRef.current = null;
+      setControlReview(null);
+      setNotice(t("page.payrollScan.autoSavedRecord", { count: numberOrZero(nextRecord.quantity).toLocaleString(), name: nextRecord.employeeName }), "success");
+      inputRef.current?.focus();
+    } catch {
+      setControlError(controlScanMessages[lang].error);
+    } finally {
+      controlConfirmRef.current = false;
+      setControlBusy(false);
+    }
+  }
+
+  async function recordNumericWorkScan(raw: string, employee: EmployeePayload, sequence: number) {
     const response = await api.post<NumericWorkScanResponse>("/api/payroll/scan/numeric-work", {
       token: raw,
       employee_id: employee.employee_id,
@@ -792,6 +855,12 @@ export default function PayrollScanPage() {
     if (!payload || payload.type !== "process_payroll") {
       throw new Error(t("page.payrollScan.unknownQr"));
     }
+
+    if (response.control_preview) {
+      showControlReview(response.control_preview, employee, sequence);
+      return;
+    }
+    if (!response.record) throw new Error(t("page.payrollScan.readFailed"));
 
     const existingWorkRecord = workRecordByKeyRef.current.get(buildWorkKey(payload));
     if (response.record.duplicate && existingWorkRecord) {
@@ -829,22 +898,38 @@ export default function PayrollScanPage() {
     const raw = inputRef.current?.value.trim() || "";
     if (!raw) return;
     clearScanInput();
+    if (controlReviewRef.current) {
+      setNotice(controlScanMessages[lang].pending, "warning");
+      return;
+    }
 
     const now = Date.now();
     const lastScan = lastScanRef.current;
     if (lastScan && lastScan.raw === raw && now - lastScan.at < 700) return;
     lastScanRef.current = { raw, at: now };
+    const sequence = ++scanSequenceRef.current;
 
     try {
       const selectedEmployee = currentEmployeeRef.current;
       if (/^2\d{8}$/.test(raw) && selectedEmployee && canSavePayroll) {
-        await recordNumericWorkScan(raw, selectedEmployee);
+        await recordNumericWorkScan(raw, selectedEmployee, sequence);
         return;
       }
       const payload = await resolveScanPayload(raw, t);
       if (payload.type === "employee_payroll") {
-        selectEmployee(payload);
+        if (sequence !== scanSequenceRef.current) return;
+        if (!selectEmployee(payload)) return;
         setNotice(t("page.payrollScan.employeeSelected", { name: payload.employee_name }), "success");
+        return;
+      }
+
+      const controlEmployee = currentEmployeeRef.current;
+      if (controlEmployee && isControlWork(payload)) {
+        const preview = await api.post<ControlPreview>("/api/payroll/scan/control-preview", {
+          label_uid: payload.label_id,
+          employee_id: controlEmployee.employee_id,
+        });
+        showControlReview(preview, controlEmployee, sequence);
         return;
       }
 
@@ -1088,6 +1173,8 @@ export default function PayrollScanPage() {
         )}
       />
 
+      {controlReview ? <ControlScanReview preview={controlReview.preview} employeeName={controlReview.employee.employee_name} busy={controlBusy} error={controlError} onConfirm={() => void confirmControlReview()} onCancel={cancelControlReview} /> : null}
+
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(320px,440px)_minmax(0,1fr)]">
         <section className="card p-4">
           <div className="mb-4 flex items-start justify-between gap-3">
@@ -1123,9 +1210,9 @@ export default function PayrollScanPage() {
             </button>
           </form>
 
-          {canSavePayroll && <PayrollEmployeeSearch onSelect={employee => {
+          {canSavePayroll && <PayrollEmployeeSearch disabled={controlBusy} onSelect={employee => {
             clearScanInput();
-            selectEmployee(employee);
+            if (!selectEmployee(employee)) return;
             setNotice(t("page.payrollScan.employeeSelected", { name: employee.employee_name }), "success");
           }} />}
 
@@ -1287,7 +1374,7 @@ export default function PayrollScanPage() {
                     <td>{new Date(record.scannedAt).toLocaleString(lang)}</td>
                     <td>{record.employeeName}</td>
                     <td>{record.modelCode}</td>
-                    <td>{record.productionNo}</td>
+                    <td>{formatOrderReference(record.productionNo)}</td>
                     <td>{record.batchNo}</td>
                     <td>
                       <div className="font-medium">{record.operationName}</div>

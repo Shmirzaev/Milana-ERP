@@ -6,7 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import { useState } from "react";
 import { useT } from "@/lib/i18n";
 import StagePipeline, { operationLabel, productionTypeLabel, statusLabel } from "@/components/StagePipeline";
-import { orderReference } from "@/lib/orderRef";
+import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { formatComposition } from "@/lib/materialComposition";
 import { formatModelComposition } from "@/lib/modelComposition";
 
@@ -72,7 +72,7 @@ export default function SalesOrderDetail() {
   return (
     <div>
       <PageHeader
-        title={t("page.soDetail.title", { orderNo: so.order_no })}
+        title={t("page.soDetail.title", { orderNo: formatOrderReference(so.order_no) })}
         subtitle={t("page.soDetail.subtitle", { type: productionTypeLabel(so.order_type, t), status: statusLabel(so.status, t) })}
         actions={
           <div className="flex gap-2">
@@ -92,7 +92,7 @@ export default function SalesOrderDetail() {
         <div className="card p-4">
           <h3 className="font-medium mb-2">{t("page.soDetail.details")}</h3>
           <dl className="text-sm space-y-1">
-            <div className="flex justify-between"><dt className="text-slate-500">{t("field.orderNo")}</dt><dd>{so.order_no}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{t("field.orderNo")}</dt><dd>{formatOrderReference(so.order_no)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.customer")}</dt><dd>{so.customer?.name || so.customer_name || so.customer_id || "-"}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.total")}</dt><dd>${Number(so.total_amount).toFixed(2)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.deadline")}</dt><dd>{so.deadline ? new Date(so.deadline).toLocaleDateString() : "—"}</dd></div>

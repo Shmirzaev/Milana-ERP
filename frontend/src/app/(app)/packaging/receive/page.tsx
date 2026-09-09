@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import { useSearchParams } from "next/navigation";
 import { useMemo, useRef, useState, type FormEvent } from "react";
@@ -52,7 +53,7 @@ function latestBundleCode(raw: string) {
 }
 
 function orderLabel(row: { order_no?: string | null; production_no?: string | null; production_order_id: number }) {
-  return row.order_no || row.production_no || `#${row.production_order_id}`;
+  return formatOrderReference(row.order_no || row.production_no || `#${row.production_order_id}`);
 }
 
 function batchLabel(row: { batch_no?: string | null; batch_name?: string | null }) {
@@ -254,7 +255,7 @@ export default function PackagingReceivePage() {
                   <tr key={key}>
                     <td>
                       <div className="font-medium text-[#14110b]">{orderLabel(option)}</div>
-                      <div className="text-xs text-[#8a8472]">{option.production_no || "-"}</div>
+                      <div className="text-xs text-[#8a8472]">{formatOrderReference(option.production_no || "-")}</div>
                     </td>
                     <td>{modelLabel(option)}</td>
                     <td>{batchLabel(option)}</td>

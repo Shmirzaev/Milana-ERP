@@ -8,8 +8,9 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
 import CuttingOrderList from "@/components/CuttingOrderList";
+import DepartmentOrderList from "@/components/DepartmentOrderList";
 import ShipmentItemLines from "@/components/ShipmentItemLines";
-import { operationLabel, statusLabel } from "@/components/StagePipeline";
+import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
@@ -28,18 +29,6 @@ const DEPT_LABELS: Record<string, string> = {
   ECP: "nav.ecoCottonPackaging",
   FGS: "nav.finishedGoods",
 };
-
-function woActionLink(wo: any) {
-  if (wo.operation === "cutting") return `/work-orders/${wo.id}/cutting`;
-  if (wo.operation === "printing") return `/work-orders/${wo.id}/printing`;
-  if (wo.operation === "sewing") return `/work-orders/${wo.id}/sewing`;
-  if (wo.operation === "packaging") return `/work-orders/${wo.id}/packaging`;
-  return `/production-orders/${wo.production_order_id}`;
-}
-
-function workCardTitle(w: any, t: (key: string, vars?: Record<string, string | number>) => string) {
-  return `${orderReference(w, w?.production_order_id ? `#${w.production_order_id}` : "-")} - ${operationLabel(w.operation, t)}`;
-}
 
 function MaterialThumb({ row }: { row: any }) {
   const imageUrl = row?.material_image_url || row?.model_image_url;
@@ -110,7 +99,6 @@ export default function DepartmentInboxPage() {
   });
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
-  const activeWorkOrders = Array.isArray(data?.active_work_orders) ? data.active_work_orders : [];
   const replacementCuttingWork = Array.isArray(data?.replacement_cutting_work) ? data.replacement_cutting_work : [];
   const replacementSewingWork = Array.isArray(data?.replacement_sewing_work) ? data.replacement_sewing_work : [];
   const cuttingWorkOrders = Array.isArray(data?.cutting_work_orders) ? data.cutting_work_orders : [];
@@ -134,7 +122,6 @@ export default function DepartmentInboxPage() {
   const readyPackages = useMemo(() => (
     Array.isArray(data?.ready_packages) ? data.ready_packages : []
   ), [data?.ready_packages]);
-  const splitQueueByStatus = true;
   const [expandedPackageGroups, setExpandedPackageGroups] = useState<Record<string, boolean>>({});
 
   const pendingPackagesByOrder = useMemo(() => {
@@ -265,17 +252,6 @@ export default function DepartmentInboxPage() {
     router.push(`/shipments${qs.toString() ? `?${qs.toString()}` : ""}`);
   }
 
-  function sewingReceivedLine(w: any) {
-    if (w?.operation !== "sewing") return null;
-    const bundleCount = Number(w.received_bundle_count || 0);
-    const qty = Number(w.received_bundle_qty || w.actual_input_qty || 0);
-    return (
-      <div className="text-xs text-slate-500">
-        {t("field.received")}: {bundleCount} {t("nav.bundles").toLowerCase()} / {qty} {t("field.qty").toLowerCase()}
-      </div>
-    );
-  }
-
   function textileLine(row: any) {
     const textileName = String(row?.textile_name || "").trim();
     if (!textileName) return null;
@@ -375,238 +351,43 @@ export default function DepartmentInboxPage() {
           t={t}
         />
       ) : !isLoading ? (
-        <div className={`grid grid-cols-1 gap-4 ${splitQueueByStatus ? "md:grid-cols-2 2xl:grid-cols-4" : "md:grid-cols-2 xl:grid-cols-3"}`}>
-          <section className="card p-4">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.incoming", { count: incomingCount })}
-            </h3>
-            <div className="space-y-2">
-              {incomingWorkOrders.map((w: any) => (
-                <div key={`wo-${w.work_order_id}`} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MaterialThumb row={w} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="break-words font-medium">{orderReference(w, `#${w.production_order_id}`)}</div>
-                          <div className="text-xs text-slate-500">
-                            {t("page.deptInbox.incomingProcess", {
-                              source: operationLabel(w.source_operation, t),
-                              target: operationLabel(w.target_operation, t),
-                            })}
-                          </div>
-                          {orderContextLine(w, t)}
-                          {materialLine(w)}
-                          {textileLine(w)}
-                        </div>
-                        <span className="badge shrink-0">{statusLabel(w.source_status || w.status, t)}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {Number(w.ready_qty || 0) > 0
-                      ? t("page.deptInbox.readyReceived", { ready: w.ready_qty, received: w.received_qty })
-                      : t("page.deptInbox.expectedReceived", { expected: w.expected_qty, received: w.received_qty })}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <Link
-                      className="text-xs text-brand-600 hover:underline"
-                      href={woActionLink({
-                        id: w.work_order_id,
-                        operation: w.target_operation,
-                        production_order_id: w.production_order_id,
-                      })}
-                    >
-                      {t("btn.open")}
-                    </Link>
-                    <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${w.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
-                  </div>
-                </div>
-              ))}
-              {incomingBundleGroups.map((g: any) => (
-                <div key={`bundle-group-${g.production_order_id}-${g.textile_code || "all"}`} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MaterialThumb row={g} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="break-words font-medium">{orderReference(g, `#${g.production_order_id}`)}</div>
-                          <div className="text-xs text-slate-500">
-                            {t("page.deptInbox.incomingProcess", {
-                              source: operationLabel(g.source_operation || "cutting", t),
-                              target: operationLabel(g.target_operation || "sewing", t),
-                            })}
-                          </div>
-                          {orderContextLine(g, t)}
-                          {materialLine(g)}
-                          {textileLine(g)}
-                        </div>
-                        <span className="badge shrink-0">
-                          {Number(g.bundle_count || 0)} {t("nav.bundles").toLowerCase()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {t("page.deptInbox.readyReceived", { ready: g.ready_qty, received: g.received_qty })}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    {g.work_order_id ? (
-                      <Link
-                        className="text-xs text-brand-600 hover:underline"
-                        href={woActionLink({
-                          id: g.work_order_id,
-                          operation: g.target_operation || "sewing",
-                          production_order_id: g.production_order_id,
-                        })}
-                      >
-                        {t("btn.open")}
-                      </Link>
-                    ) : null}
-                    <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${g.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
-                  </div>
-                </div>
-              ))}
-              {incomingCount === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noIncomingWork")}</div>}
-            </div>
-          </section>
-
-          {splitQueueByStatus ? (
-            <>
-              <section className="card p-4">
-                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                  {t("page.deptInbox.pending", { count: pendingWorkOrders.length })}
-                </h3>
-                {startError && <div className="mb-2 text-xs text-red-600">{startError}</div>}
-                <div className="space-y-2">
-                  {pendingWorkOrders.map((w: any) => (
-                    <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                      <div className="flex items-start gap-2">
-                        <MaterialThumb row={w} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="break-words font-medium">{workCardTitle(w, t)}</div>
-                              {orderContextLine(w, t)}
-                              {materialLine(w)}
-                              {textileLine(w)}
-                            </div>
-                            <span className="badge shrink-0">{statusLabel(w.status, t)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
-                      {sewingReceivedLine(w)}
-                      {w.deadline && (
-                        <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
-                      )}
-                      <div className="mt-1 flex items-center gap-2">
-                        <button
-                          className="btn h-7 px-2 text-[11px]"
-                          onClick={() => movePendingToInProgress(Number(w.id))}
-                          disabled={startingWoId === Number(w.id)}
-                        >
-                          {startingWoId === Number(w.id) ? t("common.loading") : t("btn.moveToInProgress")}
-                        </button>
-                        <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
-                      </div>
-                    </div>
-                  ))}
-                  {pendingWorkOrders.length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noPendingWorkOrders")}</div>}
-                </div>
-              </section>
-
-              <section className="card p-4">
-                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                  {t("page.deptInbox.inProgress", { count: inProgressWorkOrders.length })}
-                </h3>
-                <div className="space-y-2">
-                  {inProgressWorkOrders.map((w: any) => (
-                    <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                      <div className="flex items-start gap-2">
-                        <MaterialThumb row={w} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="break-words font-medium">{workCardTitle(w, t)}</div>
-                              {orderContextLine(w, t)}
-                              {materialLine(w)}
-                              {textileLine(w)}
-                            </div>
-                            <span className="badge shrink-0">{statusLabel(w.status, t)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
-                      {sewingReceivedLine(w)}
-                      {w.deadline && (
-                        <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
-                      )}
-                      <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
-                    </div>
-                  ))}
-                  {inProgressWorkOrders.length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noInProgressWorkOrders")}</div>}
-                </div>
-              </section>
-            </>
-          ) : (
-            <section className="card p-4">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                {t("page.deptInbox.inProgress", { count: activeWorkOrders.length })}
-              </h3>
-              <div className="space-y-2">
-                {activeWorkOrders.map((w: any) => (
-                  <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                    <div className="flex items-start gap-2">
-                      <MaterialThumb row={w} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="break-words font-medium">{workCardTitle(w, t)}</div>
-                            {orderContextLine(w, t)}
-                            {materialLine(w)}
-                            {textileLine(w)}
-                          </div>
-                          <span className="badge shrink-0">{statusLabel(w.status, t)}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
-                    {sewingReceivedLine(w)}
-                    {w.deadline && (
-                      <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
-                    )}
-                    <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
-                  </div>
-                ))}
-                {activeWorkOrders.length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noActiveWorkOrders")}</div>}
-              </div>
-            </section>
-          )}
-
-          <section className="card p-4">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.doneToday", { count: (data?.done_today || []).length })}
-            </h3>
-            <div className="space-y-2">
-              {(data?.done_today || []).map((w: any) => (
-                <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MaterialThumb row={w} />
-                    <div className="min-w-0">
-                      <div className="break-words font-medium">{workCardTitle(w, t)}</div>
-                      {orderContextLine(w, t)}
-                      {materialLine(w)}
-                      {textileLine(w)}
-                    </div>
-                  </div>
-                  <div className="text-xs text-slate-500">{t("page.deptInbox.passedOnly", { passed: w.passed_qty })}</div>
-                  <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${w.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
-                </div>
-              ))}
-              {(data?.done_today || []).length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.nothingCompleted24h")}</div>}
-            </div>
-          </section>
+        <div className="min-w-0 space-y-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#56503f]" aria-label={t("cuttingInbox.colorMeaning")}>
+            <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-[#ded9ca] bg-white" />{statusLabel("pending", t)}</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-amber-200 bg-yellow-50" />{statusLabel("in_progress", t)}</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-green-200 bg-green-50" />{statusLabel("completed", t)}</span>
+          </div>
+          <DepartmentOrderList
+            rows={[...incomingWorkOrders, ...incomingBundleGroups]}
+            kind="incoming"
+            title={t("page.deptInbox.incoming", { count: incomingCount })}
+            emptyLabel={t("page.deptInbox.noIncomingWork")}
+            t={t}
+          />
+          {startError ? <div role="alert" className="text-sm text-red-700">{startError}</div> : null}
+          <DepartmentOrderList
+            rows={pendingWorkOrders}
+            kind="pending"
+            title={t("page.deptInbox.pending", { count: pendingWorkOrders.length })}
+            emptyLabel={t("page.deptInbox.noPendingWorkOrders")}
+            startingWorkOrderId={startingWoId}
+            onMoveToInProgress={movePendingToInProgress}
+            t={t}
+          />
+          <DepartmentOrderList
+            rows={inProgressWorkOrders}
+            kind="in_progress"
+            title={t("page.deptInbox.inProgress", { count: inProgressWorkOrders.length })}
+            emptyLabel={t("page.deptInbox.noInProgressWorkOrders")}
+            t={t}
+          />
+          <DepartmentOrderList
+            rows={Array.isArray(data?.done_today) ? data.done_today : []}
+            kind="completed"
+            title={t("page.deptInbox.doneToday", { count: (data?.done_today || []).length })}
+            emptyLabel={t("page.deptInbox.nothingCompleted24h")}
+            t={t}
+          />
         </div>
       ) : null}
 

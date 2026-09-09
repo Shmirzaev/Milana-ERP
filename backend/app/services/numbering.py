@@ -1,7 +1,9 @@
 """Sequential business number generators."""
 from datetime import datetime, timezone
+import re
 
-from sqlalchemy import Integer, func, text
+from fastapi import HTTPException
+from sqlalchemy import Integer, Numeric, func, text
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -54,17 +56,39 @@ def _next(db: Session, model, attr: str, prefix: str, *, width: int = 6) -> str:
     return f"{prefix}-{year}-{next_num:0{width}d}"
 
 
+def _next_order(db: Session, model, attr: str, prefix: str) -> str:
+    """Issue a compact order reference without renumbering historical records."""
+    column = getattr(model, attr)
+    _acquire_numbering_lock(db, f"{model.__tablename__}:{attr}:{prefix}:compact")
+    # Include all historical years so removing the year does not restart the
+    # business sequence or reuse a historical order's numeric part.
+    pattern = rf"^{re.escape(prefix)}-([0-9]{{4}}-)?[0-9]+$"
+    if _is_postgresql(db):
+        suffix = func.substring(column, r"([0-9]+)$").cast(Numeric)
+        highest = int(db.query(func.max(suffix)).filter(column.op("~")(pattern)).scalar() or 0)
+    else:
+        highest = max(
+            (int(value.rsplit("-", 1)[-1]) for (value,) in
+             db.query(column).filter(column.like(f"{prefix}-%")).all()
+             if value and re.fullmatch(pattern, value)),
+            default=0,
+        )
+    if highest >= 9999:
+        raise HTTPException(409, f"The four-digit {prefix} order number sequence is exhausted")
+    return f"{prefix}-{highest + 1:04d}"
+
+
 def next_sales_order_no(db: Session) -> str:
-    return _next(db, SalesOrder, "order_no", "SO")
+    return _next_order(db, SalesOrder, "order_no", "SO")
 
 
 def next_production_order_no(db: Session) -> str:
-    return _next(db, ProductionOrder, "production_no", "PO")
+    return _next_order(db, ProductionOrder, "production_no", "PO")
 
 
 def next_usluga_order_no(db: Session) -> str:
     """Return a visibly separate number for Eco Cotton outside-service work."""
-    return _next(db, ProductionOrder, "production_no", "USL")
+    return _next_order(db, ProductionOrder, "production_no", "USL")
 
 
 def next_branded_planning_order_no(db: Session) -> str:
@@ -132,11 +156,11 @@ def next_invoice_no(db: Session) -> str:
 
 
 def next_purchase_request_no(db: Session) -> str:
-    return _next(db, PurchaseRequest, "request_no", "PR")
+    return _next_order(db, PurchaseRequest, "request_no", "PR")
 
 
 def next_purchase_order_no(db: Session) -> str:
-    return _next(db, PurchaseOrder, "po_no", "PUR")
+    return _next_order(db, PurchaseOrder, "po_no", "PUR")
 
 
 def next_material_reservation_no(db: Session) -> str:

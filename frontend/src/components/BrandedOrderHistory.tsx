@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -139,7 +140,7 @@ export default function BrandedOrderHistory({
             >
               <summary className={`flex cursor-pointer list-none flex-wrap items-center gap-3 px-5 py-4 ${order.cutting_status === "completed" ? "bg-green-100" : order.cutting_status === "partial" ? "bg-yellow-100" : "bg-white"} ${order.id === activeOrderId ? "ring-1 ring-inset ring-[#b7b09e]" : ""}`}>
                 <ChevronDown className="h-4 w-4 shrink-0 text-[#8a8472] transition-transform group-open:rotate-180" />
-                <span className="mono min-w-16 font-semibold text-[#14110b]">{order.order_no}</span>
+                <span className="mono min-w-16 font-semibold text-[#14110b]">{formatOrderReference(order.order_no)}</span>
                 <span className="text-sm text-[#56503f]">
                   {t("page.planning.productionCount", { count: order.production_count })}
                 </span>
@@ -174,7 +175,7 @@ export default function BrandedOrderHistory({
                             <tr key={production.id} className={production.cutting_status === "completed" ? "!bg-green-100" : "!bg-white"}>
                               <td>
                                 <Link className="mono font-semibold underline" href={`/production-orders/${production.id}`}>
-                                  {production.order_no || production.production_no}
+                                  {formatOrderReference(production.order_no || production.production_no)}
                                 </Link>
                               </td>
                               <td>

@@ -8,7 +8,7 @@ import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
-import { orderReference } from "@/lib/orderRef";
+import { orderReference, rawOrderReference } from "@/lib/orderRef";
 
 export default function BundlesPage() {
   const { t } = useT();
@@ -36,7 +36,7 @@ export default function BundlesPage() {
       const productionBatchId = b.production_batch_id ? Number(b.production_batch_id) : null;
       const batchLabel = b.batch_label || (productionBatchId ? `${t("field.batch")} #${productionBatchId}` : "No batch");
       const trackingPassportNo = b.tracking_passport_no || "";
-      const key = `${orderNo}::${productionBatchId || "none"}`;
+      const key = `${rawOrderReference(b, `#${b.production_order_id}`)}::${productionBatchId || "none"}`;
       const group = map.get(key);
       if (group) {
         group.items.push(b);

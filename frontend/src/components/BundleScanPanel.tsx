@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
@@ -490,7 +491,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
             <dl className="scan-detail-grid">
               <div>
                 <dt>{t("field.orderNo")}</dt>
-                <dd>{sewingBatch.order_no || sewingBatch.production_no || `#${sewingBatch.production_order_id}`}</dd>
+                <dd>{formatOrderReference(sewingBatch.order_no || sewingBatch.production_no || `#${sewingBatch.production_order_id}`)}</dd>
               </div>
               <div>
                 <dt>{t("field.model")}</dt>
@@ -690,9 +691,9 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                   return (
                     <tr key={key}>
                       <td>
-                        <div className="font-medium">{option.order_no || option.production_no || `#${option.production_order_id}`}</div>
+                        <div className="font-medium">{formatOrderReference(option.order_no || option.production_no || `#${option.production_order_id}`)}</div>
                         {option.production_no && option.production_no !== option.order_no && (
-                          <div className="text-xs text-slate-500">{option.production_no}</div>
+                          <div className="text-xs text-slate-500">{formatOrderReference(option.production_no)}</div>
                         )}
                       </td>
                       <td>
@@ -755,7 +756,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               </div>
               <div>
                 <dt className="text-[var(--erp-text-muted)]">{t("field.orderNo")}</dt>
-                <dd className="font-medium text-[var(--erp-text)]">{sewingBatch.order_no || sewingBatch.production_no || `#${sewingBatch.production_order_id}`}</dd>
+                <dd className="font-medium text-[var(--erp-text)]">{formatOrderReference(sewingBatch.order_no || sewingBatch.production_no || `#${sewingBatch.production_order_id}`)}</dd>
               </div>
               <div>
                 <dt className="text-[var(--erp-text-muted)]">{t("field.model")}</dt>

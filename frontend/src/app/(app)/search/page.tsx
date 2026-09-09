@@ -7,6 +7,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
+import { formatOrderReferencesInText } from "@/lib/orderRef";
 
 type SearchResult = {
   type: "SalesOrder" | "Bundle" | "Model" | "Customer";
@@ -99,8 +100,8 @@ export default function SearchPage() {
                   <ul className="space-y-1">
                     {grouped[type].slice(0, visibleCounts[type]).map((row) => (
                       <li key={`${row.type}-${row.id}`}>
-                        <a className="text-sm text-[#3b3528] underline" href={row.url}>
-                          {row.label}
+                        <a className="text-sm text-[#3b3528] underline" href={row.url} title={row.label}>
+                          {row.type === "SalesOrder" ? formatOrderReferencesInText(row.label) : row.label}
                         </a>
                       </li>
                     ))}

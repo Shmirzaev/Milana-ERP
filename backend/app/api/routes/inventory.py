@@ -1,3 +1,4 @@
+from app.core.order_reference import order_reference_contains
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -1707,7 +1708,7 @@ def list_batches(
                 StockBatch.old_code.ilike(like),
                 StockBatch.color_code.ilike(like),
                 StockBatch.color_status.ilike(like),
-                StockBatch.order_no.ilike(like),
+                order_reference_contains(StockBatch.order_no, like),
                 StockBatch.processes.ilike(like),
                 StockBatch.unit.ilike(like),
                 StockBatch.qc_status.ilike(like),

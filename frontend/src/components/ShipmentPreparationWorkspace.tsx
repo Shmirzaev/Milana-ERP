@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { Check, PackageCheck, ScanLine } from "lucide-react";
@@ -146,11 +147,11 @@ export default function ShipmentPreparationWorkspace({
       <div className={`flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3 sm:px-5 ${preparation.is_complete ? "border-emerald-200 bg-emerald-50" : "border-[#ded9ca] bg-[#f1efe8]"}`}>
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="app-card-title mono">{shipment.shipment_no || shipment.sales_order_no}</h2>
+            <h2 className="app-card-title mono">{formatOrderReference(shipment.shipment_no || shipment.sales_order_no)}</h2>
             <span className="badge">{isPreview ? t("page.shipments.notCreated") : statusLabel(shipment.status, t)}</span>
           </div>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[#56503f]">
-            <span>{t("page.shipments.salesOrder")}: <strong className="font-semibold text-[#14110b]">{shipment.sales_order_no || "-"}</strong></span>
+            <span>{t("page.shipments.salesOrder")}: <strong className="font-semibold text-[#14110b]">{formatOrderReference(shipment.sales_order_no || "-")}</strong></span>
             <span>{t("field.customer")}: <strong className="font-semibold text-[#14110b]">{shipment.customer_name || "-"}</strong></span>
             {!shipment.sales_order_id && shipment.notes ? <span>{t("page.shipments.reference")}: {shipment.notes}</span> : null}
           </div>

@@ -12,7 +12,7 @@ const { chromium } = loadDependency(process.env.PLAYWRIGHT_MODULE_PATH || 'playw
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const files = [
   'lib/i18n/locales/en-base.ts', 'lib/i18n/locales/en-supplemental.ts',
-  'lib/numberInput.ts', 'lib/batchSerial.ts', 'lib/payrollScanStorage.ts', 'lib/modelCode.ts',
+  'lib/orderRef.ts', 'components/payroll/ControlScanReview.tsx', 'lib/numberInput.ts', 'lib/batchSerial.ts', 'lib/payrollScanStorage.ts', 'lib/modelCode.ts',
   'components/SearchableSelect.tsx', 'components/PayrollEmployeeSearch.tsx',
   'app/(app)/payroll/scan/page.tsx',
 ];

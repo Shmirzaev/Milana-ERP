@@ -1,4 +1,5 @@
 ﻿"use client";
+import { formatOrderReference } from "@/lib/orderRef";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -233,8 +234,8 @@ export default function SalesOrdersPage() {
               <article key={o.id} className="p-4">
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <a href={`/sales-orders/${o.id}`} className="mono block truncate font-semibold text-[#14110b]">
-                      {o.order_no}
+                    <a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono block truncate font-semibold text-[#14110b]">
+                      {formatOrderReference(o.order_no)}
                     </a>
                     <div className="mt-1 truncate text-sm font-medium text-[#14110b]">
                       {customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}
@@ -306,7 +307,7 @@ export default function SalesOrdersPage() {
                   return (
                     <tr key={o.id} data-selected={active} className={active ? "bg-[#fdf3eb]" : ""} onClick={() => setSelectedId(o.id)}>
                       <td><input type="checkbox" onClick={(e) => e.stopPropagation()} /></td>
-                      <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
+                      <td><a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono font-medium">{formatOrderReference(o.order_no)}</a></td>
                       <td>{customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}</td>
                       <td className="mono text-right">{qty.toLocaleString()}</td>
                       <td>
@@ -338,7 +339,7 @@ export default function SalesOrdersPage() {
           {selected ? (
             <>
               <div className="flex items-center justify-between border-b border-[#ecebe3] px-4 py-4">
-                <a href={`/sales-orders/${selected.id}`} className="mono font-semibold">{selected.order_no}</a>
+                <a href={`/sales-orders/${selected.id}`} title={selected.order_no} className="mono font-semibold">{formatOrderReference(selected.order_no)}</a>
                 <div className="flex items-center gap-3">
                   <span className={`badge ${statusClass(selected.status)}`}>{statusLabel(selected.status, t)}</span>
                   <button className="icon-btn"><MoreHorizontal /></button>

@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import type { SewingProductionReportRow } from "@/lib/sewingProductionReport";
 import type { CtxT } from "@/lib/i18n";
@@ -57,7 +58,7 @@ export default function SewingProductionReportTable({ rows, rowOffset, lang, t }
               </td>
               <td>
                 <div>{row.cutting_reference || "-"}</div>
-                <div className="text-[11px] text-[#8a8472]">{row.sales_order_no || row.production_no || ""}</div>
+                <div className="text-[11px] text-[#8a8472]">{formatOrderReference(row.sales_order_no || row.production_no || "")}</div>
               </td>
               <td>
                 <div>{row.model_code || "-"}</div>

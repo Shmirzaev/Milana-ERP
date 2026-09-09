@@ -1,3 +1,4 @@
+from app.core.order_reference import order_reference_contains
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -424,8 +425,8 @@ def cutting_inventory(
                 Bundle.barcode.ilike(like),
                 Bundle.color.ilike(like),
                 Bundle.size.ilike(like),
-                ProductionOrder.production_no.ilike(like),
-                SalesOrder.order_no.ilike(like),
+                order_reference_contains(ProductionOrder.production_no, like),
+                order_reference_contains(SalesOrder.order_no, like),
                 normalized_model_code_column(Model.code).ilike(model_code_like),
             )
         )
@@ -505,8 +506,8 @@ def sewing_receive_options(
             or_(
                 Bundle.bundle_no.ilike(like),
                 Bundle.barcode.ilike(like),
-                ProductionOrder.production_no.ilike(like),
-                SalesOrder.order_no.ilike(like),
+                order_reference_contains(ProductionOrder.production_no, like),
+                order_reference_contains(SalesOrder.order_no, like),
                 normalized_model_code_column(Model.code).ilike(model_code_like),
                 Model.name.ilike(like),
             )
