@@ -1,6 +1,6 @@
 {
-  "release": "20260909_102118",
-  "source_manifest_sha256": "a60ecb6c52aa85895075ab18b8e22e6b5c4c3628a62e74a3a65e5c38b3fcaee1",
+  "release": "20260909_122650",
+  "source_manifest_sha256": "b1af565d5f3d77c9e94a4eee116c151a0debccdbeffd087755f60c7d430deb75",
   "database_revision": "0121_stocktake_scan_snapshot",
-  "git_baseline_commit": "2203cc24c5f929bab04e1e5a58b956e6f9ca2a67"
+  "git_baseline_commit": "f91e733284fe96d6e5134ce65d2333411b520389"
 }
