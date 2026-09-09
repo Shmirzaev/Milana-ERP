@@ -535,12 +535,12 @@ export default function PayrollPage() {
             </select>
           </div>
           <div>
-            <label className="label">{t("field.from")}</label>
-            <input className="input" type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
+            <label className="label" htmlFor="payroll-date-from">{t("field.dateFrom")}</label>
+            <input id="payroll-date-from" className="input" type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
           </div>
           <div>
-            <label className="label">{t("field.to")}</label>
-            <input className="input" type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
+            <label className="label" htmlFor="payroll-date-to">{t("field.dateTo")}</label>
+            <input id="payroll-date-to" className="input" type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
           </div>
         </div>
       </section>

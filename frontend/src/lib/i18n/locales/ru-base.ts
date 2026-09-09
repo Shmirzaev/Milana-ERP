@@ -351,6 +351,8 @@ export default {
     "field.estimatedValue": "Оценочная стоимость",
     "field.sellable": "На продажу",
     "field.from": "От",
+    "field.dateFrom": "Дата начала",
+    "field.dateTo": "Дата окончания",
     "field.to": "К",
     "field.when": "Когда",
     "field.who": "Кем",

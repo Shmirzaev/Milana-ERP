@@ -351,6 +351,8 @@ export default {
     "field.estimatedValue": "Taxminiy qiymat",
     "field.sellable": "Sotiladi",
     "field.from": "Kimdan",
+    "field.dateFrom": "Boshlanish sanasi",
+    "field.dateTo": "Tugash sanasi",
     "field.to": "Kimga",
     "field.when": "Qachon",
     "field.who": "Kim",

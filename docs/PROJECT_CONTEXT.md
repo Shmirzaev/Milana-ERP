@@ -1,6 +1,13 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
+
+## Payroll scanner employee-name search implemented, not deployed (2026-09-09)
+
+- The Payroll Scan scanner panel now supports typing an employee name or number and choosing a result by keyboard or mouse. Results show the employee number, department and position to distinguish matching names. Selection returns focus to the QR input; pending payroll saves do not interrupt name entry. Existing employee QR/number entry and immediate numeric-work autosave remain unchanged.
+- New read-only `/api/payroll/employees/search` requires the same `payroll.scan` / `payroll.manage` permission as employee-number resolution. It searches active employees only in the login factory, matches name/number terms case-insensitively, treats SQL wildcard characters literally, and returns at most 20 matches with a refine-search hint. No HR private fields, business writes, schema changes or permission grants are introduced. Search is debounced and ignores stale responses. New UI text supports English, Russian and Uzbek.
+- Validation: 34 payroll/search backend tests passed, changed-file Ruff and ESLint passed, strict TypeScript and existing payroll autosave contract passed, all frontend build contracts and the 85-page production build passed. Actual-page isolated Chrome fixtures passed keyboard/mouse selection, number entry, numeric autosave with the chosen employee, no payroll write on selection, late-save focus, stale search results, repeated searches, empty/error recovery, permission visibility and EN/RU/UZ phone result bounds. Desktop/mobile screenshots were inspected. Fixtures used no production data or writes.
+- Worktree `C:/ERP/.codex-work/payroll-employee-search-20260909`, branch `codex/payroll-employee-search-20260909`, based on verified `origin/main` `6d17977f15e24f4b971374cad0595fe222eb6a18`. Both production source manifests and the baseline record were verified before edits. This change is not merged or deployed. Active release remains `20260908_121327` (green), reviewed source `974eb7a31d8be2c09266f3f7179da45843cd8aa0`, database `0117_package_quantity_evidence`, rollback `20260908_080847` (blue). The earlier authorized deletion of two Sales orders is recorded separately on `codex/delete-shipment-orders-20260909` and in Obsidian; no production data was touched by this search task.
 
 ## Ready storage workflows and reference invoice deployed (2026-09-08)
 

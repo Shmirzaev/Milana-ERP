@@ -428,6 +428,8 @@ export default {
     "field.estimatedValue": "Estimated value",
     "field.sellable": "Sellable",
     "field.from": "From",
+    "field.dateFrom": "Start date",
+    "field.dateTo": "End date",
     "field.to": "To",
     "field.when": "When",
     "field.who": "By",
