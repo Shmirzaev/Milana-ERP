@@ -112,6 +112,7 @@ const SECTIONS: Section[] = [
     items: [
       { href: "/inventory/accessory-pricing", labelKey: "nav.accessoryPriceRequests", audience: "accessoryPricing", icon: Calculator },
       { href: "/inventory?group=materials", labelKey: "nav.materialInventory", perms: ["storage.items", "storage.receive"], icon: Warehouse },
+      { href: "/inventory/cutting-fabric-usage", labelKey: "cuttingUsage.title", perms: ["storage.items", "storage.receive", "cutting.records", "planning.production"], icon: Scissors },
       { href: "/inventory?group=accessories", labelKey: "nav.accessoryInventory", perms: ["storage.items", "storage.receive"], icon: PackageSearch },
       { href: "/inventory/master-data", labelKey: "nav.masterData", perms: ["storage.items", "storage.suppliers", "*"], icon: Database },
       { href: "/inventory/receive?group=materials", labelKey: "nav.receiveFabric", perms: ["storage.receive"], icon: PackageCheck },
@@ -166,6 +167,7 @@ const SECTIONS: Section[] = [
     titleKey: "section.ecoCottonCutting",
     items: [
       { href: "/departments/ECT", labelKey: "nav.ecoCottonCutting", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Scissors },
+      { href: "/inventory/cutting-fabric-usage", labelKey: "cuttingUsage.title", perms: ["storage.items", "storage.receive", "cutting.records", "planning.production"], icon: FileText },
       { href: "/cutting-passports?cutting_department=ECT", labelKey: "nav.cuttingPassports", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: FileText },
       { href: "/cutting-inventory?cutting_department=ECT", labelKey: "nav.bundleInventory", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Boxes },
       { href: "/bundles?cutting_department=ECT", labelKey: "nav.bundles", perms: ["cutting.bundles", "cutting.records", "planning.production"], icon: PackageSearch },

@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
+import { GARMENT_SIZE_OPTIONS, garmentSizeRange, garmentSizeRangeEndOptions } from "@/lib/garmentSizes";
 
 const COPY = {
   en: {
@@ -37,9 +37,8 @@ function ModelSizeEditor({ modelId, onSaved }: Props) {
   const inputId = useId();
   const [sizeFrom, setSizeFrom] = useState("46");
   const [sizeTo, setSizeTo] = useState("56");
-  const startIndex = GARMENT_SIZE_OPTIONS.indexOf(sizeFrom);
-  const endIndex = GARMENT_SIZE_OPTIONS.indexOf(sizeTo);
-  const sizes = startIndex >= 0 && endIndex >= startIndex ? GARMENT_SIZE_OPTIONS.slice(startIndex, endIndex + 1) : [];
+  const endOptions = garmentSizeRangeEndOptions(sizeFrom);
+  const sizes = garmentSizeRange(sizeFrom, sizeTo);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<"invalid" | "conflict" | "denied" | "failed" | null>(null);
@@ -85,7 +84,7 @@ function ModelSizeEditor({ modelId, onSaved }: Props) {
           <select id={`${inputId}-from`} aria-describedby={`${inputId}-help`} className="input w-full" value={sizeFrom} onChange={(event) => {
             const next = event.target.value;
             setSizeFrom(next);
-            if (GARMENT_SIZE_OPTIONS.indexOf(next) > endIndex) setSizeTo(next);
+            if (!garmentSizeRangeEndOptions(next).includes(sizeTo)) setSizeTo(next);
             setError(null);
           }} disabled={busy || saved}>
             {GARMENT_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}</option>)}
@@ -94,7 +93,7 @@ function ModelSizeEditor({ modelId, onSaved }: Props) {
         <div>
           <label htmlFor={`${inputId}-to`} className="label">{t("newso.sizeTo")}</label>
           <select id={`${inputId}-to`} aria-describedby={`${inputId}-help`} className="input w-full" value={sizeTo} onChange={(event) => { setSizeTo(event.target.value); setError(null); }} disabled={busy || saved}>
-            {GARMENT_SIZE_OPTIONS.slice(startIndex).map((size) => <option key={size} value={size}>{size}</option>)}
+            {endOptions.map((size) => <option key={size} value={size}>{size}</option>)}
           </select>
         </div>
       </div>

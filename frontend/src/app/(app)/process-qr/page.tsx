@@ -2007,7 +2007,18 @@ export default function ProcessQrPage() {
           <div className={`process-qr-collapsible ${collapsedSections.paidOperations ? "is-collapsed" : ""}`}>
           <div className="mb-3"><PaidProcessPicker key={selectedModelId} existing={factoryOperations} onSelect={addOperation} /></div>
           <div className="overflow-x-auto">
-            <table className="table min-w-[850px]">
+            <table className="table process-qr-operations">
+              <colgroup>
+                <col style={{ width: 40 }} />
+                <col style={{ width: 40 }} />
+                <col style={{ width: 144 }} />
+                <col style={{ width: 112 }} />
+                <col />
+                <col style={{ width: 96 }} />
+                <col style={{ width: 72 }} />
+                <col style={{ width: 144 }} />
+                <col style={{ width: 144 }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th scope="col" className="w-12">№</th>
@@ -2037,8 +2048,7 @@ export default function ProcessQrPage() {
                     </td>
                     <td>
                       <select
-                        className="input min-w-[130px]"
-                        style={{ minWidth: 140 }}
+                        className="input"
                         value={operation.section}
                         onChange={(event) => updateOperation(operation.id, { section: event.target.value as SectionCode, sourceStage: event.target.value })}
                       >
@@ -2047,21 +2057,23 @@ export default function ProcessQrPage() {
                     </td>
                     <td>
                       <input
-                        className="input min-w-[120px] font-mono"
+                        className="input font-mono"
                         value={operation.code}
                         onChange={(event) => updateOperation(operation.id, { code: event.target.value.toUpperCase() })}
                       />
                     </td>
                     <td>
-                      <input
-                        className="input min-w-[190px]"
+                      <textarea
+                        className="input process-qr-operation-name"
+                        rows={2}
+                        aria-label={t("page.processQr.operationName")}
                         value={operation.name}
                         onChange={(event) => updateOperation(operation.id, { name: event.target.value })}
                       />
                     </td>
                     <td>
                       <input
-                        className="input min-w-[110px]"
+                        className="input tabular-nums"
                         type="number"
                         min={0}
                         step="0.01"
@@ -2072,7 +2084,7 @@ export default function ProcessQrPage() {
                     </td>
                     <td>
                       <input
-                        className="input w-20"
+                        className="input tabular-nums"
                         type="number"
                         min={1}
                         value={operation.copies}
@@ -2080,7 +2092,7 @@ export default function ProcessQrPage() {
                       />
                     </td>
                     <td>
-                      <div className="min-w-[260px] space-y-2">
+                      <div className="min-w-0 space-y-2">
                         <select
                           className="input"
                           value={operation.splitMode}
@@ -2096,7 +2108,7 @@ export default function ProcessQrPage() {
                           </div>
                         )}
                         {operation.splitMode === "custom" && (
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 gap-2">
                             {splitInputs.map((quantity, index) => (
                               <label key={`${operation.id}-split-${index}`} className="flex items-center gap-1 text-[11px] text-[#6b6251]">
                                 <span className="w-7 shrink-0">#{index + 1}</span>
@@ -2660,6 +2672,31 @@ export default function ProcessQrPage() {
       </section>
 
       <style jsx global>{`
+        .table.process-qr-operations {
+          table-layout: fixed;
+          min-width: 1200px;
+        }
+
+        .table.process-qr-operations th,
+        .table.process-qr-operations td {
+          padding-left: 8px;
+          padding-right: 8px;
+          vertical-align: top;
+        }
+
+        .process-qr-operations .input {
+          padding-left: 8px;
+          padding-right: 8px;
+        }
+
+        .process-qr-operations .process-qr-operation-name {
+          field-sizing: content;
+          min-height: 40px;
+          resize: vertical;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+        }
+
         .label-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));

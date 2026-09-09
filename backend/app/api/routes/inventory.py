@@ -2,7 +2,7 @@ from app.core.order_reference import canonical_business_order_reference, canonic
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Depends, Header, UploadFile, File, Response
+from fastapi import APIRouter, HTTPException, Depends, Header, UploadFile, File, Response, Query
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import lazyload
 
@@ -69,12 +69,34 @@ from app.services.inventory_reports import (
     material_inventory_report_rows,
 )
 from app.services.workflow import archive_depleted_material_batch
+from app.services.cutting_fabric_usage import cutting_fabric_usage
 from app.core.pagination import clamp_pagination
 from app.core.config import settings
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 EPSILON = 1e-9
+
+
+@router.get("/cutting-fabric-usage")
+def get_cutting_fabric_usage(
+    db: DbSession,
+    current: User = Depends(require_permissions("storage.items", "storage.receive", "cutting.records", "planning.production", "*")),
+    q: str | None = Query(None, max_length=200),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    item_id: int | None = Query(None, ge=1),
+    batch_id: int | None = Query(None, ge=1),
+    unit: str | None = Query(None, max_length=32),
+    cutting_department: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+):
+    return cutting_fabric_usage(
+        db, current, q=q, date_from=date_from, date_to=date_to,
+        item_id=item_id, batch_id=batch_id, unit=unit,
+        cutting_department=cutting_department, page=page, page_size=page_size,
+    )
 
 
 def _validate_receiving_warehouse(item: Item, warehouse: Warehouse) -> None:
