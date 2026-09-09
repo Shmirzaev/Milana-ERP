@@ -13,7 +13,7 @@ All eight requested changes are prepared and locally verified. No production dep
 - [x] **5. Process QR totals.** Operations show the selected total rate per piece and the generated quantity-weighted amount. Browser fixture results were **850 per piece** and **51,000 total**.
 - [x] **6. Model-prefix ordering.** Two-letter searches return larger model numbers first. Chrome verified `XJ5999`, then `XJ5614`, then `XJ5415`.
 - [x] **7. Control confirmation.** Control scans show related operations and scan states before crediting only the scanned Control operation. Cancelling wrote no payroll record; confirmation created one **29,750** record, and rescanning preserved duplicate protection. Server checks cover numeric/compact/legacy issued labels, factory/employee isolation, stale snapshots, voided records and ordinary single/bulk save bypass attempts. Employee changes invalidate pending reviews and are blocked during confirmation.
-- [x] **8. Save missing model sizes.** Manual Process QR saves sizes directly to an empty selected standard-model variant. Chrome verified three persisted sizes. The API requires payroll/model permission, locks the model, inserts atomically, audits the change and rejects duplicates or an already-configured model. Existing/sibling sizes are preserved.
+- [x] **8. Save missing model sizes.** Manual Process QR uses the same beginning/end size selectors and standard size list as Models. Intermediate sizes appear automatically; 48–58 generates 48, 50, 52, 54, 56, 58. Chrome verified all six persisted sizes and single-size/reversed-range handling; component lint and full/strict TypeScript passed after this follow-up. The API requires payroll/model permission, locks the model, inserts atomically, audits the change and rejects duplicates or an already-configured model. Existing/sibling sizes are preserved.
 
 ## Validation
 
@@ -32,6 +32,7 @@ Files are in this worktree's `outputs/screenshots/` directory.
 | `paid-operations-totals.png` | Process QR operation totals |
 | `models-prefix-order.png` | Descending model-prefix results |
 | `manual-model-sizes.png` | Inline missing-size entry |
+| `automatic-size-range.png` | Updated beginning/end selectors and automatic intermediate sizes |
 | `manual-model-sizes-saved.png` | Sizes saved to the selected model |
 | `control-confirmation.png` | Related operations and pre-credit confirmation |
 | `control-confirmed.png` | Confirmed Control payroll result |
