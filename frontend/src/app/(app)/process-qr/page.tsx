@@ -2022,7 +2022,10 @@ export default function ProcessQrPage() {
               <thead>
                 <tr>
                   <th scope="col" className="w-12">№</th>
-                  <th className="w-12">{t("page.processQr.use")}</th>
+                  <th scope="col" title={t("page.processQr.use")}>
+                    <CheckSquare className="h-4 w-4" aria-hidden="true" />
+                    <span className="sr-only">{t("page.processQr.use")}</span>
+                  </th>
                   <th>{t("field.section")}</th>
                   <th>{t("common.code")}</th>
                   <th>{t("page.processQr.operationName")}</th>
@@ -2042,6 +2045,7 @@ export default function ProcessQrPage() {
                       <input
                         type="checkbox"
                         className="h-4 w-4"
+                        aria-label={`${t("page.processQr.use")}: ${operation.name}`}
                         checked={operation.selected}
                         onChange={(event) => updateOperation(operation.id, { selected: event.target.checked })}
                       />
@@ -2687,6 +2691,13 @@ export default function ProcessQrPage() {
         .process-qr-operations .input {
           padding-left: 8px;
           padding-right: 8px;
+        }
+
+        .table.process-qr-operations thead th {
+          white-space: normal;
+          overflow-wrap: anywhere;
+          letter-spacing: 0.02em;
+          line-height: 1.4;
         }
 
         .process-qr-operations .process-qr-operation-name {
