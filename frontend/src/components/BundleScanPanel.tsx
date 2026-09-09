@@ -290,6 +290,8 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
           return;
         } catch (e: any) {
           lastError = e.message;
+          // A conflicting QR must not become a different bundle through token fallback.
+          if (e?.status === 409 || /^409:/.test(String(e?.message || ""))) throw e;
         }
       }
 

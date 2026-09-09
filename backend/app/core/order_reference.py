@@ -8,10 +8,11 @@ from app.models.order_reference import BusinessOrderAlias
 
 
 def _entity(namespace):
-    from app.models import SalesOrder, ProductionOrder, PurchaseRequest, PurchaseOrder
+    from app.models import Bundle, SalesOrder, ProductionOrder, PurchaseRequest, PurchaseOrder
     entities = {"SO": (SalesOrder, "order_no"), "PO": (ProductionOrder, "production_no"),
                 "USL": (ProductionOrder, "production_no"), "PR": (PurchaseRequest, "request_no"),
-                "PUR": (PurchaseOrder, "po_no"), "PUBLIC_PO": (ProductionOrder, "production_no")}
+                "PUR": (PurchaseOrder, "po_no"), "PUBLIC_PO": (ProductionOrder, "production_no"),
+                "BND": (Bundle, "bundle_no")}
     if namespace not in entities:
         raise ValueError("Unknown order-reference namespace")
     return entities[namespace]
@@ -111,7 +112,7 @@ def order_reference_contains(column, pattern: str):
     name = getattr(column, "key", "")
     namespaces = {
         "sales_orders": ["SO"], "production_orders": ["PO", "USL", "PUBLIC_PO"],
-        "purchase_requests": ["PR"], "purchase_orders": ["PUR"],
+        "purchase_requests": ["PR"], "purchase_orders": ["PUR"], "bundles": ["BND"],
     }.get(table)
     if namespaces is None:
         namespaces = ["PO", "USL"] if name == "production_no" else ["SO", "PUBLIC_PO"] if name == "sales_order_no" else ["SO", "PO", "USL", "PR", "PUR", "PUBLIC_PO"]

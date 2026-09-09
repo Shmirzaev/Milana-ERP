@@ -31,6 +31,7 @@ from app.models import (
 )
 from app.schemas.tracking import BundleIn, BundleOut, BundleDetail
 from app.services.bundles import (
+    find_bundle_by_scanned_code,
     create_bundle,
     send_to_printing,
     receive_at_printing,
@@ -265,38 +266,8 @@ def _bundle_label_card(ctx: dict, qr: str) -> str:
             """
 
 
-def _bundle_lookup_candidates(raw_code: str) -> list[str]:
-    code = (raw_code or "").strip()
-    if not code:
-        return []
-
-    candidates: list[str] = [code]
-    if "|" in code:
-        candidates.extend([part.strip() for part in code.split("|") if part.strip()])
-    if code.upper().startswith("BUNDLE:"):
-        payload = code.split(":", 1)[1]
-        candidates.extend([part.strip() for part in payload.split("|") if part.strip()])
-
-    unique: list[str] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        token = candidate.strip()
-        if token and token not in seen:
-            seen.add(token)
-            unique.append(token)
-    return unique
-
-
 def _find_bundle_by_scanned_code(db: DbSession, code: str) -> Bundle | None:
-    candidates = _bundle_lookup_candidates(code)
-    if not candidates:
-        return None
-    return (
-        db.query(Bundle)
-        .filter(or_(Bundle.barcode.in_(candidates), Bundle.bundle_no.in_(candidates)))
-        .order_by(Bundle.id.desc())
-        .first()
-    )
+    return find_bundle_by_scanned_code(db, code)
 
 
 def _get_bundle_for_update(db: DbSession, bid: int) -> Bundle:
@@ -408,7 +379,7 @@ def cutting_inventory(
         model_code_like = normalized_model_code_pattern(search)
         qry = qry.filter(
             or_(
-                Bundle.bundle_no.ilike(like),
+                order_reference_contains(Bundle.bundle_no, like),
                 Bundle.barcode.ilike(like),
                 Bundle.color.ilike(like),
                 Bundle.size.ilike(like),
@@ -491,7 +462,7 @@ def sewing_receive_options(
         model_code_like = normalized_model_code_pattern(search)
         qry = qry.filter(
             or_(
-                Bundle.bundle_no.ilike(like),
+                order_reference_contains(Bundle.bundle_no, like),
                 Bundle.barcode.ilike(like),
                 order_reference_contains(ProductionOrder.production_no, like),
                 order_reference_contains(SalesOrder.order_no, like),

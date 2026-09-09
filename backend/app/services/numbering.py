@@ -74,11 +74,15 @@ def _next_order(db: Session, model, attr: str, prefix: str) -> str:
             default=0,
         )
     reserved = set()
-    if model.__tablename__ in {"sales_orders", "production_orders", "purchase_requests", "purchase_orders"}:
+    if model.__tablename__ in {"sales_orders", "production_orders", "purchase_requests", "purchase_orders", "bundles"}:
         from app.models import BusinessOrderAlias
         for (value,) in db.query(BusinessOrderAlias.canonical_reference).filter(BusinessOrderAlias.namespace == prefix).all():
             if re.fullmatch(rf"{prefix}-[0-9]{{4}}", value):
                 reserved.add(int(value.rsplit("-", 1)[-1]))
+        if prefix == "BND":
+            for (value,) in db.query(BusinessOrderAlias.reference).filter(BusinessOrderAlias.namespace == prefix).all():
+                if re.fullmatch(r"BND-[0-9]{4}", value):
+                    reserved.add(int(value.rsplit("-", 1)[-1]))
         highest = max(highest, max(reserved, default=0))
     if highest < 9999:
         return f"{prefix}-{highest + 1:04d}"
@@ -157,7 +161,14 @@ def next_model_variant_no(db: Session, *, reserve: bool = False) -> str:
 
 
 def next_bundle_no(db: Session) -> str:
-    return _next(db, Bundle, "bundle_no", "BND")
+    from app.models import BusinessOrderAlias
+
+    reference = _next_order(db, Bundle, "bundle_no", "BND")
+    # Reserve in the caller's transaction, including after a future bundle deletion.
+    # Bundle creation attaches its actual ID after flush; zero is reservation-only.
+    db.add(BusinessOrderAlias(namespace="BND", entity_id=0, reference=reference, canonical_reference=reference))
+    db.flush()
+    return reference
 
 
 def next_package_no(db: Session) -> str:

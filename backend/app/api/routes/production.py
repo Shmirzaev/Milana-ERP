@@ -58,6 +58,7 @@ from app.services.inventory import (
     sync_sewing_accessory_block,
 )
 from app.services.bundles import (
+    find_bundle_by_scanned_code,
     create_bundle,
     is_sewing_department_code,
     resolve_sewing_factory_code,
@@ -4872,19 +4873,6 @@ def _packaging_sewing_totals(
     return int(sewing_query.scalar() or 0), int(receipt_query.scalar() or 0)
 
 
-def _packaging_bundle_candidates(raw_code: str) -> list[str]:
-    code = str(raw_code or "").strip()
-    if not code:
-        return []
-    candidates = [code]
-    if "|" in code:
-        candidates.extend(part.strip() for part in code.split("|") if part.strip())
-    if code.upper().startswith("BUNDLE:"):
-        payload = code.split(":", 1)[1]
-        candidates.extend(part.strip() for part in payload.split("|") if part.strip())
-    return list(dict.fromkeys(candidates))
-
-
 def _packaging_receipt_payload(db: DbSession, receipt: PackagingReceipt) -> dict:
     po = db.get(ProductionOrder, receipt.production_order_id)
     batch = db.get(ProductionBatch, receipt.production_batch_id) if receipt.production_batch_id else None
@@ -5119,10 +5107,7 @@ def receive_packaging_from_sewing(
     method = "manual"
     if payload.bundle_code:
         method = "scan"
-        for candidate in _packaging_bundle_candidates(payload.bundle_code):
-            bundle = db.query(Bundle).filter((Bundle.barcode == candidate) | (Bundle.bundle_no == candidate)).first()
-            if bundle:
-                break
+        bundle = find_bundle_by_scanned_code(db, payload.bundle_code)
         if not bundle:
             raise HTTPException(404, "Bundle not found")
         if bundle.status != "received_sewing":

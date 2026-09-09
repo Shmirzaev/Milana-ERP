@@ -17,9 +17,11 @@ All eight requested changes are prepared, including automatic size ranges and th
 
 ## Validation
 
+Bundle-number follow-up also prepares stored `BND-0001` references for existing/new bundles through migration 0120, permanent legacy aliases, canonical QR/print output and compatible old/new lookups. Bundle IDs, barcodes and linked movement/receipt evidence stay intact. Read-only production preflight found 935 bundles with unique usable numeric suffixes. This supersedes the earlier statement that bundle numbers retain their old format. Follow-up validation passed 136 bundle/production/numbering/factory regressions plus 3 alias/handoff integration tests, frontend scanner runtime checks, full lint and strict TypeScript. Browser QA applied 0119 and 0120 to isolated synthetic SQLite data and verified BND-0001 on the print document with its loaded QR; old labels resolve through aliases. Conflicting full QR payloads return 409 and frontend token retries stop on that response.
+
 The canonical-number follow-up passed **821 backend tests**, frontend lint, strict TypeScript, all frontend contracts and the optimized **85-page production build**, with one upstream Starlette/httpx deprecation warning. After the final BSOrder capacity guard and expanded migration assertions, **18 focused migration/numbering tests passed**. BSOrder remains numeric four digits and rejects exhaustion rather than generating 10000. Focused tests cover migration seed preservation, normalized catalogue identity/search escaping, factory and permission boundaries, numbering, size persistence, Control replay/return behavior and deferred scanner responses.
 
-Canonical-reference regressions verify fresh bundle PNG/inline print QR content, legacy bundle-label resolution, authenticated browser image access, canonical cutting-sheet output, stale passport/stock/purchasing writes, preservation of manual references, and inventory replay after alias migration without duplicate stock or snapshot/hash changes. Bundle image URLs now generate QR content from live order data with `private, no-store`; Process QR prints the canonical order line. Existing package, bundle, employee and model identifiers retain their own namespaces.
+Canonical-reference regressions verify fresh bundle PNG/inline print QR content, legacy bundle-label resolution, authenticated browser image access, canonical cutting-sheet output, stale passport/stock/purchasing writes, preservation of manual references, and inventory replay after alias migration without duplicate stock or snapshot/hash changes. Bundle image URLs now generate QR content from live order data with `private, no-store`; Process QR prints the canonical order line. Package, employee and model identifiers retain their own namespaces; bundle identifiers now follow the BND four-digit migration.
 
 Browser checks used synthetic data in an isolated SQLite backend under `outputs/local-qa`; they did not mutate production. The catalogue stores complete normalized names as text and uses a bounded SHA256 identity key for PostgreSQL uniqueness. Unknown explicit factory ownership is not converted to shared ownership.
 
@@ -30,7 +32,8 @@ Files are in this worktree's `outputs/screenshots/` directory.
 | File | Evidence |
 |---|---|
 | `canonical-process-qr.png` | Migrated issued labels show stored PO-0608 while preserving their numeric scan identities |
-| `canonical-bundle-print.png` | Bundle print document and freshly generated QR use migrated PO-0202 |
+| `canonical-bundle-print.png` | Prior order-only print proof using migrated PO-0202 |
+| `four-digit-bundle-print.png` | Final bundle print and QR use BND-0001 alongside PO-0202 |
 | `department-order-tables.png` | BSOrder grouping, compact numbers and department status rows |
 | `paid-process-search.png` | Searchable reusable paid processes |
 | `paid-operations-totals.png` | Process QR operation totals |
@@ -43,6 +46,8 @@ Files are in this worktree's `outputs/screenshots/` directory.
 | `control-uzbek.png` | Uzbek Control review |
 
 ## Remaining release gate
+
+Include `0120_canonical_bundle_references` in the staging migration sequence. Prevent business writes from the old active release between reference migration and application cutover: its old generators could otherwise create long numbers after the migration commits. Verify this write barrier in staging and recheck canonical references immediately before cutover.
 
 This is a pre-deployment review, not a production release. Run the complete `0117 -> 0118_paid_process_catalog -> 0119_canonical_order_references` migration sequence on an isolated PostgreSQL staging copy before deployment. Verify catalogue seeding, canonical uniqueness and capacity, durable aliases, denormalized/issued-payload rewrites, old/new scanner compatibility, and unchanged IDs, scan UIDs, rates, quantities, raw audit records and idempotency fingerprints. SQLite fixtures do not substitute for this PostgreSQL gate.
 

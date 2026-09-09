@@ -45,7 +45,7 @@
     "test:sewing-report-print": "node scripts/check-sewing-report-print.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit",
-    "test:payroll-process-updates": "node scripts/test-order-references.mjs && node scripts/test-paid-process-sections.mjs && node scripts/test-payroll-control-session.mjs"
+    "test:payroll-process-updates": "node scripts/test-order-references.mjs && node scripts/test-paid-process-sections.mjs && node scripts/test-payroll-control-session.mjs && node scripts/test-bundle-scan-conflicts.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

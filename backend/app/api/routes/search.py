@@ -61,7 +61,7 @@ def global_search(
         .outerjoin(Model, Model.id == Bundle.model_id)
         .filter(
             (Bundle.barcode.ilike(pattern))
-            | (Bundle.bundle_no.ilike(pattern))
+            | order_reference_contains(Bundle.bundle_no, pattern)
             | (normalized_model_code_column(Model.code).ilike(model_code_pattern))
         )
         .order_by(Bundle.id.desc())

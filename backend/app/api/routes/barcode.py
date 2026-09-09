@@ -4,14 +4,14 @@ from fastapi.responses import RedirectResponse, Response
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions
 from app.models import Bundle, Package, User
 from app.services.barcode import bundle_qr_image_url, qr_png_bytes
-from app.services.bundles import bundle_qr_payload
+from app.services.bundles import bundle_qr_payload, find_bundle_by_scanned_code
 
 router = APIRouter(prefix="/barcode", tags=["barcode"])
 
 
 @router.get("/bundle/{bundle_no}")
 def bundle_qr(bundle_no: str, db: DbSession, _: CurrentUser):
-    b = db.query(Bundle).filter(Bundle.bundle_no == bundle_no).first()
+    b = find_bundle_by_scanned_code(db, bundle_no)
     if not b: raise HTTPException(404, "Bundle not found")
     return {"qr_code_url": bundle_qr_image_url(b.id), "barcode": b.barcode, "bundle_no": b.bundle_no}
 

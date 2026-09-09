@@ -1,6 +1,6 @@
 """Bundle service: create cutting bundles with QR/barcode, manage scan transitions."""
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -10,6 +10,33 @@ from app.services.barcode import bundle_qr_image_url, generate_barcode_value, sa
 from app.services.numbering import next_bundle_no
 from app.services.sewing_scope import sewing_line_factory_scope
 from app.services.workflow import notify_department, sync_production_order_status
+from app.models.order_reference import BusinessOrderAlias
+
+
+def find_bundle_by_scanned_code(db: Session, raw_code: str) -> Bundle | None:
+    """Resolve current/printed bundle identities, rejecting mixed-bundle QR data.
+
+    Barcode values are immutable. Historical bundle numbers are aliases; neither
+    alias resolution nor token parsing grants permission to view or move a bundle.
+    """
+    code = str(raw_code or "").strip()
+    if not code:
+        return None
+    candidates = [code]
+    if "|" in code:
+        candidates.extend(part.strip() for part in code.split("|") if part.strip())
+    if code.upper().startswith("BUNDLE:"):
+        candidates.extend(part.strip() for part in code.split(":", 1)[1].split("|") if part.strip())
+    aliases = select(BusinessOrderAlias.entity_id).where(
+        BusinessOrderAlias.namespace == "BND", BusinessOrderAlias.reference.in_(candidates),
+        BusinessOrderAlias.entity_id > 0,
+    )
+    matches = db.query(Bundle).filter(or_(
+        Bundle.barcode.in_(candidates), Bundle.bundle_no.in_(candidates), Bundle.id.in_(aliases),
+    )).limit(2).all()
+    if len(matches) > 1:
+        raise HTTPException(409, "Conflicting bundle references in scanned code; scan the original label")
+    return matches[0] if matches else None
 
 
 DEPT_CUT = "CUT"
@@ -283,6 +310,11 @@ def create_bundle(
     )
     db.add(b)
     db.flush()
+
+    db.query(BusinessOrderAlias).filter(
+        BusinessOrderAlias.namespace == "BND", BusinessOrderAlias.reference == bundle_no,
+        BusinessOrderAlias.entity_id == 0,
+    ).update({BusinessOrderAlias.entity_id: b.id}, synchronize_session=False)
 
     b.qr_code_url = bundle_qr_image_url(b.id)
     # also persist a barcode image for printing labels
