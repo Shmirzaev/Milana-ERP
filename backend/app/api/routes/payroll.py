@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 from sqlalchemy import func, or_
@@ -1984,8 +1984,14 @@ def issue_qr_labels(
     }
 
 
-def _employee_scan_payload(employee: Employee, *, badge_id: str, source: str, db: DbSession) -> dict[str, Any]:
-    department = db.get(Department, employee.department_id) if employee.department_id else None
+def _employee_scan_payload(
+    employee: Employee, *, badge_id: str, source: str, db: DbSession,
+    departments: dict[int, Department] | None = None,
+) -> dict[str, Any]:
+    department = (
+        departments.get(employee.department_id) if departments is not None
+        else db.get(Department, employee.department_id) if employee.department_id else None
+    )
     department_name = None
     if department:
         department_name = f"{department.code} - {department.name}" if department.code else department.name
@@ -2001,6 +2007,40 @@ def _employee_scan_payload(employee: Employee, *, badge_id: str, source: str, db
         "department_name": department_name,
         "position": employee.position,
         "status": employee.status,
+    }
+
+
+@router.get("/employees/search")
+def search_payroll_employees(
+    db: DbSession,
+    q: str = Query(min_length=2, max_length=100),
+    current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
+):
+    terms = q.strip().split()
+    if len(q.strip()) < 2:
+        return {"items": [], "has_more": False}
+    query = db.query(Employee, Department).outerjoin(Department, Employee.department_id == Department.id).filter(
+        Employee.factory_code == selected_factory_code(current),
+        Employee.status == "active",
+    )
+    for term in terms:
+        # Treat scanner/operator input literally, including SQL wildcard characters.
+        pattern = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        query = query.filter(or_(
+            Employee.full_name.ilike(pattern, escape="\\"),
+            Employee.employee_no.ilike(pattern, escape="\\"),
+        ))
+    rows = query.order_by(func.lower(Employee.full_name), Employee.employee_no, Employee.id).limit(21).all()
+    departments = {department.id: department for _, department in rows if department is not None}
+    return {
+        "items": [
+            _employee_scan_payload(
+                employee, badge_id=employee.employee_no or _employee_qr_token(employee.id),
+                source="milana_erp_employee_search", db=db, departments=departments,
+            )
+            for employee, _ in rows[:20]
+        ],
+        "has_more": len(rows) > 20,
     }
 
 

@@ -10,6 +10,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import PayrollEmployeeSearch from "@/components/PayrollEmployeeSearch";
 import { api } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useDialogs } from "@/components/DialogProvider";
@@ -623,6 +624,7 @@ export default function PayrollScanPage() {
   }, [recordsLoaded]);
 
   useEffect(() => {
+    if (document.activeElement?.closest("[data-payroll-employee-search]")) return;
     inputRef.current?.focus();
   }, [currentEmployee, records.length]);
 
@@ -1120,6 +1122,12 @@ export default function PayrollScanPage() {
               <span>{t("page.payrollScan.scan")}</span>
             </button>
           </form>
+
+          {canSavePayroll && <PayrollEmployeeSearch onSelect={employee => {
+            clearScanInput();
+            selectEmployee(employee);
+            setNotice(t("page.payrollScan.employeeSelected", { name: employee.employee_name }), "success");
+          }} />}
 
           {message && (
             <div className={`mt-4 rounded-md border p-3 text-sm ${messageClass}`}>
