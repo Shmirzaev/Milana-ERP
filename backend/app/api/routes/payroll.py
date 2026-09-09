@@ -2069,6 +2069,15 @@ def issue_qr_labels(
             label.issued_by = current.id
             label.issued_at = issued_at
         else:
+            # A shared process code must not make a different payable operation
+            # silently appear issued. Rate/quantity corrections retain the UID;
+            # a different operation name requires explicit identity review.
+            if (
+                row.operation_name
+                and label.operation_name
+                and row.operation_name.strip().casefold() != label.operation_name.strip().casefold()
+            ):
+                raise HTTPException(409, "Payroll QR identifier already belongs to another paid operation; refresh the issued labels")
             existing_count += 1
         active_record = db.query(PayrollRecord).filter(
             PayrollRecord.factory_code == factory_code,

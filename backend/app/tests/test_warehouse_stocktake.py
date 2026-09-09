@@ -177,7 +177,8 @@ def test_pagination_filters_export_and_start_retry(client, auth_headers, packs):
     exported = client.get(f"{BASE}/{cid}/export.csv", headers=auth_headers)
     assert exported.status_code == 200
     rows = list(csv.reader(io.StringIO(exported.content.decode("utf-8-sig"))))
-    assert len(rows) == detail(client, auth_headers, cid)["total"] + 1
+    assert len(rows) == detail(client, auth_headers, cid)["total"] + 2  # Header + explicit totals footer.
+    assert rows[-1][-1] == "totals"
     assert rows[1][0] == "'=COUNT"
     assert any("'=UNKNOWN" in row for row in rows)
     assert client.get(f"{BASE}/{cid}?limit=201", headers=auth_headers).status_code == 422

@@ -1679,3 +1679,46 @@ def test_payroll_permission_denied_cases(client, auth_headers):
         headers=limited_headers,
     )
     assert denied_create.status_code == 403, denied_create.text
+
+
+def test_issue_shared_code_cannot_hide_a_different_paid_operation(client, auth_headers):
+    uid = f"PY:MAN:7522:INCIDENT-{uuid4().hex[:8]}:SEW-NEW:MIL:SEW-09:XL-50:1"
+    row = {
+        "label_uid": uid, "payload": "MW2*immutable-original",
+        "operation_code": "SEW-NEW", "operation_name": "planka tikish",
+        "operation_section": "sewing", "quantity": 102, "rate_per_piece": 70,
+        "size": "XL-50", "batch_no": "8840",
+    }
+    first = client.post("/api/payroll/qr-labels/issue", json={"labels": [row]}, headers=auth_headers)
+    assert first.status_code == 200, first.text
+    collision = client.post("/api/payroll/qr-labels/issue", json={"labels": [{**row, "operation_name": "Chontak qoyish", "rate_per_piece": 200}]}, headers=auth_headers)
+    assert collision.status_code == 409, collision.text
+    retry = client.post("/api/payroll/qr-labels/issue", json={"labels": [{**row, "rate_per_piece": 999, "quantity": 999}]}, headers=auth_headers)
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["created_count"] == 0
+    assert retry.json()["labels"] == first.json()["labels"]
+    listed = client.get("/api/payroll/qr-labels", params={"search": uid}, headers=auth_headers).json()["items"]
+    assert len(listed) == 1
+    assert listed[0]["operation_name"] == "planka tikish"
+    assert float(listed[0]["rate_per_piece"]) == 70
+    assert float(listed[0]["quantity"]) == 102
+    assert listed[0]["payload"] == row["payload"]
+
+
+def test_rate_corrected_shared_code_still_rejects_another_operation(client, auth_headers):
+    uid = f"PY:RATE-EDIT-{uuid4().hex}"
+    row = {"label_uid": uid, "payload": "MW2*old", "operation_code": "SEW-NEW", "operation_name": "planka tikish", "quantity": 102, "rate_per_piece": 70}
+    issued = client.post("/api/payroll/qr-labels/issue", json={"labels": [row]}, headers=auth_headers)
+    assert issued.status_code == 200, issued.text
+    label = client.get("/api/payroll/qr-labels", params={"search": uid}, headers=auth_headers).json()["items"][0]
+    corrected = client.patch(f"/api/payroll/qr-labels/{label['id']}", json={"operation_name": "planka tikish", "rate_per_piece": 75}, headers=auth_headers)
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["payload"] is None
+    collision = client.post("/api/payroll/qr-labels/issue", json={"labels": [{**row, "operation_name": "Chontak qoyish"}]}, headers=auth_headers)
+    assert collision.status_code == 409, collision.text
+    retry = client.post("/api/payroll/qr-labels/issue", json={"labels": [row]}, headers=auth_headers)
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["created_count"] == 0
+    unchanged = client.get("/api/payroll/qr-labels", params={"search": uid}, headers=auth_headers).json()["items"][0]
+    assert float(unchanged["rate_per_piece"]) == 75
+    assert unchanged["label_uid"] == uid
