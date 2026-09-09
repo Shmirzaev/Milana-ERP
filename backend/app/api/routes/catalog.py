@@ -1588,6 +1588,62 @@ def get_model_selling_price(
     }
 
 
+@router.get("/models/{mid}/process-qr-sizes")
+def get_process_qr_model_sizes(
+    mid: int,
+    db: DbSession,
+    _: CurrentUser,
+    catalog_scope: str = Depends(_standard_catalog_scope),
+):
+    """Resolve manual Process QR sizes without changing editable model rows."""
+    model = _catalog_model(db, mid, catalog_scope)
+    if not model:
+        raise HTTPException(404, "Model not found")
+
+    def cleaned_sizes(rows: list[ModelSize]) -> frozenset[str]:
+        return frozenset(value for row in rows if (value := _clean_text(row.size)))
+
+    def result(sizes: frozenset[str], resolution: str) -> dict:
+        return {
+            "model_id": mid,
+            "sizes": sorted(sizes, key=lambda value: (_natural_sort_key(value), value)),
+            "resolution": resolution,
+        }
+
+    own_sizes = cleaned_sizes(model.sizes)
+    if own_sizes:
+        return result(own_sizes, "own")
+    # Internal import identities cannot borrow sizes from the public family.
+    if (model.details_json or {}).get("legacy_import") is True:
+        return result(frozenset(), "missing")
+
+    group_key = _model_group_key(model)
+    family_query = db.query(Model).options(selectinload(Model.sizes)).filter(
+        Model.catalog_scope == model.catalog_scope,
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        # Use the indexed 0084 identity, including base rows, without taking
+        # the approval workflow's write-serialization advisory lock.
+        family = family_query.filter(
+            literal_column("models.is_legacy_import").is_(False),
+            literal_column("models.model_group_key") == group_key,
+        ).all()
+    else:
+        # SQLite test metadata has no generated family columns. Use the same
+        # canonical identity as catalog grouping, not a code-prefix match.
+        family = [
+            row for row in family_query.all()
+            if (row.details_json or {}).get("legacy_import") is not True
+            and _model_group_key(row) == group_key
+        ]
+    populated_sets = {sizes for row in family if (sizes := cleaned_sizes(row.sizes))}
+    if not populated_sets:
+        return result(frozenset(), "missing")
+    if len(populated_sets) > 1:
+        return result(frozenset(), "conflict")
+    return result(next(iter(populated_sets)), "inherited")
+
+
 @router.get("/models/{mid}", response_model=ModelDetail)
 def get_model(
     mid: int,
