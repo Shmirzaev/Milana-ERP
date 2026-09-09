@@ -961,4 +961,5 @@ export default {
     "attendance.loadError": "Could not load turnstile attendance.",
     "attendance.empty": "No device profiles match these filters.",
     "attendance.resultCount": "{count} profiles",
+    "page.processQr.correctedIdentityReview": "An edited label no longer matches a model operation. Review its operation identity before issuing additional labels. Existing labels remain available to print.",
   } as Record<string, string>;

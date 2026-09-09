@@ -51,7 +51,7 @@ const required = [
   ["stable copy ordering", "|| left.copy_index - right.copy_index"],
   ["stable label fallback", "|| left.id - right.id"],
   ["all-size printing uses ordered groups", "onClick={() => printIssuedLabels(orderedIssuedLabels)}"],
-  ["printed operation number starts from model sequence", "factoryOperations.forEach((operation, index) => register(operation.code, operation.name, index + 1))"],
+  ["printed operation number starts from model sequence", "buildIssuedOperationNumbers(factoryOperations, issuedLabels, operationLabelTokens)"],
   ["printed operation number is in the top-right header", "process-label__number font-bold text-[#14110b]"],
   ["printed footer contains Kroy number", "process-label__kroy"],
   ["work-label details use larger print text", ".process-label--work .process-label__details"],

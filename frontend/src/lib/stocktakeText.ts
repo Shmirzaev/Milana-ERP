@@ -1,5 +1,11 @@
 export const stocktakeText = {
   en: {
+    recovered: "Unsaved scans recovered for this count. Retry to save them; saved scans will not be counted twice.",
+    storageError: "Browser storage is unavailable. Keep this page open and copy any unsaved codes before leaving.",
+    scanHistory: "Scan history — newest first", historySaved: "Saved scans remain in this count when you reload or reopen it.",
+    scannedPackages: "Scanned packs", scannedPieces: "Scanned pieces", scannedAt: "Scanned at",
+    unresolvedModel: "Model not identified", unresolvedPieces: "Unknown",
+    estimatedScan: "Uses count-start quantity", estimatedTotal: "Packs using count-start quantities", unquantifiedTotal: "Packs with unknown quantity",
     scannerReady: "Scanner ready. Keep scanning with Enter or Tab; scans save automatically.",
     title: "Inventory count", intro: "Scan every pack in the finished-goods warehouse. Counts are saved automatically and do not adjust stock.",
     start: "Start count", name: "Count name", history: "Saved counts", open: "In progress", complete: "Completed", back: "All counts",
@@ -17,6 +23,12 @@ export const stocktakeText = {
     current: "Current", deleted: "No longer in ERP", denied: "Warehouse package or shipment access is required.", leave: "Some scans have not been saved yet.",
   },
   ru: {
+    recovered: "Восстановлены несохранённые сканы этой проверки. Повторите сохранение; сохранённые сканы не будут учтены дважды.",
+    storageError: "Хранилище браузера недоступно. Не закрывайте страницу и скопируйте несохранённые коды перед выходом.",
+    scanHistory: "История сканов — новые сверху", historySaved: "Сохранённые сканы остаются в проверке после обновления или повторного открытия.",
+    scannedPackages: "Сканировано упаковок", scannedPieces: "Сканировано штук", scannedAt: "Время сканирования",
+    unresolvedModel: "Модель не определена", unresolvedPieces: "Неизвестно",
+    estimatedScan: "Количество на начало проверки", estimatedTotal: "Упаковки с количеством на начало проверки", unquantifiedTotal: "Упаковки с неизвестным количеством",
     scannerReady: "Сканер готов. Сканируйте подряд с Enter или Tab — сканы сохраняются автоматически.",
     title: "Инвентаризация", intro: "Сканируйте каждую упаковку на складе готовой продукции. Результаты сохраняются автоматически и не меняют остатки.",
     start: "Начать инвентаризацию", name: "Название проверки", history: "Сохранённые проверки", open: "В процессе", complete: "Завершена", back: "Все проверки",
@@ -34,6 +46,12 @@ export const stocktakeText = {
     current: "Сейчас", deleted: "Больше нет в ERP", denied: "Необходим доступ к упаковкам или отгрузкам склада.", leave: "Некоторые сканы ещё не сохранены.",
   },
   uz: {
+    recovered: "Bu tekshiruvning saqlanmagan skanlari tiklandi. Saqlashni qayta yuboring; saqlangan skanlar ikki marta hisoblanmaydi.",
+    storageError: "Brauzer xotirasi mavjud emas. Sahifani ochiq qoldiring va chiqishdan oldin saqlanmagan kodlarni nusxalang.",
+    scanHistory: "Skanlar tarixi — yangilari yuqorida", historySaved: "Saqlangan skanlar sahifani yangilaganda yoki qayta ochganda shu tekshiruvda qoladi.",
+    scannedPackages: "Skanerlangan qadoqlar", scannedPieces: "Skanerlangan donalar", scannedAt: "Skanerlangan vaqt",
+    unresolvedModel: "Model aniqlanmagan", unresolvedPieces: "Noma’lum",
+    estimatedScan: "Tekshiruv boshidagi miqdor", estimatedTotal: "Boshlang‘ich miqdor ishlatilgan qadoqlar", unquantifiedTotal: "Miqdori noma’lum qadoqlar",
     scannerReady: "Skaner tayyor. Enter yoki Tab bilan ketma-ket skanerlang — skanlar avtomatik saqlanadi.",
     title: "Inventarizatsiya", intro: "Tayyor mahsulot omboridagi har bir qadoqni skanerlang. Natijalar avtomatik saqlanadi va qoldiqni o‘zgartirmaydi.",
     start: "Tekshiruvni boshlash", name: "Tekshiruv nomi", history: "Saqlangan tekshiruvlar", open: "Davom etmoqda", complete: "Yakunlangan", back: "Barcha tekshiruvlar",

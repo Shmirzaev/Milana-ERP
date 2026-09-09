@@ -1092,4 +1092,5 @@ export default {
     "attendance.loadError": "Turniket davomatini yuklab bo'lmadi.",
     "attendance.empty": "Bu filtrlarga mos qurilma profillari yo'q.",
     "attendance.resultCount": "{count} ta profil",
+    "page.processQr.correctedIdentityReview": "Tahrirlangan yorliq model amaliga mos kelmayapti. Yangi yorliqlar chiqarishdan oldin uning amalini tekshiring. Mavjud yorliqlarni chop etish mumkin.",
   } as Record<string, string>;

@@ -23,7 +23,7 @@ import { api, fetcher } from "@/lib/api";
 import { formatBatchSerial } from "@/lib/batchSerial";
 import { orderReference, formatOrderReference } from "@/lib/orderRef";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
-import { buildOperationLabelTokens } from "@/lib/processQrLabelIdentity";
+import { buildOperationLabelTokens, buildIssuedOperationNumbers, correctedOperationIdentityNeedsReview } from "@/lib/processQrLabelIdentity";
 import { useMe } from "@/lib/auth";
 import {
   clonePaidOperations,
@@ -589,24 +589,15 @@ function compareGarmentSizes(left: string, right: string): number {
   return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
 }
 
-function operationKey(code: string | null | undefined, name: string | null | undefined): string {
-  return `${String(code || "").trim().toUpperCase()}::${String(name || "").trim().toLocaleLowerCase()}`;
-}
-
-function operationNumberForLabel(label: IssuedLabelRow, numbers: Map<string, number>): number {
-  return (
-    numbers.get(operationKey(label.operation_code, label.operation_name))
-    ?? numbers.get(operationKey(label.operation_code, null))
-    ?? numbers.get(operationKey(null, label.operation_name))
-    ?? 1
-  );
+function operationNumberForLabel(label: IssuedLabelRow, numbers: Map<number, number>): number {
+  return numbers.get(label.id) ?? 1;
 }
 
 function compareIssuedLabelOrder(
   left: IssuedLabelRow,
   right: IssuedLabelRow,
   configuredSizeOrder: Map<string, number>,
-  operationNumbers: Map<string, number>,
+  operationNumbers: Map<number, number>,
 ): number {
   const leftSize = left.size?.trim() || "-";
   const rightSize = right.size?.trim() || "-";
@@ -1066,8 +1057,13 @@ export default function ProcessQrPage() {
   );
 
   const operationLabelTokens = useMemo(
-    () => buildOperationLabelTokens(factoryOperations),
-    [factoryOperations],
+    () => buildOperationLabelTokens(factoryOperations, issuedLabels),
+    [factoryOperations, issuedLabels],
+  );
+
+  const operationIdentityNeedsReview = useMemo(
+    () => correctedOperationIdentityNeedsReview(factoryOperations, issuedLabels),
+    [factoryOperations, issuedLabels],
   );
 
   const selectedOperations = useMemo(
@@ -1080,7 +1076,7 @@ export default function ProcessQrPage() {
   );
 
   const labels = useMemo<LabelRow[]>(() => {
-    if (!selectedProcess || !selectedSewingLine) return [];
+    if (!selectedProcess || !selectedSewingLine || !selectedModel || loadedOperationsModelId !== selectedModelId || issuedLabelsLoading || issuedLabelsError) return [];
     if (selectedProcess.is_manual && !selectedProcess.manual_kroy_no?.trim()) return [];
     const rows: LabelRow[] = [];
     for (const sizeOption of sizeOptions) {
@@ -1144,7 +1140,7 @@ export default function ProcessQrPage() {
       }
     }
     return rows;
-  }, [batchesToPrint, currency, customSizeQuantities, operationLabelTokens, sameSizeQuantity, selectedOperations, selectedProcess, selectedSewingLine, sizeOptions, sizeQuantityMode]);
+  }, [selectedModel, loadedOperationsModelId, selectedModelId, issuedLabelsLoading, issuedLabelsError, batchesToPrint, currency, customSizeQuantities, operationLabelTokens, sameSizeQuantity, selectedOperations, selectedProcess, selectedSewingLine, sizeOptions, sizeQuantityMode]);
 
   const issuedLabelUids = useMemo(
     () => new Set(issuedLabels.map((label) => label.label_uid)),
@@ -1154,31 +1150,10 @@ export default function ProcessQrPage() {
     () => labels.filter((label) => !issuedLabelUids.has(label.labelUid)),
     [issuedLabelUids, labels],
   );
-  const issuedOperationNumbers = useMemo(() => {
-    const numbers = new Map<string, number>();
-    const register = (code: string | null | undefined, name: string | null | undefined, number: number) => {
-      const keys = [
-        operationKey(code, name),
-        operationKey(code, null),
-        operationKey(null, name),
-      ];
-      for (const key of keys) {
-        if (key !== "::" && !numbers.has(key)) numbers.set(key, number);
-      }
-    };
-
-    factoryOperations.forEach((operation, index) => register(operation.code, operation.name, index + 1));
-    let nextNumber = factoryOperations.length + 1;
-    for (const label of [...activeIssuedLabels].sort((left, right) => left.id - right.id)) {
-      const exactKey = operationKey(label.operation_code, label.operation_name);
-      const codeKey = operationKey(label.operation_code, null);
-      const nameKey = operationKey(null, label.operation_name);
-      if (numbers.has(exactKey) || numbers.has(codeKey) || numbers.has(nameKey)) continue;
-      register(label.operation_code, label.operation_name, nextNumber);
-      nextNumber += 1;
-    }
-    return numbers;
-  }, [activeIssuedLabels, factoryOperations]);
+  const issuedOperationNumbers = useMemo(
+    () => buildIssuedOperationNumbers(factoryOperations, issuedLabels, operationLabelTokens),
+    [factoryOperations, issuedLabels, operationLabelTokens],
+  );
   const issuedSizeOrder = useMemo(
     () => new Map(sizeOptions.map((row, index) => [row.size.trim() || "-", index])),
     [sizeOptions],
@@ -1314,7 +1289,7 @@ export default function ProcessQrPage() {
   }
 
   async function issueLabels() {
-    if (unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading) return;
+    if (unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview) return;
     setIssuingLabels(true);
     setPrintError("");
     setIssueNotice("");
@@ -1601,7 +1576,7 @@ export default function ProcessQrPage() {
                 <Users />
                 <span>{t("page.processQr.printEmployees")}</span>
               </button>
-              <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading}>
+              <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview}>
                 {issuingLabels ? <RefreshCw className="animate-spin" /> : <Printer />}
                 <span>{t(issuingLabels ? "page.processQr.issuingLabels" : "page.processQr.issueLabels")}</span>
               </button>
@@ -1623,6 +1598,11 @@ export default function ProcessQrPage() {
       {printError && (
         <div className="card mb-4 border-red-200 bg-red-50 p-3 text-sm text-red-700 no-print">
           {printError}
+        </div>
+      )}
+      {operationIdentityNeedsReview && (
+        <div className="card mb-4 border-red-200 bg-red-50 p-3 text-sm text-red-700 no-print">
+          {t("page.processQr.correctedIdentityReview")}
         </div>
       )}
       {issuedLabelsError && (
@@ -2416,7 +2396,7 @@ export default function ProcessQrPage() {
               <CheckSquare className="h-4 w-4" />
               {t("page.processQr.unissuedLabelCount", { count: unissuedLabels.length.toLocaleString() })}
             </div>
-            <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading}>
+            <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview}>
               {issuingLabels ? <RefreshCw className="animate-spin" /> : <QrCode />}
               <span>{t(issuingLabels ? "page.processQr.issuingLabels" : "page.processQr.issueLabels")}</span>
             </button>

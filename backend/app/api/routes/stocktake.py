@@ -9,12 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, require_permissions
-from app.models import User
+from app.models import Package, User
 from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
 from app.services.audit import log_action
-from app.services.stocktake import package_snapshots, resolve_package, row_payload
+from app.services.stocktake import package_snapshots, resolve_package, row_payload, scan_fields, scan_summary
 
 router = APIRouter(prefix="/warehouse-stocktakes", tags=["warehouse_stocktakes"])
 access = require_permissions("storage.packages", "storage.shipment")
@@ -74,17 +75,18 @@ def results(db, count):
 @router.get("")
 def list_counts(db: DbSession, _: User = Depends(access), offset: int = Query(0, ge=0)):
     query = db.query(WarehouseStocktake)
+    counts = query.order_by(WarehouseStocktake.id.desc()).offset(offset).limit(50).all()
+    scans = {count.id: [] for count in counts}
+    if scans:
+        recorded = db.query(WarehouseStocktakeRow).options(load_only(
+            WarehouseStocktakeRow.stocktake_id, WarehouseStocktakeRow.package_id, WarehouseStocktakeRow.expected,
+            WarehouseStocktakeRow.snapshot, WarehouseStocktakeRow.scan_snapshot, WarehouseStocktakeRow.scanned_at,
+        )).filter(WarehouseStocktakeRow.stocktake_id.in_(scans), WarehouseStocktakeRow.scanned_at.is_not(None)).all()
+        for row in recorded:
+            scans[row.stocktake_id].append(scan_fields(row))
     return {
         "total": query.count(),
-        "items": [
-            count_info(c)
-            for c in query.order_by(
-                WarehouseStocktake.id.desc(),
-            )
-            .offset(offset)
-            .limit(50)
-            .all()
-        ],
+        "items": [{**count_info(c), "summary": scan_summary(scans[c.id])} for c in counts],
     }
 
 
@@ -128,7 +130,7 @@ def detail(
     count_id: int,
     db: DbSession,
     _: User = Depends(access),
-    result: Literal["all", "found", "missing", "unknown", "unexpected", "ambiguous", "changed"] = "all",
+    result: Literal["all", "scanned", "found", "missing", "unknown", "unexpected", "ambiguous", "changed"] = "all",
     q: str = Query("", max_length=120),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
@@ -140,12 +142,13 @@ def detail(
     }
     summary["expected"] = sum(r["expected"] for r in rows)
     summary["changed"] = sum(r["changed"] for r in rows)
-    summary["scanned"] = sum(r["scanned_at"] is not None for r in rows)
+    summary.update(scan_summary(rows))
     needle = q.strip().casefold()
     filtered = [
         r
         for r in rows
-        if (result == "all" or (r["changed"] if result == "changed" else r["result"] == result))
+        if (result == "all" or (r["scanned_at"] is not None if result == "scanned"
+                               else r["changed"] if result == "changed" else r["result"] == result))
         and (
             not needle
             or needle
@@ -154,10 +157,13 @@ def detail(
                 for v in [
                     r["scan_code"],
                     *r["snapshot"].values(),
+                    *(r["scan_snapshot"] or {}).values(),
                 ]
             ).casefold()
         )
     ]
+    if result == "scanned":
+        filtered.sort(key=lambda row: (row["scanned_at"], row["id"]), reverse=True)
     return {**count_info(count), "summary": summary, "total": len(filtered), "rows": filtered[offset : offset + limit]}
 
 
@@ -168,11 +174,18 @@ def scan(count_id: int, body: ScanCount, db: DbSession, current: User = Depends(
     if not code:
         raise HTTPException(422, "Scan a package label")
     pid, ambiguous = resolve_package(db, code)
+    if pid is not None:
+        # Package edits and shipment transitions lock/update this same row. Hold
+        # it while reading parent quantity and item sizes into one scan record.
+        package = db.query(Package).filter(Package.id == pid).with_for_update().first()
+        if package is None:  # Deleted after resolution; do not count a stale ID.
+            pid = None
     identity = f"package:{pid}" if pid else "code:" + hashlib.sha256(code.encode()).hexdigest()
     row = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=count_id, identity=identity).first()
     duplicate = bool(row and row.scanned_at)
+    observed = package_snapshots(db, [pid], include_items=True).get(pid, {}) if pid else {}
     if not row:
-        snapshot = package_snapshots(db, [pid]).get(pid, {}) if pid else {}
+        snapshot = {key: value for key, value in observed.items() if key != "items"}
         row = WarehouseStocktakeRow(
             stocktake_id=count_id,
             identity=identity,
@@ -183,6 +196,7 @@ def scan(count_id: int, body: ScanCount, db: DbSession, current: User = Depends(
         )
         db.add(row)
     if not duplicate:
+        row.scan_snapshot = observed if pid else None
         row.scan_code = code
         row.scanned_at = datetime.now(timezone.utc)
         row.scanned_by = current.id
@@ -215,6 +229,7 @@ def undo_scan(count_id: int, row_id: int, db: DbSession, current: User = Depends
     )
     if row.expected:
         row.scan_code = row.scanned_at = row.scanned_by = None
+        row.scan_snapshot = None
     else:
         db.delete(row)
     db.commit()
@@ -243,8 +258,7 @@ def export(count_id: int, db: DbSession, _: User = Depends(access)):
     count = get_count(db, count_id)
     stream = io.StringIO()
     writer = csv.writer(stream)
-    writer.writerow(
-        [
+    headers = [
             "Count",
             "Completed",
             "Result",
@@ -264,11 +278,36 @@ def export(count_id: int, db: DbSession, _: User = Depends(access)):
             "Current available",
             "Current reserved",
             "Current location",
-        ]
-    )
-    for row in results(db, count):
+            "Scanned pieces",
+            "Scan quantity basis",
+            "Scanned model / color / size breakdown",
+            "Scanned packages total",
+            "Scanned pieces total",
+            "Count-start fallback packages",
+            "Scanned packages without quantity evidence",
+            "Unknown labels total",
+            "Ambiguous labels total",
+            "Row type",
+    ]
+    writer.writerow(headers)
+
+    def write_safe(values):
+        writer.writerow([
+            "'" + v if isinstance(v, str) and v.lstrip().startswith(("=", "+", "-", "@", "\t", "\r", "\n")) else v
+            for v in values
+        ])
+
+    rows = results(db, count)
+    for row in rows:
         s = row["snapshot"]
         now = row["current"] or {}
+        observed = row["scan_snapshot"] or (s if row["scanned_at"] and row["package_id"] else {})
+        items = observed.get("items") or ([observed] if observed else [])
+        breakdown = "; ".join(
+            " / ".join(str(item.get(key) or "") for key in ("model_code", "model_name", "color", "size"))
+            + f" : {item.get('quantity', '')}"
+            for item in items
+        )
         values = [
             count.title,
             count.completed_at or "",
@@ -289,13 +328,20 @@ def export(count_id: int, db: DbSession, _: User = Depends(access)):
             now.get("available"),
             now.get("reserved"),
             now.get("location"),
+            row["scanned_pieces"],
+            row["scan_evidence_source"] if row["scanned_at"] else "",
+            breakdown,
+            "", "", "", "", "", "", "package",
         ]
-        writer.writerow(
-            [
-                "'" + v if isinstance(v, str) and v.lstrip().startswith(("=", "+", "-", "@", "\t", "\r", "\n")) else v
-                for v in values
-            ]
-        )
+        write_safe(values)
+    totals = scan_summary(rows)
+    footer = {"Count": count.title, "Completed": count.completed_at or "", "Result": "TOTAL", "Row type": "totals",
+              "Scanned packages total": totals["scanned_packages"], "Scanned pieces total": totals["scanned_pieces"],
+              "Count-start fallback packages": totals["estimated_packages"],
+              "Scanned packages without quantity evidence": totals["unquantified_packages"],
+              "Unknown labels total": sum(row["result"] == "unknown" for row in rows),
+              "Ambiguous labels total": sum(row["result"] == "ambiguous" for row in rows)}
+    write_safe([footer.get(header, "") for header in headers])
     return Response(
         "\ufeff" + stream.getvalue(),
         media_type="text/csv; charset=utf-8",

@@ -27,6 +27,8 @@ class WarehouseStocktakeRow(Base, PkMixin):
     category: Mapped[str] = mapped_column(String(24), nullable=False)
     snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
     final_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    # First-scan evidence is independent of count-start and completion snapshots.
+    scan_snapshot: Mapped[dict | None] = mapped_column(JSON)
     scan_code: Mapped[str | None] = mapped_column(String(512))
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scanned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
