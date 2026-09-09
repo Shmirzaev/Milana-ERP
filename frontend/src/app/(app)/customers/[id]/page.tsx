@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -217,8 +218,8 @@ export default function CustomerDetailPage() {
   function paymentOrderOptionLabel(order: CustomerOrder) {
     const due = effectiveBalanceDue(order);
     return due > 0.01
-      ? t("page.customerDetail.orderOptionDue", { orderNo: order.order_no, amount: money(due) })
-      : t("page.customerDetail.orderOptionPaidAdvance", { orderNo: order.order_no });
+      ? t("page.customerDetail.orderOptionDue", { orderNo: formatOrderReference(order.order_no), amount: money(due) })
+      : t("page.customerDetail.orderOptionPaidAdvance", { orderNo: formatOrderReference(order.order_no) });
   }
 
   function openPayment(order?: CustomerOrder) {
@@ -420,7 +421,7 @@ export default function CustomerDetailPage() {
               <tbody>
                 {orderRows.map((o) => (
                   <tr key={o.id}>
-                    <td><Link className="text-brand-600 hover:underline" href={`/sales-orders/${o.id}`}>{o.order_no}</Link></td>
+                    <td><Link className="text-brand-600 hover:underline" href={`/sales-orders/${o.id}`}>{formatOrderReference(o.order_no)}</Link></td>
                     <td>{o.date ? new Date(o.date).toLocaleDateString() : "-"}</td>
                     <td><span className="badge">{statusLabel(o.status, t)}</span></td>
                     <td className="text-right">{money(Number(o.total || 0))}</td>
@@ -489,7 +490,7 @@ export default function CustomerDetailPage() {
                     <td>{payment.paid_at ? new Date(payment.paid_at).toLocaleDateString() : "-"}</td>
                     <td>
                       {payment.order_id ? (
-                        <Link className="text-brand-600 hover:underline" href={`/sales-orders/${payment.order_id}`}>{payment.order_no}</Link>
+                        <Link className="text-brand-600 hover:underline" href={`/sales-orders/${payment.order_id}`}>{formatOrderReference(payment.order_no)}</Link>
                       ) : (
                         <span className="text-slate-500">{t("page.customerDetail.advance")}</span>
                       )}
@@ -521,7 +522,7 @@ export default function CustomerDetailPage() {
       <Modal open={paymentOpen} onClose={() => setPaymentOpen(false)} title={t("page.customerDetail.addPayment")}>
         <form onSubmit={recordPayment} className="space-y-3">
           <div className="rounded-md border border-[#ecebe3] bg-[#f8f7f3] p-3 text-sm">
-            <div className="font-medium">{selectedPaymentOrder?.order_no || t("page.customerDetail.advancePayment")}</div>
+            <div className="font-medium">{formatOrderReference(selectedPaymentOrder?.order_no, t("page.customerDetail.advancePayment"))}</div>
             <div className="mt-1 text-slate-600">
               {selectedPaymentOrder
                 ? selectedPaymentOrder.invoices?.length

@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -1067,7 +1068,7 @@ export default function PlanningDashboard() {
                     onClick={() => setSelectedReservationPoId(Number(po.id))}
                   >
                     <span className="min-w-0">
-                      <span className="block truncate font-medium">{po.order_no || po.production_no}</span>
+                      <span className="block truncate font-medium">{formatOrderReference(po.order_no || po.production_no)}</span>
                       <span className={`block truncate text-xs ${active ? "text-[#ded9ca]" : "text-[#8a8472]"}`}>
                         {statusLabel(po.status, t)}
                       </span>
@@ -1228,7 +1229,7 @@ export default function PlanningDashboard() {
           <tbody>
             {planningOrders.map((o) => (
               <tr key={o.id}>
-                <td>{o.order_no}</td>
+                <td>{formatOrderReference(o.order_no)}</td>
                 <td>{o.customer?.name || o.customer_name || o.customer_id || "-"}</td>
                 <td>${Number(o.total_amount).toFixed(2)}</td>
                 <td>{statusLabel(o.status, t)}</td>
@@ -1577,7 +1578,7 @@ export default function PlanningDashboard() {
               <h2 className="app-card-title">{t("page.planning.addBrandedProduction")}</h2>
               <p className="mt-1 text-sm text-[#8a8472]">{t("page.planning.activeOrder")}: {selectedBrandedOrder.order_no}</p>
             </div>
-            <span className="mono text-sm font-semibold text-[#56503f]">{selectedBrandedOrder?.order_no || "—"}</span>
+            <span className="mono text-sm font-semibold text-[#56503f]">{formatOrderReference(selectedBrandedOrder?.order_no || "—")}</span>
           </div>
           <div className="border-b border-[#ecebe3] px-5 py-4">
             <BrandedModelVariantSelect key={brandedSelectorKey} value={brandedForm.model_id} onChange={selectBrandedModel} />
@@ -1914,7 +1915,7 @@ export default function PlanningDashboard() {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between gap-4">
                 <span className="text-[#8a8472]">{t("page.planning.planningOrder")}</span>
-                <span className="mono text-right">{selectedBrandedOrder?.order_no || "-"}</span>
+                <span className="mono text-right">{formatOrderReference(selectedBrandedOrder?.order_no || "-")}</span>
               </div>
               <div className="flex justify-between gap-4">
                 <span className="text-[#8a8472]">{t("field.model")}</span>

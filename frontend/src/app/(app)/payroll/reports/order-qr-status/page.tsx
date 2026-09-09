@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
@@ -131,7 +132,7 @@ export default function OrderQrStatusPage() {
               <datalist id="order-qr-options">
                 {orderOptions.map((option) => (
                   <option key={option.order_no} value={option.order_no}>
-                    {[...option.production_nos, ...option.model_codes].join(" · ")}
+                    {[...option.production_nos.map(value => formatOrderReference(value)), ...option.model_codes].join(" · ")}
                   </option>
                 ))}
               </datalist>
@@ -164,10 +165,10 @@ export default function OrderQrStatusPage() {
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e4dfd2] pb-4">
               <div>
                 <div className="label">{t("page.orderQr.selectedOrder")}</div>
-                <h2 className="mt-1 text-xl font-semibold text-[#302b21]">{data.order_no}</h2>
+                <h2 className="mt-1 text-xl font-semibold text-[#302b21]">{formatOrderReference(data.order_no)}</h2>
               </div>
               <div className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-                <div><span className="text-[#817966]">{t("page.orderQr.productionOrder")}:</span> {compactList(data.production_nos)}</div>
+                <div><span className="text-[#817966]">{t("page.orderQr.productionOrder")}:</span> {compactList(data.production_nos.map(value => formatOrderReference(value)))}</div>
                 <div><span className="text-[#817966]">{t("page.orderQr.model")}:</span> {compactList(data.model_codes)}</div>
                 <div><span className="text-[#817966]">{t("page.orderQr.batch")}:</span> {compactList(data.batch_nos)}</div>
               </div>

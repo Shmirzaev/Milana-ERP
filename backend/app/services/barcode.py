@@ -41,16 +41,25 @@ def save_qr_image(payload: str, filename_stem: str) -> str:
     return f"/storage/barcodes/{filename_stem}.png"
 
 
-def qr_png_data_uri(payload: str) -> str:
-    """Render a QR as an inline PNG without creating a persistent storage file."""
+def qr_png_bytes(payload: str) -> bytes:
+    """Render current QR content without a potentially stale persistent file."""
     qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=2)
     qr.add_data(payload)
     qr.make(fit=True)
     image = qr.make_image(fill_color="black", back_color="white")
     buffer = BytesIO()
     image.save(buffer, format="PNG")
-    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return buffer.getvalue()
+
+
+def qr_png_data_uri(payload: str) -> str:
+    """Render a QR as an inline PNG without creating a persistent storage file."""
+    encoded = base64.b64encode(qr_png_bytes(payload)).decode("ascii")
     return f"data:image/png;base64,{encoded}"
+
+
+def bundle_qr_image_url(bundle_id: int) -> str:
+    return f"/api/barcode/bundle-image/{int(bundle_id)}"
 
 
 def save_barcode_image(value: str, filename_stem: str) -> str:

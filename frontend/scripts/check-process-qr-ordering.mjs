@@ -55,7 +55,7 @@ const required = [
   ["printed operation number is in the top-right header", "process-label__number font-bold text-[#14110b]"],
   ["printed footer contains Kroy number", "process-label__kroy"],
   ["work-label details use larger print text", ".process-label--work .process-label__details"],
-  ["work-label details fill the full body height", "grid-template-rows: 1fr 1fr 2.25fr 1fr 1fr 1fr !important"],
+  ["work-label details include the canonical order and fill the full body height", "grid-template-rows: 0.85fr 0.85fr 0.85fr 2.25fr 1fr 1fr 1fr !important"],
   ["work-label details use 8.4pt print text", "font-size: 8.4pt !important"],
   ["work-label sewing-line value allows two full print lines", "max-height: 6.6mm !important"],
   ["only model and sewing-line values use smaller print text", ".process-label--work .process-label__identity-value"],

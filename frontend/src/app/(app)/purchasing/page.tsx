@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -127,7 +128,7 @@ export default function PurchasingPage() {
       });
       setManual({ item_id: 0, material_name: "", supplier_id: 0, photo_url: "", notes: "" });
       setShowRequestForm(false);
-      setMessage(t("page.purchasing.requestSent", { requestNo: created.request_no }));
+      setMessage(t("page.purchasing.requestSent", { requestNo: formatOrderReference(created.request_no) }));
       refreshRequests();
     } catch (error: any) {
       setMessage(error?.message || t("page.purchasing.actionFailed"));
@@ -206,7 +207,7 @@ export default function PurchasingPage() {
         const draft = approvalDrafts[line.id] || { material_name: "", photo_url: "", preferred_supplier_id: 0 };
         const editable = canApprove && ["draft", "pending_approval"].includes(request.status);
         return <tr key={line.id}>
-          <td><div className="mono font-semibold text-[#14110b]">{index === 0 ? request.request_no : ""}</div><div className="text-xs text-[#8a8472]">{index === 0 ? request.sales_order_no || "-" : ""}</div></td>
+          <td><div className="mono font-semibold text-[#14110b]">{index === 0 ? formatOrderReference(request.request_no) : ""}</div><div className="text-xs text-[#8a8472]">{index === 0 ? formatOrderReference(request.sales_order_no) : ""}</div></td>
           <td><label className={`block h-[168px] w-[168px] overflow-hidden rounded-md border border-[#ded9ca] bg-[#f7f4ed] ${editable ? "cursor-pointer" : ""}`}>{draft.photo_url ? <img src={draft.photo_url} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center"><ImagePlus className="h-4 w-4 text-[#8a8472]" /></span>}{editable && <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadPhoto(file, `line-${line.id}`, (photo_url) => setApprovalDrafts((rows) => ({ ...rows, [line.id]: { ...draft, photo_url } }))); }} />}</label></td>
           <td>{editable ? <input className="input min-w-[220px]" value={draft.material_name} onChange={(event) => setApprovalDrafts((rows) => ({ ...rows, [line.id]: { ...draft, material_name: event.target.value } }))} /> : <div><div className="font-medium text-[#14110b]">{draft.material_name || line.item_name || "-"}</div><div className="mono text-xs text-[#8a8472]">{line.item_sku || ""}</div></div>}</td>
           <td>{editable ? <select className="input min-w-[190px]" value={draft.preferred_supplier_id} onChange={(event) => setApprovalDrafts((rows) => ({ ...rows, [line.id]: { ...draft, preferred_supplier_id: Number(event.target.value) } }))}><option value={0}>{t("ph.supplier")}</option>{suppliers?.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select> : draft.preferred_supplier_id ? suppliers?.find((row) => row.id === draft.preferred_supplier_id)?.name || line.preferred_supplier_name || "-" : "-"}</td>

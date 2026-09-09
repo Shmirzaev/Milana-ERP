@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models import Invoice, Payment, SalesOrder
 from app.schemas.integrations import OneCSyncIn
 from app.services.numbering import next_invoice_no
+from app.core.order_reference import resolve_order_id
 
 SOURCE_1C = "1c"
 
@@ -25,7 +26,8 @@ def _resolve_sales_order(db: Session, sales_order_id: int | None, sales_order_no
     if sales_order_id:
         return db.get(SalesOrder, sales_order_id)
     if sales_order_no:
-        return db.query(SalesOrder).filter(SalesOrder.order_no == sales_order_no).first()
+        order_id = resolve_order_id(db, "SO", sales_order_no)
+        return db.get(SalesOrder, order_id) if order_id is not None else None
     return None
 
 

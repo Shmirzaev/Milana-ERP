@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
@@ -441,7 +442,7 @@ function ProcessReference({ process }: { process: Process }) {
       <div>
         <div className="text-[10px] font-semibold text-[#8a8472]">{t("field.productionNo")}</div>
         <Link href={`/production-orders/${process.production_order_id}`} className="mono font-semibold text-brand-600 hover:underline">
-          {productionNo}
+          {formatOrderReference(productionNo)}
         </Link>
       </div>
       {salesOrderNo && (
@@ -449,10 +450,10 @@ function ProcessReference({ process }: { process: Process }) {
           <div className="text-[10px] font-semibold text-[#8a8472]">{t("field.salesOrderNo")}</div>
           {process.sales_order_id ? (
             <Link href={`/sales-orders/${process.sales_order_id}`} className="mono text-[#56503f] hover:underline">
-              {salesOrderNo}
+              {formatOrderReference(salesOrderNo)}
             </Link>
           ) : (
-            <span className="mono text-[#56503f]">{salesOrderNo}</span>
+            <span className="mono text-[#56503f]">{formatOrderReference(salesOrderNo)}</span>
           )}
         </div>
       )}

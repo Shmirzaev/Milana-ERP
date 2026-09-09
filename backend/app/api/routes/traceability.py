@@ -5,6 +5,8 @@ from fastapi.responses import HTMLResponse
 from urllib.parse import parse_qs, unquote, urlparse
 
 from app.core.deps import DbSession, require_permissions
+from app.core.order_reference import resolve_order_id
+from app.services.bundles import find_bundle_by_scanned_code
 from app.models import Bundle, Package, ProductionBatch, ProductionOrder, Shipment
 from app.services.traceability import (
     bundle_traceability,
@@ -54,17 +56,7 @@ def _find_bundle(db: DbSession, key: str) -> Bundle | None:
         bundle = db.get(Bundle, int(decoded))
         if bundle:
             return bundle
-    candidates = [decoded]
-    if "|" in decoded:
-        candidates.extend([part.strip() for part in decoded.split("|") if part.strip()])
-    if decoded.upper().startswith("BUNDLE:"):
-        payload = decoded.split(":", 1)[1]
-        candidates.extend([part.strip() for part in payload.split("|") if part.strip()])
-    for candidate in dict.fromkeys(candidates):
-        bundle = db.query(Bundle).filter((Bundle.barcode == candidate) | (Bundle.bundle_no == candidate)).first()
-        if bundle:
-            return bundle
-    return None
+    return find_bundle_by_scanned_code(db, decoded)
 
 
 def _find_production_order(db: DbSession, key: str) -> ProductionOrder | None:
@@ -73,7 +65,8 @@ def _find_production_order(db: DbSession, key: str) -> ProductionOrder | None:
         po = db.get(ProductionOrder, int(decoded))
         if po:
             return po
-    return db.query(ProductionOrder).filter(ProductionOrder.production_no == decoded).first()
+    order_id = resolve_order_id(db, "PO", decoded)
+    return db.get(ProductionOrder, order_id) if order_id is not None else None
 
 
 def _find_production_batch(db: DbSession, key: str) -> ProductionBatch | None:

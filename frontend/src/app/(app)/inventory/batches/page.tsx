@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
@@ -73,7 +74,7 @@ export default function BatchesPage() {
                 <td>{b.old_code || "-"}</td>
                 <td>{b.color_code || "-"}</td>
                 <td>{b.color_status || "-"}</td>
-                <td>{b.order_no || "-"}</td>
+                <td>{formatOrderReference(b.order_no || "-")}</td>
                 <td>{Number(b.quantity).toFixed(2)}</td>
                 <td>{Number(b.reserved_quantity || 0).toFixed(2)}</td>
                 <td>{Number(b.available_quantity ?? b.quantity).toFixed(2)}</td>

@@ -1,3 +1,4 @@
+from app.core.order_reference import order_reference_contains
 """Cross-department process tracking.
 
 Returns, for every active production order, the current stage of each linked
@@ -817,10 +818,10 @@ def list_processes(
         like = f"%{search}%"
         model_code_like = normalized_model_code_pattern(search)
         qry = qry.filter(or_(
-            ProductionOrder.production_no.ilike(like),
+            order_reference_contains(ProductionOrder.production_no, like),
             ProductionOrder.production_type.ilike(like),
             ProductionOrder.status.ilike(like),
-            SalesOrder.order_no.ilike(like),
+            order_reference_contains(SalesOrder.order_no, like),
             Customer.name.ilike(like),
             ProductionOrder.service_customer_name.ilike(like),
             ProductionOrder.service_customer_reference.ilike(like),

@@ -1,4 +1,21 @@
+/** Display the authoritative reference returned by the server after renumbering. */
+export function formatOrderReference(value: unknown, fallback = "-"): string {
+  const reference = String(value ?? "").trim();
+  // A legacy suffix is not an identity: the migration may reassign collisions.
+  // Only the backend's persisted mapping can decide the canonical number.
+  return reference || fallback;
+}
+
+export function formatOrderReferencesInText(value: string): string {
+  return value;
+}
+
 export function orderReference(source: any, fallback = "-"): string {
+  return formatOrderReference(rawOrderReference(source, fallback), fallback);
+}
+
+/** Prefer business references from the API when prefilling fields or grouping rows. */
+export function rawOrderReference(source: any, fallback = "-"): string {
   if (!source) return fallback;
   const ref =
     source.order_no

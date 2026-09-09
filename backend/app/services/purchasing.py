@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.order_reference import canonical_business_order_reference
+
 from app.models import (
     Item,
     PurchaseOrder,
@@ -467,7 +469,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             old_code=raw.get("old_code"),
             color_code=raw.get("color_code"),
             color_status=raw.get("color_status"),
-            order_no=raw.get("order_no") or order.po_no,
+            order_no=canonical_business_order_reference(db, raw.get("order_no")) or order.po_no,
             width=raw.get("width"),
             gsm=raw.get("gsm"),
             quantity=quantity,

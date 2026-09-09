@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -288,7 +289,7 @@ export default function PayrollQrControlPage() {
                     <td colSpan={8}>
                       <div className="flex min-w-0 items-center justify-between gap-4">
                         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-                          <strong className="text-sm text-[#14110b]">{group.orderNo}</strong>
+                          <strong className="text-sm text-[#14110b]" title={group.orderNo}>{formatOrderReference(group.orderNo)}</strong>
                           <span>{t("common.model")}: <b>{group.models.join(", ") || "-"}</b></span>
                           <span>{t("field.batch")}: <b>{group.batches.join(", ") || "-"}</b></span>
                           <span>{t("page.payrollQrControl.labelCount", { count: group.rows.length })}</span>

@@ -30,9 +30,11 @@ import {
   paidOperationFactoryFromDepartmentCode,
   paidOperationsFromDetails,
   serializePaidOperations,
+  samePaidProcess,
   withPaidOperations,
   type PaidOperation,
   type PaidOperationFactory,
+  type SectionCode,
 } from "@/lib/modelPaidOperations";
 
 type ModelDetails = {
@@ -530,11 +532,14 @@ export default function ModelDetail() {
     });
   }
 
-  function addPaidOperation(sewingFactory: PaidOperationFactory) {
+  function addPaidOperation(sewingFactory: PaidOperationFactory, template?: { name: string; code: string; section: SectionCode }) {
     setDetails((current) => {
+      const existing = withoutModelQuantities(paidOperationsFromDetails(current));
+      if (template && existing.some(operation => operation.sewingFactory === sewingFactory && samePaidProcess(operation, template))) return current;
       const rows = [
-        ...withoutModelQuantities(paidOperationsFromDetails(current)),
-        createPaidOperation("model-op", 0, sewingFactory),
+        ...existing,
+        { ...createPaidOperation("model-op", 0, sewingFactory),
+          ...(template ? { name: template.name, code: template.code, section: template.section } : {}) },
       ];
       return withPaidOperations(current, rows);
     });
@@ -1773,6 +1778,7 @@ export default function ModelDetail() {
 
         {tab === 10 && (
           <PaidOperationsEditor
+            key={id}
             operations={paidOperations}
             visibleFactories={visiblePaidOperationFactories}
             onAdd={addPaidOperation}

@@ -11,7 +11,7 @@ import FabricThumbnail from "@/components/FabricThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { orderReference } from "@/lib/orderRef";
+import { orderReference, rawOrderReference } from "@/lib/orderRef";
 
 type Department = { id: number; name: string; code: string };
 
@@ -117,7 +117,7 @@ export default function CuttingInventoryPage() {
       const productionBatchId = row.production_batch_id ? Number(row.production_batch_id) : null;
       const batchLabel = row.batch_label || (productionBatchId ? `${t("field.batch")} #${productionBatchId}` : "-");
       const trackingPassportNo = row.tracking_passport_no || "";
-      const key = `${orderNo}::${productionBatchId || "none"}`;
+      const key = `${rawOrderReference(row, `#${row.production_order_id}`)}::${productionBatchId || "none"}`;
       const code = nextDepartmentCode(row, departmentById);
       const goesToPrinting = row.status === "sent_to_printing" || code === "PRT";
       const group = map.get(key);

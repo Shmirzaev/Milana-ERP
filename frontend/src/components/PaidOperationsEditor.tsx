@@ -1,19 +1,23 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { parseNumberInput } from "@/lib/numberInput";
 import {
   PAID_OPERATION_FACTORIES,
+  VALID_SECTIONS,
   type PaidOperation,
   type PaidOperationFactory,
   type SectionCode,
 } from "@/lib/modelPaidOperations";
 
+import PaidProcessPicker, { type PaidProcessTemplate } from "@/components/PaidProcessPicker";
+import { paidSectionLabel } from "@/lib/paidProcessSections";
+
 type Props = {
   operations: PaidOperation[];
   visibleFactories: PaidOperationFactory[];
-  onAdd: (factory: PaidOperationFactory) => void;
+  onAdd: (factory: PaidOperationFactory, template?: PaidProcessTemplate) => void;
   onUpdate: (id: string, patch: Partial<PaidOperation>) => void;
   onRemove: (id: string) => void;
 };
@@ -25,7 +29,7 @@ const FACTORY_LABEL_KEYS: Record<PaidOperationFactory, string> = {
 };
 
 export default function PaidOperationsEditor({ operations, visibleFactories, onAdd, onUpdate, onRemove }: Props) {
-  const { t } = useT();
+  const { t, lang } = useT();
 
   function operationTable(rows: PaidOperation[]) {
     return (
@@ -54,10 +58,8 @@ export default function PaidOperationsEditor({ operations, visibleFactories, onA
                 <td><input type="checkbox" className="h-4 w-4" checked={operation.selected} onChange={(event) => onUpdate(operation.id, { selected: event.target.checked })} /></td>
                 <td><input className="input w-20" type="number" min={1} step={1} value={operation.sourceOrder ?? ""} onChange={(event) => { const value = parseNumberInput(event.target.value); onUpdate(operation.id, { sourceOrder: value === "" ? undefined : value }); }} /></td>
                 <td>
-                  <select className="input min-w-[130px]" value={operation.section} onChange={(event) => onUpdate(operation.id, { section: event.target.value as SectionCode })}>
-                    <option value="sewing">{t("page.modelDetail.sectionSewing")}</option>
-                    <option value="pressing">{t("page.modelDetail.sectionPressing")}</option>
-                    <option value="packaging">{t("page.modelDetail.sectionPackaging")}</option>
+                  <select className="input min-w-[130px]" style={{ minWidth: 140 }} value={operation.section} onChange={(event) => onUpdate(operation.id, { section: event.target.value as SectionCode, sourceStage: event.target.value })}>
+                    {VALID_SECTIONS.map(section => <option key={section} value={section}>{paidSectionLabel(section, lang)}</option>)}
                   </select>
                 </td>
                 <td><input className="input min-w-[120px]" value={operation.sourceStage || ""} onChange={(event) => onUpdate(operation.id, { sourceStage: event.target.value })} /></td>
@@ -93,10 +95,7 @@ export default function PaidOperationsEditor({ operations, visibleFactories, onA
             </summary>
             <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
               <span className="text-xs text-[#716a5c]">{t("page.modelDetail.factoryOperationsHint", { factory: label })}</span>
-              <button type="button" className="btn" onClick={() => onAdd(factory)}>
-                <Plus className="h-4 w-4" />
-                <span>{t("page.modelDetail.addPaidOperation")}</span>
-              </button>
+              <div className="w-full"><PaidProcessPicker existing={rows} onSelect={row => onAdd(factory, row)} /></div>
             </div>
             {operationTable(rows)}
           </details>

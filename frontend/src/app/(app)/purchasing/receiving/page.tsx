@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
@@ -311,8 +312,8 @@ export default function PurchaseReceivingPage() {
                   {group.rows.map(({ order, line }) => (
                     <tr key={`${order.id}-${line.id}`}>
                       <td>
-                        <div className="mono font-semibold text-[#14110b]">{order.po_no}</div>
-                        <div className="text-xs text-[#8a8472]">{order.supplier_name || order.request_no || "-"}</div>
+                        <div className="mono font-semibold text-[#14110b]">{formatOrderReference(order.po_no)}</div>
+                        <div className="text-xs text-[#8a8472]">{formatOrderReference(order.supplier_name || order.request_no || "-")}</div>
                       </td>
                       <td>{line.photo_url ? (
                         <a
@@ -371,7 +372,7 @@ export default function PurchaseReceivingPage() {
               <div className="mb-4 flex items-start justify-between gap-4">
                 <div>
                   <div className="text-lg font-semibold text-[#14110b]">{t("page.purchasing.receiveOrder")}</div>
-                  <div className="mt-1 text-sm text-[#6f684f]">{receiveState.order.po_no} - {lineItemLabel(receiveState.line)}</div>
+                  <div className="mt-1 text-sm text-[#6f684f]">{formatOrderReference(receiveState.order.po_no)} - {lineItemLabel(receiveState.line)}</div>
                 </div>
                 <button type="button" className="icon-btn" onClick={() => setReceiveState(null)} aria-label={t("common.close")}>
                   <X />
@@ -397,7 +398,7 @@ export default function PurchaseReceivingPage() {
                 </div>
                 <div>
                   <label className="label">{t("field.internalBatchNo")}</label>
-                  <input className="input" value={receiveState.order.po_no} readOnly aria-readonly="true" />
+                  <input className="input" value={formatOrderReference(receiveState.order.po_no)} title={receiveState.order.po_no} readOnly aria-readonly="true" />
                 </div>
                 <div>
                   <label className="label">{t("field.warehouse")}</label>

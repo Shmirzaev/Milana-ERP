@@ -1,3 +1,4 @@
+from app.core.order_reference import canonical_business_order_reference, canonical_order_reference, order_reference_contains
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -729,6 +730,21 @@ def list_received_stock_colors(
     return sorted(colors_by_key.values(), key=str.casefold)
 
 
+def _canonical_stock_replay(db, replay: dict, *, production_order_id: int | None = None) -> dict:
+    # Preserve the recorded result and request hash; only render known aliases live.
+    response = dict(replay)
+    if "order_no" in response:
+        if production_order_id is not None:
+            response["order_no"] = canonical_order_reference(
+                db, "SO", response["order_no"], production_order_id=production_order_id,
+            )
+        else:
+            response["order_no"] = canonical_business_order_reference(db, response["order_no"])
+    if "internal_batch_no" in response:
+        response["internal_batch_no"] = canonical_order_reference(db, "PUR", response["internal_batch_no"])
+    return response
+
+
 @router.post("/receive", response_model=StockBatchOut, status_code=201)
 def receive_stock(
     payload: StockBatchIn,
@@ -740,7 +756,7 @@ def receive_stock(
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="inventory.receive", key=idempotency_key, payload=fingerprint_payload)
     if replay:
-        return replay
+        return _canonical_stock_replay(db, replay)
 
     item = db.get(Item, payload.item_id)
     if not item:
@@ -750,6 +766,7 @@ def receive_stock(
         raise HTTPException(404, "Warehouse not found")
     _validate_receiving_warehouse(item, warehouse)
     batch_data = payload.model_dump()
+    batch_data["order_no"] = canonical_business_order_reference(db, payload.order_no)
     roll_weights, piece_count = normalize_material_roll_weights(
         item_category=item.category,
         unit=payload.unit,
@@ -802,7 +819,7 @@ def collect_back_accessory(
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="inventory.accessory-return", key=idempotency_key, payload=fingerprint_payload)
     if replay:
-        return replay
+        return _canonical_stock_replay(db, replay, production_order_id=payload.production_order_id)
 
     if payload.quantity <= 0:
         raise HTTPException(400, "Return quantity must be greater than zero")
@@ -1307,6 +1324,9 @@ def update_batch(
     if not values:
         return batch
 
+    if "order_no" in values:
+        values["order_no"] = canonical_business_order_reference(db, values["order_no"])
+
     old_warehouse_id = int(batch.warehouse_id)
     old_quantity = float(batch.quantity or 0)
     old_unit = str(batch.unit or "")
@@ -1707,7 +1727,7 @@ def list_batches(
                 StockBatch.old_code.ilike(like),
                 StockBatch.color_code.ilike(like),
                 StockBatch.color_status.ilike(like),
-                StockBatch.order_no.ilike(like),
+                order_reference_contains(StockBatch.order_no, like),
                 StockBatch.processes.ilike(like),
                 StockBatch.unit.ilike(like),
                 StockBatch.qc_status.ilike(like),

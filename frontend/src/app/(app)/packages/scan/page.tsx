@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import { useMemo, useRef, useState } from "react";
 import useSWR from "swr";
@@ -54,7 +55,7 @@ function packageScanError(error: any, t: (key: string) => string) {
 }
 
 function packageOrderLabel(pkg: ScannedPackage) {
-  return pkg.order_no || pkg.sales_order_no || pkg.production_no || (pkg.production_order_id ? `#${pkg.production_order_id}` : "-");
+  return formatOrderReference(pkg.order_no || pkg.sales_order_no || pkg.production_no || (pkg.production_order_id ? `#${pkg.production_order_id}` : "-"));
 }
 
 function packageModelLabel(pkg: ScannedPackage) {
@@ -388,7 +389,7 @@ export default function ScanPackagePage() {
                         </td>
                         <td>
                           <div className="font-medium text-[#14110b]">{packageOrderLabel(pkg)}</div>
-                          <div className="text-xs text-[#8a8472]">{pkg.production_no || "-"}</div>
+                          <div className="text-xs text-[#8a8472]">{formatOrderReference(pkg.production_no || "-")}</div>
                         </td>
                         <td>
                           <div className="flex items-center gap-2">

@@ -16,8 +16,6 @@ def public_production_order_no(production_no: str | None) -> str | None:
     text = str(production_no or "").strip()
     if not text:
         return None
-    if text.upper().startswith("PO-"):
-        return f"SO-{text[3:]}"
     return text
 
 

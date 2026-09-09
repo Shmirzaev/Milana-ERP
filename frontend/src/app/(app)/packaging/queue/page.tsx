@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -28,7 +29,7 @@ type ReceivedOrder = {
 };
 
 function orderLabel(row: ReceivedOrder) {
-  return row.order_no || row.production_no || `#${row.production_order_id}`;
+  return formatOrderReference(row.order_no || row.production_no || `#${row.production_order_id}`);
 }
 
 export default function PackagingQueuePage() {

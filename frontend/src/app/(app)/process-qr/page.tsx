@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchSerial } from "@/lib/batchSerial";
-import { orderReference } from "@/lib/orderRef";
+import { orderReference, formatOrderReference } from "@/lib/orderRef";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { buildOperationLabelTokens } from "@/lib/processQrLabelIdentity";
 import { useMe } from "@/lib/auth";
@@ -33,12 +33,17 @@ import {
   paidOperationMatchesFactory,
   paidOperationsFromDetails,
   SECTION_BADGES,
+  VALID_SECTIONS,
+  samePaidProcess,
   serializePaidOperations,
   type PaidOperation,
   type PaidOperationFactory,
   type SectionCode,
   type SplitMode,
 } from "@/lib/modelPaidOperations";
+import PaidProcessPicker from "@/components/PaidProcessPicker";
+import ManualModelSizes from "@/components/ManualModelSizes";
+import { paidSectionLabel } from "@/lib/paidProcessSections";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
 import Modal from "@/components/Modal";
@@ -471,6 +476,8 @@ function compactWorkPayload(
   copyIndex: number,
   labelUid: string,
 ): string {
+  // Encode the canonical references from the API. Cosmetic suffix shortening
+  // would lose the migration's collision mapping and point at a different order.
   const workOrderId = workOrderIdForOperation(process, operation);
   return [
     "MW2",
@@ -685,7 +692,7 @@ function splitQuantitiesForInputs(operation: PaidOperation): NumberInputValue[] 
 
 export default function ProcessQrPage() {
   const dialogs = useDialogs();
-  const { t } = useT();
+  const { t, lang } = useT();
   const { me } = useMe();
   const accountPaidOperationFactory = useMemo<PaidOperationFactory>(
     () => paidOperationFactoryFromDepartmentCode(me?.factory_code) || "milana",
@@ -1229,11 +1236,12 @@ export default function ProcessQrPage() {
     )));
   }
 
-  function addOperation() {
+  function addOperation(template: {name: string; code: string; section: SectionCode}) {
     markOperationsDirty();
-    setOperations((current) => [
+    setOperations((current) => current.some(operation => paidOperationMatchesFactory(operation, printPaidOperationFactory) && samePaidProcess(operation, template)) ? current : [
       ...current,
-      createPaidOperation("op", selectedProcess?.planned_quantity || 0, printPaidOperationFactory),
+      { ...createPaidOperation("op", selectedProcess?.planned_quantity || 0, printPaidOperationFactory),
+        name: template.name, code: template.code, section: template.section },
     ]);
   }
 
@@ -1846,7 +1854,7 @@ export default function ProcessQrPage() {
                 <dt className="text-[#8a8472]">{t("page.processQr.sizes")}</dt>
                 <dd>{(selectedProcess.sizes || []).length.toLocaleString()}</dd>
                 <dt className="text-[#8a8472]">{t("page.processQr.manualReference")}</dt>
-                <dd className="break-all font-mono">{selectedProcess.production_no || "-"}</dd>
+                <dd className="break-all font-mono" title={selectedProcess.production_no || undefined}>{formatOrderReference(selectedProcess.production_no)}</dd>
               </dl>
             </div>
           ) : selectedProcess ? (
@@ -1907,6 +1915,7 @@ export default function ProcessQrPage() {
               </div>
             )}
 
+            {needsFamilySizes && selectedModelId && <div className="mb-4"><ManualModelSizes modelId={selectedModelId} onSaved={() => { void mutateSelectedModel(); void mutateFamilySizes(); }} /></div>}
             {needsFamilySizes && !resolvedFamilySizes && !familySizesError && <p role="status">{t("common.loading")}</p>}
             {needsFamilySizes && familySizesError && (
               <p role="alert" className="text-sm text-red-700">{t("page.processQr.sizesLoadFailed")}</p>
@@ -2010,15 +2019,13 @@ export default function ProcessQrPage() {
                 <Save />
                 <span>{savingModelOperations ? t("common.saving") : t("page.processQr.saveToModel")}</span>
               </button>
-              <button type="button" className="btn" onClick={addOperation}>
-                <Plus />
-                <span>{t("page.processQr.addOperation")}</span>
-              </button>
+
               {sectionToggle("paidOperations")}
             </div>
           </div>
 
           <div className={`process-qr-collapsible ${collapsedSections.paidOperations ? "is-collapsed" : ""}`}>
+          <div className="mb-3"><PaidProcessPicker key={selectedModelId} existing={factoryOperations} onSelect={addOperation} /></div>
           <div className="overflow-x-auto">
             <table className="table min-w-[850px]">
               <thead>
@@ -2051,12 +2058,11 @@ export default function ProcessQrPage() {
                     <td>
                       <select
                         className="input min-w-[130px]"
+                        style={{ minWidth: 140 }}
                         value={operation.section}
-                        onChange={(event) => updateOperation(operation.id, { section: event.target.value as SectionCode })}
+                        onChange={(event) => updateOperation(operation.id, { section: event.target.value as SectionCode, sourceStage: event.target.value })}
                       >
-                        <option value="sewing">{t("statusValue.sewing")}</option>
-                        <option value="pressing">{t("page.processQr.pressing")}</option>
-                        <option value="packaging">{t("statusValue.packaging")}</option>
+                        {VALID_SECTIONS.map(section => <option key={section} value={section}>{paidSectionLabel(section, lang)}</option>)}
                       </select>
                     </td>
                     <td>
@@ -2175,6 +2181,7 @@ export default function ProcessQrPage() {
                   </tr>
                 )}
               </tbody>
+              <tfoot><tr><th colSpan={5}>{t("common.total")} / {t("page.processQr.ratePerPiece")}</th><td className="font-semibold tabular-nums">{money(factoryOperations.filter(op => op.selected).reduce((sum, op) => sum + numberOrZero(op.rate), 0), currency)}</td><td colSpan={3} /></tr></tfoot>
             </table>
           </div>
 
@@ -2199,13 +2206,14 @@ export default function ProcessQrPage() {
                       <div className="font-medium text-[#14110b]">{row.operation.name}</div>
                       <div className="text-xs font-mono text-[#8a8472]">{row.operation.code}</div>
                     </td>
-                    <td>{t(`page.processQr.section.${row.operation.section}`)}</td>
+                    <td>{paidSectionLabel(row.operation.section, lang)}</td>
                     <td className="text-right tabular-nums">{row.labels.toLocaleString()}</td>
                     <td className="text-right tabular-nums">{row.pieces.toLocaleString()}</td>
                     <td className="text-right tabular-nums">{money(row.estimatedPay, currency)}</td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot><tr><th colSpan={4}>{t("common.total")}</th><td className="text-right font-semibold tabular-nums">{money(totalEstimatedPay, currency)}</td></tr></tfoot>
             </table>
           </div>
 
@@ -2853,7 +2861,7 @@ export default function ProcessQrPage() {
           .process-label--work .process-label__details {
             display: grid !important;
             height: 100% !important;
-            grid-template-rows: 1fr 1fr 2.25fr 1fr 1fr 1fr !important;
+            grid-template-rows: 0.85fr 0.85fr 0.85fr 2.25fr 1fr 1fr 1fr !important;
             font-size: 8.4pt !important;
             line-height: 1 !important;
           }
@@ -3024,7 +3032,7 @@ function EmployeeBadge({ row }: { row: EmployeeBadgeRow }) {
 }
 
 function ProcessLabel({ label, qrToken }: { label: LabelRow; qrToken: string }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const { process, batch, operation, sewingLine, size, quantity, rate, currency, copyIndex, copyCount, splitMode } = label;
 
   return (
@@ -3036,13 +3044,14 @@ function ProcessLabel({ label, qrToken }: { label: LabelRow; qrToken: string }) 
           </div>
         </div>
         <span className={`process-label__badge badge shrink-0 ${SECTION_BADGES[operation.section]}`}>
-          {t(`page.processQr.section.${operation.section}`)}
+          {paidSectionLabel(operation.section, lang)}
         </span>
       </div>
 
       <div className="process-label__body flex min-h-0 flex-1 gap-2">
         <div className="process-label__details min-w-0 flex-1 text-[10px] leading-tight">
           <LabelLine label={t("common.model")} value={process.model_code || "-"} />
+          <LabelLine label={t("field.orderNo")} value={orderReference(process)} valueClassName="process-label__identity-value" />
           <LabelLine label={t("page.processQr.kroyNo")} value={batch.cuttingPassportNo || process.cutting_passport_no || "-"} strong />
           <LabelLine label={t("field.batch")} value={batch.serial} />
           <LabelLine label={t("page.processQr.line")} value={sewingLineDisplay(sewingLine)} strong wrap />
@@ -3077,9 +3086,9 @@ function IssuedProcessLabel({
   editable?: boolean;
   editDisabledReason?: string;
 }) {
-  const { t } = useT();
-  const section = (["sewing", "pressing", "packaging"] as const).includes(
-    label.operation_section as "sewing" | "pressing" | "packaging",
+  const { t, lang } = useT();
+  const section = VALID_SECTIONS.includes(
+    label.operation_section as SectionCode,
   )
     ? label.operation_section as SectionCode
     : "sewing";
@@ -3107,7 +3116,7 @@ function IssuedProcessLabel({
           )}
           <span className="process-label__number font-bold text-[#14110b]">№ {operationNumber}</span>
           <span className={`process-label__badge badge shrink-0 ${SECTION_BADGES[section]}`}>
-            {t(`page.processQr.section.${section}`)}
+            {paidSectionLabel(section, lang)}
           </span>
         </div>
       </div>
@@ -3119,6 +3128,7 @@ function IssuedProcessLabel({
             value={label.model_code || "-"}
             valueClassName="process-label__identity-value"
           />
+          <LabelLine label={t("field.orderNo")} value={orderReference(label)} valueClassName="process-label__identity-value" />
           <LabelLine label={t("field.batch")} value={label.batch_no || "-"} />
           <LabelLine
             label={t("page.processQr.line")}

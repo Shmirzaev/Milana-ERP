@@ -1,3 +1,4 @@
+from app.core.order_reference import order_reference_contains
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -8,10 +9,8 @@ from sqlalchemy.orm import selectinload
 import base64
 from functools import lru_cache
 from html import escape
-import os
 from pathlib import Path
 
-from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions, user_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models import (
@@ -32,6 +31,7 @@ from app.models import (
 )
 from app.schemas.tracking import BundleIn, BundleOut, BundleDetail
 from app.services.bundles import (
+    find_bundle_by_scanned_code,
     create_bundle,
     send_to_printing,
     receive_at_printing,
@@ -41,7 +41,7 @@ from app.services.bundles import (
     format_batch_passport,
     resolve_sewing_factory_code,
 )
-from app.services.barcode import save_qr_image
+from app.services.barcode import qr_png_data_uri
 from app.services.label_images import material_label_image_src
 from app.services.model_images import material_preview_image_url
 from app.services.audit import log_action
@@ -125,18 +125,7 @@ def _bundle_label_head(title: str, page_css: str) -> str:
 
 
 def _qr_data_uri_for_bundle(db: DbSession, b: Bundle) -> str:
-    qr_rel = save_qr_image(bundle_qr_payload(db, b), f"bundle_qr_{b.bundle_no}")
-    if b.qr_code_url != qr_rel:
-        b.qr_code_url = qr_rel
-        db.add(b)
-        db.commit()
-        db.refresh(b)
-    fname = qr_rel.split("/storage/barcodes/", 1)[1]
-    qr_path = os.path.join(settings.BARCODE_STORAGE_DIR, fname)
-
-    with open(qr_path, "rb") as fh:
-        png = fh.read()
-    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+    return qr_png_data_uri(bundle_qr_payload(db, b))
 
 
 def _batch_meta(db: DbSession, production_order_id: int | None, production_batch_id: int | None) -> dict:
@@ -277,38 +266,8 @@ def _bundle_label_card(ctx: dict, qr: str) -> str:
             """
 
 
-def _bundle_lookup_candidates(raw_code: str) -> list[str]:
-    code = (raw_code or "").strip()
-    if not code:
-        return []
-
-    candidates: list[str] = [code]
-    if "|" in code:
-        candidates.extend([part.strip() for part in code.split("|") if part.strip()])
-    if code.upper().startswith("BUNDLE:"):
-        payload = code.split(":", 1)[1]
-        candidates.extend([part.strip() for part in payload.split("|") if part.strip()])
-
-    unique: list[str] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        token = candidate.strip()
-        if token and token not in seen:
-            seen.add(token)
-            unique.append(token)
-    return unique
-
-
 def _find_bundle_by_scanned_code(db: DbSession, code: str) -> Bundle | None:
-    candidates = _bundle_lookup_candidates(code)
-    if not candidates:
-        return None
-    return (
-        db.query(Bundle)
-        .filter(or_(Bundle.barcode.in_(candidates), Bundle.bundle_no.in_(candidates)))
-        .order_by(Bundle.id.desc())
-        .first()
-    )
+    return find_bundle_by_scanned_code(db, code)
 
 
 def _get_bundle_for_update(db: DbSession, bid: int) -> Bundle:
@@ -420,12 +379,12 @@ def cutting_inventory(
         model_code_like = normalized_model_code_pattern(search)
         qry = qry.filter(
             or_(
-                Bundle.bundle_no.ilike(like),
+                order_reference_contains(Bundle.bundle_no, like),
                 Bundle.barcode.ilike(like),
                 Bundle.color.ilike(like),
                 Bundle.size.ilike(like),
-                ProductionOrder.production_no.ilike(like),
-                SalesOrder.order_no.ilike(like),
+                order_reference_contains(ProductionOrder.production_no, like),
+                order_reference_contains(SalesOrder.order_no, like),
                 normalized_model_code_column(Model.code).ilike(model_code_like),
             )
         )
@@ -503,10 +462,10 @@ def sewing_receive_options(
         model_code_like = normalized_model_code_pattern(search)
         qry = qry.filter(
             or_(
-                Bundle.bundle_no.ilike(like),
+                order_reference_contains(Bundle.bundle_no, like),
                 Bundle.barcode.ilike(like),
-                ProductionOrder.production_no.ilike(like),
-                SalesOrder.order_no.ilike(like),
+                order_reference_contains(ProductionOrder.production_no, like),
+                order_reference_contains(SalesOrder.order_no, like),
                 normalized_model_code_column(Model.code).ilike(model_code_like),
                 Model.name.ilike(like),
             )

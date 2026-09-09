@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -177,7 +178,7 @@ export default function EditUslugaOrderPage() {
   return <div>
     <PageHeader
       title={t("usluga.editOrder")}
-      subtitle={`${order.order_no} · ${t("usluga.editOrderHint")}`}
+      subtitle={`${formatOrderReference(order.order_no)} · ${t("usluga.editOrderHint")}`}
       actions={<Link href={`/usluga/orders/${order.id}`} className="btn"><ArrowLeft className="h-4 w-4" />{t("btn.cancel")}</Link>}
     />
 
@@ -226,7 +227,7 @@ export default function EditUslugaOrderPage() {
       <aside className="card p-4">
         <h2 className="text-base font-semibold text-[#242117]">{t("usluga.planSummary")}</h2>
         <dl className="mt-4 space-y-3 text-sm">
-          <div className="flex justify-between gap-4"><dt className="text-[#8a8472]">{t("usluga.order")}</dt><dd>{order.order_no}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-[#8a8472]">{t("usluga.order")}</dt><dd>{formatOrderReference(order.order_no)}</dd></div>
           <div className="flex justify-between gap-4"><dt className="text-[#8a8472]">{t("field.quantity")}</dt><dd className="font-semibold tabular-nums">{totalQuantity.toLocaleString()}</dd></div>
           <div className="flex justify-between gap-4"><dt className="text-[#8a8472]">{t("usluga.planLines")}</dt><dd className="tabular-nums">{activeLines.length}</dd></div>
           <div className="flex justify-between gap-4"><dt className="text-[#8a8472]">{t("usluga.routeLabel")}</dt><dd>ECT → ECO → ECP</dd></div>

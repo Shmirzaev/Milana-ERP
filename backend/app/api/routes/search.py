@@ -1,3 +1,4 @@
+from app.core.order_reference import order_reference_contains
 from fastapi import APIRouter
 
 from app.core.deps import DbSession, CurrentUser
@@ -39,7 +40,7 @@ def global_search(
     sales_rows = (
         db.query(SalesOrder.id, SalesOrder.order_no, SalesOrder.customer_id, Customer.name)
         .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
-        .filter(SalesOrder.order_no.ilike(pattern) | sales_model_match)
+        .filter(order_reference_contains(SalesOrder.order_no, pattern) | sales_model_match)
         .order_by(SalesOrder.id.desc())
         .limit(limit)
         .all()
@@ -60,7 +61,7 @@ def global_search(
         .outerjoin(Model, Model.id == Bundle.model_id)
         .filter(
             (Bundle.barcode.ilike(pattern))
-            | (Bundle.bundle_no.ilike(pattern))
+            | order_reference_contains(Bundle.bundle_no, pattern)
             | (normalized_model_code_column(Model.code).ilike(model_code_pattern))
         )
         .order_by(Bundle.id.desc())

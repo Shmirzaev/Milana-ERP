@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
@@ -69,7 +70,7 @@ export default function FinishedGoodsPage() {
               const soId = Number(row.sales_order_id || 0);
               return (
                 <tr key={row.sales_order_id || row.sales_order_no}>
-                  <td>{row.sales_order_no || row.sales_order_id || "-"}</td>
+                  <td>{formatOrderReference(row.sales_order_no || row.sales_order_id || "-")}</td>
                   <td>{row.customer_name || "-"}</td>
                   <td>{row.destination || row.customer_address || "-"}</td>
                   <td><ShipmentItemLines items={row.item_lines} /></td>

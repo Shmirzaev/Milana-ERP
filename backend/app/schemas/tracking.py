@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from app.schemas.common import ORMModel, SchemaModel
 
@@ -48,6 +48,11 @@ class BundleOut(ORMModel):
     created_by: Optional[int] = None
     created_at: datetime
     notes: Optional[str] = None
+
+    @field_serializer("qr_code_url")
+    def current_qr_image_url(self, _value: str | None) -> str:
+        # Never advertise a cached PNG containing an old order reference.
+        return f"/api/barcode/bundle-image/{self.id}"
 
 
 class BundleScanLogOut(ORMModel):

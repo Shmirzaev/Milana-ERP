@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -104,7 +105,7 @@ export default function UslugaOrderDetailPage() {
 
   return <div>
     <PageHeader
-      title={order.order_no}
+      title={formatOrderReference(order.order_no)}
       subtitle={`${order.customer_name} · ${order.model?.code || "—"} · ${order.planned_quantity.toLocaleString()}`}
       actions={<div className="flex flex-wrap gap-2">
         <Link href="/usluga" className="btn"><ArrowLeft className="h-4 w-4" />{t("usluga.backToPlanning")}</Link>

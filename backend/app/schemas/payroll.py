@@ -83,6 +83,15 @@ class PayrollNumericWorkScanIn(BaseModel):
     scanned_at: datetime | None = None
 
 
+class PayrollControlScanIn(BaseModel):
+    label_uid: str
+    employee_id: int
+
+
+class PayrollControlConfirmIn(PayrollControlScanIn):
+    review_token: str
+
+
 class PayrollRecordOut(ORMModel):
     id: int
     factory_code: str
@@ -130,7 +139,8 @@ class PayrollBulkOut(BaseModel):
 
 class PayrollNumericWorkScanOut(BaseModel):
     work: dict[str, Any]
-    record: PayrollRecordOut
+    record: PayrollRecordOut | None = None
+    control_preview: dict[str, Any] | None = None
 
 
 class PayrollQrLabelIssueIn(BaseModel):

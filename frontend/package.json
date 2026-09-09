@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run test:package-workflow-idempotency && npm run test:stocktake-locales && npm run test:branded-order-dialog && npm run test:model-picture-containment && npm run test:search-window && npm run test:sales-order-selection && npm run test:shipment-preparation && npm run test:fabric-inventory-archive && npm run test:multi-material-planning && npm run test:branded-stock-physical-packs && npm run test:branded-fabric-type-override && npm run test:inventory-receiving-separation && npm run test:purchase-orders-by-supplier && npm run test:purchase-receipt-batch-identity && npm run test:forecasting-charts && npm run test:usluga-manual-fabric && npm run test:usluga-batch-edit && npm run test:cutting-passport-autofill && npm run test:price-calculation-workflow && npm run test:sewing-factory-access && npm run test:eco-process-tracking && npm run test:eco-daily-sewing-sections && npm run test:employee-number-admin && npm run test:hr-recruitment-profile && npm run test:process-qr-ordering && next build",
+    "build": "npm run test:payroll-process-updates && npm run test:package-workflow-idempotency && npm run test:stocktake-locales && npm run test:branded-order-dialog && npm run test:model-picture-containment && npm run test:search-window && npm run test:sales-order-selection && npm run test:shipment-preparation && npm run test:fabric-inventory-archive && npm run test:multi-material-planning && npm run test:branded-stock-physical-packs && npm run test:branded-fabric-type-override && npm run test:inventory-receiving-separation && npm run test:purchase-orders-by-supplier && npm run test:purchase-receipt-batch-identity && npm run test:forecasting-charts && npm run test:usluga-manual-fabric && npm run test:usluga-batch-edit && npm run test:cutting-passport-autofill && npm run test:price-calculation-workflow && npm run test:sewing-factory-access && npm run test:eco-process-tracking && npm run test:eco-daily-sewing-sections && npm run test:employee-number-admin && npm run test:hr-recruitment-profile && npm run test:process-qr-ordering && next build",
     "start": "next start",
     "lint": "eslint .",
     "check:i18n": "node scripts/check-i18n.mjs",
@@ -44,7 +44,8 @@
     "test:payroll-scan-autosave": "node scripts/check-payroll-scan-autosave.mjs",
     "test:sewing-report-print": "node scripts/check-sewing-report-print.mjs",
     "typecheck": "tsc --noEmit",
-    "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit"
+    "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit",
+    "test:payroll-process-updates": "node scripts/test-order-references.mjs && node scripts/test-paid-process-sections.mjs && node scripts/test-payroll-control-session.mjs && node scripts/test-bundle-scan-conflicts.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

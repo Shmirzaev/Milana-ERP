@@ -1,3 +1,4 @@
+from app.core.order_reference import order_reference_contains
 import os
 from collections import defaultdict
 from datetime import date, datetime, timezone
@@ -1621,7 +1622,7 @@ def list_sales_orders(
         )
         qry = qry.filter(
             or_(
-                SalesOrder.order_no.ilike(like),
+                order_reference_contains(SalesOrder.order_no, like),
                 SalesOrder.status.ilike(like),
                 SalesOrder.order_type.ilike(like),
                 Customer.name.ilike(like),
@@ -1711,7 +1712,7 @@ def list_sales_order_history(
             )
             qry = qry.filter(
                 or_(
-                    SalesOrder.order_no.ilike(like),
+                    order_reference_contains(SalesOrder.order_no, like),
                     SalesOrder.status.ilike(like),
                     SalesOrder.order_type.ilike(like),
                     Customer.name.ilike(like),
@@ -1720,12 +1721,12 @@ def list_sales_order_history(
             )
             stock_qry = stock_qry.filter(
                 or_(
-                    ProductionOrder.production_no.ilike(like),
+                    order_reference_contains(ProductionOrder.production_no, like),
                     ProductionOrder.status.ilike(like),
                     ProductionOrder.production_type.ilike(like),
                     normalized_model_code_column(Model.code).ilike(model_code_like),
                     Model.name.ilike(like),
-                    BrandedPlanningOrder.order_no.ilike(like),
+                    order_reference_contains(BrandedPlanningOrder.order_no, like),
                     BrandedPlanningOrder.ordered_for_name.ilike(like),
                 )
             )

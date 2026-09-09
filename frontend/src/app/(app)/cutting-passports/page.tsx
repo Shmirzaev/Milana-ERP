@@ -6,7 +6,7 @@ import { Plus, Search, Pencil, Trash2, BookOpen } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
-import { orderReference } from "@/lib/orderRef";
+import { formatOrderReference, orderReference, rawOrderReference } from "@/lib/orderRef";
 import { modelCodeParts } from "@/lib/modelCode";
 import { useDialogs } from "@/components/DialogProvider";
 import { storageThumbnailUrl } from "@/lib/modelImages";
@@ -431,7 +431,7 @@ export default function CuttingPassportsPage() {
     setForm((prev) => ({
       ...prev,
       production_order_id: value,
-      order_no: po ? orderReference(po, po.production_no || prev.order_no) : "",
+      order_no: po ? rawOrderReference(po, po.production_no || prev.order_no) : "",
       model_code: po?.model_code || "",
       variant: "",
       mold_no: "",
@@ -599,7 +599,7 @@ export default function CuttingPassportsPage() {
                   <td className="px-3 py-2">{p.operator_name ?? "—"}</td>
                   <td className="px-3 py-2">{p.fabric_type ?? "—"}</td>
                   <td className="px-3 py-2 text-center">{p.has_print ? "✓" : ""}</td>
-                  <td className="px-3 py-2 font-mono">{p.order_no ?? p.production_order_no ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono">{formatOrderReference(p.order_no ?? p.production_order_no ?? "—")}</td>
                   <td className="px-3 py-2 font-mono">{p.lot_no ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{p.rolls_count ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{d3(p.layer_weight_kg)}</td>

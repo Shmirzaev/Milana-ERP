@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -400,8 +401,8 @@ export default function TraceabilityPage() {
             <section className="card p-4">
               <h2 className="app-card-title mb-3">{t("page.traceability.orderLinks")}</h2>
               <dl className="space-y-2 text-sm">
-                <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{t("field.productionNo")}</dt><dd>{valueOrDash(data.production_order?.production_no || data.production_order?.order_no)}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{t("field.orderNo")}</dt><dd>{valueOrDash(data.sales_order?.order_no)}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{t("field.productionNo")}</dt><dd>{formatOrderReference(data.production_order?.production_no || data.production_order?.order_no)}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{t("field.orderNo")}</dt><dd>{formatOrderReference(data.sales_order?.order_no)}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{t("field.customer")}</dt><dd>{valueOrDash(data.customer?.name)}</dd></div>
                 <div className="flex flex-wrap gap-2 pt-2">
                   {packageId && <Link className="btn h-7 px-2 text-[11px]" href={`/packages/${packageId}`}>{t("field.packageNo")}<ExternalLink /></Link>}

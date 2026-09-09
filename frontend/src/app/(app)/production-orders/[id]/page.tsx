@@ -12,7 +12,7 @@ import Modal from "@/components/Modal";
 import { operationLabel, productionTypeLabel, statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { useMe, can } from "@/lib/auth";
-import { orderReference } from "@/lib/orderRef";
+import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { useDialogs } from "@/components/DialogProvider";
 import { formatComposition, type MaterialComposition } from "@/lib/materialComposition";
 import { formatModelComposition } from "@/lib/modelComposition";
@@ -177,7 +177,7 @@ function modelLabel(model: ModelSummary | undefined, id?: number | null) {
 function salesOrderLabel(order: SalesOrderSummary | undefined, id?: number | null) {
   if (!order) return id ? `#${id}` : "-";
   const customer = order.customer?.name || order.customer_name;
-  return [order.order_no || `#${order.id}`, customer].filter(Boolean).join(" - ");
+  return [formatOrderReference(order.order_no || `#${order.id}`), customer].filter(Boolean).join(" - ");
 }
 
 function SummaryImage({ label, imageUrl }: { label: string; imageUrl?: string | null }) {

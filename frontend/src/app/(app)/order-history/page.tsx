@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import Image from "next/image";
@@ -531,7 +532,7 @@ export default function OrderHistoryPage() {
                             setDetailTab("overview");
                           }}
                         >
-                          {row.order_no}
+                          {formatOrderReference(row.order_no)}
                         </button>
                       </td>
                       <td className="mono">{row.group_order_no || "-"}</td>
@@ -594,7 +595,7 @@ export default function OrderHistoryPage() {
         <Modal
           open={Boolean(activeKey)}
           onClose={() => setSelectedKey(null)}
-          title={detail?.order_no || t("page.orderHistory.orderDetails")}
+          title={formatOrderReference(detail?.order_no, "") || t("page.orderHistory.orderDetails")}
           full
         >
           {detailLoading || !detail ? (
@@ -630,7 +631,7 @@ export default function OrderHistoryPage() {
                       href={detail.record_type === "production_order" ? `/production-orders/${detail.id}` : `/sales-orders/${detail.id}`}
                       className="mono text-lg font-semibold hover:underline"
                     >
-                      {detail.order_no}
+                      {formatOrderReference(detail.order_no)}
                     </Link>
                     <div className="mt-1 text-sm text-[#56503f]">
                       {detail.record_type === "production_order"

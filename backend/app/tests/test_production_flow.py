@@ -537,7 +537,7 @@ def test_client_production_uses_sales_order_reference(client, auth_headers):
     r = client.post("/api/planning/create-production-order", json=payload, headers=auth_headers)
     assert r.status_code == 201, r.text
     first = r.json()
-    assert first["production_no"] == so_no
+    assert first["production_no"].startswith("PO-") and len(first["production_no"]) == 7
     assert first["order_no"] == so_no
     assert first["sales_order_no"] == so_no
 
@@ -549,7 +549,8 @@ def test_client_production_uses_sales_order_reference(client, auth_headers):
     r = client.post("/api/production-orders", json=payload, headers=auth_headers)
     assert r.status_code == 201, r.text
     second = r.json()
-    assert second["production_no"] == f"{so_no}-2"
+    assert second["production_no"].startswith("PO-") and len(second["production_no"]) == 7
+    assert second["production_no"] != first["production_no"]
     assert second["order_no"] == so_no
     assert second["sales_order_no"] == so_no
 
@@ -1427,7 +1428,7 @@ def test_process_tracking_keeps_overlapping_production_and_sales_refs_distinct(c
     assert client_po_id in rows
     assert rows[branded_id]["production_no"] == branded_ref
     assert rows[branded_id]["sales_order_no"] is None
-    assert rows[client_po_id]["production_no"] == sales_ref
+    assert rows[client_po_id]["production_no"] == client_po.json()["production_no"]
     assert rows[client_po_id]["sales_order_no"] == sales_ref
 
     exported = client.get("/api/process-tracking/export", headers=auth_headers)
