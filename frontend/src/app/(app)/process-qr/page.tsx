@@ -805,12 +805,19 @@ export default function ProcessQrPage() {
     selectedModelId ? `/api/models/${selectedModelId}` : null,
     fetcher,
   );
+  const needsFamilySizes = sourceMode === "manual" && selectedModel?.id === selectedModelId
+    && !(selectedModel.sizes || []).some(row => String(row.size || "").trim());
+  const { data: familySizes, error: familySizesError, mutate: mutateFamilySizes } = useSWR<{
+    model_id: number; sizes: string[]; resolution: "own" | "inherited" | "missing" | "conflict";
+  }>(needsFamilySizes ? `/api/models/${selectedModelId}/process-qr-sizes` : null, fetcher);
+  const resolvedFamilySizes = needsFamilySizes && familySizes?.model_id === selectedModelId ? familySizes : undefined;
   const manualProcess = useMemo<Process | undefined>(() => {
-    if (!selectedModelId || !selectedModel) return undefined;
+    if (!selectedModelId || selectedModel?.id !== selectedModelId) return undefined;
     const kroyNo = manualKroyNo.trim();
-    const sizes = (selectedModel.sizes || [])
+    const ownSizes = (selectedModel.sizes || [])
       .map((row) => String(row.size || "").trim())
-      .filter(Boolean)
+      .filter(Boolean);
+    const sizes = (ownSizes.length ? ownSizes : resolvedFamilySizes?.sizes || [])
       .map((size) => ({ size, planned_quantity: 0, completed_quantity: 0 }));
     return {
       production_order_id: 0,
@@ -834,7 +841,7 @@ export default function ProcessQrPage() {
       is_manual: true,
       manual_kroy_no: kroyNo,
     };
-  }, [manualKroyNo, selectedModel, selectedModelId]);
+  }, [manualKroyNo, selectedModel, selectedModelId, resolvedFamilySizes]);
   const selectedProcess = sourceMode === "manual" ? manualProcess : selectedTrackedProcess;
   const issuedLabelsUrl = selectedProcess?.is_manual
     ? selectedProcess.production_no
@@ -966,7 +973,7 @@ export default function ProcessQrPage() {
 
   useEffect(() => {
     const sourceKey = selectedProcess?.is_manual
-      ? `manual:${selectedProcess.model_id || 0}`
+      ? `manual:${selectedProcess.model_id || 0}:${JSON.stringify(sizeOptions.map(row => row.size))}`
       : selectedProcess
         ? `erp:${selectedProcess.production_order_id}:${batchMode}:${selectedBatchKey}`
         : "";
@@ -1578,7 +1585,7 @@ export default function ProcessQrPage() {
           subtitle={t("page.processQr.subtitle")}
           actions={(
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn" onClick={() => { mutate(); mutateEmployees(); mutateManualModels(); mutateSelectedModel(); }} title={t("page.processQr.refreshData")}>
+              <button type="button" className="btn" onClick={() => { mutate(); mutateEmployees(); mutateManualModels(); mutateSelectedModel(); mutateFamilySizes(); }} title={t("page.processQr.refreshData")}>
                 <RefreshCw />
                 <span>{t("page.processQr.refresh")}</span>
               </button>
@@ -1900,9 +1907,16 @@ export default function ProcessQrPage() {
               </div>
             )}
 
-            {selectedProcess?.is_manual && sizeOptions.length === 0 && (
+            {needsFamilySizes && !resolvedFamilySizes && !familySizesError && <p role="status">{t("common.loading")}</p>}
+            {needsFamilySizes && familySizesError && (
+              <p role="alert" className="text-sm text-red-700">{t("page.processQr.sizesLoadFailed")}</p>
+            )}
+            {resolvedFamilySizes?.resolution === "inherited" && (
+              <p className="mb-3 text-sm text-[#8a8472]">{t("page.processQr.inheritedModelSizes")}</p>
+            )}
+            {selectedProcess?.is_manual && sizeOptions.length === 0 && resolvedFamilySizes && !familySizesError && (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                {t("page.processQr.manualModelHasNoSizes")}
+                {t(resolvedFamilySizes.resolution === "conflict" ? "page.processQr.conflictingModelSizes" : "page.processQr.manualModelHasNoSizes")}
               </div>
             )}
 
