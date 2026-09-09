@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
 import base64
+import hashlib
 from functools import lru_cache
 from html import escape
 from pathlib import Path
@@ -116,12 +117,36 @@ def _unicode_label_font_css() -> str:
     return ""
 
 
-def _bundle_label_head(title: str, page_css: str) -> str:
+def _bundle_label_head(title: str, label_css: str) -> str:
     return (
         "<head><meta charset='utf-8'>"
-        f"<title>{title}</title><style>{_unicode_label_font_css()}"
-        f"{page_css}</style></head>"
+        f"<title>{title}</title><style>{label_css}</style></head>"
     )
+
+
+_LABEL_PRINT_SCRIPT = 'document.getElementById("print-labels").addEventListener("click", function () { window.print(); });'
+
+
+def _bundle_label_response(title: str, page_css: str, body: str) -> HTMLResponse:
+    label_css = _unicode_label_font_css() + page_css
+
+    def csp_hash(content: str) -> str:
+        digest = base64.b64encode(hashlib.sha256(content.encode("utf-8")).digest()).decode("ascii")
+        return f"'sha256-{digest}'"
+
+    policy = (
+        "default-src 'self'; "
+        f"style-src {csp_hash(label_css)}; style-src-attr 'none'; "
+        f"script-src {csp_hash(_LABEL_PRINT_SCRIPT)}; script-src-attr 'none'; "
+        "font-src 'self' data:; img-src 'self' data: blob:; "
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    )
+    html = (
+        f"<!doctype html><html>{_bundle_label_head(title, label_css)}<body>{body}"
+        "<button type='button' id='print-labels'>Print</button>"
+        f"<script>{_LABEL_PRINT_SCRIPT}</script></body></html>"
+    )
+    return HTMLResponse(html, headers={"Content-Security-Policy": policy})
 
 
 def _qr_data_uri_for_bundle(db: DbSession, b: Bundle) -> str:
@@ -968,11 +993,7 @@ def bundle_label(bid: int, db: DbSession, _: User = Depends(require_permissions(
     qr = _qr_data_uri_for_bundle(db, b)
     ctx = _label_context(db, b)
     page_css = "@page{margin:8mm} body{font-family:'Milana Label Unicode','DejaVu Sans',Arial,sans-serif;margin:0;padding:8mm} .label{box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;border:1px solid #000;padding:5mm;width:88mm} .row{display:flex;justify-content:space-between;gap:4mm;font-size:8.5pt;line-height:1.22} .row span{text-align:right;overflow-wrap:anywhere} .label-visuals{display:flex;align-items:center;justify-content:center;gap:4mm;margin-top:2.5mm} .qr img,.material-picture img{display:block;width:25mm;height:25mm;object-fit:contain} .material-picture{box-sizing:border-box;width:27mm;height:27mm;border:1px solid #ddd;padding:1mm;display:flex;align-items:center;justify-content:center} h2{margin:0 0 2mm 0;font-size:12pt;letter-spacing:0}@media print{body{margin:0;padding:0} button{display:none}}"
-    return f"""<!doctype html>
-<html>{_bundle_label_head(f"Bundle Label {ctx['bundle_no']}", page_css)}
-<body>{_bundle_label_card(ctx, qr)}
-<button onclick=\"window.print()\">Print</button>
-</body></html>"""
+    return _bundle_label_response(f"Bundle Label {ctx['bundle_no']}", page_css, _bundle_label_card(ctx, qr))
 
 
 @router.get("/label-sheet/by-ids", response_class=HTMLResponse)
@@ -1011,14 +1032,10 @@ html,body{font-family:'Milana Label Unicode','DejaVu Sans',Arial,sans-serif;marg
 .qr img,.material-picture img{display:block;width:23mm;height:23mm;object-fit:contain}
 .material-picture{box-sizing:border-box;width:25mm;height:25mm;border:1px solid #ddd;padding:1mm;display:flex;align-items:center;justify-content:center}
 h2{margin:0 0 1.5mm 0;font-size:11pt;letter-spacing:0}
+#print-labels{margin-top:6mm}
 @media print{button{display:none} .label{break-inside:avoid;page-break-inside:avoid}}
 """
-    return f"""<!doctype html>
-<html>{_bundle_label_head("Bundle Label Sheet", page_css)}
-<body>
-<div class='sheet'>{''.join(cards)}</div>
-<button onclick="window.print()" style="margin-top:6mm">Print</button>
-</body></html>"""
+    return _bundle_label_response("Bundle Label Sheet", page_css, f"<div class='sheet'>{''.join(cards)}</div>")
 
 
 @router.get("/label-sheet/by-production-order/{production_order_id}", response_class=HTMLResponse)
