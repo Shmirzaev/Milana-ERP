@@ -41,6 +41,7 @@ const ROUTE_GUARDS: RouteGuard[] = [
   { prefix: "/purchasing/receiving", perms: ["purchasing.receive", "*"] },
   { prefix: "/purchasing", perms: ["purchasing.view", "purchasing.request", "purchasing.approve", "purchasing.order", "*"] },
   { prefix: "/inventory/master-data", perms: ["storage.items", "storage.suppliers", "*"] },
+  { prefix: "/inventory/cutting-fabric-usage", perms: ["storage.items", "storage.receive", "cutting.records", "planning.production", "*"] },
   { prefix: "/inventory/receive", perms: ["storage.receive", "*"] },
   { prefix: "/inventory/batches", perms: ["storage.items", "*"] },
   { prefix: "/inventory/accessory-pricing", audience: "accessoryPricing" },

@@ -18,7 +18,7 @@ import { oldErpModelInfoFromDetails } from "@/lib/oldErpModelInfo";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { prepareModelImageUpload } from "@/lib/imageUpload";
 import { MATERIAL_COLOR_OPTIONS } from "@/lib/materialColors";
-import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
+import { GARMENT_SIZE_OPTIONS, garmentSizeRange, garmentSizeRangeEndOptions } from "@/lib/garmentSizes";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import VerticalModelPhoto from "@/components/VerticalModelPhoto";
 import PaidOperationsEditor from "@/components/PaidOperationsEditor";
@@ -891,14 +891,12 @@ export default function ModelDetail() {
       setTab(1);
       return;
     }
-    const startIdx = MODEL_SIZE_OPTIONS.indexOf(modelSizeFrom);
-    const endIdx = MODEL_SIZE_OPTIONS.indexOf(modelSizeTo);
-    if (startIdx < 0 || endIdx < 0 || startIdx > endIdx) {
+    const selectedSizes = garmentSizeRange(modelSizeFrom, modelSizeTo);
+    if (!selectedSizes.length) {
       await dialogs.notify(t("newso.invalidSizeRange"));
       return;
     }
 
-    const selectedSizes = MODEL_SIZE_OPTIONS.slice(startIdx, endIdx + 1);
     const existingSizes = new Set(sizeRows.map((row: any) => normalizeSizeToken(row.size)));
     const missingSizes = selectedSizes.filter((value) => !existingSizes.has(normalizeSizeToken(value)));
     const collapsedRange = `${modelSizeFrom}-${modelSizeTo}`;
@@ -1058,14 +1056,18 @@ export default function ModelDetail() {
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-[140px_140px_auto] sm:items-end">
           <div>
             <label className="label">{t("newso.sizeFrom")}</label>
-            <select className="input" value={modelSizeFrom} onChange={(e) => setModelSizeFrom(e.target.value)}>
+            <select className="input" aria-label={t("newso.sizeFrom")} value={modelSizeFrom} onChange={(e) => {
+              const next = e.target.value;
+              setModelSizeFrom(next);
+              if (!garmentSizeRangeEndOptions(next).includes(modelSizeTo)) setModelSizeTo(next);
+            }}>
               {MODEL_SIZE_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </div>
           <div>
             <label className="label">{t("newso.sizeTo")}</label>
-            <select className="input" value={modelSizeTo} onChange={(e) => setModelSizeTo(e.target.value)}>
-              {MODEL_SIZE_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+            <select className="input" aria-label={t("newso.sizeTo")} value={modelSizeTo} onChange={(e) => setModelSizeTo(e.target.value)}>
+              {garmentSizeRangeEndOptions(modelSizeFrom).map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </div>
           <button type="button" className="btn btn-primary" onClick={generateModelSizeRange} disabled={generatingSizeRange}>
