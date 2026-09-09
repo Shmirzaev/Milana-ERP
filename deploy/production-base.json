@@ -1,6 +1,6 @@
 {
-  "release": "20260909_082533",
-  "source_manifest_sha256": "8acc7034c07cb2983f7a41b26b507139b3a7de7ac4f334fba3b591c7a2087f39",
-  "database_revision": "0120_canonical_bundle_references",
-  "git_baseline_commit": "8763f95800f1c234ea50c7838201503ea445ec6d"
+  "release": "20260909_102118",
+  "source_manifest_sha256": "a60ecb6c52aa85895075ab18b8e22e6b5c4c3628a62e74a3a65e5c38b3fcaee1",
+  "database_revision": "0121_stocktake_scan_snapshot",
+  "git_baseline_commit": "2203cc24c5f929bab04e1e5a58b956e6f9ca2a67"
 }
