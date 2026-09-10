@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import BrandedPlanningOrder, Customer, Model, User, SalesOrder, WorkOrder
+from app.models import BrandedPlanningOrder, Customer, Department, Model, User, SalesOrder, WorkOrder
 from app.schemas.production import (
     BrandedPlanningOrderIn,
     MaterialRequirement,
@@ -60,9 +60,11 @@ def _branded_order_payload(
     order: BrandedPlanningOrder,
     model_by_id: dict[int, dict] | None = None,
     cutting_by_id: dict[int, str] | None = None,
+    cutting_details_by_id: dict[int, dict] | None = None,
 ) -> dict:
     model_by_id = model_by_id or {}
     cutting_by_id = cutting_by_id or {}
+    cutting_details_by_id = cutting_details_by_id or {}
     productions = sorted(order.production_orders or [], key=lambda row: int(row.id))
     cutting_states = [cutting_by_id.get(row.id, "not_started") for row in productions]
     return {
@@ -93,6 +95,7 @@ def _branded_order_payload(
                 "planned_quantity": row.planned_quantity,
                 "status": row.status,
                 "cutting_status": cutting_by_id.get(row.id, "not_started"),
+                **cutting_details_by_id.get(row.id, {"cutting_quantity": 0, "cutting_departments": []}),
             }
             for row in productions
         ],
@@ -141,7 +144,8 @@ def list_branded_orders(
     if production_ids:
         cutting_rows = db.query(
             WorkOrder.production_order_id, WorkOrder.status, WorkOrder.actual_output_qty,
-        ).filter(
+            Department.code, Department.name,
+        ).join(Department, Department.id == WorkOrder.department_id).filter(
             WorkOrder.production_order_id.in_(production_ids),
             WorkOrder.operation == "cutting",
             WorkOrder.status.notin_(("cancelled", "rejected")),
@@ -156,7 +160,17 @@ def list_branded_orders(
         )
         for production_id, works in cutting_by_production.items()
     }
-    return [_branded_order_payload(row, model_by_id, cutting_by_id) for row in rows]
+    cutting_details_by_id = {
+        production_id: {
+            "cutting_quantity": sum(int(work.actual_output_qty or 0) for work in works),
+            "cutting_departments": [
+                {"code": code, "name": name}
+                for code, name in sorted({(work.code, work.name) for work in works})
+            ],
+        }
+        for production_id, works in cutting_by_production.items()
+    }
+    return [_branded_order_payload(row, model_by_id, cutting_by_id, cutting_details_by_id) for row in rows]
 
 
 @router.post("/branded-orders", status_code=201)

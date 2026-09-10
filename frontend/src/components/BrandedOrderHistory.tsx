@@ -29,6 +29,8 @@ export type BrandedPlanningOrder = {
     planned_quantity: number;
     status: string;
     cutting_status?: "not_started" | "partial" | "completed";
+    cutting_quantity?: number;
+    cutting_departments?: { code: string; name: string }[];
   }[];
 };
 
@@ -172,7 +174,7 @@ export default function BrandedOrderHistory({
                           const modelLabel = [model?.code, model?.name].filter(Boolean).join(" - ") || "-";
                           const fabricLabel = String(model?.variant_fabric || "").trim() || "-";
                           return (
-                            <tr key={production.id} className={production.cutting_status === "completed" ? "!bg-green-100" : "!bg-white"}>
+                            <tr key={production.id} className={production.cutting_status === "completed" ? "!bg-green-100" : production.cutting_status === "partial" ? "!bg-yellow-100" : "!bg-white"}>
                               <td>
                                 <Link className="mono font-semibold underline" href={`/production-orders/${production.id}`}>
                                   {formatOrderReference(production.order_no || production.production_no)}
@@ -202,7 +204,15 @@ export default function BrandedOrderHistory({
                               </td>
                               <td>{Number(production.planned_quantity || 0).toLocaleString()}</td>
                               <td>
-                                <div>{t(`page.planning.cutting.${production.cutting_status === "completed" ? "completed" : "not_started"}`)}</div>
+                                <div>{t(`page.planning.cutting.${production.cutting_status || "not_started"}`)}</div>
+                                <div className="text-xs text-[#56503f]">
+                                  {t("cuttingInbox.cutProgress")}: {Number(production.cutting_quantity || 0).toLocaleString()} / {Number(production.planned_quantity || 0).toLocaleString()}
+                                </div>
+                                {production.cutting_departments?.map((department) => (
+                                  <div key={department.code} className="text-xs text-[#56503f]">
+                                    {department.code === "CUT" ? t("nav.cuttingFloor") : department.code === "ECT" ? t("nav.ecoCottonCutting") : department.name}
+                                  </div>
+                                ))}
                                 <div className="text-xs text-[#56503f]">{statusLabel(production.status, t)}</div>
                               </td>
                             </tr>
