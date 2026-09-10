@@ -2,6 +2,12 @@
 
 Last updated: 2026-09-10
 
+## Free Size option prepared (2026-09-10)
+
+- Added the exact label `Free Size` to the shared garment-size choices used by Models, Planning, Sales and manual model-size entry. It is a standalone size family, so model size-range entry saves exactly one `Free Size` value. Existing adult/child options and defaults remain. Existing backend string fields already accept this value; no migration, business-data write or permission change is required.
+- Verified baseline: both VMs blue `20260910_091900`, manifest `9d085de0c29de91e612d21f730c05c6f433c217e424a544d0baa5d3fc3c3491e`, application commit `9a552dfecb2ba450a3996a3017552c504678cbf9`; main `5e407a15` differs only in completion records. Worktree `C:/ERP/.codex-work/free-size-20260910`, branch `codex/free-size-20260910`.
+- Updated the existing build contract count from 27 to 28; its existing per-option check verifies standalone range behavior. User requests fast deployment without extra tests/reviews: retain immutable CI/build, verified backup, inactive-slot warm-up and immediate health/runtime checks; omit separate review, browser/performance exercises and extended observation.
+
 ## Compact department queues deployed (2026-09-10)
 
 - LIVE: backend/frontend release `20260910_091900` in blue, exact application commit `9a552dfecb2ba450a3996a3017552c504678cbf9`, merged through PR #109 as `1a14b15c`. Both source manifests, image identities, symlinks and slot states agree. Activation completed 09:29:33/09:29:34 UTC (14:29 Tashkent). Green `20260910_084513` remains running for rollback.
