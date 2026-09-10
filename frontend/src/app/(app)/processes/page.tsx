@@ -11,7 +11,10 @@ import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import { useT } from "@/lib/i18n";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
-import StagePipeline, { operationLabel, statusLabel } from "@/components/StagePipeline";
+import { operationLabel, statusLabel } from "@/components/StagePipeline";
+import ProcessTimeline, { ProcessTimelineLegend } from "@/components/ProcessTimeline";
+import { PROCESS_OPERATIONS, processTimeline } from "@/lib/processTimeline";
+import styles from "./processes.module.css";
 
 type Stage = {
   work_order_id: number;
@@ -19,6 +22,9 @@ type Stage = {
   status: string;
   planned: number;
   completed: number;
+  received_qty: number;
+  output_qty: number;
+  has_open_replacements?: boolean;
   failed: number;
   processed?: number;
   rework: number;
@@ -287,36 +293,39 @@ export default function ProcessTrackingPage() {
         </div>
       </div>
 
-      <div className="card hidden overflow-x-auto xl:block">
-        <table className="table min-w-[1180px]">
+      <ProcessTimelineLegend />
+
+      <div className="hidden overflow-x-auto rounded-md border border-[#e3dfd3] bg-white xl:block">
+        <table className={styles.timelineTable}>
           <thead>
             <tr>
               <th>{t("page.processes.references")}</th>
-              <th>{t("field.customer")}</th>
+              <th>{t("processTimeline.garmentFabric")}</th>
               <th>{t("field.model")}</th>
               <th>{t("field.qty")}</th>
-              <th>{t("page.processes.currentStage")}</th>
+              {PROCESS_OPERATIONS.map(operation => <th key={operation} className={styles.stageHeading}>{operationLabel(operation, t)}</th>)}
               <th>{t("page.processes.assignedFlow")}</th>
               <th>{t("page.processes.deadline")}</th>
-              <th className="sticky right-0 z-10 border-l border-[#e3dfd3] bg-[#f1efe8]">{t("field.actions")}</th>
+              <th>{t("field.actions")}</th>
             </tr>
           </thead>
           <tbody>
             {loadingFirstPage && (
-              <tr><td colSpan={8} className="text-[#8a8472]">{t("common.loading")}</td></tr>
+              <tr><td colSpan={12} className="text-[#8a8472]">{t("common.loading")}</td></tr>
             )}
             {!loadingFirstPage && rows.length === 0 && (
-              <tr><td colSpan={8} className="text-[#8a8472]">{emptyMessage}</td></tr>
+              <tr><td colSpan={12} className="text-[#8a8472]">{emptyMessage}</td></tr>
             )}
             {rows.map((p) => (
               <Fragment key={p.production_order_id}>
                 <tr>
-                  <td className="w-[220px]">
+                  <td className="min-w-[120px]">
                     <ProcessReference process={p} />
+                    {p.customer_name && <div className="mt-2 max-w-[140px] break-words text-xs text-[#65655e]">{p.customer_name}</div>}
                   </td>
-                  <td className="max-w-[180px] truncate" title={p.customer_name || ""}>{p.customer_name || "-"}</td>
-                  <td className="max-w-[320px]">
-                    <ModelCell process={p} />
+                  <td><ModelPictures process={p} /></td>
+                  <td className="min-w-[160px] max-w-[210px]">
+                    <ModelCell process={p} showPictures={false} />
                   </td>
                   <td>
                     {p.planned_quantity}
@@ -324,12 +333,12 @@ export default function ProcessTrackingPage() {
                       <div className="mt-0.5 text-[10px] text-[#8a8472]">{t("batch.count", { count: (p.batches || []).length })}</div>
                     )}
                   </td>
-                  <td className="min-w-[300px]">
-                    <StageSummary process={p} />
+                  <td colSpan={5} className={styles.timelineCell}>
+                    <ProcessTimeline stages={p.stages} showHeadings={false} />
                   </td>
-                  <td className="max-w-[150px] truncate" title={p.current_sewing_flow || ""}>{p.current_sewing_flow || "-"}</td>
-                  <td className={p.po_overdue ? "font-medium text-red-600" : ""}>{formatDate(p.po_deadline)}</td>
-                  <td className="sticky right-0 border-l border-[#ecebe3] bg-[#fdfcf8]">
+                  <td className="min-w-[100px] max-w-[155px] break-words text-xs">{sewingLine(p)}</td>
+                  <td className={`whitespace-nowrap ${p.po_overdue ? "font-medium text-red-600" : ""}`}>{formatDate(p.po_deadline)}</td>
+                  <td>
                     <ProcessActions
                       process={p}
                       expanded={expanded === p.production_order_id}
@@ -339,7 +348,7 @@ export default function ProcessTrackingPage() {
                 </tr>
                 {expanded === p.production_order_id && (
                   <tr>
-                    <td colSpan={8} className="bg-slate-50 p-3">
+                    <td colSpan={12} className="bg-[#fafaf8] p-3">
                       <ExpandedProcess process={p} />
                     </td>
                   </tr>
@@ -365,7 +374,7 @@ export default function ProcessTrackingPage() {
           <article key={p.production_order_id} className="card p-4">
             <div className="flex items-start justify-between gap-3">
               <ProcessReference process={p} />
-              <span className={`badge ${STAGE_COLORS[p.current_stage] || "badge"}`}>{operationLabel(p.current_stage, t)}</span>
+              <span className="text-xs text-[#65655e]">{operationLabel(p.current_stage, t)}</span>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <FieldValue label={t("field.customer")} value={p.customer_name || "-"} />
@@ -377,11 +386,10 @@ export default function ProcessTrackingPage() {
               </div>
               <FieldValue label={t("field.qty")} value={String(p.planned_quantity)} />
               <FieldValue label={t("page.processes.deadline")} value={formatDate(p.po_deadline)} danger={p.po_overdue} />
-              <FieldValue label={t("page.processes.assignedFlow")} value={p.current_sewing_flow || "-"} wide />
-              <FieldValue label={t("common.status")} value={p.current_stage_status ? statusLabel(p.current_stage_status, t) : "-"} wide />
+              <FieldValue label={t("page.processes.assignedFlow")} value={sewingLine(p)} wide />
             </div>
             <div className="mt-3 overflow-x-auto">
-              <StagePipeline currentStage={p.current_stage} stages={p.stages} compact />
+              <ProcessTimeline stages={p.stages} />
             </div>
             {p.is_blocked && p.blocked_by && (
               <div className="mt-2 text-xs text-red-700" title={p.blocked_by.reason ?? ""}>
@@ -461,24 +469,8 @@ function ProcessReference({ process }: { process: Process }) {
   );
 }
 
-function StageSummary({ process }: { process: Process }) {
-  const { t } = useT();
-  return (
-    <div>
-      <StagePipeline currentStage={process.current_stage} stages={process.stages} compact={false} />
-      <div className="mt-1">
-        <span className={`badge ${STAGE_COLORS[process.current_stage] || "badge"}`}>{operationLabel(process.current_stage, t)}</span>
-      </div>
-      {process.current_stage_status && (
-        <div className="mt-1 text-xs text-[#8a8472]">{statusLabel(process.current_stage_status, t)}</div>
-      )}
-      {process.is_blocked && process.blocked_by && (
-        <div className="mt-1 text-xs text-red-700" title={process.blocked_by.reason ?? ""}>
-          {t("page.processes.blockedOn", { operation: operationLabel(process.blocked_by.operation, t) })}
-        </div>
-      )}
-    </div>
-  );
+function sewingLine(process: Process) {
+  return process.stages.find(stage => stage.operation === "sewing")?.sewing_flow_code || process.current_sewing_flow || "-";
 }
 
 function ProcessActions({ process, expanded, onToggle }: { process: Process; expanded: boolean; onToggle: () => void }) {
@@ -525,7 +517,17 @@ function PictureThumb({ imageUrl, alt, placeholder = false }: { imageUrl?: strin
   );
 }
 
-function ModelCell({ process }: { process: Process }) {
+function ModelPictures({ process }: { process: Process }) {
+  const { t } = useT();
+  return (
+    <div className="flex shrink-0 gap-2">
+      <PictureThumb imageUrl={process.model_image_url} alt={`${t("field.model")}: ${process.model_code || ""}`} placeholder />
+      <PictureThumb imageUrl={process.material_image_url} alt={t("page.cuttingPassports.field.fabric")} placeholder />
+    </div>
+  );
+}
+
+function ModelCell({ process, showPictures = true }: { process: Process; showPictures?: boolean }) {
   const { t } = useT();
   const modelAlt = process.model_name || process.model_code || "Model";
   const fabricAlt = process.model_code ? `${process.model_code} fabric` : "Fabric";
@@ -551,10 +553,10 @@ function ModelCell({ process }: { process: Process }) {
   const sewingFactories = (process.sewing_factories || []).map(localizedFactoryName).join(", ") || "-";
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <div className="flex shrink-0 gap-1.5">
+      {showPictures && <div className="flex shrink-0 gap-1.5">
         <PictureThumb imageUrl={process.model_image_url} alt={modelAlt} placeholder />
         {showMaterial && <PictureThumb imageUrl={process.material_image_url} alt={fabricAlt} />}
-      </div>
+      </div>}
       <div className="min-w-0">
         <div className="break-words text-sm font-medium">{process.model_code || "-"}</div>
         <div className="break-words text-xs text-[#8a8472]">{process.model_name || "-"}</div>
@@ -605,14 +607,13 @@ function ExpandedProcess({ process }: { process: Process }) {
                     <span className={`badge ${STAGE_COLORS[batch.current_stage] || "badge"}`}>
                       {operationLabel(batch.current_stage, t)}
                     </span>
-                    {batch.current_stage_status && <span>{statusLabel(batch.current_stage_status, t)}</span>}
                     <span>{batch.deadline ? new Date(batch.deadline).toLocaleDateString() : t("page.processes.noDeadline")}</span>
                   </div>
                 </div>
               </summary>
               <div className="border-t border-slate-200 p-3">
                 <div className="overflow-x-auto">
-                  <StagePipeline currentStage={batch.current_stage} stages={batch.stages} compact={false} />
+                  <ProcessTimeline stages={batch.stages} />
                 </div>
                 <div className="mt-2">
                   <StageRowsTable stages={batch.stages} />
@@ -649,7 +650,7 @@ function StageRowsTable({ stages }: { stages: Stage[] }) {
               <td>
                 <span className={`badge ${STAGE_COLORS[s.operation] || "badge"}`}>{operationLabel(s.operation, t)}</span>
               </td>
-              <td>{statusLabel(s.status, t)}</td>
+              <td>{t(`processTimeline.state.${processTimeline(stages).find(item => item.operation === s.operation)?.state || "notStarted"}`)}</td>
               <td>
                 <div className="h-2 w-32 overflow-hidden rounded bg-slate-200">
                   <div
