@@ -4,6 +4,7 @@ import type { Lang } from "./types";
 // legacy dictionary easier to audit without rewriting that large file.
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
+    "page.cutting.printAndComplete": "Print sheet and finish Cutting",
     "cuttingUsage.title": "Cutting fabric usage",
     "cuttingUsage.description": "Actual warehouse fabric consumed by Cutting. Planned allocations and customer-supplied fabrics without stock movements are excluded.",
     "cuttingUsage.search": "Search",
@@ -986,6 +987,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "attendance.resultCount": "{count} profiles",
   },
   ru: {
+    "page.cutting.printAndComplete": "Печать листа и завершение раскроя",
     "cuttingUsage.title": "Расход ткани на раскрой",
     "cuttingUsage.description": "Фактический расход складской ткани на раскрой. Плановые резервы и давальческие ткани без складских движений не включены.",
     "cuttingUsage.search": "Поиск",
@@ -2082,6 +2084,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "attendance.resultCount": "\u041f\u0440\u043e\u0444\u0438\u043b\u0435\u0439: {count}",
   },
   uz: {
+    "page.cutting.printAndComplete": "Varaqni chop etish va bichishni yakunlash",
     "cuttingUsage.title": "Bichuvda ishlatilgan matolar",
     "cuttingUsage.description": "Bichuvda ombordan amalda sarflangan matolar. Rejadagi ajratmalar va ombor harakatisiz buyurtmachi matolari kiritilmagan.",
     "cuttingUsage.search": "Qidirish",

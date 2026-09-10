@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.cutting.printAndComplete": "Print sheet and finish Cutting",
     "cuttingUsage.title": "Cutting fabric usage",
     "cuttingUsage.description": "Actual warehouse fabric consumed by Cutting. Planned allocations and customer-supplied fabrics without stock movements are excluded.",
     "cuttingUsage.search": "Search",

@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.cutting.printAndComplete": "Varaqni chop etish va bichishni yakunlash",
     "cuttingUsage.title": "Bichuvda ishlatilgan matolar",
     "cuttingUsage.description": "Bichuvda ombordan amalda sarflangan matolar. Rejadagi ajratmalar va ombor harakatisiz buyurtmachi matolari kiritilmagan.",
     "cuttingUsage.search": "Qidirish",

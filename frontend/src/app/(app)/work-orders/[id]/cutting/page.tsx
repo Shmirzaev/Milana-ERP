@@ -353,6 +353,9 @@ export default function CuttingPage() {
   const isEcoCottonCutting = departments.some(
     (department) => Number(department.id) === Number(wo?.department_id) && String(department.code).toUpperCase() === "ECT",
   );
+  const isMilanaCutting = !isUsluga && departments.some(
+    (department) => Number(department.id) === Number(wo?.department_id) && String(department.code).toUpperCase() === "CUT",
+  );
   const plannedSewingFactory = sewingFactoryFromCode(
     po?.sewing_factory_code,
     isEcoCottonCutting ? "eco_cotton" : "milana",
@@ -460,6 +463,7 @@ export default function CuttingPage() {
   const passportAutofillDirtyFields = useRef<Set<PassportAutofillField>>(new Set());
   const [shortageBusy, setShortageBusy] = useState(false);
   const [shortageErr, setShortageErr] = useState("");
+  const [printingSheet, setPrintingSheet] = useState(false);
   const [uslugaBatchBusy, setUslugaBatchBusy] = useState(0);
   const [uslugaRejectingId, setUslugaRejectingId] = useState(0);
   const [uslugaRejectReason, setUslugaRejectReason] = useState("");
@@ -2678,13 +2682,22 @@ export default function CuttingPage() {
                     <button
                       type="button"
                       className="btn"
-                      disabled={!printableCuttingRecordId}
-                      onClick={() => {
-                        const query = printableBundleIds ? `?bundle_ids=${encodeURIComponent(printableBundleIds)}` : "";
-                        api.openLabel(`/api/cutting/records/${printableCuttingRecordId}/production-sheet${query}`);
+                      disabled={!printableCuttingRecordId || printingSheet || !wo || departments.length === 0}
+                      onClick={async () => {
+                        setPrintingSheet(true);
+                        setShortageErr("");
+                        try {
+                          const query = printableBundleIds ? `?bundle_ids=${encodeURIComponent(printableBundleIds)}` : "";
+                          await api.openLabel(`/api/cutting/records/${printableCuttingRecordId}/production-sheet${query}`, isMilanaCutting && canEditBreakdown ? "POST" : "GET");
+                          await Promise.all([mutateWo(), mutatePo(), mutateBatchProgress()]);
+                        } catch (error: any) {
+                          setShortageErr(error.message || t("page.cutting.shortageFailed"));
+                        } finally {
+                          setPrintingSheet(false);
+                        }
                       }}
                     >
-                      {t("page.cutting.printProductionSheet")}
+                      {t(isMilanaCutting && canEditBreakdown && wo?.status !== "completed" ? "page.cutting.printAndComplete" : "page.cutting.printProductionSheet")}
                     </button>
                     <button
                       type="button"

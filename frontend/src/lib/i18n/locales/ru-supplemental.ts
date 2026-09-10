@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.cutting.printAndComplete": "Печать листа и завершение раскроя",
     "cuttingUsage.title": "Расход ткани на раскрой",
     "cuttingUsage.description": "Фактический расход складской ткани на раскрой. Плановые резервы и давальческие ткани без складских движений не включены.",
     "cuttingUsage.search": "Поиск",

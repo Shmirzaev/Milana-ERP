@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-10
 
+## Milana Cutting print completion and order routing correction prepared (2026-09-10)
+
+- User clarified PO-0148 and PO-0152 must be in Milana Cutting (CUT) with Besttex Sewing (BST), and Milana Cutting finishes when its final cutting sheet is printed even below plan. This supersedes the prior interpretation of their ECT assignment and of partial Milana cuts.
+- The Milana Print sheet and finish Cutting action uses an authenticated, factory-scoped POST to issue HTML and invoke the existing shortage-completion logic. It preserves original plan and real cut/bundle quantities, records accepted shortage, respects open replacement work, and allows downstream completion against usable output. GET viewing and completed-order reprints remain read-only; ECT/Usluga keeps its existing workflow. Completion means sheet issuance, because browsers cannot verify physical printer output.
+- Cutting record submission and final-sheet issuance serialize on the work-order lock. Cancellation, wrong factory, no usable output, malformed sheet requests and unauthorized calls do not close Cutting. Existing print/label callers keep GET by default. UI label supports EN/RU/UZ and refreshes work-order/production/batch data after printing.
+- Requested production correction will move only Cutting work orders 658/674 for PO-0148/PO-0152 from ECT to CUT, retaining their existing BST Sewing assignments. The three existing Milana short-count cuts in the supplied screenshots (PO-0150/0153/0154, work orders 666/678/682) will be completed at their recorded 498/588/366 pieces through the same existing shortage-completion operation after backup. No stock, bundles or physical output will be invented.
+- Dedicated worktree `C:/ERP/.codex-work/milana-cutting-close-20260910`, branch `codex/milana-cutting-close-20260910`, based on verified main `d48b830c` and active release `20260910_053604`, manifest `fae920f01b850b22ebcd791716f9dae0123ed60a1215259bfb97acaee144fcfa`. Focused completion/retry/read-only print tests, Ruff, strict TypeScript and scoped ESLint passed. Fast deployment authorization and omission of extra monitoring continue from this conversation; immutable CI, backup, candidate checks and immediate health/runtime checks remain.
+
 ## Branded Stock cutting status and department visibility deployed (2026-09-10)
 
 - LIVE: backend/frontend release `20260910_053604` in blue from exact reviewed commit `69eeb0c2daa24ef0a143db65f2bc0dc5855abde1`, merged through PR #96 as `bf3e9590`. Both current symlinks, slot states, source manifests and image identities agree. Green `20260910_052142` remains running for rollback; that other task's per-material Cutting changes are preserved. Activation completed at 05:46:42 UTC (10:46 Tashkent).
