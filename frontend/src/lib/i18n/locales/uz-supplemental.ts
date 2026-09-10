@@ -1,5 +1,8 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "cuttingBatch.change": "Partiyani almashtirish",
+    "cuttingBatch.select": "To‘g‘ri mato partiyasi",
+    "cuttingBatch.help": "Saqlash buyurtma, ishlatilmagan bandlar va bog‘langan bichish pasportlarini yangilaydi. Reja miqdori o‘zgarmaydi.",
     "passportMaterial.add": "Mato qo‘shish",
     "passportMaterial.help": "Rejalashtirishda qo‘shilmagan matoni kiriting. Pasport saqlanganda mato buyurtmaga qo‘shiladi va miqdori bichish uchun band qilinadi.",
     "passportMaterial.search": "Mato nomi yoki partiya raqamini qidirish",

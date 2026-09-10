@@ -1,6 +1,75 @@
 from uuid import uuid4
 
 
+def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch, WorkOrder
+    from app.tests.test_sewing_workspace_permissions import _create_user_headers
+
+    cutting_headers = _create_user_headers(client, auth_headers, role="Cutting", department="CUT")
+    sewing_headers = _create_user_headers(client, auth_headers, role="Sewing", department="SEW")
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    batches = [_receive_batch(client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=qty, unit="kg") for qty in (20, 20, 20, 1)]
+    original, secondary, replacement, insufficient = [batch["id"] for batch in batches]
+    response = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 20,
+        "materials": [{"stock_batch_id": batch_id, "estimated_quantity": 5, "unit": "kg"} for batch_id in (original, secondary)],
+        "items": [{"model_id": 1, "color": "white", "size": "46", "planned_quantity": 20}],
+    })
+    assert response.status_code == 201, response.text
+    order_id = response.json()["id"]
+    wo = _cutting_work_order(client, auth_headers, order_id)
+    _create_material_reservation(client, auth_headers, production_order_id=order_id, item_id=item["id"], stock_batch_id=original, warehouse_id=warehouse["id"], quantity=5)
+    passport = client.post("/api/cutting-passports", headers=cutting_headers, json={
+        "passport_no": f"CORRECT-{uuid4().hex[:8]}", "date": "2026-09-10T00:00:00Z", "production_order_id": order_id,
+        "materials": [{"stock_batch_id": batch_id, "planned_kg": 5, "layer_weight_kg": 2, "pieces": 10} for batch_id in (original, secondary)],
+    })
+    assert passport.status_code == 201, passport.text
+    url = f"/api/work-orders/{wo['id']}/cutting-materials/{original}"
+    assert client.patch(url, headers=sewing_headers, json={"stock_batch_id": replacement}).status_code == 403
+    assert client.patch(url, headers=cutting_headers, json={"stock_batch_id": secondary}).status_code == 409
+    assert client.patch(url, headers=cutting_headers, json={"stock_batch_id": insufficient}).status_code == 409
+    with SessionLocal() as db:
+        assert db.get(ProductionOrder, order_id).fabric_batch_id == original
+        assert sum(float(r.released_quantity) for r in db.query(MaterialReservation).filter_by(production_order_id=order_id, stock_batch_id=original)) == 0
+    corrected = client.patch(url, headers=cutting_headers, json={"stock_batch_id": replacement})
+    assert corrected.status_code == 200, corrected.text
+    # A stale second click cannot move the reservation twice.
+    assert client.patch(url, headers=cutting_headers, json={"stock_batch_id": replacement}).status_code == 409
+    with SessionLocal() as db:
+        assert db.get(ProductionOrder, order_id).fabric_batch_id == replacement
+        assert {r.stock_batch_id for r in db.query(ProductionOrderMaterial).filter_by(production_order_id=order_id)} == {replacement, secondary}
+        assert all(r.status == "released" for r in db.query(MaterialReservation).filter_by(production_order_id=order_id, stock_batch_id=original))
+        reservations = db.query(MaterialReservation).filter_by(production_order_id=order_id, stock_batch_id=replacement).all()
+        assert len(reservations) == 1 and float(reservations[0].reserved_quantity) == 5
+        assert float(db.get(StockBatch, original).quantity) == 20
+        assert float(db.get(StockBatch, replacement).quantity) == 20
+    passports = client.get(f"/api/cutting-passports?production_order_id={order_id}", headers=cutting_headers).json()
+    saved = next(p for p in passports if p["id"] == passport.json()["id"])
+    assert saved["materials"][0]["stock_batch_id"] == replacement
+    assert saved["materials"][0]["layer_weight_kg"] == 2
+    assert saved["lot_no"] == batches[2]["batch_no"]
+    defaults = client.get(f"/api/cutting-passports/material-defaults?production_order_id={order_id}", headers=cutting_headers).json()
+    assert [r["stock_batch_id"] for r in defaults["materials"]] == [replacement, secondary]
+    cut_payload = {
+        "work_order_id": wo["id"], "input_quantity": 5, "cut_pieces": 10, "passed_pieces": 10,
+        "materials": [{"stock_batch_id": batch_id, "quantity": 5, "unit": "kg"} for batch_id in (replacement, secondary)],
+        "bundles": [{"color": "white", "size": "46", "quantity": 10, "count": 1, "next": "sewing", "sewing_factory": "milana"}],
+    }
+    cut = client.post("/api/cutting/records", headers=cutting_headers, json=cut_payload)
+    assert cut.status_code == 201, cut.text
+    assert len(cut.json()["bundles"]) == 1
+    with SessionLocal() as db:
+        assert float(db.get(StockBatch, replacement).quantity) == 15
+        assert float(db.get(StockBatch, original).quantity) == 20
+        db.get(WorkOrder, wo["id"]).status = "in_progress"
+        db.commit()
+    used_url = f"/api/work-orders/{wo['id']}/cutting-materials/{replacement}"
+    rejected = client.patch(used_url, headers=cutting_headers, json={"stock_batch_id": original})
+    assert rejected.status_code == 409 and "already been used" in rejected.text
+
+
 def test_cutting_passport_adds_missing_material_atomically(client, auth_headers):
     from app.db.session import SessionLocal
     from app.models import MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch, WorkOrder

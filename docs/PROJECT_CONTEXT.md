@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-10
 
+## Cutting material batch correction prepared (2026-09-10)
+
+- Cutting material rows now offer Change batch / Изменить партию / Partiyani almashtirish. Users select an active fabric batch in the same unit and save the correction. Planned quantities and entered material details are retained; the order assignment, primary fabric reference and linked passport batch/name are updated in one audited transaction. Unused old reservations are released and only the missing replacement reservation is created. Actual stock is consumed later by the normal Cutting submission.
+- Already-used Cutting materials or consumed reservations cannot be relabelled. Duplicate target rows, stale saves, insufficient available stock, archived/empty batches, different units, non-Cutting or unauthorized/factory-mismatched requests, closed orders and Usluga are rejected. No inventory batch master number is renamed and historical stock ledgers are preserved.
+- Worktree `C:/ERP/.codex-work/cutting-change-batch-20260910`, branch `codex/cutting-change-batch-20260910`, starts at verified main `1e708cf0`. Both production manifests and slot states match green `20260910_054836`, manifest `659e8d58c3587f837a2cad139c7a422ca5b818076533167e91a0968eb1b20be2`, schema `0122_cutting_material_details`. No schema migration or deployment-time business-data change is needed. Legacy checkout is preserved.
+- Focused correction/reservation/passport/actual-consumption handoff and previous passport-addition regressions passed (2); changed Python Ruff passed. The user's fast-deploy/no-extra-test-or-review instruction continues: immutable CI/build, backup, source reconciliation, inactive-slot warmup and immediate runtime/four-health checks remain; extra review, browser QA, performance exercise and extended observation are omitted, not claimed passed.
+
 ## Cutting Passport add-material option deployed (2026-09-10)
 
 - LIVE: backend/frontend release `20260910_054836` in green, exact application commit `02ff8d0ded2b45225ca24521571619e0f9542c22`, merged by PR #98 as `5f1d4aeb`. Both symlinks, slot states, manifests and image identities agree. Blue `20260910_053604` remains running for rollback. Activation completed 05:59:04/05:59:05 UTC (10:59 Tashkent).
