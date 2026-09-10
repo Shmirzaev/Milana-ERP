@@ -1,5 +1,13 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "productionSizes.edit": "O‘lchamlarni tahrirlash",
+    "productionSizes.rowLabel": "{row}-qator o‘lchami, {color}",
+    "productionSizes.required": "Har bir qator uchun o‘lcham kiriting.",
+    "productionSizes.duplicate": "Har bir rang va o‘lcham birikmasi takrorlanmasligi kerak.",
+    "productionSizes.locked": "Bichish boshlanganidan yoki yorliqlar chiqarilganidan keyin o‘lchamlar bloklanadi.",
+    "productionSizes.stale": "O‘lchamlar rejasi o‘zgargan. Tahrirlashni bekor qiling, buyurtmani yangilang va qayta urinib ko‘ring.",
+    "productionSizes.failed": "O‘lchamlarni saqlab bo‘lmadi. Qayta urinib ko‘ring.",
+    "productionSizes.saved": "O‘lchamlar saqlandi.",
     "page.deptInbox.orders": "Buyurtmalar ({count})",
     "page.deptInbox.noOrders": "Buyurtmalar yo'q",
     "page.deptInbox.state.pending": "Kutilmoqda",

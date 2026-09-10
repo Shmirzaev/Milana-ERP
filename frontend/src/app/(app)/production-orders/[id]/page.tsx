@@ -6,6 +6,7 @@ import Link from "next/link";
 import { PackageCheck, RotateCcw } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
+import ProductionOrderSizePlan from "@/components/ProductionOrderSizePlan";
 import { formatBatchLabel } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
@@ -453,18 +454,19 @@ export default function ProductionOrderDetail() {
       {repairMsg && <div className="mb-3 text-sm text-slate-600">{repairMsg}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div className="card overflow-x-auto p-4">
-          <h3 className="font-medium mb-2">{t("page.poDetail.plan")}</h3>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>{t("field.color")}</th><th>{t("field.size")}</th>
-                <th>{t("page.poDetail.planned")}</th><th>{t("page.poDetail.completed")}</th>
-              </tr>
-            </thead>
-            <tbody>{po.items?.map((i: any) => <tr key={i.id}><td>{i.color}</td><td>{i.size}</td><td>{i.planned_quantity}</td><td>{i.completed_quantity}</td></tr>)}</tbody>
-          </table>
-        </div>
+        <ProductionOrderSizePlan
+          key={id}
+          items={po.items || []}
+          canEdit={canEditSummary && po.source_type !== "usluga"
+            && PRE_CUTTING_EDIT_STATUSES.has(String(po.status || ""))
+            && workOrders.filter((wo) => wo.operation === "cutting").every((wo) => PRE_CUTTING_EDIT_STATUSES.has(wo.status))
+            && !Number(po.actual_cut_quantity || 0) && !Number(po.actual_bundle_count || 0)
+            && !(po.items || []).some((item: { completed_quantity: number }) => item.completed_quantity > 0)}
+          onSave={async (items) => {
+            const updated = await api.patch(`/api/production-orders/${id}/sizes`, { items });
+            await mutate(updated, { revalidate: false });
+          }}
+        />
         <div className="card p-4">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
