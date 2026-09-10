@@ -1,5 +1,8 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "cuttingBatch.change": "Изменить партию",
+    "cuttingBatch.select": "Правильная партия материала",
+    "cuttingBatch.help": "Сохранение обновит заказ, неиспользованные резервы и связанные паспорта раскроя. Плановое количество не изменится.",
     "page.cutting.printAndComplete": "Печать листа и завершение раскроя",
     "passportMaterial.add": "Добавить материал",
     "passportMaterial.help": "Добавьте ткань, пропущенную при планировании. При сохранении паспорта она добавится в заказ, а количество зарезервируется для раскроя.",

@@ -1,5 +1,8 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "cuttingBatch.change": "Change batch",
+    "cuttingBatch.select": "Correct material batch",
+    "cuttingBatch.help": "Saving updates the order, unused reservations and linked cutting passports. The planned amount stays the same.",
     "page.cutting.printAndComplete": "Print sheet and finish Cutting",
     "passportMaterial.add": "Add material",
     "passportMaterial.help": "Add a fabric missed in Planning. Saving this passport assigns it to the order and reserves the quantity for Cutting.",

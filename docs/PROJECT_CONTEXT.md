@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-10
 
+## Cutting material batch correction prepared (2026-09-10)
+
+- Cutting material rows now offer Change batch / Изменить партию / Partiyani almashtirish. Users select an active fabric batch in the same unit and save the correction. Planned quantities and entered material details are retained; the order assignment, primary fabric reference and linked passport batch/name are updated in one audited transaction. Unused old reservations are released and only the missing replacement reservation is created. Actual stock is consumed later by the normal Cutting submission.
+- Already-used Cutting materials or consumed reservations cannot be relabelled. Duplicate target rows, stale saves, insufficient available stock, archived/empty batches, different units, non-Cutting or unauthorized/factory-mismatched requests, closed orders and Usluga are rejected. No inventory batch master number is renamed and historical stock ledgers are preserved.
+- Worktree `C:/ERP/.codex-work/cutting-change-batch-20260910`, branch `codex/cutting-change-batch-20260910`, starts at verified main `1e708cf0`. Both production manifests and slot states match green `20260910_054836`, manifest `659e8d58c3587f837a2cad139c7a422ca5b818076533167e91a0968eb1b20be2`, schema `0122_cutting_material_details`. No schema migration or deployment-time business-data change is needed. Legacy checkout is preserved.
+- Focused correction/reservation/passport/actual-consumption handoff and previous passport-addition regressions passed (2); changed Python Ruff passed. The user's fast-deploy/no-extra-test-or-review instruction continues: immutable CI/build, backup, source reconciliation, inactive-slot warmup and immediate runtime/four-health checks remain; extra review, browser QA, performance exercise and extended observation are omitted, not claimed passed.
+- Reconciled concurrent completed release `20260910_060201` / source `403629d3`, blue, manifest `022321139360c3de1b7dc0b1a7fcc82b77f0f1c65acadc534b695b1d78577540`, from fresh main `5ced83ca`; both manifests and slot states verified before release. Superseded candidate `20260910_061251` / run `34444225997` was cancelled without staging. Preserves all completion/routing changes; correction now uses the same production-then-work-order lock. Focused handoff regressions, Ruff, TypeScript and ESLint passed after reconciliation.
+
 ## Milana Cutting routing and final-sheet completion deployed (2026-09-10)
 
 - LIVE: backend/frontend release `20260910_060201` in blue, exact reviewed commit `403629d31e4b2b2eece2981914221a6646a381be`, merged through PR #99 as `84686494`. Both active source manifests, slot states, image identities and symlinks agree; activation completed at 06:13:39 UTC / 11:13 Tashkent. Green `20260910_054836` remains running for rollback. The other task's passport add-material release is included; no task was interrupted, messaged or edited.

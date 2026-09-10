@@ -1,7 +1,8 @@
 "use client";
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
+import CuttingMaterialBatchEditor from "@/components/CuttingMaterialBatchEditor";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
@@ -318,6 +319,9 @@ function autoSplitRows(totalQty: number, maxPerBatch: number): SplitRow[] {
 export default function CuttingPage() {
   const { t } = useT();
   const dialogs = useDialogs();
+  const { mutate: mutateCache } = useSWRConfig();
+  const [editingMaterialBatch, setEditingMaterialBatch] = useState<number | null>(null);
+  const [correctedBatches, setCorrectedBatches] = useState<StockBatchOption[]>([]);
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
   const fabricListboxId = `fabric-batch-options-${id || "new"}`;
@@ -552,8 +556,8 @@ export default function CuttingPage() {
     [po?.materials],
   );
   const plannedMaterialBatchLookup = useMemo(
-    () => new Map(allSearchableFabricBatches.map((batch) => [Number(batch.id), batch])),
-    [allSearchableFabricBatches],
+    () => new Map([...allSearchableFabricBatches, ...correctedBatches].map((batch) => [Number(batch.id), batch])),
+    [allSearchableFabricBatches, correctedBatches],
   );
   const hasPlannedMaterials = plannedMaterials.length > 0;
   const materialPassports = useMemo(() => (Array.isArray(cuttingPassports) ? cuttingPassports : []).flatMap((passport: any) =>
@@ -1117,6 +1121,7 @@ export default function CuttingPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (editingMaterialBatch !== null) return;
     setErr("");
     setDoneMsg("");
     if (isUsluga && !form.model_bom_id) {
@@ -2302,6 +2307,19 @@ export default function CuttingPage() {
                             )}
                           </div>
                         )}
+                        {can(me, "*", "cutting.records") && !isUsluga && !["completed", "cancelled"].includes(String(wo?.status)) && !["completed", "cancelled"].includes(String(po?.status)) && (
+                          <CuttingMaterialBatchEditor workOrderId={id} batchId={material.stock_batch_id}
+                            assignedIds={cuttingMaterials.map((row) => row.stock_batch_id)} unit={material.unit}
+                            disabled={submitting || (editingMaterialBatch !== null && editingMaterialBatch !== material.stock_batch_id)}
+                            onEditing={(editing) => setEditingMaterialBatch(editing ? material.stock_batch_id : null)}
+                            onChanged={async (selected) => {
+                              setCorrectedBatches((rows) => [...rows.filter((row) => row.id !== selected.id), selected]);
+                              setCuttingMaterials((rows) => rows.map((row) => row.stock_batch_id === material.stock_batch_id ? { ...row, stock_batch_id: selected.id } : row));
+                              setEditingMaterialBatch(null);
+                              await mutatePo();
+                              await mutateCache((key) => typeof key === "string" && (key.startsWith("/api/cutting-passports") || key.startsWith("/api/inventory/") || key.startsWith("/api/production-orders")));
+                            }} />
+                        )}
                       </div>
                       <div>
                         <label className="label" htmlFor={`cutting-material-${material.stock_batch_id}`}>
@@ -2623,7 +2641,7 @@ export default function CuttingPage() {
 
         {doneMsg && <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{doneMsg}</div>}
         {err && <div className="text-sm text-red-600">{err}</div>}
-        <button className="btn btn-primary" disabled={submitting}>
+        <button className="btn btn-primary" disabled={submitting || editingMaterialBatch !== null}>
           {submitting
             ? t("common.saving")
             : isSecondaryUslugaFabric

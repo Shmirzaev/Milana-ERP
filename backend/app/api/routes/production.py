@@ -3168,6 +3168,19 @@ def update_usluga_bundle_size_counts(
     return result
 
 
+class CuttingMaterialBatchReplacementIn(BaseModel):
+    stock_batch_id: int = Field(gt=0)
+
+
+@router.patch("/work-orders/{wid}/cutting-materials/{batch_id}")
+def replace_cutting_material(wid: int, batch_id: int, payload: CuttingMaterialBatchReplacementIn,
+                             db: DbSession, current: User = Depends(require_permissions("cutting.records", "*"))):
+    from app.services.cutting_material_assignment import replace_cutting_material_batch
+    result = replace_cutting_material_batch(db, current, wid, batch_id, payload.stock_batch_id)
+    db.commit()
+    return result
+
+
 @router.post("/cutting/records", status_code=201)
 def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depends(require_permissions("cutting.records", "*"))):
     wo = db.get(WorkOrder, payload.work_order_id)
