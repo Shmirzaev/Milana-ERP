@@ -339,7 +339,7 @@ export default function PlanningDashboard() {
   const { data: productionOrders, mutate: mutateProductionOrders } = useSWR<any[]>("/api/production-orders?page_size=100", fetcher);
   const { data: brands, mutate: mutateBrands } = useSWR<Brand[]>("/api/brands", fetcher);
   const { data: fabricBatches } = useSWR<FabricBatch[]>("/api/inventory/batches?group=materials&hide_empty=true&page_size=1000", fetcher);
-  const { data: brandedOrders, mutate: mutateBrandedOrders } = useSWR<BrandedPlanningOrder[]>("/api/planning/branded-orders", fetcher);
+  const { data: brandedOrders, mutate: mutateBrandedOrders } = useSWR<BrandedPlanningOrder[]>("/api/planning/branded-orders", fetcher, { refreshInterval: 10_000 });
   const canViewForecasting = can(me, "forecasting.view");
   const { data: forecastSuggestions } = useSWR<any[]>(
     canViewForecasting ? "/api/forecasting/branded-stock-suggestions" : null,
