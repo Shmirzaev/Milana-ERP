@@ -4,6 +4,7 @@ import type { Lang } from "./types";
 // legacy dictionary easier to audit without rewriting that large file.
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
+    "page.cutting.printAndComplete": "Print sheet and finish Cutting",
     "passportMaterial.add": "Add material",
     "passportMaterial.help": "Add a fabric missed in Planning. Saving this passport assigns it to the order and reserves the quantity for Cutting.",
     "passportMaterial.search": "Search fabric name or batch number",
@@ -995,6 +996,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "attendance.resultCount": "{count} profiles",
   },
   ru: {
+    "page.cutting.printAndComplete": "Печать листа и завершение раскроя",
     "passportMaterial.add": "Добавить материал",
     "passportMaterial.help": "Добавьте ткань, пропущенную при планировании. При сохранении паспорта она добавится в заказ, а количество зарезервируется для раскроя.",
     "passportMaterial.search": "Поиск по ткани или номеру партии",
@@ -2100,6 +2102,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "attendance.resultCount": "\u041f\u0440\u043e\u0444\u0438\u043b\u0435\u0439: {count}",
   },
   uz: {
+    "page.cutting.printAndComplete": "Varaqni chop etish va bichishni yakunlash",
     "passportMaterial.add": "Mato qo‘shish",
     "passportMaterial.help": "Rejalashtirishda qo‘shilmagan matoni kiriting. Pasport saqlanganda mato buyurtmaga qo‘shiladi va miqdori bichish uchun band qilinadi.",
     "passportMaterial.search": "Mato nomi yoki partiya raqamini qidirish",

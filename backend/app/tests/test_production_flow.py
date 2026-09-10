@@ -2182,7 +2182,8 @@ def test_cutting_uses_bundle_total_when_passed_pieces_are_lower(client, auth_hea
     assert int(by_op["sewing"]["planned_output_qty"]) == 600
 
 
-def test_cutting_can_complete_with_actual_quantity_below_plan(client, auth_headers):
+@pytest.mark.parametrize("finish_on_print", [False, True])
+def test_cutting_can_complete_with_actual_quantity_below_plan(client, auth_headers, finish_on_print):
     r = client.post(
         "/api/planning/create-branded-production",
         json={
@@ -2229,6 +2230,12 @@ def test_cutting_can_complete_with_actual_quantity_below_plan(client, auth_heade
         headers=auth_headers,
     )
     assert r.status_code == 201, r.text
+    record_id = r.json()["id"]
+    sheet_url = f"/api/cutting/records/{record_id}/production-sheet"
+    if finish_on_print:
+        assert client.post(sheet_url).status_code == 401
+        assert client.get(sheet_url, headers=auth_headers).status_code == 200
+        assert client.post(sheet_url + "?bundle_ids=invalid", headers=auth_headers).status_code == 400
 
     r = client.get(f"/api/work-orders/{cutting_wo['id']}", headers=auth_headers)
     assert r.status_code == 200, r.text
@@ -2236,11 +2243,16 @@ def test_cutting_can_complete_with_actual_quantity_below_plan(client, auth_heade
     assert int(r.json()["passed_qty"]) == 444
 
     r = client.post(
-        f"/api/work-orders/{cutting_wo['id']}/complete-cutting-shortage",
+        sheet_url if finish_on_print else f"/api/work-orders/{cutting_wo['id']}/complete-cutting-shortage",
         json={},
         headers=auth_headers,
     )
     assert r.status_code == 200, r.text
+    if finish_on_print:
+        assert "text/html" in r.headers["content-type"]
+        # A retry/reprint must not accept the shortage twice.
+        assert client.post(sheet_url, headers=auth_headers).status_code == 200
+        r = client.get(f"/api/work-orders/{cutting_wo['id']}", headers=auth_headers)
     completed = r.json()
     assert completed["status"] == "completed"
     assert int(completed["planned_output_qty"]) == 600

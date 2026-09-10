@@ -3179,7 +3179,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     po = db.query(ProductionOrder).filter(ProductionOrder.id == wo.production_order_id).with_for_update(of=ProductionOrder).first()
     if not po:
         raise HTTPException(404, "Production order not found")
-    db.refresh(wo)
+    db.refresh(wo, with_for_update=True)
     _gate_record_submission(wo)
     if po.source_type == "usluga" and (payload.fabric_batch_id is not None or payload.materials):
         raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
@@ -3866,6 +3866,50 @@ def cutting_production_sheet(
         return render_cutting_sheet_html(db, record, parsed_ids)
     except ValueError as exc:
         raise HTTPException(404, str(exc))
+
+
+@router.post("/cutting/records/{rid}/production-sheet", response_class=HTMLResponse)
+def finish_milana_cutting_and_print(
+    rid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.records", "planning.production", "*")),
+    bundle_ids: str | None = None,
+):
+    """Issue the final Milana cutting sheet and accept any recorded shortfall."""
+    record = db.get(CuttingRecord, rid)
+    if not record:
+        raise HTTPException(404, "Cutting record not found")
+    wo = db.get(WorkOrder, record.work_order_id)
+    if not wo:
+        raise HTTPException(400, "Cutting work order not found")
+    # Match passport/material editing: lock the production before its work order.
+    po = db.query(ProductionOrder).filter(ProductionOrder.id == wo.production_order_id).with_for_update(of=ProductionOrder).first()
+    db.refresh(wo, with_for_update=True)
+    if wo.operation != "cutting":
+        raise HTTPException(400, "Cutting work order not found")
+    from app.services.factory_scope import require_work_order_factory_access
+    require_work_order_factory_access(current, db, wo)
+    department = db.get(Department, wo.department_id)
+    if not department or department.code != "CUT" or not po or po.source_type == "usluga":
+        raise HTTPException(409, "Automatic cutting-sheet completion is only available in Milana Cutting")
+    if wo.status in ("rejected", "cancelled") or po.status in ("rejected", "cancelled"):
+        raise HTTPException(409, "Cannot print and complete cancelled or rejected cutting")
+    # Render/validate before changing workflow state. GET and repeated prints
+    # remain read-only; a browser/printer cannot report physical paper delivery.
+    html = cutting_production_sheet(rid, db, current, bundle_ids)
+    if wo.status == "completed":
+        return html
+    _ensure_replacements_do_not_block_completion(db, wo)
+    _sync_cutting_work_order_from_records(db, wo)
+    if wo.passed_qty <= 0:
+        raise HTTPException(409, "Record at least one usable cut piece before printing the final sheet")
+    if wo.status != "completed":
+        complete_cutting_with_shortage(wo.id, db, current)
+    else:
+        advance_workflow(db, wo)
+        log_action(db, current, "complete_cutting_on_print", "WorkOrder", wo.id)
+        db.commit()
+    return html
 
 
 def _cutting_record_scope_filter(qry, rec: CuttingRecord):

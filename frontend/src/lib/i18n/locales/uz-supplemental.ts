@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.cutting.printAndComplete": "Varaqni chop etish va bichishni yakunlash",
     "passportMaterial.add": "Mato qo‘shish",
     "passportMaterial.help": "Rejalashtirishda qo‘shilmagan matoni kiriting. Pasport saqlanganda mato buyurtmaga qo‘shiladi va miqdori bichish uchun band qilinadi.",
     "passportMaterial.search": "Mato nomi yoki partiya raqamini qidirish",

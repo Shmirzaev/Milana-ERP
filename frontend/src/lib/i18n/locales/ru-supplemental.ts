@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.cutting.printAndComplete": "Печать листа и завершение раскроя",
     "passportMaterial.add": "Добавить материал",
     "passportMaterial.help": "Добавьте ткань, пропущенную при планировании. При сохранении паспорта она добавится в заказ, а количество зарезервируется для раскроя.",
     "passportMaterial.search": "Поиск по ткани или номеру партии",

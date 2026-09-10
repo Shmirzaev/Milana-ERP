@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.cutting.printAndComplete": "Print sheet and finish Cutting",
     "passportMaterial.add": "Add material",
     "passportMaterial.help": "Add a fabric missed in Planning. Saving this passport assigns it to the order and reserves the quantity for Cutting.",
     "passportMaterial.search": "Search fabric name or batch number",
