@@ -1,0 +1,34 @@
+.timelineTable {
+  width: 100%;
+  min-width: 1480px;
+  border-collapse: collapse;
+  color: #2c2920;
+  font-size: 14px;
+}
+
+.timelineTable th {
+  padding: 16px 12px;
+  border-bottom: 1px solid #deded6;
+  background: white;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.timelineTable > tbody > tr > td {
+  padding: 22px 12px;
+  border-bottom: 1px solid #e6e6df;
+  vertical-align: top;
+}
+
+.timelineTable th.stageHeading {
+  width: 122px;
+  min-width: 122px;
+  padding-inline: 2px;
+  text-align: center;
+}
+
+.timelineTable > tbody > tr > td.timelineCell {
+  padding-inline: 0;
+}

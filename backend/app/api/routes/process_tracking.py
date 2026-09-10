@@ -92,6 +92,8 @@ def _stage_dict(wo, flow, now: datetime, replacement_totals: dict[str, int] | No
         "status": status,
         "planned": planned,
         "completed": passed,
+        "received_qty": 0 if wo.operation == "sewing" else _positive_int(wo.actual_input_qty),
+        "output_qty": _positive_int(wo.actual_output_qty),
         "failed": failed,
         "processed": processed,
         "rework": int(wo.rework_qty or 0),
@@ -145,6 +147,8 @@ def _rollup_operation(operation: str, rows: list[dict]) -> dict:
         "status": status,
         "planned": planned,
         "completed": completed,
+        "received_qty": sum(_positive_int(r.get("received_qty")) for r in rows),
+        "output_qty": sum(_positive_int(r.get("output_qty")) for r in rows),
         "failed": failed,
         "processed": processed,
         "rework": rework,
@@ -447,6 +451,7 @@ def _internal_batch_stage_rows(db, po: ProductionOrder, base_stages: list[dict])
 def _bulk_internal_batch_evidence(
     db,
     production_orders: list[ProductionOrder],
+    sewing_receipts: dict[tuple[int, int | None], int] | None = None,
 ) -> dict[int, dict[tuple[int, str], dict[str, int]]]:
     """Load internal-batch operation evidence for the whole page.
 
@@ -487,6 +492,8 @@ def _bulk_internal_batch_evidence(
         failed: int = 0,
         rework: int = 0,
         activity: int = 0,
+        output_qty: int = 0,
+        received_qty: int = 0,
     ) -> None:
         if batch_id is None:
             return
@@ -496,12 +503,14 @@ def _bulk_internal_batch_evidence(
             return
         row = totals_by_order[order_id].setdefault(
             (bid, operation),
-            {"completed": 0, "failed": 0, "rework": 0, "activity": 0},
+            {"completed": 0, "failed": 0, "rework": 0, "activity": 0, "output_qty": 0, "received_qty": 0},
         )
         row["completed"] += int(completed or 0)
         row["failed"] += int(failed or 0)
         row["rework"] += int(rework or 0)
         row["activity"] += int(activity or 0)
+        row["output_qty"] += int(output_qty or 0)
+        row["received_qty"] += int(received_qty or 0)
 
     cutting_ids = work_order_ids_by_operation.get("cutting", set())
     if cutting_ids:
@@ -522,6 +531,7 @@ def _bulk_internal_batch_evidence(
                 completed=int(passed_sum or 0),
                 failed=int(defective_sum or 0),
                 activity=int(cut_sum or 0) + int(passed_sum or 0) + int(defective_sum or 0),
+                output_qty=int(passed_sum or 0),
             )
 
     printing_ids = work_order_ids_by_operation.get("printing", set())
@@ -544,10 +554,17 @@ def _bulk_internal_batch_evidence(
                 completed=int(passed_sum or 0),
                 failed=int(rejected_sum or 0),
                 activity=int(input_sum or 0) + int(printed_sum or 0) + int(passed_sum or 0) + int(rejected_sum or 0),
+                output_qty=int(passed_sum or 0),
             )
 
     sewing_ids = work_order_ids_by_operation.get("sewing", set())
     if sewing_ids:
+        # Receipt is distinct from line assignment and sewn output. Bundle
+        # quantities are grouped once per page; order counters never leak into
+        # every internal batch.
+        for (order_id, batch_id), received_sum in (sewing_receipts or {}).items():
+            if order_id in order_ids and batch_id in all_batch_ids:
+                add_total(batch_id, "sewing", received_qty=received_sum)
         for batch_id, input_sum, sewn_sum, passed_sum, failed_sum, rework_sum, rejected_sum in (
             db.query(
                 SewingRecord.production_batch_id,
@@ -568,6 +585,7 @@ def _bulk_internal_batch_evidence(
                 completed=int(passed_sum or 0),
                 failed=int(failed_sum or 0),
                 rework=int(rework_sum or 0),
+                output_qty=int(passed_sum or 0),
                 activity=sum(int(value or 0) for value in (
                     input_sum, sewn_sum, passed_sum, failed_sum, rework_sum, rejected_sum
                 )),
@@ -592,6 +610,7 @@ def _bulk_internal_batch_evidence(
                 completed=int(packed_sum or 0),
                 failed=int(damaged_sum or 0),
                 activity=int(input_sum or 0) + int(packed_sum or 0) + int(damaged_sum or 0),
+                output_qty=int(packed_sum or 0),
             )
 
     if work_order_ids_by_operation.get("storage_transfer"):
@@ -618,7 +637,7 @@ def _bulk_internal_batch_evidence(
             qty = int(received_sum or 0)
             bid = int(batch_id)
             direct_storage_by_batch[bid] = direct_storage_by_batch.get(bid, 0) + qty
-            add_total(bid, "storage_transfer", completed=qty, activity=qty)
+            add_total(bid, "storage_transfer", completed=qty, activity=qty, output_qty=qty)
 
         fallback_qry = db.query(
             Package.production_batch_id,
@@ -634,7 +653,7 @@ def _bulk_internal_batch_evidence(
             qty = int(received_sum or 0)
             bid = int(batch_id)
             direct_storage_by_batch[bid] = direct_storage_by_batch.get(bid, 0) + qty
-            add_total(bid, "storage_transfer", completed=qty, activity=qty)
+            add_total(bid, "storage_transfer", completed=qty, activity=qty, output_qty=qty)
 
         unassigned_qry = db.query(
             Package.production_order_id,
@@ -664,7 +683,7 @@ def _bulk_internal_batch_evidence(
                 capacity = max(0, capacity - direct_storage_by_batch.get(bid, 0))
                 take = min(remaining, capacity)
                 if take > 0:
-                    add_total(bid, "storage_transfer", completed=take, activity=take)
+                    add_total(bid, "storage_transfer", completed=take, activity=take, output_qty=take)
                     remaining -= take
 
     return totals_by_order
@@ -691,6 +710,8 @@ def _internal_batch_stage_rows_from_totals(
             row = dict(base)
             row["planned"] = planned
             row["completed"] = completed
+            row["received_qty"] = int(total.get("received_qty", 0))
+            row["output_qty"] = int(total.get("output_qty", completed))
             row["failed"] = failed
             row["processed"] = completed + (0 if operation == "sewing" else failed)
             row["rework"] = int(total.get("rework", 0))
@@ -864,6 +885,23 @@ def list_processes(
     for assignment in assignment_rows:
         assignments_by_wo.setdefault(int(assignment.work_order_id), []).append(assignment)
 
+    # Input counters also increase when sewing output is submitted, so they
+    # cannot identify receipt. Use the same persisted received-bundle evidence
+    # as the Sewing inbox, independently of planned line assignments.
+    sewing_receipts = {
+        (int(order_id), int(batch_id) if batch_id is not None else None): int(quantity or 0)
+        for order_id, batch_id, quantity in (
+            db.query(Bundle.production_order_id, Bundle.production_batch_id,
+                     func.coalesce(func.sum(Bundle.quantity), 0))
+            .filter(Bundle.production_order_id.in_(production_order_ids), Bundle.status == "received_sewing")
+            .group_by(Bundle.production_order_id, Bundle.production_batch_id).all()
+            if production_order_ids else []
+        )
+    }
+    sewing_receipts_by_order: dict[int, int] = {}
+    for (order_id, _batch_id), quantity in sewing_receipts.items():
+        sewing_receipts_by_order[order_id] = sewing_receipts_by_order.get(order_id, 0) + quantity
+
     flow_ids = {w.sewing_flow_id for p in pos for w in p.work_orders if w.sewing_flow_id}
     flow_ids.update({a.sewing_flow_id for a in assignment_rows if a.sewing_flow_id})
     department_ids = {w.department_id for p in pos for w in p.work_orders if w.department_id}
@@ -1015,7 +1053,7 @@ def list_processes(
                     size_quantities,
                 )
 
-    internal_batch_totals_by_order = _bulk_internal_batch_evidence(db, pos)
+    internal_batch_totals_by_order = _bulk_internal_batch_evidence(db, pos, sewing_receipts)
     now = datetime.now(timezone.utc)
     out: list[dict] = []
     for po in pos:
@@ -1052,6 +1090,11 @@ def list_processes(
         for wo in po.work_orders:
             flow = flows.get(wo.sewing_flow_id) if wo.sewing_flow_id else None
             stage = _stage_dict(wo, flow, now, replacement_totals_by_order.get(int(po.id)))
+            if wo.operation == "sewing":
+                stage["received_qty"] = (
+                    sewing_receipts_by_order.get(int(po.id), 0) if wo.production_batch_id is None
+                    else sewing_receipts.get((int(po.id), int(wo.production_batch_id)), 0)
+                )
             assigned_flows = [
                 flows.get(a.sewing_flow_id)
                 for a in assignments_by_wo.get(int(wo.id), [])
