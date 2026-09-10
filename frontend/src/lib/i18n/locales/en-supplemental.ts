@@ -1,5 +1,10 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.deptInbox.orders": "Orders ({count})",
+    "page.deptInbox.noOrders": "No orders",
+    "page.deptInbox.state.pending": "Pending",
+    "page.deptInbox.state.completed": "Completed",
+    "page.deptInbox.state.not_arrived": "Not yet arrived",
     "processTimeline.garmentFabric": "Garment / Fabric",
     "processTimeline.legend.green": "Green: accepted / completed step",
     "processTimeline.legend.yellow": "Yellow: waiting / partial",

@@ -1,5 +1,10 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.deptInbox.orders": "Заказы ({count})",
+    "page.deptInbox.noOrders": "Нет заказов",
+    "page.deptInbox.state.pending": "В ожидании",
+    "page.deptInbox.state.completed": "Завершено",
+    "page.deptInbox.state.not_arrived": "Ещё не поступило",
     "processTimeline.garmentFabric": "Изделие / Ткань",
     "processTimeline.legend.green": "Зелёный: принято / этап завершён",
     "processTimeline.legend.yellow": "Жёлтый: ожидание / частично",

@@ -1,5 +1,10 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.deptInbox.orders": "Buyurtmalar ({count})",
+    "page.deptInbox.noOrders": "Buyurtmalar yo'q",
+    "page.deptInbox.state.pending": "Kutilmoqda",
+    "page.deptInbox.state.completed": "Yakunlangan",
+    "page.deptInbox.state.not_arrived": "Hali kelmagan",
     "processTimeline.garmentFabric": "Mahsulot / Mato",
     "processTimeline.legend.green": "Yashil: qabul qilingan / bosqich tugallangan",
     "processTimeline.legend.yellow": "Sariq: kutilmoqda / qisman",
