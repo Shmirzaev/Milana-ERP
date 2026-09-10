@@ -1,7 +1,8 @@
 "use client";
 import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
+import SearchableSelect from "@/components/SearchableSelect";
 import { Plus, Search, Pencil, Trash2, BookOpen } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -65,6 +66,8 @@ type Passport = {
 };
 
 type MaterialDefault = {
+  source_type?: string;
+  can_add_material?: boolean;
   materials?: Array<MaterialDefault & { stock_batch_id: number }>;
   production_order_no: string | null;
   order_no: string | null;
@@ -275,6 +278,19 @@ export default function CuttingPassportsPage() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [materialForms, setMaterialForms] = useState<Array<typeof EMPTY_FORM & { stock_batch_id: number }>>([]);
   const orderRequest = useRef(0);
+  const { mutate: refreshCache } = useSWRConfig();
+  const [additionalMaterials, setAdditionalMaterials] = useState<Array<{ stock_batch_id: number; estimated_quantity: number; unit: string }>>([]);
+  const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+  const [materialSearch, setMaterialSearch] = useState("");
+  const [selectedMaterial, setSelectedMaterial] = useState<any>(null);
+  const [materialAmount, setMaterialAmount] = useState("");
+  const [materialPickerBusy, setMaterialPickerBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const { data: materialBatches = [], error: materialBatchError, isLoading: materialBatchLoading } = useSWR<any[]>(
+    materialPickerOpen ? `/api/inventory/batches?group=materials&hide_empty=true&page_size=100&q=${encodeURIComponent(materialSearch)}` : null, fetcher,
+  );
+  const resetMaterialPicker = () => { setAdditionalMaterials([]); setMaterialPickerOpen(false); setSelectedMaterial(null); setMaterialAmount(""); setMaterialSearch(""); };
+
   const [sizeChoices, setSizeChoices] = useState<string[]>([]);
   const [err, setErr] = useState("");
 
@@ -314,6 +330,7 @@ export default function CuttingPassportsPage() {
 
   function openCreate() {
     orderRequest.current += 1;
+    resetMaterialPicker();
     setMaterialForms([]);
     setForm({ ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10) });
     setSizeChoices([]);
@@ -324,6 +341,7 @@ export default function CuttingPassportsPage() {
 
   function openEdit(p: Passport) {
     orderRequest.current += 1;
+    resetMaterialPicker();
     setMaterialForms((p.materials || []).map((row) => ({ ...EMPTY_FORM, ...Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value ?? ""])), stock_batch_id: row.stock_batch_id })));
     setSizeChoices(expandSizeSelection(p.size_range));
     setForm({
@@ -402,19 +420,25 @@ export default function CuttingPassportsPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
     setErr("");
     if (!form.passport_no) { setErr(t("page.cuttingPassports.error.passportRequired")); return; }
+    setSaving(true);
     try {
-      const payload = { ...buildPayload(), materials: materialForms.map((row) => ({ ...buildPayload(row), stock_batch_id: row.stock_batch_id })) };
+      const payload = { ...buildPayload(), additional_materials: additionalMaterials.map((row) => ({ ...row, estimated_quantity: row.unit === "kg" ? Number(materialForms.find((material) => material.stock_batch_id === row.stock_batch_id)?.planned_kg || 0) : row.estimated_quantity })), materials: materialForms.map((row) => ({ ...buildPayload(row), stock_batch_id: row.stock_batch_id })) };
       if (editing) {
         await api.patch(`/api/cutting-passports/${editing.id}`, payload);
       } else {
         await api.post("/api/cutting-passports", payload);
       }
       await mutate();
+      await refreshCache((key) => typeof key === "string" && (key.startsWith("/api/production-orders") || key.startsWith("/api/inventory/reservations") || key.startsWith("/api/inventory/batches")), undefined, { revalidate: true });
+      resetMaterialPicker();
       setShowForm(false);
     } catch (e: any) {
       setErr(e.message || t("page.cuttingPassports.error.saveFailed"));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -437,6 +461,7 @@ export default function CuttingPassportsPage() {
 
   async function selectProductionOrder(e: React.ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
+    resetMaterialPicker();
     const request = ++orderRequest.current;
     setMaterialForms([]);
     setSizeChoices([]);
@@ -487,6 +512,44 @@ export default function CuttingPassportsPage() {
     } catch {
       // Some older orders may not have a received material batch yet; keep manual entry available.
     }
+  }
+
+  async function openMaterialPicker() {
+    if (!form.production_order_id) return;
+    const request = orderRequest.current;
+    setMaterialPickerBusy(true);
+    setErr("");
+    try {
+      const defaults = await api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${form.production_order_id}`);
+      if (request !== orderRequest.current) return;
+      if (defaults.source_type === "usluga" || defaults.can_add_material === false) throw new Error(t("passportMaterial.openOrderOnly"));
+      setMaterialForms((current) => {
+        const byBatch = new Map(current.map((row) => [row.stock_batch_id, row]));
+        const assigned = (defaults.materials || []).map((row, index) => byBatch.get(row.stock_batch_id) || ({
+          ...EMPTY_FORM, ...(current.length === 0 && index === 0 ? form : {}),
+          stock_batch_id: row.stock_batch_id, fabric_type: row.fabric_type || "", lot_no: row.lot_no || "",
+          planned_kg: current.length === 0 && index === 0 ? (form.planned_kg || row.planned_kg || "") : row.planned_kg ?? "",
+          pieces: current.length === 0 && index === 0 ? form.pieces : row.pieces ?? "",
+          fabric_width_m: current.length === 0 && index === 0 ? form.fabric_width_m : row.fabric_width_m ?? "", gramage: current.length === 0 && index === 0 ? form.gramage : row.gramage ?? "",
+        }));
+        return [...assigned, ...current.filter((row) => !assigned.some((item) => item.stock_batch_id === row.stock_batch_id))];
+      });
+      setMaterialPickerOpen(true);
+    } catch (error: any) { setErr(error.message || t("passportMaterial.loadError")); }
+    finally { setMaterialPickerBusy(false); }
+  }
+
+  function addMaterial() {
+    const amount = Number(materialAmount);
+    if (!selectedMaterial || !Number.isFinite(amount) || amount <= 0) { setErr(t("passportMaterial.amountRequired")); return; }
+    if (materialForms.some((row) => row.stock_batch_id === selectedMaterial.id)) { setErr(t("passportMaterial.duplicate")); return; }
+    setMaterialForms((rows) => [...rows, {
+      ...EMPTY_FORM, stock_batch_id: selectedMaterial.id, fabric_type: selectedMaterial.item_name || "",
+      lot_no: selectedMaterial.batch_no || selectedMaterial.internal_batch_no || "", pieces: form.pieces,
+      planned_kg: selectedMaterial.unit === "kg" ? amount : "", fabric_width_m: selectedMaterial.width ?? "", gramage: selectedMaterial.gsm ?? "",
+    }]);
+    setAdditionalMaterials((rows) => [...rows, { stock_batch_id: selectedMaterial.id, estimated_quantity: amount, unit: selectedMaterial.unit }]);
+    setSelectedMaterial(null); setMaterialAmount(""); setMaterialPickerOpen(false); setErr("");
   }
 
   function imageValue(p: Passport) {
@@ -676,7 +739,7 @@ export default function CuttingPassportsPage() {
             <div className="flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
               <BookOpen className="h-3.5 w-3.5 shrink-0" />
               <span>{t("page.cuttingPassports.exampleLabel")}</span>
-              <button type="button" className="font-semibold underline" onClick={() => { orderRequest.current += 1; setMaterialForms([]); setForm({ ...EXCEL_EXAMPLE }); }}>
+              <button type="button" className="font-semibold underline" onClick={() => { orderRequest.current += 1; resetMaterialPicker(); setMaterialForms([]); setForm({ ...EXCEL_EXAMPLE }); }}>
                 {t("page.cuttingPassports.exampleLoad")}
               </button>
             </div>
@@ -743,6 +806,27 @@ export default function CuttingPassportsPage() {
                   ))}
                 </select>
               </Field>
+          {form.production_order_id && prodOrdersArr.find((order) => String(order.id) === String(form.production_order_id))?.source_type !== "usluga" && (
+            <div className="space-y-3 border-t border-[#e3e0d5] pt-4">
+              <button type="button" className="btn" disabled={saving || materialPickerBusy} onClick={openMaterialPicker}><Plus className="mr-1 h-4 w-4" />{t("passportMaterial.add")}</button>
+              <p className="text-sm text-[#6f684f]">{t("passportMaterial.help")}</p>
+              {materialPickerOpen && <div className="space-y-3">
+                <SearchableSelect<number>
+                  value={selectedMaterial?.id}
+                  options={[...(selectedMaterial ? [selectedMaterial] : []), ...materialBatches.filter((row) => row.id !== selectedMaterial?.id)].filter((row) => !materialForms.some((material) => material.stock_batch_id === row.id)).map((row) => ({ value: row.id, label: `${row.item_name} · ${row.batch_no || row.internal_batch_no || ""}`, metaText: `${row.available_quantity ?? row.quantity} ${row.unit} · ${row.warehouse_name || ""}` }))}
+                  onChange={(value) => setSelectedMaterial(materialBatches.find((row) => row.id === value) || selectedMaterial)}
+                  placeholder={t("passportMaterial.search")} noResultsText={t("passportMaterial.noResults")}
+                  serverFilter onSearchChange={setMaterialSearch} loading={materialBatchLoading}
+                />
+                {materialBatchError && <p className="text-sm text-red-600">{t("passportMaterial.loadError")}</p>}
+                <Field label={`${t("page.cutting.plannedAmount")} (${selectedMaterial?.unit || "kg"})`}>
+                  <input className="input" type="number" min={0} step="0.001" value={materialAmount} onChange={(event) => setMaterialAmount(event.target.value)} />
+                </Field>
+                <div className="flex gap-2"><button type="button" className="btn" onClick={addMaterial}>{t("passportMaterial.add")}</button><button type="button" className="btn" onClick={() => setMaterialPickerOpen(false)}>{t("common.cancel")}</button></div>
+              </div>}
+            </div>
+          )}
+
           {(materialForms.length ? materialForms : [{ ...form, stock_batch_id: 0 }]).map((material, index) => {
             const f = materialForms.length ? { ...form, ...material, size_range: form.size_range } : form;
             const calc = compute(f, selectedSizeCount);
@@ -752,6 +836,7 @@ export default function CuttingPassportsPage() {
               else setMaterialForms((rows) => rows.map((row, i) => i === index ? { ...row, [key]: value } : row));
             };
             return <div key={material.stock_batch_id} className="space-y-4 border-t border-[#e3e0d5] pt-4">
+              {additionalMaterials.some((row) => row.stock_batch_id === material.stock_batch_id) && <button type="button" className="btn" onClick={() => { setMaterialForms((rows) => rows.filter((row) => row.stock_batch_id !== material.stock_batch_id)); setAdditionalMaterials((rows) => rows.filter((row) => row.stock_batch_id !== material.stock_batch_id)); }}>{t("common.remove")}</button>}
               {materialForms.length > 0 && <h3 className="font-medium">{material.fabric_type} · {material.lot_no}</h3>}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label={t("page.cuttingPassports.field.operatorExcel")}>
@@ -871,7 +956,7 @@ export default function CuttingPassportsPage() {
 
           <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <button type="button" className="btn" onClick={() => setShowForm(false)}>{t("common.cancel")}</button>
-            <button type="submit" className="btn btn-primary">
+            <button type="submit" className="btn btn-primary" disabled={saving || materialPickerBusy}>
               {editing ? t("common.save") : t("common.create")}
             </button>
           </div>

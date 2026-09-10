@@ -3176,9 +3176,11 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting": raise HTTPException(400, "Work order is not a cutting operation")
     _gate_record_submission(wo)
-    po = db.get(ProductionOrder, wo.production_order_id)
+    po = db.query(ProductionOrder).filter(ProductionOrder.id == wo.production_order_id).with_for_update(of=ProductionOrder).first()
     if not po:
         raise HTTPException(404, "Production order not found")
+    db.refresh(wo)
+    _gate_record_submission(wo)
     if po.source_type == "usluga" and (payload.fabric_batch_id is not None or payload.materials):
         raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
     usluga_material = _usluga_cutting_material(db, po, payload.model_bom_id) if po.source_type == "usluga" else None

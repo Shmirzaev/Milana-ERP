@@ -1,6 +1,73 @@
 from uuid import uuid4
 
 
+def test_cutting_passport_adds_missing_material_atomically(client, auth_headers):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch, WorkOrder
+    from app.tests.test_sewing_workspace_permissions import _create_user_headers
+
+    cutting_headers = _create_user_headers(client, auth_headers, role="Cutting", department="CUT")
+    sewing_headers = _create_user_headers(client, auth_headers, role="Sewing", department="SEW")
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    batches = [_receive_batch(client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=20, unit="kg") for _ in range(3)]
+    response = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "materials": [{"stock_batch_id": batches[0]["id"], "estimated_quantity": 5, "unit": "kg"}],
+        "items": [{"model_id": 1, "color": "white", "size": "46", "planned_quantity": 10}],
+    })
+    assert response.status_code == 201, response.text
+    order = response.json()
+    payload = {
+        "passport_no": f"ADD-{uuid4().hex[:8]}", "date": "2026-09-10T00:00:00Z", "production_order_id": order["id"],
+        "materials": [{"stock_batch_id": batch["id"], "planned_kg": 5, "pieces": 10} for batch in batches[:2]],
+        "additional_materials": [{"stock_batch_id": batches[1]["id"], "estimated_quantity": 5, "unit": "kg"}],
+    }
+    assert client.post("/api/cutting-passports", headers=sewing_headers, json=payload).status_code == 403
+    insufficient = {**payload, "additional_materials": [{**payload["additional_materials"][0], "estimated_quantity": 50}]}
+    assert client.post("/api/cutting-passports", headers=cutting_headers, json=insufficient).status_code == 409
+    with SessionLocal() as db:
+        assert db.query(ProductionOrderMaterial).filter_by(production_order_id=order["id"]).count() == 1
+        assert db.query(MaterialReservation).filter_by(production_order_id=order["id"], stock_batch_id=batches[1]["id"]).count() == 0
+    saved = client.post("/api/cutting-passports", headers=cutting_headers, json=payload)
+    assert saved.status_code == 201, saved.text
+    passport_id = saved.json()["id"]
+    repeated = client.patch(f"/api/cutting-passports/{passport_id}", headers=cutting_headers, json=payload)
+    assert repeated.status_code == 200, repeated.text
+    defaults = client.get(f"/api/cutting-passports/material-defaults?production_order_id={order['id']}", headers=cutting_headers)
+    assert defaults.status_code == 200, defaults.text
+    assert [row["stock_batch_id"] for row in defaults.json()["materials"]] == [batch["id"] for batch in batches[:2]]
+    with SessionLocal() as db:
+        assert db.query(ProductionOrderMaterial).filter_by(production_order_id=order["id"]).count() == 2
+        reservations = db.query(MaterialReservation).filter_by(production_order_id=order["id"], stock_batch_id=batches[1]["id"]).all()
+        assert len(reservations) == 1 and float(reservations[0].reserved_quantity) == 5
+        assert float(db.get(StockBatch, batches[1]["id"]).quantity) == 20
+    cutting = _cutting_work_order(client, auth_headers, order["id"])
+    cut_payload = {
+        "work_order_id": cutting["id"], "input_quantity": 5, "cut_pieces": 10, "passed_pieces": 10,
+        "materials": [{"stock_batch_id": batch["id"], "quantity": 5, "unit": "kg"} for batch in batches[:2]],
+        "bundles": [{"color": "white", "size": "46", "quantity": 10, "count": 1, "next": "sewing", "sewing_factory": "milana"}],
+    }
+    missing = {**cut_payload, "materials": cut_payload["materials"][:1]}
+    assert client.post("/api/cutting/records", headers=cutting_headers, json=missing).status_code == 400
+    cut = client.post("/api/cutting/records", headers=cutting_headers, json=cut_payload)
+    assert cut.status_code == 201, cut.text
+    assert len(cut.json()["bundles"]) == 1 and cut.json()["bundles"][0]["quantity"] == 10
+    with SessionLocal() as db:
+        assert float(db.get(StockBatch, batches[1]["id"]).quantity) == 15
+        reservation = db.query(MaterialReservation).filter_by(production_order_id=order["id"], stock_batch_id=batches[1]["id"]).one()
+        assert float(reservation.consumed_quantity) == 5
+        db.get(WorkOrder, cutting["id"]).status = "completed"
+        db.commit()
+    extra = {**payload, "materials": payload["materials"] + [{"stock_batch_id": batches[2]["id"]}], "additional_materials": [{"stock_batch_id": batches[2]["id"], "estimated_quantity": 1, "unit": "kg"}]}
+    assert client.patch(f"/api/cutting-passports/{passport_id}", headers=cutting_headers, json=extra).status_code == 409
+    with SessionLocal() as db:
+        db.get(WorkOrder, cutting["id"]).status = "in_progress"
+        db.get(ProductionOrder, order["id"]).source_type = "usluga"
+        db.commit()
+    assert client.patch(f"/api/cutting-passports/{passport_id}", headers=cutting_headers, json=extra).status_code == 400
+
+
 def _planning_headers(client) -> dict[str, str]:
     r = None
     for password in ("demo12345", "PlanningResetPassword123!"):
