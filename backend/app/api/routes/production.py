@@ -34,6 +34,7 @@ from app.schemas.production import (
     WorkOrderOut, WorkOrderUpdate,
     CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
     QualityCheckIn, QualityCheckOut,
+    ProductionOrderSizesIn,
 )
 from app.core.dt import as_utc
 from app.services.audit import log_action
@@ -1085,6 +1086,20 @@ def update_po(pid: int, payload: dict, db: DbSession, current: User = Depends(re
     log_action(db, current, "update", "ProductionOrder", po.id)
     db.commit(); db.refresh(po)
     return po
+
+
+@router.patch("/production-orders/{pid}/sizes", response_model=ProductionOrderDetail)
+def update_po_sizes(
+    pid: int,
+    payload: ProductionOrderSizesIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("planning.production", "*")),
+):
+    from app.services.production_sizes import update_production_sizes
+
+    update_production_sizes(db, pid, payload, current)
+    db.commit()
+    return _production_order_detail_payload(db, pid)
 
 
 @router.put("/production-orders/{pid}/breakdown", response_model=ProductionOrderDetail)

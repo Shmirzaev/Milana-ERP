@@ -1,5 +1,13 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "productionSizes.edit": "Изменить размеры",
+    "productionSizes.rowLabel": "Размер строки {row}, {color}",
+    "productionSizes.required": "Укажите размер в каждой строке.",
+    "productionSizes.duplicate": "Каждое сочетание цвета и размера должно быть уникальным.",
+    "productionSizes.locked": "Размеры заблокированы после начала раскроя или выпуска этикеток.",
+    "productionSizes.stale": "Размерный план изменился. Отмените редактирование, обновите заказ и повторите попытку.",
+    "productionSizes.failed": "Не удалось сохранить размеры. Повторите попытку.",
+    "productionSizes.saved": "Размеры сохранены.",
     "page.deptInbox.orders": "Заказы ({count})",
     "page.deptInbox.noOrders": "Нет заказов",
     "page.deptInbox.state.pending": "В ожидании",

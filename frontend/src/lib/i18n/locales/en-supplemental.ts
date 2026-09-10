@@ -1,5 +1,13 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "productionSizes.edit": "Edit sizes",
+    "productionSizes.rowLabel": "Size for row {row}, {color}",
+    "productionSizes.required": "Enter a size for every row.",
+    "productionSizes.duplicate": "Each color and size combination must be unique.",
+    "productionSizes.locked": "Sizes are locked after Cutting starts or labels are issued.",
+    "productionSizes.stale": "The size plan has changed. Cancel, refresh the order, and try again.",
+    "productionSizes.failed": "Could not save sizes. Please try again.",
+    "productionSizes.saved": "Sizes saved.",
     "page.deptInbox.orders": "Orders ({count})",
     "page.deptInbox.noOrders": "No orders",
     "page.deptInbox.state.pending": "Pending",

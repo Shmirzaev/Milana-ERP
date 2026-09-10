@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel, SchemaModel
 from app.schemas.inventory import ItemComposition
@@ -23,6 +23,18 @@ class ProductionOrderItemOut(ORMModel):
     planned_quantity: int
     completed_quantity: int
     printing_required: bool
+
+
+class ProductionOrderSizeRowIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: int = Field(gt=0)
+    original_size: str = Field(max_length=32)
+    size: str = Field(min_length=1, max_length=32)
+
+
+class ProductionOrderSizesIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[ProductionOrderSizeRowIn] = Field(min_length=1, max_length=500)
 
 
 class ProductionOrderPrintingAttachment(BaseModel):
