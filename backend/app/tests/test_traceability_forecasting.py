@@ -593,6 +593,8 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
         )
         db.add(item)
         db.flush()
+        db.add(ModelBOM(model_id=1, item_id=None, material_name="Unlinked fabric",
+                        color=color, quantity_per_piece=0.3, unit="kg", waste_percent=0))
         db.add(
             ModelBOM(
                 model_id=1,
@@ -636,6 +638,10 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
     assert float(row["planned_bom_demand"]) == 10
     assert float(row["suggested_quantity"]) >= 10
     assert "planned BOM demand" in row["reason"]
+    dashboard = client.get("/api/forecasting/dashboard", headers=auth_headers)
+    assert dashboard.status_code == 200, dashboard.text
+    assert dashboard.json()["unlinked_bom_count"] >= 1
+
 
 
 def test_forecast_recommendation_accept_and_dismiss_state_changes(client, auth_headers):
@@ -676,3 +682,20 @@ def test_forecasting_permission_denied_for_manage(client):
         headers=sales_headers,
     )
     assert r.status_code == 403, r.text
+
+
+def test_forecast_week_buckets_match_labels(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from app.services import forecasting
+    now = datetime.now(timezone.utc)
+    monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    oldest = monday - timedelta(weeks=7)
+    monkeypatch.setattr(forecasting, "_branded_demand_groups", lambda db: {"variant": {"events": [
+        (oldest, 11), (monday - timedelta(seconds=1), 22), (monday, 33),
+        (oldest - timedelta(seconds=1), 99), (now + timedelta(days=1), 99),
+    ]}})
+    rows = forecasting.demand_trend(None)
+    assert rows[0] == {"week_start": oldest.date().isoformat(), "quantity": 11}
+    assert rows[-2]["quantity"] == 22
+    assert rows[-1] == {"week_start": monday.date().isoformat(), "quantity": 33}
+    assert sum(row["quantity"] for row in rows) == 66

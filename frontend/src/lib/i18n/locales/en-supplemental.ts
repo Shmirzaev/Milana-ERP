@@ -1,5 +1,16 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.payroll.confirmDeleteAdjustment": "Delete adjustment {amount} ({reason})? Payroll totals will be recalculated.",
+    "page.payroll.adjustmentDeleted": "Adjustment deleted.",
+    "page.payroll.adjustmentDeleteFailed": "Could not delete the adjustment.",
+    "page.forecasting.loadFailed": "Forecast data could not be loaded. Please refresh to retry.",
+    "page.forecasting.actionFailed": "The action failed. Please try again.",
+    "page.forecasting.saved": "Recommendation saved.",
+    "page.forecasting.updated": "Recommendation updated.",
+    "page.forecasting.unlinkedBom": "{count} descriptive BOM rows have no inventory item. Link them in Models to include them in material demand.",
+    "forecast.confidence.high": "High",
+    "forecast.confidence.medium": "Medium",
+    "forecast.confidence.low": "Low",
     "cuttingBatch.change": "Change batch",
     "cuttingBatch.select": "Correct material batch",
     "cuttingBatch.help": "Saving updates the order, unused reservations and linked cutting passports. The planned amount stays the same.",

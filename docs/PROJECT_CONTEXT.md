@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-10
 
+## Payroll adjustment deletion and Forecasting repair prepared (2026-09-10)
+
+- Payroll managers can delete an ordinary adjustment with confirmation, an audit snapshot and immediate totals refresh. Backend factory scope, missing rows, finalized/cancelled periods and linked reversal adjustments are enforced independently of the UI. No existing payroll row is deleted by deployment.
+- Read-only production diagnosis reproduced Forecasting's `int(None)` crash for descriptive BOM rows. Forecast demand now resolves a selected batch's inventory item or excludes an unlinked description, with a visible EN/RU/UZ count explaining incomplete material coverage. Existing BOM/business rows are preserved. Removed eager redundant per-item availability queries; weekly chart buckets now align to Monday labels, include the full oldest week and exclude future events.
+- Forecasting shows loading/error states rather than fabricated zero results, refreshes dashboard and saved recommendations, handles failed actions and repeat clicks, displays saved item/model labels and localized confidence, fixes material/accessory inventory links and forwards the forecast brand to Planning with permission-aware plan actions.
+- Dedicated worktree `C:/ERP/.codex-work/payroll-forecast-fix-20260910`, branch `codex/payroll-forecast-fix-20260910`, from verified main `7de3ee10`. Both production manifests and slots matched green `20260910_061535`, manifest `513061fb12089e1e199f50483b5672ba688cf6420719c5c546c77fff73aeaab1`, database `0122_cutting_material_details` before editing. No schema migration or production business-data write is planned.
+- Focused checks: 27 payroll deletion/factory/permission/finalization/reversal and forecasting tests passed, Ruff, scoped ESLint, strict TypeScript and forecasting chart contract passed. User requested fast deployment without extra tests or monitoring: retain immutable release build/CI, backup, inactive-slot warmup and immediate four-health/runtime checks; omit extra browser/performance exercises and extended observation.
+
 ## Cutting material batch correction deployed (2026-09-10)
 
 - LIVE: backend/frontend release `20260910_061535` in green, exact application commit `f39af67431d8cb7041d0863839c599162cf068ac`, merged through PR #101 as `43c41b89`. Both active source manifests, slot states, image identities and symlinks agree; activation completed around 06:25 UTC / 11:25 Tashkent. Blue `20260910_060201` remains running for rollback.

@@ -302,6 +302,10 @@ def _planned_bom_demand(db: Session) -> dict[tuple[int, str], float]:
     demand: dict[tuple[int, str], float] = defaultdict(float)
 
     def add_bom(bom: ModelBOM, planned_qty: int, color: str | None = None, size: str | None = None) -> None:
+        # Descriptive BOM rows are valid, but cannot identify inventory demand.
+        item_id = bom.item_id or (bom.stock_batch.item_id if bom.stock_batch else None)
+        if not item_id:
+            return
         if bom.color and color and bom.color != color:
             return
         if bom.size and size and bom.size != size:
@@ -309,7 +313,7 @@ def _planned_bom_demand(db: Session) -> dict[tuple[int, str], float]:
         qty = float(bom.quantity_per_piece or 0) * max(0, int(planned_qty or 0))
         qty *= 1.0 + float(bom.waste_percent or 0) / 100.0
         if qty > 0:
-            demand[(int(bom.item_id), str(bom.unit or ""))] += qty
+            demand[(int(item_id), str(bom.unit or ""))] += qty
 
     for po in active_pos:
         lines = items_by_po.get(int(po.id), [])
@@ -348,7 +352,8 @@ def item_reorder_suggestions(db: Session) -> list[dict]:
     suggestions: list[dict] = []
     for item in item_rows:
         stock = stock_rows.get(int(item.id), {})
-        available = float(stock.get("available_quantity", available_stock_for_item(db, int(item.id))) or 0)
+        available = float((stock["available_quantity"] if "available_quantity" in stock
+                           else available_stock_for_item(db, int(item.id))) or 0)
         current = float(stock.get("quantity", 0) or 0)
         reserved = float(stock.get("reserved_quantity", 0) or 0)
         unit = str(item.unit or "")
@@ -393,15 +398,16 @@ def item_reorder_suggestions(db: Session) -> list[dict]:
 
 def demand_trend(db: Session, *, weeks: int = 8) -> list[dict]:
     now = datetime.now(timezone.utc)
-    start = now - timedelta(days=7 * max(1, weeks - 1))
+    weeks = max(1, weeks)
+    current_week = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = current_week - timedelta(weeks=weeks - 1)
     buckets = {i: 0 for i in range(weeks)}
     for row in _branded_demand_groups(db).values():
         for created_at, qty in row["events"]:
             created_utc = _aware(created_at)
-            if not created_utc or created_utc < start:
+            if not created_utc or created_utc < start or created_utc > now:
                 continue
-            days = max(0, (now - created_utc).days)
-            idx = weeks - 1 - min(weeks - 1, days // 7)
+            idx = (created_utc - start).days // 7
             buckets[idx] += int(qty or 0)
     out = []
     for idx in range(weeks):
@@ -418,6 +424,14 @@ def forecasting_dashboard(db: Session) -> dict:
     trend = demand_trend(db)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "unlinked_bom_count": db.query(ModelBOM.id).filter(
+            ModelBOM.item_id.is_(None), ModelBOM.stock_batch_id.is_(None),
+            ModelBOM.model_id.in_(db.query(ProductionOrder.model_id).filter(
+                ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES),
+            ).union(db.query(ProductionOrderItem.model_id).join(
+                ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id,
+            ).filter(ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES)))),
+        ).count(),
         "cards": {
             "suggested_production_count": len(branded),
             "reorder_alert_count": len(reorder),

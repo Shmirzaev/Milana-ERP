@@ -437,6 +437,7 @@ export default function PlanningDashboard() {
     setBrandedForm((prev) => ({
       ...prev,
       model_id: modelId,
+      brand_id: Number(params.get("brand_id") || 0),
       lines: [{ color, size, quantity, printing_required: false }],
     }));
     setBrandedLinesModelId(modelId);
