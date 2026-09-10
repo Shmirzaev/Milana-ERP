@@ -531,7 +531,7 @@ def _bulk_internal_batch_evidence(
                 completed=int(passed_sum or 0),
                 failed=int(defective_sum or 0),
                 activity=int(cut_sum or 0) + int(passed_sum or 0) + int(defective_sum or 0),
-                output_qty=int(cut_sum or 0),
+                output_qty=int(passed_sum or 0),
             )
 
     printing_ids = work_order_ids_by_operation.get("printing", set())
@@ -554,7 +554,7 @@ def _bulk_internal_batch_evidence(
                 completed=int(passed_sum or 0),
                 failed=int(rejected_sum or 0),
                 activity=int(input_sum or 0) + int(printed_sum or 0) + int(passed_sum or 0) + int(rejected_sum or 0),
-                output_qty=int(printed_sum or 0),
+                output_qty=int(passed_sum or 0),
             )
 
     sewing_ids = work_order_ids_by_operation.get("sewing", set())
@@ -585,7 +585,7 @@ def _bulk_internal_batch_evidence(
                 completed=int(passed_sum or 0),
                 failed=int(failed_sum or 0),
                 rework=int(rework_sum or 0),
-                output_qty=int(sewn_sum or 0),
+                output_qty=int(passed_sum or 0),
                 activity=sum(int(value or 0) for value in (
                     input_sum, sewn_sum, passed_sum, failed_sum, rework_sum, rejected_sum
                 )),
