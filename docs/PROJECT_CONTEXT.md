@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-09
+Last updated: 2026-09-10
+
+## Per-material cutting details prepared (2026-09-10)
+
+- Multi-material Cutting repeats layer kg, binding kg, rolls, layup operator, cut pieces, waste quantity and unit for each selected stock batch. Details are saved per usage, waste records retain their source batch, and finished-garment/bundle output remains counted once. Existing single-material and historic records retain their previous behavior.
+- Cutting Passport entry loads every explicitly planned material with its own quantities, measurements, operator and binding calculations. Saved/listed entries and Cutting autofill use stock-batch identity; printouts and detail editing preserve separate fabric evidence.
+- Additive migration `0122_cutting_material_details` adds nullable JSON fields to cutting usages and passports; no backfill or business-data change. The prior application remains compatible for rollback.
+- Source began at verified GitHub `7ef13e1d`, identical application code to both active `20260909_122650` manifests. Worktree `C:/ERP/.codex-work/cutting-material-details-20260910`, branch `codex/cutting-material-details-20260910`. Legacy checkout preserved. Production remains unchanged until the deployment record supersedes this preparation note.
+- User explicitly requested immediate deployment without extra tests/review. Validation is limited to compilation/type checks, existing build contracts, focused Cutting/Passport checks and mandatory immutable-image CI; no separate review, broad browser/performance exercise or extended observation is requested. Backup, additive migration, inactive-slot staging, rollback retention and immediate production health/runtime checks still apply.
 
 ## Process QR layout, children's sizes and Cutting fabric usage deployed; observation complete (2026-09-09)
 

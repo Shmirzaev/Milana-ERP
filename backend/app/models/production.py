@@ -313,6 +313,8 @@ class CuttingMaterialUsage(Base, PkMixin, TimestampMixin):
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     cutting_record: Mapped["CuttingRecord"] = relationship(
         "CuttingRecord", back_populates="materials",
     )

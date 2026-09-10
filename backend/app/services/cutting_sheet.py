@@ -371,6 +371,25 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
         f"<tr><th>{_h(label)}</th><td>{_h(accessory_values[label])}</td></tr>"
         for label in _ACCESSORY_ROWS
     )
+    material_rows = []
+    for usage in record.materials:
+        details = usage.details
+        if details is None:
+            continue
+        stock = usage.stock_batch
+        name = stock.item.name if stock and stock.item else ""
+        values = [name, stock.batch_no if stock else "", f"{_format_quantity(usage.quantity)} {usage.unit}",
+                  _format_quantity(details.get("layer_material_kg")), _format_quantity(details.get("beika_kg")),
+                  _format_quantity(details.get("material_rolls_used")), details.get("layup_operator_name"),
+                  _format_quantity(details.get("cut_pieces")),
+                  f"{_format_quantity(details.get('waste_quantity'))} {details.get('waste_unit', '')}"]
+        material_rows.append("<tr>" + "".join(f"<td>{_h(value)}</td>" for value in values) + "</tr>")
+    material_table = (
+        "<table class='summary'><caption>Material / Материал / Mato</caption>"
+        "<thead><tr><th>Material</th><th>Partiya</th><th>Sarf</th><th>Kg / layer</th>"
+        "<th>Beyka kg</th><th>Rulon</th><th>Nastilchi</th><th>Kesilgan dona</th><th>Chiqindi</th></tr></thead>"
+        "<tbody>" + "".join(material_rows) + "</tbody></table>"
+    ) if material_rows else ""
     operator_note = f"Operator: {_text(operator.name)}" if operator else ""
 
     return f"""<!doctype html>
@@ -439,6 +458,7 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
     </div>
   </section>
   <section class="lower">
+    {material_table}
     <table class="accessories"><caption>Accessories / Material</caption><tbody>{accessory_rows}</tbody></table>
     <div class="samples">
       <div class="sample-column"><div class="sample-title">Mato namuna</div><div class="sample-box fabric-sample"><div class="fabric-photo">{fabric_image_html}</div><div></div></div></div>

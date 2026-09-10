@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from app.schemas.cutting_material import PassportMaterial
 
 from app.schemas.common import ORMModel
 
@@ -13,6 +14,7 @@ class CuttingOperatorOut(ORMModel):
 class CuttingPassportIn(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
+    materials: list[PassportMaterial] = Field(default_factory=list)
     passport_no: str
     date: datetime
     production_order_id: Optional[int] = None
@@ -43,9 +45,22 @@ class CuttingPassportIn(BaseModel):
     notes: Optional[str] = None
 
 
+class PassportMaterialOut(PassportMaterial):
+    total_beka_kg: float | None = None
+    other_beka_kg: float | None = None
+    actual_kg: float | None = None
+    total_ribana_kg: float | None = None
+    pieces_per_layer: float | None = None
+    per_piece_weight_kg: float | None = None
+    theoretical_kg: float | None = None
+    actual_kg_per_piece: float | None = None
+    gross_kg_per_piece: float | None = None
+
+
 class CuttingPassportOut(ORMModel):
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
     id: int
+    materials: list[PassportMaterialOut] = Field(default_factory=list)
     passport_no: str
     date: datetime
     created_at: datetime

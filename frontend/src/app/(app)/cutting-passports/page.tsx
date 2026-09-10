@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Plus, Search, Pencil, Trash2, BookOpen } from "lucide-react";
@@ -15,6 +15,8 @@ import { useT } from "@/lib/i18n";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Passport = {
+  stock_batch_id?: number;
+  materials?: Array<Partial<Passport> & { stock_batch_id: number }>;
   id: number;
   passport_no: string;
   date: string;
@@ -63,6 +65,7 @@ type Passport = {
 };
 
 type MaterialDefault = {
+  materials?: Array<MaterialDefault & { stock_batch_id: number }>;
   production_order_no: string | null;
   order_no: string | null;
   sales_order_no: string | null;
@@ -270,16 +273,18 @@ export default function CuttingPassportsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Passport | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [materialForms, setMaterialForms] = useState<Array<typeof EMPTY_FORM & { stock_batch_id: number }>>([]);
+  const orderRequest = useRef(0);
   const [sizeChoices, setSizeChoices] = useState<string[]>([]);
   const [err, setErr] = useState("");
 
-  const rows = passports;
+  const rows = passports.flatMap((p) => p.materials?.length ? p.materials.map((row) => ({ ...p, ...row, operator_name: row.operator_name_manual || p.operator_name })) : [p]);
 
   const selectedSizeCount = useMemo(
     () => sizeCountForSelection(form.size_range, sizeChoices),
     [form.size_range, sizeChoices],
   );
-  const calc = compute(form, selectedSizeCount);
+
   const sizeSelectOptions = useMemo(() => {
     const choices = uniqueSizes(sizeChoices);
     const range = sizeRangeLabel(choices);
@@ -308,6 +313,8 @@ export default function CuttingPassportsPage() {
   }, [form.size_range, sizeChoices, t]);
 
   function openCreate() {
+    orderRequest.current += 1;
+    setMaterialForms([]);
     setForm({ ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10) });
     setSizeChoices([]);
     setEditing(null);
@@ -316,6 +323,8 @@ export default function CuttingPassportsPage() {
   }
 
   function openEdit(p: Passport) {
+    orderRequest.current += 1;
+    setMaterialForms((p.materials || []).map((row) => ({ ...EMPTY_FORM, ...Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value ?? ""])), stock_batch_id: row.stock_batch_id })));
     setSizeChoices(expandSizeSelection(p.size_range));
     setForm({
       passport_no: p.passport_no,
@@ -357,7 +366,8 @@ export default function CuttingPassportsPage() {
     return isNaN(n) || v === "" ? null : n;
   }
 
-  function buildPayload() {
+  function buildPayload(formValues = form) {
+    const form = formValues;
     return {
       passport_no: form.passport_no,
       date: new Date(form.date).toISOString(),
@@ -395,10 +405,11 @@ export default function CuttingPassportsPage() {
     setErr("");
     if (!form.passport_no) { setErr(t("page.cuttingPassports.error.passportRequired")); return; }
     try {
+      const payload = { ...buildPayload(), materials: materialForms.map((row) => ({ ...buildPayload(row), stock_batch_id: row.stock_batch_id })) };
       if (editing) {
-        await api.patch(`/api/cutting-passports/${editing.id}`, buildPayload());
+        await api.patch(`/api/cutting-passports/${editing.id}`, payload);
       } else {
-        await api.post("/api/cutting-passports", buildPayload());
+        await api.post("/api/cutting-passports", payload);
       }
       await mutate();
       setShowForm(false);
@@ -426,6 +437,8 @@ export default function CuttingPassportsPage() {
 
   async function selectProductionOrder(e: React.ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
+    const request = ++orderRequest.current;
+    setMaterialForms([]);
     setSizeChoices([]);
     const po = prodOrdersArr.find((row: any) => String(row.id) === value);
     setForm((prev) => ({
@@ -444,6 +457,11 @@ export default function CuttingPassportsPage() {
         api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${value}`),
         po?.model_id ? api.get<any>(`/api/models/${po.model_id}`).catch(() => null) : Promise.resolve(null),
       ]);
+      if (request !== orderRequest.current) return;
+      setMaterialForms((defaults.materials || []).map((row) => ({
+        ...EMPTY_FORM, stock_batch_id: row.stock_batch_id, fabric_type: row.fabric_type || "", lot_no: row.lot_no || "",
+        pieces: row.pieces ?? "", planned_kg: row.planned_kg ?? "", fabric_width_m: row.fabric_width_m ?? "", gramage: row.gramage ?? "",
+      })));
       const parts = model ? modelCodeParts(model) : null;
       const qolipNo = modelQolipNo(model);
       setSizeChoices(defaults.sizes?.length ? defaults.sizes : expandSizeSelection(defaults.size_range));
@@ -579,7 +597,7 @@ export default function CuttingPassportsPage() {
                 </tr>
               )}
               {rows.map((p) => (
-                <tr key={p.id} className="border-b border-slate-100 hover:bg-stone-50 group">
+                <tr key={`${p.id}-${p.stock_batch_id || 0}`} className="border-b border-slate-100 hover:bg-stone-50 group">
                   {/* Frozen left */}
                   <td className="bg-white group-hover:bg-stone-50 px-3 py-2 font-mono font-semibold whitespace-nowrap min-w-[88px] lg:sticky lg:left-0 lg:z-10 lg:shadow-[2px_0_0_0_#f1f5f9]">{p.passport_no}</td>
                   <td className="bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[90px] lg:sticky lg:left-[88px] lg:z-10">{p.date.slice(0, 10)}</td>
@@ -658,7 +676,7 @@ export default function CuttingPassportsPage() {
             <div className="flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
               <BookOpen className="h-3.5 w-3.5 shrink-0" />
               <span>{t("page.cuttingPassports.exampleLabel")}</span>
-              <button type="button" className="font-semibold underline" onClick={() => setForm({ ...EXCEL_EXAMPLE })}>
+              <button type="button" className="font-semibold underline" onClick={() => { orderRequest.current += 1; setMaterialForms([]); setForm({ ...EXCEL_EXAMPLE }); }}>
                 {t("page.cuttingPassports.exampleLoad")}
               </button>
             </div>
@@ -701,20 +719,9 @@ export default function CuttingPassportsPage() {
               <Field label={t("page.cuttingPassports.field.image")}>
                 <input className="input" placeholder={t("page.cuttingPassports.placeholder.imageRef")} value={f.image_ref} onChange={sf("image_ref")} />
               </Field>
-              <Field label={t("page.cuttingPassports.field.operatorErp")}>
-                <select className="input" value={f.operator_id} onChange={sf("operator_id")}>
-                  <option value="">{t("page.cuttingPassports.placeholder.chooseNone")}</option>
-                  {usersArr.map((u: any) => (
-                    <option key={u.id} value={u.id}>{u.name}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={t("page.cuttingPassports.field.operatorExcel")}>
-                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleOperator")} value={f.operator_name_manual} onChange={sf("operator_name_manual")} />
-              </Field>
-              <Field label={t("page.cuttingPassports.field.fabric")}>
-                <input className="input" placeholder={t("page.cuttingPassports.placeholder.fabricType")} value={f.fabric_type} onChange={sf("fabric_type")} />
-              </Field>
+
+
+
               <Field label={t("page.cuttingPassports.field.printing")}>
                 <label className="flex h-9 items-center gap-2">
                   <input type="checkbox" className="h-4 w-4" checked={f.has_print} onChange={sf("has_print")} />
@@ -724,12 +731,39 @@ export default function CuttingPassportsPage() {
               <Field label={t("page.cuttingPassports.field.order")}>
                 <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleOrder")} value={f.order_no} onChange={sf("order_no")} />
               </Field>
-              <Field label={t("page.cuttingPassports.field.lotNumber")}>
-                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleLot")} value={f.lot_no} onChange={sf("lot_no")} />
-              </Field>
+
             </div>
           </Sec>
 
+              <Field label={t("page.cuttingPassports.field.operatorErp")}>
+                <select className="input" value={f.operator_id} onChange={sf("operator_id")}>
+                  <option value="">{t("page.cuttingPassports.placeholder.chooseNone")}</option>
+                  {usersArr.map((u: any) => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </Field>
+          {(materialForms.length ? materialForms : [{ ...form, stock_batch_id: 0 }]).map((material, index) => {
+            const f = materialForms.length ? { ...form, ...material, size_range: form.size_range } : form;
+            const calc = compute(f, selectedSizeCount);
+            const sf = (key: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) => {
+              const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+              if (!materialForms.length || key === "size_range") setForm((prev) => ({ ...prev, [key]: value }));
+              else setMaterialForms((rows) => rows.map((row, i) => i === index ? { ...row, [key]: value } : row));
+            };
+            return <div key={material.stock_batch_id} className="space-y-4 border-t border-[#e3e0d5] pt-4">
+              {materialForms.length > 0 && <h3 className="font-medium">{material.fabric_type} · {material.lot_no}</h3>}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Field label={t("page.cuttingPassports.field.operatorExcel")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleOperator")} value={f.operator_name_manual} onChange={sf("operator_name_manual")} />
+              </Field>
+              <Field label={t("page.cuttingPassports.field.fabric")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.fabricType")} value={f.fabric_type} onChange={sf("fabric_type")} />
+              </Field>
+              <Field label={t("page.cuttingPassports.field.lotNumber")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleLot")} value={f.lot_no} onChange={sf("lot_no")} />
+              </Field>
+              </div>
           <Sec label={t("page.cuttingPassports.section.layupInfo")}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <Field label={t("page.cuttingPassports.field.rollsCount")}>
@@ -825,6 +859,9 @@ export default function CuttingPassportsPage() {
               </CalcBox>
             </div>
           </Sec>
+
+            </div>;
+          })}
 
           <Field label={t("page.cuttingPassports.field.notes")}>
             <textarea className="input" rows={2} placeholder={t("page.cuttingPassports.placeholder.notes")} value={f.notes} onChange={sf("notes")} />

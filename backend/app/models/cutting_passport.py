@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
-from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric
+from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -49,6 +49,8 @@ class CuttingPassport(Base, PkMixin, TimestampMixin):
     other_beka_per_piece_kg: Mapped[float | None] = mapped_column(Numeric(14, 6))   # Битта ишга Бейка (other)
     scrap_kg: Mapped[float | None] = mapped_column(Numeric(14, 4))                  # Брак бичиш учун
     ribana_per_piece_kg: Mapped[float | None] = mapped_column(Numeric(14, 6))       # Битта ишга рибана
+
+    materials: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text)
 
