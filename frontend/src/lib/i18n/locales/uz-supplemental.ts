@@ -1,6 +1,14 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
     "page.cutting.printAndComplete": "Varaqni chop etish va bichishni yakunlash",
+    "passportMaterial.add": "Mato qo‘shish",
+    "passportMaterial.help": "Rejalashtirishda qo‘shilmagan matoni kiriting. Pasport saqlanganda mato buyurtmaga qo‘shiladi va miqdori bichish uchun band qilinadi.",
+    "passportMaterial.search": "Mato nomi yoki partiya raqamini qidirish",
+    "passportMaterial.noResults": "Mato topilmadi. Nomi yoki partiya raqami bilan qidiring.",
+    "passportMaterial.loadError": "Mato partiyalarini yuklab bo‘lmadi. Qayta urinib ko‘ring.",
+    "passportMaterial.amountRequired": "Mato partiyasini tanlang va noldan katta miqdor kiriting.",
+    "passportMaterial.duplicate": "Bu mato partiyasi pasportda mavjud.",
+    "passportMaterial.openOrderOnly": "Mato faqat ochiq bichish buyurtmasiga qo‘shiladi.",
     "cuttingUsage.title": "Bichuvda ishlatilgan matolar",
     "cuttingUsage.description": "Bichuvda ombordan amalda sarflangan matolar. Rejadagi ajratmalar va ombor harakatisiz buyurtmachi matolari kiritilmagan.",
     "cuttingUsage.search": "Qidirish",

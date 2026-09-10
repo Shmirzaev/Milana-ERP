@@ -3170,15 +3170,17 @@ def update_usluga_bundle_size_counts(
 
 @router.post("/cutting/records", status_code=201)
 def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depends(require_permissions("cutting.records", "*"))):
-    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update().first()
+    wo = db.get(WorkOrder, payload.work_order_id)
     if not wo: raise HTTPException(404, "Work order not found")
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting": raise HTTPException(400, "Work order is not a cutting operation")
     _gate_record_submission(wo)
-    po = db.get(ProductionOrder, wo.production_order_id)
+    po = db.query(ProductionOrder).filter(ProductionOrder.id == wo.production_order_id).with_for_update(of=ProductionOrder).first()
     if not po:
         raise HTTPException(404, "Production order not found")
+    db.refresh(wo, with_for_update=True)
+    _gate_record_submission(wo)
     if po.source_type == "usluga" and (payload.fabric_batch_id is not None or payload.materials):
         raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
     usluga_material = _usluga_cutting_material(db, po, payload.model_bom_id) if po.source_type == "usluga" else None
@@ -3877,13 +3879,17 @@ def finish_milana_cutting_and_print(
     record = db.get(CuttingRecord, rid)
     if not record:
         raise HTTPException(404, "Cutting record not found")
-    wo = db.query(WorkOrder).filter(WorkOrder.id == record.work_order_id).with_for_update().first()
-    if not wo or wo.operation != "cutting":
+    wo = db.get(WorkOrder, record.work_order_id)
+    if not wo:
+        raise HTTPException(400, "Cutting work order not found")
+    # Match passport/material editing: lock the production before its work order.
+    po = db.query(ProductionOrder).filter(ProductionOrder.id == wo.production_order_id).with_for_update(of=ProductionOrder).first()
+    db.refresh(wo, with_for_update=True)
+    if wo.operation != "cutting":
         raise HTTPException(400, "Cutting work order not found")
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     department = db.get(Department, wo.department_id)
-    po = db.get(ProductionOrder, wo.production_order_id)
     if not department or department.code != "CUT" or not po or po.source_type == "usluga":
         raise HTTPException(409, "Automatic cutting-sheet completion is only available in Milana Cutting")
     if wo.status in ("rejected", "cancelled") or po.status in ("rejected", "cancelled"):

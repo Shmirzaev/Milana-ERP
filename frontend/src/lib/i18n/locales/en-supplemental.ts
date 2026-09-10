@@ -1,6 +1,14 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
     "page.cutting.printAndComplete": "Print sheet and finish Cutting",
+    "passportMaterial.add": "Add material",
+    "passportMaterial.help": "Add a fabric missed in Planning. Saving this passport assigns it to the order and reserves the quantity for Cutting.",
+    "passportMaterial.search": "Search fabric name or batch number",
+    "passportMaterial.noResults": "No matching fabric. Search by name or batch number.",
+    "passportMaterial.loadError": "Could not load fabric batches. Try again.",
+    "passportMaterial.amountRequired": "Select a fabric batch and enter a positive quantity.",
+    "passportMaterial.duplicate": "This fabric batch is already in the passport.",
+    "passportMaterial.openOrderOnly": "Materials can only be added to an open Cutting order.",
     "cuttingUsage.title": "Cutting fabric usage",
     "cuttingUsage.description": "Actual warehouse fabric consumed by Cutting. Planned allocations and customer-supplied fabrics without stock movements are excluded.",
     "cuttingUsage.search": "Search",

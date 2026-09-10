@@ -5,6 +5,15 @@ import type { Lang } from "./types";
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
     "page.cutting.printAndComplete": "Print sheet and finish Cutting",
+    "passportMaterial.add": "Add material",
+    "passportMaterial.help": "Add a fabric missed in Planning. Saving this passport assigns it to the order and reserves the quantity for Cutting.",
+    "passportMaterial.search": "Search fabric name or batch number",
+    "passportMaterial.noResults": "No matching fabric. Search by name or batch number.",
+    "passportMaterial.loadError": "Could not load fabric batches. Try again.",
+    "passportMaterial.amountRequired": "Select a fabric batch and enter a positive quantity.",
+    "passportMaterial.duplicate": "This fabric batch is already in the passport.",
+    "passportMaterial.openOrderOnly": "Materials can only be added to an open Cutting order.",
+
     "cuttingUsage.title": "Cutting fabric usage",
     "cuttingUsage.description": "Actual warehouse fabric consumed by Cutting. Planned allocations and customer-supplied fabrics without stock movements are excluded.",
     "cuttingUsage.search": "Search",
@@ -988,6 +997,15 @@ export const supplemental: Record<Lang, Record<string, string>> = {
   },
   ru: {
     "page.cutting.printAndComplete": "Печать листа и завершение раскроя",
+    "passportMaterial.add": "Добавить материал",
+    "passportMaterial.help": "Добавьте ткань, пропущенную при планировании. При сохранении паспорта она добавится в заказ, а количество зарезервируется для раскроя.",
+    "passportMaterial.search": "Поиск по ткани или номеру партии",
+    "passportMaterial.noResults": "Ткань не найдена. Уточните название или номер партии.",
+    "passportMaterial.loadError": "Не удалось загрузить партии ткани. Повторите попытку.",
+    "passportMaterial.amountRequired": "Выберите партию ткани и укажите количество больше нуля.",
+    "passportMaterial.duplicate": "Эта партия ткани уже есть в паспорте.",
+    "passportMaterial.openOrderOnly": "Материал можно добавить только в открытый заказ раскроя.",
+
     "cuttingUsage.title": "Расход ткани на раскрой",
     "cuttingUsage.description": "Фактический расход складской ткани на раскрой. Плановые резервы и давальческие ткани без складских движений не включены.",
     "cuttingUsage.search": "Поиск",
@@ -2085,6 +2103,15 @@ export const supplemental: Record<Lang, Record<string, string>> = {
   },
   uz: {
     "page.cutting.printAndComplete": "Varaqni chop etish va bichishni yakunlash",
+    "passportMaterial.add": "Mato qo‘shish",
+    "passportMaterial.help": "Rejalashtirishda qo‘shilmagan matoni kiriting. Pasport saqlanganda mato buyurtmaga qo‘shiladi va miqdori bichish uchun band qilinadi.",
+    "passportMaterial.search": "Mato nomi yoki partiya raqamini qidirish",
+    "passportMaterial.noResults": "Mato topilmadi. Nomi yoki partiya raqami bilan qidiring.",
+    "passportMaterial.loadError": "Mato partiyalarini yuklab bo‘lmadi. Qayta urinib ko‘ring.",
+    "passportMaterial.amountRequired": "Mato partiyasini tanlang va noldan katta miqdor kiriting.",
+    "passportMaterial.duplicate": "Bu mato partiyasi pasportda mavjud.",
+    "passportMaterial.openOrderOnly": "Mato faqat ochiq bichish buyurtmasiga qo‘shiladi.",
+
     "cuttingUsage.title": "Bichuvda ishlatilgan matolar",
     "cuttingUsage.description": "Bichuvda ombordan amalda sarflangan matolar. Rejadagi ajratmalar va ombor harakatisiz buyurtmachi matolari kiritilmagan.",
     "cuttingUsage.search": "Qidirish",
