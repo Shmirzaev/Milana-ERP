@@ -1,6 +1,6 @@
 {
-  "release": "20260909_122650",
-  "source_manifest_sha256": "b1af565d5f3d77c9e94a4eee116c151a0debccdbeffd087755f60c7d430deb75",
-  "database_revision": "0121_stocktake_scan_snapshot",
-  "git_baseline_commit": "f91e733284fe96d6e5134ce65d2333411b520389"
+  "release": "20260910_052142",
+  "source_manifest_sha256": "8ea4bf55b6b7a725757ac7d71599c1bf8217bda474b5b47958d6fed0a357fa68",
+  "database_revision": "0122_cutting_material_details",
+  "git_baseline_commit": "6514767338e96b17461affa806fd8dca50361102"
 }
