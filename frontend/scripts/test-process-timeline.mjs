@@ -15,7 +15,21 @@ assert.equal(stage([cutting, { ...sewing, received_qty: 600 }], "sewing").tone, 
 assert.equal(stage([cutting, { ...sewing, received_qty: 100 }], "sewing").state, "partialAcceptance");
 assert.equal(stage([cutting, { ...sewing, received_qty: 100 }], "sewing").tone, "yellow");
 const partial = [{ ...cutting, status: "completed", completed: 498, output_qty: 498 }, { ...sewing, received_qty: 498 }];
-assert.equal(stage(partial, "cutting").state, "partial");
+assert.equal(stage(partial, "cutting").state, "completed", "closed Cutting stays complete below the original plan");
+assert.equal(stage(partial, "cutting").tone, "green");
+assert.equal(stage(partial, "cutting").output, 498, "closure does not invent output");
+assert.equal(stage(partial, "cutting").planned, 600, "closure preserves the original plan");
+for (const output of [300, 366, 588]) {
+  const closed = { ...cutting, completed: output, output_qty: output, failed: 600 - output };
+  assert.equal(stage([closed], "cutting").state, "completed");
+  assert.equal(stage([{ ...closed, status: "in_progress" }], "cutting").state, "partial", "open Cutting remains partial");
+  assert.equal(stage([{ ...closed, has_open_replacements: true }], "cutting").state, "partial", "replacement work remains visible");
+  assert.equal(stage([{ ...closed, is_blocked: true }], "cutting").state, "blocked");
+  assert.equal(stage([{ ...closed, status: "cancelled" }], "cutting").state, "cancelled");
+  for (const operation of ["printing", "packaging", "storage_transfer"]) {
+    assert.equal(stage([{ ...closed, operation }], operation).state, "partial", "other department output rules are unchanged");
+  }
+}
 assert.equal(stage(partial, "sewing").state, "accepted");
 assert.equal(stage(partial, "sewing").output, 0, "receipt does not mean sewn");
 const printing = { operation: "printing", status: "in_progress", planned: 600, completed: 100, output_qty: 100 };
