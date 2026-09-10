@@ -1,5 +1,16 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.payroll.confirmDeleteAdjustment": "Удалить корректировку {amount} ({reason})? Итоги зарплаты будут пересчитаны.",
+    "page.payroll.adjustmentDeleted": "Корректировка удалена.",
+    "page.payroll.adjustmentDeleteFailed": "Не удалось удалить корректировку.",
+    "page.forecasting.loadFailed": "Не удалось загрузить прогноз. Нажмите «Обновить», чтобы повторить.",
+    "page.forecasting.actionFailed": "Не удалось выполнить действие. Повторите попытку.",
+    "page.forecasting.saved": "Рекомендация сохранена.",
+    "page.forecasting.updated": "Рекомендация обновлена.",
+    "page.forecasting.unlinkedBom": "Строки спецификации без складского материала: {count}. Привяжите материал в разделе «Модели», чтобы учесть его в потребности.",
+    "forecast.confidence.high": "Высокая",
+    "forecast.confidence.medium": "Средняя",
+    "forecast.confidence.low": "Низкая",
     "cuttingBatch.change": "Изменить партию",
     "cuttingBatch.select": "Правильная партия материала",
     "cuttingBatch.help": "Сохранение обновит заказ, неиспользованные резервы и связанные паспорта раскроя. Плановое количество не изменится.",

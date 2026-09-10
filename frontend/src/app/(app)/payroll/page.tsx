@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Trash2,
   Undo2,
   Unlock,
 } from "lucide-react";
@@ -188,6 +189,7 @@ export default function PayrollPage() {
   const { t, lang } = useT();
   const { me } = useMe();
   const canManage = can(me, "payroll.manage", "*");
+  const [deletingAdjustment, setDeletingAdjustment] = useState<number | null>(null);
   const canApprove = can(me, "payroll.approve", "*");
   const canPay = can(me, "payroll.pay", "*");
   const [filters, setFilters] = useState({ periodId: "", employeeId: "", departmentId: "", from: "", to: "" });
@@ -317,6 +319,24 @@ export default function PayrollPage() {
       await refreshAll();
     } catch (error: any) {
       notice(error?.message || t("page.payroll.adjustmentAddFailed"), "error");
+    }
+  }
+
+  async function deleteAdjustment(adjustment: PayrollAdjustment) {
+    if (!canManage || deletingAdjustment !== null) return;
+    if (!window.confirm(t("page.payroll.confirmDeleteAdjustment", {
+      amount: money(adjustment.signed_amount, adjustment.currency),
+      reason: adjustment.reason,
+    }))) return;
+    setDeletingAdjustment(adjustment.id);
+    try {
+      await api.del(`/api/payroll/adjustments/${adjustment.id}`);
+      notice(t("page.payroll.adjustmentDeleted"), "success");
+      await refreshAll();
+    } catch (error: any) {
+      notice(error?.message || t("page.payroll.adjustmentDeleteFailed"), "error");
+    } finally {
+      setDeletingAdjustment(null);
     }
   }
 
@@ -661,11 +681,12 @@ export default function PayrollPage() {
                   <th>{t("field.type")}</th>
                   <th>{t("field.amount")}</th>
                   <th>{t("field.reason")}</th>
+                  <th>{t("field.actions")}</th>
                 </tr>
               </thead>
               <tbody>
                 {adjustments.length === 0 && (
-                  <tr><td colSpan={6} className="text-sm text-[#8a8472]">{t("page.payroll.noAdjustments")}</td></tr>
+                  <tr><td colSpan={7} className="text-sm text-[#8a8472]">{t("page.payroll.noAdjustments")}</td></tr>
                 )}
                 {adjustments.map((adjustment) => {
                   const employee = employeeById.get(Number(adjustment.employee_id));
@@ -683,6 +704,15 @@ export default function PayrollPage() {
                           <div className="mt-1 text-xs text-[#8a8472]">
                             {t("page.payroll.reversalOfRecord", { id: adjustment.source_payroll_record_id })}
                           </div>
+                        )}
+                      </td>
+                      <td>
+                        {canManage && !adjustment.source_payroll_record_id &&
+                          (!adjustment.payroll_period_id || (period && !FINALIZED_PERIOD_STATUSES.has(period.status))) && (
+                          <button type="button" className="btn btn-sm text-red-700"
+                            disabled={deletingAdjustment !== null} onClick={() => deleteAdjustment(adjustment)}>
+                            <Trash2 className="h-4 w-4" />{t("btn.delete")}
+                          </button>
                         )}
                       </td>
                     </tr>

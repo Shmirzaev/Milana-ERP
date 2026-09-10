@@ -1,5 +1,16 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.payroll.confirmDeleteAdjustment": "{amount} ({reason}) tuzatish o‘chirilsinmi? Ish haqi jami qayta hisoblanadi.",
+    "page.payroll.adjustmentDeleted": "Tuzatish o‘chirildi.",
+    "page.payroll.adjustmentDeleteFailed": "Tuzatishni o‘chirib bo‘lmadi.",
+    "page.forecasting.loadFailed": "Prognoz ma’lumotlari yuklanmadi. Qayta urinish uchun yangilang.",
+    "page.forecasting.actionFailed": "Amal bajarilmadi. Qayta urinib ko‘ring.",
+    "page.forecasting.saved": "Tavsiya saqlandi.",
+    "page.forecasting.updated": "Tavsiya yangilandi.",
+    "page.forecasting.unlinkedBom": "Ombor materialiga bog‘lanmagan BOM qatorlari: {count}. Material talabida hisoblash uchun Modellar bo‘limida bog‘lang.",
+    "forecast.confidence.high": "Yuqori",
+    "forecast.confidence.medium": "O‘rta",
+    "forecast.confidence.low": "Past",
     "cuttingBatch.change": "Partiyani almashtirish",
     "cuttingBatch.select": "To‘g‘ri mato partiyasi",
     "cuttingBatch.help": "Saqlash buyurtma, ishlatilmagan bandlar va bog‘langan bichish pasportlarini yangilaydi. Reja miqdori o‘zgarmaydi.",

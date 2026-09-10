@@ -448,6 +448,7 @@ def test_paid_record_reversal_posts_one_audited_deduction_to_open_period(client,
     assert body["source_payroll_record_id"] == created.json()["id"]
     assert body["payroll_period_id"] == target_period["id"]
     assert body["employee_id"] == employee["id"]
+    assert client.delete(f"/api/payroll/adjustments/{body['id']}", headers=auth_headers).status_code == 409
     assert body["adjustment_type"] == "deduction"
     assert float(body["amount"]) == 2500
     assert float(body["signed_amount"]) == -2500
@@ -1722,3 +1723,45 @@ def test_rate_corrected_shared_code_still_rejects_another_operation(client, auth
     unchanged = client.get("/api/payroll/qr-labels", params={"search": uid}, headers=auth_headers).json()["items"][0]
     assert float(unchanged["rate_per_piece"]) == 75
     assert unchanged["label_uid"] == uid
+
+
+@pytest.mark.parametrize("status", [None, "open", "draft", "locked", "approved", "paid", "cancelled"])
+def test_delete_adjustment_checks_period_and_recalculates(client, auth_headers, status):
+    from app.models import AuditLog, PayrollAdjustment, PayrollPeriod
+    employee = _create_employee(client, auth_headers)
+    period = _create_period(client, auth_headers) if status else None
+    response = client.post("/api/payroll/adjustments", headers=auth_headers, json={
+        "employee_id": employee["id"], "payroll_period_id": period["id"] if period else None,
+        "adjustment_type": "bonus", "amount": 125, "reason": "Delete regression",
+    })
+    assert response.status_code == 201, response.text
+    adjustment_id = response.json()["id"]
+    if period:
+        with TestSessionLocal() as db:
+            db.get(PayrollPeriod, period["id"]).status = status
+            db.commit()
+    response = client.delete(f"/api/payroll/adjustments/{adjustment_id}", headers=auth_headers)
+    allowed = status in (None, "open", "draft")
+    assert response.status_code == (204 if allowed else 409), response.text
+    with TestSessionLocal() as db:
+        assert (db.get(PayrollAdjustment, adjustment_id) is None) == allowed
+        audit = db.query(AuditLog).filter(AuditLog.entity_type == "PayrollAdjustment", AuditLog.entity_id == adjustment_id, AuditLog.action == "delete").first()
+        assert bool(audit) == allowed
+    if allowed:
+        response = client.get(f"/api/payroll/summary?employee_id={employee['id']}", headers=auth_headers)
+        assert response.status_code == 200, response.text
+        assert float(response.json()["adjustment_amount"]) == 0
+        assert client.delete(f"/api/payroll/adjustments/{adjustment_id}", headers=auth_headers).status_code == 404
+
+
+def test_delete_adjustment_rejects_viewer_and_other_factory(client, auth_headers):
+    employee = _create_employee(client, auth_headers)
+    response = client.post("/api/payroll/adjustments", headers=auth_headers, json={
+        "employee_id": employee["id"], "amount": 125, "reason": "Scoped deletion",
+    })
+    assert response.status_code == 201, response.text
+    path = f"/api/payroll/adjustments/{response.json()['id']}"
+    viewer = _create_user_with_permissions(client, auth_headers, email=f"viewer-{uuid4().hex}@example.com", permissions=["payroll.view"])
+    other = _create_user_with_permissions(client, auth_headers, email=f"eco-{uuid4().hex}@example.com", permissions=["payroll.manage"], factory_code="ECO")
+    assert client.delete(path, headers=viewer).status_code == 403
+    assert client.delete(path, headers=other).status_code == 404

@@ -3257,3 +3257,41 @@ def create_adjustment(
     db.refresh(adjustment)
     return adjustment
 
+
+@router.delete("/adjustments/{adjustment_id}", status_code=204)
+def delete_adjustment(
+    adjustment_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("payroll.manage", "*")),
+):
+    factory_code = selected_factory_code(current)
+    adjustment = db.query(PayrollAdjustment).filter(
+        PayrollAdjustment.id == adjustment_id,
+        PayrollAdjustment.factory_code == factory_code,
+    ).with_for_update().first()
+    if not adjustment:
+        raise HTTPException(404, "Payroll adjustment not found")
+    if adjustment.source_payroll_record_id:
+        raise HTTPException(409, "Linked payroll reversal adjustments cannot be deleted")
+    if adjustment.payroll_period_id:
+        period = db.query(PayrollPeriod).filter(
+            PayrollPeriod.id == adjustment.payroll_period_id,
+            PayrollPeriod.factory_code == factory_code,
+        ).with_for_update().first()
+        if not period:
+            raise HTTPException(404, "Payroll period not found")
+        _assert_period_accepts_adjustments(period)
+    log_action(db, current, "delete", "PayrollAdjustment", adjustment.id, old_value={
+        "factory_code": adjustment.factory_code,
+        "employee_id": adjustment.employee_id,
+        "payroll_period_id": adjustment.payroll_period_id,
+        "adjustment_type": adjustment.adjustment_type,
+        "amount": adjustment.amount,
+        "signed_amount": _adjustment_signed_amount(adjustment),
+        "currency": adjustment.currency,
+        "reason": adjustment.reason,
+    })
+    db.delete(adjustment)
+    db.commit()
+    return Response(status_code=204)
+
