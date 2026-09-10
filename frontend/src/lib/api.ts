@@ -223,8 +223,8 @@ export const api = {
    * new window for printing. We pull the HTML ourselves and inject it into a
    * child window via a Blob URL so the print view does not need bearer tokens.
    */
-  async openLabel(path: string): Promise<void> {
-    const res = await fetchWithTimeout(resolveUrl(path));
+  async openLabel(path: string, method: "GET" | "POST" = "GET"): Promise<void> {
+    const res = await fetchWithTimeout(resolveUrl(path), { method });
     if (!res.ok) {
       let detail = res.statusText;
       try {
