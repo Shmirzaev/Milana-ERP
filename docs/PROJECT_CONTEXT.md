@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-10
 
+## Branded Stock cutting status and department visibility prepared (2026-09-10)
+
+- Root cause: individual Branded Stock rows rendered every non-completed Cutting state as Not cut, even when the API correctly returned partial. Rows now show the true partial label and yellow color, actual Cutting output versus plan, and the assigned Cutting department using existing EN/RU/UZ labels. The open Planning/Branded Stock page refreshes its history every 10 seconds, matching the Cutting inbox.
+- Read-only production diagnosis found PO-0148 and PO-0152 assigned to ECT (Eco Cotton Cutting), with zero Cutting output; they correctly do not appear in the regular CUT inbox. No assignment is changed. PO-0150/0153/0154 had 498/588/366 pieces respectively, with Cutting still in progress; these must display Partially cut rather than Not cut.
+- Worktree `C:/ERP/.codex-work/branded-cutting-status-20260910`, branch `codex/branded-cutting-status-20260910`, starts from reconciled main `dfb97ff6` after the independent cutting-material release completed. Both active source manifests verified release `20260910_052142`, manifest `8ea4bf55b6b7a725757ac7d71599c1bf8217bda474b5b47958d6fed0a357fa68`; database `0122_cutting_material_details`. No other task was interrupted or modified.
+- Focused existing Cutting-history tests (2), Ruff, strict TypeScript, changed-file ESLint and existing Branded Stock contracts passed. User requested fast deployment without extra tests or monitoring: retain immutable-image CI, backup, inactive-slot warm-up and immediate health/runtime checks; omit additional broad QA/performance exercises and extended observation. No migration, permission change or business-data write is required.
+
 ## Per-material cutting details deployed (2026-09-10)
 
 - LIVE: backend/frontend release `20260910_052142` in green, exact application commit `6514767338e96b17461affa806fd8dca50361102`; PR #94 merged as `6d932e53`. Both active symlinks, slot states and immutable image identities agree. Blue `20260909_122650` remains running for rollback. Backend/frontend activation completed at 05:33:35/05:33:36 UTC (10:33 Tashkent).

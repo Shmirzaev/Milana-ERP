@@ -14,17 +14,19 @@ def test_branded_history_uses_cutting_progress_across_all_productions(client, au
 
     assert history()["cutting_status"] == "not_started"
     production_ids = []
-    for _ in range(2):
+    for department in ("CUT", "ECT"):
         response = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
             "planning_order_id": group_id,
             "production_type": "branded_stock",
             "model_id": 1,
             "planned_quantity": 24,
+            "cutting_department_code": department,
             "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 24}],
         })
         assert response.status_code == 201, response.text
         production_ids.append(response.json()["id"])
     assert history()["cutting_status"] == "not_started"
+    assert [row["cutting_departments"][0]["code"] for row in history()["productions"]] == ["CUT", "ECT"]
 
     def set_cutting(index, status, quantity):
         with TestSessionLocal() as db:
@@ -39,6 +41,7 @@ def test_branded_history_uses_cutting_progress_across_all_productions(client, au
     set_cutting(0, "in_progress", 12)
     assert history()["cutting_status"] == "partial"
     assert history()["productions"][0]["cutting_status"] == "partial"
+    assert history()["productions"][0]["cutting_quantity"] == 12
     set_cutting(0, "completed", 24)
     result = history()
     assert result["cutting_status"] == "partial"
@@ -51,6 +54,8 @@ def test_branded_history_uses_cutting_progress_across_all_productions(client, au
     assert history()["cutting_status"] == "partial"
     set_cutting(0, "cancelled", 24)
     assert history()["cutting_status"] == "not_started"
+    assert history()["productions"][0]["cutting_quantity"] == 0
+    assert history()["productions"][0]["cutting_departments"] == []
 
 
 def test_branded_history_requires_authentication(client):
