@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-10
 
+## Cutting Passport missing-material addition prepared (2026-09-10)
+
+- Cutting Passport adds an inventory fabric picker and quantity input for fabrics omitted in Planning. New rows remain local until Save; cancelling adds no order data. Save appends the assignment and reserves only its missing quantity in the same transaction as the passport. The added batch appears in the production material plan, Cutting inputs, reservation/consumption flow and per-material passport/sheet evidence.
+- Existing planned assignments cannot be removed or silently replaced. Duplicate requests do not repeat reservations, insufficient stock rolls back the complete save, and product quantities/bundles remain counted once. Existing single-material legacy selection is preserved. Factory authorization applies to source and target orders on passport edit; only Cutting permission can perform this extension. Closed Cutting and customer-owned Usluga inventory additions are blocked.
+- No schema migration or production business-data change is needed for deployment. Source began at verified `dfb97ff6` / active green `20260910_052142`, manifest `8ea4bf55b6b7a725757ac7d71599c1bf8217bda474b5b47958d6fed0a357fa68`. Worktree `C:/ERP/.codex-work/passport-add-material-20260910`, branch `codex/passport-add-material-20260910`. Legacy checkout preserved.
+- Focused checks passed the complete permission/atomic-save/reservation/actual-consumption and unchanged-bundle handoff, retry behavior, insufficient-stock rollback, closed Cutting and Usluga exclusions. Changed-file Ruff/ESLint and strict TypeScript passed. The user's earlier request for no extra review/tests continues for this follow-up; immutable CI/builds and immediate backup/runtime/health gates remain.
+
 ## Per-material cutting details deployed (2026-09-10)
 
 - LIVE: backend/frontend release `20260910_052142` in green, exact application commit `6514767338e96b17461affa806fd8dca50361102`; PR #94 merged as `6d932e53`. Both active symlinks, slot states and immutable image identities agree. Blue `20260909_122650` remains running for rollback. Backend/frontend activation completed at 05:33:35/05:33:36 UTC (10:33 Tashkent).

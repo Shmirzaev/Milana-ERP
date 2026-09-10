@@ -1,5 +1,13 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "passportMaterial.add": "Добавить материал",
+    "passportMaterial.help": "Добавьте ткань, пропущенную при планировании. При сохранении паспорта она добавится в заказ, а количество зарезервируется для раскроя.",
+    "passportMaterial.search": "Поиск по ткани или номеру партии",
+    "passportMaterial.noResults": "Ткань не найдена. Уточните название или номер партии.",
+    "passportMaterial.loadError": "Не удалось загрузить партии ткани. Повторите попытку.",
+    "passportMaterial.amountRequired": "Выберите партию ткани и укажите количество больше нуля.",
+    "passportMaterial.duplicate": "Эта партия ткани уже есть в паспорте.",
+    "passportMaterial.openOrderOnly": "Материал можно добавить только в открытый заказ раскроя.",
     "cuttingUsage.title": "Расход ткани на раскрой",
     "cuttingUsage.description": "Фактический расход складской ткани на раскрой. Плановые резервы и давальческие ткани без складских движений не включены.",
     "cuttingUsage.search": "Поиск",

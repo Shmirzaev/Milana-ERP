@@ -11,10 +11,17 @@ class CuttingOperatorOut(ORMModel):
     name: str
 
 
+class PassportAdditionalMaterial(BaseModel):
+    stock_batch_id: int = Field(gt=0)
+    estimated_quantity: float = Field(gt=0, allow_inf_nan=False)
+    unit: str = Field(min_length=1, max_length=32)
+
+
 class CuttingPassportIn(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     materials: list[PassportMaterial] = Field(default_factory=list)
+    additional_materials: list[PassportAdditionalMaterial] = Field(default_factory=list)
     passport_no: str
     date: datetime
     production_order_id: Optional[int] = None
