@@ -393,19 +393,48 @@ def test_multi_fabric_planning_flows_to_atomic_cutting_and_bundles(client, auth_
     finally:
         db.close()
 
+    defaults = client.get(f"/api/cutting-passports/material-defaults?production_order_id={production_order['id']}", headers=auth_headers)
+    assert defaults.status_code == 200, defaults.text
+    assert [row["stock_batch_id"] for row in defaults.json()["materials"]] == [first_batch["id"], second_batch["id"]]
+    passport = client.post("/api/cutting-passports", headers=auth_headers, json={
+        "passport_no": f"MULTI-{suffix}", "date": "2026-09-10T00:00:00Z",
+        "production_order_id": production_order["id"], "materials": [
+            {"stock_batch_id": first_batch["id"], "layer_weight_kg": 1.5, "pieces": 10, "beka_per_piece_kg": 0.1},
+            {"stock_batch_id": second_batch["id"], "layer_weight_kg": 0.4, "pieces": 10, "beka_per_piece_kg": 0.02},
+        ],
+    })
+    assert passport.status_code == 201, passport.text
+    assert [row["total_beka_kg"] for row in passport.json()["materials"]] == [1.0, 0.2]
+    details_a = {"layer_material_kg": 1.5, "beika_kg": 0.3, "material_rolls_used": 2, "layup_operator_name": "Operator A", "cut_pieces": 10, "waste_quantity": 0.5, "waste_unit": "kg"}
+    details_b = {**details_a, "layer_material_kg": 0.4, "beika_kg": 0.1, "material_rolls_used": 1, "layup_operator_name": "Operator B", "waste_quantity": 0.2}
     cutting_response = client.post(
         "/api/cutting/records",
         json={
             **cutting_payload,
             "materials": [
-                {"stock_batch_id": first_batch["id"], "quantity": 11, "unit": "kg"},
-                {"stock_batch_id": second_batch["id"], "quantity": 4, "unit": "kg"},
+                {"stock_batch_id": first_batch["id"], "quantity": 11, "unit": "kg", "details": details_a},
+                {"stock_batch_id": second_batch["id"], "quantity": 4, "unit": "kg", "details": details_b},
             ],
         },
         headers=auth_headers,
     )
     assert cutting_response.status_code == 201, cutting_response.text
     cutting_record_id = cutting_response.json()["id"]
+    assert [row["details"] for row in cutting_response.json()["materials"]] == [details_a, details_b]
+    saved = client.get(f"/api/cutting/records/{cutting_record_id}", headers=auth_headers)
+    assert saved.status_code == 200, saved.text
+    assert [row["details"] for row in saved.json()["materials"]] == [details_a, details_b]
+    sheet = client.get(f"/api/cutting/records/{cutting_record_id}/production-sheet", headers=auth_headers)
+    assert sheet.status_code == 200, sheet.text
+    assert "Operator A" in sheet.text and "Operator B" in sheet.text
+    edited = client.patch(f"/api/cutting/records/{cutting_record_id}", headers=auth_headers, json={"materials": [
+        {"stock_batch_id": first_batch["id"], **{key: details_a[key] for key in ("layer_material_kg", "beika_kg", "material_rolls_used", "layup_operator_name")}},
+        {"stock_batch_id": second_batch["id"], **{key: details_b[key] for key in ("layer_material_kg", "beika_kg", "material_rolls_used", "layup_operator_name")}, "beika_kg": 0.15},
+    ]})
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["materials"][1]["details"]["beika_kg"] == 0.15
+    assert edited.json()["materials"][0]["details"] == details_a
+
     assert len(cutting_response.json()["bundles"]) == 1
     assert [row["stock_batch_id"] for row in cutting_response.json()["materials"]] == [
         first_batch["id"],

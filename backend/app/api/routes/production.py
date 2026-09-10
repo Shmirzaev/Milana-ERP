@@ -195,7 +195,16 @@ class CuttingBundleQuantityUpdateIn(BaseModel):
     bundles: list[CuttingBundleQuantityRowIn]
 
 
+class CuttingMaterialDetailsUpdateIn(BaseModel):
+    stock_batch_id: int
+    layer_material_kg: float = Field(ge=0, allow_inf_nan=False)
+    beika_kg: float = Field(ge=0, allow_inf_nan=False)
+    material_rolls_used: float = Field(ge=0, allow_inf_nan=False)
+    layup_operator_name: str = Field(max_length=128)
+
+
 class CuttingRecordDetailsUpdateIn(BaseModel):
+    materials: list[CuttingMaterialDetailsUpdateIn] | None = None
     layer_material_kg: float | None = None
     beika_kg: float | None = None
     material_rolls_used: float | None = None
@@ -3203,6 +3212,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             "stock_batch_id": batch_id_value,
             "quantity": quantity_value,
             "unit": unit_value,
+            "details": raw.get("details"),
         })
 
     planned_materials = (
@@ -3226,7 +3236,14 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             if planned_unit and str(row["unit"]).strip().lower() != planned_unit:
                 raise HTTPException(400, "Cutting material unit must match the planned material unit")
 
+    detailed_materials = [row for row in cutting_materials if row.get("details") is not None]
+    if detailed_materials and len(detailed_materials) != len(cutting_materials):
+        raise HTTPException(400, "Enter cutting details for every fabric")
     primary_material = cutting_materials[0] if cutting_materials else None
+    if detailed_materials:
+        details = detailed_materials[0]["details"]
+        for field in ("layer_material_kg", "beika_kg", "material_rolls_used", "layup_operator_name", "waste_quantity", "waste_unit"):
+            setattr(payload, field, details[field])
 
     batch_id = _resolve_record_batch_id(
         db,
@@ -3329,6 +3346,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             quantity=material["quantity"],
             unit=material["unit"],
             position=position,
+            details=material.get("details"),
         ))
 
     # Update work order quantities
@@ -3371,7 +3389,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
                 reference_id=rec.id,
                 user_id=current.id,
             )
-    if not usluga_material:
+    if not usluga_material and not detailed_materials:
         create_waste_record(
             db,
             production_order_id=wo.production_order_id,
@@ -3384,6 +3402,16 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             unit=payload.waste_unit,
             reason="Auto-created from cutting record",
             created_by=current.id,
+        )
+
+    for material in detailed_materials:
+        details = material["details"]
+        create_waste_record(
+            db, production_order_id=wo.production_order_id, work_order_id=wo.id,
+            source_department_id=wo.department_id, item_id=None,
+            batch_id=material["stock_batch_id"], waste_type="cutting_waste",
+            quantity=details["waste_quantity"], unit=details["waste_unit"],
+            reason="Auto-created from cutting record", created_by=current.id,
         )
 
     # Create bundles for the plan
@@ -3516,6 +3544,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
                 "quantity": float(row.quantity),
                 "unit": row.unit,
                 "position": row.position,
+                "details": row.details,
             }
             for row in rec.materials
         ],
@@ -3706,6 +3735,7 @@ def _cutting_record_payload(r: CuttingRecord) -> dict:
                 "quantity": float(row.quantity),
                 "unit": row.unit,
                 "position": row.position,
+                "details": row.details,
             }
             for row in r.materials
         ],
@@ -3766,6 +3796,24 @@ def update_cutting_record_details(
         "layup_operator_name": rec.layup_operator_name,
         "notes": rec.notes,
     }
+    old_value["materials"] = [{"stock_batch_id": row.stock_batch_id, "details": row.details} for row in rec.materials]
+    if payload.materials is not None:
+        by_batch = {row.stock_batch_id: row for row in rec.materials}
+        ids = [row.stock_batch_id for row in payload.materials]
+        if len(ids) != len(set(ids)) or set(ids) != set(by_batch):
+            raise HTTPException(400, "Cutting details must match the saved materials")
+        for row in payload.materials:
+            usage = by_batch[row.stock_batch_id]
+            if usage.details is None:
+                raise HTTPException(400, "This historic record has no separate material details")
+            usage.details = {**usage.details, **row.model_dump(exclude={"stock_batch_id"})}
+        primary = min(rec.materials, key=lambda row: row.position)
+        for field in (*numeric_fields, "layup_operator_name"):
+            setattr(payload, field, primary.details[field])
+    elif any(row.details is not None for row in rec.materials):
+        # Legacy clients edit the primary material only.
+        primary = min(rec.materials, key=lambda row: row.position)
+        primary.details = {**primary.details, **payload.model_dump(exclude_unset=True, include=set(numeric_fields) | {"layup_operator_name"})}
     fields = payload.model_fields_set
     for field in numeric_fields:
         if field in fields:
@@ -3782,6 +3830,7 @@ def update_cutting_record_details(
         "layup_operator_name": rec.layup_operator_name,
         "notes": rec.notes,
     }
+    new_value["materials"] = [{"stock_batch_id": row.stock_batch_id, "details": row.details} for row in rec.materials]
     log_action(
         db,
         current,

@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from app.core.order_reference import canonical_business_order_reference, order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import or_
@@ -139,6 +140,10 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None) -> 
         "model_image_url": model_image_url,
         "operator_name": op.name if op else p.operator_name_manual,
     }
+    d["materials"] = [
+        {**row, **_compute(SimpleNamespace(**row, size_range=p.size_range))}
+        for row in (p.materials or [])
+    ]
     d.update(_compute(p))
     return d
 
@@ -314,6 +319,17 @@ def material_defaults(
         raise HTTPException(404, "Production order not found")
     model = db.get(CatalogModel, po.model_id)
 
+    if po.materials:
+        rows = []
+        for material in sorted(po.materials, key=lambda row: row.position):
+            batch = db.get(StockBatch, material.stock_batch_id)
+            item = db.get(Item, batch.item_id) if batch else None
+            row = _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch)
+            row["stock_batch_id"] = material.stock_batch_id
+            row["planned_kg"] = float(material.estimated_quantity) if material.unit.lower() == "kg" else None
+            rows.append(row)
+        return {**rows[0], "materials": rows}
+
     bom_rows = (
         db.query(ModelBOM, Item)
         .join(Item, Item.id == ModelBOM.item_id)
@@ -433,9 +449,17 @@ def _passport_values(db, payload: CuttingPassportIn) -> dict:
         order = db.get(ProductionOrder, payload.production_order_id)
         if order is None:
             raise HTTPException(404, "Production order not found")
+        if payload.materials:
+            ids = [row.stock_batch_id for row in payload.materials]
+            planned = {row.stock_batch_id for row in order.materials}
+            if len(ids) != len(set(ids)) or set(ids) != planned:
+                raise HTTPException(400, "Passport materials must match the fabrics selected in planning")
+            values.update({key: value for key, value in values["materials"][0].items() if key != "stock_batch_id"})
         # A stale form must not overwrite the linked order's live reference.
         values["order_no"] = order.order_no
     else:
+        if payload.materials:
+            raise HTTPException(400, "Select a production order for passport materials")
         values["order_no"] = canonical_business_order_reference(db, payload.order_no)
     return values
 

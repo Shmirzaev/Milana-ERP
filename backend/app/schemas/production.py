@@ -214,13 +214,18 @@ class WorkOrderUpdate(BaseModel):
     rework_qty: Optional[int] = None
 
 
+from app.schemas.cutting_material import CuttingMaterialDetails
+
+
 class CuttingMaterialUsageIn(BaseModel):
+    details: CuttingMaterialDetails | None = None
     stock_batch_id: int
     quantity: float = Field(gt=0)
     unit: str = Field(min_length=1, max_length=32)
 
 
 class CuttingMaterialUsageOut(ORMModel):
+    details: CuttingMaterialDetails | None = None
     id: int
     cutting_record_id: int
     stock_batch_id: int
