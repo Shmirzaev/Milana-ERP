@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-10
 
+## Compact department queues prepared (2026-09-10)
+
+- Sewing, Packaging, Printing and the shared department inbox now use one order list grouped by BSO/order, merging incoming/pending/in-progress/completed entries by work-order identity. Compact rows retain pictures, quantities, deadlines and existing actions. Labels support EN/RU/UZ.
+- Yellow means work is ready/received or has output and remains pending; green means the current department completed it; white means no ready/received/output quantity yet. Automatic stage activation and upstream completion alone do not mark the department completed. Existing specialized Cutting list and physical package/shipment sections retain their established behavior.
+- Verified production baseline: both VMs green `20260910_084513`, manifest `3a93c9d47439679df1f5a2998cbaf1dc166f81437c3e5f818eb442711347970e`, application commit `6d702111ad014d830bda035433b67d0a39a943a2`; main `2f486e7f` differs only in completion documentation/baseline metadata. Dedicated worktree `C:/ERP/.codex-work/compact-departments-20260910`, branch `codex/compact-departments-20260910`.
+- Strict TypeScript, changed-component ESLint and whitespace validation passed. User explicitly requests fast deployment without extra tests/reviews: retain immutable CI/build, verified backup, inactive-slot warm-up and immediate health/runtime checks; omit separate review, browser/performance exercises and extended observation. No backend, schema, permissions or business-data changes.
+
 ## Receipt-based production timeline deployed (2026-09-10)
 
 - LIVE: backend/frontend release `20260910_084513` in green, exact application commit `6d702111ad014d830bda035433b67d0a39a943a2`, merged through PR #107 as `7b575de3`. Both source manifests, image identities, symlinks and slot states agree. Activation completed 08:57:44/08:57:45 UTC (13:57 Tashkent). Blue `20260910_065757` remains running for rollback.

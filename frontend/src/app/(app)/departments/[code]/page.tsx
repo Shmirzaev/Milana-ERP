@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -8,7 +8,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
 import CuttingOrderList from "@/components/CuttingOrderList";
-import DepartmentOrderList from "@/components/DepartmentOrderList";
+import DepartmentOrderList, { mergeDepartmentOrders } from "@/components/DepartmentOrderList";
 import ShipmentItemLines from "@/components/ShipmentItemLines";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
@@ -115,7 +115,12 @@ export default function DepartmentInboxPage() {
       .filter((row: any) => !incomingWorkOrderPoIds.has(Number(row.production_order_id || 0))),
     [data?.incoming_bundle_groups, incomingWorkOrderPoIds],
   );
-  const incomingCount = incomingBundleGroups.length + incomingWorkOrders.length;
+  const departmentOrders = mergeDepartmentOrders([
+    { kind: "incoming", rows: [...incomingWorkOrders, ...incomingBundleGroups] },
+    { kind: "pending", rows: pendingWorkOrders },
+    { kind: "in_progress", rows: inProgressWorkOrders },
+    { kind: "completed", rows: Array.isArray(data?.done_today) ? data.done_today : [] },
+  ]);
   const pendingPackages = useMemo(() => (
     Array.isArray(data?.pending_packages) ? data.pending_packages : []
   ), [data?.pending_packages]);
@@ -351,41 +356,14 @@ export default function DepartmentInboxPage() {
           t={t}
         />
       ) : !isLoading ? (
-        <div className="min-w-0 space-y-4">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#56503f]" aria-label={t("cuttingInbox.colorMeaning")}>
-            <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-[#ded9ca] bg-white" />{statusLabel("pending", t)}</span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-amber-200 bg-yellow-50" />{statusLabel("in_progress", t)}</span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-green-200 bg-green-50" />{statusLabel("completed", t)}</span>
-          </div>
-          <DepartmentOrderList
-            rows={[...incomingWorkOrders, ...incomingBundleGroups]}
-            kind="incoming"
-            title={t("page.deptInbox.incoming", { count: incomingCount })}
-            emptyLabel={t("page.deptInbox.noIncomingWork")}
-            t={t}
-          />
+        <div className="min-w-0 space-y-2">
           {startError ? <div role="alert" className="text-sm text-red-700">{startError}</div> : null}
           <DepartmentOrderList
-            rows={pendingWorkOrders}
-            kind="pending"
-            title={t("page.deptInbox.pending", { count: pendingWorkOrders.length })}
-            emptyLabel={t("page.deptInbox.noPendingWorkOrders")}
+            rows={departmentOrders}
+            title={t("page.deptInbox.orders", { count: departmentOrders.length })}
+            emptyLabel={t("page.deptInbox.noOrders")}
             startingWorkOrderId={startingWoId}
             onMoveToInProgress={movePendingToInProgress}
-            t={t}
-          />
-          <DepartmentOrderList
-            rows={inProgressWorkOrders}
-            kind="in_progress"
-            title={t("page.deptInbox.inProgress", { count: inProgressWorkOrders.length })}
-            emptyLabel={t("page.deptInbox.noInProgressWorkOrders")}
-            t={t}
-          />
-          <DepartmentOrderList
-            rows={Array.isArray(data?.done_today) ? data.done_today : []}
-            kind="completed"
-            title={t("page.deptInbox.doneToday", { count: (data?.done_today || []).length })}
-            emptyLabel={t("page.deptInbox.nothingCompleted24h")}
             t={t}
           />
         </div>
