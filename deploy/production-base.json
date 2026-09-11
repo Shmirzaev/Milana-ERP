@@ -1,6 +1,6 @@
 {
-  "release": "20260911_053727",
-  "source_manifest_sha256": "4c5ca14374497e17ad9becc304b2b57b31af483ba78caa8c86d70a14e3da2762",
+  "release": "20260911_055700",
+  "source_manifest_sha256": "6ccc6ba234991402074f27cf0308e641ddbe7f9143e802ac0388df6028923c74",
   "database_revision": "0122_cutting_material_details",
-  "git_baseline_commit": "2a4659dd80dfedfc7b06f4266025df99108da56e"
+  "git_baseline_commit": "e350259205c925b43d633bff2b3852cdb778b106"
 }
