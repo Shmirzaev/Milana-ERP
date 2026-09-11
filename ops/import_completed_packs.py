@@ -39,7 +39,7 @@ from app.services.audit import log_action
 SOURCE_SYSTEM = "UZERP_STICKER_PHOTO"
 SOURCE_WAREHOUSE_ID = "18"
 SOURCE_WAREHOUSE_NAME = "TAYYOR MAHSULOT OMBORI"
-EXPECTED_ALEMBIC_HEAD = "0114_warehouse_stocktake"
+EXPECTED_ALEMBIC_HEAD = "0122_cutting_material_details"
 EXPECTED_WAREHOUSE_ID = 8
 EXPECTED_WAREHOUSE_NAME = "Finished Goods"
 EXPECTED_WAREHOUSE_TYPE = "finished_goods"
@@ -384,6 +384,15 @@ def resolve_all(
             continue
         key = (normalized_base(row["model_number"]), normalized_variant(row["article"]))
         matches = by_identity.get(key, [])
+        if row.get("reviewed_catalog_model_id") is not None:
+            # A reviewed source-variant identity can disambiguate duplicate display
+            # identities without changing either existing catalog record.
+            source_identity = f"{key[0]}|{key[1]}"
+            matches = [
+                model for model in matches
+                if model.id == int(row["reviewed_catalog_model_id"])
+                and (model.details_json or {}).get("old_erp_migration", {}).get("identity") == source_identity
+            ]
         if len(matches) != 1 or clean(matches[0].status).casefold() != "approved":
             raise ValueError(f"{row_key(row)}: expected one approved catalog model for {key}, found {len(matches)}")
         resolved[row_key(row)] = matches[0]
