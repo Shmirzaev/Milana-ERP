@@ -9,7 +9,7 @@ from app.api.routes import (
     forecasting,
     payroll,
     attendance, usluga, hr_workspace, price_calculation, stocktake,
-    packaging_reports, paid_processes, process_qr_setup,
+    packaging_reports, paid_processes, process_qr_setup, fabric_scans,
 )
 
 api_router = APIRouter(prefix="/api")
@@ -55,3 +55,4 @@ api_router.include_router(stocktake.router)
 
 api_router.include_router(paid_processes.router)
 api_router.include_router(process_qr_setup.router)
+api_router.include_router(fabric_scans.router)

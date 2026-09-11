@@ -40,7 +40,10 @@ from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
 from app.models.package_workflows import ManualPackageReceipt, PackagePrintRun, PackagePrintRunMember
 from app.models.shipment_review import PackageQuantityAdjustment
 
+from .fabric_scan import FabricScan
+
 __all__ = [
+    "FabricScan",
     "PaidProcess",
     "BusinessOrderAlias",
     "Role", "Department", "User", "Employee", "AuditLog", "Notification", "PasswordResetToken", "SystemSetting",

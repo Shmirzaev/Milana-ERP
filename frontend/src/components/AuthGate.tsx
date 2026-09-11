@@ -19,6 +19,7 @@ type RouteGuard = {
 };
 
 const ROUTE_GUARDS: RouteGuard[] = [
+  { prefix: "/fabric-scans", perms: ["cutting.records", "cutting.bundles", "storage.receive", "storage.items", "planning.production", "management.view"] },
   { prefix: "/admin/data", superOnly: true },
   { prefix: "/admin/mcp", superOnly: true },
   { prefix: "/admin/users", perms: ["admin.users", "*"] },
