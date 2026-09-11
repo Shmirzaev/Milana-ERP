@@ -60,6 +60,12 @@ function isSuperAdmin(me: ReturnType<typeof useMe>["me"]) {
 
 const SECTIONS: Section[] = [
   {
+    titleKey: "fabricScans.section",
+    items: [
+      { href: "/fabric-scans", labelKey: "fabricScans.title", perms: ["cutting.records", "cutting.bundles", "storage.receive", "storage.items", "planning.production", "management.view"], icon: QrCode },
+    ],
+  },
+  {
     titleKey: "section.overview",
     items: [
       { href: "/", labelKey: "nav.dashboard", icon: BarChart3 },
@@ -298,7 +304,14 @@ function SidebarNavSections({
                 <li key={`${sec.titleKey}-${it.href}`}>
                   <Link
                     href={it.href}
-                    onClick={onNavigate}
+                    onClick={(event) => {
+                      onNavigate?.();
+                      // Camera policy is scoped to this document, so enter with a full navigation.
+                      if (it.href === "/fabric-scans" && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+                        event.preventDefault();
+                        window.location.assign(it.href);
+                      }
+                    }}
                     className={`flex min-h-10 min-w-0 items-center rounded-md text-[13px] transition ${collapsed ? "h-10 justify-center px-0" : "gap-2 px-3 py-2"} ${
                       active
                         ? "bg-[#14110b] text-[#fdfcf8] shadow-sm"
@@ -341,7 +354,7 @@ export default function Sidebar() {
           "section.usluga",
           "section.attendance",
         ]);
-        if (factory === "ECO") return sec.titleKey === "section.hr" || ecoSections.has(sec.titleKey);
+        if (factory === "ECO") return sec.titleKey === "section.hr" || sec.titleKey === "fabricScans.section" || ecoSections.has(sec.titleKey);
         return sec.titleKey === "section.hr"
           || sec.titleKey === "section.attendance"
           || (sec.titleKey !== "section.besttexTextile" && !ecoSections.has(sec.titleKey));
