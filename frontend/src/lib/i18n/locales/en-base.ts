@@ -1,5 +1,10 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.sewingReport.salarySummary": "Salary summary",
+    "page.sewingReport.scanDetails": "Scan details",
+    "page.sewingReport.totalSalary": "Total salary",
+    "page.sewingReport.salaryHint": "Total scanned-work earnings per employee for the applied period and filters. Bonuses and deductions are in Payroll Summary.",
+    "page.sewingReport.separateCurrencies": "See totals by currency below",
     // App / branding
     "app.name": "Milana Ecosystem",
     "app.tagline": "Sign in to your account",

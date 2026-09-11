@@ -39,7 +39,18 @@ export type SewingProductionReportOptions = {
   sizes: ReportOption[];
 };
 
+export type SewingSalarySummaryRow = {
+  employee_id: number;
+  employee_no?: string | null;
+  employee_name: string;
+  record_count: number;
+  quantity: number | string;
+  total_amount: number | string;
+  currency: string;
+};
+
 export type SewingProductionReportResponse = {
+  salary_summary: SewingSalarySummaryRow[];
   items: SewingProductionReportRow[];
   total: number;
   offset: number;

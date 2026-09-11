@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -73,7 +73,7 @@ from app.services.audit import log_action
 from app.services.factory_scope import require_factory_access, selected_factory_code
 from app.services.paid_operations import filter_operation_rows, paid_operations_from_details
 from app.services.payroll_factory_scope import require_production_order_factory, require_work_order_factory
-from app.services.payroll_reports import ReportLanguage, build_sewing_production_report_xlsx
+from app.services.payroll_reports import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
@@ -1880,6 +1880,26 @@ def _sewing_production_report_items(rows) -> list[dict]:
     return items
 
 
+def _sewing_salary_summary(qry) -> list[dict]:
+    # Aggregate the complete filtered ledger before any scan pagination.
+    rows = qry.with_entities(
+        PayrollRecord.employee_id,
+        Employee.employee_no,
+        Employee.full_name,
+        PayrollRecord.currency,
+        func.count(PayrollRecord.id),
+        func.coalesce(func.sum(PayrollRecord.quantity), 0),
+        func.coalesce(func.sum(PayrollRecord.total_amount), 0),
+    ).group_by(
+        PayrollRecord.employee_id, Employee.employee_no, Employee.full_name, PayrollRecord.currency,
+    ).order_by(Employee.full_name, PayrollRecord.employee_id, PayrollRecord.currency).all()
+    return [
+        {"employee_id": employee_id, "employee_no": employee_no, "employee_name": name,
+         "currency": currency, "record_count": count, "quantity": quantity, "total_amount": amount}
+        for employee_id, employee_no, name, currency, count, quantity, amount in rows
+    ]
+
+
 @router.get("/reports/sewing-production", response_model=SewingProductionReportOut)
 def sewing_production_report(
     db: DbSession,
@@ -1897,6 +1917,7 @@ def sewing_production_report(
     size: str | None = None,
     factory_code: str | None = None,
     status: str = "active",
+    report_view: Literal["details", "salary"] = "details",
     limit: int = 100,
     offset: int = 0,
 ):
@@ -1933,7 +1954,8 @@ def sewing_production_report(
     report_currency = next(iter(currencies)) if len(currencies) == 1 else ("MIXED" if currencies else "UZS")
     safe_limit = max(1, min(limit, 5000))
     safe_offset = max(0, offset)
-    rows = (
+    salary_summary = _sewing_salary_summary(qry) if report_view == "salary" else []
+    rows = [] if report_view == "salary" else (
         qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc())
         .offset(safe_offset)
         .limit(safe_limit)
@@ -1943,6 +1965,7 @@ def sewing_production_report(
     items = _sewing_production_report_items(rows)
     return {
         "items": items,
+        "salary_summary": salary_summary,
         "total": total,
         "offset": safe_offset,
         "limit": safe_limit,
@@ -1971,6 +1994,7 @@ def sewing_production_report_excel(
     size: str | None = None,
     factory_code: str | None = None,
     status: str = "active",
+    report_view: Literal["details", "salary"] = "details",
 ):
     scoped_factory = selected_factory_code(current)
     if factory_code:
@@ -1991,12 +2015,16 @@ def sewing_production_report_excel(
         factory_code=scoped_factory,
         status=status,
     )
-    rows = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc()).all()
-    items = _sewing_production_report_items(rows)
+    if report_view == "salary":
+        items = _sewing_salary_summary(qry)
+    else:
+        rows = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc()).all()
+        items = _sewing_production_report_items(rows)
     currencies = {str(item["currency"]) for item in items if item.get("currency")}
     report_currency = next(iter(currencies)) if len(currencies) == 1 else ("MIXED" if currencies else "UZS")
     generated_at = datetime.now(ZoneInfo("Asia/Tashkent"))
-    workbook = build_sewing_production_report_xlsx(
+    builder = build_sewing_salary_summary_xlsx if report_view == "salary" else build_sewing_production_report_xlsx
+    workbook = builder(
         items,
         date_from=date_from,
         date_to=date_to,
@@ -2004,7 +2032,8 @@ def sewing_production_report_excel(
         lang=lang,
         currency=report_currency,
     )
-    filename = f"sewing-production-report-{generated_at.strftime('%Y-%m-%d')}.xlsx"
+    report_name = "sewing-salary-summary" if report_view == "salary" else "sewing-production-report"
+    filename = f"{report_name}-{generated_at.strftime('%Y-%m-%d')}.xlsx"
     return Response(
         content=workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -1,5 +1,10 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.sewingReport.salarySummary": "Ish haqi hisoboti",
+    "page.sewingReport.scanDetails": "Skanerlash tafsilotlari",
+    "page.sewingReport.totalSalary": "Jami ish haqi",
+    "page.sewingReport.salaryHint": "Tanlangan davr va filtrlar bo‘yicha har bir xodimning skanerlangan ishlari uchun jami ish haqi. Bonus va ushlanmalar ish haqi jamlanmasida.",
+    "page.sewingReport.separateCurrencies": "Valyutalar bo‘yicha jami quyida",
     "app.name": "Milana Ecosystem",
     "app.tagline": "Hisobingizga kiring",
 
