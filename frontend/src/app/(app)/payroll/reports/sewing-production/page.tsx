@@ -436,7 +436,7 @@ export default function SewingProductionReportPage() {
         {isLoading && !printRows ? (
           <div className="p-8 text-center text-sm text-[#8a8472]">{t("common.loading")}</div>
         ) : reportView === "salary" ? (
-          <SewingSalarySummaryTable rows={data?.salary_summary || []} lang={lang} t={t} />
+          <SewingSalarySummaryTable days={data?.salary_days || []} rows={data?.salary_summary || []} lang={lang} t={t} />
         ) : (
           <SewingProductionReportTable rows={reportRows} rowOffset={rowOffset} lang={lang} t={t} />
         )}
@@ -501,6 +501,16 @@ export default function SewingProductionReportPage() {
           .sewing-report-print-summary { break-inside: avoid !important; page-break-inside: avoid !important; color: #000 !important; }
           .sewing-report-print-summary dt { font-size: 10px !important; font-weight: 600 !important; }
           .sewing-report-print-summary dd { margin-top: 2px !important; font-size: 14px !important; font-weight: 700 !important; }
+          .sewing-report-print-area .sewing-salary-table { table-layout: fixed !important; font-size: 7px !important; }
+          .sewing-report-print-area .sewing-salary-table th,
+          .sewing-report-print-area .sewing-salary-table td { padding: 3px 1px !important; overflow-wrap: anywhere; }
+          .sewing-salary-table .salary-number { width: 20px; }
+          .sewing-salary-table .salary-employee { width: 100px; }
+          .sewing-salary-table .salary-total { width: 65px; }
+          .sewing-salary-table td div { font-size: inherit !important; }
+          .sewing-salary-table tfoot { display: table-row-group; }
+          .sewing-salary-table tr { break-inside: avoid; }
+          .salary-print-page + .salary-print-page { break-before: page; }
           .no-print { display: none !important; }
         }
       `}</style>

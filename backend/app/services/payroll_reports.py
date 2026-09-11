@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from app.core.dt import as_utc
+
 from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 
@@ -280,6 +283,16 @@ SALARY_TEXT = {
 }
 
 
+def salary_report_days(rows: list[dict], date_from: datetime | None, date_to: datetime | None) -> list[str]:
+    observed = sorted({day for row in rows for day in row.get("daily_amounts", {})})
+    first = as_utc(date_from).astimezone(REPORT_TIMEZONE).date() if date_from else (date.fromisoformat(observed[0]) if observed else None)
+    last = as_utc(date_to).astimezone(REPORT_TIMEZONE).date() if date_to else (date.fromisoformat(observed[-1]) if observed else first)
+    first = first or last
+    if first is None or last is None or first > last:
+        return []
+    return [(first + timedelta(days=offset)).isoformat() for offset in range((last - first).days + 1)]
+
+
 def build_sewing_salary_summary_xlsx(
     rows: list[dict], *, date_from: datetime | None, date_to: datetime | None,
     generated_label: str, lang: ReportLanguage, currency: str,
@@ -289,44 +302,53 @@ def build_sewing_salary_summary_xlsx(
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Salary summary"
+    days = salary_report_days(rows, date_from, date_to)
+    last_column = len(days) + 7
     workbook.properties.title = title
     period = " — ".join(
         value.astimezone(REPORT_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S") if value else "—"
         for value in (date_from, date_to)
     )
     for index, value in enumerate((title, f'{text["period"]}: {period}', f'{text["generated"]}: {generated_label}', hint), 1):
-        sheet.merge_cells(start_row=index, start_column=1, end_row=index, end_column=7)
+        sheet.merge_cells(start_row=index, start_column=1, end_row=index, end_column=last_column)
         sheet.cell(index, 1, value)
     sheet["A1"].font = Font(size=16, bold=True)
-    headers = [text["number"], text["employee"], text["employee_no"], text["qr_count"], text["quantity"], amount_label, text["currency"]]
+    headers = [text["number"], text["employee"], text["employee_no"], *days, text["qr_count"], text["quantity"], amount_label, text["currency"]]
     for column, value in enumerate(headers, 1):
         cell = sheet.cell(6, column, value)
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1F1C17")
     totals = {}
     for index, row in enumerate(rows, 1):
-        values = [index, row["employee_name"], row.get("employee_no") or "", row["record_count"],
+        values = [index, row["employee_name"], row.get("employee_no") or "",
+                  *(row.get("daily_amounts", {}).get(day, 0) for day in days), row["record_count"],
                   row["quantity"], row["total_amount"], row["currency"]]
         for column, value in enumerate(values, 1):
             if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
                 value = "'" + value
             sheet.cell(index + 6, column, value)
-        totals[row["currency"]] = totals.get(row["currency"], Decimal("0")) + Decimal(str(row["total_amount"]))
-    for index, (unit, amount) in enumerate(sorted(totals.items()), len(rows) + 8):
+        total = totals.setdefault(row["currency"], {"amount": Decimal("0"), "days": {}})
+        total["amount"] += Decimal(str(row["total_amount"]))
+        for day, amount in row.get("daily_amounts", {}).items():
+            total["days"][day] = total["days"].get(day, Decimal("0")) + Decimal(str(amount))
+    for index, (unit, total) in enumerate(sorted(totals.items()), len(rows) + 8):
         sheet.cell(index, 2, text["totals"])
-        sheet.cell(index, 6, amount)
-        sheet.cell(index, 7, unit)
+        for column, day in enumerate(days, 4):
+            sheet.cell(index, column, total["days"].get(day, 0))
+        sheet.cell(index, last_column - 1, total["amount"])
+        sheet.cell(index, last_column, "'" + unit if unit.startswith(("=", "+", "-", "@")) else unit)
         for cell in sheet[index]:
             cell.font = Font(bold=True)
     for row in sheet.iter_rows(min_row=7):
         for cell in row:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
-        for column in (5, 6):
+        for column in (*range(4, len(days) + 4), last_column - 2, last_column - 1):
             row[column - 1].number_format = "#,##0.00"
-    for column, width in zip("ABCDEFG", (7, 34, 20, 24, 24, 24, 14)):
-        sheet.column_dimensions[column].width = width
-    sheet.freeze_panes = "A7"
-    sheet.auto_filter.ref = f"A6:G{max(6, len(rows) + 6)}"
+    for column, width in enumerate((7, 34, 20, *([14] * len(days)), 16, 20, 24, 14), 1):
+        sheet.column_dimensions[get_column_letter(column)].width = width
+    sheet.freeze_panes = "D7"
+    sheet.auto_filter.ref = f"A6:{get_column_letter(last_column)}{max(6, len(rows) + 6)}"
+    sheet.print_title_cols = "A:C"
     sheet.print_title_rows = "1:6"
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.fitToWidth = 1

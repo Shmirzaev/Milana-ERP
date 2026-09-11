@@ -40,6 +40,7 @@ export type SewingProductionReportOptions = {
 };
 
 export type SewingSalarySummaryRow = {
+  daily_amounts: Record<string, number | string>;
   employee_id: number;
   employee_no?: string | null;
   employee_name: string;
@@ -51,6 +52,7 @@ export type SewingSalarySummaryRow = {
 
 export type SewingProductionReportResponse = {
   salary_summary: SewingSalarySummaryRow[];
+  salary_days: string[];
   items: SewingProductionReportRow[];
   total: number;
   offset: number;

@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from sqlalchemy import func, or_
+from sqlalchemy import Date, cast, func, or_
 from sqlalchemy.orm import object_session
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
@@ -73,7 +73,7 @@ from app.services.audit import log_action
 from app.services.factory_scope import require_factory_access, selected_factory_code
 from app.services.paid_operations import filter_operation_rows, paid_operations_from_details
 from app.services.payroll_factory_scope import require_production_order_factory, require_work_order_factory
-from app.services.payroll_reports import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx
+from app.services.payroll_reports import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx, salary_report_days
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
@@ -1882,22 +1882,34 @@ def _sewing_production_report_items(rows) -> list[dict]:
 
 def _sewing_salary_summary(qry) -> list[dict]:
     # Aggregate the complete filtered ledger before any scan pagination.
+    day = (cast(func.timezone("Asia/Tashkent", PayrollRecord.scanned_at), Date)
+           if qry.session.get_bind().dialect.name == "postgresql"
+           else func.date(PayrollRecord.scanned_at, "+5 hours"))
     rows = qry.with_entities(
         PayrollRecord.employee_id,
         Employee.employee_no,
         Employee.full_name,
         PayrollRecord.currency,
+        day,
         func.count(PayrollRecord.id),
         func.coalesce(func.sum(PayrollRecord.quantity), 0),
         func.coalesce(func.sum(PayrollRecord.total_amount), 0),
     ).group_by(
-        PayrollRecord.employee_id, Employee.employee_no, Employee.full_name, PayrollRecord.currency,
-    ).order_by(Employee.full_name, PayrollRecord.employee_id, PayrollRecord.currency).all()
-    return [
-        {"employee_id": employee_id, "employee_no": employee_no, "employee_name": name,
-         "currency": currency, "record_count": count, "quantity": quantity, "total_amount": amount}
-        for employee_id, employee_no, name, currency, count, quantity, amount in rows
-    ]
+        PayrollRecord.employee_id, Employee.employee_no, Employee.full_name, PayrollRecord.currency, day,
+    ).order_by(Employee.full_name, PayrollRecord.employee_id, PayrollRecord.currency, day).all()
+    employees = {}
+    for employee_id, employee_no, name, currency, work_day, count, quantity, amount in rows:
+        key = (employee_id, currency)
+        item = employees.setdefault(key, {
+            "employee_id": employee_id, "employee_no": employee_no, "employee_name": name,
+            "currency": currency, "record_count": 0, "quantity": Decimal("0"),
+            "total_amount": Decimal("0"), "daily_amounts": {},
+        })
+        item["record_count"] += count
+        item["quantity"] += quantity
+        item["total_amount"] += amount
+        item["daily_amounts"][str(work_day)] = amount
+    return list(employees.values())
 
 
 @router.get("/reports/sewing-production", response_model=SewingProductionReportOut)
@@ -1966,6 +1978,7 @@ def sewing_production_report(
     return {
         "items": items,
         "salary_summary": salary_summary,
+        "salary_days": salary_report_days(salary_summary, date_from, date_to) if report_view == "salary" else [],
         "total": total,
         "offset": safe_offset,
         "limit": safe_limit,
