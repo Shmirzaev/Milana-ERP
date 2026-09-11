@@ -1,6 +1,13 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-10
+Last updated: 2026-09-11
+
+## Sewing employee salary report prepared (2026-09-11)
+
+- Sewing Production Report adds Scan details / Salary summary views using the existing applied date/time and production filters. Salary summary groups the complete filtered scanned-work ledger by employee and currency in SQL, before pagination; amounts come from persisted payroll totals. Active status excludes voided scans by default. Bonuses and deductions remain in Payroll Summary and this scope is stated in EN/RU/UZ.
+- Excel exports the selected view as a real workbook with numeric amounts, employee numbers, period and separate currency totals. Print shows the employee summary directly without fetching every scan. Existing details, session-factory authorization, payroll permissions and business data are preserved. No schema or data mutation.
+- Worktree `C:/ERP/.codex-work/salary-period-report-20260911`, branch `codex/salary-period-report-20260911`, based on verified `origin/main` `fbaf08a8`. Both live VM manifests/slots match green release `20260910_130124`, manifest `d0389087f2bd7e0153b2553e32b383f9d374ab84a5edeb8b355e4b24edd085dd`; rollback blue `20260910_122200`, schema `0122_cutting_material_details`.
+- Local strict TypeScript, changed-file ESLint, backend Ruff and whitespace checks passed. Deployment is authorized. User requests fast deployment without extra tests or monitoring; standard immutable CI/build, backup, inactive-slot warmup and immediate health checks remain, with no extra suites, browser/performance exercise or extended observation.
 
 ## Closed Cutting timeline display deployed (2026-09-10)
 

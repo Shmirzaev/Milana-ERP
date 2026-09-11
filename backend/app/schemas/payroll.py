@@ -360,8 +360,19 @@ class SewingProductionReportOptions(BaseModel):
     sizes: list[SewingProductionReportOption] = Field(default_factory=list)
 
 
+class SewingSalarySummaryRow(BaseModel):
+    employee_id: int
+    employee_no: str | None = None
+    employee_name: str
+    record_count: int
+    quantity: Decimal
+    total_amount: Decimal
+    currency: str
+
+
 class SewingProductionReportOut(BaseModel):
     items: list[SewingProductionReportRow]
+    salary_summary: list[SewingSalarySummaryRow] = Field(default_factory=list)
     total: int
     offset: int
     limit: int

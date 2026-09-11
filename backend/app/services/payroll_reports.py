@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from io import BytesIO
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -267,6 +268,69 @@ def build_sewing_production_report_xlsx(
     sheet.page_margins.top = 0.4
     sheet.page_margins.bottom = 0.4
 
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+SALARY_TEXT = {
+    "en": ("Salary summary", "Total salary", "Scanned work only; bonuses and deductions are in Payroll Summary."),
+    "ru": ("Сводка зарплаты", "Итого зарплата", "Только сканированные работы; премии и удержания — в сводке расчёта зарплаты."),
+    "uz": ("Ish haqi hisoboti", "Jami ish haqi", "Faqat skanerlangan ishlar; bonus va ushlanmalar ish haqi jamlanmasida."),
+}
+
+
+def build_sewing_salary_summary_xlsx(
+    rows: list[dict], *, date_from: datetime | None, date_to: datetime | None,
+    generated_label: str, lang: ReportLanguage, currency: str,
+) -> bytes:
+    text = REPORT_TEXT[lang]
+    title, amount_label, hint = SALARY_TEXT[lang]
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Salary summary"
+    workbook.properties.title = title
+    period = " — ".join(
+        value.astimezone(REPORT_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S") if value else "—"
+        for value in (date_from, date_to)
+    )
+    for index, value in enumerate((title, f'{text["period"]}: {period}', f'{text["generated"]}: {generated_label}', hint), 1):
+        sheet.merge_cells(start_row=index, start_column=1, end_row=index, end_column=7)
+        sheet.cell(index, 1, value)
+    sheet["A1"].font = Font(size=16, bold=True)
+    headers = [text["number"], text["employee"], text["employee_no"], text["qr_count"], text["quantity"], amount_label, text["currency"]]
+    for column, value in enumerate(headers, 1):
+        cell = sheet.cell(6, column, value)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F1C17")
+    totals = {}
+    for index, row in enumerate(rows, 1):
+        values = [index, row["employee_name"], row.get("employee_no") or "", row["record_count"],
+                  row["quantity"], row["total_amount"], row["currency"]]
+        for column, value in enumerate(values, 1):
+            if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
+                value = "'" + value
+            sheet.cell(index + 6, column, value)
+        totals[row["currency"]] = totals.get(row["currency"], Decimal("0")) + Decimal(str(row["total_amount"]))
+    for index, (unit, amount) in enumerate(sorted(totals.items()), len(rows) + 8):
+        sheet.cell(index, 2, text["totals"])
+        sheet.cell(index, 6, amount)
+        sheet.cell(index, 7, unit)
+        for cell in sheet[index]:
+            cell.font = Font(bold=True)
+    for row in sheet.iter_rows(min_row=7):
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+        for column in (5, 6):
+            row[column - 1].number_format = "#,##0.00"
+    for column, width in zip("ABCDEFG", (7, 34, 20, 24, 24, 24, 14)):
+        sheet.column_dimensions[column].width = width
+    sheet.freeze_panes = "A7"
+    sheet.auto_filter.ref = f"A6:G{max(6, len(rows) + 6)}"
+    sheet.print_title_rows = "1:6"
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToWidth = 1
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
     output = BytesIO()
     workbook.save(output)
     return output.getvalue()

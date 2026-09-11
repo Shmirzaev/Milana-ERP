@@ -7,6 +7,7 @@ import { Download, Filter, Printer, RotateCcw } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import SearchableSelect from "@/components/SearchableSelect";
+import SewingSalarySummaryTable from "@/components/payroll/SewingSalarySummaryTable";
 import SewingProductionReportTable from "@/components/payroll/SewingProductionReportTable";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -102,6 +103,7 @@ export default function SewingProductionReportPage() {
   const { t, lang } = useT();
   const [draft, setDraft] = useState<SewingProductionReportFilters>(initialFilters);
   const [applied, setApplied] = useState<SewingProductionReportFilters>(initialFilters);
+  const [reportView, setReportView] = useState<"details" | "salary">("details");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [action, setAction] = useState<"xlsx" | "print" | null>(null);
@@ -109,8 +111,12 @@ export default function SewingProductionReportPage() {
   const [printRows, setPrintRows] = useState<SewingProductionReportRow[] | null>(null);
 
   const query = useMemo(
-    () => buildSewingReportParams(applied, page, pageSize).toString(),
-    [applied, page, pageSize],
+    () => {
+      const params = buildSewingReportParams(applied, page, pageSize);
+      params.set("report_view", reportView);
+      return params.toString();
+    },
+    [applied, page, pageSize, reportView],
   );
   const { data, error, isLoading } = useSWR<SewingProductionReportResponse>(
     `/api/payroll/reports/sewing-production?${query}`,
@@ -195,6 +201,7 @@ export default function SewingProductionReportPage() {
       params.delete("limit");
       params.delete("offset");
       params.set("lang", lang);
+      params.set("report_view", reportView);
       const response = await fetch(`/api/payroll/reports/sewing-production.xlsx?${params.toString()}`, {
         credentials: "same-origin",
       });
@@ -221,6 +228,10 @@ export default function SewingProductionReportPage() {
     setAction("print");
     setActionError("");
     try {
+      if (reportView === "salary") {
+        window.print();
+        return;
+      }
       const rows = await fetchAllRows();
       setPrintRows(rows);
       window.setTimeout(() => {
@@ -242,17 +253,27 @@ export default function SewingProductionReportPage() {
           subtitle={t("page.sewingReport.subtitle")}
           actions={(
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn" onClick={exportExcel} disabled={Boolean(action) || !data?.total}>
+              <button type="button" className="btn" onClick={exportExcel} disabled={Boolean(action) || isLoading || Boolean(error) || !data?.total}>
                 <Download />
                 <span>{action === "xlsx" ? t("page.sewingReport.exporting") : "Excel"}</span>
               </button>
-              <button type="button" className="btn" onClick={printReport} disabled={Boolean(action) || !data?.total}>
+              <button type="button" className="btn" onClick={printReport} disabled={Boolean(action) || isLoading || Boolean(error) || !data?.total}>
                 <Printer />
                 <span>{action === "print" ? t("page.sewingReport.preparingPrint") : t("common.print")}</span>
               </button>
             </div>
           )}
         />
+      </div>
+
+      <div className="flex gap-6 border-b border-[#ded9ca] no-print" aria-label={t("page.sewingReport.title")}>
+        {(["details", "salary"] as const).map((view) => (
+          <button key={view} type="button" aria-pressed={reportView === view} disabled={Boolean(action)}
+            className={`border-b-2 px-1 py-3 text-sm ${reportView === view ? "border-[#14110b] font-semibold" : "border-transparent text-[#8a8472]"}`}
+            onClick={() => { setReportView(view); setPage(1); setActionError(""); }}>
+            {t(view === "salary" ? "page.sewingReport.salarySummary" : "page.sewingReport.scanDetails")}
+          </button>
+        ))}
       </div>
 
       <form className="card p-4 no-print" onSubmit={applyFilters}>
@@ -397,24 +418,29 @@ export default function SewingProductionReportPage() {
         <div className="kpi-card">
           <div className="label">{t("page.sewingReport.totalAmount")}</div>
           <div className="text-2xl font-semibold tabular-nums">
-            {Number(data?.total_amount || 0).toLocaleString(lang, { maximumFractionDigits: 2 })} {data?.currency || "UZS"}
+            {data?.currency === "MIXED" && reportView === "salary"
+              ? t("page.sewingReport.separateCurrencies")
+              : <>{Number(data?.total_amount || 0).toLocaleString(lang, { maximumFractionDigits: 2 })} {data?.currency || "UZS"}</>}
           </div>
         </div>
       </div>
 
       <section className="card sewing-report-print-area">
-        <div className="hidden border-b border-[#ded9ca] px-4 py-3 print:block">
-          <h1 className="text-lg font-semibold">{t("page.sewingReport.title")}</h1>
+        <div className={`${reportView === "salary" ? "" : "hidden print:block"} border-b border-[#ded9ca] px-4 py-3`}>
+          <h1 className="text-lg font-semibold">{t(reportView === "salary" ? "page.sewingReport.salarySummary" : "page.sewingReport.title")}</h1>
+          {reportView === "salary" && <p className="mt-1 text-xs text-[#56503f]">{t("page.sewingReport.salaryHint")}</p>}
           <p className="mt-1 text-xs text-[#56503f]">
             {new Date(applied.dateFrom).toLocaleString(lang)} — {new Date(applied.dateTo).toLocaleString(lang)}
           </p>
         </div>
         {isLoading && !printRows ? (
           <div className="p-8 text-center text-sm text-[#8a8472]">{t("common.loading")}</div>
+        ) : reportView === "salary" ? (
+          <SewingSalarySummaryTable rows={data?.salary_summary || []} lang={lang} t={t} />
         ) : (
           <SewingProductionReportTable rows={reportRows} rowOffset={rowOffset} lang={lang} t={t} />
         )}
-        {!printRows && (
+        {!printRows && reportView === "details" && (
           <div className="no-print">
             <PaginationControls
               page={page}
@@ -430,7 +456,7 @@ export default function SewingProductionReportPage() {
             />
           </div>
         )}
-        <div className="sewing-report-print-summary hidden border-t-2 border-[#14110b] px-4 py-3 print:block">
+        {reportView === "details" && <div className="sewing-report-print-summary hidden border-t-2 border-[#14110b] px-4 py-3 print:block">
           <div className="mb-2 text-sm font-bold">{t("page.sewingReport.printTotals")}</div>
           <dl className="grid grid-cols-4 gap-5 tabular-nums">
             <div>
@@ -450,7 +476,7 @@ export default function SewingProductionReportPage() {
               <dd>{printSummary.totalAmount.toLocaleString(lang, { maximumFractionDigits: 2 })} {data?.currency || "UZS"}</dd>
             </div>
           </dl>
-        </div>
+        </div>}
       </section>
 
       <style jsx global>{`
