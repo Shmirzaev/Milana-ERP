@@ -368,11 +368,13 @@ class SewingSalarySummaryRow(BaseModel):
     quantity: Decimal
     total_amount: Decimal
     currency: str
+    daily_amounts: dict[str, Decimal] = Field(default_factory=dict)
 
 
 class SewingProductionReportOut(BaseModel):
     items: list[SewingProductionReportRow]
     salary_summary: list[SewingSalarySummaryRow] = Field(default_factory=list)
+    salary_days: list[str] = Field(default_factory=list)
     total: int
     offset: int
     limit: int

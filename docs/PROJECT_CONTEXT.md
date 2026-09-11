@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-11
 
+## Daily employee salary columns prepared (2026-09-11)
+
+- Salary summary now mirrors the requested employee-by-day report: one row per employee/currency, every selected calendar day as a salary column (zero for no scans), scanned record count, completed work and full-period salary total. Per-day currency totals appear at the bottom. The existing filters, scan details and payroll authorization are preserved.
+- SQL groups persisted amounts by employee/currency and scan date in Asia/Tashkent before scan pagination. The shared date axis includes all days in the requested range, including month/year boundaries; open-ended filters derive missing bounds from matching work. EN/RU/UZ hints state the time zone and scanned-work scope. Bonuses/deductions remain in Payroll Summary.
+- Excel exports numeric daily amounts and period totals, with frozen employee columns and full ISO dates. The screen scrolls horizontally; landscape browser print repeats the employee/day header and splits ranges over 31 days into additional column sections, preserving full-period totals. No schema or business-data changes.
+- Worktree `C:/ERP/.codex-work/salary-daily-report-20260911`, branch `codex/salary-daily-report-20260911`, from verified main `674362d0`. Both VM manifests and slots matched active blue `20260911_053727`, manifest `4c5ca14374497e17ad9becc304b2b57b31af483ba78caa8c86d70a14e3da2762`, rollback green `20260910_130124`, schema `0122_cutting_material_details` before edits. Local strict TypeScript, scoped ESLint, Ruff, Python compilation and whitespace checks passed. Continuing the user-authorized fast deployment with standard immutable CI, backup, inactive-slot warmup and immediate health checks; no extra test suite, browser/performance exercise or extended monitoring.
+
 ## Sewing employee salary report deployed (2026-09-11)
 
 - LIVE: backend/frontend release `20260911_053727` in blue, exact application commit `2a4659dd80dfedfc7b06f4266025df99108da56e`, pushed and merged through PR #117. Both source manifests, image identities, current symlinks and slot states agree. Activation completed at `2026-09-11T05:48:09.726194+00:00`. Green `20260910_130124` remains running for rollback.
