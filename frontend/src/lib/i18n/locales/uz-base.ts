@@ -1,5 +1,8 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "fabricScans.ready": "Tayyor — qabul yoki qaytarishni bir marta tanlang va rulonlarni ketma-ket skanerlang. Har bir skan avtomatik saqlanadi.",
+    "fabricScans.notSaved": "Saqlanmadi",
+    "fabricScans.retry": "Qayta urinish",
     "fabricScans.section": "Mato nazorati",
     "fabricScans.title": "Mato skanerlash jurnali",
     "fabricScans.description": "Faqat kunlik rulon hisoboti. Skanerlash ombor qoldig‘ini o‘zgartirmaydi.",

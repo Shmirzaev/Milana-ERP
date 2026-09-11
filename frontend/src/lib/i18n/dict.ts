@@ -4,6 +4,9 @@ import type { Lang } from "./types";
 // Use {var} placeholders for interpolation.
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "fabricScans.ready": "Ready — choose Receive or Return once, then keep scanning. Each roll saves automatically.",
+    "fabricScans.notSaved": "Not saved",
+    "fabricScans.retry": "Retry",
     "fabricScans.section": "Fabric control",
     "fabricScans.title": "Fabric scan register",
     "fabricScans.description": "Daily roll reports only. Scanning does not change inventory quantities.",
@@ -2195,6 +2198,9 @@ export const dict: Record<Lang, Record<string, string>> = {
   },
 
   ru: {
+    "fabricScans.ready": "Готово — выберите приём или возврат один раз и сканируйте рулоны подряд. Каждый скан сохраняется автоматически.",
+    "fabricScans.notSaved": "Не сохранено",
+    "fabricScans.retry": "Повторить",
     "fabricScans.section": "Контроль ткани",
     "fabricScans.title": "Журнал сканирования ткани",
     "fabricScans.description": "Только ежедневный отчёт по рулонам. Сканирование не меняет складские остатки.",
@@ -4260,6 +4266,9 @@ export const dict: Record<Lang, Record<string, string>> = {
   },
 
   uz: {
+    "fabricScans.ready": "Tayyor — qabul yoki qaytarishni bir marta tanlang va rulonlarni ketma-ket skanerlang. Har bir skan avtomatik saqlanadi.",
+    "fabricScans.notSaved": "Saqlanmadi",
+    "fabricScans.retry": "Qayta urinish",
     "fabricScans.section": "Mato nazorati",
     "fabricScans.title": "Mato skanerlash jurnali",
     "fabricScans.description": "Faqat kunlik rulon hisoboti. Skanerlash ombor qoldig‘ini o‘zgartirmaydi.",

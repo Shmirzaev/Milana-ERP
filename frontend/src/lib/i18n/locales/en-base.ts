@@ -1,5 +1,8 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "fabricScans.ready": "Ready — choose Receive or Return once, then keep scanning. Each roll saves automatically.",
+    "fabricScans.notSaved": "Not saved",
+    "fabricScans.retry": "Retry",
     "fabricScans.section": "Fabric control",
     "fabricScans.title": "Fabric scan register",
     "fabricScans.description": "Daily roll reports only. Scanning does not change inventory quantities.",

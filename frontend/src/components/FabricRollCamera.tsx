@@ -6,10 +6,11 @@ import { useT } from "@/lib/i18n";
 type Detector = { detect: (source: HTMLVideoElement) => Promise<{ rawValue: string }[]> };
 type DetectorConstructor = { new (options: { formats: string[] }): Detector };
 
-export default function FabricRollCamera({ onScan, onClose }: { onScan: (code: string) => void; onClose: () => void }) {
+export default function FabricRollCamera({ onScan, onClose }: { onScan: (code: string) => Promise<void>; onClose: () => void }) {
   const { t } = useT();
   const video = useRef<HTMLVideoElement>(null);
   const callback = useRef(onScan);
+  const lastCode = useRef("");
   const [error, setError] = useState(false);
   useEffect(() => { callback.current = onScan; }, [onScan]);
   useEffect(() => {
@@ -31,11 +32,14 @@ export default function FabricRollCamera({ onScan, onClose }: { onScan: (code: s
           try {
             const codes = await detector.detect(video.current);
             if (disposed) return;
-            if (codes[0]?.rawValue) {
-              stream?.getTracks().forEach((track) => track.stop());
-              callback.current(codes[0].rawValue);
-              return;
+            const value = codes[0]?.rawValue || "";
+            if (value && value !== lastCode.current) {
+              lastCode.current = value;
+              // Keep the stream open; serialize saves and ignore a label held in view.
+              await callback.current(value);
+              if (disposed) return;
             }
+            if (!value) lastCode.current = "";
             timer = setTimeout(detect, 180);
           } catch { if (!disposed) { stream?.getTracks().forEach((track) => track.stop()); setError(true); } }
         }

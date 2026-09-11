@@ -23,6 +23,18 @@ export type FabricReport = {
 export const FABRIC_SCAN_PERMISSIONS = ["cutting.records", "cutting.bundles", "storage.receive", "storage.items"];
 export const FABRIC_REPORT_PERMISSIONS = [...FABRIC_SCAN_PERMISSIONS, "planning.production", "management.view"];
 
+export function isFabricRollCode(code: string) {
+  const value = code.trim();
+  if (/^B[1-9]\d*-R[1-9]\d*$/i.test(value)) return true;
+  try {
+    const url = new URL(value, "https://local.invalid");
+    return url.pathname.replace(/\/$/, "") === "/inventory"
+      && /^(https?:)$/.test(url.protocol)
+      && /^[1-9]\d*$/.test(url.searchParams.get("batch_id") || "")
+      && /^[1-9]\d*$/.test(url.searchParams.get("roll") || "");
+  } catch { return false; }
+}
+
 export function tashkentDate() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }

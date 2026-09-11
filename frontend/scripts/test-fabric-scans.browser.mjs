@@ -23,7 +23,7 @@ const code = files.map(file => {
 }).join("\n");
 const setup = `
 const params = new URLSearchParams(location.search), lang = params.get('lang') || 'en';
-window.calls = []; window.rows = []; window.fail = false; window.failReport = false;
+window.calls = []; window.rows = []; window.fail = false; window.failReport = false; window.delay = 0;
 window.me = {id:1, factory_code:'MIL', permissions: params.has('readonly') ? ['management.view'] : ['cutting.records']};
 async function fixture(url) {
   if (window.failReport) throw Error('Offline');
@@ -42,10 +42,10 @@ const icon=p=>React.createElement('svg',{...p,width:16,height:16});
 const modules={react:React,swr:{default:useFixtureSWR},'lucide-react':new Proxy({},{get:()=>icon}),
  '@/lib/auth':{useMe:()=>({me:window.me}),can:(me,...perms)=>perms.some(p=>me?.permissions.includes(p))},
  '@/lib/api':{fetcher:fixture,api:{post:async(url,body)=>{
-   window.calls.push({url,body}); if(window.fail)throw Error('Offline');
-   const existing = window.rows.find(r=>r.direction===body.direction);
+   window.calls.push({url,body}); if(window.delay)await new Promise(resolve=>setTimeout(resolve,window.delay)); if(window.fail)throw Error('Offline');
+   const existing = window.rows.find(r=>r.direction===body.direction && r.code===body.code);
    const row=existing||{id:window.rows.length+1,report_date:modules['@/lib/fabricScans'].tashkentDate(),direction:body.direction,
-     fabric_name:'Cotton jersey',batch_no:'FAB-2026',color:'Natural',roll_number:1,operator_name:'Test worker',scanned_at:new Date().toISOString()};
+     fabric_name:'Cotton jersey',batch_no:'FAB-2026',color:'Natural',code:body.code,roll_number:Number(body.code.match(/R(\\d+)/)?.[1]||1),operator_name:'Test worker',scanned_at:new Date().toISOString()};
    if(!existing)window.rows.push(row);
    return {duplicate:!!existing,row};
  }}},
@@ -99,7 +99,18 @@ try {
   await page.evaluate(() => { window.fail = true; });
   await input.fill("B10-R2"); await input.press("Enter");
   await page.getByRole("alert").filter({ hasText: "Save was not confirmed" }).waitFor();
-  assert.equal(await input.inputValue(), "B10-R2");
+  await page.getByText("Not saved", { exact: false }).waitFor();
+  await page.evaluate(() => { window.fail = false; });
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Saved" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
+  // No Enter or save button needed; the next scan can arrive during a slow save.
+  await page.evaluate(() => { window.delay = 700; });
+  await input.fill(" B10-R3 ");
+  await page.waitForFunction(() => window.calls.some(c => c.body.code === 'B10-R3'));
+  await input.fill("B10-R4"); await input.press("Enter");
+  await page.waitForFunction(() => window.rows.some(r => r.code === 'B10-R4'));
+  assert.equal(await input.evaluate(element => document.activeElement === element), true);
   await page.getByLabel("Date", { exact: true }).fill("2020-01-01");
   await page.getByText("No rolls scanned on this date.").waitFor();
   assert((await page.evaluate(() => window.calls)).every(call => call.url === "/api/fabric-scans"));
@@ -117,8 +128,43 @@ try {
   await page.getByRole("button", { name: "Camera", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Camera scanning is unavailable" }).waitFor();
   await page.getByRole("button", { name: "Close camera" }).click();
+  // Simulate decoded video frames without requesting a physical camera.
+  await page.addInitScript(() => {
+    window.cameraCode = ""; window.cameraStarts = 0; window.cameraStops = 0;
+    window.BarcodeDetector = class { async detect() { return window.cameraCode ? [{ rawValue: window.cameraCode }] : []; } };
+    navigator.mediaDevices.getUserMedia = async () => {
+      window.cameraStarts += 1;
+      const stream = new MediaStream();
+      stream.getTracks = () => [{ stop: () => { window.cameraStops += 1; } }];
+      return stream;
+    };
+    HTMLMediaElement.prototype.play = async () => {};
+  });
+  await page.goto(url);
+  await page.getByRole("button", { name: "Camera", exact: true }).click();
+  await page.evaluate(() => { window.cameraCode = 'B10-R1'; });
+  await page.waitForFunction(() => window.rows.length === 1);
+  await page.waitForTimeout(700);
+  assert.equal(await page.evaluate(() => window.calls.length), 1, "Held QR is submitted only once");
+  await page.evaluate(() => { window.cameraCode = 'B10-R2'; });
+  await page.waitForFunction(() => window.rows.length === 2);
+  assert.equal(await page.evaluate(() => window.cameraStarts), 1, "Camera stays open between rolls");
+  assert.equal(await page.evaluate(() => window.cameraStops), 0);
+  await page.getByRole("radio", { name: "Returned from Cutting", exact: true }).check();
+  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => window.rows.length), 2, "Changing action alone must not scan the held roll");
+  await page.evaluate(() => { window.cameraCode = ''; }); await page.waitForTimeout(250);
+  await page.evaluate(() => { window.cameraCode = 'B10-R1'; });
+  await page.waitForFunction(() => window.rows.length === 3);
+  await page.evaluate(() => { window.cameraCode = 'B10-R2'; });
+  await page.waitForFunction(() => window.rows.length === 4);
+  await page.evaluate(() => { window.cameraCode = 'B10-R1'; });
+  await page.getByRole("status").filter({ hasText: "Already recorded today" }).waitFor();
+  assert.equal(await page.evaluate(() => window.rows.length), 4);
+  await page.getByRole("button", { name: "Close camera" }).click();
+  assert.equal(await page.evaluate(() => window.cameraStops), 1);
   assert.deepEqual(errors, []);
-  console.log("PASS: receipt/return scans, duplicates, failed-save recovery, daily filter, CSV, EN/RU/UZ, mobile overflow, read-only access, camera fallback; zero browser exceptions.");
+  console.log("PASS: continuous receive/return camera, held-label suppression, automatic keyboard scans, slow-save queue, duplicates, failed-save retry, daily filter, CSV, EN/RU/UZ, mobile overflow, read-only access, camera fallback; zero browser exceptions.");
 } finally {
   await browser.close(); await new Promise(resolve => server.close(resolve));
 }

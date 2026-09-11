@@ -1,5 +1,8 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "fabricScans.ready": "Готово — выберите приём или возврат один раз и сканируйте рулоны подряд. Каждый скан сохраняется автоматически.",
+    "fabricScans.notSaved": "Не сохранено",
+    "fabricScans.retry": "Повторить",
     "fabricScans.section": "Контроль ткани",
     "fabricScans.title": "Журнал сканирования ткани",
     "fabricScans.description": "Только ежедневный отчёт по рулонам. Сканирование не меняет складские остатки.",

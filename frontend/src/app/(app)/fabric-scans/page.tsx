@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Camera, Download, RefreshCw } from "lucide-react";
 import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
@@ -9,7 +9,7 @@ import FabricRollCamera from "@/components/FabricRollCamera";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { FABRIC_SCAN_PERMISSIONS, FABRIC_REPORT_PERMISSIONS, downloadFabricReport, tashkentDate, type FabricDirection, type FabricReport, type FabricScanRow } from "@/lib/fabricScans";
+import { FABRIC_SCAN_PERMISSIONS, FABRIC_REPORT_PERMISSIONS, downloadFabricReport, isFabricRollCode, tashkentDate, type FabricDirection, type FabricReport, type FabricScanRow } from "@/lib/fabricScans";
 
 export default function FabricScansPage() {
   const { t, lang } = useT();
@@ -23,8 +23,12 @@ export default function FabricScansPage() {
   const [camera, setCamera] = useState(false);
   const [message, setMessage] = useState("");
   const [scanError, setScanError] = useState("");
+  const [failedScans, setFailedScans] = useState<{ code: string; direction: FabricDirection }[]>([]);
   const input = useRef<HTMLInputElement>(null);
-  const saving = useRef(false);
+  const queue = useRef(Promise.resolve());
+  const pending = useRef(0);
+  const scanTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(scanTimer.current), []);
   const permitted = me?.factory_code !== "BST" && can(me, ...FABRIC_REPORT_PERMISSIONS);
   const canScan = permitted && can(me, ...FABRIC_SCAN_PERMISSIONS);
   const { data, error, isLoading, isValidating, mutate } = useSWR<FabricReport>(
@@ -33,17 +37,24 @@ export default function FabricScansPage() {
   );
   const time = new Intl.DateTimeFormat(lang, { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-  async function save(value: string) {
-    if (saving.current || !canScan || !value.trim()) return;
-    saving.current = true;
+  function save(value: string, action = direction): Promise<void> {
+    clearTimeout(scanTimer.current);
+    value = value.trim();
+    if (!canScan || !value.trim()) return Promise.resolve();
+    pending.current += 1;
     setBusy(true);
-    setCamera(false);
+    setCode("");
+    const task = queue.current.then(() => record(value, action));
+    queue.current = task;
+    return task;
+  }
+  async function record(value: string, action: FabricDirection) {
     setScanError("");
     setMessage("");
     try {
-      const result = await api.post<{ duplicate: boolean; row: FabricScanRow }>("/api/fabric-scans", { code: value.trim(), direction });
+      const result = await api.post<{ duplicate: boolean; row: FabricScanRow }>("/api/fabric-scans", { code: value.trim(), direction: action });
       setMessage(`${t(result.duplicate ? "fabricScans.duplicate" : "fabricScans.saved")} · ${t(`fabricScans.${result.row.direction}`)} · ${result.row.fabric_name} · ${result.row.batch_no} · ${t("fabricScans.roll")} ${result.row.roll_number}`);
-      setCode("");
+      setFailedScans((rows) => rows.filter((row) => row.code !== value || row.direction !== action));
       setDay(result.row.report_date);
       setPage(1);
       void mutate();
@@ -51,10 +62,10 @@ export default function FabricScansPage() {
       const text = err instanceof Error ? err.message : "";
       const key = ["invalid_roll_code", "fabric_not_found", "roll_not_found"].find((value) => text.includes(value));
       setScanError(t(key ? `fabricScans.${key}` : "fabricScans.saveError"));
-      setCode(value);
+      setFailedScans((rows) => rows.some((row) => row.code === value && row.direction === action) ? rows : [...rows, { code: value, direction: action }]);
     } finally {
-      saving.current = false;
-      setBusy(false);
+      pending.current -= 1;
+      setBusy(pending.current > 0);
       requestAnimationFrame(() => input.current?.focus());
     }
   }
@@ -65,11 +76,11 @@ export default function FabricScansPage() {
   return <div className="space-y-5">
     <PageHeader title={t("fabricScans.title")} subtitle={t("fabricScans.description")} />
     {canScan && <section className="card p-4">
-      <fieldset disabled={busy || camera}>
+      <fieldset disabled={busy}>
         <legend className="mb-3 font-semibold">{t("fabricScans.mode")}</legend>
         <div className="flex flex-wrap gap-3">
           {(["received", "returned"] as const).map((value) => <label key={value} className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-md border px-4 py-3 ${direction === value ? "border-[#14110b] bg-[#f1efe8]" : "border-[#e3dfd3]"}`}>
-            <input type="radio" name="direction" value={value} checked={direction === value} onChange={() => { setDirection(value); setMessage(""); input.current?.focus(); }} />
+            <input type="radio" name="direction" value={value} checked={direction === value} onChange={() => { clearTimeout(scanTimer.current); setCode(""); setDirection(value); setMessage(""); input.current?.focus(); }} />
             {t(`fabricScans.${value}`)}
           </label>)}
         </div>
@@ -78,15 +89,25 @@ export default function FabricScansPage() {
         <label htmlFor="fabric-roll-code" className="label">{t("fabricScans.scanLabel")}</label>
         <div className="flex flex-wrap gap-2">
           <input ref={input} id="fabric-roll-code" className="input min-h-12 min-w-0 basis-full sm:flex-1 sm:basis-auto" autoFocus autoComplete="off" spellCheck={false}
-            placeholder={t("fabricScans.scanHint")} value={code} disabled={busy || camera} onChange={(event) => setCode(event.target.value)} />
-          <button className="btn btn-primary min-h-12" type="submit" disabled={busy || camera || !code.trim()}>{t(busy ? "fabricScans.saving" : "fabricScans.record")}</button>
-          <button className="btn min-h-12" type="button" disabled={busy || camera} onClick={() => setCamera(true)}><Camera className="h-4 w-4" />{t("fabricScans.camera")}</button>
+            placeholder={t("fabricScans.scanHint")} value={code} disabled={camera} onChange={(event) => {
+              const value = event.target.value;
+              setCode(value);
+              clearTimeout(scanTimer.current);
+              // Enter-terminated scanners save immediately; others save after the input settles.
+              if (isFabricRollCode(value)) scanTimer.current = setTimeout(() => void save(value), 250);
+            }} />
+          <button className="btn min-h-12" type="button" disabled={busy || camera} onClick={() => { clearTimeout(scanTimer.current); setCode(""); setCamera(true); }}><Camera className="h-4 w-4" />{t("fabricScans.camera")}</button>
         </div>
       </form>
+      <p className="mt-3 text-sm font-semibold">{t(busy ? "fabricScans.saving" : "fabricScans.ready")}</p>
       <p className="mt-3 text-sm text-[#6d6758]">{t("fabricScans.dailyRule")}</p>
-      {camera && <FabricRollCamera onScan={(value) => void save(value)} onClose={() => { setCamera(false); input.current?.focus(); }} />}
+      {camera && <FabricRollCamera onScan={save} onClose={() => { setCamera(false); requestAnimationFrame(() => input.current?.focus()); }} />}
       {message && <p role="status" className="mt-3 text-sm font-semibold">{message}</p>}
       {scanError && <p role="alert" className="mt-3 text-sm text-red-700">{scanError}</p>}
+      {failedScans.map((row) => <div key={`${row.direction}:${row.code}`} className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+        <span className="min-w-0 break-all">{t("fabricScans.notSaved")} · {t(`fabricScans.${row.direction}`)} · {row.code}</span>
+        <button type="button" className="btn" disabled={busy} onClick={() => void save(row.code, row.direction)}>{t("fabricScans.retry")}</button>
+      </div>)}
     </section>}
 
     <section className="card overflow-hidden">
