@@ -1,6 +1,6 @@
 {
-  "release": "20260911_055700",
-  "source_manifest_sha256": "6ccc6ba234991402074f27cf0308e641ddbe7f9143e802ac0388df6028923c74",
-  "database_revision": "0122_cutting_material_details",
-  "git_baseline_commit": "e350259205c925b43d633bff2b3852cdb778b106"
+  "release": "20260911_093031",
+  "source_manifest_sha256": "65a13916392974dbee91d789e8c6a26b32f160adeb87a487892bb87b5e0d7d8a",
+  "database_revision": "0123_fabric_scan_register",
+  "git_baseline_commit": "e44b11239c0b75fa40b1178dfe4c678f7c8e1847"
 }
