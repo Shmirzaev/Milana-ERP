@@ -1,6 +1,6 @@
 {
-  "release": "20260912_084025",
-  "source_manifest_sha256": "8a1cafe394aec228cdb2b89dcf36fcf7b2c9601ab66ac3d176af1045daad5d03",
-  "database_revision": "0123_fabric_scan_register",
-  "git_baseline_commit": "ca07cf9b26a5c6ae160ec4a974923d0dc6ce1b83"
+  "release": "20260912_114701",
+  "source_manifest_sha256": "6464866f90645082507a1658f28716d0f70f5a587ba079040892fed6c3d0a921",
+  "database_revision": "0124_material_length",
+  "git_baseline_commit": "395a1907f1ad1e04b06f6ae1d186e454bd159883"
 }
