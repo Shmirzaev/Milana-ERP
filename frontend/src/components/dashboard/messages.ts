@@ -31,3 +31,30 @@ export const ledgerNote = {
   ru: "Выпуск по записям этапов. Ежедневные отчёты пошива и зарплата учитываются отдельно.",
   uz: "Natijalar bosqich yozuvlaridan olinadi. Kunlik tikish hisobotlari va ish haqi alohida hisoblanadi.",
 };
+
+export const factoryText = {
+  en: {
+    all: "All factories", factory: "Factory", comparison: "Factory comparison",
+    subtitle: "Production orders and recorded output", current: "Current orders", output: "Selected-period output, pcs",
+    scope: "Orders follow sewing routing. Output belongs to the department that recorded the work.",
+    shared: "Split orders appear in each involved factory; All factories counts each order once. Plans show the full order quantity.",
+    unrouted: "Orders awaiting factory routing", unassigned: "Unassigned output remains in All factories.",
+    finance: "Finance · all factories · all time", select: "Select factory", notRouted: "Not routed",
+  },
+  ru: {
+    all: "Все фабрики", factory: "Фабрика", comparison: "Сравнение фабрик",
+    subtitle: "Производственные заказы и учтённый выпуск", current: "Текущие заказы", output: "Выпуск за выбранный период, шт.",
+    scope: "Заказы — по маршруту пошива. Выпуск относится к отделу, зарегистрировавшему работу.",
+    shared: "Разделённый заказ виден на каждой участвующей фабрике, а в общем итоге считается один раз. План — полное количество заказа.",
+    unrouted: "Заказы без маршрута фабрики", unassigned: "Выпуск без фабрики включён в общий итог.",
+    finance: "Финансы · все фабрики · всё время", select: "Выбрать фабрику", notRouted: "Не назначена",
+  },
+  uz: {
+    all: "Barcha fabrikalar", factory: "Fabrika", comparison: "Fabrikalarni taqqoslash",
+    subtitle: "Ishlab chiqarish buyurtmalari va qayd etilgan natijalar", current: "Joriy buyurtmalar", output: "Tanlangan davrdagi natija, dona",
+    scope: "Buyurtmalar tikish yo'nalishi bo'yicha. Natija ishni qayd etgan bo'limga tegishli.",
+    shared: "Bo'lingan buyurtma har bir tegishli fabrikada ko'rinadi, umumiy hisobda bir marta sanaladi. Reja — buyurtmaning to'liq miqdori.",
+    unrouted: "Fabrika yo'nalishi belgilanmagan buyurtmalar", unassigned: "Fabrikasi belgilanmagan natija umumiy hisobda qoladi.",
+    finance: "Moliya · barcha fabrikalar · barcha davr", select: "Fabrikani tanlash", notRouted: "Belgilanmagan",
+  },
+};

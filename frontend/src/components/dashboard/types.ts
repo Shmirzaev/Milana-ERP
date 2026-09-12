@@ -1,11 +1,19 @@
 export const stageKeys = ["cutting", "printing", "sewing", "packaging"] as const;
 export type Stage = typeof stageKeys[number];
 export type DailyOutput = { date: string } & Record<Stage, number>;
+export const factoryCodes = ["MIL", "BST", "ECO"] as const;
+export type Factory = "ALL" | typeof factoryCodes[number];
+export const factoryNames: Record<Factory, string> = { ALL: "All factories", MIL: "Milana", BST: "Besttex", ECO: "Eco Cotton" };
+export type FactorySummary = {
+  code: Exclude<Factory, "ALL">; name: string; active_orders: number; planned_quantity: number;
+  late_orders: number; by_status: Record<string, number>; totals: Record<Stage, number>;
+};
 export type Overview = {
   start: string; end: string; updated_at: string; timezone: string;
   active_orders: number; late_orders: number; planned_quantity: number;
   by_status: Record<string, number>; totals: Record<Stage, number>; daily: DailyOutput[];
-  orders: { id: number; order_no: string; type: string; source_type: string; status: string; qty: number; deadline: string | null }[];
+  factory: Factory; factories: FactorySummary[]; unassigned_orders: number; unassigned_output: Record<Stage, number>;
+  orders: { id: number; order_no: string; type: string; source_type: string; status: string; qty: number; deadline: string | null; factories: Exclude<Factory, "ALL">[] }[];
   orders_limit: number;
 };
 export const stageColors = ["#c2410c", "#a88130", "#1f7a4d", "#7161a8"];

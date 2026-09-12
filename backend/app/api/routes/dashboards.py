@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone, timedelta, time
 from zoneinfo import ZoneInfo
+from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 
@@ -29,12 +30,13 @@ def management_overview(
     start: date,
     end: date,
     _: User = Depends(require_permissions("management.view", "*")),
+    factory: Literal["ALL", "MIL", "BST", "ECO"] = "ALL",
 ):
     from app.services.dashboard_overview import overview
 
     if end < start or (end - start).days > 365:
         raise HTTPException(status_code=422, detail="Choose an ordered date range of at most 366 days")
-    return overview(db, start, end)
+    return overview(db, start, end, factory)
 
 
 _ACTIVE_ORDER_STATUSES = (
