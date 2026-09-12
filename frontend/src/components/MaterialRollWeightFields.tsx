@@ -18,10 +18,12 @@ export default function MaterialRollWeightFields({
   values,
   onChange,
   disabled = false,
+  showTotal = true,
 }: {
   values: string[];
   onChange: (values: string[]) => void;
   disabled?: boolean;
+  showTotal?: boolean;
 }) {
   const { t } = useT();
   const total = rollWeightsTotal(values);
@@ -33,7 +35,7 @@ export default function MaterialRollWeightFields({
           <legend className="text-sm font-semibold text-[#14110b]">{t("page.inventory.rollWeights")}</legend>
           <div className="mt-0.5 text-xs text-[#6f684f]">{t("page.inventory.rollWeightsHint")}</div>
         </div>
-        <button type="button" className="btn shrink-0" onClick={() => onChange([...values, ""])}>
+        <button type="button" className="btn shrink-0" disabled={values.length >= 1000} onClick={() => onChange([...values, ""])}>
           <Plus className="h-4 w-4" />
           {t("page.inventory.addRoll")}
         </button>
@@ -73,9 +75,9 @@ export default function MaterialRollWeightFields({
           </div>
         ))}
       </div>
-      <div className="mt-2 text-right text-sm text-[#56503f]">
+      {showTotal && <div className="mt-2 text-right text-sm text-[#56503f]">
         {t("page.inventory.rollWeightsTotal")}: <span className="font-semibold text-[#14110b]">{total.toFixed(2)} kg</span>
-      </div>
+      </div>}
     </fieldset>
   );
 }

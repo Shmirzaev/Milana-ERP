@@ -4,6 +4,12 @@ import type { Lang } from "./types";
 // Use {var} placeholders for interpolation.
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "fabricRollEntry.method": "Weight entry",
+    "fabricRollEntry.individual": "Enter kg for each roll",
+    "fabricRollEntry.totalOnly": "Total weight only",
+    "fabricRollEntry.totalKg": "Total weight (kg)",
+    "fabricRollEntry.required": "Enter a positive kg weight for every roll.",
+
     "materialLength.optional": "Total material length (m, optional)",
     "materialLength.label": "Length (m)",
     "passportBatch.add": "Add batch",
@@ -2208,6 +2214,12 @@ export const dict: Record<Lang, Record<string, string>> = {
   },
 
   ru: {
+    "fabricRollEntry.method": "Ввод веса",
+    "fabricRollEntry.individual": "Вес каждого рулона в кг",
+    "fabricRollEntry.totalOnly": "Только общий вес",
+    "fabricRollEntry.totalKg": "Общий вес (кг)",
+    "fabricRollEntry.required": "Введите положительный вес в кг для каждого рулона.",
+
     "materialLength.optional": "Общая длина материала (м, необязательно)",
     "materialLength.label": "Длина (м)",
     "passportBatch.add": "Добавить партию",
@@ -4286,6 +4298,12 @@ export const dict: Record<Lang, Record<string, string>> = {
   },
 
   uz: {
+    "fabricRollEntry.method": "Vazn kiritish",
+    "fabricRollEntry.individual": "Har bir rulon uchun kg kiritish",
+    "fabricRollEntry.totalOnly": "Faqat umumiy vazn",
+    "fabricRollEntry.totalKg": "Umumiy vazn (kg)",
+    "fabricRollEntry.required": "Har bir rulon uchun noldan katta kg vaznini kiriting.",
+
     "materialLength.optional": "Materialning umumiy uzunligi (m, ixtiyoriy)",
     "materialLength.label": "Uzunligi (m)",
     "passportBatch.add": "Partiya qo‘shish",
