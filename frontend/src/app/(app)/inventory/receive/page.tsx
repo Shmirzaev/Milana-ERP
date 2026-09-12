@@ -24,7 +24,7 @@ type ReceiveFormState = {
   order_no: string;
   quantity: number | "";
   gsm: string | number;
-  length_m: number | "";
+  roll_lengths_m: string[];
   piece_count: number | "";
   roll_weights_kg: string[];
   weight_entry: "rolls" | "total";
@@ -130,7 +130,7 @@ const DEFAULT_RECEIVE_FORM: ReceiveFormState = {
   order_no: "",
   quantity: "",
   gsm: "",
-  length_m: "",
+  roll_lengths_m: [""],
   piece_count: 1,
   roll_weights_kg: [""],
   weight_entry: "rolls",
@@ -180,7 +180,10 @@ function toReceivePayload(form: ReceiveFormState, deriveRollWeights = false) {
     color_status: form.color_status.trim() || null,
     order_no: form.order_no.trim() || null,
     gsm: form.gsm === "" ? null : Number(form.gsm),
-    length_m: form.length_m === "" ? null : Number(form.length_m),
+    roll_lengths_m: deriveRollWeights ? Array.from({ length: pieceCount }, (_, index) => {
+      const value = form.roll_lengths_m[index];
+      return value ? Number(value) : null;
+    }) : [],
     piece_count: pieceCount > 0 ? pieceCount : null,
     roll_weights_kg: deriveRollWeights ? (form.weight_entry === "rolls" ? form.roll_weights_kg.map(Number) : divideBatchQuantityByRollCount(quantity, pieceCount)) : [],
     processes: processNote || null,
@@ -448,14 +451,15 @@ function StockForm({
           const mode = event.target.value as "rolls" | "total";
           onChange({ ...form, weight_entry: mode, ...(mode === "rolls" ? {
             quantity: Number(rollWeightsTotal(form.roll_weights_kg).toFixed(2)), piece_count: form.roll_weights_kg.length,
+            roll_lengths_m: form.roll_weights_kg.map((_, index) => form.roll_lengths_m[index] || ""),
           } : {}) });
         }}>
           <option value="rolls">{t("fabricRollEntry.individual")}</option>
           <option value="total">{t("fabricRollEntry.totalOnly")}</option>
         </select>
       </div>}
-      {individualRolls && <MaterialRollWeightFields values={form.roll_weights_kg} showTotal={false} onChange={(weights) => onChange({
-        ...form, roll_weights_kg: weights, piece_count: weights.length,
+      {individualRolls && <MaterialRollWeightFields values={form.roll_weights_kg} lengths={form.roll_lengths_m} showTotal={false} onChange={(weights, lengths) => onChange({
+        ...form, roll_weights_kg: weights, roll_lengths_m: lengths, piece_count: weights.length,
         quantity: Number(rollWeightsTotal(weights).toFixed(2)),
       })} />}
       <div>
@@ -466,12 +470,6 @@ function StockForm({
         <div>
           <label className="label">{t("field.gramaj")}</label>
           <input className="input" type="number" min={0} step="0.000001" placeholder="0.145" value={form.gsm} onChange={(e) => onChange({ ...form, gsm: e.target.value })} />
-        </div>
-      )}
-      {showFabricDetails && (
-        <div>
-          <label className="label">{t("materialLength.optional")}</label>
-          <input className="input" type="number" min="0.001" step="0.001" value={form.length_m} onChange={(e) => onChange({ ...form, length_m: numericInputValue(e.target.value) })} />
         </div>
       )}
       <div>
@@ -485,10 +483,20 @@ function StockForm({
           value={form.piece_count}
           readOnly={individualRolls}
           max={requireRollCount ? 1000 : undefined}
-          onChange={(e) => onChange({ ...form, piece_count: numericInputValue(e.target.value) })}
+          onChange={(e) => onChange({ ...form, piece_count: numericInputValue(e.target.value), roll_lengths_m: Array.from({ length: Math.min(1000, Math.max(0, Number(e.target.value) || 0)) }, (_, index) => form.roll_lengths_m[index] || "") })}
           required={requireRollCount}
         />
       </div>
+      {requireRollCount && !individualRolls && <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:col-span-2">
+        {Array.from({ length: Math.min(1000, Math.max(0, Number(form.piece_count) || 0)) }, (_, index) => <div key={index}>
+          <label className="label" htmlFor={`total-mode-roll-length-${index}`}>{t("materialLength.perRoll", { roll: index + 1 })}</label>
+          <input id={`total-mode-roll-length-${index}`} className="input" type="number" min="0.001" step="0.001" value={form.roll_lengths_m[index] || ""} onChange={(event) => {
+            const next = [...form.roll_lengths_m];
+            next[index] = event.target.value;
+            onChange({ ...form, roll_lengths_m: next });
+          }} />
+        </div>)}
+      </div>}
       <div>
         <label className="label">{t("ph.supplier")}</label>
         <select className="input" value={form.supplier_id} onChange={(e) => onChange({ ...form, supplier_id: Number(e.target.value) })}>
@@ -917,7 +925,7 @@ export default function ReceiveStockPage() {
               <th>{t("field.orderNo").toUpperCase()}</th>
               <th>{t("field.netto").toUpperCase()}</th>
               {isFabricReceiving && <th>{t("field.gramaj").toUpperCase()}</th>}
-              {isFabricReceiving && <th>{t("materialLength.label")}</th>}
+              {isFabricReceiving && <th>{t("materialLength.rolls")}</th>}
               <th>{t("field.pieceCount").toUpperCase()}</th>
               <th>{t("field.processes").toUpperCase()}</th>
             </tr>
@@ -934,7 +942,7 @@ export default function ReceiveStockPage() {
                 <td>{formatOrderReference(b.order_no || "-")}</td>
                 <td>{Number(b.quantity).toFixed(2)}</td>
                 {isFabricReceiving && <td>{b.gsm != null ? Number(b.gsm).toFixed(3) : "-"}</td>}
-                {isFabricReceiving && <td>{b.length_m ?? "-"}</td>}
+                {isFabricReceiving && <td>{b.roll_lengths_m?.some((value: number | null) => value != null) ? b.roll_lengths_m.map((value: number | null, index: number) => <div key={index}>{index + 1}: {value ?? "-"}</div>) : b.length_m != null ? `${t("materialLength.legacyTotal")}: ${b.length_m}` : "-"}</td>}
                 <td>{b.piece_count ?? "-"}</td>
                 <td>{b.processes || "-"}</td>
               </tr>

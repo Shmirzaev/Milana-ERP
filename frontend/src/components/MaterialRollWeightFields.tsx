@@ -19,11 +19,13 @@ export default function MaterialRollWeightFields({
   onChange,
   disabled = false,
   showTotal = true,
+  lengths,
 }: {
   values: string[];
-  onChange: (values: string[]) => void;
+  onChange: (values: string[], lengths: string[]) => void;
   disabled?: boolean;
   showTotal?: boolean;
+  lengths?: string[];
 }) {
   const { t } = useT();
   const total = rollWeightsTotal(values);
@@ -35,7 +37,7 @@ export default function MaterialRollWeightFields({
           <legend className="text-sm font-semibold text-[#14110b]">{t("page.inventory.rollWeights")}</legend>
           <div className="mt-0.5 text-xs text-[#6f684f]">{t("page.inventory.rollWeightsHint")}</div>
         </div>
-        <button type="button" className="btn shrink-0" disabled={values.length >= 1000} onClick={() => onChange([...values, ""])}>
+        <button type="button" className="btn shrink-0" disabled={values.length >= 1000} onClick={() => onChange([...values, ""], [...(lengths || values.map(() => "")), ""])}>
           <Plus className="h-4 w-4" />
           {t("page.inventory.addRoll")}
         </button>
@@ -56,19 +58,27 @@ export default function MaterialRollWeightFields({
                   onChange={(event) => {
                     const next = [...values];
                     next[index] = event.target.value;
-                    onChange(next);
+                    onChange(next, lengths || []);
                   }}
                   required
                 />
                 <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-[#6f684f]">kg</span>
               </div>
             </div>
+            {lengths && <div className="min-w-0 flex-1">
+              <label className="label" htmlFor={`roll-length-${index}`}>{t("materialLength.perRoll", { roll: index + 1 })}</label>
+              <input id={`roll-length-${index}`} className="input" type="number" inputMode="decimal" min="0.001" step="0.001" value={lengths[index] || ""} onChange={(event) => {
+                const next = [...lengths];
+                next[index] = event.target.value;
+                onChange(values, next);
+              }} />
+            </div>}
             <button
               type="button"
               className="icon-btn mb-0.5 text-red-700"
               title={t("page.inventory.removeRoll")}
               disabled={values.length <= 1}
-              onClick={() => onChange(values.filter((_, valueIndex) => valueIndex !== index))}
+              onClick={() => onChange(values.filter((_, valueIndex) => valueIndex !== index), (lengths || []).filter((_, valueIndex) => valueIndex !== index))}
             >
               <Trash2 />
             </button>
