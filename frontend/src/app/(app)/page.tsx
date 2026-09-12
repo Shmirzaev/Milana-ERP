@@ -8,6 +8,7 @@ import PageHeader from "@/components/PageHeader";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
+import ManagementDashboard from "@/components/dashboard/ManagementDashboard";
 
 type FilterKind = "all" | "client_order" | "branded_stock_sale";
 type DatePreset = "all" | "today" | "yesterday" | "tomorrow" | "this_week" | "this_month" | "current_year" | "custom";
@@ -103,6 +104,13 @@ function toCsvCell(v: unknown): string {
 }
 
 export default function HomePage() {
+  const { me, loading } = useMe();
+  const { t } = useT();
+  if (loading || !me) return <div role="status">{t("common.loading")}</div>;
+  return can(me, "management.view") ? <ManagementDashboard /> : <LegacyHomePage />;
+}
+
+function LegacyHomePage() {
   const { me } = useMe();
   const { t } = useT();
   const [clientTz, setClientTz] = useState("UTC");

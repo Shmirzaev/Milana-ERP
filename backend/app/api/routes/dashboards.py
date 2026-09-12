@@ -1,6 +1,6 @@
-from datetime import datetime, timezone, timedelta, time
+from datetime import date, datetime, timezone, timedelta, time
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 
 from app.core.deps import (
@@ -21,6 +21,22 @@ from app.services.finance import dashboard_summary, branded_stock_value
 from app.services.inventory import stock_summary
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+
+@router.get("/overview")
+def management_overview(
+    db: DbSession,
+    start: date,
+    end: date,
+    _: User = Depends(require_permissions("management.view", "*")),
+):
+    from app.services.dashboard_overview import overview
+
+    if end < start or (end - start).days > 365:
+        raise HTTPException(status_code=422, detail="Choose an ordered date range of at most 366 days")
+    return overview(db, start, end)
+
+
 _ACTIVE_ORDER_STATUSES = (
     "confirmed",
     "planning",
