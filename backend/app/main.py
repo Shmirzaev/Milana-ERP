@@ -223,7 +223,9 @@ async def _security_headers(request: Request, call_next):
     # render them with bearer-token auth). They have unguessable UUID names; keep
     # them out of shared caches and search indexes to limit URL-leak exposure.
     if request.url.path.startswith("/storage/"):
-        if request.url.path.startswith("/storage/model-files/thumb/"):
+        if response.status_code >= 400:
+            response.headers["Cache-Control"] = "private, no-store"
+        elif request.url.path.startswith("/storage/model-files/thumb/"):
             response.headers.setdefault("Cache-Control", "private, max-age=604800")
         elif request.url.path.startswith("/storage/model-files/"):
             response.headers.setdefault("Cache-Control", "private, max-age=86400")

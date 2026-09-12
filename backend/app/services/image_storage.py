@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
+import sys
 import warnings
 from dataclasses import dataclass
 from io import BytesIO
@@ -43,7 +45,7 @@ class StoredImage:
     byte_size: int
 
 
-def _normalized_image(content: bytes) -> tuple[Image.Image, bytes | None, str]:
+def _normalized_image(content: bytes, *, recover_legacy_jpeg: bool = False) -> tuple[Image.Image, bytes | None, str]:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
@@ -63,8 +65,39 @@ def _normalized_image(content: bytes) -> tuple[Image.Image, bytes | None, str]:
         raise
     except (Image.DecompressionBombError, Image.DecompressionBombWarning):
         raise HTTPException(400, "Image dimensions are too large")
-    except (UnidentifiedImageError, OSError, ValueError):
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        if recover_legacy_jpeg and content.startswith(b"\xff\xd8") and "truncated" in str(exc).lower():
+            # Old ERP JPEGs can lack their final bytes. Tolerate that only for
+            # existing thumbnail sources, in a separate process: Pillow's flag
+            # is global and must never weaken concurrent upload validation.
+            try:
+                recovered = subprocess.run(
+                    [sys.executable, "-c", _LEGACY_JPEG_RECOVERY],
+                    input=content,
+                    capture_output=True,
+                    check=True,
+                    timeout=20,
+                )
+                image, icc_profile, _ = _normalized_image(recovered.stdout)
+                return image, icc_profile, "JPEG"
+            except (subprocess.SubprocessError, OSError):
+                pass
         raise HTTPException(400, "File content is not a supported image")
+
+
+_LEGACY_JPEG_RECOVERY = """
+import sys, warnings
+from io import BytesIO
+from PIL import Image, ImageFile, ImageOps
+warnings.simplefilter('error', Image.DecompressionBombWarning)
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+with Image.open(BytesIO(sys.stdin.buffer.read())) as source:
+    if source.format != 'JPEG' or source.width * source.height > 50_000_000:
+        raise ValueError('Not a recoverable JPEG')
+    image = ImageOps.exif_transpose(source)
+    image.load()
+    image.convert('RGB').save(sys.stdout.buffer, format='PNG', icc_profile=source.info.get('icc_profile'))
+"""
 
 
 def _webp_bytes(
@@ -154,8 +187,9 @@ def prebuild_webp_thumbnails(
     thumbnail_root: str | Path,
     source_file_name: str,
     sizes: tuple[int, ...] = PREBUILT_THUMBNAIL_SIZES,
+    recover_legacy_jpeg: bool = False,
 ) -> list[Path]:
-    image, icc_profile, source_format = _normalized_image(content)
+    image, icc_profile, source_format = _normalized_image(content, recover_legacy_jpeg=recover_legacy_jpeg)
     created: list[Path] = []
     try:
         root = Path(thumbnail_root)
@@ -236,6 +270,7 @@ def ensure_webp_thumbnail(
             thumbnail_root=destination.parent,
             source_file_name=_source_name_from_thumbnail(destination.name, size),
             sizes=(size,),
+            recover_legacy_jpeg=True,
         )
         generated = created[0]
         if generated != destination:
