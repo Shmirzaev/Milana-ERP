@@ -1,6 +1,6 @@
 {
-  "release": "20260911_093031",
-  "source_manifest_sha256": "65a13916392974dbee91d789e8c6a26b32f160adeb87a487892bb87b5e0d7d8a",
+  "release": "20260912_080500",
+  "source_manifest_sha256": "067e803a49ef6e3b1d67d566776d0d3f4cce061c9e4d1bdcf829440c0e2014e6",
   "database_revision": "0123_fabric_scan_register",
-  "git_baseline_commit": "e44b11239c0b75fa40b1178dfe4c678f7c8e1847"
+  "git_baseline_commit": "71c5cc1ce1f3a0d3813b843f782d39366d94f064"
 }
