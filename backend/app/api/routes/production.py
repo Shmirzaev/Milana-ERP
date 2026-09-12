@@ -4690,7 +4690,7 @@ def _apply_replacement_sewing_output(
 
 @router.post("/sewing/records", status_code=201)
 def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(require_permissions("sewing.records", "*"))):
-    wo = db.get(WorkOrder, payload.work_order_id)
+    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update().first()
     if not wo: raise HTTPException(404, "Work order not found")
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
@@ -4705,6 +4705,8 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
             raise HTTPException(404, "Sewing assignment not found")
         if assignment.work_order_id != wo.id:
             raise HTTPException(400, "Selected sewing assignment does not belong to this work order")
+        if assignment.status not in ("planned", "in_progress", "completed"):
+            raise HTTPException(409, "Sewing assignment has been returned or cancelled")
     elif payload.line_name:
         line_key = payload.line_name.strip().lower()
         if line_key:

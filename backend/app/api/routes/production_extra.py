@@ -8,13 +8,13 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
     WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, User,
-    Customer, SalesOrder, Bundle, ProductionBatch,
+    Customer, SalesOrder, Bundle, ProductionBatch, SewingDailyReport, SewingRecord,
 )
 from app.schemas.sewing_assignment import (
     SewingAssignmentIn, SewingAssignmentUpdate, SewingAssignmentOut,
@@ -168,11 +168,11 @@ def create_assignment(
     wid: int, payload: SewingAssignmentIn, db: DbSession,
     current: User = Depends(require_permissions("planning.production", "sewing.flows", "sewing.records", "*")),
 ):
-    wo = db.get(WorkOrder, wid)
+    wo = db.query(WorkOrder).filter(WorkOrder.id == wid).with_for_update().first()
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "sewing":
         raise HTTPException(400, "Assignments only apply to sewing work orders")
-    flow = db.get(SewingFlow, payload.sewing_flow_id)
+    flow = db.query(SewingFlow).filter(SewingFlow.id == payload.sewing_flow_id).with_for_update().first()
     if not flow: raise HTTPException(404, "Sewing flow not found")
     require_sewing_flow_access(current, flow)
     if not flow.is_active: raise HTTPException(400, "Sewing flow is inactive")
@@ -237,9 +237,10 @@ def update_assignment(
     a = db.get(SewingAssignment, aid)
     if not a: raise HTTPException(404, "Assignment not found")
     changes = payload.model_dump(exclude_unset=True)
-    wo = db.get(WorkOrder, a.work_order_id)
+    wo = db.query(WorkOrder).filter(WorkOrder.id == a.work_order_id).with_for_update().first()
     if not wo:
         raise HTTPException(404, "Work order not found")
+    db.refresh(a, with_for_update=True)
 
     previous_flow = db.get(SewingFlow, a.sewing_flow_id)
     if not previous_flow:
@@ -253,7 +254,7 @@ def update_assignment(
     next_batch_id = _normalize_assignment_batch_id(db, wo, changes.get("production_batch_id", a.production_batch_id))
     if next_qty <= 0:
         raise HTTPException(400, "Quantity must be > 0")
-    flow = db.get(SewingFlow, next_flow_id)
+    flow = db.query(SewingFlow).filter(SewingFlow.id == next_flow_id).with_for_update().first()
     if not flow:
         raise HTTPException(404, "Sewing flow not found")
     require_sewing_flow_access(current, flow)
@@ -316,6 +317,67 @@ def update_assignment(
             "work_order_primary_flow_updated": primary_flow_updated,
         })
     db.commit(); db.refresh(a)
+    return a
+
+
+class SewingAssignmentReturnIn(BaseModel):
+    sewing_flow_id: int
+
+
+@router.post("/sewing-assignments/{aid}/return", response_model=SewingAssignmentOut)
+def return_assignment(
+    aid: int, payload: SewingAssignmentReturnIn, db: DbSession,
+    current: User = Depends(require_permissions("planning.production", "sewing.flows", "sewing.records", "*")),
+):
+    a = db.get(SewingAssignment, aid)
+    if not a:
+        raise HTTPException(404, "Assignment not found")
+    wo = db.query(WorkOrder).filter(WorkOrder.id == a.work_order_id).with_for_update().first()
+    if not wo or wo.operation != "sewing":
+        raise HTTPException(404, "Sewing work order not found")
+    db.refresh(a, with_for_update=True)
+    flow = db.get(SewingFlow, a.sewing_flow_id)
+    if not flow:
+        raise HTTPException(404, "Sewing flow not found")
+    require_sewing_flow_access(current, flow)
+    from app.services.factory_scope import require_work_order_factory_access
+    require_work_order_factory_access(current, db, wo)
+    if a.sewing_flow_id != payload.sewing_flow_id:
+        raise HTTPException(409, "SEWING_RETURN_MOVED")
+    if a.status == "cancelled":
+        return a
+    if a.status not in ("planned", "in_progress") or wo.status not in _ACTIVE_WO_STATUSES:
+        raise HTTPException(409, "SEWING_RETURN_INACTIVE")
+    reports = db.query(SewingDailyReport.id).filter(or_(
+        SewingDailyReport.sewing_assignment_id == aid,
+        (SewingDailyReport.work_order_id == wo.id)
+        & (SewingDailyReport.sewing_flow_id == flow.id)
+        & (SewingDailyReport.production_batch_id == a.production_batch_id),
+    )).first()
+    records = db.query(SewingRecord.id).filter(
+        SewingRecord.work_order_id == wo.id,
+        SewingRecord.production_batch_id == a.production_batch_id,
+        or_(SewingRecord.line_name.is_(None), SewingRecord.line_name == "",
+            func.lower(SewingRecord.line_name).in_((flow.name.lower(), flow.code.lower()))),
+    ).first()
+    if a.completed_qty or a.actual_start or a.actual_end or reports or records:
+        raise HTTPException(409, "SEWING_RETURN_HAS_OUTPUT")
+    old = {"status": a.status, "sewing_flow_id": a.sewing_flow_id, "quantity": a.quantity,
+           "work_order_id": wo.id, "production_batch_id": a.production_batch_id,
+           "primary_flow_id": wo.sewing_flow_id}
+    a.status = "cancelled"
+    db.flush()
+    if wo.sewing_flow_id == flow.id:
+        remaining = db.query(SewingAssignment).filter(
+            SewingAssignment.work_order_id == wo.id,
+            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
+        ).order_by(SewingAssignment.id).all()
+        if not any(s.sewing_flow_id == flow.id for s in remaining):
+            wo.sewing_flow_id = remaining[0].sewing_flow_id if remaining else None
+    log_action(db, current, "return", "SewingAssignment", aid, old_value=old,
+               new_value={**old, "status": "cancelled", "primary_flow_id": wo.sewing_flow_id})
+    db.commit()
+    db.refresh(a)
     return a
 
 

@@ -4,6 +4,12 @@ import type { Lang } from "./types";
 // legacy dictionary easier to audit without rewriting that large file.
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
+    "sewingReturn.button": "Return work",
+    "sewingReturn.confirm": "Return {order} {batch} from {line} to the available work list? You can then assign it to the correct line.",
+    "sewingReturn.hasOutput": "This assignment already has sewing output or reports. It cannot be returned.",
+    "sewingReturn.moved": "This assignment has moved to another line. Refresh and try again.",
+    "sewingReturn.inactive": "Only active sewing work can be returned.",
+    "sewingReturn.failed": "Could not return the work. Refresh and try again.",
     "productionSizes.edit": "Edit sizes",
     "productionSizes.rowLabel": "Size for row {row}, {color}",
     "productionSizes.required": "Enter a size for every row.",
@@ -1036,6 +1042,12 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "attendance.resultCount": "{count} profiles",
   },
   ru: {
+    "sewingReturn.button": "Вернуть работу",
+    "sewingReturn.confirm": "Вернуть {order} {batch} с линии {line} в список доступных работ? Затем её можно назначить нужной линии.",
+    "sewingReturn.hasOutput": "По этому назначению уже есть выпуск или отчёты. Вернуть его нельзя.",
+    "sewingReturn.moved": "Назначение уже перенесено на другую линию. Обновите страницу.",
+    "sewingReturn.inactive": "Можно вернуть только активную работу.",
+    "sewingReturn.failed": "Не удалось вернуть работу. Обновите страницу и повторите.",
     "productionSizes.edit": "Изменить размеры",
     "productionSizes.rowLabel": "Размер строки {row}, {color}",
     "productionSizes.required": "Укажите размер в каждой строке.",
@@ -2182,6 +2194,12 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "attendance.resultCount": "\u041f\u0440\u043e\u0444\u0438\u043b\u0435\u0439: {count}",
   },
   uz: {
+    "sewingReturn.button": "Ishni qaytarish",
+    "sewingReturn.confirm": "{order} {batch} ishini {line} liniyasidan mavjud ishlar ro‘yxatiga qaytarasizmi? Keyin uni to‘g‘ri liniyaga tayinlash mumkin.",
+    "sewingReturn.hasOutput": "Bu topshiriq bo‘yicha tikilgan mahsulot yoki hisobot bor. Uni qaytarib bo‘lmaydi.",
+    "sewingReturn.moved": "Topshiriq boshqa liniyaga ko‘chirilgan. Sahifani yangilang.",
+    "sewingReturn.inactive": "Faqat faol ishni qaytarish mumkin.",
+    "sewingReturn.failed": "Ishni qaytarib bo‘lmadi. Sahifani yangilab, qayta urinib ko‘ring.",
     "productionSizes.edit": "O‘lchamlarni tahrirlash",
     "productionSizes.rowLabel": "{row}-qator o‘lchami, {color}",
     "productionSizes.required": "Har bir qator uchun o‘lcham kiriting.",

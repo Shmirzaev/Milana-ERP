@@ -1,5 +1,11 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "sewingReturn.button": "Return work",
+    "sewingReturn.confirm": "Return {order} {batch} from {line} to the available work list? You can then assign it to the correct line.",
+    "sewingReturn.hasOutput": "This assignment already has sewing output or reports. It cannot be returned.",
+    "sewingReturn.moved": "This assignment has moved to another line. Refresh and try again.",
+    "sewingReturn.inactive": "Only active sewing work can be returned.",
+    "sewingReturn.failed": "Could not return the work. Refresh and try again.",
     "productionSizes.edit": "Edit sizes",
     "productionSizes.rowLabel": "Size for row {row}, {color}",
     "productionSizes.required": "Enter a size for every row.",

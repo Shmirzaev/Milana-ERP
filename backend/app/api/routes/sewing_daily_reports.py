@@ -290,6 +290,7 @@ def create_report(
             db.query(WorkOrder)
             .options(joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order))
             .filter(WorkOrder.id == payload.work_order_id)
+            .with_for_update(of=WorkOrder)
             .first()
         )
         if not work_order or work_order.operation != "sewing":
@@ -300,6 +301,7 @@ def create_report(
                 not assignment
                 or assignment.work_order_id != work_order.id
                 or assignment.sewing_flow_id != flow.id
+                or assignment.status not in ("planned", "in_progress", "completed")
             ):
                 raise HTTPException(400, "Selected assignment does not belong to this sewing line and order")
         elif work_order.sewing_flow_id != flow.id:
