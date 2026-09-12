@@ -257,6 +257,7 @@ class CuttingRecord(Base, PkMixin, TimestampMixin):
     )
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False)
     production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"))
+    cutting_passport_id: Mapped[int | None] = mapped_column(ForeignKey("cutting_passports.id"), index=True)
     fabric_batch_id: Mapped[int | None] = mapped_column(ForeignKey("stock_batches.id"))
     model_bom_id: Mapped[int | None] = mapped_column(ForeignKey("model_bom.id"), index=True)
     cutting_batch_no: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)

@@ -164,6 +164,8 @@ class SewingDailyReportListOut(SchemaModel):
 
 
 class SewingDailyLineWorkOrder(SewingDailyModelInfo):
+    report_remaining_top_qty: int = 0
+    report_remaining_bottom_qty: int = 0
     work_order_id: int
     sewing_assignment_id: Optional[int] = None
     production_order_id: int

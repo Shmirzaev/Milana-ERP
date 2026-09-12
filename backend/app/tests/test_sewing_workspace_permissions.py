@@ -101,3 +101,7 @@ def test_sewing_workspace_is_limited_to_sewing_role(client, auth_headers):
     assert allowed_report.status_code == 201, allowed_report.text
     denied_report = client.post("/api/sewing-daily-reports", json=manual_payload, headers=planning_headers)
     assert denied_report.status_code == 403, denied_report.text
+
+    report_id = allowed_report.json()["id"]
+    assert client.delete(f"/api/sewing-daily-reports/{report_id}", headers=planning_headers).status_code == 403
+    assert client.delete(f"/api/sewing-daily-reports/{report_id}", headers=sewing_headers).status_code == 204

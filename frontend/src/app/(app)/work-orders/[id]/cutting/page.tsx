@@ -560,9 +560,11 @@ export default function CuttingPage() {
     [allSearchableFabricBatches, correctedBatches],
   );
   const hasPlannedMaterials = plannedMaterials.length > 0;
-  const materialPassports = useMemo(() => (Array.isArray(cuttingPassports) ? cuttingPassports : []).flatMap((passport: any) =>
+  const [passportId, setPassportId] = useState<number>(0);
+  const selectedPassportId = cuttingPassports?.some((row) => row.id === passportId) ? passportId : cuttingPassports?.[0]?.id || 0;
+  const materialPassports = useMemo(() => (Array.isArray(cuttingPassports) ? cuttingPassports : []).filter((passport) => passport.id === selectedPassportId).flatMap((passport: any) =>
     passport.materials?.length ? passport.materials.map((material: any) => ({ ...passport, ...material, operator_name: material.operator_name_manual || passport.operator_name })) : [passport]
-  ), [cuttingPassports]);
+  ), [cuttingPassports, selectedPassportId]);
   const selectedCuttingPassport = useMemo(() => {
     return materialPassports.find((passport: any) => passport.stock_batch_id
       ? Number(passport.stock_batch_id) === Number(form.fabric_batch_id)
@@ -1163,6 +1165,7 @@ export default function CuttingPage() {
       const r = await api.post("/api/cutting/records", {
         work_order_id: id,
         ...form,
+        cutting_passport_id: selectedPassportId || null,
         input_quantity: primaryMaterial?.quantity ?? numberOrZero(form.input_quantity),
         input_unit: primaryMaterial?.unit ?? form.input_unit,
         layer_material_kg: numberOrZero(form.layer_material_kg),
@@ -2254,6 +2257,17 @@ export default function CuttingPage() {
       )}
 
       <form id={isUsluga ? "usluga-cutting-entry" : undefined} onSubmit={submit} className="card space-y-5 p-6">
+        {(cuttingPassports || []).length > 1 && <div>
+          <label className="label">{t("passportBatch.select")}</label>
+          <select className="input" value={selectedPassportId} onChange={(event) => {
+            setPassportId(Number(event.target.value));
+            passportAutofillDirtyFields.current.clear();
+            setForm((current) => ({ ...current, input_quantity: "", layer_material_kg: "", material_rolls_used: "", layup_operator_name: "", cut_pieces: "", notes: "", beika_kg: "", waste_quantity: "" }));
+            setCuttingMaterials((rows) => rows.map((row) => ({ ...row, details: emptyMaterialDetails() })));
+          }}>
+            {(cuttingPassports || []).map((passport) => <option key={passport.id} value={passport.id}>{passport.passport_no}</option>)}
+          </select>
+        </div>}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           {isAlreadyBatched && (
             <div>

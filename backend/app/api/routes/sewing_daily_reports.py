@@ -5,10 +5,11 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from sqlalchemy import func, case
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import CuttingPassport, Model, SewingAssignment, SewingDailyReport, SewingFlow, User, WorkOrder, ProductionOrder, ProductionBatch
+from app.models import Bundle, CuttingPassport, Model, SewingAssignment, SewingDailyReport, SewingFlow, User, WorkOrder, ProductionOrder, ProductionBatch
 from app.schemas.sewing_daily_report import (
     SewingDailyLineContext,
     SewingDailyLineWorkOrder,
@@ -159,6 +160,53 @@ def _report_audit_values(report: SewingDailyReport) -> dict:
     }
 
 
+def _lock_report_order(db, work_order_id):
+    """Serialize report writes across dates, lines and assignments of one order."""
+    order_id = db.query(WorkOrder.production_order_id).filter(WorkOrder.id == work_order_id).scalar()
+    if order_id:
+        db.query(ProductionOrder).filter(ProductionOrder.id == order_id).with_for_update().first()
+
+
+def _report_capacity(db, work_order, assignment=None, exclude_id=None):
+    order = work_order.production_order
+    batch_id = assignment.production_batch_id if assignment and assignment.production_batch_id else work_order.production_batch_id
+    bundles = db.query(func.sum(Bundle.quantity)).filter(
+        Bundle.production_order_id == order.id, Bundle.status != "cancelled",
+    )
+    actual = bundles.scalar()
+    limit = int(actual if actual is not None else order.planned_quantity or 0)
+    scopes = [(SewingDailyReport.production_order_id == order.id, limit)]
+    if batch_id:
+        batch = db.get(ProductionBatch, batch_id)
+        batch_actual = bundles.filter(Bundle.production_batch_id == batch_id).scalar()
+        scopes.append((SewingDailyReport.production_batch_id == batch_id,
+                       int(batch_actual if batch_actual is not None else batch.planned_quantity if batch else 0)))
+    if assignment:
+        scopes.append((SewingDailyReport.sewing_assignment_id == assignment.id, int(assignment.quantity or 0)))
+    top_remaining = bottom_remaining = limit
+    for condition, capacity in scopes:
+        # One-piece reports consume one garment; two-piece reports consume each
+        # component independently, even when recorded on different days.
+        query = db.query(
+            func.coalesce(func.sum(case((SewingDailyReport.top_qty.is_not(None), SewingDailyReport.top_qty), else_=SewingDailyReport.sewn_qty)), 0),
+            func.coalesce(func.sum(case((SewingDailyReport.bottom_qty.is_not(None), SewingDailyReport.bottom_qty), else_=SewingDailyReport.sewn_qty)), 0),
+        ).filter(condition)
+        if exclude_id is not None:
+            query = query.filter(SewingDailyReport.id != exclude_id)
+        top, bottom = query.one()
+        top_remaining = min(top_remaining, capacity - int(top))
+        bottom_remaining = min(bottom_remaining, capacity - int(bottom))
+    return max(0, top_remaining), max(0, bottom_remaining)
+
+
+def _validate_report_capacity(db, work_order, assignment, payload, exclude_id=None):
+    top_remaining, bottom_remaining = _report_capacity(db, work_order, assignment, exclude_id)
+    top = payload.top_qty if payload.top_qty is not None else payload.sewn_qty
+    bottom = payload.bottom_qty if payload.bottom_qty is not None else payload.sewn_qty
+    if top > top_remaining or bottom > bottom_remaining:
+        raise HTTPException(400, f"Daily sewing report exceeds the order quantity. Remaining: top {top_remaining}, bottom {bottom_remaining}.")
+
+
 def _work_order_context(
     db,
     work_order: WorkOrder,
@@ -176,6 +224,7 @@ def _work_order_context(
         planned = max(int(work_order.planned_input_qty or 0), int(work_order.planned_output_qty or 0))
         completed = int(work_order.passed_qty or 0) + int(work_order.failed_qty or 0)
         assignment_id = None
+    report_top, report_bottom = _report_capacity(db, work_order, sewing_assignment)
     return SewingDailyLineWorkOrder(
         work_order_id=int(work_order.id),
         sewing_assignment_id=assignment_id,
@@ -193,6 +242,8 @@ def _work_order_context(
         remaining_qty=max(0, planned - completed),
         deadline=work_order.deadline,
         kroy_no=_production_kroy_no(db, work_order.production_order_id, kroy_cache),
+        report_remaining_top_qty=report_top,
+        report_remaining_bottom_qty=report_bottom,
         **_production_model_info(db, work_order.production_order),
     )
 
@@ -286,6 +337,7 @@ def create_report(
     work_order = None
     assignment = None
     if payload.work_order_id is not None:
+        _lock_report_order(db, payload.work_order_id)
         work_order = (
             db.query(WorkOrder)
             .options(joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order))
@@ -313,6 +365,8 @@ def create_report(
         else work_order.production_batch_id if work_order else None
     )
     uses_sections = _uses_dynamic_sections(flow)
+    if work_order:
+        _validate_report_capacity(db, work_order, assignment, payload if uses_sections else payload.model_copy(update={"top_qty": None, "bottom_qty": None}))
     report = SewingDailyReport(
         report_date=payload.report_date,
         sewing_flow_id=flow.id,
@@ -379,6 +433,10 @@ def update_report(
     report = db.get(SewingDailyReport, report_id)
     if not report:
         raise HTTPException(404, "Daily sewing report entry not found")
+    _lock_report_order(db, report.work_order_id)
+    report = db.query(SewingDailyReport).filter(SewingDailyReport.id == report_id).populate_existing().with_for_update().first()
+    if not report:
+        raise HTTPException(404, "Daily sewing report entry not found")
     flow = db.get(SewingFlow, int(report.sewing_flow_id))
     if not flow:
         raise HTTPException(400, "The saved sewing line no longer exists")
@@ -387,6 +445,10 @@ def update_report(
         raise HTTPException(400, "Model number is required when no sewing order is attached")
 
     old_value = _report_audit_values(report)
+    if report.work_order_id and not payload.manual_model_no:
+        work_order = db.get(WorkOrder, report.work_order_id)
+        assignment = db.get(SewingAssignment, report.sewing_assignment_id) if report.sewing_assignment_id else None
+        _validate_report_capacity(db, work_order, assignment, payload if _uses_dynamic_sections(flow) else payload.model_copy(update={"top_qty": None, "bottom_qty": None}), report.id)
     uses_sections = _uses_dynamic_sections(flow)
     report.report_date = payload.report_date
     report.manual_model_no = payload.manual_model_no
@@ -422,6 +484,28 @@ def update_report(
     db.commit()
     db.refresh(report)
     return _report_response(db, report)
+
+
+@router.delete("/{report_id}", status_code=204)
+def delete_report(
+    report_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("sewing.workspace")),
+):
+    report = db.get(SewingDailyReport, report_id)
+    if not report:
+        raise HTTPException(404, "Daily sewing report entry not found")
+    _lock_report_order(db, report.work_order_id)
+    report = db.query(SewingDailyReport).filter(SewingDailyReport.id == report_id).populate_existing().with_for_update().first()
+    if not report:
+        raise HTTPException(404, "Daily sewing report entry not found")
+    flow = db.get(SewingFlow, report.sewing_flow_id)
+    if not flow:
+        raise HTTPException(400, "The saved sewing line no longer exists")
+    require_sewing_flow_access(current, flow)
+    log_action(db, current, "delete", "SewingDailyReport", report.id, old_value=_report_audit_values(report))
+    db.delete(report)
+    db.commit()
 
 
 def _report_date_range(

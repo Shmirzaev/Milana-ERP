@@ -4,6 +4,16 @@ import type { Lang } from "./types";
 // Use {var} placeholders for interpolation.
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "materialLength.optional": "Total material length (m, optional)",
+    "materialLength.label": "Length (m)",
+    "passportBatch.add": "Add batch",
+    "passportBatch.help": "Each cutting batch has its own passport number and measurements.",
+    "passportBatch.select": "Cutting batch passport",
+    "sewingReport.deleteConfirm": "Delete this saved daily sewing report entry?",
+    "sewingReport.deleted": "Daily sewing report entry deleted.",
+    "sewingReport.limit": "Report quantity exceeds the remaining order quantity.",
+    "sewingReport.remaining": "Remaining to report",
+
     "fabricScans.ready": "Ready — choose Receive or Return once, then keep scanning. Each roll saves automatically.",
     "fabricScans.notSaved": "Not saved",
     "fabricScans.retry": "Retry",
@@ -2198,6 +2208,16 @@ export const dict: Record<Lang, Record<string, string>> = {
   },
 
   ru: {
+    "materialLength.optional": "Общая длина материала (м, необязательно)",
+    "materialLength.label": "Длина (м)",
+    "passportBatch.add": "Добавить партию",
+    "passportBatch.help": "У каждой партии кроя свой номер паспорта и отдельные параметры.",
+    "passportBatch.select": "Паспорт партии кроя",
+    "sewingReport.deleteConfirm": "Удалить эту сохранённую запись ежедневного отчёта по шитью?",
+    "sewingReport.deleted": "Запись ежедневного отчёта удалена.",
+    "sewingReport.limit": "Количество в отчёте превышает остаток по заказу.",
+    "sewingReport.remaining": "Осталось внести в отчёт",
+
     "fabricScans.ready": "Готово — выберите приём или возврат один раз и сканируйте рулоны подряд. Каждый скан сохраняется автоматически.",
     "fabricScans.notSaved": "Не сохранено",
     "fabricScans.retry": "Повторить",
@@ -4266,6 +4286,16 @@ export const dict: Record<Lang, Record<string, string>> = {
   },
 
   uz: {
+    "materialLength.optional": "Materialning umumiy uzunligi (m, ixtiyoriy)",
+    "materialLength.label": "Uzunligi (m)",
+    "passportBatch.add": "Partiya qo‘shish",
+    "passportBatch.help": "Har bir bichish partiyasining alohida pasport raqami va o‘lchovlari bor.",
+    "passportBatch.select": "Bichish partiyasi pasporti",
+    "sewingReport.deleteConfirm": "Saqlangan kunlik tikuv hisoboti yozuvi o‘chirilsinmi?",
+    "sewingReport.deleted": "Kunlik tikuv hisoboti yozuvi o‘chirildi.",
+    "sewingReport.limit": "Hisobot miqdori buyurtmaning qolgan miqdoridan oshib ketdi.",
+    "sewingReport.remaining": "Hisobotga kiritish uchun qoldiq",
+
     "fabricScans.ready": "Tayyor — qabul yoki qaytarishni bir marta tanlang va rulonlarni ketma-ket skanerlang. Har bir skan avtomatik saqlanadi.",
     "fabricScans.notSaved": "Saqlanmadi",
     "fabricScans.retry": "Qayta urinish",

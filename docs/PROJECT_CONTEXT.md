@@ -2,6 +2,15 @@
 
 Last updated: 2026-09-12
 
+## Material length, cutting batch passports and daily sewing corrections prepared (2026-09-12)
+
+- Four requested changes are prepared in `C:/ERP/.codex-work/material-passport-sewing-20260912`, branch `codex/material-passport-sewing-20260912`. Material Receiving accepts optional positive total length in metres and shows saved length; quantity/weight remains unchanged. Existing receipts remain null. Receipt idempotency fingerprints remain compatible when length is omitted.
+- Cutting Passports has Add batch, opening a new independent passport for the same order with blank batch measurements and a new user-entered passport number. Existing passports are preserved. Cutting can select the intended passport; new cutting records retain that exact reference for printed sheets. Linked passports cannot be deleted. Existing unlinked records keep their prior latest-passport fallback. This does not create production batches or any business rows until a user saves.
+- Daily Sewing Report now has confirmed, audited, factory-scoped deletion under existing `sewing.workspace` permission. Create/edit caps linked reports cumulatively across all dates, sections and lines at actual non-cancelled bundle output (planned quantity when no bundle evidence exists), plus selected batch/assignment limits. Top/bottom totals are capped independently for two-part garments. Manual orderless reports remain supported and have no inferred order limit. Order row locks serialize simultaneous report writes; reports still do not mutate production, payroll, stock or assignments. Partial multi-section saves clear successful sections before a retry.
+- Additive migration `0124_material_length` adds nullable stock length and cutting-record passport linkage; no backfill or business-data changes. Prior application remains compatible for rollback. EN/RU/UZ labels follow existing screens. Baseline verified on both VMs: `20260912_084025` / green, manifest `8a1cafe394aec228cdb2b89dcf36fcf7b2c9601ab66ac3d176af1045daad5d03`; rollback `20260912_065400` / blue; schema `0123_fabric_scan_register`.
+- Fast deployment is explicitly authorized. Validation passed 13 focused backend workflow/permission checks, backend Ruff/compilation, single Alembic head and frontend strict types/changed-file lint; standard immutable CI, backup/migration, candidate warmup and four immediate health/runtime checks remain. Extra browser/performance exercises and extended monitoring are omitted at the user's request.
+
+
 ## Three-factory management dashboard deployed (2026-09-12)
 
 - LIVE: backend/frontend release `20260912_084025` in green, exact reviewed application commit `ca07cf9b26a5c6ae160ec4a974923d0dc6ce1b83`, merged through PR #127 (`6b53925dace20fe909bbcef8725d2b0ace5c8f48`). Activation completed at `2026-09-12T08:50:26.464287+00:00`. Both manifests, image identities, current symlinks and slot states agree. Blue `20260912_065400` remains running for rollback. This supersedes the prepared/not-deployed status of the three dashboard sections below.

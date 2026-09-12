@@ -6,7 +6,7 @@ from sqlalchemy import or_
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models.cutting_passport import CuttingPassport
-from app.models import Department, Item, ModelBOM, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
+from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
 from app.models.catalog import Model as CatalogModel
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
@@ -596,6 +596,8 @@ def update_passport(
         raise HTTPException(404, "Cutting passport not found")
     if p.production_order_id:
         _passport_order(db, p.production_order_id, current)
+    if payload.production_order_id != p.production_order_id and db.query(CuttingRecord.id).filter(CuttingRecord.cutting_passport_id == p.id).first():
+        raise HTTPException(409, "A passport used by Cutting cannot be moved to another order")
     for k, v in _passport_values(db, payload, current).items():
         setattr(p, k, v)
     log_action(db, current, "update", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
@@ -613,6 +615,10 @@ def delete_passport(
     p = db.get(CuttingPassport, pid)
     if not p:
         raise HTTPException(404, "Cutting passport not found")
+    if p.production_order_id:
+        _passport_order(db, p.production_order_id, current, lock=True)
+    if db.query(CuttingRecord.id).filter(CuttingRecord.cutting_passport_id == p.id).first():
+        raise HTTPException(409, "This passport is used by a cutting batch and cannot be deleted")
     log_action(db, current, "delete", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
     db.delete(p)
     db.commit()

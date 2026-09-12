@@ -379,6 +379,24 @@ export default function CuttingPassportsPage() {
     setShowForm(true);
   }
 
+  function openNewBatch(row: Passport) {
+    const passport = passports.find((item) => item.id === row.id) || row;
+    openEdit(passport);
+    setEditing(null);
+    setForm((current) => ({
+      ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10),
+      production_order_id: current.production_order_id, model_code: current.model_code,
+      variant: current.variant, mold_no: current.mold_no, image_ref: current.image_ref,
+      has_print: current.has_print, order_no: current.order_no,
+      fabric_type: current.fabric_type, lot_no: current.lot_no, size_range: current.size_range,
+    }));
+    setMaterialForms((current) => current.map((material) => ({
+      ...EMPTY_FORM, stock_batch_id: material.stock_batch_id,
+      fabric_type: material.fabric_type, lot_no: material.lot_no,
+      fabric_width_m: material.fabric_width_m, gramage: material.gramage,
+    })));
+  }
+
   function num(v: string | number) {
     const n = Number(v);
     return isNaN(n) || v === "" ? null : n;
@@ -710,7 +728,8 @@ export default function CuttingPassportsPage() {
                   {/* Frozen right */}
                   <td className="bg-white group-hover:bg-stone-50 px-2 py-2 lg:sticky lg:right-0 lg:z-10 lg:shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.08)]">
                     <div className="flex gap-1">
-                      <button className="btn btn-ghost p-1" onClick={() => openEdit(p)}>
+                      <button type="button" className="btn btn-ghost p-1 whitespace-nowrap" onClick={() => openNewBatch(p)}><Plus className="h-3.5 w-3.5" />{t("passportBatch.add")}</button>
+                      <button className="btn btn-ghost p-1" onClick={() => openEdit(passports.find((item) => item.id === p.id) || p)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button className="btn btn-ghost p-1 text-red-500" onClick={() => del(p)}>
@@ -734,6 +753,7 @@ export default function CuttingPassportsPage() {
         closeOnOutsideClick={false}
       >
         <form onSubmit={save} className="space-y-5">
+          <p className="text-sm text-[#6f684f]">{t("passportBatch.help")}</p>
 
           {!editing && (
             <div className="flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">

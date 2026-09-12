@@ -428,12 +428,21 @@ def test_cutting_record_print_sheet_keeps_all_reference_sections(client, auth_he
     assert work_orders.status_code == 200, work_orders.text
     cutting_work_order = next(row for row in work_orders.json() if row["operation"] == "cutting")
 
+    passport_payload = {"passport_no": f"BATCH-FIRST-{production_order_id}", "date": "2026-09-12T00:00:00Z", "production_order_id": production_order_id, "layer_weight_kg": 1.2}
+    first_passport = client.post("/api/cutting-passports", json=passport_payload, headers=auth_headers)
+    assert first_passport.status_code == 201, first_passport.text
+    second_passport = client.post("/api/cutting-passports", json={**passport_payload, "passport_no": f"BATCH-SECOND-{production_order_id}", "layer_weight_kg": 2.4}, headers=auth_headers)
+    assert second_passport.status_code == 201, second_passport.text
+    assert first_passport.json()["id"] != second_passport.json()["id"]
+    assert client.get(f"/api/cutting-passports/{first_passport.json()['id']}", headers=auth_headers).json()["layer_weight_kg"] == 1.2
+
     cutting = client.post(
         "/api/cutting/records",
         json={
             "work_order_id": cutting_work_order["id"],
             "production_batch_id": production_batch_id,
             "fabric_batch_id": None,
+            "cutting_passport_id": first_passport.json()["id"],
             "input_quantity": 100,
             "input_unit": "kg",
             "cut_pieces": 100,
@@ -460,6 +469,9 @@ def test_cutting_record_print_sheet_keeps_all_reference_sections(client, auth_he
         headers=auth_headers,
     )
     assert sheet.status_code == 200, sheet.text
+    assert passport_payload["passport_no"] in sheet.text
+    assert f"BATCH-SECOND-{production_order_id}" not in sheet.text
+    assert client.delete(f"/api/cutting-passports/{first_passport.json()['id']}", headers=auth_headers).status_code == 409
     assert sheet.headers["content-type"].startswith("text/html")
     assert "T-SHIRT-001" in sheet.text
     assert "Planner Selected Brand" in sheet.text

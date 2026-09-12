@@ -136,6 +136,25 @@ def test_sewing_daily_report_saves_without_mutating_workflow(client, auth_header
     assert listed_body["rows"][0]["variant_no"] == active_row["variant_no"]
     assert listed_body["rows"][0]["kroy_no"] == passport_no
 
+    second_payload = {
+        "report_date": (date.today() + timedelta(days=1)).isoformat(),
+        "sewing_flow_id": flow["id"], "work_order_id": sewing_wo["id"],
+        "sewing_assignment_id": assignment_id, "sewn_qty": 78,
+    }
+    second = client.post("/api/sewing-daily-reports", json=second_payload, headers=auth_headers)
+    assert second.status_code == 201, second.text
+    overflow = client.post("/api/sewing-daily-reports", json={**second_payload, "sewn_qty": 1}, headers=auth_headers)
+    assert overflow.status_code == 400, overflow.text
+    overflow_edit = client.patch(f"/api/sewing-daily-reports/{second.json()['id']}", json={**second_payload, "sewn_qty": 79}, headers=auth_headers)
+    assert overflow_edit.status_code == 400, overflow_edit.text
+    deleted = client.delete(f"/api/sewing-daily-reports/{second.json()['id']}", headers=auth_headers)
+    assert deleted.status_code == 204, deleted.text
+    refreshed = client.get(f"/api/sewing-daily-reports/line-context?sewing_flow_id={flow['id']}", headers=auth_headers)
+    assert refreshed.json()["active_work_orders"][0]["report_remaining_top_qty"] == 78
+    with SessionLocal() as db:
+        audit = db.query(AuditLog).filter_by(action="delete", entity_type="SewingDailyReport", entity_id=second.json()["id"]).first()
+        assert audit is not None
+
     mixed_identity = client.post(
         "/api/sewing-daily-reports",
         json={
@@ -568,3 +587,28 @@ def test_sewing_daily_report_exports_saved_rows_for_chosen_dates(client, auth_he
         headers=auth_headers,
     )
     assert invalid_range.status_code == 400
+
+
+def test_linked_two_part_reports_follow_actual_cut_quantity(client, auth_headers):
+    from app.models import Bundle
+    created = client.post("/api/planning/create-branded-production", json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 20,
+        "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 20}],
+    }, headers=auth_headers)
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+    work = next(row for row in client.get(f"/api/work-orders?production_order_id={order_id}", headers=auth_headers).json() if row["operation"] == "sewing")
+    flow = next(row for row in client.get("/api/sewing-flows", headers=auth_headers).json() if row["code"] == "SEW-01")
+    assert client.patch(f"/api/work-orders/{work['id']}", json={"sewing_flow_id": flow["id"]}, headers=auth_headers).status_code == 200
+    with SessionLocal() as db:
+        db.add(Bundle(bundle_no=f"CAP-{order_id}", barcode=f"CAP-{order_id}", production_order_id=order_id, model_id=1, color="white", size="M", quantity=12, status="created"))
+        db.commit()
+    payload = {"report_date": date.today().isoformat(), "sewing_flow_id": flow["id"], "work_order_id": work["id"], "section_no": 1, "top_qty": 12, "bottom_qty": 0, "sewn_qty": 12}
+    first = client.post("/api/sewing-daily-reports", json=payload, headers=auth_headers)
+    assert first.status_code == 201, first.text
+    overflow = client.post("/api/sewing-daily-reports", json={**payload, "top_qty": 1, "sewn_qty": 1}, headers=auth_headers)
+    assert overflow.status_code == 400, overflow.text
+    second = client.post("/api/sewing-daily-reports", json={**payload, "report_date": (date.today() + timedelta(days=1)).isoformat(), "top_qty": 0, "bottom_qty": 12}, headers=auth_headers)
+    assert second.status_code == 201, second.text
+    over_bottom = client.patch(f"/api/sewing-daily-reports/{second.json()['id']}", json={**payload, "top_qty": 0, "bottom_qty": 13, "sewn_qty": 13}, headers=auth_headers)
+    assert over_bottom.status_code == 400, over_bottom.text

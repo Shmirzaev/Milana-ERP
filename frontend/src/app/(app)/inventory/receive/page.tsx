@@ -23,6 +23,7 @@ type ReceiveFormState = {
   order_no: string;
   quantity: number | "";
   gsm: string | number;
+  length_m: number | "";
   piece_count: number | "";
   processes: string;
   unit: string;
@@ -126,6 +127,7 @@ const DEFAULT_RECEIVE_FORM: ReceiveFormState = {
   order_no: "",
   quantity: "",
   gsm: "",
+  length_m: "",
   piece_count: "",
   processes: "",
   unit: "kg",
@@ -171,6 +173,7 @@ function toReceivePayload(form: ReceiveFormState, deriveRollWeights = false) {
     color_status: form.color_status.trim() || null,
     order_no: form.order_no.trim() || null,
     gsm: form.gsm === "" ? null : Number(form.gsm),
+    length_m: form.length_m === "" ? null : Number(form.length_m),
     piece_count: pieceCount > 0 ? pieceCount : null,
     roll_weights_kg: deriveRollWeights ? divideBatchQuantityByRollCount(quantity, pieceCount) : [],
     processes: processNote || null,
@@ -439,6 +442,12 @@ function StockForm({
         <div>
           <label className="label">{t("field.gramaj")}</label>
           <input className="input" type="number" min={0} step="0.000001" placeholder="0.145" value={form.gsm} onChange={(e) => onChange({ ...form, gsm: e.target.value })} />
+        </div>
+      )}
+      {showFabricDetails && (
+        <div>
+          <label className="label">{t("materialLength.optional")}</label>
+          <input className="input" type="number" min="0.001" step="0.001" value={form.length_m} onChange={(e) => onChange({ ...form, length_m: numericInputValue(e.target.value) })} />
         </div>
       )}
       <div>
@@ -878,6 +887,7 @@ export default function ReceiveStockPage() {
               <th>{t("field.orderNo").toUpperCase()}</th>
               <th>{t("field.netto").toUpperCase()}</th>
               {isFabricReceiving && <th>{t("field.gramaj").toUpperCase()}</th>}
+              {isFabricReceiving && <th>{t("materialLength.label")}</th>}
               <th>{t("field.pieceCount").toUpperCase()}</th>
               <th>{t("field.processes").toUpperCase()}</th>
             </tr>
@@ -894,6 +904,7 @@ export default function ReceiveStockPage() {
                 <td>{formatOrderReference(b.order_no || "-")}</td>
                 <td>{Number(b.quantity).toFixed(2)}</td>
                 {isFabricReceiving && <td>{b.gsm != null ? Number(b.gsm).toFixed(3) : "-"}</td>}
+                {isFabricReceiving && <td>{b.length_m ?? "-"}</td>}
                 <td>{b.piece_count ?? "-"}</td>
                 <td>{b.processes || "-"}</td>
               </tr>

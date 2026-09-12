@@ -56,6 +56,7 @@ class WarehouseOut(ORMModel):
 
 
 class StockBatchIn(BaseModel):
+    length_m: Optional[float] = Field(default=None, gt=0, lt=100000000000, allow_inf_nan=False)
     item_id: int
     batch_no: str
     supplier_id: Optional[int] = None
@@ -83,6 +84,7 @@ class StockBatchRestoreIn(BaseModel):
 
 
 class StockBatchUpdate(BaseModel):
+    length_m: Optional[float] = Field(default=None, gt=0, lt=100000000000, allow_inf_nan=False)
     item_id: Optional[int] = None
     batch_no: Optional[str] = None
     supplier_id: Optional[int] = None
@@ -114,6 +116,7 @@ class AccessoryReturnIn(StockBatchIn):
 
 
 class StockBatchOut(ORMModel):
+    length_m: Optional[float] = None
     id: int
     item_id: int
     item_sku: Optional[str] = None

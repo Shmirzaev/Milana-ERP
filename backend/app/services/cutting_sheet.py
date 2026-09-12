@@ -272,7 +272,7 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
     )
     batch = db.get(ProductionBatch, record.production_batch_id) if record.production_batch_id else None
     fabric_batch = db.get(StockBatch, record.fabric_batch_id) if record.fabric_batch_id else None
-    passport = (
+    passport = db.get(CuttingPassport, record.cutting_passport_id) if record.cutting_passport_id else (
         db.query(CuttingPassport)
         .filter(CuttingPassport.production_order_id == production_order.id)
         .order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())

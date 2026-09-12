@@ -375,6 +375,7 @@ def test_material_inventory_batch_details_include_receive_fields_and_search(clie
         "order_no": f"ORDER-VISIBLE-{suffix}",
         "quantity": 123.45,
         "gsm": 0.145678,
+        "length_m": 234.567,
         "piece_count": 17,
         "processes": f"Wash, print, inspect {suffix}",
         "unit": "kg",
@@ -427,6 +428,7 @@ def test_material_inventory_batch_details_include_receive_fields_and_search(clie
         "used_quantity",
     }.isdisjoint(batch)
     assert round(float(batch["quantity"]), 2) == 123.45
+    assert batch["length_m"] == 234.567
     assert round(float(batch["gsm"]), 6) == 0.145678
     assert batch["piece_count"] == receive_payload["piece_count"]
     assert batch["processes"] == receive_payload["processes"]
