@@ -43,7 +43,7 @@ from app.schemas.inventory import (
 from app.services import inventory_access
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.material_rolls import normalize_material_roll_weights
+from app.services.material_rolls import normalize_material_roll_lengths, normalize_material_roll_weights
 from app.services.inventory import (
     accessory_issue_plan,
     accessory_issue_requests,
@@ -778,6 +778,8 @@ def receive_stock(
     fingerprint_payload = payload.model_dump(mode="json")
     if payload.length_m is None:
         fingerprint_payload.pop("length_m", None)
+    if not payload.roll_lengths_m:
+        fingerprint_payload.pop("roll_lengths_m", None)
     replay = replay_idempotent_response(db, scope="inventory.receive", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return _canonical_stock_replay(db, replay)
@@ -800,6 +802,9 @@ def receive_stock(
     )
     batch_data["roll_weights_kg"] = roll_weights
     batch_data["piece_count"] = piece_count
+    batch_data["roll_lengths_m"] = normalize_material_roll_lengths(
+        item_category=item.category, roll_lengths_m=payload.roll_lengths_m, piece_count=piece_count,
+    )
     batch_data["image_url"] = _validate_item_image_url(batch_data.get("image_url"))
     batch = StockBatch(**batch_data)
     db.add(batch); db.flush()
@@ -843,6 +848,8 @@ def collect_back_accessory(
     fingerprint_payload = payload.model_dump(mode="json")
     if payload.length_m is None:
         fingerprint_payload.pop("length_m", None)
+    if not payload.roll_lengths_m:
+        fingerprint_payload.pop("roll_lengths_m", None)
     replay = replay_idempotent_response(db, scope="inventory.accessory-return", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return _canonical_stock_replay(db, replay, production_order_id=payload.production_order_id)
@@ -882,6 +889,9 @@ def collect_back_accessory(
         )
 
     batch_data = payload.model_dump(exclude={"production_order_id", "return_condition"})
+    batch_data["roll_lengths_m"] = normalize_material_roll_lengths(
+        item_category=item.category, roll_lengths_m=payload.roll_lengths_m, piece_count=payload.piece_count,
+    )
     batch_data["image_url"] = _validate_item_image_url(batch_data.get("image_url"))
     batch_data["unit"] = unit
     batch_data["order_no"] = po.order_no or po.production_no
@@ -1312,6 +1322,8 @@ def save_batch_roll_weights(
         piece_count=None,
         require_weights=True,
     )
+    if batch.roll_lengths_m and piece_count != batch.piece_count:
+        raise HTTPException(409, "Cannot change roll count after individual roll lengths have been recorded")
     batch.roll_weights_kg = roll_weights
     batch.piece_count = piece_count
     log_action(
@@ -1458,6 +1470,8 @@ def update_batch(
         "qc_status": batch.qc_status,
     }
 
+    if batch.roll_lengths_m and "piece_count" in values and values["piece_count"] != batch.piece_count:
+        raise HTTPException(409, "Cannot change roll count after individual roll lengths have been recorded")
     for key, value in values.items():
         setattr(batch, key, value)
     relinked_item_references: dict[str, int] | None = None
@@ -1659,7 +1673,7 @@ def restore_material_batch(
     old_value = {
         "quantity": float(batch.quantity), "archived_at": batch.archived_at,
         "archived_by": batch.archived_by, "qc_status": batch.qc_status,
-        "piece_count": batch.piece_count, "roll_weights_kg": batch.roll_weights_kg,
+        "piece_count": batch.piece_count, "roll_weights_kg": batch.roll_weights_kg, "roll_lengths_m": batch.roll_lengths_m,
     }
     # The user confirms physical stock, not a rollback of historical consumption.
     # Past receipts, usage and released/consumed reservations remain unchanged.
@@ -1668,6 +1682,7 @@ def restore_material_batch(
     batch.archived_by = None
     batch.qc_status = "pending"
     batch.roll_weights_kg = []
+    batch.roll_lengths_m = []
     batch.piece_count = None
     db.add(StockMovement(
         movement_type="return", item_id=batch.item_id, batch_id=batch.id,

@@ -18,6 +18,7 @@ def test_receive_material_persists_individual_roll_weights(client, auth_headers)
             "quantity": 35.5,
             "piece_count": 2,
             "roll_weights_kg": [15.5, 20],
+            "roll_lengths_m": [42.125, None],
             "unit": "kg",
             "cost_per_unit": 1,
             "warehouse_id": warehouse["id"],
@@ -28,6 +29,22 @@ def test_receive_material_persists_individual_roll_weights(client, auth_headers)
     assert response.status_code == 201, response.text
     assert response.json()["piece_count"] == 2
     assert response.json()["roll_weights_kg"] == [15.5, 20.0]
+    assert response.json()["roll_lengths_m"] == [42.125, None]
+    assert response.json()["length_m"] is None
+    batch_id = response.json()["id"]
+    listed = client.get("/api/inventory/batches?group=materials", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    assert next(row for row in listed.json() if row["id"] == batch_id)["roll_lengths_m"] == [42.125, None]
+    changed_count = client.put(
+        f"/api/inventory/batches/{batch_id}/roll-weights",
+        json={"roll_weights_kg": [35.5]}, headers=auth_headers,
+    )
+    assert changed_count.status_code == 409, changed_count.text
+    changed_count = client.patch(
+        f"/api/inventory/batches/{batch_id}",
+        json={"piece_count": 1}, headers=auth_headers,
+    )
+    assert changed_count.status_code == 409, changed_count.text
 
 
 def test_existing_material_requires_matching_total_before_roll_weights_save(client, auth_headers):
@@ -47,6 +64,7 @@ def test_existing_material_requires_matching_total_before_roll_weights_save(clie
         headers=auth_headers,
     )
     assert receive.status_code == 201, receive.text
+    assert receive.json()["roll_lengths_m"] == []
     batch_id = receive.json()["id"]
 
     mismatch = client.put(

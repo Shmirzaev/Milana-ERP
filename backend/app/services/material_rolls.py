@@ -11,6 +11,18 @@ MAX_MATERIAL_ROLLS = 1000
 WEIGHT_TOLERANCE_KG = 0.01
 
 
+def normalize_material_roll_lengths(*, item_category: str, roll_lengths_m: list[float | None], piece_count: int | None) -> list[float | None]:
+    if not roll_lengths_m:
+        return []
+    if item_category not in MATERIAL_CATEGORIES:
+        raise HTTPException(400, "Roll lengths are only supported for materials")
+    if len(roll_lengths_m) != piece_count:
+        raise HTTPException(409, "Roll count does not match the number of roll lengths")
+    if all(value is None for value in roll_lengths_m):
+        return []
+    return [round(value, 3) if value is not None else None for value in roll_lengths_m]
+
+
 def normalize_material_roll_weights(
     *,
     item_category: str,

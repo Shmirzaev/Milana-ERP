@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Annotated, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel
@@ -56,6 +56,7 @@ class WarehouseOut(ORMModel):
 
 
 class StockBatchIn(BaseModel):
+    roll_lengths_m: list[Annotated[float, Field(ge=0.001, lt=100000000000, allow_inf_nan=False)] | None] = Field(default_factory=list, max_length=1000)
     length_m: Optional[float] = Field(default=None, gt=0, lt=100000000000, allow_inf_nan=False)
     item_id: int
     batch_no: str
@@ -116,6 +117,7 @@ class AccessoryReturnIn(StockBatchIn):
 
 
 class StockBatchOut(ORMModel):
+    roll_lengths_m: list[float | None] = Field(default_factory=list)
     length_m: Optional[float] = None
     id: int
     item_id: int

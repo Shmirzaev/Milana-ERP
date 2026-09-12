@@ -58,6 +58,7 @@ class StockBatch(Base, PkMixin, TimestampMixin):
     quantity: Mapped[float] = mapped_column(Numeric(14, 4), nullable=False)
     piece_count: Mapped[int | None] = mapped_column(Integer)
     roll_weights_kg: Mapped[list[float]] = mapped_column(JSON, default=list, nullable=False)
+    roll_lengths_m: Mapped[list[float | None]] = mapped_column(JSON, default=list, server_default="[]", nullable=False)
     processes: Mapped[str | None] = mapped_column(String(255))
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     cost_per_unit: Mapped[float] = mapped_column(Numeric(12, 4), default=0, nullable=False)

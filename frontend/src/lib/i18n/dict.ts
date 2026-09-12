@@ -10,6 +10,9 @@ export const dict: Record<Lang, Record<string, string>> = {
     "fabricRollEntry.totalKg": "Total weight (kg)",
     "fabricRollEntry.required": "Enter a positive kg weight for every roll.",
 
+    "materialLength.perRoll": "Roll {roll} length (m, optional)",
+    "materialLength.rolls": "Length per roll (m)",
+    "materialLength.legacyTotal": "Previous total",
     "materialLength.optional": "Total material length (m, optional)",
     "materialLength.label": "Length (m)",
     "passportBatch.add": "Add batch",
@@ -2220,6 +2223,9 @@ export const dict: Record<Lang, Record<string, string>> = {
     "fabricRollEntry.totalKg": "Общий вес (кг)",
     "fabricRollEntry.required": "Введите положительный вес в кг для каждого рулона.",
 
+    "materialLength.perRoll": "Длина рулона {roll} (м, необязательно)",
+    "materialLength.rolls": "Длина каждого рулона (м)",
+    "materialLength.legacyTotal": "Ранее введённый итог",
     "materialLength.optional": "Общая длина материала (м, необязательно)",
     "materialLength.label": "Длина (м)",
     "passportBatch.add": "Добавить партию",
@@ -4304,6 +4310,9 @@ export const dict: Record<Lang, Record<string, string>> = {
     "fabricRollEntry.totalKg": "Umumiy vazn (kg)",
     "fabricRollEntry.required": "Har bir rulon uchun noldan katta kg vaznini kiriting.",
 
+    "materialLength.perRoll": "{roll}-rulon uzunligi (m, ixtiyoriy)",
+    "materialLength.rolls": "Har bir rulon uzunligi (m)",
+    "materialLength.legacyTotal": "Oldingi jami",
     "materialLength.optional": "Materialning umumiy uzunligi (m, ixtiyoriy)",
     "materialLength.label": "Uzunligi (m)",
     "passportBatch.add": "Partiya qo‘shish",

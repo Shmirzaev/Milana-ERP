@@ -2,6 +2,12 @@
 
 Last updated: 2026-09-12
 
+## Per-roll received length prepared (2026-09-12)
+
+- User clarified that optional metres belong to each roll, alongside its kg. Fabric Receiving now records `roll_lengths_m` by roll ordinal, keeps blanks optional, removes the total-length input, and shows saved lengths by roll number. Total-weight mode also supports separate optional lengths. Add/remove keeps weight and length aligned. EN/RU/UZ runtime and source labels updated.
+- Additive migration `0125_roll_lengths` adds a non-null JSON array with an empty default. Historical `length_m` totals remain unchanged and explicitly labelled as previous totals. Existing clients can omit the array. API checks length/count consistency; count-changing edits are blocked when lengths exist, and restoring archived physical stock clears obsolete roll details with audit evidence. No backfill, stock or order quantity changes.
+- Baseline verified on both VMs: green `20260912_121159`, manifest `5ee040e99b0a4d9082970e3f2b2827e24969c440e867062deaa1f748d590590c`, database `0124_material_length`, app commit `f23cbdb552fa7ffbd8aa7e08ec587e66154f4e6e`. Origin/main differs only in deployment records; legacy checkout preserved. Fast deployment remains authorized; focused checks plus immutable CI, backup/migration and immediate health checks, with no extra browser/performance exercise or extended monitoring.
+
 ## Individual fabric roll weights deployed (2026-09-12)
 
 - LIVE: backend/frontend release `20260912_121159` in green, exact application commit `f23cbdb552fa7ffbd8aa7e08ec587e66154f4e6e`, merged through PR #131. Both source manifests, image identities, symlinks and slot states agree. Frontend activation completed `2026-09-12T12:23:36.984684+00:00`. Blue `20260912_114701` remains live for rollback. This supersedes the prepared section below.
