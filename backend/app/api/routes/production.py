@@ -20,6 +20,7 @@ from app.core.uploads import (
     safe_content_type,
 )
 from app.models import (
+    CuttingPassport,
     ProductionOrder, ProductionOrderMaterial, WorkOrder, CuttingRecord, CuttingMaterialUsage,
     PrintingRecord, SewingRecord, SewingReplacementRequest,
     PackagingRecord, PackagingReceipt,
@@ -3213,6 +3214,11 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
     usluga_material = _usluga_cutting_material(db, po, payload.model_bom_id) if po.source_type == "usluga" else None
 
+    if payload.cutting_passport_id:
+        passport = db.get(CuttingPassport, payload.cutting_passport_id)
+        if not passport or passport.production_order_id != po.id:
+            raise HTTPException(400, "The selected cutting passport does not belong to this order")
+
     raw_materials = [row.model_dump() for row in payload.materials]
     if not raw_materials and payload.fabric_batch_id and float(payload.input_quantity or 0) > 0:
         raw_materials = [{
@@ -3341,6 +3347,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     original_remaining_before = max(0, original_plan - original_processed_before)
 
     rec = CuttingRecord(
+        cutting_passport_id=payload.cutting_passport_id,
         work_order_id=payload.work_order_id,
         production_batch_id=batch_id,
         fabric_batch_id=primary_material["stock_batch_id"] if primary_material else payload.fabric_batch_id,
@@ -3754,6 +3761,7 @@ def reject_usluga_cutting_batch(
 
 def _cutting_record_payload(r: CuttingRecord) -> dict:
     return {
+        "cutting_passport_id": r.cutting_passport_id,
         "id": r.id,
         "production_batch_id": r.production_batch_id,
         "work_order_id": r.work_order_id,

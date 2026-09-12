@@ -53,6 +53,7 @@ class StockBatch(Base, PkMixin, TimestampMixin):
     color_status: Mapped[str | None] = mapped_column(String(64))
     order_no: Mapped[str | None] = mapped_column(String(64))
     width: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    length_m: Mapped[float | None] = mapped_column(Numeric(14, 3))
     gsm: Mapped[float | None] = mapped_column(Numeric(14, 6))
     quantity: Mapped[float] = mapped_column(Numeric(14, 4), nullable=False)
     piece_count: Mapped[int | None] = mapped_column(Integer)

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import useSWR from "swr";
 
+import { useDialogs } from "@/components/DialogProvider";
 import PageHeader from "@/components/PageHeader";
 import DefectReasonSelect from "@/components/DefectReasonSelect";
 import ManualModelIdentityFields, { type ManualModelIdentityValue } from "@/components/ManualModelIdentityFields";
@@ -57,6 +58,8 @@ type LineWorkOrder = SewingModelIdentity & {
   planned_qty: number;
   completed_qty: number;
   remaining_qty: number;
+  report_remaining_top_qty?: number;
+  report_remaining_bottom_qty?: number;
   deadline: string | null;
   kroy_no: string | null;
 };
@@ -158,6 +161,8 @@ export default function SewingDailyReportPage() {
   const sessionFactory = (me?.factory_code || "MIL").toUpperCase();
   const factoryCode = sessionFactory === "BST" || sessionFactory === "ECO" ? sessionFactory : "MIL";
   const factoryName = factoryCode === "BST" ? "Besttex" : factoryCode === "ECO" ? "Eco Cotton" : "Milana";
+  const dialogs = useDialogs();
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const canManageReport = can(me, "sewing.workspace", "*");
   const [reportDate, setReportDate] = useState(todayInputDate());
   const [exportFromDate, setExportFromDate] = useState(todayInputDate());
@@ -305,6 +310,19 @@ export default function SewingDailyReportPage() {
     }
   }
 
+  async function deleteReport(row: ReportRow) {
+    if (!(await dialogs.ask({ message: t("sewingReport.deleteConfirm"), tone: "danger" }))) return;
+    setDeletingId(row.id);
+    setError("");
+    try {
+      await api.del(`/api/sewing-daily-reports/${row.id}`);
+      setMessage(t("sewingReport.deleted"));
+      await Promise.all([mutateReport(), mutateLineContext()]);
+    } catch (err: any) {
+      setError(err?.message || t("page.sewingDailyReport.saveFailed"));
+    } finally { setDeletingId(null); }
+  }
+
   async function saveReport() {
     setMessage("");
     setError("");
@@ -396,9 +414,28 @@ export default function SewingDailyReportPage() {
         notes: notes.trim() || null,
       });
     }
+    const pending = new Map<string, { top: number; bottom: number }>();
+    for (const payload of payloads) {
+      if (!payload.work_order_id) continue;
+      const work = lineContext?.active_work_orders.find((row) => row.work_order_id === payload.work_order_id && (row.sewing_assignment_id || null) === (payload.sewing_assignment_id || null));
+      if (!work) continue;
+      const key = String(work.work_order_id);
+      const used = pending.get(key) || { top: 0, bottom: 0 };
+      used.top += Number(payload.top_qty ?? payload.sewn_qty);
+      used.bottom += Number(payload.bottom_qty ?? payload.sewn_qty);
+      pending.set(key, used);
+      if (used.top > (work.report_remaining_top_qty ?? work.planned_qty) || used.bottom > (work.report_remaining_bottom_qty ?? work.planned_qty)) {
+        setError(t("sewingReport.limit"));
+        return;
+      }
+    }
     setSaving(true);
     try {
-      await Promise.all(payloads.map((payload) => api.post("/api/sewing-daily-reports", payload)));
+      for (const payload of payloads) {
+        await api.post("/api/sewing-daily-reports", payload);
+        // Clear only saved sections so a later failure cannot duplicate them on retry.
+        if (payload.section_no) setSectionEntries((rows) => rows.map((row, index) => index + 1 === payload.section_no ? { ...row, sewnQty: "", topQty: "", bottomQty: "", defectiveQty: "" } : row));
+      }
       setSewnQty("");
       setSectionEntries((current) => current.map((entry) => ({
         ...entry,
@@ -414,6 +451,7 @@ export default function SewingDailyReportPage() {
       await Promise.all([mutateReport(), mutateLineContext()]);
     } catch (err: any) {
       setError(err?.message || t("page.sewingDailyReport.saveFailed"));
+      await Promise.all([mutateReport(), mutateLineContext()]);
     } finally {
       setSaving(false);
     }
@@ -1045,6 +1083,9 @@ export default function SewingDailyReportPage() {
                           <Pencil className="h-3.5 w-3.5" />
                           {t("common.edit")}
                         </button>
+                        <button type="button" className="btn ml-2 h-8 px-2 text-red-600" disabled={deletingId !== null} onClick={() => deleteReport(row)}>
+                          <Trash2 className="h-3.5 w-3.5" />{t("common.delete")}
+                        </button>
                       </td>}
                     </tr>
                   ))}
@@ -1063,7 +1104,7 @@ export default function SewingDailyReportPage() {
         onClose={() => setEditingRow(null)}
         onSaved={async () => {
           setMessage(t("page.sewingDailyReport.updated"));
-          await mutateReport();
+          await Promise.all([mutateReport(), mutateLineContext()]);
         }}
       />}
     </div>

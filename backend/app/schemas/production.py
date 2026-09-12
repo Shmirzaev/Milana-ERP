@@ -247,6 +247,7 @@ class CuttingMaterialUsageOut(ORMModel):
 
 
 class CuttingRecordIn(BaseModel):
+    cutting_passport_id: Optional[int] = Field(default=None, gt=0)
     model_config = {"protected_namespaces": ()}
 
     work_order_id: int

@@ -776,6 +776,8 @@ def receive_stock(
 ):
     inventory_access.require_item(db, current, payload.item_id)
     fingerprint_payload = payload.model_dump(mode="json")
+    if payload.length_m is None:
+        fingerprint_payload.pop("length_m", None)
     replay = replay_idempotent_response(db, scope="inventory.receive", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return _canonical_stock_replay(db, replay)
@@ -839,6 +841,8 @@ def collect_back_accessory(
 ):
     inventory_access.require_accessories(current)
     fingerprint_payload = payload.model_dump(mode="json")
+    if payload.length_m is None:
+        fingerprint_payload.pop("length_m", None)
     replay = replay_idempotent_response(db, scope="inventory.accessory-return", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return _canonical_stock_replay(db, replay, production_order_id=payload.production_order_id)
@@ -1441,6 +1445,7 @@ def update_batch(
         "color_status": batch.color_status,
         "order_no": batch.order_no,
         "width": float(batch.width) if batch.width is not None else None,
+        "length_m": float(batch.length_m) if batch.length_m is not None else None,
         "gsm": float(batch.gsm) if batch.gsm is not None else None,
         "quantity": old_quantity,
         "piece_count": batch.piece_count,
