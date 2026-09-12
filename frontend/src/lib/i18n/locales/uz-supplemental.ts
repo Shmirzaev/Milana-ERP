@@ -1,5 +1,11 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "sewingReturn.button": "Ishni qaytarish",
+    "sewingReturn.confirm": "{order} {batch} ishini {line} liniyasidan mavjud ishlar ro‘yxatiga qaytarasizmi? Keyin uni to‘g‘ri liniyaga tayinlash mumkin.",
+    "sewingReturn.hasOutput": "Bu topshiriq bo‘yicha tikilgan mahsulot yoki hisobot bor. Uni qaytarib bo‘lmaydi.",
+    "sewingReturn.moved": "Topshiriq boshqa liniyaga ko‘chirilgan. Sahifani yangilang.",
+    "sewingReturn.inactive": "Faqat faol ishni qaytarish mumkin.",
+    "sewingReturn.failed": "Ishni qaytarib bo‘lmadi. Sahifani yangilab, qayta urinib ko‘ring.",
     "productionSizes.edit": "O‘lchamlarni tahrirlash",
     "productionSizes.rowLabel": "{row}-qator o‘lchami, {color}",
     "productionSizes.required": "Har bir qator uchun o‘lcham kiriting.",

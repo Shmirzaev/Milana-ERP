@@ -1,5 +1,11 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "sewingReturn.button": "Вернуть работу",
+    "sewingReturn.confirm": "Вернуть {order} {batch} с линии {line} в список доступных работ? Затем её можно назначить нужной линии.",
+    "sewingReturn.hasOutput": "По этому назначению уже есть выпуск или отчёты. Вернуть его нельзя.",
+    "sewingReturn.moved": "Назначение уже перенесено на другую линию. Обновите страницу.",
+    "sewingReturn.inactive": "Можно вернуть только активную работу.",
+    "sewingReturn.failed": "Не удалось вернуть работу. Обновите страницу и повторите.",
     "productionSizes.edit": "Изменить размеры",
     "productionSizes.rowLabel": "Размер строки {row}, {color}",
     "productionSizes.required": "Укажите размер в каждой строке.",

@@ -12,7 +12,8 @@ import { orderReference } from "@/lib/orderRef";
 import { formatBatchLabel } from "@/lib/batchSerial";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
-import { useMe } from "@/lib/auth";
+import { can, useMe } from "@/lib/auth";
+import { useDialogs } from "@/components/DialogProvider";
 
 type Flow = {
   id: number;
@@ -102,6 +103,7 @@ function WorkOrderMiniRow({
   isBusy = false,
   onAssign,
   onMove,
+  onReturn,
   showImage = false,
   showReceivedQty = false,
 }: {
@@ -110,6 +112,7 @@ function WorkOrderMiniRow({
   isBusy?: boolean;
   onAssign?: (wo: WO) => void;
   onMove?: (wo: WO) => void;
+  onReturn?: (wo: WO) => void;
   showImage?: boolean;
   showReceivedQty?: boolean;
 }) {
@@ -164,6 +167,12 @@ function WorkOrderMiniRow({
               {isBusy ? t("common.loading") : t("btn.assign")}
             </button>
           )}
+          {workOrder.sewing_assignment_id && onReturn && (
+            <button type="button" className="btn h-auto min-h-7 w-full whitespace-normal px-2 text-[11px]"
+              onClick={() => onReturn(workOrder)} disabled={isBusy}>
+              {t("sewingReturn.button")}
+            </button>
+          )}
           <Link href={`/work-orders/${workOrder.id}/sewing`} className="btn h-7 w-full px-2 text-[11px]">
             {t("btn.open")}
           </Link>
@@ -211,6 +220,12 @@ function WorkOrderMiniRow({
             disabled={isBusy}
           >
             {isBusy ? t("common.loading") : t("btn.assign")}
+          </button>
+        )}
+        {workOrder.sewing_assignment_id && onReturn && (
+          <button type="button" className="btn h-auto min-h-7 w-full whitespace-normal px-2 text-[11px]"
+            onClick={() => onReturn(workOrder)} disabled={isBusy}>
+            {t("sewingReturn.button")}
           </button>
         )}
         <Link href={`/work-orders/${workOrder.id}/sewing`} className="btn h-7 w-full px-2 text-[11px]">
@@ -348,6 +363,9 @@ function FlowDetail({
   flowsUrl: string;
 }) {
   const { t } = useT();
+  const { me } = useMe();
+  const { ask } = useDialogs();
+  const canReturn = can(me, "planning.production", "sewing.flows", "sewing.records");
   const { mutate: mutateGlobal } = useSWRConfig();
   const flowId = flow.id;
   const assignedUrl = `/api/sewing-flows/${flowId}/work-orders?only_active=true`;
@@ -359,6 +377,8 @@ function FlowDetail({
   const [claimingKey, setClaimingKey] = useState<string | null>(null);
   const [loadingPickKey, setLoadingPickKey] = useState<string | null>(null);
   const [movingAssignmentId, setMovingAssignmentId] = useState<number | null>(null);
+  const [returningAssignmentId, setReturningAssignmentId] = useState<number | null>(null);
+  const [returnMsg, setReturnMsg] = useState("");
   const [msg, setMsg] = useState("");
   const [moveMsg, setMoveMsg] = useState("");
   const [pick, setPick] = useState<{
@@ -373,6 +393,30 @@ function FlowDetail({
     destinationFlowId: null,
   });
   const destinationFlows = flows.filter((candidate) => candidate.is_active && candidate.id !== flowId);
+
+  async function returnWork(wo: WO) {
+    if (!wo.sewing_assignment_id || returningAssignmentId || movingAssignmentId) return;
+    const confirmed = await ask({
+      title: t("sewingReturn.button"),
+      message: t("sewingReturn.confirm", { order: orderReference(wo), batch: sewingBatchLabel(wo) || "", line: flow.name }),
+      confirmText: t("sewingReturn.button"),
+    });
+    if (!confirmed) return;
+    setReturnMsg("");
+    setReturningAssignmentId(wo.sewing_assignment_id);
+    try {
+      await api.post(`/api/sewing-assignments/${wo.sewing_assignment_id}/return`, { sewing_flow_id: flowId });
+      await Promise.all([mutateAssigned(), mutateAvailableWos(), mutateGlobal(flowsUrl),
+        mutateGlobal(`/api/work-orders/${wo.id}/assignments`)]);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "";
+      setReturnMsg(t(message.includes("SEWING_RETURN_HAS_OUTPUT") ? "sewingReturn.hasOutput"
+        : message.includes("SEWING_RETURN_MOVED") ? "sewingReturn.moved"
+          : message.includes("SEWING_RETURN_INACTIVE") ? "sewingReturn.inactive" : "sewingReturn.failed"));
+    } finally {
+      setReturningAssignmentId(null);
+    }
+  }
 
   function closeMove() {
     setMovePick({ wo: null, destinationFlowId: null });
@@ -487,6 +531,7 @@ function FlowDetail({
 
   return (
     <div className="mt-3 space-y-3">
+      {returnMsg && <div role="alert" className="text-xs text-red-600">{returnMsg}</div>}
       {wos.length > 0 ? (
         <div className="overflow-x-auto rounded-md border border-[#e3dfd3]">
           <WorkOrderMiniHeader showImage />
@@ -495,8 +540,9 @@ function FlowDetail({
               key={workOrderRowKey(w)}
               workOrder={w}
               showImage
-              isBusy={movingAssignmentId === w.sewing_assignment_id}
+              isBusy={!!movingAssignmentId || !!returningAssignmentId}
               onMove={openMove}
+              onReturn={canReturn ? returnWork : undefined}
             />
           ))}
         </div>
