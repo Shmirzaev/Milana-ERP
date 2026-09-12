@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-12
 
+## Individual fabric receipt roll weights prepared (2026-09-12)
+
+- Fabric Receiving now defaults to exact kg entry per roll, with Add roll/Remove roll, a derived roll count and one automatically summed total weight. Existing Total weight only entry remains explicitly available and retains its prior equal-division behavior. Unequal entered roll weights are sent unchanged to the existing receipt API and used by existing roll stickers; no database/API change is needed. Accessories and purchase-order receiving preserve their existing workflows. Optional material length remains available.
+- Corrected the preceding release's nine new material-length/passport/sewing labels in the active split runtime locale files; those labels had been added only to the legacy dictionary. New receipt controls and prior labels now load in EN/RU/UZ.
+- Baseline verified against both live manifests and slots: `20260912_114701` / blue, manifest `6464866f90645082507a1658f28716d0f70f5a587ba079040892fed6c3d0a921`, schema `0124_material_length`; green rollback `20260912_084025`. Worktree `C:/ERP/.codex-work/fabric-roll-entry-20260912`, branch `codex/fabric-roll-entry-20260912`; legacy checkout preserved.
+- Focused validation covers exact unequal weights versus total-only rounding, existing backend receipt persistence/total validation, locale presence, strict TypeScript and scoped lint. This continues the authorized fast-deployment work; standard immutable CI, verified backup and immediate deployment checks remain. No extra browser/performance exercise or extended monitoring is planned. No production business data has been changed.
+
+
 ## Material length, cutting batch passports and daily sewing controls deployed (2026-09-12)
 
 - LIVE: backend/frontend release `20260912_114701` in blue, exact application commit `395a1907f1ad1e04b06f6ae1d186e454bd159883`, merged through PR #129. Both manifests, image identities, current symlinks and slot states agree. Activation completed `2026-09-12T11:59:06.248924+00:00`. Green `20260912_084025` remains live for rollback. This supersedes the prepared section below.

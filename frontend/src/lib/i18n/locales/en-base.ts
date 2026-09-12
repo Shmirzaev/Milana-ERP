@@ -1,5 +1,20 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "fabricRollEntry.method": "Weight entry",
+    "fabricRollEntry.individual": "Enter kg for each roll",
+    "fabricRollEntry.totalOnly": "Total weight only",
+    "fabricRollEntry.totalKg": "Total weight (kg)",
+    "fabricRollEntry.required": "Enter a positive kg weight for every roll.",
+    "materialLength.optional": "Total material length (m, optional)",
+    "materialLength.label": "Length (m)",
+    "passportBatch.add": "Add batch",
+    "passportBatch.help": "Each cutting batch has its own passport number and measurements.",
+    "passportBatch.select": "Cutting batch passport",
+    "sewingReport.deleteConfirm": "Delete this saved daily sewing report entry?",
+    "sewingReport.deleted": "Daily sewing report entry deleted.",
+    "sewingReport.limit": "Report quantity exceeds the remaining order quantity.",
+    "sewingReport.remaining": "Remaining to report",
+
     "fabricScans.ready": "Ready — choose Receive or Return once, then keep scanning. Each roll saves automatically.",
     "fabricScans.notSaved": "Not saved",
     "fabricScans.retry": "Retry",

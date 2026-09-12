@@ -1,5 +1,20 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "fabricRollEntry.method": "Vazn kiritish",
+    "fabricRollEntry.individual": "Har bir rulon uchun kg kiritish",
+    "fabricRollEntry.totalOnly": "Faqat umumiy vazn",
+    "fabricRollEntry.totalKg": "Umumiy vazn (kg)",
+    "fabricRollEntry.required": "Har bir rulon uchun noldan katta kg vaznini kiriting.",
+    "materialLength.optional": "Materialning umumiy uzunligi (m, ixtiyoriy)",
+    "materialLength.label": "Uzunligi (m)",
+    "passportBatch.add": "Partiya qo‘shish",
+    "passportBatch.help": "Har bir bichish partiyasining alohida pasport raqami va o‘lchovlari bor.",
+    "passportBatch.select": "Bichish partiyasi pasporti",
+    "sewingReport.deleteConfirm": "Saqlangan kunlik tikuv hisoboti yozuvi o‘chirilsinmi?",
+    "sewingReport.deleted": "Kunlik tikuv hisoboti yozuvi o‘chirildi.",
+    "sewingReport.limit": "Hisobot miqdori buyurtmaning qolgan miqdoridan oshib ketdi.",
+    "sewingReport.remaining": "Hisobotga kiritish uchun qoldiq",
+
     "fabricScans.ready": "Tayyor — qabul yoki qaytarishni bir marta tanlang va rulonlarni ketma-ket skanerlang. Har bir skan avtomatik saqlanadi.",
     "fabricScans.notSaved": "Saqlanmadi",
     "fabricScans.retry": "Qayta urinish",

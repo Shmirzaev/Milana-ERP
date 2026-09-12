@@ -1,5 +1,20 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "fabricRollEntry.method": "Ввод веса",
+    "fabricRollEntry.individual": "Вес каждого рулона в кг",
+    "fabricRollEntry.totalOnly": "Только общий вес",
+    "fabricRollEntry.totalKg": "Общий вес (кг)",
+    "fabricRollEntry.required": "Введите положительный вес в кг для каждого рулона.",
+    "materialLength.optional": "Общая длина материала (м, необязательно)",
+    "materialLength.label": "Длина (м)",
+    "passportBatch.add": "Добавить партию",
+    "passportBatch.help": "У каждой партии кроя свой номер паспорта и отдельные параметры.",
+    "passportBatch.select": "Паспорт партии кроя",
+    "sewingReport.deleteConfirm": "Удалить эту сохранённую запись ежедневного отчёта по шитью?",
+    "sewingReport.deleted": "Запись ежедневного отчёта удалена.",
+    "sewingReport.limit": "Количество в отчёте превышает остаток по заказу.",
+    "sewingReport.remaining": "Осталось внести в отчёт",
+
     "fabricScans.ready": "Готово — выберите приём или возврат один раз и сканируйте рулоны подряд. Каждый скан сохраняется автоматически.",
     "fabricScans.notSaved": "Не сохранено",
     "fabricScans.retry": "Повторить",
