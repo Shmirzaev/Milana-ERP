@@ -7,6 +7,8 @@ from sqlalchemy import and_, case, func
 from app.models import CuttingRecord, Department, PackagingRecord, PrintingRecord, ProductionOrder, SewingRecord, WorkOrder
 from app.services.factory_scope import DEPARTMENT_FACTORIES, FACTORY_CODES, FACTORY_LABELS
 from app.services.payroll_factory_scope import production_order_factory_condition
+from app.models.sewing_daily_report import SewingDailyReport
+from app.models import SewingFlow
 
 ACTIVE_STATUSES = ("new", "planning", "waiting_material", "cutting", "printing", "sewing", "packaging", "storage_transfer")
 STAGES = (
@@ -29,6 +31,22 @@ def overview(db, start: date, end: date, factory: str = "ALL"):
                for i in range((end - start).days + 1)} for code in scopes
     }
     totals_by_factory = {code: {key: 0 for key, _, _ in STAGES} for code in scopes}
+    report_days = {day: {code: 0 for code in FACTORY_CODES} for day in points_by_factory["ALL"]}
+    report_totals = {code: 0 for code in FACTORY_CODES}
+    # This reporting ledger does not update stage completion. Keep it separate
+    # and group by the report's business date, including backdated entries.
+    report_query = db.query(
+        SewingDailyReport.report_date, SewingFlow.factory_code,
+        func.coalesce(func.sum(SewingDailyReport.sewn_qty), 0),
+    ).join(SewingFlow, SewingFlow.id == SewingDailyReport.sewing_flow_id).filter(
+        SewingDailyReport.report_date >= start, SewingDailyReport.report_date <= end,
+        SewingFlow.factory_code.in_(FACTORY_CODES),
+    )
+    if factory != "ALL":
+        report_query = report_query.filter(SewingFlow.factory_code == factory)
+    for day, code, quantity in report_query.group_by(SewingDailyReport.report_date, SewingFlow.factory_code).all():
+        report_days[str(day)][code] += int(quantity)
+        report_totals[code] += int(quantity)
     # Output belongs to the department doing the work, not every factory an
     # order's bundles pass through. Outer joins preserve unattributed records.
     output_factory = case(DEPARTMENT_FACTORIES, value=func.upper(func.trim(Department.code)), else_="UNASSIGNED")
@@ -80,6 +98,10 @@ def overview(db, start: date, end: date, factory: str = "ALL"):
         "start": start.isoformat(), "end": end.isoformat(), "timezone": "Asia/Tashkent",
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "factory": factory, **aggregates[factory],
+        "sewing_reports": {
+            "totals": report_totals,
+            "daily": [{"date": day, "values": values} for day, values in report_days.items()],
+        },
         "factories": [{"code": code, "name": FACTORY_LABELS[code], **aggregates[code],
                        "totals": totals_by_factory[code]} for code in FACTORY_CODES],
         "unassigned_orders": unassigned,

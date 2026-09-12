@@ -58,3 +58,30 @@ export const factoryText = {
     finance: "Moliya · barcha fabrikalar · barcha davr", select: "Fabrikani tanlash", notRouted: "Belgilanmagan",
   },
 };
+
+export const activityText = {
+  en: {
+    exportReports: "Export sewing reports", reports: "Sewing reports", stages: "Stage records", title: "Daily sewing reports",
+    description: "Reported pieces by factory · Tashkent business dates",
+    note: "Daily reports are reported activity, not completed stage output. Quantities are not added together.",
+    noOutput: "No output", empty: "No output recorded in this period.",
+    more: "Show last 30 days", selected: "Selected day", source: "Chart source",
+    period: "Period total", peak: "Peak day", noVisible: "Select a series to display.",
+  },
+  ru: {
+    exportReports: "Экспорт отчётов пошива", reports: "Отчёты пошива", stages: "Записи этапов", title: "Ежедневные отчёты пошива",
+    description: "Заявленный выпуск по фабрикам · даты Ташкента",
+    note: "Ежедневные отчёты отражают заявленный выпуск, а не завершённый этап. Эти количества не суммируются.",
+    noOutput: "Нет выпуска", empty: "За этот период выпуск не зарегистрирован.",
+    more: "Показать последние 30 дней", selected: "Выбранный день", source: "Источник графика",
+    period: "Итого за период", peak: "Максимум за день", noVisible: "Выберите ряд для отображения.",
+  },
+  uz: {
+    exportReports: "Tikish hisobotlarini eksport qilish", reports: "Tikish hisobotlari", stages: "Bosqich yozuvlari", title: "Kunlik tikish hisobotlari",
+    description: "Fabrikalar bo'yicha hisobotdagi dona · Toshkent sanalari",
+    note: "Kunlik hisobot — qayd etilgan faoliyat, yakunlangan bosqich emas. Bu miqdorlar qo'shilmaydi.",
+    noOutput: "Natija yo'q", empty: "Bu davrda natija qayd etilmagan.",
+    more: "Oxirgi 30 kunni ko'rsatish", selected: "Tanlangan kun", source: "Grafik manbasi",
+    period: "Davr jami", peak: "Kunlik eng yuqori", noVisible: "Ko'rsatish uchun qatorni tanlang.",
+  },
+};

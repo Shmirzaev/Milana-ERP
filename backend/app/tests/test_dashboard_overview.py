@@ -74,7 +74,7 @@ def test_order_preview_is_bounded_with_complete_totals():
             event.remove(db.bind, "before_cursor_execute", record)
         assert len(result["orders"]) == 100
         assert result["active_orders"] >= 105
-        assert len(statements) == 10
+        assert len(statements) == 11
 
 
 def test_overview_requires_auth_and_validates_date_range(client, auth_headers):
@@ -172,4 +172,34 @@ def test_three_factories_split_routing_and_physical_output():
             assert comparison["totals"] == results[code]["totals"]
         shared_row = next(row for row in results["ALL"]["orders"] if row["id"] == shared.id)
         assert shared_row["factories"] == ["MIL", "BST"]
+        assert fingerprint(db) == before
+
+
+def test_sewing_reports_use_report_date_and_factory_without_minting_stage_output():
+    from app.models import SewingFlow
+    from app.models.sewing_daily_report import SewingDailyReport
+
+    with TestSessionLocal() as db:
+        for code, quantity in [("MIL", 120), ("BST", 60), ("ECO", 30)]:
+            line = SewingFlow(factory_code=code, code=f"DASH-REPORT-{code}", name=f"Dashboard {code}", is_active=False)
+            db.add(line)
+            db.flush()
+            for day, qty in [(date(2020, 3, 2), quantity), (date(2020, 3, 3), 999)]:
+                db.add(SewingDailyReport(report_date=day, sewing_flow_id=line.id, line_code=line.code,
+                                        line_name=line.name, sewn_qty=qty, defective_qty=0,
+                                        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc)))
+        db.commit()
+        before = fingerprint(db)
+        result = overview(db, date(2020, 3, 1), date(2020, 3, 2))
+        assert result["sewing_reports"]["totals"] == {"MIL": 120, "BST": 60, "ECO": 30}
+        assert result["sewing_reports"]["daily"] == [
+            {"date": "2020-03-01", "values": {"MIL": 0, "BST": 0, "ECO": 0}},
+            {"date": "2020-03-02", "values": {"MIL": 120, "BST": 60, "ECO": 30}},
+        ]
+        assert result["totals"] == {"cutting": 0, "printing": 0, "sewing": 0, "packaging": 0}
+        for code, quantity in [("MIL", 120), ("BST", 60), ("ECO", 30)]:
+            scoped = overview(db, date(2020, 3, 1), date(2020, 3, 2), code)
+            assert scoped["sewing_reports"]["totals"][code] == quantity
+            assert sum(scoped["sewing_reports"]["totals"].values()) == quantity
+            assert scoped["totals"]["sewing"] == 0
         assert fingerprint(db) == before

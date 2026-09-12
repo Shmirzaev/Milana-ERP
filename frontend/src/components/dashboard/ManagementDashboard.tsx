@@ -5,10 +5,11 @@ import { ArrowRight, Download, Plus, RefreshCw, Search } from "lucide-react";
 import { fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { factoryText, ledgerNote, messages, statusNames } from "./messages";
+import { activityText, factoryText, ledgerNote, messages, statusNames } from "./messages";
 import { businessDate, Factory, factoryCodes, factoryNames, Overview, periodDates, stageColors, stageKeys } from "./types";
-import { DepartmentBars, OrderDonut, OutputLineChart } from "./DashboardCharts";
+import { DepartmentBars, OrderDonut } from "./DashboardCharts";
 import FactoryComparison from "./FactoryComparison";
+import ActivityLineChart from "./ActivityLineChart";
 
 const surface = { background: "var(--erp-surface)", borderColor: "var(--erp-border)", color: "var(--erp-text)" };
 const muted = { color: "var(--erp-text-soft)" };
@@ -20,11 +21,13 @@ export default function ManagementDashboard() {
   const { me } = useMe();
   const { t, lang } = useT();
   const copy = messages[lang];
+  const activityCopy = activityText[lang];
+  const [chartSource, setChartSource] = useState<"reports" | "stages">("reports");
   const factoriesCopy = factoryText[lang];
   const [factory, setFactory] = useState<Factory>("ALL");
   const factoryLabel = factory === "ALL" ? factoriesCopy.all : factoryNames[factory];
   const stageLabel = (status: string) => statusNames[lang][status] || status;
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(7);
   const [today, setToday] = useState(() => businessDate());
   const [kind, setKind] = useState("all");
   const [search, setSearch] = useState("");
@@ -39,6 +42,10 @@ export default function ManagementDashboard() {
   );
   const { data: finance, error: financeError } = useSWR<{ revenue_total: number; payments_received: number }>(can(me, "finance.view") ? "/api/dashboard/finance" : null, fetcher);
   const labels = stageKeys.map(k => t(`dash.${k}`));
+  const chartSeries = chartSource === "reports"
+    ? factoryCodes.filter(code => factory === "ALL" || code === factory).map(code => ({ key: code, label: factoryNames[code], color: ["var(--erp-accent)", "var(--erp-success)", "var(--erp-blue)"][factoryCodes.indexOf(code)] }))
+    : stageKeys.map((key, i) => ({ key, label: labels[i], color: stageColors[i] }));
+  const chartPoints = chartSource === "reports" ? data?.sewing_reports.daily ?? [] : data?.daily.map(point => ({ date: point.date, values: Object.fromEntries(stageKeys.map(key => [key, point[key]])) })) ?? [];
   const statusOrder = ["new", "planning", "waiting_material", "cutting", "printing", "sewing", "packaging", "storage_transfer"];
   const colors = ["#999182", "#a88130", "#8f7766", stageColors[0], stageColors[1], stageColors[2], stageColors[3], "#566c77"];
   const rows = statusOrder.filter(k => data?.by_status[k]).map(k => ({ label: stageLabel(k), value: data!.by_status[k], color: colors[statusOrder.indexOf(k)] }));
@@ -47,9 +54,9 @@ export default function ManagementDashboard() {
   const n = (v: number | undefined) => v === undefined ? "—" : v.toLocaleString();
   function exportOutput() {
     if (!data) return;
-    const csv = [["date", "factory", ...stageKeys], ...data.daily.map(p => [p.date, data.factory, ...stageKeys.map(k => p[k])])].map(row => row.join(",")).join("\r\n");
+    const csv = [["date", "factory", ...chartSeries.map(item => item.key)], ...chartPoints.map(p => [p.date, data.factory, ...chartSeries.map(item => p.values[item.key] || 0)])].map(row => row.join(",")).join("\r\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a"); link.href = url; link.download = `production-output-${data.factory}-${data.start}-${data.end}.csv`; link.click(); URL.revokeObjectURL(url);
+    const link = document.createElement("a"); link.href = url; link.download = `${chartSource === "reports" ? "sewing-reports" : "production-output"}-${data.factory}-${data.start}-${data.end}.csv`; link.click(); URL.revokeObjectURL(url);
   }
   const canOpenOrders = can(me, "planning.view", "planning.production", "processes.view");
   const orderHref = (o: Overview["orders"][number]) => o.source_type === "usluga"
@@ -59,7 +66,7 @@ export default function ManagementDashboard() {
     <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
       <div><h1 className="text-2xl font-semibold tracking-tight">{copy.title}</h1><p className="mt-1.5 text-sm" style={muted}>{factoryLabel} · {factoriesCopy.subtitle}</p></div>
       <div className="flex flex-wrap gap-2">
-        <button className="btn" disabled={!data} onClick={exportOutput}><Download size={16} />{copy.export}</button>
+        <button className="btn" disabled={!data} onClick={exportOutput}><Download size={16} />{chartSource === "reports" ? activityCopy.exportReports : copy.export}</button>
         <button className="btn" aria-label={copy.refresh} title={copy.refresh} disabled={isValidating} onClick={() => { setToday(businessDate()); void mutate(); }}><RefreshCw size={16} /></button>
         {can(me, "sales.orders") && <a href="/sales-orders/new" className="btn btn-primary"><Plus size={16} />{copy.newOrder}</a>}
       </div>
@@ -86,10 +93,12 @@ export default function ManagementDashboard() {
     {data && <>
       {factory === "ALL" ? <FactoryComparison data={data} copy={factoriesCopy} labels={labels} activeLabel={copy.active} plannedLabel={copy.planned} onSelect={setFactory} /> : <p className="mb-4 text-xs" style={muted}>{factoriesCopy.scope}</p>}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
-        <Panel title={copy.trend} subtitle={copy.records}>
-          <OutputLineChart points={data.daily} labels={labels} title={copy.trend} />
-          <p className="px-5 pb-3 text-xs leading-5" style={muted}>{ledgerNote[lang]}</p>
-          {!Object.values(data.totals).some(Boolean) && <p className="px-5 pb-4 text-sm" style={muted}>{copy.empty}</p>}
+        <Panel title={chartSource === "reports" ? activityCopy.title : copy.trend} subtitle={chartSource === "reports" ? activityCopy.description : copy.records}>
+          <div role="group" aria-label={activityCopy.source} className="mx-5 mt-4 flex gap-5 border-b" style={{ borderColor: "var(--erp-border-soft)" }}>
+            {(["reports", "stages"] as const).map(source => <button key={source} aria-pressed={chartSource === source} className="border-b-2 pb-2 text-sm" style={{ borderColor: chartSource === source ? "var(--erp-accent)" : "transparent", color: chartSource === source ? "var(--erp-text)" : "var(--erp-text-soft)" }} onClick={() => setChartSource(source)}>{source === "reports" ? activityCopy.reports : activityCopy.stages}</button>)}
+          </div>
+          <ActivityLineChart key={`${factory}-${days}-${chartSource}`} points={chartPoints} series={chartSeries} title={chartSource === "reports" ? activityCopy.title : copy.trend} copy={activityCopy} onWiden={days < 30 ? () => setDays(30) : undefined} />
+          <p className="px-5 pb-3 text-xs leading-5" style={muted}>{chartSource === "reports" ? activityCopy.note : ledgerNote[lang]}</p>
         </Panel>
         <Panel title={copy.stages} subtitle={copy.breakdown}><OrderDonut rows={rows} total={data.active_orders} label={copy.total} />{!data.active_orders && <p className="px-5 pb-5 text-sm" style={muted}>{copy.noStages}</p>}</Panel>
       </div>
@@ -105,7 +114,7 @@ export default function ManagementDashboard() {
           <p className="border-t px-5 py-3 text-xs" style={{ ...muted, borderColor: "var(--erp-border-soft)" }}>{data.active_orders > data.orders_limit ? copy.limited : `${orders.length} / ${data.active_orders} ${copy.total}`}</p>
         </section>
       </div>
-      <details className="mt-4 rounded-lg border" style={surface}><summary className="cursor-pointer px-5 py-3 text-sm">{copy.details}</summary><div className="max-h-72 overflow-auto"><table className="w-full text-left text-sm"><thead><tr><th className="px-5 py-2">{copy.period}</th>{labels.map(label => <th key={label} className="px-5 py-2">{label}</th>)}</tr></thead><tbody>{data.daily.map(p => <tr key={p.date}><th className="px-5 py-2 font-normal">{p.date}</th>{stageKeys.map(k => <td key={k} className="px-5 py-2 tabular-nums">{n(p[k])}</td>)}</tr>)}</tbody></table></div></details>
+      <details className="mt-4 rounded-lg border" style={surface}><summary className="cursor-pointer px-5 py-3 text-sm">{copy.details}</summary><div className="max-h-72 overflow-auto"><table className="w-full text-left text-sm"><thead><tr><th className="px-5 py-2">{copy.period}</th>{chartSeries.map(item => <th key={item.key} className="px-5 py-2">{item.label}</th>)}</tr></thead><tbody>{chartPoints.map(p => <tr key={p.date}><th className="px-5 py-2 font-normal">{p.date}</th>{chartSeries.map(item => <td key={item.key} className="px-5 py-2 tabular-nums">{n(p.values[item.key] || 0)}</td>)}</tr>)}</tbody></table></div></details>
       <div className="mt-3 text-xs" style={muted}>{copy.updated} {new Date(data.updated_at).toLocaleTimeString(lang, { timeZone: data.timezone })} · Asia/Tashkent</div>
     </>}
     {can(me, "finance.view") && <section className="mt-5 flex flex-wrap items-center gap-x-10 gap-y-3 rounded-lg border px-5 py-4" style={surface}><h2 className="text-sm font-semibold">{factoriesCopy.finance}</h2>{financeError ? <span className="text-sm" role="status">{copy.financeError}</span> : [ [copy.revenue, finance?.revenue_total], [copy.payments, finance?.payments_received] ].map(([label, value]) => <div key={String(label)} className="text-sm"><span style={muted}>{label}</span><span className="ml-4 font-semibold tabular-nums">{value === undefined ? "—" : `$${n(Number(value))}`}</span></div>)}</section>}

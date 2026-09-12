@@ -13,6 +13,7 @@ export type Overview = {
   active_orders: number; late_orders: number; planned_quantity: number;
   by_status: Record<string, number>; totals: Record<Stage, number>; daily: DailyOutput[];
   factory: Factory; factories: FactorySummary[]; unassigned_orders: number; unassigned_output: Record<Stage, number>;
+  sewing_reports: { totals: Record<Exclude<Factory, "ALL">, number>; daily: { date: string; values: Record<string, number> }[] };
   orders: { id: number; order_no: string; type: string; source_type: string; status: string; qty: number; deadline: string | null; factories: Exclude<Factory, "ALL">[] }[];
   orders_limit: number;
 };
