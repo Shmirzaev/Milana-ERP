@@ -1,4 +1,5 @@
 from datetime import date
+from uuid import uuid4
 
 import pytest
 
@@ -9,7 +10,7 @@ from app.models import Department, ProductionOrder, SewingAssignment, SewingDail
 def make_assignment(*, factory="MIL", completed=0, report=False):
     with SessionLocal() as db:
         department = db.query(Department).filter(Department.code == ("SEW" if factory == "MIL" else "BST")).one()
-        po = ProductionOrder(production_no="PO-RETURN", production_type="branded_stock", model_id=1, planned_quantity=100)
+        po = ProductionOrder(production_no=f"PO-RETURN-{uuid4().hex[:8]}", production_type="branded_stock", model_id=1, planned_quantity=100)
         flow = SewingFlow(factory_code=factory, name="Return source", code="RETURN-SOURCE", is_active=True)
         db.add_all([po, flow]); db.flush()
         wo = WorkOrder(production_order_id=po.id, department_id=department.id, operation="sewing",

@@ -172,7 +172,7 @@ def create_assignment(
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "sewing":
         raise HTTPException(400, "Assignments only apply to sewing work orders")
-    flow = db.get(SewingFlow, payload.sewing_flow_id)
+    flow = db.query(SewingFlow).filter(SewingFlow.id == payload.sewing_flow_id).with_for_update().first()
     if not flow: raise HTTPException(404, "Sewing flow not found")
     require_sewing_flow_access(current, flow)
     if not flow.is_active: raise HTTPException(400, "Sewing flow is inactive")
@@ -254,7 +254,7 @@ def update_assignment(
     next_batch_id = _normalize_assignment_batch_id(db, wo, changes.get("production_batch_id", a.production_batch_id))
     if next_qty <= 0:
         raise HTTPException(400, "Quantity must be > 0")
-    flow = db.get(SewingFlow, next_flow_id)
+    flow = db.query(SewingFlow).filter(SewingFlow.id == next_flow_id).with_for_update().first()
     if not flow:
         raise HTTPException(404, "Sewing flow not found")
     require_sewing_flow_access(current, flow)
