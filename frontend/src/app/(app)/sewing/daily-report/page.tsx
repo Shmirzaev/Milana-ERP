@@ -419,7 +419,7 @@ export default function SewingDailyReportPage() {
       if (!payload.work_order_id) continue;
       const work = lineContext?.active_work_orders.find((row) => row.work_order_id === payload.work_order_id && (row.sewing_assignment_id || null) === (payload.sewing_assignment_id || null));
       if (!work) continue;
-      const key = String(work.work_order_id);
+      const key = sewingWorkKey(work);
       const used = pending.get(key) || { top: 0, bottom: 0 };
       used.top += Number(payload.top_qty ?? payload.sewn_qty);
       used.bottom += Number(payload.bottom_qty ?? payload.sewn_qty);
