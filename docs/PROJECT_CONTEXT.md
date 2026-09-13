@@ -1,6 +1,12 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
+
+## Dashboard demo display prepared (2026-09-13)
+
+- User explicitly requested deploying the full demo-data dashboard from the prior screenshot, with no extra tests or monitoring. ManagementDashboard now uses a client-only presentation fixture for all metrics, factory comparisons, line/bar/donut charts, orders and finance. The default shows 72 sample orders across Milana 32 / Besttex 24 / Eco Cotton 16, 197,200 planned pieces and four overdue orders. Dates roll with Tashkent today; 7/30/90-day windows share consistent daily samples.
+- EN/RU/UZ headings explicitly identify demo data and state that figures are not live production/financial data. Order numbers and CSV filenames/rows identify DEMO; fake negative IDs never become real-order links. Dashboard create/view-order actions are hidden. All other ERP pages, permissions and live backend endpoints remain unchanged. Demo display makes no overview/finance API requests and writes no business records.
+- Baseline verified: active blue `20260912_124815`, manifest `bab4789379ab4563836f999622f45a91f5d5b1de77d8520d762c5e853d9b5aa0`, schema `0125_roll_lengths`, reviewed base commit `fae0a5463d3c46ce197601070fbc5337eeb78ebf`; green rollback `20260912_121159`. Origin/main differs only in deployment records. Worktree `C:/ERP/.codex-work/dashboard-demo-20260913`, branch `codex/dashboard-demo-20260913`. Required immutable CI/build, backup and immediate deployment checks retained; extra local suites, browser/performance exercises and extended monitoring omitted at user request. Deployment pending.
 
 ## Per-roll received length deployed (2026-09-12)
 
