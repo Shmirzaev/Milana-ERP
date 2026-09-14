@@ -46,7 +46,7 @@ export function demoOverview(start: string, end: string, factory: Factory, today
   const allOrders: Overview["orders"] = factoryCodes.flatMap((code, f) =>
     Array.from({ length: counts[f] }, (_, i) => ({
       id: -(f * 100 + i + 1),
-      order_no: `DEMO-${code}-${String(120 + i).padStart(4, "0")}`,
+      order_no: `${code}-${String(120 + i).padStart(4, "0")}`,
       type: ["client_order", "branded_stock", "service_order"][i % 3],
       source_type: "demo",
       qty: 1200 + ((i * 3 + f * 2) % 9) * 400,
