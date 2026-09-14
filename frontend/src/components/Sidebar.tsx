@@ -60,6 +60,12 @@ function isSuperAdmin(me: ReturnType<typeof useMe>["me"]) {
 
 const SECTIONS: Section[] = [
   {
+    titleKey: "section.ecoCottonTracking",
+    items: [
+      { href: "/processes?factory=ECO", labelKey: "nav.processes", icon: ClipboardList },
+    ],
+  },
+  {
     titleKey: "fabricScans.section",
     items: [
       { href: "/fabric-scans", labelKey: "fabricScans.title", perms: ["cutting.records", "cutting.bundles", "storage.receive", "storage.items", "planning.production", "management.view"], icon: QrCode },
@@ -197,12 +203,6 @@ const SECTIONS: Section[] = [
       { href: "/packaging/queue?packaging_department=ECP", labelKey: "nav.packingQueue", perms: ["packaging.records", "planning.production"], icon: PackageSearch },
       { href: "/packaging/receive?packaging_department=ECP", labelKey: "nav.receiveFromSewing", perms: ["packaging.records", "planning.production"], icon: QrCode },
       { href: "/packaging/reports?packaging_department=ECP", labelKey: "packagingReport.title", perms: ["packaging.records", "packaging.packages", "planning.production"], icon: FileText },
-    ],
-  },
-  {
-    titleKey: "section.ecoCottonTracking",
-    items: [
-      { href: "/processes?factory=ECO", labelKey: "nav.processes", icon: ClipboardList },
     ],
   },
   {
