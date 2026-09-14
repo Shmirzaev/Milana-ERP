@@ -135,4 +135,40 @@ for (const sessionFactory of ["MIL", "BST", "ECO"]) {
   }
 }
 
-console.log("Factory-aware Sewing workspace access contract passed (54 scanner action cases).");
+// Evaluate the actual navigation and route permission definitions for Payroll.
+function readArrayConstant(source, name) {
+  const ast = ts.createSourceFile("source.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  for (const statement of ast.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (declaration.name.getText(ast) !== name) continue;
+      const expression = declaration.initializer.getText(ast);
+      const icons = Object.fromEntries([...expression.matchAll(/icon: (\w+)/g)].map((match) => [match[1], null]));
+      return vm.runInNewContext(`(${expression})`, icons);
+    }
+  }
+  throw new Error(`Missing permission definitions: ${name}`);
+}
+const payrollPermissions = new Set([
+  "payroll.view", "payroll.manage", "payroll.scan", "sewing.daily_reports.view",
+  "sewing.flows", "sewing.records", "sewing.bundles",
+]);
+const sewingNav = readArrayConstant(sidebar, "SECTIONS").find((section) => section.titleKey === "section.sewing");
+const routeGuards = readArrayConstant(gate, "ROUTE_GUARDS");
+for (const [href, expected] of [
+  ["/sewing/flows?factory=MIL", true],
+  ["/departments/MIL", true],
+  ["/bundles/scan/sewing?factory=MIL", true],
+  ["/sewing/daily-report?factory=MIL", true],
+  ["/departments/SEW", false],
+]) {
+  const nav = sewingNav.items.find((item) => item.href === href);
+  const guard = routeGuards.find((item) => item.prefix === href.split("?")[0]);
+  for (const item of [nav, guard]) {
+    if (!item || item.perms.some((permission) => payrollPermissions.has(permission)) !== expected) {
+      throw new Error(`Incorrect Payroll sewing access for ${href}`);
+    }
+  }
+}
+
+console.log("Factory-aware Sewing access passed (54 scanner cases and Payroll navigation/route permissions).");

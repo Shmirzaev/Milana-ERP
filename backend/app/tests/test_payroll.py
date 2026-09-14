@@ -132,6 +132,9 @@ def test_seeded_payroll_access_policy(client, auth_headers):
         "payroll.manage",
         "payroll.scan",
         "sewing.daily_reports.view",
+        "sewing.flows",
+        "sewing.records",
+        "sewing.bundles",
     ]
 
     payroll_locked_roles = [

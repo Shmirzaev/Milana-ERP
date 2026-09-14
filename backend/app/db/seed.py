@@ -40,6 +40,7 @@ PAYROLL_ROLE_NAME = "Payroll"
 PAYROLL_SCAN_PERMISSION = "payroll.scan"
 PAYROLL_WORKSPACE_PERMISSIONS = ["payroll.view", "payroll.manage", PAYROLL_SCAN_PERMISSION]
 PAYROLL_DAILY_SEWING_REPORT_PERMISSION = "sewing.daily_reports.view"
+PAYROLL_SEWING_PERMISSIONS = ["sewing.flows", "sewing.records", "sewing.bundles"]
 PAYROLL_PERMISSION_PREFIX = "payroll."
 ADMIN_ROLE_NAMES = {"Admin", "Super Admin"}
 AI_MONITOR_ROLE_NAME = "AI Monitor"
@@ -92,7 +93,7 @@ ROLES = {
     "Packaging": ["packaging.records", "packaging.packages", "traceability.view"],
     "ReadyStorage": ["storage.packages", "storage.shipment", "traceability.view", "traceability.export"],
     "Waste": ["waste.receive", "waste.sell", "waste.disposal"],
-    PAYROLL_ROLE_NAME: [*PAYROLL_WORKSPACE_PERMISSIONS, PAYROLL_DAILY_SEWING_REPORT_PERMISSION],
+    PAYROLL_ROLE_NAME: [*PAYROLL_WORKSPACE_PERMISSIONS, PAYROLL_DAILY_SEWING_REPORT_PERMISSION, *PAYROLL_SEWING_PERMISSIONS],
     "Finance": ["finance.view", "finance.invoice", "finance.payment", "inventory.reservations.view", "purchasing.view", "forecasting.view"],
     "HR": ["hr.employees"],
     AI_MONITOR_ROLE_NAME: AI_MONITOR_PERMISSIONS,

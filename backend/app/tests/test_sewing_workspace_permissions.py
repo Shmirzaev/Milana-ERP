@@ -1,6 +1,8 @@
 from datetime import date
 from uuid import uuid4
 
+from app.tests.test_production_flow import _create_bundle_for_scan
+
 
 PASSWORD = "SewingWorkspace!2026"
 
@@ -105,3 +107,40 @@ def test_sewing_workspace_is_limited_to_sewing_role(client, auth_headers):
     report_id = allowed_report.json()["id"]
     assert client.delete(f"/api/sewing-daily-reports/{report_id}", headers=planning_headers).status_code == 403
     assert client.delete(f"/api/sewing-daily-reports/{report_id}", headers=sewing_headers).status_code == 204
+
+
+def test_payroll_sewing_access_and_factory_isolation(client, auth_headers):
+    headers = _create_user_headers(client, auth_headers, role="Payroll", department="PAY")
+    me = client.get("/api/auth/me", headers=headers).json()
+    assert {"sewing.flows", "sewing.records", "sewing.bundles", "payroll.manage"} <= set(me["permissions"])
+    assert "sewing.workspace" not in me["permissions"]
+
+    for path in ("/api/sewing-flows?factory_code=MIL", "/api/inbox?dept=MIL", "/api/sewing-daily-reports"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200, response.text
+    for path in ("/api/sewing-flows?factory_code=ECO", "/api/inbox?dept=BST", "/api/users"):
+        assert client.get(path, headers=headers).status_code == 403
+
+    bundle = _create_bundle_for_scan(client, auth_headers)
+    response = client.post(f"/api/bundles/{bundle['id']}/receive-sewing", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "received_sewing"
+    assert client.post(f"/api/bundles/{bundle['id']}/receive-sewing", headers=headers).status_code == 409
+    assert client.post(f"/api/bundles/{bundle['id']}/receive-printing", headers=headers).status_code == 403
+    response = client.get(
+        f"/api/work-orders?production_order_id={bundle['production_order_id']}&operation=sewing",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    work = response.json()[0]
+    assert work["received_bundle_qty"] == bundle["quantity"]
+    assert work["received_bundle_count"] == 1
+    for path in (f"/api/work-orders/{work['id']}", f"/api/work-orders/{work['id']}/sewing-batch-progress"):
+        assert client.get(path, headers=headers).status_code == 200
+
+    flows = client.get("/api/sewing-flows?factory_code=MIL", headers=headers).json()
+    response = client.post("/api/sewing-daily-reports", headers=headers, json={
+        "report_date": "2099-12-31", "sewing_flow_id": flows[0]["id"],
+        "manual_model_no": "PAYROLL-READ-ONLY", "sewn_qty": 5,
+    })
+    assert response.status_code == 403, response.text
