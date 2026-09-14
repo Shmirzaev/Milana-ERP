@@ -310,7 +310,7 @@ export default function ShipmentsPage() {
           {pendingManual && <p role="status" className="mb-3 text-sm">{packageWorkflowCopy[lang].pendingRequest}</p>}
           {warehouseError ? <div className="mb-3 border-l-2 border-rose-600 bg-rose-50 px-3 py-2 text-sm text-rose-800">{warehouseError}</div> : null}
           <div className="flex flex-col gap-2 sm:flex-row">
-            <div className="min-w-0 flex-1"><SearchableSelect value={customerId} options={(customers || []).map(customer => ({ value: customer.id, label: customer.name }))} onChange={setCustomerId} placeholder={manualText.choose} noResultsText={manualText.none} disabled={warehouseCreating || !!pendingManual} /></div>
+            <div className="min-w-0 flex-1"><SearchableSelect value={customerId} options={(customers || []).map(customer => ({ value: customer.id, label: customer.name }))} onChange={value => setCustomerId(Number(value))} placeholder={manualText.choose} noResultsText={manualText.none} disabled={warehouseCreating || !!pendingManual} /></div>
             <button type="button" className="btn btn-primary" onClick={createWarehouseExit} disabled={warehouseCreating || !customerId}>{manualText.title}</button>
           </div>
           {can(me, "storage.shipment") && <details className="mt-3">
