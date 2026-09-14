@@ -53,7 +53,7 @@ assert.equal(JSON.stringify(exact.roll_lengths_m), "[42.125,null]");
 assert.ok(!("length_m" in exact));
 const totalOnly = context.buildPayload({ ...form, weight_entry: "total", quantity: 10, piece_count: 3 }, true);
 assert.equal(JSON.stringify(totalOnly.roll_weights_kg), "[3.34,3.33,3.33]");
-assert.equal(JSON.stringify(totalOnly.roll_lengths_m), "[42.125,null,null]");
+assert.equal(JSON.stringify(totalOnly.roll_lengths_m), "[]");
 assert.equal(JSON.stringify(context.buildPayload(form, false).roll_lengths_m), "[]");
 assert.equal(JSON.stringify(context.buildPayload(form, false).roll_weights_kg), "[]");
 for (const lang of ["en", "ru", "uz"]) {

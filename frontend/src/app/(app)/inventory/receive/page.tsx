@@ -180,7 +180,7 @@ function toReceivePayload(form: ReceiveFormState, deriveRollWeights = false) {
     color_status: form.color_status.trim() || null,
     order_no: form.order_no.trim() || null,
     gsm: form.gsm === "" ? null : Number(form.gsm),
-    roll_lengths_m: deriveRollWeights ? Array.from({ length: pieceCount }, (_, index) => {
+    roll_lengths_m: deriveRollWeights && form.weight_entry === "rolls" ? Array.from({ length: pieceCount }, (_, index) => {
       const value = form.roll_lengths_m[index];
       return value ? Number(value) : null;
     }) : [],
@@ -483,20 +483,10 @@ function StockForm({
           value={form.piece_count}
           readOnly={individualRolls}
           max={requireRollCount ? 1000 : undefined}
-          onChange={(e) => onChange({ ...form, piece_count: numericInputValue(e.target.value), roll_lengths_m: Array.from({ length: Math.min(1000, Math.max(0, Number(e.target.value) || 0)) }, (_, index) => form.roll_lengths_m[index] || "") })}
+          onChange={(e) => onChange({ ...form, piece_count: numericInputValue(e.target.value) })}
           required={requireRollCount}
         />
       </div>
-      {requireRollCount && !individualRolls && <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:col-span-2">
-        {Array.from({ length: Math.min(1000, Math.max(0, Number(form.piece_count) || 0)) }, (_, index) => <div key={index}>
-          <label className="label" htmlFor={`total-mode-roll-length-${index}`}>{t("materialLength.perRoll", { roll: index + 1 })}</label>
-          <input id={`total-mode-roll-length-${index}`} className="input" type="number" min="0.001" step="0.001" value={form.roll_lengths_m[index] || ""} onChange={(event) => {
-            const next = [...form.roll_lengths_m];
-            next[index] = event.target.value;
-            onChange({ ...form, roll_lengths_m: next });
-          }} />
-        </div>)}
-      </div>}
       <div>
         <label className="label">{t("ph.supplier")}</label>
         <select className="input" value={form.supplier_id} onChange={(e) => onChange({ ...form, supplier_id: Number(e.target.value) })}>
