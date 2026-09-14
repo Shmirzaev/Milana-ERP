@@ -17,8 +17,14 @@ for (const token of [
   if (!page.includes(token)) throw new Error(`Shipments page is missing ${token}`);
 }
 
-for (const banned of ["SearchableSelect", "shipment-sales-order", "selectSalesOrder", "selectedSalesOrder"]) {
+for (const banned of ["shipment-sales-order", "selectSalesOrder", "selectedSalesOrder"]) {
   if (page.includes(banned)) throw new Error(`Shipments page still uses the removed order selector: ${banned}`);
+}
+
+// Manual shipments need a client selector; the removed order picker stays banned.
+const selectors = [...page.matchAll(/<SearchableSelect\s+value=\{([^}]+)\}/g)];
+if (selectors.length !== 1 || selectors[0][1] !== "customerId") {
+  throw new Error("Shipments must use its searchable selector only for the manual-shipment client");
 }
 
 for (const token of [
