@@ -13,11 +13,11 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
   const c = packageWorkflowCopy[lang];
   const [open, setOpen] = useState(false);
   const [model, setModel] = useState<number | null>(null);
-  const [sizes, setSizes] = useState<Array<{ size: string; quantity: string }>>([]);
+  const [sizes, setSizes] = useState<string[]>([]);
+  const [quantities, setQuantities] = useState<string[]>([""]);
   const [color, setColor] = useState("");
   const [weight, setWeight] = useState("");
   const [count, setCount] = useState("1");
-  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -30,11 +30,12 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
     if (!saved) return;
     const body = saved.body;
     setPendingBody(body); setModel(body.model_id); setColor(body.color);
-    setWeight(String(body.weight_kg)); setCount(String(body.count)); setReason(body.reason);
-    setSizes(body.sizes.map((row: any) => ({ size: row.size, quantity: String(row.quantity) })));
+    setWeight(String(body.weight_kg)); setCount(String(body.count));
+    setQuantities(body.pack_quantities?.map(String) || Array(body.count).fill(String((body.sizes || []).reduce((sum: number, row: any) => sum + row.quantity, 0))));
+    setSizes((body.sizes || []).map((row: any) => row.size));
   }, [me?.id]);
   if (!can(me, "storage.packages")) return null;
-  const total = sizes.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+  const total = quantities.reduce((sum, value) => sum + Number(value || 0), 0);
   return <>
     <button className="btn" type="button" onClick={() => { setOpen(true); setResult(null); }}>{c.manual}</button>
     <Modal open={open} title={c.manual} onClose={() => { if (!busy) setOpen(false); }} wide>
@@ -43,8 +44,8 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
         setBusy(true); setError("");
         try {
           const saved = await postPackageWorkflow<{ receipt_no: string; print_run: PackagePrintRun }>("/api/packages/manual-receipt", pendingBody || {
-            model_id: model, color, weight_kg: Number(weight), count: Number(count), reason,
-            sizes: sizes.filter(row => Number(row.quantity) > 0).map(row => ({ size: row.size, quantity: Number(row.quantity) })),
+            model_id: model, color, weight_kg: Number(weight), count: quantities.length,
+            pack_quantities: quantities.map(Number),
           }, me!.id);
           setPendingBody(null); setResult(saved); onCreated();
         } catch (e: any) { setError(e.message); setPendingBody(pendingPackageWorkflow("/api/packages/manual-receipt", me!.id)?.body || null); }
@@ -69,7 +70,7 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
                   setModel(id); setSizes([]); setLoading(true); setError("");
                   try {
                     const row = await api.get<any>(`/api/models/${id}`);
-                    if (request === modelRequest.current) setSizes((row.sizes || []).map((s: any) => ({ size: s.size, quantity: "0" })));
+                    if (request === modelRequest.current) setSizes((row.sizes || []).map((s: any) => s.size));
                   } catch (e: any) { if (request === modelRequest.current) setError(e.message); }
                   finally { if (request === modelRequest.current) setLoading(false); }
                 }} />
@@ -77,17 +78,16 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
             <div className="grid gap-3 sm:grid-cols-3">
               <label className="label">{c.color}<input className="input" required maxLength={64} value={color} onChange={e => setColor(e.target.value)} /></label>
               <label className="label">{c.weight}<input className="input" required type="number" min="0.0001" step="0.0001" value={weight} onChange={e => setWeight(e.target.value)} /></label>
-              <label className="label">{c.count}<input className="input" required type="number" min="1" max="200" step="1" value={count} onChange={e => setCount(e.target.value)} /></label>
+              <label className="label">{c.count}<input className="input" required type="number" min="1" max="200" step="1" value={count} onChange={e => { setCount(e.target.value); const n = Math.min(200, Math.max(1, Number(e.target.value) || 1)); setQuantities(previous => Array.from({ length: n }, (_, i) => previous[i] ?? "")); }} /></label>
             </div>
-            <div><p className="label">{c.sizes}</p>{loading && <p>{c.loading}</p>}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{sizes.map((row, i) => <label className="label" key={row.size}>{row.size}
-                <input className="input" type="number" min="0" step="1" value={row.quantity} onChange={e => setSizes(previous => previous.map((s, index) => index === i ? { ...s, quantity: e.target.value } : s))} />
-              </label>)}</div>
-            </div>
-            <label className="label">{c.reason}<textarea className="input" required minLength={3} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} /></label>
-            <p>{Number(count) || 0} {c.packages} · {total * (Number(count) || 0)} {c.pieces}</p>
+            {loading && <p>{c.loading}</p>}
+            {!!sizes.length && <p className="text-sm">{c.size}: {sizes.join(" / ")}</p>}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{quantities.map((quantity, index) => <label className="label" key={index}>{c.packQuantity} {index + 1}
+              <input className="input" required type="number" min="1" max="10000" step="1" value={quantity} onChange={e => setQuantities(previous => previous.map((value, i) => i === index ? e.target.value : value))} />
+            </label>)}</div>
+            <p>{quantities.length} {c.packages} · {total} {c.pieces}</p>
           </fieldset>
-          <button type="submit" className="btn btn-primary" disabled={busy || loading || !model || total <= 0}>{busy ? c.loading : pendingBody ? c.retry : c.save}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || loading || !model || quantities.some(value => !Number.isInteger(Number(value)) || Number(value) <= 0)}>{busy ? c.loading : pendingBody ? c.retry : c.save}</button>
         </>}
         <button type="button" className="btn ml-2" disabled={busy} onClick={() => setOpen(false)}>{c.cancel}</button>
       </form>

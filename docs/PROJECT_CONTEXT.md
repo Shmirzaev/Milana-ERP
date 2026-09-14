@@ -2,6 +2,15 @@
 
 Last updated: 2026-09-14
 
+## Manual pack quantities and customer shipment prepared (2026-09-14)
+
+- Prepared in clean worktree `C:/ERP/.codex-work/manual-packs-shipment-20260914`, branch `codex/manual-packs-shipment-20260914`, from verified origin/main. Both VMs match green `20260914_041000`, manifest `7be5c75d615e9d4f05f941da1d6487a450496f410c005ff9c475ceeb6d040ff8`, app commit `19a0bf01e9f1a56f4068fc933db163f360680ab2`, schema `0125_roll_lengths`. Legacy checkout preserved.
+- Individual/reprint/sheet labels show total pack quantity. Manual receipt asks for quantity in each pack and no receipt-reference/reason. Packs immediately enter available finished-goods inventory. Total-only mixed-size receipts preserve the model size-range snapshot and store one aggregate Mixed stock line, without guessing size quantities; historical size-specific receipts remain supported, including uncertain-request retries.
+- Warehouse can delete a mistaken manual receipt's entire print run only while every pack is fully available, unreserved, and unlinked to shipment/scan/adjustment/stocktake evidence. Receipt and audit evidence remain; deleted package/run numbers are retired so old labels cannot identify new packs.
+- Shipments adds a client selector and open manual scanning workspaces. Every pack must pass existing whole-pack stock, ownership, reservation and scan gates. Prices default from the selected model variants; missing prices require existing warehouse amount review. Ship and create invoice atomically deducts stock and creates the customer accounting sales order and unpaid invoice from the frozen dispatch total. Manual receipt packages retain their original source links. Delivery never creates a duplicate invoice. Existing order-based shipment delivery rules remain unchanged.
+- Focused receipt/reprint/deletion/scan/invoice tests, adjacent package/shipment review tests (48 passed), final 23-test affected recheck, scoped Ruff/ESLint, strict TypeScript and retry/localization contract passed. Required immutable CI/build, backup and immediate deployment checks remain; extra suites/browser/performance exercises and extended monitoring omitted per explicit request. No production data has been changed; deployment pending.
+
+
 ## Eco Cotton admin and top Process Tracking deployed (2026-09-14)
 
 - LIVE: backend/frontend green release `20260914_041000`, exact reviewed application commit `19a0bf01e9f1a56f4068fc933db163f360680ab2`, merged through PR #139. Both source manifests, image identities, symlinks and slot states agree. Blue `20260914_032838` remains running for rollback. Frontend activated `2026-09-14T04:19:49.843627+00:00`.

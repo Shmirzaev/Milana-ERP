@@ -21,6 +21,8 @@ def _write(db, current, operation, payload, action):
     scope = f"packages.{operation}.{current.id}"
     service.lock_request(db, current.id, operation, key)
     body = payload.model_dump(mode="json")
+    if operation == "manual-receipt" and body.get("pack_quantities") is None:
+        body.pop("pack_quantities", None)
     replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
     if replay:
         return replay
@@ -132,6 +134,17 @@ def receive_print_run(payload: PrintRunReceiveIn, db: DbSession,
 def get_print_run(rid: int, db: DbSession,
                   current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
     return service.run_payload(db, _run(db, current, rid))
+
+
+@router.delete("/print-runs/{rid}/manual-packages")
+def delete_manual_packages(rid: int, db: DbSession,
+                           current: User = Depends(require_permissions("storage.packages", "*"))):
+    run = db.query(PackagePrintRun).filter_by(id=rid).with_for_update().first()
+    if not run:
+        raise HTTPException(404, "Print run not found")
+    result = service.delete_manual_run(db, current, run)
+    db.commit()
+    return result
 
 
 @router.get("/print-runs/{rid}/label", response_class=HTMLResponse)

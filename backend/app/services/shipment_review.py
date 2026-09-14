@@ -188,6 +188,9 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
                         (line.size.lower() in {"any", "mixed", "*", "", "bag"} or line.size.lower().startswith("pack"))]
             prices = {Decimal(str(line.unit_price)) for line in (exact or wildcard)}
             price = next(iter(prices)) if len(prices) == 1 and balanced else None
+            if not order and (shipment.dispatch_snapshot or {}).get("manual") and balanced:
+                model_price = models.get(item.model_id)
+                price = Decimal(str(model_price.selling_price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if model_price and model_price.selling_price is not None else None
             amount = (price * item.quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if price is not None else None
             if amount is None:
                 unknown_prices = True
@@ -245,16 +248,16 @@ def review_shipment_amount(db: Session, shipment: Shipment, document: dict,
     log_action(db, user, "review_shipment_amount", "Shipment", shipment.id,
                old_value={"amount": document["amount"], "review": (shipment.dispatch_snapshot or {}).get("review")},
                new_value=review)
-    shipment.dispatch_snapshot = {"review": review}
+    shipment.dispatch_snapshot = {**(shipment.dispatch_snapshot or {}), "review": review}
 
 
 def freeze_dispatch_document(db: Session, shipment: Shipment) -> None:
     document = shipment_document(db, shipment)
     if document["review_stale"]:
         raise HTTPException(409, "Scanned contents changed after amount review; review the invoice amount again")
-    if document["amount"] is None and shipment.sales_order_id:
+    if document["amount"] is None and (shipment.sales_order_id or (shipment.dispatch_snapshot or {}).get("manual")):
         raise HTTPException(409, "Some package prices are ambiguous; warehouse must review the invoice amount")
-    shipment.dispatch_snapshot = {"document": document}
+    shipment.dispatch_snapshot = {**({"manual": True} if (shipment.dispatch_snapshot or {}).get("manual") else {}), "document": document}
 
 
 def detach_shipment_package(db: Session, shipment: Shipment, package_id: int, reason: str, user: User) -> None:
@@ -330,4 +333,46 @@ def invoice_for_frozen_delivery(db: Session, shipment: Shipment, user: User) -> 
                old_value={"amount": previous_amount, "existing_invoice": bool(existing)},
                new_value={"amount": str(invoice.amount), "shipment_ids": [row.id for row in shipments],
                           "source": "frozen_dispatch_totals"})
+    return invoice
+
+
+def post_manual_shipment_invoice(db: Session, shipment: Shipment, user: User) -> Invoice:
+    """One transaction: scanned stock dispatch, customer sale and frozen ledger invoice."""
+    from app.services.numbering import next_sales_order_no
+    from app.services.workflow import ensure_invoice_for_delivered_shipment
+    document = (shipment.dispatch_snapshot or {}).get("document")
+    if shipment.status != "shipped" or not document or document.get("amount") is None or not shipment.customer_id:
+        raise HTTPException(409, "A scanned, priced customer shipment is required")
+    if shipment.sales_order_id:
+        raise HTTPException(409, "Manual shipment has already been posted")
+    amount = Decimal(document["amount"])
+    if not amount.is_finite() or not Decimal("0") <= amount <= Decimal("999999999999.99"):
+        raise HTTPException(409, "Invoice amount is outside supported limits")
+    order = SalesOrder(order_no=next_sales_order_no(db), customer_id=shipment.customer_id,
+                       order_type="branded_stock", status="shipped", total_amount=amount,
+                       notes=f"Manual shipment {shipment.shipment_no}", created_by=user.id)
+    db.add(order)
+    db.flush()
+    items = db.query(PackageItem).join(ShipmentPackage, ShipmentPackage.package_id == PackageItem.package_id).filter(
+        ShipmentPackage.shipment_id == shipment.id).all()
+    grouped = defaultdict(int)
+    for item in items:
+        grouped[(item.model_id, item.color, item.size)] += item.quantity
+    for (model_id, color, size), quantity in grouped.items():
+        model = db.get(Model, model_id)
+        frozen_prices = {line["unit_price"] for line in document["lines"]
+                         if line["model_code"] == model.code and line["color"] == color and line["size"] == size}
+        frozen_price = next(iter(frozen_prices)) if len(frozen_prices) == 1 else None
+        db.add(SalesOrderItem(sales_order_id=order.id, model_id=model_id, color=color, size=size,
+                             quantity=quantity, unit_price=Decimal(frozen_price or "0"),
+                             source_type="from_stock", notes="Final invoice uses the confirmed shipment total"))
+    shipment.sales_order_id = order.id
+    invoice = ensure_invoice_for_delivered_shipment(db, sales_order_id=order.id)
+    db.flush()
+    document = {**document, "sales_order_no": order.order_no, "ledger_invoice_no": invoice.invoice_no,
+                "finance_posting_status": "posted"}
+    shipment.dispatch_snapshot = {"manual": True, "document": document}
+    log_action(db, user, "post_manual_shipment_invoice", "Shipment", shipment.id,
+               new_value={"sales_order_id": order.id, "invoice_id": invoice.id, "amount": str(amount),
+                          "quantity": document["quantity"], "packages": document["packages_count"]})
     return invoice
