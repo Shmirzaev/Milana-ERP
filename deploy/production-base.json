@@ -1,6 +1,6 @@
 {
-  "release": "20260914_073912",
-  "source_manifest_sha256": "eebd89a5d86d1511310598a42af180aef75ff14bb6003531f16eb586384ed33a",
-  "database_revision": "0125_roll_lengths",
-  "git_baseline_commit": "8e72ba14b4c5ddd41ef1e2f7c3a754cb341b28db"
+  "release": "20260914_110313",
+  "source_manifest_sha256": "1de515c8b82ede1dc7bfd67ed3406b0c0352c08cd9d180dee5937ecf74b08595",
+  "database_revision": "0126_payroll_sewing_access",
+  "git_baseline_commit": "05bdcc87d376426e07ceda133e3872cabd5c07f9"
 }
