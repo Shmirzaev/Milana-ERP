@@ -2,6 +2,17 @@
 
 Last updated: 2026-09-14
 
+## Total-weight fabric receipt simplified (2026-09-14)
+
+- LIVE: backend/frontend blue release `20260914_073912`, reviewed application commit `8e72ba14b4c5ddd41ef1e2f7c3a754cb341b28db`, merged through PR #145. Both manifests, image identities, current symlinks and slot states agree. Green `20260914_071001` remains running for rollback. Frontend activated `2026-09-14T07:50:28.705304+00:00`.
+- Fabric Receiving's Total weight only mode no longer displays or submits per-roll lengths. Values previously entered in individual-roll mode are excluded from total-mode submissions. Optional lengths remain alongside individually entered roll weights; changing the total-mode count preserves that individual-entry draft. Existing saved receipt lengths and the total/count weight-allocation behavior remain unchanged. This supersedes the earlier policy allowing optional lengths in total-weight mode.
+- Validation: existing receiving payload/allocation/localization contract, scoped ESLint, normal and strict TypeScript, and diff checks passed. Immutable CI [34818857774](https://github.com/Shmirzaev/Milana-ERP/actions/runs/34818857774) passed backend/frontend checks, optimized production build and exact-commit image publication. No extra local suites/browser/performance exercises or extended monitoring, continuing the user's fast-deployment instruction.
+- No production inventory, receipt, order, shipment, user, permission or other business row was changed by deployment. No backend/schema change; database remains `0125_roll_lengths`, startup migration was a no-op and seeding disabled. Four immediate internal/public health/login checks returned HTTP 200; valid routers, zero restarts/OOM/error markers, two workers per backend slot, PostgreSQL 21/100 connections and zero invalid indexes. Disk 72% backend / 64% frontend. Existing disk alert and unrelated historical risks remain.
+- Source manifest `eebd89a5d86d1511310598a42af180aef75ff14bb6003531f16eb586384ed33a`, archive SHA-256 `4ed4c44b663c01316b117ed8894f083a3b4f01856bf5479fbaeb21dd32ff226a`, 832 verified source files. Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:ea6bfdf34aaab5d6f6511e1ad3227cd26bef4bbf2e820765be60edd35e306187`; frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:b788f50c9fbd99ba130fb41485d8727b7dff843abea78aba6d6c1204129a7264`.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260914_073912.dump`: mode 0600, 53316693 bytes, 1171 restore objects, SHA-256 `001cabb07da8062c6366d17ce8c9c85070f9106e4e6a751ce2aec9825036f4dc`; restore-list SHA-256 `fc3b9bede0ac431dfb32c4a19836a0766993cab7d8d3cb4f22b674957338a49d`. Freshness and hashes checked before staging.
+- Worktree `C:/ERP/.codex-work/fabric-total-weight-20260914`; implementation branch `codex/fabric-total-weight-20260914` pushed/merged/deployed; deployment-record branch `codex/record-fabric-total-weight-20260914`. Evidence `outputs/deployment/evidence.json`. Legacy checkout preserved. Context mirrored to Obsidian.
+
+
 ## Milana Premium invoice design deployed (2026-09-14)
 
 - LIVE: backend/frontend green release `20260914_071001`, exact reviewed application commit `d5d1dff1f265473be8a5648c52ca5f943900a020`, merged through PR #143. Both source manifests, image identities, symlinks and slot states agree. Blue `20260914_063958` remains running for rollback. Frontend activated `2026-09-14T07:21:09.817822+00:00`.
