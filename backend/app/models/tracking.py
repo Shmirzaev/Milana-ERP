@@ -74,6 +74,7 @@ class Package(Base, PkMixin, TimestampMixin):
             "manual_receipt_id IS NULL OR (production_order_id IS NULL AND legacy_receipt_id IS NULL AND production_batch_id IS NULL AND sales_order_id IS NULL)",
             name="ck_packages_manual_source",
         ),
+        {"sqlite_autoincrement": True},
     )
     package_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     barcode: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)

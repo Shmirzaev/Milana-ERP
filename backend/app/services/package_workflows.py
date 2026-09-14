@@ -82,7 +82,13 @@ def run_members(db, run):
     return members
 
 
+def require_active_run(run):
+    if run.deleted_at is not None:
+        raise HTTPException(410, "This mistaken manual receipt was deleted")
+
+
 def run_payload(db, run):
+    require_active_run(run)
     members = run_members(db, run)
     return {"id": run.id, "run_no": run.run_no, "code": run.code,
             "created_at": run.created_at.isoformat(), "received_at": run.received_at.isoformat() if run.received_at else None,
@@ -174,6 +180,7 @@ def receive_run(db, current, payload):
     run = db.query(PackagePrintRun).filter(PackagePrintRun.id == found.id).with_for_update().populate_existing().first() if found else None
     if not run:
         raise HTTPException(404, "Print run not found")
+    require_active_run(run)
     # One persistent receipt per group; a retried scan returns that same receipt.
     if run.received_at:
         return run, []
@@ -223,6 +230,8 @@ def delete_manual_run(db, current, run):
     from app.models import ShipmentPackage, ShipmentScanLog, StockReservation
     from app.models.shipment_review import PackageQuantityAdjustment
     from app.models.stocktake import WarehouseStocktakeRow
+    if run.deleted_at is not None:
+        return {"deleted_count": len(run.package_ids)}
     members = run_members(db, run)
     ids = [m.package_id for m in members]
     packages = db.query(Package).filter(Package.id.in_(ids)).order_by(Package.id).with_for_update().populate_existing().all()
@@ -240,7 +249,7 @@ def delete_manual_run(db, current, run):
     for pkg in packages:
         rows = [row for row in stocks if row.package_id == pkg.id]
         if (not rows or sum(row.quantity for row in rows) != pkg.total_quantity or
-                any(row.available_qty != row.quantity or row.reserved_qty or row.sold_qty or row.sales_order_id for row in rows)):
+                any(row.status != "available" or row.available_qty != row.quantity or row.reserved_qty or row.sold_qty or row.sales_order_id for row in rows)):
             raise HTTPException(409, "Package stock has been used or changed")
     log_action(db, current, "delete_manual_packages", "PackagePrintRun", run.id,
                old_value={"run_no": run.run_no, "packages": [contents(p) for p in packages]},
@@ -249,11 +258,10 @@ def delete_manual_run(db, current, run):
     retire_label_numbers(db, [p.package_no for p in packages], run.run_no)
     for row in stocks:
         db.delete(row)
-    for member in members:
-        db.delete(member)
+    # Keep the immutable manifest and receipt; remove only operational stock/packs.
+    run.deleted_at = datetime.now(timezone.utc)
     db.flush()
     for pkg in packages:
         db.delete(pkg)
-    db.delete(run)
     db.flush()
     return {"deleted_count": len(ids)}

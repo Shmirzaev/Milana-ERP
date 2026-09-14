@@ -25,6 +25,10 @@ def _write(db, current, operation, payload, action):
         body.pop("pack_quantities", None)
     replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
     if replay:
+        if operation == "manual-receipt":
+            run = db.get(PackagePrintRun, replay["print_run"]["id"])
+            if run:
+                service.require_active_run(run)
         return replay
     result = action()
     store_idempotent_response(db, scope=scope, key=key, payload=body, response=result, user=current)
@@ -39,6 +43,7 @@ def _run(db, current, rid):
     permissions = set(user_permissions(current))
     if not permissions.intersection({"storage.packages", "storage.shipment", "*"}):
         packaging_department_scope(current, run.packaging_department_code)
+    service.require_active_run(run)
     return run
 
 
@@ -100,7 +105,7 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
 @router.get("/print-runs")
 def list_print_runs(db: DbSession, production_order_id: int | None = None,
                     current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
-    query = db.query(PackagePrintRun)
+    query = db.query(PackagePrintRun).filter(PackagePrintRun.deleted_at.is_(None))
     if production_order_id:
         query = query.filter(PackagePrintRun.id.in_(db.query(PackagePrintRunMember.run_id).join(
             Package, Package.id == PackagePrintRunMember.package_id).filter(Package.production_order_id == production_order_id)))

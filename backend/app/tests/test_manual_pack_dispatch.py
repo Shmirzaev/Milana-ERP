@@ -1,7 +1,7 @@
 """Manual receipt, guarded deletion and scan-to-invoice regression."""
 from decimal import Decimal
 from app.db.session import SessionLocal
-from app.models import Customer, FinishedGoodsStock, Invoice, Model, Package, Shipment
+from app.models import Customer, FinishedGoodsStock, Invoice, ManualPackageReceipt, Model, Package, PackagePrintRun, PackagePrintRunMember, Shipment
 from app.tests.test_package_workflows import warehouse, manual_body, package_qr  # noqa: F401
 
 
@@ -42,6 +42,19 @@ def test_pack_receipt_reprint_delete(client, warehouse):
     with SessionLocal() as db:
         assert not db.query(Package).filter(Package.id.in_(run["package_ids"])).count()
         assert not db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(run["package_ids"])).count()
+        saved = db.get(PackagePrintRun, run["id"])
+        assert saved.deleted_at is not None and saved.package_ids == run["package_ids"]
+        members = db.query(PackagePrintRunMember).filter_by(run_id=run["id"]).all()
+        assert len(members) == 2 and sum(m.snapshot["quantity"] for m in members) == 30
+        assert all(db.get(ManualPackageReceipt, m.snapshot["manual_receipt_id"]) for m in members)
+    assert client.delete(f"/api/packages/print-runs/{run['id']}/manual-packages", headers=warehouse).json() == {"deleted_count": 2}
+    assert run["id"] not in [r["id"] for r in client.get("/api/packages/print-runs", headers=warehouse).json()]
+    for path in [f"/print-runs/{run['id']}", f"/print-runs/{run['id']}/label", f"/print-runs/resolve?code={run['code']}"]:
+        assert client.get("/api/packages" + path, headers=warehouse).status_code == 410
+    assert client.post("/api/packages/print-runs/receive", headers=warehouse, json={"code": run["code"], "storage_cell": "A-01", "storage_shelf": "S1"}).status_code == 410
+    for pid in run["package_ids"]:
+        assert client.get(f"/api/packages/{pid}/label", headers=warehouse).status_code == 404
+
 
     new_run = receive(client, warehouse)
     assert new_run["run_no"] != run["run_no"]
@@ -97,3 +110,12 @@ def test_invalid_inputs(client, warehouse):
     assert client.post("/api/packages/manual-receipt", headers=warehouse, json=body).status_code == 422
     assert client.post("/api/shipments", headers=warehouse, json={"manual": True}).status_code == 422
     assert client.post("/api/shipments", headers=warehouse, json={"manual": True, "customer_id": 99999999}).status_code == 404
+
+def test_deleted_receipt_retry_does_not_return_active_labels(client, warehouse):
+    body = manual_body()
+    first = client.post("/api/packages/manual-receipt", headers=warehouse, json=body)
+    assert first.status_code == 201
+    run = first.json()["print_run"]
+    assert client.delete(f"/api/packages/print-runs/{run['id']}/manual-packages", headers=warehouse).status_code == 200
+    retry = client.post("/api/packages/manual-receipt", headers=warehouse, json=body)
+    assert retry.status_code == 410
