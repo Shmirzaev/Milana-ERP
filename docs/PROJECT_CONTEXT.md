@@ -1,6 +1,12 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
+
+## Dashboard text cleanup prepared (2026-09-14)
+
+- User requested removing the demo suffix from the dashboard heading and the DEMO prefix from active-production order numbers. Heading now uses the normal translated title; fixture order references use MIL-0120 / BST-0120 / ECO-0120 format. The descriptive sample-data subtitle, CSV source identification, sample figures and restriction on opening fixture orders remain as before. No backend, database, business data or permission changes.
+- Verified both VMs against green release `20260913_145159`, source manifest `9b9bfe2e628056d5f590d7478383c01f9e0e52bc8617f9153e694047f83ee8e2`, app commit `c394dc8364f68353d9b66d16d63debb25fd2d5d7`, database `0125_roll_lengths`. Origin/main only adds deployment records. Blue `20260912_124815` is the current rollback. Clean worktree `C:/ERP/.codex-work/dashboard-text-20260914`, branch `codex/dashboard-text-20260914`; legacy checkout preserved. Continue authorized fast deployment using immutable CI/build, backup and immediate checks, without extra local suites, browser/performance exercises or extended monitoring.
+
 
 ## Demo-data dashboard deployed (2026-09-13)
 

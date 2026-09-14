@@ -71,7 +71,7 @@ export default function ManagementDashboard() {
     : canOpenOrders ? `/production-orders/${o.id}` : null;
   return <div className="mx-auto max-w-[1600px] pb-4" style={{ color: "var(--erp-text)" }}>
     <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
-      <div><h1 className="text-2xl font-semibold tracking-tight">{copy.title}{dashboardDemoEnabled && ` Â· ${demoCopy.label}`}</h1><p className="mt-1.5 text-sm" style={muted}>{factoryLabel} Â· {dashboardDemoEnabled ? demoCopy.note : factoriesCopy.subtitle}</p></div>
+      <div><h1 className="text-2xl font-semibold tracking-tight">{copy.title}</h1><p className="mt-1.5 text-sm" style={muted}>{factoryLabel} Â· {dashboardDemoEnabled ? demoCopy.note : factoriesCopy.subtitle}</p></div>
       <div className="flex flex-wrap gap-2">
         <button className="btn" disabled={!data} onClick={exportOutput}><Download size={16} />{chartSource === "reports" ? activityCopy.exportReports : copy.export}</button>
         {!dashboardDemoEnabled && <button className="btn" aria-label={copy.refresh} title={copy.refresh} disabled={isValidating} onClick={() => { setToday(businessDate()); void mutate(); }}><RefreshCw size={16} /></button>}
