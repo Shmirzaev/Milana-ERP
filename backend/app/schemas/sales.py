@@ -1,3 +1,4 @@
+from uuid import UUID
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -110,6 +111,8 @@ class SalesOrderDetail(SalesOrderOut):
 
 
 class ShipmentIn(BaseModel):
+    manual: bool = False
+    request_key: UUID | None = None
     sales_order_id: Optional[int] = None
     customer_id: Optional[int] = None
     notes: Optional[str] = None

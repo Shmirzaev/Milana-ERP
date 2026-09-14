@@ -336,10 +336,10 @@ def _package_label_details(db: DbSession, pkg: Package, model: Model | None) -> 
     }
 
 
-def _size_breakdown_html(pkg: Package) -> str:
+def _size_breakdown_html(pkg: Package, sizes: list[str] | None = None) -> str:
     cells = "".join(
-        f"<span class='size-cell'><b>{_h(item.size)}</b></span>"
-        for item in pkg.items
+        f"<span class='size-cell'><b>{_h(size)}</b></span>"
+        for size in (sizes if sizes is not None else [item.size for item in pkg.items])
     )
     return f"<div class='size-grid'>{cells}</div>" if cells else "-"
 
@@ -352,7 +352,7 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:"DejaVu Sans
 .label-head span:last-child{font-size:6.8pt;letter-spacing:.04em}
 .details{width:100%;height:97mm;border-collapse:collapse;table-layout:fixed;font-size:8.2pt}
 .details tr{height:7mm}
-.details tr.h8{height:8mm}.details tr.h10{height:10mm}.details tr.h12{height:12mm}.details tr.h22{height:22mm}
+.details tr.h15{height:15mm}.details tr.h8{height:8mm}.details tr.h10{height:10mm}.details tr.h12{height:12mm}.details tr.h22{height:22mm}
 .details th,.details td{border-bottom:1px solid #111;padding:.8mm 1.5mm;vertical-align:middle;text-align:left;line-height:1.08}
 .details th{width:28mm;border-right:1px solid #111;font-weight:700;white-space:nowrap}
 .details td{font-weight:700;overflow-wrap:anywhere}
@@ -382,6 +382,12 @@ def _package_label_card_html(db: DbSession, pkg: Package) -> str:
     picture = _variant_picture_html(model)
     batches = _batch_allocations_html(db, pkg) or "-"
     weight = _format_weight_kg(pkg.weight_kg) or "-"
+    label_sizes = None
+    if pkg.manual_receipt_id:
+        from app.models import ManualPackageReceipt
+        receipt = db.get(ManualPackageReceipt, pkg.manual_receipt_id)
+        if receipt and receipt.evidence.get("pack_quantities"):
+            label_sizes = receipt.evidence.get("configured_sizes") or None
     return f"""
 <article class='label' data-package='{_h(pkg.package_no)}'>
   <header class='label-head'><span>MILANA ERP</span><span>PACKAGE LABEL</span></header>
@@ -394,7 +400,8 @@ def _package_label_card_html(db: DbSession, pkg: Package) -> str:
     <tr class='h10'><th>Product</th><td>{_h(details['product'])}</td></tr>
     <tr class='h12'><th>Fabric</th><td>{_h(details['fabric'])}</td></tr>
     <tr class='h8'><th>Batch</th><td class='value-right'>{batches}</td></tr>
-    <tr class='h22'><th>Size</th><td>{_size_breakdown_html(pkg)}</td></tr>
+    <tr class='h15'><th>Size</th><td>{_size_breakdown_html(pkg, label_sizes)}</td></tr>
+    <tr><th>Quantity</th><td class='value-right value-large'>{int(pkg.total_quantity or 0)}</td></tr>
     <tr><th>Weight</th><td class='value-right'>{_h(weight)}</td></tr>
   </table>
   <section class='scan-panel'>

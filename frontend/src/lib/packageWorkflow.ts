@@ -2,22 +2,24 @@ import { api } from "@/lib/api";
 import type { Lang } from "@/lib/i18n";
 
 const en = {
+  packQuantity: "Quantity in pack", deletePacks: "Delete mistaken packs", deleteConfirm: "Delete every pack in this manual receipt? Used or reserved packs cannot be deleted.",
   manual: "Record physical warehouse packs", model: "Model / variant", color: "Color",
-  weight: "Weight per pack (kg)", count: "Number of identical packs", sizes: "Size quantities per pack",
+  weight: "Weight per pack (kg)", count: "Number of packs", sizes: "Size quantities per pack",
   reason: "Receipt reference / reason", save: "Record receipt and create labels", cancel: "Cancel",
   received: "Warehouse receipt recorded", runs: "Print runs", reprint: "Reprint labels",
   empty: "No print runs yet", loading: "Loading…", more: "Load more", none: "No models found",
   packages: "Packages", pieces: "Pieces", status: "Receipt", pending: "Awaiting warehouse",
   complete: "Received", scanHint: "Scan any package QR in a print run to receive exactly that run's packages in one scan.",
   runReceived: "Print run received", printSelected: "Reprint selected packages", retry: "Retry the same receipt",
-  review: "This records physical stock already in the warehouse. Check the model, size quantities and number of packs before saving.",
+  review: "This records physical stock already in the warehouse. Check the model and quantity in each pack before saving.",
   createRun: "Create receiving print run from selected", select: "Select", size: "Size", quantity: "Quantity",
   pendingRequest: "The previous request has not been confirmed. Retry the saved request before recording another receipt.",
 };
 type Copy = Record<keyof typeof en, string>;
 const ru: Copy = {
+  packQuantity: "Количество в упаковке", deletePacks: "Удалить ошибочные упаковки", deleteConfirm: "Удалить все упаковки этого ручного прихода? Использованные и зарезервированные упаковки удалить нельзя.",
   manual: "Оприходовать физические упаковки", model: "Модель / вариант", color: "Цвет",
-  weight: "Вес одной упаковки (кг)", count: "Количество одинаковых упаковок", sizes: "Размеры и количество в одной упаковке",
+  weight: "Вес одной упаковки (кг)", count: "Количество упаковок", sizes: "Размеры и количество в одной упаковке",
   reason: "Основание / документ прихода", save: "Оприходовать и создать этикетки", cancel: "Отмена",
   received: "Приход на склад сохранён", runs: "Группы печати", reprint: "Повторная печать",
   empty: "Групп печати пока нет", loading: "Загрузка…", more: "Загрузить ещё", none: "Модели не найдены",
@@ -29,8 +31,9 @@ const ru: Copy = {
   pendingRequest: "Предыдущий запрос не подтверждён. Повторите сохранённый запрос перед новым приходом.",
 };
 const uz: Copy = {
+  packQuantity: "Qadoqdagi miqdor", deletePacks: "Xato qadoqlarni o‘chirish", deleteConfirm: "Ushbu qo‘lda kiritilgan kirimning barcha qadoqlari o‘chirilsinmi? Ishlatilgan yoki band qadoqlarni o‘chirib bo‘lmaydi.",
   manual: "Ombordagi haqiqiy qadoqlarni kirim qilish", model: "Model / variant", color: "Rang",
-  weight: "Bitta qadoq vazni (kg)", count: "Bir xil qadoqlar soni", sizes: "Bitta qadoqdagi o‘lchamlar va miqdor",
+  weight: "Bitta qadoq vazni (kg)", count: "Qadoqlar soni", sizes: "Bitta qadoqdagi o‘lchamlar va miqdor",
   reason: "Kirim hujjati / sababi", save: "Kirim qilish va yorliqlar yaratish", cancel: "Bekor qilish",
   received: "Ombor kirimi saqlandi", runs: "Chop etish guruhlari", reprint: "Yorliqlarni qayta chop etish",
   empty: "Chop etish guruhlari yo‘q", loading: "Yuklanmoqda…", more: "Yana yuklash", none: "Modellar topilmadi",
@@ -45,6 +48,7 @@ export const packageWorkflowCopy: Record<Lang, Copy> = { en, ru, uz };
 
 export type PackagePrintRun = {
   id: number; run_no: string; code: string; count: number; quantity: number;
+  manual_receipt?: boolean;
   package_ids: number[]; created_at: string; received_at: string | null;
 };
 

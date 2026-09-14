@@ -81,7 +81,7 @@ def _shipment_payload(db: DbSession, sh: Shipment, *, scanned_count: int | None 
         "created_at": sh.created_at,
         "sales_order_no": so.order_no if so else None,
         "customer_name": customer.name if customer else None,
-        "shipment_type": "sales_order" if sh.sales_order_id else "warehouse_exit",
+        "shipment_type": "manual" if (sh.dispatch_snapshot or {}).get("manual") else "sales_order" if sh.sales_order_id else "warehouse_exit",
         "packages_count": packages_count,
         "total_qty": total_qty,
         "required_count": packages_count,
@@ -810,6 +810,9 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     freeze_dispatch_document(db, shipment)
     for package in packages:
         ship_package(db, package, current.id)
+    if (shipment.dispatch_snapshot or {}).get("manual"):
+        from app.services.shipment_review import post_manual_shipment_invoice
+        post_manual_shipment_invoice(db, shipment, current)
     return required_count, scanned_count
 
 
@@ -850,6 +853,11 @@ def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
         _shipment_payload(db, sh, scanned_count=scanned_by_shipment.get(int(sh.id), 0))
         for sh in rows
     ]
+
+
+@router.get("/customers")
+def manual_shipment_customers(db: DbSession, _: User = Depends(require_permissions("storage.shipment", "*"))):
+    return [{"id": cid, "name": name} for cid, name in db.query(Customer.id, Customer.name).order_by(Customer.name).all()]
 
 
 @router.get("/eligible-orders")
@@ -940,6 +948,15 @@ def create_shipment(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = payload.model_dump(mode="json")
+    if not payload.manual:
+        fingerprint_payload.pop("manual", None)
+    if payload.request_key is None:
+        fingerprint_payload.pop("request_key", None)
+    if payload.manual and payload.request_key:
+        from app.services.package_workflows import lock_request
+        idempotency_key = str(payload.request_key)
+        lock_request(db, current.id, "manual-shipment", idempotency_key)
+
     # Serialize every create for this order before replay/existence checks. A
     # waiter must refresh its cached order and see the first transaction's
     # idempotency record or shipment after that transaction commits.
@@ -956,7 +973,12 @@ def create_shipment(
     replay = replay_idempotent_response(db, scope="shipments.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
-    if not payload.sales_order_id and not str(payload.notes or "").strip():
+    if payload.manual:
+        if payload.sales_order_id or not payload.customer_id:
+            raise HTTPException(422, "Select a customer for a manual shipment without a sales order")
+        if not db.get(Customer, payload.customer_id):
+            raise HTTPException(404, "Customer not found")
+    if not payload.manual and not payload.sales_order_id and not str(payload.notes or "").strip():
         raise HTTPException(400, "Recipient or warehouse exit reference is required")
     if so:
         if _shipment_exists_for_sales_order(db, int(so.id)):
@@ -970,6 +992,7 @@ def create_shipment(
         shipment_no=next_shipment_no(db),
         status="created",
         notes=payload.notes,
+        dispatch_snapshot={"manual": True} if payload.manual else None,
         transport_details=payload.transport_details.model_dump() if payload.transport_details else None,
     )
     db.add(sh); db.flush()
@@ -992,7 +1015,7 @@ def create_shipment(
         sh.id,
         new_value={
             "shipment_no": sh.shipment_no,
-            "shipment_type": "sales_order" if sh.sales_order_id else "warehouse_exit",
+            "shipment_type": "manual" if (sh.dispatch_snapshot or {}).get("manual") else "sales_order" if sh.sales_order_id else "warehouse_exit",
             "packages": added,
             "notes": sh.notes,
             "transport_details": sh.transport_details,
@@ -1034,7 +1057,7 @@ def update_shipment(
     notes = payload.get("notes", sh.notes)
     if notes is not None and (not isinstance(notes, str) or len(notes) > 4000):
         raise HTTPException(422, "Notes must be text up to 4000 characters")
-    if not sh.sales_order_id and not str(notes or "").strip():
+    if not sh.sales_order_id and not (sh.dispatch_snapshot or {}).get("manual") and not str(notes or "").strip():
         raise HTTPException(422, "Warehouse exit reference is required")
     previous_notes = sh.notes
     previous_transport = sh.transport_details

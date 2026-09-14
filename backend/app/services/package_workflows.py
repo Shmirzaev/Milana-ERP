@@ -86,6 +86,7 @@ def run_payload(db, run):
     members = run_members(db, run)
     return {"id": run.id, "run_no": run.run_no, "code": run.code,
             "created_at": run.created_at.isoformat(), "received_at": run.received_at.isoformat() if run.received_at else None,
+            "manual_receipt": bool(members) and all(m.snapshot.get("manual_receipt_id") for m in members),
             "count": len(members), "quantity": sum(m.snapshot["quantity"] for m in members),
             "package_ids": [m.package_id for m in members],
             "packages": [{"id": m.package_id, **m.snapshot} for m in members]}
@@ -100,25 +101,32 @@ def manual_receipt(db, current, payload):
     if payload.warehouse_id and not db.get(Warehouse, payload.warehouse_id):
         raise HTTPException(404, "Warehouse not found")
     cell, shelf = validate_storage_location(payload.storage_cell, payload.storage_shelf, require_cell=False)
-    sizes = [row.size for row in payload.sizes]
-    if len(set(sizes)) != len(sizes):
-        raise HTTPException(400, "Each size must appear once")
-    configured = {s.size for s in model.sizes}
-    if not configured or not set(sizes).issubset(configured):
-        raise HTTPException(400, "Use sizes configured on the selected model")
-    total = sum(row.quantity for row in payload.sizes)
-    if total > 10000:
+    configured = [s.size for s in model.sizes]
+    if payload.pack_quantities is not None:
+        # Total-only receipts do not invent a per-size distribution.
+        size_label = configured[0] if len(configured) == 1 else "Mixed"
+        pack_items = [[{"size": size_label, "quantity": qty}] for qty in payload.pack_quantities]
+    else:
+        sizes = [row.size for row in payload.sizes]
+        if len(set(sizes)) != len(sizes):
+            raise HTTPException(400, "Each size must appear once")
+        if not configured or not set(sizes).issubset(configured):
+            raise HTTPException(400, "Use sizes configured on the selected model")
+        pack_items = [[row.model_dump() for row in payload.sizes] for _ in range(payload.count)]
+    quantities = [sum(row["quantity"] for row in items) for items in pack_items]
+    if any(total > 10000 for total in quantities):
         raise HTTPException(400, "Package quantity exceeds 10000")
     weight = round(payload.weight_kg, 4)
     evidence = {**payload.model_dump(mode="json"), "weight_kg": weight, "model_code": model.code, "model_name": model.name,
-                "quantity_per_package": total, "total_quantity": total * payload.count}
+                "configured_sizes": configured, "quantity_per_package": quantities[0] if len(set(quantities)) == 1 else None,
+                "total_quantity": sum(quantities)}
     receipt = ManualPackageReceipt(receipt_no=_next(db, ManualPackageReceipt, "receipt_no", "WMR"),
                                    created_by=current.id, evidence=evidence, evidence_hash=request_fingerprint(evidence))
     db.add(receipt)
     db.flush()
     now = datetime.now(timezone.utc)
     packages = []
-    for _ in range(payload.count):
+    for items, total in zip(pack_items, quantities):
         pkg = Package(package_no=next_package_no(db), barcode=generate_barcode_value("PKG"),
                       manual_receipt_id=receipt.id, model_id=model.id, color=payload.color,
                       brand_id=model.brand_id, collection_id=model.collection_id,
@@ -127,13 +135,13 @@ def manual_receipt(db, current, payload):
                       storage_placed_at=now if cell else None, packed_by=current.id,
                       received_by=current.id, received_at=now, status="received_in_storage",
                       packaging_department_code="PKG", notes=payload.reason)
-        pkg.items = [PackageItem(model_id=model.id, color=payload.color, size=row.size, quantity=row.quantity) for row in payload.sizes]
+        pkg.items = [PackageItem(model_id=model.id, color=payload.color, size=row["size"], quantity=row["quantity"]) for row in items]
         db.add(pkg)
         db.flush()
         pkg.qr_code_url = save_qr_image(f"PACKAGE:{pkg.package_no}|{pkg.barcode}", f"package_qr_{pkg.package_no}")
-        for row in payload.sizes:
+        for row in items:
             db.add(FinishedGoodsStock(package_id=pkg.id, model_id=model.id, color=payload.color,
-                                     size=row.size, quantity=row.quantity, available_qty=row.quantity,
+                                     size=row["size"], quantity=row["quantity"], available_qty=row["quantity"],
                                      warehouse_id=payload.warehouse_id, brand_id=model.brand_id,
                                      collection_id=model.collection_id))
         db.add(PackageScanLog(package_id=pkg.id, scanned_by=current.id, scan_type="manual_receipt"))
@@ -208,3 +216,44 @@ def receive_run(db, current, payload):
     log_action(db, current, "receive_print_run", "PackagePrintRun", run.id,
                new_value={"run_no": run.run_no, "package_ids": ids, **run.receipt_location})
     return run, packages
+
+
+def delete_manual_run(db, current, run):
+    """Remove only an unused physical receipt; retain immutable receipt/audit evidence."""
+    from app.models import ShipmentPackage, ShipmentScanLog, StockReservation
+    from app.models.shipment_review import PackageQuantityAdjustment
+    from app.models.stocktake import WarehouseStocktakeRow
+    members = run_members(db, run)
+    ids = [m.package_id for m in members]
+    packages = db.query(Package).filter(Package.id.in_(ids)).order_by(Package.id).with_for_update().populate_existing().all()
+    if not packages or len(packages) != len(ids) or any(not p.manual_receipt_id for p in packages):
+        raise HTTPException(409, "Only manually created warehouse packs can be deleted here")
+    if any(p.status != "received_in_storage" or p.sales_order_id or p.quantity_shortfall for p in packages):
+        raise HTTPException(409, "Reserved, shipped or adjusted packages cannot be deleted")
+    for cls in (ShipmentPackage, ShipmentScanLog, StockReservation, PackageQuantityAdjustment, WarehouseStocktakeRow):
+        if db.query(cls).filter(cls.package_id.in_(ids)).first():
+            raise HTTPException(409, "Package is linked to a shipment, reservation, correction or inventory count")
+    stocks = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(ids)).with_for_update().all()
+    stock_ids = [row.id for row in stocks]
+    if db.query(StockReservation).filter(StockReservation.finished_goods_stock_id.in_(stock_ids)).first():
+        raise HTTPException(409, "Package stock is reserved")
+    for pkg in packages:
+        rows = [row for row in stocks if row.package_id == pkg.id]
+        if (not rows or sum(row.quantity for row in rows) != pkg.total_quantity or
+                any(row.available_qty != row.quantity or row.reserved_qty or row.sold_qty or row.sales_order_id for row in rows)):
+            raise HTTPException(409, "Package stock has been used or changed")
+    log_action(db, current, "delete_manual_packages", "PackagePrintRun", run.id,
+               old_value={"run_no": run.run_no, "packages": [contents(p) for p in packages]},
+               new_value={"reason": "Mistaken manual warehouse receipt removed"})
+    from app.services.numbering import retire_label_numbers
+    retire_label_numbers(db, [p.package_no for p in packages], run.run_no)
+    for row in stocks:
+        db.delete(row)
+    for member in members:
+        db.delete(member)
+    db.flush()
+    for pkg in packages:
+        db.delete(pkg)
+    db.delete(run)
+    db.flush()
+    return {"deleted_count": len(ids)}

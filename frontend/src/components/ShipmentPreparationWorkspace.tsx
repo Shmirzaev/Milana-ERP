@@ -12,9 +12,11 @@ import { shipmentReviewText } from "@/lib/shipmentReviewText";
 import ShipmentReviewPanel from "@/components/ShipmentReviewPanel";
 import ShipmentTransportDetails, { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
 import { shipmentTransportText } from "@/lib/shipmentTransportText";
+import { manualShipmentText } from "@/lib/manualShipmentText";
 import { can, useMe } from "@/lib/auth";
 
 export type ShipmentSummary = {
+  shipment_type?: "manual" | "warehouse_exit" | "sales_order";
   id: number;
   sales_order_id?: number | null;
   sales_order_no?: string | null;
@@ -138,7 +140,7 @@ export default function ShipmentPreparationWorkspace({
   const isPreview = Boolean(preparation.is_preview);
   const isOpen = !isPreview && ["draft", "created"].includes(String(shipment.status || ""));
   const canScan = isOpen;
-  const shipDisabled = !isOpen || preparation.required_count <= 0 || preparation.remaining_count > 0 || !!preparation.review?.review_stale;
+  const shipDisabled = !isOpen || preparation.required_count <= 0 || preparation.remaining_count > 0 || !!preparation.review?.review_stale || (shipment.shipment_type === "manual" && preparation.review?.amount == null);
   const items = preparation.items || [];
   const packages = (preparation.packages || []).slice().sort((a, b) => Number(a.scanned) - Number(b.scanned));
 
@@ -207,7 +209,7 @@ export default function ShipmentPreparationWorkspace({
               <button type="button" className="btn" onClick={onAddReadyPackages}>{t("page.shipments.addReadyPackages")}</button>
             ) : null}
             <button type="button" className="btn" onClick={onShip} disabled={shipDisabled}>
-              {shipment.sales_order_id ? t("btn.ship") : t("page.shipments.confirmWarehouseExit")}
+              {shipment.shipment_type === "manual" ? manualShipmentText[lang].ship : shipment.sales_order_id ? t("btn.ship") : t("page.shipments.confirmWarehouseExit")}
             </button>
             <button type="button" className="btn btn-primary" onClick={onDeliver} disabled={shipment.status !== "shipped"}>
               {t("btn.markDelivered")}

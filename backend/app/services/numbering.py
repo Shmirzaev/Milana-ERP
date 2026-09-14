@@ -53,6 +53,12 @@ def _next(db: Session, model, attr: str, prefix: str, *, width: int = 6) -> str:
             next_num = int(raw.rsplit("-", 1)[-1]) + 1
         except Exception:
             next_num = 1
+    # Deleted manual-label identities remain retired: old printed QR codes must
+    # never resolve to a new physical pack or print run.
+    if model.__tablename__ in {"packages", "package_print_runs"}:
+        floor = db.query(SystemSetting).filter_by(key=f"retired_number:{prefix}:{year}").first()
+        if floor:
+            next_num = max(next_num, int(floor.value_json.get("number", 0)) + 1)
     return f"{prefix}-{year}-{next_num:0{width}d}"
 
 
@@ -193,3 +199,25 @@ def next_purchase_order_no(db: Session) -> str:
 
 def next_material_reservation_no(db: Session) -> str:
     return _next(db, MaterialReservation, "reservation_no", "MR")
+
+
+def retire_label_numbers(db: Session, package_numbers: list[str], run_number: str) -> None:
+    from app.models import PackagePrintRun
+    for model, attr, prefix, numbers in ((Package, "package_no", "PKG", package_numbers),
+                                         (PackagePrintRun, "run_no", "PRN", [run_number])):
+        by_year: dict[str, int] = {}
+        for number in numbers:
+            match = re.fullmatch(rf"{prefix}-(\d{{4}})-(\d+)", number)
+            if not match:
+                raise HTTPException(409, "Unrecognized manual label number; deletion requires review")
+            year, suffix = match.groups()
+            by_year[year] = max(by_year.get(year, 0), int(suffix))
+        for year, number in sorted(by_year.items()):
+            _acquire_numbering_lock(db, f"{model.__tablename__}:{attr}:{prefix}:{year}")
+            key = f"retired_number:{prefix}:{year}"
+            row = db.query(SystemSetting).filter_by(key=key).populate_existing().first()
+            if row:
+                row.value_json = {"number": max(number, int(row.value_json.get("number", 0)))}
+            else:
+                db.add(SystemSetting(key=key, value_json={"number": number}))
+    db.flush()

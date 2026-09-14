@@ -41,4 +41,4 @@ def test_package_label_shows_sizes_without_piece_counts():
     card_source = inspect.getsource(_package_label_card_html)
     assert "<th>Size</th>" in card_source
     assert "Size / quantity" not in card_source
-    assert "<th>Quantity</th>" not in card_source
+    assert "<th>Quantity</th>" in card_source
