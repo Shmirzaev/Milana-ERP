@@ -1,3 +1,18 @@
+function errorDetail(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(errorDetail).filter(Boolean).join("; ");
+  if (!value || typeof value !== "object") return "";
+  const error = value as Record<string, unknown>;
+  const message = errorDetail(error.detail) || errorDetail(error.message) || errorDetail(error.msg);
+  if (!message) return "";
+  const path = Array.isArray(error.loc)
+    ? error.loc.filter((part) => part !== "body" && part !== "query" && part !== "path")
+      .map((part) => typeof part === "number" ? `[${part + 1}]` : String(part).replaceAll("_", " "))
+      .join(" / ")
+    : "";
+  return path ? `${path}: ${message}` : message;
+}
+
 function resolveUrl(path: string): string {
   if (path.startsWith("http")) return path;
   const normalized = path.startsWith("/") ? path : `/${path}`;
@@ -74,7 +89,7 @@ async function request<T = any>(path: string, init: RequestInit = {}, timeoutMs 
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail || JSON.stringify(body);
+      detail = errorDetail(body) || detail || "Request failed";
     } catch {}
     throw new Error(`${res.status}: ${detail}`);
   }
@@ -94,7 +109,7 @@ export const api = {
       let detail = res.statusText;
       try {
         const body = await res.json();
-        detail = body.detail || JSON.stringify(body);
+        detail = errorDetail(body) || detail || "Request failed";
       } catch {}
       throw new Error(`${res.status}: ${detail}`);
     }
@@ -135,7 +150,7 @@ export const api = {
             const contentType = res.headers.get("content-type") || "";
             if (contentType.includes("application/json")) {
               const b = await res.json();
-              msg = b.detail || b.message || JSON.stringify(b) || msg;
+              msg = errorDetail(b) || msg;
             } else {
               const text = (await res.text()).trim();
               if (text) msg = text.slice(0, 300);
@@ -179,7 +194,7 @@ export const api = {
       let msg = "Could not send reset request";
       try {
         const body = await res.json();
-        msg = body.detail || body.message || msg;
+        msg = errorDetail(body) || msg;
       } catch {}
       throw new Error(`${res.status}: ${msg}`);
     }
@@ -204,7 +219,7 @@ export const api = {
       let msg = "Could not reset password";
       try {
         const body = await res.json();
-        msg = body.detail || body.message || msg;
+        msg = errorDetail(body) || msg;
       } catch {}
       throw new Error(`${res.status}: ${msg}`);
     }
@@ -229,7 +244,7 @@ export const api = {
       let detail = res.statusText;
       try {
         const body = await res.json();
-        detail = body.detail || JSON.stringify(body);
+        detail = errorDetail(body) || detail || "Request failed";
       } catch {}
       throw new Error(`${res.status}: ${detail}`);
     }
