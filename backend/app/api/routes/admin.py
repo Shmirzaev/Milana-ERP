@@ -1,5 +1,6 @@
 from datetime import datetime, time, timezone
 import secrets
+from types import SimpleNamespace
 
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -28,6 +29,8 @@ from app.schemas.catalog import (
 from app.services.audit import export_audit_hash_chain, log_action, verify_audit_hash_chain
 from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
 from app.db.reset_demo import reset_to_seed
+from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
+from app.services.factory_scope import FACTORY_CODES, available_factory_codes
 
 router = APIRouter(tags=["admin"])
 
@@ -242,6 +245,81 @@ def _parse_date(value: str | None, end_of_day: bool = False) -> datetime | None:
 
 
 # ===== Users =====
+def _access_subject(db, values):
+    role = db.get(Role, values.get("role_id")) if values.get("role_id") else None
+    department = db.get(Department, values.get("department_id")) if values.get("department_id") else None
+    if values.get("role_id") and role is None:
+        raise HTTPException(404, "Role not found")
+    if values.get("department_id") and department is None:
+        raise HTTPException(404, "Department not found")
+    return SimpleNamespace(
+        role=role, department=department, name=values.get("name", ""), email=values.get("email", ""),
+        factory_code=values.get("factory_code") or "MIL",
+        extra_permissions=values.get("extra_permissions") or [], access_policy=values.get("access_policy") or {},
+    )
+
+
+def _user_access_values(user):
+    return {key: getattr(user, key, None) for key in (
+        "role_id", "department_id", "name", "email", "factory_code", "extra_permissions", "access_policy",
+    )}
+
+
+def _assert_policy_change(db, actor, values, old=None):
+    proposed = _access_subject(db, values)
+    for factory, policy in proposed.access_policy.items():
+        if factory != proposed.factory_code and SUPER_ADMIN_PERMISSION in set(policy.get("allow", [])) | set(policy.get("deny", [])):
+            raise HTTPException(400, "Super Admin access is configured in the primary factory only")
+    if is_super_admin(actor):
+        return proposed
+    own = set(user_permissions(actor))
+    previous = _access_subject(db, old) if old else None
+    old_policy = (old or {}).get("access_policy") or {}
+    for factory in FACTORY_CODES:
+        policy = proposed.access_policy.get(factory, {})
+        if policy == old_policy.get(factory, {}) and (factory not in proposed.access_policy) == (factory not in old_policy):
+            continue
+        if factory != selected_factory_code(actor):
+            raise HTTPException(403, "Only Super Admin can configure another factory")
+        proposed.session_factory_code = factory
+        before = set()
+        if previous:
+            previous.session_factory_code = factory
+            before = set(user_permissions(previous))
+        after = set(user_permissions(proposed))
+        if ({"*", SUPER_ADMIN_PERMISSION} & (set(policy.get("allow", [])) | (after - before))):
+            raise HTTPException(403, "Only Super Admin can grant administrator access")
+        # Removing a deny is also a grant; restoring a restrictive scope is not
+        # allowed to become an indirect privilege-escalation route.
+        if "*" not in own and ((after - before) - own):
+            raise HTTPException(403, "You cannot grant permissions you don't hold")
+        if "inventory.materials_only" in own and "inventory.materials_only" not in after:
+            raise HTTPException(403, "You cannot remove your own inventory scope from another account")
+    proposed.session_factory_code = proposed.factory_code
+    return proposed
+
+
+@router.get("/access-catalog")
+def access_catalog(current: User = Depends(require_permissions("admin.users", "*"))):
+    own = set(user_permissions(current))
+    return [{**row, "grantable": is_super_admin(current) if row["key"] in {"*", SUPER_ADMIN_PERMISSION}
+             else "*" in own or row["key"] in own} for row in PERMISSION_CATALOG]
+
+
+@router.post("/users/access-preview")
+def preview_user_access(payload: UserIn, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
+    values = payload.model_dump(exclude={"password"})
+    subject = _access_subject(db, values)
+    available = available_factory_codes(subject)
+    result = {}
+    for factory in FACTORY_CODES:
+        subject.session_factory_code = factory
+        effective = user_permissions(subject)
+        expanded = sorted((set(effective) - {"*"}) | (PERMISSION_KEYS - {"*", SUPER_ADMIN_PERMISSION} if "*" in effective else set()))
+        result[factory] = {"permissions": effective, "effective": sorted(set(expanded) | ({"*"} if "*" in effective else set())), "available": factory in available}
+    return result
+
+
 def _require_strong_password(password: str) -> None:
     try:
         validate_password_strength(password)
@@ -380,6 +458,7 @@ def create_user(
     factory_code = normalize_factory_code(payload.factory_code, default=selected_factory_code(current))
     if not is_super_admin(current) and factory_code != selected_factory_code(current):
         raise HTTPException(403, "Only Super Admin can assign another factory")
+    _assert_policy_change(db, current, {**payload.model_dump(), "factory_code": factory_code})
     setup_url: str | None = None
     u = User(
         name=payload.name,
@@ -389,6 +468,7 @@ def create_user(
         department_id=payload.department_id,
         factory_code=factory_code,
         extra_permissions=extra_permissions,
+        access_policy=payload.model_dump().get("access_policy"),
         is_active=payload.is_active,
     )
     db.add(u)
@@ -402,7 +482,9 @@ def create_user(
         "create",
         "User",
         u.id,
-        new_value={"email": u.email, "password_setup_email_queued": bool(setup_url)},
+        new_value={"email": u.email, "password_setup_email_queued": bool(setup_url),
+                   "role_id": u.role_id, "factory_code": u.factory_code,
+                   "extra_permissions": u.extra_permissions, "access_policy": u.access_policy},
     )
     db.commit()
     db.refresh(u)
@@ -421,10 +503,15 @@ def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions(
 
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
+    # Serialize changes that can remove the final administrator on PostgreSQL.
+    # SQLite ignores FOR UPDATE in disposable tests.
+    if {"role_id", "extra_permissions", "access_policy", "is_active"} & payload.model_fields_set:
+        db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(of=User).populate_existing().all()
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)
+    old_access = _user_access_values(u)
     actor_is_super_admin = is_super_admin(current)
     if "factory_code" in data:
         data["factory_code"] = normalize_factory_code(data["factory_code"])
@@ -442,6 +529,8 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
             raise HTTPException(403, "You cannot change your own additional access")
         if data.get("is_active") is False:
             raise HTTPException(403, "You cannot deactivate your own account")
+        if "access_policy" in data and (data["access_policy"] or {}) != (u.access_policy or {}):
+            raise HTTPException(403, "You cannot change your own access")
     # A role change may only grant permissions the actor already holds.
     if "role_id" in data and data["role_id"] != u.role_id:
         _assert_can_grant_role(db, current, data["role_id"])
@@ -450,12 +539,11 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
     # Never let the last active administrator be demoted or deactivated.
     was_admin = "*" in user_permissions(u)
     was_super_admin = is_super_admin(u)
-    future_role_id = data.get("role_id", u.role_id)
-    future_extra_permissions = data.get("extra_permissions", u.extra_permissions or [])
-    future_permissions = _effective_permissions_for(db, future_role_id, future_extra_permissions)
+    future_subject = _assert_policy_change(db, current, {**old_access, **data}, old_access)
+    future_permissions = user_permissions(future_subject)
     future_admin = "*" in future_permissions
-    future_super_admin = _future_is_super_admin(db, future_role_id, future_extra_permissions)
-    if u.id != current.id and (was_admin or future_admin) and not actor_is_super_admin:
+    future_super_admin = is_super_admin(future_subject)
+    if u.id != current.id and (was_admin or future_admin or was_super_admin or future_super_admin) and not actor_is_super_admin:
         raise HTTPException(403, "Only a super admin can manage administrator accounts")
     demoting_admin = was_admin and not future_admin
     demoting_super_admin = was_super_admin and not future_super_admin
@@ -474,7 +562,7 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
         data["email"] = normalize_email(data["email"])
     for k, v in data.items():
         setattr(u, k, v)
-    log_action(db, current, "update", "User", u.id, new_value=data)
+    log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=data)
     db.commit()
     db.refresh(u)
     return u

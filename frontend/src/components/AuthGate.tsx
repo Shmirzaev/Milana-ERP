@@ -85,7 +85,7 @@ const ROUTE_GUARDS: RouteGuard[] = [
 function isSuperAdmin(me: ReturnType<typeof useMe>["me"]) {
   return Boolean(
     me?.permissions.includes(SUPER_ADMIN_PERMISSION) ||
-    (me?.role ?? "").trim().toLowerCase() === "super admin",
+    (!me?.access_configured && (me?.role ?? "").trim().toLowerCase() === "super admin"),
   );
 }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
+from app.services.user_access import apply_policy, denied_for, policy_for
 
 FACTORY_CODES = ("MIL", "BST", "ECO")
 FACTORY_LABELS = {"MIL": "Milana", "BST": "Besttex", "ECO": "Eco Cotton"}
@@ -26,7 +27,9 @@ def user_is_super_admin(user) -> bool:
     role = getattr(user, "role", None)
     role_name = str(getattr(role, "name", "") or "").strip().lower()
     permissions = set(getattr(role, "permissions", None) or []) | set(getattr(user, "extra_permissions", None) or [])
-    return role_name == "super admin" or "admin.super" in permissions
+    primary = str(getattr(user, "factory_code", None) or "MIL")
+    permissions.update(policy_for(user, primary).get("allow", []))
+    return "admin.super" not in denied_for(user, primary) and (role_name == "super admin" or "admin.super" in permissions)
 
 
 def factory_permissions_for(user, factory_code: str) -> list[str]:
@@ -45,7 +48,7 @@ def factory_permissions_for(user, factory_code: str) -> list[str]:
             continue
         seen.add(permission)
         permissions.append(permission)
-    return permissions
+    return apply_policy(user, code, permissions)
 
 
 def is_factory_permission_token(value: object) -> bool:

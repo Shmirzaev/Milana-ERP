@@ -780,9 +780,12 @@ def _ensure_package_can_change(db: Session, pkg: Package) -> list[FinishedGoodsS
 
 
 def _is_package_change_approver(user: User) -> bool:
+    from app.services.user_access import access_configured, permission_denied
+    if permission_denied(user, "management.approve"):
+        return False
     role_name = (user.role.name if user.role else "").lower()
     perms = set(user_permissions(user))
-    return "*" in perms or "management.approve" in perms or role_name in {"admin", "management"}
+    return "*" in perms or "management.approve" in perms or (not access_configured(user) and role_name in {"admin", "management"})
 
 
 def _notify_package_change_approvers(

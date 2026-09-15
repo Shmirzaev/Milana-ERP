@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 from app.schemas.inventory import ItemComposition, ItemOut
+from app.schemas.user_access import AccessPolicy
 
 
 # Roles / Departments / Users
@@ -37,6 +38,7 @@ class UserIn(BaseModel):
     department_id: Optional[int] = None
     factory_code: str = "MIL"
     extra_permissions: list[str] = Field(default_factory=list)
+    access_policy: AccessPolicy | None = None
     is_active: bool = True
 
 
@@ -48,6 +50,7 @@ class UserUpdate(BaseModel):
     department_id: Optional[int] = None
     factory_code: Optional[str] = None
     extra_permissions: Optional[list[str]] = None
+    access_policy: AccessPolicy | None = None
     is_active: Optional[bool] = None
 
 
@@ -59,6 +62,7 @@ class UserOut(ORMModel):
     department_id: Optional[int] = None
     factory_code: str = "MIL"
     extra_permissions: list[str] = Field(default_factory=list)
+    access_policy: AccessPolicy | None = None
     is_active: bool
     last_login_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None

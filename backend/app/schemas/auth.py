@@ -39,3 +39,4 @@ class UserMe(BaseModel):
     factory_code: str = "MIL"
     assigned_factory_code: str = "MIL"
     available_factories: list[str] = Field(default_factory=list)
+    access_configured: bool = False
