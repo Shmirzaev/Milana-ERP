@@ -151,6 +151,15 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
     db.flush()
 
 
+def manual_invoice_sizes(db, package, size):
+    if str(size).lower() != "mixed" or not package.manual_receipt_id:
+        return None
+    from app.models import ManualPackageReceipt
+    receipt = db.get(ManualPackageReceipt, package.manual_receipt_id)
+    sizes = receipt.evidence.get("configured_sizes", []) if receipt else []
+    return ", ".join(dict.fromkeys(str(s) for s in sizes)) or None
+
+
 def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] | None = None) -> dict:
     frozen = (shipment.dispatch_snapshot or {}).get("document")
     if shipment.status in {"shipped", "delivered"} and frozen:
@@ -205,7 +214,7 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
             lines.append({"package_no": package.package_no, "model_code": model.code if model else "",
                           "model_no": model_no, "variant_no": variant_no,
                           "description": description,
-                          "color": item.color, "size": item.size, "quantity": item.quantity,
+                          "color": item.color, "size": item.size, "size_display": manual_invoice_sizes(db, package, item.size), "quantity": item.quantity,
                           "unit_price": str(price) if price is not None else None,
                           "amount": str(amount) if amount is not None else None})
     document = {"shipment_no": shipment.shipment_no, "sales_order_no": order.order_no if order else None,

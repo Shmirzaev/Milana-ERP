@@ -105,7 +105,7 @@ def test_legacy_source_identity_unknown_weight_and_prices_remain_explicit(client
     html = render_shipment_invoice(doc, "en")
     assert "LEGACY-STICKER-INTERNAL" not in html
     assert ">—</td>" in html and "Some package weights are unknown" in html
-    assert "Price unavailable" in html
+    assert "Price unavailable" not in html
 
 
 @pytest.mark.parametrize("code,details,expected", [

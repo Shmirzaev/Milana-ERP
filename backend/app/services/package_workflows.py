@@ -87,9 +87,22 @@ def require_active_run(run):
         raise HTTPException(410, "This mistaken manual receipt was deleted")
 
 
+def active_run_members(db, run):
+    deleted = set(run.deleted_package_ids or [])
+    return [member for member in run_members(db, run) if member.package_id not in deleted]
+
+
+def require_active_label(db, package_id):
+    member = db.query(PackagePrintRunMember).filter_by(package_id=package_id).first()
+    if member:
+        run = db.get(PackagePrintRun, member.run_id)
+        if run.deleted_at is not None or package_id in (run.deleted_package_ids or []):
+            raise HTTPException(410, "This manual package label was deleted")
+
+
 def run_payload(db, run):
     require_active_run(run)
-    members = run_members(db, run)
+    members = active_run_members(db, run)
     return {"id": run.id, "run_no": run.run_no, "code": run.code,
             "created_at": run.created_at.isoformat(), "received_at": run.received_at.isoformat() if run.received_at else None,
             "manual_receipt": bool(members) and all(m.snapshot.get("manual_receipt_id") for m in members),
@@ -171,6 +184,7 @@ def resolve_run(db, code):
         raise HTTPException(409, "Ambiguous package code; scan the unique package QR")
     if not ids:
         raise HTTPException(404, "Package not found")
+    require_active_label(db, next(iter(ids)))
     member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == next(iter(ids))).first()
     return db.get(PackagePrintRun, member.run_id) if member else None
 
@@ -225,43 +239,61 @@ def receive_run(db, current, payload):
     return run, packages
 
 
-def delete_manual_run(db, current, run):
-    """Remove only an unused physical receipt; retain immutable receipt/audit evidence."""
-    from app.models import ShipmentPackage, ShipmentScanLog, StockReservation
+def delete_manual_run(db, current, run, package_ids=None):
+    """Delete selected unused packs, or retire shipped labels with history intact."""
+    from app.models import Shipment, ShipmentPackage, ShipmentScanLog, StockReservation
     from app.models.shipment_review import PackageQuantityAdjustment
     from app.models.stocktake import WarehouseStocktakeRow
+    requested = set(run.package_ids if package_ids is None else package_ids)
+    if not requested or not requested.issubset(set(run.package_ids)):
+        raise HTTPException(422, "Select packages from this print run")
     if run.deleted_at is not None:
-        return {"deleted_count": len(run.package_ids)}
+        return {"deleted_count": len(requested)}
     members = run_members(db, run)
-    ids = [m.package_id for m in members]
-    packages = db.query(Package).filter(Package.id.in_(ids)).order_by(Package.id).with_for_update().populate_existing().all()
-    if not packages or len(packages) != len(ids) or any(not p.manual_receipt_id for p in packages):
+    if any(not m.snapshot.get("manual_receipt_id") for m in members):
         raise HTTPException(409, "Only manually created warehouse packs can be deleted here")
-    if any(p.status != "received_in_storage" or p.sales_order_id or p.quantity_shortfall for p in packages):
-        raise HTTPException(409, "Reserved, shipped or adjusted packages cannot be deleted")
-    for cls in (ShipmentPackage, ShipmentScanLog, StockReservation, PackageQuantityAdjustment, WarehouseStocktakeRow):
-        if db.query(cls).filter(cls.package_id.in_(ids)).first():
-            raise HTTPException(409, "Package is linked to a shipment, reservation, correction or inventory count")
-    stocks = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(ids)).with_for_update().all()
-    stock_ids = [row.id for row in stocks]
-    if db.query(StockReservation).filter(StockReservation.finished_goods_stock_id.in_(stock_ids)).first():
-        raise HTTPException(409, "Package stock is reserved")
+    ids = sorted(requested - set(run.deleted_package_ids or []))
+    if not ids:
+        return {"deleted_count": len(requested)}
+    packages = db.query(Package).filter(Package.id.in_(ids)).order_by(Package.id).with_for_update().populate_existing().all()
+    if len(packages) != len(ids) or any(not p.manual_receipt_id for p in packages):
+        raise HTTPException(409, "Manual package evidence is incomplete")
+    shipped = []
+    unused = []
     for pkg in packages:
+        if pkg.status in {"shipped", "delivered"}:
+            links = db.query(Shipment).join(ShipmentPackage, ShipmentPackage.shipment_id == Shipment.id).filter(ShipmentPackage.package_id == pkg.id).all()
+            if not links or any(sh.status not in {"shipped", "delivered"} for sh in links):
+                raise HTTPException(409, "Package shipment evidence is incomplete")
+            shipped.append(pkg)
+        else:
+            unused.append(pkg)
+    unused_ids = [p.id for p in unused]
+    if any(p.status != "received_in_storage" or p.sales_order_id or p.quantity_shortfall for p in unused):
+        raise HTTPException(409, "Reserved or adjusted packages cannot be deleted")
+    for cls in (ShipmentPackage, ShipmentScanLog, StockReservation, PackageQuantityAdjustment, WarehouseStocktakeRow):
+        if unused_ids and db.query(cls).filter(cls.package_id.in_(unused_ids)).first():
+            raise HTTPException(409, "Package is linked to a pending shipment, reservation, correction or inventory count")
+    stocks = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(unused_ids)).with_for_update().all()
+    if stocks and db.query(StockReservation).filter(StockReservation.finished_goods_stock_id.in_([s.id for s in stocks])).first():
+        raise HTTPException(409, "Package stock is reserved")
+    for pkg in unused:
         rows = [row for row in stocks if row.package_id == pkg.id]
         if (not rows or sum(row.quantity for row in rows) != pkg.total_quantity or
                 any(row.status != "available" or row.available_qty != row.quantity or row.reserved_qty or row.sold_qty or row.sales_order_id for row in rows)):
             raise HTTPException(409, "Package stock has been used or changed")
     log_action(db, current, "delete_manual_packages", "PackagePrintRun", run.id,
                old_value={"run_no": run.run_no, "packages": [contents(p) for p in packages]},
-               new_value={"reason": "Mistaken manual warehouse receipt removed"})
+               new_value={"removed_stock_package_ids": unused_ids, "retired_shipped_label_ids": [p.id for p in shipped]})
     from app.services.numbering import retire_label_numbers
     retire_label_numbers(db, [p.package_no for p in packages], run.run_no)
+    run.deleted_package_ids = sorted(set(run.deleted_package_ids or []) | set(ids))
+    if set(run.deleted_package_ids) == set(run.package_ids):
+        run.deleted_at = datetime.now(timezone.utc)
+    db.flush()
     for row in stocks:
         db.delete(row)
-    # Keep the immutable manifest and receipt; remove only operational stock/packs.
-    run.deleted_at = datetime.now(timezone.utc)
-    db.flush()
-    for pkg in packages:
+    for pkg in unused:
         db.delete(pkg)
     db.flush()
-    return {"deleted_count": len(ids)}
+    return {"deleted_count": len(requested)}

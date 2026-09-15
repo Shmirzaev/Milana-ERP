@@ -81,13 +81,26 @@ with engine.begin() as c:
     migration.downgrade()
     migration.upgrade()
 
-rejected(f"DELETE FROM packages WHERE id={ids[0]}", "Printed package must belong")
+with engine.begin() as c:
+    c.execute(text("ALTER TABLE package_print_runs DROP COLUMN deleted_package_ids"))
+    selected = load("0128_selected_pack_labels")
+    selected.op = Operations(MigrationContext.configure(c))
+    selected.upgrade()
+    selected.downgrade()
+    selected.upgrade()
+
+rejected(f"DELETE FROM packages WHERE id={ids[0]}", "Printed package must have")
 rejected(f"UPDATE package_print_run_members SET snapshot='{{}}'::json WHERE run_id={rid}", "immutable")
 rejected(f"DELETE FROM package_print_runs WHERE id={rid}", "immutable")
 rejected(f"INSERT INTO package_print_run_members(run_id,package_id,snapshot) VALUES ({rid},999999,'{{}}')", "existing package")
 with SessionLocal() as db:
     run = db.query(PackagePrintRun).filter_by(id=rid).with_for_update().one()
     before = [(m.id, m.package_id, m.snapshot) for m in db.query(PackagePrintRunMember).filter_by(run_id=rid)]
+    result = delete_manual_run(db, db.get(User, uid), run, [ids[0]])
+    assert result == {"deleted_count": 1}
+    db.commit()
+    assert db.get(Package, ids[1]) is not None
+    assert run.deleted_at is None
     result = delete_manual_run(db, db.get(User, uid), run)
     assert result == {"deleted_count": 2}
     db.commit()

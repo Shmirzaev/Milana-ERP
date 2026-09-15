@@ -376,6 +376,8 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:"DejaVu Sans
 
 
 def _package_label_card_html(db: DbSession, pkg: Package) -> str:
+    from app.services.package_workflows import require_active_label
+    require_active_label(db, pkg.id)
     model = _label_model(db, pkg.model_id)
     details = _package_label_details(db, pkg, model)
     qr = _qr_data_uri_for_package(db, pkg)

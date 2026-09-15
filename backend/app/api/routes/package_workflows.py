@@ -1,5 +1,5 @@
 """Package workflow routes mounted before /packages/{pid}."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Query, APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
 
@@ -29,6 +29,8 @@ def _write(db, current, operation, payload, action):
             run = db.get(PackagePrintRun, replay["print_run"]["id"])
             if run:
                 service.require_active_run(run)
+                if run.deleted_package_ids:
+                    raise HTTPException(410, "Some labels in this manual receipt were deleted")
         return replay
     result = action()
     store_idempotent_response(db, scope=scope, key=key, payload=body, response=result, user=current)
@@ -142,12 +144,12 @@ def get_print_run(rid: int, db: DbSession,
 
 
 @router.delete("/print-runs/{rid}/manual-packages")
-def delete_manual_packages(rid: int, db: DbSession,
+def delete_manual_packages(rid: int, db: DbSession, package_ids: list[int] | None = Query(default=None),
                            current: User = Depends(require_permissions("storage.packages", "*"))):
     run = db.query(PackagePrintRun).filter_by(id=rid).with_for_update().first()
     if not run:
         raise HTTPException(404, "Print run not found")
-    result = service.delete_manual_run(db, current, run)
+    result = service.delete_manual_run(db, current, run, package_ids)
     db.commit()
     return result
 
@@ -157,7 +159,7 @@ def print_run_label(rid: int, db: DbSession,
                      current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
     from app.api.routes.packages import _h, _package_label_card_html, _PACKAGE_LABEL_CSS
     run = _run(db, current, rid)
-    members = service.run_members(db, run)
+    members = service.active_run_members(db, run)
     cards = []
     current_quantity = 0
     for member in members:
