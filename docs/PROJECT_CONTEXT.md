@@ -2,6 +2,16 @@
 
 Last updated: 2026-09-15
 
+## Warehouse invoice and selected manual-label deletion prepared (2026-09-15)
+
+- Prepared in `C:/ERP/.codex-work/warehouse-invoice-20260915`, branch `codex/warehouse-invoice-20260915`, from verified origin/main. Both live manifests/slots match baseline blue `20260915_102154`, rollback green `20260915_070254`, database `0127_manual_pack_deletion`. Legacy checkout preserved.
+- Printed invoices omit unit price, amount, monetary totals/adjustments and the net-price/tax sentence. Accounting values and the customer ledger remain saved. Manual aggregate packs show the original receipt's configured size list without invented per-size quantities. New dispatch snapshots save the shipping user's name as warehouse keeper; old invoice prints use the shipping audit actor when available and enrich sizes from immutable receipt evidence without rewriting frozen finances.
+- Manual shipping includes Add client with name/optional phone, saved and selected in place. The scoped POST /shipments/customers requires storage.shipment; broader customer editing/deleting permissions remain unchanged. EN/RU/UZ controls are provided.
+- Manual print runs support selected-pack deletion. Fully available unused packs and their stock are removed; shipped labels are retired while shipment/package/stock/accounting history remains intact. Pending shipment, reservation, correction and stocktake links still block physical deletion. Migration `0128_selected_pack_labels` adds monotonic per-run retired package IDs and extends the PostgreSQL deletion guard. Original membership and receipt evidence stay immutable; label printing and receipt retries reject retired labels. Full deletion still retires the run. Downgrade after selected deletion is blocked; rollback must retain retirement filtering.
+- User explicitly limited test cleanup to PRN-2026-000003: original 12 packs/702 pieces, eight shipped packs/462 pieces and four available packs/240 pieces. No cleanup has occurred at preparation. Deployment/cleanup require a verified backup; no extra browser/performance exercises or extended monitoring per user's fast-deploy instruction.
+- Focused preparation: 58 affected backend cases passed, scoped Ruff/compilation, TypeScript and ESLint passed. Disposable PostgreSQL 16 migration up/down/up, selected physical deletion and immutable-history guards passed; no production data used. Immutable CI remains the release gate.
+
+
 ## Cutting Workshop sewing factory column deployed (2026-09-15)
 
 - LIVE: backend/frontend blue release `20260915_102154`, reviewed application commit `a27fa40c5accfac30480d7ebb8a9dc6d41fe50ba`, merged through PR #153. Both manifests, image identities, current symlinks and slot states agree. Green `20260915_070254` remains running for rollback. Frontend activated `2026-09-15T10:32:35.590875+00:00`.

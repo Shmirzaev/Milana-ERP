@@ -119,3 +119,45 @@ def test_deleted_receipt_retry_does_not_return_active_labels(client, warehouse):
     assert client.delete(f"/api/packages/print-runs/{run['id']}/manual-packages", headers=warehouse).status_code == 200
     retry = client.post("/api/packages/manual-receipt", headers=warehouse, json=body)
     assert retry.status_code == 410
+
+
+def test_selected_labels_after_shipment_keep_client_balance(client, warehouse):
+    run = receive(client, warehouse)
+    first, second = run["package_ids"]
+    sid = shipment(client, warehouse, Decimal("2.50"))
+    assert client.post(f"/api/shipments/{sid}/scan-package", headers=warehouse, json={"code": package_qr(first)}).json()["ok"]
+    assert client.post(f"/api/shipments/{sid}/ship", headers=warehouse).status_code == 200
+    original = client.get(f"/api/shipments/{sid}/invoice", headers=warehouse).json()
+    assert original["warehouse_person"]
+    assert original["lines"][0]["size_display"] and "Mixed" not in original["lines"][0]["size_display"]
+    html = client.get(f"/api/shipments/{sid}/invoice/print?lang=uz", headers=warehouse).text
+    assert "Omborchi" in html and original["warehouse_person"] in html
+    assert "Mixed" not in html and "Sof narxlar" not in html
+    assert "Narx</th>" not in html and "Summa</th>" not in html
+    target = f"/api/packages/print-runs/{run['id']}/manual-packages?package_ids={first}"
+    assert client.delete(target, headers=warehouse).status_code == 200
+    assert client.delete(target, headers=warehouse).json() == {"deleted_count": 1}
+    remaining = client.get(f"/api/packages/print-runs/{run['id']}", headers=warehouse).json()
+    assert remaining["package_ids"] == [second] and remaining["quantity"] == 17
+    assert client.get(f"/api/packages/{first}/label", headers=warehouse).status_code == 410
+    assert client.get(f"/api/packages/print-runs/{run['id']}/label", headers=warehouse).status_code == 200
+    assert client.get(f"/api/shipments/{sid}/invoice", headers=warehouse).json() == original
+    with SessionLocal() as db:
+        assert db.get(Package, first).status == "shipped"
+        assert db.query(Invoice).filter_by(sales_order_id=db.get(Shipment, sid).sales_order_id).one().amount == Decimal("32.50")
+    assert client.delete(f"/api/packages/print-runs/{run['id']}/manual-packages?package_ids={second}", headers=warehouse).status_code == 200
+    with SessionLocal() as db:
+        assert db.get(Package, second) is None and db.get(Package, first) is not None
+
+
+def test_manual_add_client_and_selected_unused_pack(client, warehouse):
+    result = client.post("/api/shipments/customers", headers=warehouse, json={"name": "New warehouse client", "phone": "123"})
+    assert result.status_code == 201, result.text
+    assert result.json() in client.get("/api/shipments/customers", headers=warehouse).json()
+    assert client.post("/api/shipments/customers", json={"name": "Denied"}).status_code == 401
+    assert client.post("/api/shipments/customers", headers=warehouse, json={"name": " "}).status_code == 422
+    run = receive(client, warehouse)
+    first, second = run["package_ids"]
+    assert client.delete(f"/api/packages/print-runs/{run['id']}/manual-packages?package_ids=9999999", headers=warehouse).status_code == 422
+    assert client.delete(f"/api/packages/print-runs/{run['id']}/manual-packages?package_ids={first}", headers=warehouse).status_code == 200
+    assert client.get(f"/api/packages/print-runs/{run['id']}", headers=warehouse).json()["package_ids"] == [second]

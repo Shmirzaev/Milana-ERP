@@ -25,6 +25,7 @@ from app.models import (
     Invoice,
 )
 from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut
+from app.schemas.catalog import PartyIn
 from app.schemas.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails
 from app.services.shipment_review import (
     correct_received_quantity, detach_shipment_package, freeze_dispatch_document, locked_shipment,
@@ -808,6 +809,7 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     shipment.status = "shipped"
     shipment.shipped_at = datetime.now(timezone.utc)
     freeze_dispatch_document(db, shipment)
+    shipment.dispatch_snapshot = {**shipment.dispatch_snapshot, "document": {**shipment.dispatch_snapshot["document"], "warehouse_person": current.name}}
     for package in packages:
         ship_package(db, package, current.id)
     if (shipment.dispatch_snapshot or {}).get("manual"):
@@ -858,6 +860,20 @@ def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
 @router.get("/customers")
 def manual_shipment_customers(db: DbSession, _: User = Depends(require_permissions("storage.shipment", "*"))):
     return [{"id": cid, "name": name} for cid, name in db.query(Customer.id, Customer.name).order_by(Customer.name).all()]
+
+
+@router.post("/customers", status_code=201)
+def create_manual_shipment_customer(payload: PartyIn, db: DbSession,
+                                    current: User = Depends(require_permissions("storage.shipment", "*"))):
+    name = payload.name.strip()
+    if not name or len(name) > 255:
+        raise HTTPException(422, "Client name is required and must be at most 255 characters")
+    customer = Customer(**{**payload.model_dump(), "name": name})
+    db.add(customer)
+    db.flush()
+    log_action(db, current, "create", "Customer", customer.id)
+    db.commit()
+    return {"id": customer.id, "name": customer.name}
 
 
 @router.get("/eligible-orders")
@@ -1214,6 +1230,27 @@ def remove_reviewed_package(sid: int, pid: int, payload: ShipmentPackageRemoval,
     return _shipment_preparation_payload(db, shipment)
 
 
+def _invoice_print_details(db, shipment, document):
+    from app.models import AuditLog
+    from app.services.shipment_review import manual_invoice_sizes
+    from app.services.shipment_invoice import build_invoice_rows
+    lines = [dict(line) for line in document.get("lines", [])]
+    if any(str(line.get("size")).lower() == "mixed" and not line.get("size_display") for line in lines):
+        packages = {p.package_no: p for p in db.query(Package).join(ShipmentPackage, ShipmentPackage.package_id == Package.id).filter(ShipmentPackage.shipment_id == shipment.id)}
+        for line in lines:
+            package = packages.get(line.get("package_no"))
+            if package and not line.get("size_display"):
+                line["size_display"] = manual_invoice_sizes(db, package, line.get("size"))
+        document["lines"] = lines
+        document["invoice_rows"] = build_invoice_rows(lines, document.get("package_details") or [])
+    if not document.get("warehouse_person"):
+        actor = db.query(User).join(AuditLog, AuditLog.user_id == User.id).filter(
+            AuditLog.entity_type == "Shipment", AuditLog.entity_id == shipment.id, AuditLog.action == "ship"
+        ).order_by(AuditLog.id).first()
+        document["warehouse_person"] = actor.name if actor else None
+    return document
+
+
 def _printed_document(db: DbSession, shipment: Shipment) -> dict:
     if shipment.status not in {"shipped", "delivered"}:
         raise HTTPException(409, "Invoice printing is available after shipment")
@@ -1225,10 +1262,10 @@ def _printed_document(db: DbSession, shipment: Shipment) -> dict:
             if invoice:
                 document["finance_posting_status"] = "posted"
                 document["ledger_invoice_no"] = invoice.invoice_no
-        return document
+        return _invoice_print_details(db, shipment, document)
     document = shipment_document(db, shipment)
     document["historical_reconstruction"] = True
-    return document
+    return _invoice_print_details(db, shipment, document)
 
 
 @router.get("/{sid}/invoice")

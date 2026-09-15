@@ -45,7 +45,7 @@ def build_invoice_rows(lines: list[dict], packages: list[dict]) -> list[dict]:
                                              "variant_no": key[1], "description": key[2], "unit_price": key[3],
                                              "quantity": 0, "sizes": [], "amount": Decimal("0")})
             group["quantity"] += int(line["quantity"])
-            group["sizes"].append({"size": line.get("size"), "color": line.get("color"), "quantity": line["quantity"]})
+            group["sizes"].append({"size": line.get("size_display") or line.get("size"), "aggregate": bool(line.get("size_display")), "color": line.get("color"), "quantity": line["quantity"]})
             if line.get("amount") is None:
                 group["amount"] = None
             elif group["amount"] is not None:
@@ -70,7 +70,7 @@ LABELS = {
            "calculated": "Calculated amount", "adjustment": "Warehouse adjustment", "net": "Net prices. No tax calculation.",
            "shipment": "Shipment no.", "driver": "Driver", "vehicle": "Vehicle", "carrier": "Carrier", "phone": "Driver phone",
            "modelNo": "Model", "variant": "Variant", "description": "Description", "weight": "Kg / pack", "totalWeight": "Total kg",
-           "issued": "Issued by", "received": "Received by", "ledger": "Ledger invoice",
+           "issued": "Warehouse keeper", "received": "Received by", "ledger": "Ledger invoice",
            "historical": "Historical shipment: reconstructed from current records; original financial snapshot unavailable.",
            "missing": "Price unavailable", "signature": "Issued by / Received by"},
     "ru": {"title": "Складская накладная", "posting": "Не проведён в финансах до подтверждения доставки.", "print": "Печать", "order": "Заказ", "customer": "Клиент",
@@ -79,7 +79,7 @@ LABELS = {
            "calculated": "Расчётная сумма", "adjustment": "Корректировка склада", "net": "Цены нетто. Налог не рассчитывается.",
            "shipment": "№ отгрузки", "driver": "Водитель", "vehicle": "Автомобиль", "carrier": "Перевозчик", "phone": "Телефон водителя",
            "modelNo": "Модель", "variant": "Вариант", "description": "Описание", "weight": "Кг / уп.", "totalWeight": "Всего кг",
-           "issued": "Отпустил", "received": "Получил", "ledger": "Финансовый счёт",
+           "issued": "Кладовщик", "received": "Получил", "ledger": "Финансовый счёт",
            "historical": "Историческая отгрузка: данные восстановлены из текущих записей; исходный финансовый снимок отсутствует.",
            "missing": "Цена не указана", "signature": "Отпустил / Получил"},
     "uz": {"title": "Ombor hisob-fakturasi", "posting": "Yetkazish tasdiqlanmaguncha Moliyaga o‘tkazilmagan.", "print": "Chop etish", "order": "Buyurtma", "customer": "Mijoz",
@@ -88,7 +88,7 @@ LABELS = {
            "calculated": "Hisoblangan summa", "adjustment": "Ombor tuzatishi", "net": "Sof narxlar. Soliq hisoblanmaydi.",
            "shipment": "Reys raqami", "driver": "Haydovchi", "vehicle": "Avtomobil", "carrier": "Kargo nomi", "phone": "Haydovchi telefoni",
            "modelNo": "Model", "variant": "Variant", "description": "Mahsulot tavsifi", "weight": "Kg / qadoq", "totalWeight": "Jami kg",
-           "issued": "Topshirdi", "received": "Qabul qildi", "ledger": "Moliyaviy hisob",
+           "issued": "Omborchi", "received": "Qabul qildi", "ledger": "Moliyaviy hisob",
            "historical": "Tarixiy jo‘natma: joriy yozuvlardan tiklangan; asl moliyaviy nusxa mavjud emas.",
            "missing": "Narx mavjud emas", "signature": "Topshirdi / Qabul qildi"},
 }
@@ -141,10 +141,10 @@ def render_shipment_invoice(document: dict, language: str) -> str:
     invoice_rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
     body = []
     for index, row in enumerate(invoice_rows, 1):
-        sizes = "".join(f'<span class="size-label">{value(item.get("size"))} ({int(item["quantity"])})</span>' for item in row.get("sizes", []))
+        sizes = "".join(f'<span class="size-label">{value(item.get("size"))} {"" if item.get("aggregate") else "(" + str(int(item["quantity"])) + ")"}</span>' for item in row.get("sizes", []))
         colors = list(dict.fromkeys(item.get("color") for item in row.get("sizes", []) if item.get("color")))
         if len(colors) > 1:
-            sizes = "".join(f'<span class="size-label multicolor">{value(item.get("color"))} / {value(item.get("size"))} ({int(item["quantity"])})</span>'
+            sizes = "".join(f'<span class="size-label multicolor">{value(item.get("color"))} / {value(item.get("size"))} {"" if item.get("aggregate") else "(" + str(int(item["quantity"])) + ")"}</span>'
                                for item in row.get("sizes", []))
         span = row["package_rowspan"]
         pack_cell = f'<td rowspan="{span}" class="numeric">{number(row["pack_count"], 0)}</td>' if span else ""
@@ -152,7 +152,7 @@ def render_shipment_invoice(document: dict, language: str) -> str:
         body.append(f'<tr><td>{index}</td><td>{value(row.get("model_no"))}</td>'
                     f'<td>{value(row.get("variant_no"))}</td><td class="description">{value(row.get("description"))}</td>'
                     f'<td class="sizes">{sizes}</td>{pack_cell}<td class="numeric">{number(row["quantity"], 0)}</td>'
-                    f'{weight_cells}<td class="numeric">{number(row.get("unit_price"))}</td><td class="numeric">{number(row.get("amount"))}</td></tr>')
+                    f'{weight_cells}</tr>')
     cautions = []
     if document.get("historical_reconstruction"):
         cautions.append(text["historical"])
@@ -164,17 +164,7 @@ def render_shipment_invoice(document: dict, language: str) -> str:
         cautions.append({"en": "Some package weights are unknown. Total weight is not estimated.",
                          "ru": "Вес некоторых упаковок неизвестен. Общий вес не рассчитывается по предположению.",
                          "uz": "Ayrim qadoqlar vazni noma’lum. Jami vazn taxmin qilinmaydi."}[lang])
-    if not document.get("pricing_complete", False):
-        cautions.append(text["missing"])
     warning = "".join(f'<p class="warning">{value(caution)}</p>' for caution in cautions)
-    adjustment = ""
-    if document.get("adjustment_reason"):
-        difference = None
-        if document.get("amount") is not None and document.get("calculated_amount") is not None:
-            difference = Decimal(document["amount"]) - Decimal(document["calculated_amount"])
-        adjustment = (f'<p>{text["calculated"]}: {number(document.get("calculated_amount"))}; '
-                      f'{text["adjustment"]}: {number(difference)}; {text["total"]}: {number(document.get("amount"))}</p>'
-                      f'<p>{text["reason"] if "reason" in text else text["adjustment"]}: {value(document["adjustment_reason"])}</p>')
     transport = document.get("transport_details") or {}
     metadata = [
         (text["shipment"], document.get("shipment_no"), text["driver"], transport.get("driver_name")),
@@ -186,8 +176,8 @@ def render_shipment_invoice(document: dict, language: str) -> str:
                             f'<th>{value(right)}</th><td>{value(right_value) or "—"}</td></tr>'
                             for left, left_value, right, right_value in metadata)
     headers = ["№", text["modelNo"], text["variant"], text["description"], text["size"], {"en": "Packs", "ru": "Упак.", "uz": "Qadoq"}[lang],
-               text["qty"], text["weight"], text["totalWeight"], text["price"], text["amount"]]
-    columns = "".join(f'<col style="width:{width}%">' for width in [3, 9, 8, 16, 17, 6, 6, 7, 7, 10, 11])
+               text["qty"], text["weight"], text["totalWeight"]]
+    columns = "".join(f'<col style="width:{width}%">' for width in [3, 11, 10, 22, 23, 7, 8, 8, 8])
     weights = weight(document.get("total_weight_kg"))
     return f'''<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{text["title"]} {value(document["shipment_no"])}</title>
@@ -221,6 +211,6 @@ thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of
 <table class="items"><colgroup>{columns}</colgroup><thead><tr>{"".join(f"<th scope='col'>{header}</th>" for header in headers)}</tr></thead>
 <tbody>{"".join(body)}</tbody><tbody><tr class="totals"><td class="total-label" colspan="5">{text["total"]}</td>
 <td class="numeric">{number(document["packages_count"], 0)}</td><td class="numeric">{number(document["quantity"], 0)}</td>
-<td class="numeric">{weights}</td><td class="numeric">{weights}</td><td class="numeric" colspan="2">{number(document.get("amount"))}</td></tr></tbody></table>
-<div class="accounting">{adjustment}{warning}<p>{posting}</p><p>{text["net"]}</p></div>
-<div class="signatures"><div>{text["issued"]}</div><div>{text["received"]}</div></div></body></html>'''
+<td class="numeric">{weights}</td><td class="numeric">{weights}</td></tr></tbody></table>
+<div class="accounting">{warning}<p>{posting}</p></div>
+<div class="signatures"><div>{text["issued"]}: {value(document.get("warehouse_person")) or "________________"}</div><div>{text["received"]}</div></div></body></html>'''

@@ -2,7 +2,7 @@ import { api } from "@/lib/api";
 import type { Lang } from "@/lib/i18n";
 
 const en = {
-  packQuantity: "Quantity in pack", deletePacks: "Delete mistaken packs", deleteConfirm: "Delete every pack in this manual receipt? Used or reserved packs cannot be deleted.",
+  packQuantity: "Quantity in pack", deletePacks: "Delete mistaken packs", deleteConfirm: "Delete selected packs? Available stock is removed. Shipped labels are retired; shipment and client accounting history stay saved.",
   manual: "Record physical warehouse packs", model: "Model / variant", color: "Color",
   weight: "Weight per pack (kg)", count: "Number of packs", sizes: "Size quantities per pack",
   reason: "Receipt reference / reason", save: "Record receipt and create labels", cancel: "Cancel",
@@ -17,7 +17,7 @@ const en = {
 };
 type Copy = Record<keyof typeof en, string>;
 const ru: Copy = {
-  packQuantity: "Количество в упаковке", deletePacks: "Удалить ошибочные упаковки", deleteConfirm: "Удалить все упаковки этого ручного прихода? Использованные и зарезервированные упаковки удалить нельзя.",
+  packQuantity: "Количество в упаковке", deletePacks: "Удалить ошибочные упаковки", deleteConfirm: "Удалить выбранные упаковки? Доступный остаток удаляется. Отгруженные этикетки скрываются; история отгрузки и расчётов клиента сохраняется.",
   manual: "Оприходовать физические упаковки", model: "Модель / вариант", color: "Цвет",
   weight: "Вес одной упаковки (кг)", count: "Количество упаковок", sizes: "Размеры и количество в одной упаковке",
   reason: "Основание / документ прихода", save: "Оприходовать и создать этикетки", cancel: "Отмена",
@@ -31,7 +31,7 @@ const ru: Copy = {
   pendingRequest: "Предыдущий запрос не подтверждён. Повторите сохранённый запрос перед новым приходом.",
 };
 const uz: Copy = {
-  packQuantity: "Qadoqdagi miqdor", deletePacks: "Xato qadoqlarni o‘chirish", deleteConfirm: "Ushbu qo‘lda kiritilgan kirimning barcha qadoqlari o‘chirilsinmi? Ishlatilgan yoki band qadoqlarni o‘chirib bo‘lmaydi.",
+  packQuantity: "Qadoqdagi miqdor", deletePacks: "Xato qadoqlarni o‘chirish", deleteConfirm: "Tanlangan qadoqlar o‘chirilsinmi? Mavjud qoldiq o‘chiriladi. Jo‘natilgan yorliqlar yashiriladi; jo‘natma va mijoz hisob-kitob tarixi saqlanadi.",
   manual: "Ombordagi haqiqiy qadoqlarni kirim qilish", model: "Model / variant", color: "Rang",
   weight: "Bitta qadoq vazni (kg)", count: "Qadoqlar soni", sizes: "Bitta qadoqdagi o‘lchamlar va miqdor",
   reason: "Kirim hujjati / sababi", save: "Kirim qilish va yorliqlar yaratish", cancel: "Bekor qilish",
@@ -49,6 +49,7 @@ export const packageWorkflowCopy: Record<Lang, Copy> = { en, ru, uz };
 export type PackagePrintRun = {
   id: number; run_no: string; code: string; count: number; quantity: number;
   manual_receipt?: boolean;
+  packages: Array<{ id: number; package_no: string; quantity: number }>;
   package_ids: number[]; created_at: string; received_at: string | null;
 };
 

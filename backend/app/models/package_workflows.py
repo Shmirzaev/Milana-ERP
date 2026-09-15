@@ -27,6 +27,7 @@ class PackagePrintRun(Base, PkMixin):
     received_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     receipt_location: Mapped[dict | None] = mapped_column(JSON)
+    deleted_package_ids: Mapped[list] = mapped_column(JSON, default=list, server_default="[]", nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

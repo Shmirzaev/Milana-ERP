@@ -2,6 +2,7 @@
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
+import ShipmentAddClient from "@/components/ShipmentAddClient";
 import SearchableSelect from "@/components/SearchableSelect";
 import { packageWorkflowCopy, pendingPackageWorkflow, postPackageWorkflow } from "@/lib/packageWorkflow";
 import { manualShipmentText } from "@/lib/manualShipmentText";
@@ -187,7 +188,7 @@ export default function ShipmentsPage() {
   const { data: orders, mutate: mutateOrders } = useSWR<EligibleOrder[]>("/api/shipments/eligible-orders", fetcher);
   const [orderQuery, setOrderQuery] = useState("");
   const manualText = manualShipmentText[lang];
-  const { data: customers } = useSWR<Array<{ id: number; name: string }>>(can(me, "storage.shipment") ? "/api/shipments/customers" : null, fetcher);
+  const { data: customers, mutate: mutateCustomers } = useSWR<Array<{ id: number; name: string }>>(can(me, "storage.shipment") ? "/api/shipments/customers" : null, fetcher);
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [pendingManual, setPendingManual] = useState<Record<string, any> | null>(null);
   useEffect(() => {
@@ -311,6 +312,7 @@ export default function ShipmentsPage() {
           {warehouseError ? <div className="mb-3 border-l-2 border-rose-600 bg-rose-50 px-3 py-2 text-sm text-rose-800">{warehouseError}</div> : null}
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="min-w-0 flex-1"><SearchableSelect value={customerId} options={(customers || []).map(customer => ({ value: customer.id, label: customer.name }))} onChange={value => setCustomerId(Number(value))} placeholder={manualText.choose} noResultsText={manualText.none} disabled={warehouseCreating || !!pendingManual} /></div>
+            <ShipmentAddClient disabled={warehouseCreating || !!pendingManual} onCreated={client => { void mutateCustomers([...(customers || []), client], false); setCustomerId(client.id); }} />
             <button type="button" className="btn btn-primary" onClick={createWarehouseExit} disabled={warehouseCreating || !customerId}>{manualText.title}</button>
           </div>
           {can(me, "storage.shipment") && <details className="mt-3">

@@ -92,7 +92,7 @@ def test_correction_financial_review_frozen_print_and_delivery(client, auth_head
     for lang in ["en", "ru", "uz"]:
         printed = client.get(f'/api/shipments/{dispatch["shipment"]}/invoice/print?lang={lang}', headers=auth_headers)
         assert printed.status_code == 200
-        assert "65.00" in printed.text and "<script>alert(1)</script>" not in printed.text
+        assert "65.00" not in printed.text and "<script>alert(1)</script>" not in printed.text
         assert "&lt;script&gt;" in printed.text
     with SessionLocal() as db:
         assert db.query(Invoice).filter_by(sales_order_id=dispatch["order"]).count() == 0
