@@ -7,6 +7,7 @@ import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import type { CtxT } from "@/lib/i18n";
 import { orderReference } from "@/lib/orderRef";
+import styles from "./CuttingOrderList.module.css";
 
 type CuttingOrder = {
   id: number;
@@ -140,7 +141,21 @@ export default function CuttingOrderList({
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="table min-w-[1180px]">
+                  <table className={`table ${styles.table}`}>
+                    <colgroup>
+                      <col style={{ width: 64 }} />
+                      <col style={{ width: 64 }} />
+                      <col style={{ width: "8%" }} />
+                      <col style={{ width: "7%" }} />
+                      <col style={{ width: "7%" }} />
+                      <col style={{ width: "7%" }} />
+                      <col style={{ width: "8%" }} />
+                      <col />
+                      <col style={{ width: "9%" }} />
+                      <col style={{ width: "8%" }} />
+                      <col style={{ width: "14%" }} />
+                      <col style={{ width: 88 }} />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th className="w-16">{t("page.workOrder.modelPicture")}</th>
@@ -186,14 +201,14 @@ export default function CuttingOrderList({
                             <td className="whitespace-nowrap">{row.model_no || row.model_name || "-"}</td>
                             <td className="whitespace-nowrap">{row.variant_no || "-"}</td>
                             <td className="whitespace-nowrap">{row.size_summary || "-"}</td>
-                            <td className="max-w-72 whitespace-nowrap" title={materialLabel}><span className="block max-w-72 truncate">{materialLabel}</span></td>
+                            <td title={materialLabel}><span className="block truncate">{materialLabel}</span></td>
                             <td className="whitespace-nowrap">
                               {Number(row.passed_qty || 0).toLocaleString()} / {Number(row.planned_output_qty || 0).toLocaleString()}
                             </td>
                             <td className="whitespace-nowrap">{row.deadline ? new Date(row.deadline).toLocaleDateString() : "-"}</td>
-                            <td className="whitespace-nowrap font-medium">{stateLabel(state, row, t)}</td>
+                            <td><span className={styles.status}>{stateLabel(state, row, t)}</span></td>
                             <td>
-                              <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                              <div className={styles.actions}>
                                 {canStart ? (
                                   <button
                                     type="button"
