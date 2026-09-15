@@ -1,6 +1,18 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-14
+Last updated: 2026-09-15
+
+## Readable API validation errors deployed (2026-09-15)
+
+- LIVE: backend/frontend green release `20260915_070254`, application commit `ef30fd146a93c61b42607205ab5153b166cd2a60`, merged through PR #151. Both manifests, image identities, current symlinks and slots agree. Blue `20260914_131740` remains running for rollback. Frontend activated `2026-09-15T07:13:59.952912+00:00`.
+- Confirmed defect: the shared API client interpolated FastAPI validation arrays/objects directly into error text, showing `422: [object Object]` in Cutting Passport creation. It now displays field paths, one-based nested material row numbers and the server explanation. String errors and successful responses retain their behavior. Submitted `input`/validation-context objects are not serialized into error messages. No payload, quantity, validation rule, permission or retry behavior changed.
+- The screenshot did not include the failed response and its rejected field remains unconfirmed. Visible quantities alone did not establish an invalid input. This release fixes the confirmed display defect; a remaining rejected submission will now explain the field/reason and may need a separate targeted fix.
+- Validation: nine focused mocked API error/success cases and diff checks passed. Immutable CI [34939752313](https://github.com/Shmirzaev/Milana-ERP/actions/runs/34939752313) passed standard backend/frontend validation, production build and exact-commit image publication. No additional broad local suites, signed browser/performance exercises or extended monitoring, per the user's explicit fast-deployment request.
+- No business row or schema changed; database remains `0127_manual_pack_deletion` and startup seeding is disabled. All four immediate internal/public health/login checks returned HTTP 200. Routers/manifests valid, two workers per backend slot, zero restarts/OOM/error markers, PostgreSQL 23/100 connections and zero invalid indexes. Disk 72% backend / 64% frontend. Existing disk alert and unrelated historical risks remain.
+- Source manifest `f53c1d96e8475956335b6e1a524e45d00352de7841c9ed1f07d3f79befd8a1ce`, archive SHA-256 `ce087df7b5d5cb7fe4fcec152cb2068febd17b73e5d8a4c0104cdfa6073ddf21`, 836 verified files. Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:a64e911d32943b22333253e082d0d8a02e86c5ac8859fb1ba6d31951a4a270d4`; frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:9653d71e1fe9cb82eeb49d15bad017cf3c317647f56f602b0600fd7e4ae0251c`.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260915_070254.dump`: mode 0600, 53487409 bytes, 1176 restore objects, SHA-256 `1c35b4ab4c11bb617fcb3656ba1debdd4f208c21ebc50760bea419d631386a91`; restore-list SHA-256 `3b953c3c8a2dc71f04323814d6514aa74e7f8b8674d2c0d4b0ce4abd1c327156`. Backup hashes/freshness verified before staging.
+- Worktree `C:/ERP/.codex-work/cutting-validation-20260915`; implementation branch `codex/cutting-validation-20260915` pushed/merged/deployed; record branch `codex/record-cutting-validation-20260915`. Evidence: `outputs/deployment/evidence.json`. Legacy checkout preserved; durable context mirrored to Obsidian when accessible.
+
 
 ## Manual-pack delete error fixed and deployed (2026-09-14)
 
