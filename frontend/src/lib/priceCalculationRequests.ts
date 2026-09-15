@@ -60,6 +60,7 @@ function normalized(value: unknown): string {
 export function isAbbosbekPricingUser(me: Me | undefined): boolean {
   if (!me) return false;
   if (me.permissions.includes("*")) return true;
+  if (me.access_configured) return me.permissions.includes("price_calculation.purchasing");
   const name = normalized(me.name);
   const emailLocal = normalized(me.email).split("@", 1)[0];
   return name === "abbosbek"
@@ -73,7 +74,7 @@ export function isAccessoryPricingUser(me: Me | undefined): boolean {
   if (!me) return false;
   return me.permissions.includes("*")
     || me.permissions.includes("price_calculation.accessories")
-    || (normalized(me.department_code) === "str" && me.permissions.includes("storage.items"));
+    || (!me.access_configured && normalized(me.department_code) === "str" && me.permissions.includes("storage.items"));
 }
 
 export function numberInputValue(value: number | null | undefined): string {

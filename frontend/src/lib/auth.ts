@@ -11,6 +11,7 @@ export type Me = {
   department?: string;
   department_code?: string;
   permissions: string[];
+  access_configured?: boolean;
   factory_code: "MIL" | "BST" | "ECO";
   assigned_factory_code: "MIL" | "BST" | "ECO";
   available_factories: ("MIL" | "BST" | "ECO")[];

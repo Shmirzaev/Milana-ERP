@@ -7,15 +7,18 @@ from app.models import Task, User
 from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut
 from app.services.audit import log_action
 from app.services.notifications import notify
+from app.services.user_access import access_configured, permission_denied
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
 def _can_manage(user: User) -> bool:
     """Admins and Management can create / reassign / delete tasks for anyone."""
+    if permission_denied(user, "tasks.manage"):
+        return False
     if is_admin(user):
         return True
-    if user.role and user.role.name in ("Admin", "Management"):
+    if not access_configured(user) and user.role and user.role.name in ("Admin", "Management"):
         return True
     perms = user_permissions(user)
     return "tasks.manage" in perms or "management.approve" in perms

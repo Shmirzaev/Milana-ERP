@@ -15,7 +15,7 @@ const SEWING_WORKSPACE_NAV_ITEMS = [
 const SEWING_WORK_ORDER_PATH = /^\/work-orders\/\d+\/sewing(?:\/|$)/;
 
 export function isSewingRole(me: Me | undefined): boolean {
-  return (me?.role ?? "").trim().toLowerCase() === "sewing";
+  return !me?.access_configured && (me?.role ?? "").trim().toLowerCase() === "sewing";
 }
 
 export function sewingWorkspaceHome(me: Me | undefined): string {

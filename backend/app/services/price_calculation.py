@@ -8,6 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.deps import user_permissions
+from app.services.user_access import access_configured, permission_denied
 from app.models import CuttingPassport, Notification, User
 from app.models.catalog import Model
 from app.models.price_calculation import PriceCalculationRequest
@@ -26,21 +27,29 @@ def _normalized(value: object) -> str:
 
 
 def is_price_purchaser(user: User) -> bool:
+    if permission_denied(user, PURCHASING_PERMISSION):
+        return False
     granted = user_permissions(user)
     if "*" in granted or PURCHASING_PERMISSION in granted:
         return True
+    if access_configured(user):
+        return False
     name = _normalized(user.name)
     email_local = _normalized(user.email).split("@", 1)[0]
     return name == "abbosbek" or name.startswith("abbosbek ") or email_local == "abbosbek"
 
 
 def is_accessory_pricing_user(user: User) -> bool:
+    if permission_denied(user, ACCESSORIES_PERMISSION):
+        return False
     from app.services.inventory_access import materials_only
     if materials_only(user):
         return False
     granted = user_permissions(user)
     if "*" in granted or ACCESSORIES_PERMISSION in granted:
         return True
+    if access_configured(user):
+        return False
     department_code = _normalized(user.department.code if user.department else "").upper()
     return department_code == "STR" and "storage.items" in granted
 
@@ -51,6 +60,8 @@ def is_finance_pricing_user(user: User) -> bool:
 
 
 def is_cutting_pricing_user(user: User) -> bool:
+    if permission_denied(user, CUTTING_PERMISSION):
+        return False
     granted = user_permissions(user)
     return bool(
         "*" in granted
