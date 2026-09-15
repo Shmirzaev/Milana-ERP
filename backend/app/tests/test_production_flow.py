@@ -223,14 +223,15 @@ def test_branded_production_can_store_printing_details(client, auth_headers):
     assert "printing" in operations
 
 
-def test_branded_production_assigns_selected_sewing_factory(client, auth_headers):
+@pytest.mark.parametrize("factory_code", ["MIL", "BST", "ECO"])
+def test_branded_production_assigns_selected_sewing_factory(client, auth_headers, factory_code):
     response = client.post(
         "/api/planning/create-branded-production",
         json={
             "production_type": "branded_stock",
             "model_id": 1,
             "planned_quantity": 60,
-            "sewing_factory_code": "BST",
+            "sewing_factory_code": factory_code,
             "items": [
                 {"model_id": 1, "color": "white", "size": "M", "planned_quantity": 60},
             ],
@@ -245,13 +246,21 @@ def test_branded_production_assigns_selected_sewing_factory(client, auth_headers
     )
     assert detail.status_code == 200, detail.text
     payload = detail.json()
-    assert payload["sewing_factory_code"] == "BST"
+    assert payload["sewing_factory_code"] == factory_code
 
     departments = client.get("/api/departments", headers=auth_headers)
     assert departments.status_code == 200, departments.text
     department_code_by_id = {row["id"]: row["code"] for row in departments.json()}
     sewing_work_order = next(row for row in payload["work_orders"] if row["operation"] == "sewing")
-    assert department_code_by_id[sewing_work_order["department_id"]] == "BST"
+    assert department_code_by_id[sewing_work_order["department_id"]] == factory_code
+
+    inbox = client.get("/api/inbox?dept=CUT", headers=auth_headers)
+    assert inbox.status_code == 200, inbox.text
+    cutting_row = next(
+        row for row in inbox.json()["cutting_work_orders"]
+        if row["production_order_id"] == payload["id"]
+    )
+    assert cutting_row["sewing_factory_code"] == factory_code
 
 
 def test_packaging_cannot_start_before_sewing_has_output(client, auth_headers):

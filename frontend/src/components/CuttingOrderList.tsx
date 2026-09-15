@@ -16,6 +16,7 @@ type CuttingOrder = {
   planning_order_name?: string | null;
   order_no?: string | null;
   production_no?: string | null;
+  sewing_factory_code?: string | null;
   sales_order_no?: string | null;
   model_no?: string | null;
   variant_no?: string | null;
@@ -61,6 +62,13 @@ function stateLabel(state: CuttingState, row: CuttingOrder, t: CtxT) {
 
 function displayValue(...values: Array<string | null | undefined>) {
   return values.map((value) => String(value || "").trim()).filter(Boolean).join(" - ") || "-";
+}
+
+function sewingFactoryLabel(code: string | null | undefined, t: CtxT) {
+  if (code === "MIL") return t("factory.milana");
+  if (code === "BST") return t("factory.besttex");
+  if (code === "ECO") return t("factory.ecoCotton");
+  return "-";
 }
 
 export default function CuttingOrderList({
@@ -138,6 +146,7 @@ export default function CuttingOrderList({
                         <th className="w-16">{t("page.workOrder.modelPicture")}</th>
                         <th className="w-16">{t("cuttingInbox.variantPicture")}</th>
                         <th>{t("field.production")}</th>
+                        <th>{t("field.sewingFactory")}</th>
                         <th>{t("field.modelNo")}</th>
                         <th>{t("field.variantNo")}</th>
                         <th>{t("field.size")}</th>
@@ -173,6 +182,7 @@ export default function CuttingOrderList({
                               />
                             </td>
                             <td className="mono whitespace-nowrap font-semibold text-[#14110b]">{orderReference(row, `#${row.production_order_id}`)}</td>
+                            <td className="whitespace-nowrap">{sewingFactoryLabel(row.sewing_factory_code, t)}</td>
                             <td className="whitespace-nowrap">{row.model_no || row.model_name || "-"}</td>
                             <td className="whitespace-nowrap">{row.variant_no || "-"}</td>
                             <td className="whitespace-nowrap">{row.size_summary || "-"}</td>

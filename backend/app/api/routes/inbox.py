@@ -629,6 +629,7 @@ def _empty_production_context_payload() -> dict:
         "planning_order_no": None,
         "planning_order_name": None,
         "production_type": None,
+        "sewing_factory_code": None,
         "model_id": None,
         "model_code": None,
         "model_no": None,
@@ -690,6 +691,17 @@ def _production_context_by_production_order(db: DbSession, production_order_ids:
     } if model_ids else {}
 
     sizes_by_po: dict[int, list[str]] = {}
+    sewing_factory_by_po: dict[int, str] = {}
+    sewing_rows = (
+        db.query(WorkOrder.production_order_id, Department.code)
+        .join(Department, Department.id == WorkOrder.department_id)
+        .filter(WorkOrder.production_order_id.in_(po_ids), WorkOrder.operation == "sewing")
+        .order_by(WorkOrder.id.asc())
+        .all()
+    )
+    for po_id, department_code in sewing_rows:
+        sewing_factory_by_po.setdefault(int(po_id), resolve_sewing_factory_code(department_code))
+
     size_rows = (
         db.query(ProductionOrderItem.production_order_id, ProductionOrderItem.size)
         .filter(ProductionOrderItem.production_order_id.in_(po_ids))
@@ -715,6 +727,7 @@ def _production_context_by_production_order(db: DbSession, production_order_ids:
             "planning_order_no": planning_order.order_no if planning_order else None,
             "planning_order_name": planning_order.ordered_for_name if planning_order else None,
             "production_type": production_type_by_po.get(po_id),
+            "sewing_factory_code": sewing_factory_by_po.get(po_id),
             "model_id": model_id,
             "model_code": model.code if model else model_no,
             "model_no": model_no,
