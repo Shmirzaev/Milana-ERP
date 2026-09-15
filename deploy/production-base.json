@@ -1,6 +1,6 @@
 {
-  "release": "20260914_131740",
-  "source_manifest_sha256": "8de9f0d530abdf8af7f3ed3b85c2b1c1678602c53a485e9c0e3285d855a3e51f",
+  "release": "20260915_070254",
+  "source_manifest_sha256": "f53c1d96e8475956335b6e1a524e45d00352de7841c9ed1f07d3f79befd8a1ce",
   "database_revision": "0127_manual_pack_deletion",
-  "git_baseline_commit": "e7d8823b548279dff0e0e64cd1246392de43a7f8"
+  "git_baseline_commit": "ef30fd146a93c61b42607205ab5153b166cd2a60"
 }
