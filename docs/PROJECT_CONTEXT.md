@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-14
+Last updated: 2026-09-15
+
+## Claude development handover prepared (2026-09-15)
+
+- The user requested moving development to Claude while preserving all Codex context. A dedicated clean worktree `C:/ERP/.codex-work/claude-migration-20260915` on `codex/claude-migration-20260915` was created from fetched `origin/main` commit `11d0c677ab3d7281aef40851568e56756ca6f8bf`. The legacy checkout and every existing worktree remain preserved.
+- Before creating the worktree, both live source manifests verified with no drift, both runtime slots reported active blue release `20260914_131740`, and the database reported `0127_manual_pack_deletion`. All four internal/public health/login checks returned HTTP 200. Git main differs from the deployed application commit only in release/context records. No deployment or business-data change is part of this handover.
+- `CLAUDE.md` imports the existing `AGENTS.md` rules and `docs/CLAUDE_HANDOVER.md`, applies the worktree rules to Claude, and points to durable context and local historical evidence. The portable custom `cleanui` and `uncodixfy` skills were copied to the user's Claude skill directory without replacing existing skills.
+- The local handover archive is `C:/Users/User/Documents/Milana-Claude-Handover-20260915`. It preserves Codex records and indexes ERP conversations and worktree state; `export-summary.json` is the source of truth for completed coverage and checks. Original Codex history remains at `C:/Users/User/.codex`. Raw backups remain local and must not be bulk-uploaded or committed.
+- Claude is installed and signed in, and the desktop session **Milana ERP migration handover** was created in the correct worktree. The onboarding request stopped with **Organization access is disabled. Contact your admin.** Model-side context verification requires restored Claude account access. Git/SSH access is available on this PC. The pre-existing Claude ERP MCP bearer token is expired; normal reauthentication is needed for that optional API connection. No token was minted or credentials exposed. Existing Codex automation definitions are preserved; avoid duplicate daily emails. See the local migration report for final onboarding and integration status.
 
 ## Manual-pack delete error fixed and deployed (2026-09-14)
 
