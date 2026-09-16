@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
+
+## Compact user access checkboxes prepared (2026-09-16)
+
+- Follow-up to the complete access catalog: shared Create/Edit now uses compact, labelled checkboxes in two columns on wider screens and one column on phones. A checked box reflects server-calculated effective access. Ticking writes an explicit allow; unticking writes an explicit deny, including inherited role access. Search, all 78 catalog keys, factory selection, EN/RU/UZ text, grant restrictions and the primary-factory Super Admin guard remain. Controls and Save wait for the authoritative preview; the last preview stays visible during requests.
+- Backend authorization, policy storage and database schema are unchanged. Merely opening the form does not configure or rewrite permissions. Existing policies persist unless the administrator changes and saves them. This interface no longer exposes per-row default/allow/deny selects.
+- Before editing, verified both active blue slots and source manifests against origin/main and production-base: release `20260915_121653`, manifest `9d176d0627dbde7dfda7d45c6ed00817b2c57bb4fd4f4040c70af5207aa7fb91`, database `0129_user_access_policy`. New worktree `C:/ERP/.codex-work/compact-user-access-20260916`, branch `codex/compact-user-access-20260916`; legacy checkout preserved.
+- Fresh pre-change backup: `/opt/milana-erp/shared/backups/milana_erp_pre_20260916_032936.dump`, 53,612,542 bytes, 1,178 restore objects, SHA-256 `9ddea063df76f763ddc3da469ff1a0dabe46d832e958e326704ecf1357cb2b70`. Both VMs retain private source/runtime snapshots under `/opt/milana-erp/shared/backups/compact-access-20260916_032936`. Evidence: worktree `outputs/deployment/before-change.json`.
+- Preparation tests cover inherited revocation, granting, factory isolation, grantability, primary-factory admin restrictions and pending-preview controls. Lint, strict TypeScript, all frontend contracts and optimized build passed. All 942 backend regressions, Ruff/compile and 11 observation-tool tests also passed. Visual browser QA, CI and production gates remain pending at this checkpoint. The complete release uses the high/uncertain 30-minute observation window because the interface controls permission configuration. No production records or access settings have been changed.
 
 ## User access controls live; observation complete (2026-09-15)
 
