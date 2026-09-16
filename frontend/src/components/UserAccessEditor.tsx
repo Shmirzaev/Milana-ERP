@@ -35,6 +35,7 @@ export default function UserAccessEditor({ subject, value, onChange, onReady }: 
   }, [payload]);
   const { data: preview, error: previewError, isLoading } = useSWR<Preview>(
     ["user-access-preview", settled], () => api.post("/api/users/access-preview", JSON.parse(settled)),
+    { keepPreviousData: true },
   );
   const ready = Boolean(catalog && preview && !catalogError && !previewError && !isLoading && payload === settled);
   useEffect(() => { onReady(ready); }, [ready, onReady]);
@@ -68,23 +69,20 @@ export default function UserAccessEditor({ subject, value, onChange, onReady }: 
         {groups.map((group) => {
           const rows = (catalog ?? []).filter((p) => p.group === group && `${p.label[lang]} ${p.label.en} ${p.key}`.toLocaleLowerCase().includes(query));
           if (!rows.length) return null;
-          return <fieldset key={group} className="mb-4">
-            <legend className="mb-2 text-sm font-semibold">{copy.groups[group] ?? group}</legend>
-            <div className="divide-y divide-[#e3dfd3]">
+          return <fieldset key={group} className="mb-3">
+            <legend className="mb-1 text-sm font-semibold">{copy.groups[group] ?? group}</legend>
+            <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
               {rows.map((permission) => {
-                const state = policy?.deny.includes(permission.key) ? "deny" : policy?.allow.includes(permission.key) ? "allow" : "default";
-                const allowed = preview?.[factory]?.available && preview?.[factory]?.effective.includes(permission.key);
-                return <div key={permission.key} className="flex flex-wrap items-center gap-2 py-2">
-                  <label htmlFor={`${editorId}-${factory}-${permission.key}`} className="min-w-48 flex-1 text-sm">{permission.label[lang] ?? permission.label.en}</label>
-                  <span className="w-20 text-xs text-[#6f6858]">{ready ? allowed ? copy.allowed : copy.blocked : "…"}</span>
-                  <select id={`${editorId}-${factory}-${permission.key}`} className="input w-40" value={state}
-                    disabled={!canEditFactory || (permission.key === "admin.super" && factory !== subject.factory_code)}
-                    onChange={(e) => onChange(changeAccess(value, factory, permission.key, e.target.value as "default" | "allow" | "deny"))}>
-                    <option value="default">{copy.inherit}</option>
-                    <option value="allow" disabled={!permission.grantable}>{copy.allow}</option>
-                    <option value="deny">{copy.deny}</option>
-                  </select>
-                </div>;
+                const allowed = Boolean(preview?.[factory]?.available && preview?.[factory]?.effective.includes(permission.key));
+                const disabled = !ready || !canEditFactory || (!allowed && !permission.grantable)
+                  || (permission.key === "admin.super" && factory !== subject.factory_code);
+                return <label key={permission.key} htmlFor={`${editorId}-${factory}-${permission.key}`}
+                  className={`flex min-h-9 items-center gap-2 py-1 text-sm ${disabled ? "text-[#6f6858]" : "cursor-pointer"}`}>
+                  <input id={`${editorId}-${factory}-${permission.key}`} type="checkbox" className="h-4 w-4 shrink-0 accent-[#17140e]"
+                    checked={allowed} disabled={disabled}
+                    onChange={(e) => onChange(changeAccess(value, factory, permission.key, e.target.checked ? "allow" : "deny"))} />
+                  <span>{permission.label[lang] ?? permission.label.en}</span>
+                </label>;
               })}
             </div>
           </fieldset>;
