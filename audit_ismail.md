@@ -2,7 +2,7 @@
 
 18 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**14 scoped fixes. No deployment, production access, schema migration or database redesign.** Historical findings outside this table remain open.
+**18 scoped fixes covering 19 of 124 recorded findings. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open.
 
 ## Fixed and regression-tested
 
@@ -17,14 +17,20 @@
 | **SEC04 — Revoked accounts still download model files** | Access survives account revocation | [main.py:338](backend/app/main.py#L338): check current user; release DB connection before file processing. |
 | **SEC05 — Old sibling reset links remain usable** | Password changed again using an old link | [auth.py:284](backend/app/api/routes/auth.py#L284): lock user; consume all outstanding links atomically. |
 | **SEC07 — Assignment deletion bypasses factory scope** | Changes another factory's work | [production_extra.py:385](backend/app/api/routes/production_extra.py#L385): enforce sewing-flow factory access before deletion. |
-| **SEC10 — Lower-privileged admin deletes super admin** | Privileged account removal | [admin.py:572](backend/app/api/routes/admin.py#L572): protect privileged targets on DELETE. |
+| **SEC10 — Lower-privileged admin deletes super admin** | Privileged account removal | [admin.py:578](backend/app/api/routes/admin.py#L578): protect privileged targets on DELETE. |
 | **UI01 — Temporary session failure logs users out** | Interrupted work | [auth.ts:20](frontend/src/lib/auth.ts#L20), [AuthGate.tsx:167](frontend/src/components/AuthGate.tsx#L167): distinguish 401/403 from outages; offer bounded retries. |
 | **UI02 — Body download escapes request timeout** | Screen can wait indefinitely | [api.ts:23](frontend/src/lib/api.ts#L23): deadline/cancellation covers response body too. |
 | **PY01 — Scans credit the wrong employee** | Incorrect payroll | [scan/page.tsx:896](frontend/src/app/(app)/payroll/scan/page.tsx#L896): process badge, work and manual-selection events in order. |
 | **PERF01 — Package list repeats DB queries per row** | Slow listings and wasted DB capacity | [packages.py:489](backend/app/api/routes/packages.py#L489): batch context/model reads. **50 packages: 152 → 5 SELECTs.** |
+| **AT02 — Partial attendance download advances checkpoint** | Missing clock-in/out events | [connector:403](connectors/hikvision_attendance/read_only_connector.py#L403): require complete pagination before upload/checkpoint. Commit `137637f`. |
+| **SEC02 — User deletion rewrites audit actors** | Broken history/hash verification | [admin.py:425](backend/app/api/routes/admin.py#L425): reject deletion with 409; deactivate instead. Concurrent insert rolls cleanup back. Commit `5b157d0`. |
+| **API06 — Profile name/email grants pricing access** | Unauthorized price viewing/editing | [price_calculation.py:29](backend/app/services/price_calculation.py#L29), [frontend:60](frontend/src/lib/priceCalculationRequests.ts#L60): require explicit permission. Existing name-authorized staff need a deliberate grant. Commit `d89059e`. |
+| **PERF41 — Eco history queries each dispatch's rolls** | Slow history pages | [eco_transfers.py:199](backend/app/api/routes/eco_transfers.py#L199): fetch page rolls together; omit unused snapshot. **50 dispatches: 54 → 5 SELECTs.** Commit `732b65d`. |
 
 ## Evidence
 
+- **Cycle 2:** attendance connector **30 passed**; audit/admin **54 passed** plus **1 PostgreSQL race passed**; pricing authorization/workflow **40 passed**; Eco suites **15 passed**. Five frontend stabilization scripts, ESLint, strict TypeScript and pinned Ruff passed. These are targeted results, not a new full-suite total.
+- **CI for first-batch commit `3881177`:** backend, frontend and PostgreSQL jobs passed. Later changes require their own CI run.
 - **PostgreSQL: 21 concurrency checks passed** on disposable local PostgreSQL 17; cluster stopped. Covers receipts, payments, invoice creation, sibling reset links, reservations and Cutting contention.
 - **Browser:** real login → temporary 503 → recovery; genuine 401 redirects. Real receipt commit → dropped response → reload/retry leaves quantity **5, not 10**. Rendered payroll UI with controlled API responses preserves badge/work order and manual selections (`[A, A, B]`). No JavaScript page errors in these scenarios.
 - Package SELECT counts for **1 / 10 / 50** rows: legacy **5/5/5**, distinct linked models **9/9/9**, order fallback **7/7/7**. Bounded round trips for these pages, **not O(1) total processing** or a load-capacity guarantee.
@@ -49,7 +55,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **Inventory:** batchless reservations are not fully enforced by every batch-specific issue/allocation path. Old stock discrepancies are not repaired. Partial batch transfers reject with 409; splitting batches is a separate workflow.
 - **Duplicates:** receipts need the same saved key. Different operators/keys can still represent the same physical delivery. Finance deduplication does not cover every 1C/workflow entry point.
 - **Recovery:** receipts require browser storage and Web Locks. Uncertain requests that later lose access/conflict retain evidence and need reconciliation; do not clear storage blindly.
-- **Security:** audit-chain concurrency/history deletion and remaining cross-factory endpoints are not fixed. Signed sales-file URLs retain their existing expiry-based policy.
+- **Security:** audit-chain concurrency and remaining cross-factory endpoints are not fixed. Account deletion now preserves history; already damaged history is not repaired. Signed sales-file URLs retain their existing expiry-based policy.
 - **Readiness:** other slow endpoints, fresh-database migrations, full workflow/load tests and backup-restore proof still need work. Other pre-existing lock-order risks remain. **Not a production-readiness sign-off.**
 
 Recorded production application code matches the base; live servers/manifests were intentionally not queried. Revalidate deployment state before any release.
