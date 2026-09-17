@@ -120,7 +120,7 @@ export const api = {
     request<T>(p, { method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined }),
   put: <T = any>(p: string, body?: any) =>
     request<T>(p, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined }),
-  del: <T = any>(p: string) => request<T>(p, { method: "DELETE" }),
+  del: <T = any>(p: string, body?: unknown) => request<T>(p, { method: "DELETE", body: body !== undefined ? JSON.stringify(body) : undefined }),
 
   async login(email: string, password: string, factoryCode: "MIL" | "BST" | "ECO"): Promise<void> {
     const loginEndpoints = [

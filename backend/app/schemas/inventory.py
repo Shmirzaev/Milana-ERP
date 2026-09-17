@@ -117,6 +117,8 @@ class AccessoryReturnIn(StockBatchIn):
 
 
 class StockBatchOut(ORMModel):
+    offsite_roll_numbers: list[int] = Field(default_factory=list)
+    available_piece_count: Optional[int] = None
     roll_lengths_m: list[float | None] = Field(default_factory=list)
     length_m: Optional[float] = None
     id: int

@@ -1,3 +1,4 @@
+from app.models.eco_transfer import EcoFabricRoll
 from app.core.order_reference import canonical_business_order_reference, canonical_order_reference, order_reference_contains
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -1305,9 +1306,11 @@ def save_batch_roll_weights(
     current: User = Depends(require_permissions("storage.items", "storage.receive", "*")),
 ):
     inventory_access.require_batch(db, current, batch_id)
-    batch = db.get(StockBatch, batch_id)
+    batch = db.query(StockBatch).options(lazyload(StockBatch.item)).filter_by(id=batch_id).with_for_update().first()
     if not batch:
         raise HTTPException(404, "Stock batch not found")
+    if db.query(EcoFabricRoll.id).filter_by(batch_id=batch_id, returned_at=None).first():
+        raise HTTPException(409, "Return outstanding fabric through the Eco Cotton register before changing this batch")
     item = db.get(Item, batch.item_id)
     if not item:
         raise HTTPException(404, "Item not found")
@@ -1351,9 +1354,11 @@ def update_batch(
     inventory_access.require_batch(db, current, batch_id)
     inventory_access.require_item(db, current, payload.item_id)
     _require_admin_force(current, force)
-    batch = db.get(StockBatch, batch_id)
+    batch = db.query(StockBatch).options(lazyload(StockBatch.item)).filter_by(id=batch_id).with_for_update().first()
     if not batch:
         raise HTTPException(404, "Stock batch not found")
+    if db.query(EcoFabricRoll.id).filter_by(batch_id=batch_id, returned_at=None).first():
+        raise HTTPException(409, "Return outstanding fabric through the Eco Cotton register before changing this batch")
     item = db.get(Item, batch.item_id)
     if not item:
         raise HTTPException(404, "Item not found")
@@ -1550,8 +1555,12 @@ def archive_or_delete_batch(
     batch = db.execute(_locked_stock_batch_statement(batch_id)).scalar_one_or_none()
     if not batch:
         raise HTTPException(404, "Stock batch not found")
+    if db.query(EcoFabricRoll.id).filter_by(batch_id=batch_id, returned_at=None).first():
+        raise HTTPException(409, "Return outstanding fabric through the Eco Cotton register before changing this batch")
 
     linked = (
+        db.query(EcoFabricRoll.id).filter_by(batch_id=batch_id).first()
+        or
         db.query(MaterialReservation.id).filter(MaterialReservation.stock_batch_id == batch_id).first()
         or db.query(ModelBOM.id).filter(ModelBOM.stock_batch_id == batch_id).first()
         or db.query(ProductionOrder.id).filter(ProductionOrder.fabric_batch_id == batch_id).first()
@@ -1654,6 +1663,8 @@ def restore_material_batch(
     ).scalar_one_or_none()
     if not batch:
         raise HTTPException(404, "Stock batch not found")
+    if db.query(EcoFabricRoll.id).filter_by(batch_id=batch_id, returned_at=None).first():
+        raise HTTPException(409, "Return outstanding fabric through the Eco Cotton register before changing this batch")
     item = db.get(Item, batch.item_id)
     if not item or item.category not in inventory_access.MATERIAL_CATEGORIES:
         raise HTTPException(400, "Only material batches can be restored")
@@ -1801,6 +1812,11 @@ def list_batches(
         total = 0
         rows = raw_rows
     batch_ids = [int(batch.id) for batch, _, _, _ in rows]
+    offsite_rolls: dict[int, list[int]] = {}
+    if batch_ids:
+        for bid, roll in db.query(EcoFabricRoll.batch_id, EcoFabricRoll.roll_number).filter(
+            EcoFabricRoll.batch_id.in_(batch_ids), EcoFabricRoll.returned_at.is_(None)).all():
+            offsite_rolls.setdefault(bid, []).append(roll)
     active_reservations: dict[int, list[dict]] = {batch_id: [] for batch_id in batch_ids}
     reserved_by_batch: dict[int, float] = {batch_id: 0.0 for batch_id in batch_ids}
     movement_summary: dict[int, dict[str, object]] = {
@@ -1875,6 +1891,8 @@ def list_batches(
         summary = movement_summary.get(int(batch.id), {})
         row = {
             **StockBatchOut.model_validate(batch).model_dump(),
+            "offsite_roll_numbers": offsite_rolls.get(batch.id, []),
+            "available_piece_count": max(0, (batch.piece_count or 0) - len(offsite_rolls.get(batch.id, []))) if batch.piece_count is not None else None,
             "item_sku": item.sku if item else None,
             "item_name": item.name if item else None,
             "item_category": item.category if item else None,

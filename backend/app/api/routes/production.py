@@ -4798,6 +4798,8 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     rec_data["production_batch_id"] = batch_id
     rec_data["size_quantities"] = size_quantities
     rec = SewingRecord(**rec_data)
+    rec.sewing_assignment_id = assignment.id if assignment else None
+    rec.assignment_applied_qty = 0
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
     db.flush()
@@ -4814,6 +4816,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     if assignment and consumed_total > 0:
         remaining = max(0, int(assignment.quantity or 0) - int(assignment.completed_qty or 0))
         consumed = min(remaining, consumed_total)
+        rec.assignment_applied_qty = consumed
         if consumed > 0:
             assignment.completed_qty = int(assignment.completed_qty or 0) + consumed
         if assignment.completed_qty > 0 and assignment.status == "planned":
@@ -5265,6 +5268,8 @@ def receive_packaging_from_sewing(
     require_packaging_work_order_access(current, db, target, department_code)
     if quantity <= 0:
         raise HTTPException(400, "Receiving quantity must be greater than zero")
+    # Serialize handoff against edits/deletion of the source sewing ledger.
+    db.query(WorkOrder).filter_by(id=source.id).with_for_update().populate_existing().one()
     sewing_passed, received = _packaging_sewing_totals(db, int(source.id), production_batch_id)
     available = max(0, sewing_passed - received)
     if quantity > available:
@@ -5310,6 +5315,11 @@ def receive_packaging_from_sewing(
 
 @router.post("/packaging/records", status_code=201)
 def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = Depends(require_permissions("packaging.records", "*"))):
+    target = db.get(WorkOrder, payload.work_order_id)
+    if target:
+        source = _context_work_order(db, target, "sewing")
+        if source:
+            db.query(WorkOrder).filter_by(id=source.id).with_for_update().populate_existing().one()
     wo = db.get(WorkOrder, payload.work_order_id)
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "packaging": raise HTTPException(400, "Work order is not a packaging operation")

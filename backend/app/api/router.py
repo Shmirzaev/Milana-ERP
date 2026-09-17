@@ -1,3 +1,4 @@
+from app.api.routes import eco_transfers, sewing_corrections
 from fastapi import APIRouter
 
 from app.api.routes import (
@@ -56,3 +57,6 @@ api_router.include_router(stocktake.router)
 api_router.include_router(paid_processes.router)
 api_router.include_router(process_qr_setup.router)
 api_router.include_router(fabric_scans.router)
+
+api_router.include_router(eco_transfers.router)
+api_router.include_router(sewing_corrections.router)

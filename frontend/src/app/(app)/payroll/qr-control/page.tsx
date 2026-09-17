@@ -4,7 +4,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import QRCode from "qrcode";
-import { Printer, RefreshCw, RotateCcw, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Printer, RefreshCw, RotateCcw, Search } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
@@ -52,6 +52,7 @@ type QrControlResponse = {
   total: number;
   available_count: number;
   scanned_count: number;
+  order_counts: { order_no: string; total: number; scanned: number }[];
 };
 
 type QrGroup = {
@@ -60,6 +61,7 @@ type QrGroup = {
   models: string[];
   batches: string[];
   scanned: number;
+  total: number;
 };
 
 type PrintableLabel = QrLabel & { qrSrc: string };
@@ -101,6 +103,7 @@ export default function PayrollQrControlPage() {
   const { t } = useT();
   const dialogs = useDialogs();
   const { me } = useMe();
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"all" | "available" | "scanned">("all");
   const [page, setPage] = useState(0);
@@ -149,9 +152,10 @@ export default function PayrollQrControlPage() {
       rows: groupRows,
       models: uniqueText(groupRows.map((row) => row.model_code)),
       batches: uniqueText(groupRows.map((row) => row.batch_no)),
-      scanned: groupRows.filter((row) => row.status === "scanned").length,
+      scanned: data?.order_counts?.find((count) => count.order_no === groupOrderNo)?.scanned ?? 0,
+      total: data?.order_counts?.find((count) => count.order_no === groupOrderNo)?.total ?? groupRows.length,
     }));
-  }, [rows]);
+  }, [rows, data?.order_counts]);
   const canReturn = can(me, "payroll.manage");
   const from = data?.total ? page * PAGE_SIZE + 1 : 0;
   const to = Math.min((page + 1) * PAGE_SIZE, data?.total || 0);
@@ -285,16 +289,21 @@ export default function PayrollQrControlPage() {
             <tbody>
               {groups.map((group) => (
                 <Fragment key={group.orderNo}>
-                  <tr className="qr-control-group-row">
+                  <tr className={`qr-control-group-row ${group.scanned === 0 ? "qr-order-white" : group.scanned === group.total ? "qr-order-green" : "qr-order-yellow"}`}>
                     <td colSpan={8}>
                       <div className="flex min-w-0 items-center justify-between gap-4">
                         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-                          <strong className="text-sm text-[#14110b]" title={group.orderNo}>{formatOrderReference(group.orderNo)}</strong>
+                          <button type="button" className="flex min-h-10 items-center gap-2 text-sm font-semibold text-[#14110b]" aria-expanded={!!expanded[group.orderNo]}
+                            onClick={() => setExpanded((current) => ({ ...current, [group.orderNo]: !current[group.orderNo] }))}>
+                            {expanded[group.orderNo] ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                            {formatOrderReference(group.orderNo)}
+                          </button>
+                          <span>{t(group.scanned === 0 ? "qrOrders.none" : group.scanned === group.total ? "qrOrders.all" : "qrOrders.partial")}</span>
                           <span>{t("common.model")}: <b>{group.models.join(", ") || "-"}</b></span>
                           <span>{t("field.batch")}: <b>{group.batches.join(", ") || "-"}</b></span>
-                          <span>{t("page.payrollQrControl.labelCount", { count: group.rows.length })}</span>
+                          <span>{t("page.payrollQrControl.labelCount", { count: group.total })}</span>
                           <span className="text-green-800">{t("page.payrollQrControl.scanned")}: <b>{group.scanned}</b></span>
-                          <span className="text-amber-800">{t("page.payrollQrControl.notScanned")}: <b>{group.rows.length - group.scanned}</b></span>
+                          <span className="text-amber-800">{t("page.payrollQrControl.notScanned")}: <b>{group.total - group.scanned}</b></span>
                         </div>
                         <button
                           type="button"
@@ -310,7 +319,7 @@ export default function PayrollQrControlPage() {
                       </div>
                     </td>
                   </tr>
-                  {group.rows.map((row) => (
+                  {expanded[group.orderNo] && group.rows.map((row) => (
                     <tr key={row.id} className={row.status === "scanned" ? "qr-row-scanned" : "qr-row-available"}>
                       <td>
                         <div className="font-mono text-[11px] font-semibold text-[#14110b]" title={`${t("page.payrollQrControl.issued")}: ${formatDateTime(row.issued_at)}`}>
@@ -425,10 +434,14 @@ export default function PayrollQrControlPage() {
           padding: 7px 8px !important;
           border-top: 1px solid #d8d2c2;
           border-bottom: 1px solid #d8d2c2;
-          background: #efede6 !important;
+
           color: #615948;
           font-size: 11px;
         }
+
+        .qr-control-table .qr-order-white td { background: #ffffff !important; }
+        .qr-control-table .qr-order-yellow td { background: #fff1b8 !important; }
+        .qr-control-table .qr-order-green td { background: #d9f0df !important; }
 
         .qr-control-table .qr-row-scanned td {
           background: #edf8ef;
