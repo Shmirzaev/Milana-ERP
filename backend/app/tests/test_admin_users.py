@@ -157,17 +157,15 @@ def test_delete_user_detaches_existing_references(client, auth_headers):
     db = SessionLocal()
     try:
         employee = Employee(user_id=user_id, full_name="Delete Candidate")
-        audit = AuditLog(user_id=user_id, action="login", entity_type="User", entity_id=user_id)
         notification = Notification(user_id=user_id, title="Owned notification", message="delete me")
         reset_token = PasswordResetToken(
             user_id=user_id,
             token_hash="delete-candidate-token-hash",
             expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         )
-        db.add_all([employee, audit, notification, reset_token])
+        db.add_all([employee, notification, reset_token])
         db.commit()
         employee_id = employee.id
-        audit_id = audit.id
     finally:
         db.close()
 
@@ -178,7 +176,6 @@ def test_delete_user_detaches_existing_references(client, auth_headers):
     try:
         assert db.get(User, user_id) is None
         assert db.get(Employee, employee_id).user_id is None
-        assert db.get(AuditLog, audit_id).user_id is None
         assert db.query(Notification).filter(Notification.user_id == user_id).count() == 0
         assert db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user_id).count() == 0
         assert (

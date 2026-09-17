@@ -444,9 +444,13 @@ def _count_active_super_admins(db: DbSession, exclude_user_id: int | None = None
 
 def _detach_user_references(db: DbSession, user_id: int) -> None:
     """Remove references that would otherwise block deleting a user account."""
+    # Actor IDs are part of the immutable audit hash payload. Check before
+    # detaching any references, including legacy entries without a hash.
+    if db.query(AuditLog.id).filter(AuditLog.user_id == user_id).first() is not None:
+        raise HTTPException(409, "This user has audit history and cannot be deleted. Deactivate the account instead.")
     users_table = User.__table__
     for table in Base.metadata.sorted_tables:
-        if table is users_table:
+        if table is users_table or table is AuditLog.__table__:
             continue
         for column in table.c:
             if not any(fk.column.table is users_table and fk.column.name == "id" for fk in column.foreign_keys):
