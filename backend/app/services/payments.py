@@ -32,6 +32,15 @@ def create_invoice_payment(
     paid_at: datetime | None = None,
     notes: str | None = None,
 ) -> Payment:
+    # Serialize invoice payments before inserting or reading their total. Refresh
+    # the caller's cached invoice after waiting; the lock lasts until commit.
+    invoice = (
+        db.query(Invoice)
+        .filter(Invoice.id == invoice.id)
+        .populate_existing()
+        .with_for_update(of=Invoice)
+        .one()
+    )
     if customer_id is None and invoice.sales_order_id:
         customer_id = db.query(SalesOrder.customer_id).filter(SalesOrder.id == invoice.sales_order_id).scalar()
     payment = Payment(

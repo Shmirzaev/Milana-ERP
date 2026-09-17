@@ -388,6 +388,10 @@ def delete_assignment(
 ):
     a = db.get(SewingAssignment, aid)
     if not a: raise HTTPException(404, "Assignment not found")
+    flow = db.get(SewingFlow, a.sewing_flow_id)
+    if not flow:
+        raise HTTPException(404, "Sewing flow not found")
+    require_sewing_flow_access(current, flow)
     db.delete(a)
     log_action(db, current, "delete", "SewingAssignment", aid)
     db.commit()
@@ -468,9 +472,10 @@ def _capacity_warning(
 
 
 @router.get("/sewing-flows/{fid}/utilization")
-def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
+def flow_utilization(fid: int, db: DbSession, current: CurrentUser):
     f = db.get(SewingFlow, fid)
     if not f: raise HTTPException(404, "Flow not found")
+    require_sewing_flow_access(current, f)
     now = datetime.now(timezone.utc)
     rows = db.query(SewingAssignment).join(
         WorkOrder, WorkOrder.id == SewingAssignment.work_order_id

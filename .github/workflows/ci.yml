@@ -46,9 +46,68 @@ jobs:
           python -m compileall -q app scripts
       - name: Backend regression suite
         working-directory: backend
-        run: python -m pytest -q
+        # Explicit shell expansion covers the backend's app/tests modules.
+        # The ledger records route patterns/statuses, never request payloads.
+        run: >-
+          python scripts/report_api_test_coverage.py run
+          --output ../outputs/api_test_coverage.json --
+          app/tests/test_*.py -q --junitxml=../outputs/backend-regressions.xml
+      - name: Preserve API coverage and test failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-evidence
+          path: |
+            outputs/api_test_coverage.json
+            outputs/backend-regressions.xml
+          retention-days: 14
+      - name: Attendance connector regressions
+        run: python -m pytest -q connectors/hikvision_attendance
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
+
+  postgres-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: regression
+          POSTGRES_PASSWORD: regression-only
+          POSTGRES_DB: regression
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U regression -d regression"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: PostgreSQL concurrency regressions
+        working-directory: backend
+        env:
+          # Disposable service only; conftest keeps the application's SQLite database.
+          PAYMENT_INTEGRITY_POSTGRES_URL: postgresql+psycopg2://regression:regression-only@127.0.0.1:5432/regression
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://regression:regression-only@127.0.0.1:5432/regression
+        run: >-
+          python -m pytest -q -k postgres
+          app/tests/test_payment_integrity.py
+          app/tests/test_invoice_creation_integrity.py
+          app/tests/test_reset_token_revocation.py
+          app/tests/test_purchase_receipt_idempotency.py
+          app/tests/test_material_reservation_concurrency.py
+          app/tests/test_user_audit_history.py
+          app/tests/test_fresh_migration_bootstrap.py
 
   frontend:
     runs-on: ubuntu-latest
@@ -74,7 +133,7 @@ jobs:
 
   release:
     if: github.event_name == 'workflow_dispatch'
-    needs: [backend, frontend]
+    needs: [backend, frontend, postgres-regressions]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

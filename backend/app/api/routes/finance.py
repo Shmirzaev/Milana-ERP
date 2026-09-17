@@ -66,7 +66,15 @@ def get_cost_breakdown(db: DbSession, _: User = Depends(require_permissions("fin
 
 @router.post("/invoices", response_model=InvoiceOut, status_code=201)
 def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(require_permissions("finance.invoice", "*"))):
-    so = db.get(SalesOrder, payload.sales_order_id)
+    # Serialize the existence check even when there is no invoice row to lock.
+    # NO KEY UPDATE stays compatible with invoice-insert foreign-key checks.
+    so = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == payload.sales_order_id)
+        .populate_existing()
+        .with_for_update(of=SalesOrder, key_share=True)
+        .first()
+    )
     if not so:
         raise HTTPException(404, "Sales order not found")
     existing = db.query(Invoice).filter(Invoice.sales_order_id == payload.sales_order_id).order_by(Invoice.id.desc()).first()

@@ -240,10 +240,14 @@ def create_customer_payment(
 
 
 def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | None:
+    # Keep invoice selection and the invoice/advance split under the same lock
+    # used by direct finance payments, including when these rows are cached.
     invoices = (
         db.query(Invoice)
         .filter(Invoice.sales_order_id == sales_order.id)
         .order_by(Invoice.id.asc())
+        .populate_existing()
+        .with_for_update(of=Invoice)
         .all()
     )
     for invoice in invoices:

@@ -8,15 +8,14 @@ from urllib.parse import urlsplit
 from alembic.config import Config as AlembicConfig
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
 
 from app.core.config import settings
-from app.core.deps import DbSession
-from app.core.security import decode_token
+from app.core.deps import CurrentUser, DbSession
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
@@ -336,34 +335,22 @@ def _model_image_record(name: str, db: DbSession):
     )
 
 
-def _require_model_file_token(request: Request) -> None:
-    """Validate image access without checking out a database connection.
+def _require_model_file_token(_user: CurrentUser, db: DbSession) -> None:
+    """Check current session access, then release the authentication connection.
 
-    A model list can render hundreds of thumbnails at once. Using CurrentUser
-    here made every image reserve a database connection merely to re-check the
-    same signed JWT, which could exhaust the pool and block login/API requests.
+    CurrentUser rejects disabled/deleted accounts and revoked credentials. A
+    model list can render hundreds of thumbnails at once, so do not hold that
+    database connection during filesystem reads, image generation or streaming.
+    These routes use separate short-lived sessions for database image fallback.
     """
-    from fastapi import HTTPException, status
-
-    authorization = request.headers.get("authorization", "").strip()
-    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
-    if not token:
-        token = request.cookies.get(settings.AUTH_COOKIE_NAME, "").strip()
-    try:
-        payload = decode_token(token) if token else None
-        user_id = int((payload or {}).get("sub") or 0)
-        if user_id <= 0:
-            raise ValueError("missing subject")
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    db.close()
 
 
-@app.get("/storage/model-files/{name}")
-def serve_model_file(name: str, request: Request):
+@app.get("/storage/model-files/{name}", dependencies=[Depends(_require_model_file_token)])
+def serve_model_file(name: str):
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
 
-    _require_model_file_token(request)
     abs_path = _model_file_path_if_exists(name)
     if abs_path:
         return FileResponse(abs_path)
@@ -381,13 +368,12 @@ def serve_model_file(name: str, request: Request):
     )
 
 
-@app.get("/storage/model-files/thumb/{name}")
-def serve_model_thumbnail(name: str, request: Request, size: int = 320):
+@app.get("/storage/model-files/thumb/{name}", dependencies=[Depends(_require_model_file_token)])
+def serve_model_thumbnail(name: str, size: int = 320):
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
     from PIL import UnidentifiedImageError
 
-    _require_model_file_token(request)
     source_path = _model_file_path_if_exists(name)
     image_data = b""
     if not source_path:

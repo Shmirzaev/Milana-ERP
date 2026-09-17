@@ -17,6 +17,10 @@ export type Me = {
   available_factories: ("MIL" | "BST" | "ECO")[];
 };
 
+function isSessionRejected(error: unknown): boolean {
+  return error instanceof Error && /^(401|403):/.test(error.message);
+}
+
 export function useMe() {
   // undefined = not yet checked, boolean once /me has confirmed or rejected the HttpOnly cookie.
   const [hasToken, setHasToken] = useState<boolean | undefined>(undefined);
@@ -24,17 +28,21 @@ export function useMe() {
     setHasToken(true);
   }, []);
   const { data, error, isLoading, mutate } = useSWR<Me>(hasToken ? "/api/auth/me" : null, fetcher, {
-    shouldRetryOnError: false,
+    shouldRetryOnError: (error) => !isSessionRejected(error),
+    errorRetryCount: 3,
+    errorRetryInterval: 3_000,
     refreshInterval: 5 * 60 * 1000,
     refreshWhenHidden: false,
   });
   const checked = hasToken !== undefined && !isLoading;
+  const rejected = isSessionRejected(error);
   return {
-    me: data,
+    me: rejected ? undefined : data,
     error,
     loading: isLoading,
     refresh: mutate,
-    hasToken: checked ? Boolean(data && !error) : undefined,
+    // Network/server failures say nothing about whether the cookie is valid.
+    hasToken: rejected ? false : checked && data ? true : undefined,
   };
 }
 

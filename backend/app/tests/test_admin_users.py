@@ -138,7 +138,7 @@ def test_limited_user_manager_cannot_grant_extra_permissions_they_lack(client, a
     assert r.status_code == 403, r.text
 
 
-def test_delete_user_detaches_existing_references(client, auth_headers):
+def test_delete_user_with_audit_history_preserves_existing_references(client, auth_headers):
     from app.db.session import SessionLocal
     from app.models import AuditLog, Employee, Notification, PasswordResetToken, User
 
@@ -172,15 +172,16 @@ def test_delete_user_detaches_existing_references(client, auth_headers):
         db.close()
 
     r = client.delete(f"/api/users/{user_id}", headers=auth_headers)
-    assert r.status_code == 204, r.text
+    assert r.status_code == 409, r.text
+    assert "Deactivate" in r.json()["detail"]
 
     db = SessionLocal()
     try:
-        assert db.get(User, user_id) is None
-        assert db.get(Employee, employee_id).user_id is None
-        assert db.get(AuditLog, audit_id).user_id is None
-        assert db.query(Notification).filter(Notification.user_id == user_id).count() == 0
-        assert db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user_id).count() == 0
+        assert db.get(User, user_id) is not None
+        assert db.get(Employee, employee_id).user_id == user_id
+        assert db.get(AuditLog, audit_id).user_id == user_id
+        assert db.query(Notification).filter(Notification.user_id == user_id).count() == 1
+        assert db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user_id).count() == 1
         assert (
             db.query(AuditLog)
             .filter(
@@ -189,7 +190,7 @@ def test_delete_user_detaches_existing_references(client, auth_headers):
                 AuditLog.entity_id == user_id,
             )
             .count()
-            == 1
+            == 0
         )
     finally:
         db.close()
