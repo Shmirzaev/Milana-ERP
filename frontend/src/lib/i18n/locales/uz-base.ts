@@ -1209,10 +1209,10 @@ export default {
     "page.bundleScan.justNow": "Hozirgina",
     "page.bundleScan.noActions": "Bu bosqichda bo'limingiz uchun skan amallari mavjud emas.",
     "page.bundleScan.manualTitle": "Qo'lda qabul qilish",
-    "page.bundleScan.manualSubtitle": "Skaner bo'lmaganda tikuvga tayyor bog'lamlarni buyurtma yoki model bo'yicha qabul qiling.",
+    "page.bundleScan.manualSubtitle": "Faqat tanlangan partiyani qabul qiling. Skaner bo'lmaganda buyurtma yoki model bo'yicha qidiring.",
     "page.bundleScan.manualSearchPlaceholder": "Buyurtma yoki model raqami",
     "page.bundleScan.manualEmpty": "Tikuv qabulini kutayotgan bog'lamlar yo'q.",
-    "page.bundleScan.manualReceive": "Qabul qilindi deb belgilash",
+    "page.bundleScan.manualReceive": "Partiyani qabul qilish",
     "page.bundleScan.manualReceiving": "Qabul qilinmoqda...",
     "page.bundleScan.manualReceived": "{order} uchun {count} ta bog'lam ({qty} dona) qabul qilindi.",
 

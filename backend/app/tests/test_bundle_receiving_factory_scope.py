@@ -77,7 +77,7 @@ def test_same_factory_receiving_preserves_handoff(client, auth_headers, factory,
     headers = _headers(client, auth_headers, factory)
     if method == "manual":
         response = client.post("/api/bundles/manual-receive-sewing", headers=headers, json={
-            "production_order_id": po_id, "factory_code": factory,
+            "production_order_id": po_id, "production_batch_id": None, "factory_code": factory,
         })
     else:
         response = client.post(f"/api/bundles/{bundle_id}/receive-sewing", headers=headers)
@@ -150,7 +150,7 @@ def test_secondary_factory_permission_requires_switching_session(client, auth_he
 def test_manual_receive_cannot_take_eco_bundles_in_milana(client, auth_headers, requested_factory):
     bundle_id, wo_id, po_id, _ = _ready_bundle("ECO")
     response = client.post("/api/bundles/manual-receive-sewing", headers=_headers(client, auth_headers, "MIL"), json={
-        "production_order_id": po_id, "factory_code": requested_factory,
+        "production_order_id": po_id, "production_batch_id": None, "factory_code": requested_factory,
     })
     assert response.status_code == (403 if requested_factory else 404), response.text
     _assert_unreceived(bundle_id, wo_id, "sent_to_sewing")

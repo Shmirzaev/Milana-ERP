@@ -1299,10 +1299,10 @@ export default {
     "page.bundleScan.justNow": "Just now",
     "page.bundleScan.noActions": "No scan actions available for your department at this stage.",
     "page.bundleScan.manualTitle": "Manual receive",
-    "page.bundleScan.manualSubtitle": "Receive sewing-ready bundles by order or model when a scanner is not available.",
+    "page.bundleScan.manualSubtitle": "Receive only the selected batch. Search by order or model when a scanner is not available.",
     "page.bundleScan.manualSearchPlaceholder": "Order no or model no",
     "page.bundleScan.manualEmpty": "No bundles are waiting for sewing receive.",
-    "page.bundleScan.manualReceive": "Mark received",
+    "page.bundleScan.manualReceive": "Receive batch",
     "page.bundleScan.manualReceiving": "Receiving...",
     "page.bundleScan.manualReceived": "Received {count} bundles ({qty} pcs) for {order}.",
 

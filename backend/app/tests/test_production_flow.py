@@ -2620,7 +2620,7 @@ def test_manual_sewing_receive_by_order_model_removes_bundle_inventory(client, a
 
     r = client.post(
         "/api/bundles/manual-receive-sewing",
-        json={"production_order_id": po_id, "model_id": model_id},
+        json={"production_order_id": po_id, "production_batch_id": option["production_batch_id"], "model_id": model_id},
         headers=auth_headers,
     )
     assert r.status_code == 200, r.text
