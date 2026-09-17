@@ -26,6 +26,19 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      security-postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: security-ci-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -46,6 +59,8 @@ jobs:
           python -m compileall -q app scripts
       - name: Backend regression suite
         working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres:security-ci-only@127.0.0.1:5432/postgres
         run: python -m pytest -q
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
