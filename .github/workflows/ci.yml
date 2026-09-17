@@ -46,7 +46,21 @@ jobs:
           python -m compileall -q app scripts
       - name: Backend regression suite
         working-directory: backend
-        run: python -m pytest -q
+        # Explicit shell expansion covers the backend's app/tests modules.
+        # The ledger records route patterns/statuses, never request payloads.
+        run: >-
+          python scripts/report_api_test_coverage.py run
+          --output ../outputs/api_test_coverage.json --
+          app/tests/test_*.py -q --junitxml=../outputs/backend-regressions.xml
+      - name: Preserve API coverage and test failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-evidence
+          path: |
+            outputs/api_test_coverage.json
+            outputs/backend-regressions.xml
+          retention-days: 14
       - name: Attendance connector regressions
         run: python -m pytest -q connectors/hikvision_attendance
       - name: Deployment observation regression suite
