@@ -472,9 +472,10 @@ def _capacity_warning(
 
 
 @router.get("/sewing-flows/{fid}/utilization")
-def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
+def flow_utilization(fid: int, db: DbSession, current: CurrentUser):
     f = db.get(SewingFlow, fid)
     if not f: raise HTTPException(404, "Flow not found")
+    require_sewing_flow_access(current, f)
     now = datetime.now(timezone.utc)
     rows = db.query(SewingAssignment).join(
         WorkOrder, WorkOrder.id == SewingAssignment.work_order_id
