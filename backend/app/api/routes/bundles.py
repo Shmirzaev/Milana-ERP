@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import selectinload
 import base64
 import hashlib
@@ -57,6 +57,9 @@ class SewingManualReceiveIn(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     production_order_id: int
+    # Required even for legacy unbatched bundles (explicit null). Never infer
+    # an order-wide receipt from a stale client that omitted the batch.
+    production_batch_id: int | None
     model_id: int | None = None
     factory_code: str | None = None
 
@@ -463,6 +466,7 @@ def sewing_receive_options(
     factory = sewing_line_factory_scope(current, factory_code)
     qry = db.query(
         Bundle.production_order_id,
+        Bundle.production_batch_id,
         Bundle.model_id,
         ProductionOrder.production_no,
         SalesOrder.order_no,
@@ -499,6 +503,7 @@ def sewing_receive_options(
     rows = (
         qry.group_by(
             Bundle.production_order_id,
+            Bundle.production_batch_id,
             Bundle.model_id,
             ProductionOrder.production_no,
             SalesOrder.order_no,
@@ -510,9 +515,17 @@ def sewing_receive_options(
         .all()
     )
     material_images = _material_images_by_model_id(db, (row.model_id for row in rows))
+    batch_ids = {row.production_batch_id for row in rows if row.production_batch_id is not None}
+    batches = db.query(ProductionBatch).filter(ProductionBatch.id.in_(batch_ids)).all() if batch_ids else []
+    batch_labels = {
+        batch.id: " - ".join(filter(None, (format_batch_passport(batch, batch.production_order_id), batch.name)))
+        for batch in batches
+    }
     return [
         {
             "production_order_id": production_order_id,
+            "production_batch_id": production_batch_id,
+            "batch_label": batch_labels.get(production_batch_id),
             "model_id": model_id,
             "production_no": production_no,
             "order_no": order_no or public_production_order_no(production_no) or production_no,
@@ -524,6 +537,7 @@ def sewing_receive_options(
         }
         for (
             production_order_id,
+            production_batch_id,
             model_id,
             production_no,
             order_no,
@@ -543,9 +557,14 @@ def manual_receive_sewing(
     current: User = Depends(require_permissions("sewing.bundles", "*")),
 ):
     factory = sewing_line_factory_scope(current, payload.factory_code)
+    # Serialize manual receipts of sibling batches without reversing the existing
+    # bundle -> work-order lock order used by individual scanner receipts.
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(74201, :order_id)"), {"order_id": payload.production_order_id})
     qry = db.query(Bundle).filter(
         _sewing_receive_eligible_filter(db),
         Bundle.production_order_id == payload.production_order_id,
+        Bundle.production_batch_id == payload.production_batch_id,
         Bundle.sewing_factory_code == factory,
     )
     if payload.model_id is not None:

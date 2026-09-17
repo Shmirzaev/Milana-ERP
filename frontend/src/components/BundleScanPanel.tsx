@@ -48,6 +48,8 @@ type SewingBatchResult = {
 };
 type ManualReceiveOption = {
   production_order_id: number;
+  production_batch_id: number | null;
+  batch_label?: string | null;
   model_id: number | null;
   production_no?: string | null;
   order_no?: string | null;
@@ -338,12 +340,13 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   }
 
   async function manualReceive(option: ManualReceiveOption) {
-    const key = `${option.production_order_id}:${option.model_id ?? ""}`;
+    const key = `${option.production_order_id}:${option.production_batch_id ?? "unbatched"}:${option.model_id ?? ""}`;
     setManualBusyKey(key);
     setManualMsg("");
     try {
       const result = await api.post<ManualReceiveResult>("/api/bundles/manual-receive-sewing", {
         production_order_id: option.production_order_id,
+        production_batch_id: option.production_batch_id,
         model_id: option.model_id,
         factory_code: factoryCode,
       });
@@ -351,7 +354,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
       setManualMsg(t("page.bundleScan.manualReceived", {
         count: result.received_count,
         qty: result.received_quantity,
-        order,
+        order: option.batch_label ? `${order} · ${option.batch_label}` : order,
       }));
       if (bundle && result.bundle_ids.includes(Number(bundle.id))) {
         setBundle(null);
@@ -670,6 +673,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               <thead>
                 <tr>
                   <th>{t("field.orderNo")}</th>
+                  <th>{t("field.batch")}</th>
                   <th>{t("field.model")}</th>
                   <th>{t("nav.bundles")}</th>
                   <th>{t("field.qty")}</th>
@@ -679,16 +683,16 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               <tbody>
                 {manualLoading && manualOptions.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="text-slate-500">{t("common.loading")}</td>
+                    <td colSpan={6} className="text-slate-500">{t("common.loading")}</td>
                   </tr>
                 )}
                 {!manualLoading && manualOptions.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="text-slate-500">{t("page.bundleScan.manualEmpty")}</td>
+                    <td colSpan={6} className="text-slate-500">{t("page.bundleScan.manualEmpty")}</td>
                   </tr>
                 )}
                 {manualOptions.map((option) => {
-                  const key = `${option.production_order_id}:${option.model_id ?? ""}`;
+                  const key = `${option.production_order_id}:${option.production_batch_id ?? "unbatched"}:${option.model_id ?? ""}`;
                   const busy = manualBusyKey === key;
                   return (
                     <tr key={key}>
@@ -698,6 +702,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                           <div className="text-xs text-slate-500">{formatOrderReference(option.production_no)}</div>
                         )}
                       </td>
+                      <td>{option.batch_label || "—"}</td>
                       <td>
                         <div className="flex min-w-[190px] items-center gap-3">
                           <FabricThumbnail
@@ -716,7 +721,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                         <button
                           type="button"
                           className="btn btn-primary"
-                          disabled={busy}
+                          disabled={Boolean(manualBusyKey)}
                           onClick={() => manualReceive(option)}
                         >
                           <CheckCircle2 className="h-4 w-4" />

@@ -1209,10 +1209,10 @@ export default {
     "page.bundleScan.justNow": "Только что",
     "page.bundleScan.noActions": "Для вашего отдела на этом этапе нет доступных скан-действий.",
     "page.bundleScan.manualTitle": "Ручная приемка",
-    "page.bundleScan.manualSubtitle": "Принимайте готовые к швейному цеху связки по заказу или модели, когда сканер недоступен.",
+    "page.bundleScan.manualSubtitle": "Принимайте только выбранную партию. Ищите по заказу или модели, когда сканер недоступен.",
     "page.bundleScan.manualSearchPlaceholder": "Номер заказа или модели",
     "page.bundleScan.manualEmpty": "Нет связок, ожидающих приемки в швейном цеху.",
-    "page.bundleScan.manualReceive": "Отметить принятым",
+    "page.bundleScan.manualReceive": "Принять партию",
     "page.bundleScan.manualReceiving": "Приемка...",
     "page.bundleScan.manualReceived": "Принято связок: {count} ({qty} шт.) для {order}.",
 
