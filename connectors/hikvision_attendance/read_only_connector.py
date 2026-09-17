@@ -674,7 +674,13 @@ def sync_events(config: Config, hik: ReadOnlyHikvision, erp: ErpMirror, state: d
     else:
         start = now - timedelta(days=config.initial_event_days)
     info = hik.device_info()
-    count = hik.person_count()
+    try:
+        count = hik.person_count()
+    except Exception as exc:
+        # Profile totals are optional metadata, not a prerequisite for events.
+        # Unknown is distinct from an empty roster and must never mean zero.
+        count = None
+        log(f"Profile count unavailable; continuing event sync: {exc}")
     device = device_payload(config, info, count)
     received = inserted = duplicates = 0
     window_start = start
@@ -709,10 +715,22 @@ def run_sync(config: Config, mode: str) -> None:
     hik = ReadOnlyHikvision(config)
     erp = ErpMirror(config)
     try:
-        if mode in {"people", "all"} or (mode == "scheduled" and should_sync_people(config, state)):
-            sync_people(config, hik, erp, state)
+        failures: list[tuple[str, Exception]] = []
+        try:
+            if mode in {"people", "all"} or (mode == "scheduled" and should_sync_people(config, state)):
+                sync_people(config, hik, erp, state)
+        except Exception as exc:
+            failures.append(("People", exc))
+            log(f"People sync failed; independent event collection will still run when selected: {exc}")
         if mode in {"events", "all", "scheduled"}:
-            sync_events(config, hik, erp, state)
+            try:
+                sync_events(config, hik, erp, state)
+            except Exception as exc:
+                failures.append(("Event", exc))
+        if failures:
+            # Preserve a failed task status for monitoring; successful event
+            # checkpoints remain valid, while failed roster refreshes retry.
+            raise RuntimeError("; ".join(f"{stage} sync failed: {exc}" for stage, exc in failures)) from failures[0][1]
     finally:
         hik.close()
         erp.close()
