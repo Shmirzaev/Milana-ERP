@@ -107,6 +107,7 @@ jobs:
           app/tests/test_purchase_receipt_idempotency.py
           app/tests/test_material_reservation_concurrency.py
           app/tests/test_user_audit_history.py
+          app/tests/test_fresh_migration_bootstrap.py
 
   frontend:
     runs-on: ubuntu-latest
