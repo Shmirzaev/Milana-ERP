@@ -1180,7 +1180,7 @@ def accessory_issue_summary(
     model_by_id = {int(model.id): model for model in models}
 
     item_by_id: dict[int, Item] = {}
-    grouped: dict[tuple[int, int, str], dict] = {}
+    grouped: dict[tuple[int, int, str] | tuple[int, int, str, str], dict] = {}
     for movement, item in movements_with_items:
         po_id = po_ids_by_movement_id.get(int(movement.id))
         if not po_id:
@@ -1242,11 +1242,14 @@ def accessory_issue_summary(
         item_id = int(issue.item_id or 0)
         item_sku = str(issue.item_sku or "").strip()
         item_name = str(issue.item_name or "").strip() or item_sku or "Manual accessory"
-        key = (int(po.id), item_id, unit, _accessory_match_key(item_sku or item_name))
+        # Returns identify the order, catalog item and unit, not the issue source
+        # or historical label. Merge linked manual issues before applying returns.
+        key = ((int(po.id), item_id, unit) if item_id > 0 else
+               (int(po.id), item_id, unit, _accessory_match_key(item_sku or item_name)))
         model = model_by_id.get(int(po.model_id))
         first_at = issue.created_at
         last_at = issue.created_at
-        existing = grouped.get(key)  # type: ignore[arg-type]
+        existing = grouped.get(key)
         if not existing:
             existing = {
                 "production_order_id": int(po.id),
@@ -1268,7 +1271,7 @@ def accessory_issue_summary(
                 "first_issued_at": first_at,
                 "last_issued_at": last_at,
             }
-            grouped[key] = existing  # type: ignore[index]
+            grouped[key] = existing
         existing["issued_quantity"] += float(issue.quantity or 0)
         existing["movement_count"] += 1
         if first_at and (not existing["first_issued_at"] or first_at < existing["first_issued_at"]):
