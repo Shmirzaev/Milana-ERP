@@ -2,7 +2,7 @@
 
 18 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**18 scoped fixes covering 19 of 124 recorded findings. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open.
+**19 scoped fixes covering 20 of 124 recorded findings. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open.
 
 ## Fixed and regression-tested
 
@@ -26,11 +26,13 @@
 | **SEC02 — User deletion rewrites audit actors** | Broken history/hash verification | [admin.py:425](backend/app/api/routes/admin.py#L425): reject deletion with 409; deactivate instead. Concurrent insert rolls cleanup back. Commit `5b157d0`. |
 | **API06 — Profile name/email grants pricing access** | Unauthorized price viewing/editing | [price_calculation.py:29](backend/app/services/price_calculation.py#L29), [frontend:60](frontend/src/lib/priceCalculationRequests.ts#L60): require explicit permission. Existing name-authorized staff need a deliberate grant. Commit `d89059e`. |
 | **PERF41 — Eco history queries each dispatch's rolls** | Slow history pages | [eco_transfers.py:199](backend/app/api/routes/eco_transfers.py#L199): fetch page rolls together; omit unused snapshot. **50 dispatches: 54 → 5 SELECTs.** Commit `732b65d`. |
+| **SEC07 — Utilization exposes another factory's line** | Factory workload disclosure | [production_extra.py:475](backend/app/api/routes/production_extra.py#L475): enforce the selected-factory guard before reading workload. Commit `40c681e`; **46 scope/assignment/workspace tests passed**. No query optimization claimed. |
 
 ## Evidence
 
 - **Cycle 2:** attendance connector **30 passed**; audit/admin **54 passed** plus **1 PostgreSQL race passed**; pricing authorization/workflow **40 passed**; Eco suites **15 passed**. Five frontend stabilization scripts, ESLint, strict TypeScript and pinned Ruff passed. These are targeted results, not a new full-suite total.
 - **CI for first-batch commit `3881177`:** backend, frontend and PostgreSQL jobs passed. Later changes require their own CI run.
+- **API coverage:** 510 method/route pairs inventoried. CI now records success/rejection/unhit operations and test failures as `backend-test-evidence`; route hits are not correctness or complexity proof. See the QA guide for collection/merge commands.
 - **PostgreSQL: 21 concurrency checks passed** on disposable local PostgreSQL 17; cluster stopped. Covers receipts, payments, invoice creation, sibling reset links, reservations and Cutting contention.
 - **Browser:** real login → temporary 503 → recovery; genuine 401 redirects. Real receipt commit → dropped response → reload/retry leaves quantity **5, not 10**. Rendered payroll UI with controlled API responses preserves badge/work order and manual selections (`[A, A, B]`). No JavaScript page errors in these scenarios.
 - Package SELECT counts for **1 / 10 / 50** rows: legacy **5/5/5**, distinct linked models **9/9/9**, order fallback **7/7/7**. Bounded round trips for these pages, **not O(1) total processing** or a load-capacity guarantee.

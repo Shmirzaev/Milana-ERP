@@ -37,6 +37,7 @@ Each row names a repeatable regression. Browser checks complement these; they do
 | SEC04 | `test_static_file_auth.py`; `/model-files/...` | Disabled/revoked account cannot download with its old cookie. Active authorized account still can. |
 | SEC05 | `test_reset_token_revocation.py`; password reset | After one reset succeeds, sibling links and pre-reset sessions fail. Concurrent reset requests cannot both win. |
 | SEC07 | `test_assignment_delete_scope.py`; assignment DELETE | Wrong factory rejects; right factory deletes only the permitted assignment. This does not cover every factory-scoped endpoint. |
+| SEC07 | `test_flow_utilization_scope.py`; `GET /api/sewing-flows/{fid}/utilization` | Wrong selected factory returns 403, including Super Admin sessions. Select the explicitly permitted factory to read its line; missing line remains 404. |
 | SEC10 | `test_privileged_user_delete.py`; Users → Delete | Limited administrators cannot delete a privileged administrator, including policy-based privilege variants. |
 | UI01 | `test-session-recovery.mjs`; authenticated page | Temporary 503/network failure shows recovery without discarding the session. Bounded retry succeeds; genuine 401 redirects to login. |
 | UI02 | `test-api-deadline.mjs`; API client | Hanging JSON/form/error response bodies time out; cancellation works; ordinary responses remain unchanged. |
@@ -62,6 +63,19 @@ For UI QA, start a separate loopback-only frontend/backend with fresh synthetic 
 | Audited account deletion | One additional history-existence lookup | Worst-case O(a) without an actor index. This is an integrity fix, not a speed claim. |
 
 **Bounded round trips are not O(1) total work.** Unmeasured APIs remain unknown. Local timings under laptop memory pressure are not a 200–2,000-user capacity claim.
+
+## API coverage ledger
+
+From `backend/`, run a selected test file with HTTP observation:
+
+```text
+python scripts/report_api_test_coverage.py run --output ../outputs/api-batch.json -- app/tests/test_flow_utilization_scope.py -q
+python scripts/report_api_test_coverage.py merge --output ../outputs/api-merged.json ../outputs/api-batch.json ../outputs/another-batch.json
+```
+
+CI runs all `app/tests/test_*.py` files through this observer and uploads `backend-test-evidence`: route/status JSON plus JUnit failures. PostgreSQL concurrency remains a separate job. The inventory currently has **510 HTTP method/route pairs**, excluding docs/static mounts/WebSockets. Statuses separate success, rejection, errors and unobserved routes. A 2xx is not proof of correct stock or permissions; inspect the test assertions too. Direct service calls are not HTTP coverage.
+
+The tool refuses an application `.env`, uses the existing temporary SQLite fixture, clears external-service settings and blocks non-loopback Python sockets. It is not a sandbox for arbitrary tests/native subprocesses. Reports contain route patterns, aggregate outcomes, Git revision and dirty-state flag—not request data or concrete record IDs. Only combine compatible inventories; a merged old run is not proof of the final implementation. Do not interpret instrumented timing as a benchmark.
 
 ## Release gates still required
 

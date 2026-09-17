@@ -193,10 +193,10 @@
       "risk": "Factory data disclosure.",
       "proposed_fix": "Reuse authorized flow lookup.",
       "baseline_source": "backend/app/api/routes/production_extra.py:470",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "40c681e",
+      "evidence": "backend/app/tests/test_flow_utilization_scope.py; baseline wrong-factory 200 reproduced; 46 scope/assignment/workspace regressions passed"
     },
     {
       "number": 17,
