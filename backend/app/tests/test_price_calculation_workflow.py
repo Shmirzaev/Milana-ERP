@@ -21,7 +21,7 @@ def _setup_workflow_data(suffix: str):
         finance_department = db.query(Department).filter(Department.code == "FIN").one()
         sales_department = db.query(Department).filter(Department.code == "SLS").one()
         cutting_department = db.query(Department).filter(Department.code == "CUT").one()
-        purchasing_role = Role(name=f"Price workflow purchaser {suffix}", permissions=["purchasing.view"])
+        purchasing_role = Role(name=f"Price workflow purchaser {suffix}", permissions=["purchasing.view", "price_calculation.purchasing"])
         finance_role = Role(name=f"Price workflow finance {suffix}", permissions=["finance.view"])
         sales_role = Role(name=f"Price workflow sales {suffix}", permissions=["sales.orders"])
         accessory_role = Role(name=f"Price workflow accessories {suffix}", permissions=["storage.items"])

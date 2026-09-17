@@ -6,7 +6,7 @@ import { can, useMe } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { isSewingRole, isSewingWorkspacePath, sewingWorkspaceHome } from "@/lib/access";
 import { useT } from "@/lib/i18n";
-import { isAbbosbekPricingUser, isAccessoryPricingUser } from "@/lib/priceCalculationRequests";
+import { isPurchasingPricingUser, isAccessoryPricingUser } from "@/lib/priceCalculationRequests";
 
 const SUPER_ADMIN_PERMISSION = "admin.super";
 
@@ -15,7 +15,7 @@ type RouteGuard = {
   perms?: string[];
   exact?: boolean;
   superOnly?: boolean;
-  audience?: "abbosbekPricing" | "accessoryPricing";
+  audience?: "purchasingPricing" | "accessoryPricing";
 };
 
 const ROUTE_GUARDS: RouteGuard[] = [
@@ -39,7 +39,7 @@ const ROUTE_GUARDS: RouteGuard[] = [
   { prefix: "/forecasting", perms: ["forecasting.view", "*"] },
   { prefix: "/production-orders", perms: ["planning.view", "planning.production", "processes.view", "*"] },
   { prefix: "/traceability", perms: ["traceability.view", "*"] },
-  { prefix: "/purchasing/price-calculation", audience: "abbosbekPricing" },
+  { prefix: "/purchasing/price-calculation", audience: "purchasingPricing" },
   { prefix: "/purchasing/receiving", perms: ["purchasing.receive", "*"] },
   { prefix: "/purchasing", perms: ["purchasing.view", "purchasing.request", "purchasing.approve", "purchasing.order", "*"] },
   { prefix: "/inventory/master-data", perms: ["storage.items", "storage.suppliers", "*"] },
@@ -99,7 +99,7 @@ function hasRouteAccess(me: ReturnType<typeof useMe>["me"], pathname: string) {
   const guard = ROUTE_GUARDS.find((entry) => routeMatches(pathname, entry));
   if (!guard) return true;
   if (guard.superOnly) return isSuperAdmin(me);
-  if (guard.audience === "abbosbekPricing") return isAbbosbekPricingUser(me);
+  if (guard.audience === "purchasingPricing") return isPurchasingPricingUser(me);
   if (guard.audience === "accessoryPricing") return isAccessoryPricingUser(me);
   return !guard.perms || can(me, ...guard.perms);
 }

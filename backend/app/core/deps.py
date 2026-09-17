@@ -155,10 +155,6 @@ def user_permissions(user: User) -> list[str]:
     if access_configured(user):
         # Surface historical implied rights before applying explicit overrides.
         # Existing accounts without a policy retain their exact permission list.
-        name = " ".join((user.name or "").strip().casefold().split())
-        email_local = (user.email or "").strip().casefold().split("@", 1)[0]
-        if name == "abbosbek" or name.startswith("abbosbek ") or email_local == "abbosbek":
-            permissions.append("price_calculation.purchasing")
         department = getattr(user, "department", None)
         if str(getattr(department, "code", "")).upper() == "STR" and "storage.items" in permissions and "inventory.materials_only" not in permissions:
             permissions.append("price_calculation.accessories")

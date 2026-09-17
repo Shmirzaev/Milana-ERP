@@ -28,3 +28,5 @@ requireText(modelDetail, 't("page.priceCalculation.sellingPrice")', "Model varia
 requireText(modelDetail, "v.selling_price", "The variant table must render the price stored on each exact variant.");
 
 console.log("Price calculation department workflow contract passed.");
+
+await import('./test-security-pricing-identity.mjs');
