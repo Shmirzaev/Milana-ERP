@@ -2,6 +2,17 @@
 
 Last updated: 2026-09-17
 
+## Sewing line model and variant visibility deployed (2026-09-17)
+
+- LIVE: backend/frontend blue release `20260917_100146`, exact application commit `9c3b7a3169b4ac9406915c79fc4f56a92a5a5edc`, merged through PR #173. Both source manifests, image identities, current symlinks and slot states agree. Green `20260917_091524` remains running for rollback. Frontend activated `2026-09-17T10:11:38.328971+00:00`.
+- Assigned and available sewing-line work rows now show separately labeled model and variant numbers under the production-order reference, using existing EN/RU/UZ labels. Both assigned-flow and available-work API responses expose these existing catalog values through one shared identity reader. Explicit base models retain an empty variant instead of interpreting part of the model number as a variant. Existing batched model reads are reused; no new per-row queries.
+- Read-only identity and presentation change: no business data, permissions or schema changes. Database remains `0131_sewing_corrections`; no new migration was applied. Startup seeding remained disabled.
+- Standard immutable CI [35208308836](https://github.com/Shmirzaev/Milana-ERP/actions/runs/35208308836) passed its existing backend/frontend validation and published exact-commit images/source. The user explicitly requested fast deployment without extra tests or monitoring: no additional local suites, browser/performance exercises or extended observation ran. Source diff, backup, unchanged schema, candidate warm-up/runtime and four immediate health checks passed. Extended observation is intentionally omitted, not claimed complete.
+- All four internal/public health/login checks returned HTTP 200. Both routers validated; two workers per backend slot, zero restarts/OOM/error markers. PostgreSQL 24/100 connections, zero invalid indexes. Disk 73% backend / 65% frontend. Historical audit/security risks remain unchanged.
+- Source manifest `abaae224fd198919a02b0fb1ee01b2780809da79123c2132f0d100762a29a94e`, archive SHA-256 `d9d332df1715df9fb54e97ff1e0aa53d252e9f3c9441e1b8307951af0b1546a5`, 867 source files verified against the exact Git commit. Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:92a4bb436b83244fc340bdffb19484ee5c52588ded00ac4be5e3a3b67ed2199f`; frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:de17094d7c8447a8d05b79629eceeb0746a7b4c848a4c50eee63592b9f1999ef`.
+- Backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260917_100146.dump`: mode 0600, 53993999 bytes, 1202 restore objects; SHA-256 `a88f0ad92cd68bd7755c9a82fe4dfe3422146124b9198b119f2936ef412e9749`, restore-list SHA-256 `eac6ffdbe93f1c9e998d28d5cff73444ec5bb67afc6bddd4120a064e25ee5782`. Backup hashes/freshness verified before staging. Application rollback uses the retained green release without database downgrade.
+- Worktree `C:/ERP/.codex-work/sewing-line-model-variant-20260917`; implementation branch `codex/sewing-line-model-variant-20260917` pushed/merged/deployed; record branch `codex/record-sewing-line-model-variant-20260917`. Evidence `outputs/deployment/evidence.json`; legacy checkout preserved; context mirrored to Obsidian.
+
 ## Eco fabric return status and sent-items-only PDF deployed (2026-09-17)
 
 - LIVE: backend/frontend green release `20260917_091524`, exact application commit `d5aea678beff667e8bf93b8a3e85ed4325dfd2df`, merged through PR #171. Both source manifests, image identities, current symlinks and slot states agree. Blue `20260917_083623` remains running for rollback. Frontend activated `2026-09-17T09:26:49.595874+00:00`.
