@@ -19,7 +19,7 @@ TEXT = {
 }
 
 
-def build_pdf(dispatch, remaining, lang="en"):
+def build_pdf(dispatch, lang="en"):
     from app.api.routes.fabric_scans import TASHKENT
     from datetime import timezone
     t = TEXT.get(lang, TEXT["en"])
@@ -31,12 +31,12 @@ def build_pdf(dispatch, remaining, lang="en"):
     heading = ParagraphStyle("heading", fontName=bold, fontSize=15, leading=21, spaceAfter=10)
     subheading = ParagraphStyle("section", fontName=bold, fontSize=11, leading=16, spaceBefore=14, spaceAfter=8)
     def p(value): return Paragraph(escape(str(value or "-")), body)
-    def table(rows, sent):
-        headers = [t[3], t[4], t[5], t[6] if sent else t[14], t[7], t[8]]
+    def table(rows):
+        headers = [t[3], t[4], t[5], t[6], t[7], t[8]]
         data = [[p(value) for value in headers]]
         for row in rows:
             values = [row["fabric_name"], row["batch_no"], row.get("color")]
-            values.append(row["roll_number"] if sent else row.get("rolls"))
+            values.append(row["roll_number"])
             values.extend([f'{float(row["quantity"]):,.2f}', row["unit"]])
             data.append([p(value) for value in values])
         widths = [170, 84, 75, 62, 90, 50]
@@ -52,10 +52,8 @@ def build_pdf(dispatch, remaining, lang="en"):
     story = [Paragraph("Milana Premium", heading), Paragraph(escape(t[0]), heading),
              p(f'{dispatch["number"]} | {t[10]}: {when} (Tashkent)'),
              p(f'{t[9]}: {dispatch["operator_name"]}'), Spacer(1, 8), p(t[12]),
-             Paragraph(escape(t[1]), subheading), table(dispatch["rows"], True),
-             Spacer(1, 8), p(f'{t[14]}: {dispatch["sent_rolls"]} | {float(dispatch["sent_kg"]):,.2f} kg'),
-             Paragraph(escape(t[2]), subheading)]
-    story.append(table(remaining, False) if remaining else p(t[13]))
+             Paragraph(escape(t[1]), subheading), table(dispatch["rows"]),
+             Spacer(1, 8), p(f'{t[14]}: {dispatch["sent_rolls"]} | {float(dispatch["sent_kg"]):,.2f} kg')]
     def footer(canvas, doc):
         canvas.setFont(regular, 8)
         canvas.drawString(32, 20, dispatch["number"])
