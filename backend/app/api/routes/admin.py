@@ -27,7 +27,7 @@ from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
 from app.services.audit import export_audit_hash_chain, log_action, verify_audit_hash_chain
-from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
+from app.services.password_reset import create_password_reset_token, password_reset_url, revoke_password_reset_tokens, send_password_email_safely
 from app.db.reset_demo import reset_to_seed
 from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
 from app.services.factory_scope import FACTORY_CODES, available_factory_codes
@@ -577,8 +577,10 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
         raise HTTPException(400, "Cannot remove the last active administrator")
     if "password" in data and data["password"]:
         _require_strong_password(data["password"])
+        db.query(User.id).filter(User.id == u.id).with_for_update(of=User).one()
         u.password_hash = hash_password(data.pop("password"))
         u.tokens_valid_from = datetime.now(timezone.utc)
+        revoke_password_reset_tokens(db, u.id, u.tokens_valid_from)
     elif "password" in data:
         data.pop("password")
     if "email" in data and data["email"]:
