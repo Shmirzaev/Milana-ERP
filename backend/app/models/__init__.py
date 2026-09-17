@@ -1,3 +1,4 @@
+from app.models.eco_transfer import EcoFabricDispatch, EcoFabricRoll
 from app.models.paid_process import PaidProcess
 from app.models.order_reference import BusinessOrderAlias
 from app.models.core import (
@@ -43,6 +44,7 @@ from app.models.shipment_review import PackageQuantityAdjustment
 from .fabric_scan import FabricScan
 
 __all__ = [
+    "EcoFabricDispatch", "EcoFabricRoll",
     "FabricScan",
     "PaidProcess",
     "BusinessOrderAlias",

@@ -126,6 +126,8 @@ type StockBatch = {
   gsm?: number | string | null;
   quantity: number;
   piece_count?: number | null;
+  available_piece_count?: number | null;
+  offsite_roll_numbers?: number[];
   roll_weights_kg?: number[] | null;
   processes?: string | null;
   unit: string;
@@ -769,7 +771,7 @@ export default function InventoryPage() {
     return [
       { label: t("field.orderNo"), value: batch.order_no },
       { label: t("field.gramaj"), value: fmtDecimal(batch.gsm, 6) },
-      { label: t("field.pieceCount"), value: batch.piece_count },
+      { label: t("field.pieceCount"), value: batch.available_piece_count ?? batch.piece_count },
       { label: t("field.processes"), value: batch.processes },
       { label: t("page.receiveStock.qcStatus"), value: qcLabel(batch.qc_status) },
       { label: t("field.received"), value: receivedDateLabel(batch.received_date) },
@@ -787,6 +789,8 @@ export default function InventoryPage() {
       batchNo,
       color: String(batch?.color || "").trim(),
       batchQuantity: Number(batch.quantity || 0),
+      rollWeights: batch.roll_weights_kg,
+      offsiteRollNumbers: batch.offsite_roll_numbers,
       pieceCount: Math.max(1, Math.floor(Number(batch?.piece_count) || 1)),
       supplier: String(batch?.supplier_name || "").trim(),
       searchValue: batchNo || sku || materialName,

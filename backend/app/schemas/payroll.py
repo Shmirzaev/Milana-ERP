@@ -255,11 +255,18 @@ class PayrollQrLabelSplitOut(BaseModel):
     labels: list[PayrollQrLabelOut]
 
 
+class PayrollQrOrderCount(BaseModel):
+    order_no: str
+    total: int
+    scanned: int
+
+
 class PayrollQrControlOut(BaseModel):
     items: list[PayrollQrLabelOut]
     total: int
     available_count: int
     scanned_count: int
+    order_counts: list[PayrollQrOrderCount] = Field(default_factory=list)
 
 
 class OrderQrStatusOrderOption(BaseModel):

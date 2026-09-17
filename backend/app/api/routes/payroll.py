@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from sqlalchemy import Date, cast, func, or_
+from sqlalchemy import Date, case, cast, func, or_
 from sqlalchemy.orm import object_session
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
@@ -2569,7 +2569,23 @@ def list_qr_labels(
         .all()
     )
     records, employees, departments = _qr_label_maps(db, labels)
+    # Aggregate the complete selected-factory ledger, independently of filters/page.
+    count_columns = (PayrollQrLabel.sales_order_no, PayrollQrLabel.production_no,
+                     PayrollQrLabel.sales_order_id, PayrollQrLabel.production_order_id)
+    count_rows = db.query(*count_columns, func.count(PayrollQrLabel.id),
+                         func.sum(case((PayrollQrLabel.status == "scanned", 1), else_=0))).filter(
+        PayrollQrLabel.factory_code == selected_factory_code(current),
+        PayrollQrLabel.status.in_(["available", "scanned"]),
+    ).group_by(*count_columns).all()
+    counts = {}
+    for sales_no, production_no, sales_id, production_id, count, scanned in count_rows:
+        key = (_canonical_payroll_reference(db, "SO", sales_no, entity_id=sales_id, production_order_id=production_id)
+               or _canonical_payroll_reference(db, "PO", production_no, entity_id=production_id) or "No order")
+        entry = counts.setdefault(key, {"order_no": key, "total": 0, "scanned": 0})
+        entry["total"] += count
+        entry["scanned"] += scanned
     return {
+        "order_counts": list(counts.values()),
         "items": [
             _serialize_qr_label(label, records=records, employees=employees, departments=departments)
             for label in labels

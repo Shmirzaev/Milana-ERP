@@ -5,6 +5,7 @@ test rejects new authorization keys that administrators cannot configure.
 """
 
 _ROWS = """
+Inventory|inventory.eco_transfers|Send fabric to Eco Cotton and register returns|Отправка ткани в Eco Cotton и возвраты|Eco Cottonga mato yuborish va qaytarish
 Sales|sales.orders|Sales orders: view, create, edit and delete|Заказы: просмотр, создание, изменение и удаление|Buyurtmalar: ko‘rish, yaratish, tahrirlash va o‘chirish
 Sales|sales.customers|Manage customers|Управление клиентами|Mijozlarni boshqarish
 Planning|planning.view|Planning dashboard|Панель планирования|Rejalashtirish paneli

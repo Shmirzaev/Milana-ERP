@@ -66,6 +66,10 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    titleKey: "ecoTransfers.title",
+    items: [{ href: "/eco-fabric-transfers", labelKey: "ecoTransfers.title", perms: ["inventory.eco_transfers"], icon: QrCode }],
+  },
+  {
     titleKey: "fabricScans.section",
     items: [
       { href: "/fabric-scans", labelKey: "fabricScans.title", perms: ["cutting.records", "cutting.bundles", "storage.receive", "storage.items", "planning.production", "management.view"], icon: QrCode },

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
+import SewingRecordHistory from "@/components/SewingRecordHistory";
+import { mutate as refreshSWR } from "swr";
 import PageHeader from "@/components/PageHeader";
 import DefectReasonSelect from "@/components/DefectReasonSelect";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
@@ -235,6 +237,7 @@ export default function SewingPage() {
       mutateAssignments();
       mutateBatchProgress();
       mutateWo();
+      void refreshSWR(`/api/work-orders/${id}/sewing-records`);
       mutateReplacementStatus();
       setF((prev) => ({
         ...prev,
@@ -505,6 +508,7 @@ export default function SewingPage() {
         <button className="btn btn-primary">{t("btn.saveRecord")}</button>
         {msg && <div className="mt-2 text-sm">{msg}</div>}
       </form>
+      <SewingRecordHistory workOrderId={id} batches={po?.batches || []} />
     </div>
   );
 }
