@@ -39,6 +39,7 @@ REQUIRE_RESERVATION_SETTING = "require_material_reservation_before_cutting"
 ACCESSORY_SEWING_BLOCK_REASON = "Accessories must be issued before sewing."
 EPSILON = 1e-9
 _RESERVATION_LOCK_NAMESPACE = 1_297_047_633
+_ACCESSORY_RETURN_LOCK_NAMESPACE = 1_297_047_634
 
 
 def _accessory_match_key(value: object) -> str:
@@ -1129,6 +1130,22 @@ def _movement_production_order_ids(db: Session, movements: list[StockMovement]) 
             resolved[movement_id] = work_order_to_po[work_order_id]
 
     return resolved
+
+
+def lock_accessory_return_allowance(db: Session, production_order_id: int) -> None:
+    """Serialize dedicated return requests through replay, allowance and commit.
+
+    This independent order-level lock does not acquire the order row or any
+    batch/item/numbering lock used by reservations. PostgreSQL releases it on
+    commit or rollback; other issue/movement writers do not participate.
+    """
+    if db.bind and db.bind.dialect.name == "postgresql":
+        # Read the stored integer key so nonexistent/out-of-range IDs retain
+        # the route's normal 404 behavior instead of overflowing the lock key.
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, id) FROM production_orders WHERE id = :order_id"),
+            {"namespace": _ACCESSORY_RETURN_LOCK_NAMESPACE, "order_id": production_order_id},
+        )
 
 
 def accessory_issue_summary(

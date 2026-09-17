@@ -56,6 +56,7 @@ from app.services.inventory import (
     consume_material_reservation,
     create_material_reservations,
     issue_accessories_to_production_order,
+    lock_accessory_return_allowance,
     material_reservation_status_for_production_order,
     release_material_reservation,
     reservation_plan_for_production_order,
@@ -847,6 +848,7 @@ def collect_back_accessory(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     inventory_access.require_accessories(current)
+    lock_accessory_return_allowance(db, payload.production_order_id)
     fingerprint_payload = payload.model_dump(mode="json")
     if payload.length_m is None:
         fingerprint_payload.pop("length_m", None)
