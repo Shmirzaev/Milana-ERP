@@ -4,6 +4,7 @@ import type { Lang } from "./types";
 // legacy dictionary easier to audit without rewriting that large file.
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
+    "page.inventory.arrivalDate": "Arrival date",
     "qrOrders.none": "No QR codes scanned",
     "qrOrders.partial": "Partially scanned",
     "qrOrders.all": "All QR codes scanned",
@@ -1104,6 +1105,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "attendance.resultCount": "{count} profiles",
   },
   ru: {
+    "page.inventory.arrivalDate": "Дата поступления",
     "qrOrders.none": "QR-коды не отсканированы",
     "qrOrders.partial": "Частично отсканировано",
     "qrOrders.all": "Все QR-коды отсканированы",
@@ -2318,6 +2320,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "attendance.resultCount": "\u041f\u0440\u043e\u0444\u0438\u043b\u0435\u0439: {count}",
   },
   uz: {
+    "page.inventory.arrivalDate": "Kelgan sana",
     "qrOrders.none": "QR kodlar skanerlanmagan",
     "qrOrders.partial": "Qisman skanerlangan",
     "qrOrders.all": "Barcha QR kodlar skanerlangan",
