@@ -575,7 +575,7 @@ def delete_user(user_id: int, db: DbSession, current: User = Depends(require_per
         raise HTTPException(404, "User not found")
     if u.id == current.id:
         raise HTTPException(400, "You cannot delete your own account")
-    if "*" in user_permissions(u) and not is_super_admin(current):
+    if ("*" in user_permissions(u) or is_super_admin(u)) and not is_super_admin(current):
         raise HTTPException(403, "Only a super admin can delete administrator accounts")
     if is_super_admin(u) and _count_active_super_admins(db, exclude_user_id=u.id) == 0:
         raise HTTPException(400, "Cannot delete the last active super administrator")
