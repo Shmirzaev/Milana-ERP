@@ -51,6 +51,7 @@ type WO = {
   assigned_qty?: number;
   assignable_qty?: number;
   model_no?: string | null;
+  variant_no?: string | null;
   model_image_url?: string | null;
   material_image_url?: string | null;
   deadline: string | null;
@@ -132,11 +133,10 @@ function WorkOrderMiniRow({
           >
             {orderReference(workOrder, `#${workOrder.production_order_id}`)}
           </Link>
-          {workOrder.model_no && (
-            <div className="mt-1 break-words text-[11px] font-medium text-[#494538]">
-              {t("field.modelNo")}: {workOrder.model_no}
-            </div>
-          )}
+          <div className="mt-1 break-words text-xs font-medium text-[#494538]">
+            <div>{t("field.modelNo")}: {workOrder.model_no || "—"}</div>
+            <div>{t("field.variantNo")}: {workOrder.variant_no || "—"}</div>
+          </div>
           {batchLabel && <div className="mt-1 break-words text-[11px] text-[#6d6655]">{batchLabel}</div>}
           <span className="badge mt-1 max-w-full justify-center px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
         </div>
@@ -190,6 +190,10 @@ function WorkOrderMiniRow({
         >
           {orderReference(workOrder, `#${workOrder.production_order_id}`)}
         </Link>
+        <div className="mt-1 break-words text-xs font-medium text-[#494538]">
+          <div>{t("field.modelNo")}: {workOrder.model_no || "—"}</div>
+          <div>{t("field.variantNo")}: {workOrder.variant_no || "—"}</div>
+        </div>
         {batchLabel && <div className="mt-1 min-w-0 break-words text-[11px] text-[#6d6655]">{batchLabel}</div>}
       </div>
       <div className="min-w-0">

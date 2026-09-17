@@ -80,6 +80,7 @@ from app.services.workflow import (
     propagate_cutting_plan_from_output,
     sync_production_order_status,
 )
+from app.services.model_identity import model_number_fields
 from app.services.model_images import material_preview_image_url, model_preview_image_url
 from app.services.cutting_sheet import render_cutting_sheet_html
 from app.services.factory_scope import require_factory_access, selected_factory_code
@@ -791,6 +792,7 @@ def _work_order_images_by_po(db: DbSession, po_ids: list[int]) -> dict[int, dict
         model = models_by_id.get(int(model_id or 0))
         fabric_batch = fabric_batches_by_id.get(int(fabric_batch_id or 0))
         out[int(po_id)] = {
+            **model_number_fields(model),
             "model_image_url": model_preview_image_url(model),
             "material_image_url": (fabric_batch.image_url if fabric_batch else None) or material_preview_image_url(model),
         }
@@ -807,6 +809,8 @@ def _work_order_payload(
 ) -> dict:
     out = WorkOrderOut.model_validate(wo).model_dump()
     images = (images_by_po or {}).get(int(wo.production_order_id), {})
+    out["model_no"] = images.get("model_no")
+    out["variant_no"] = images.get("variant_no")
     out["model_image_url"] = images.get("model_image_url")
     out["material_image_url"] = images.get("material_image_url")
     if wo.operation == "sewing":

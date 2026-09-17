@@ -10,6 +10,7 @@ from app.schemas.sewing_flow import (
 )
 from app.schemas.production import WorkOrderOut
 from app.services.audit import log_action
+from app.services.model_identity import model_number_fields
 from app.services.model_images import material_preview_image_url
 from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
 
@@ -18,19 +19,6 @@ router = APIRouter(prefix="/sewing-flows", tags=["sewing-flows"])
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
-
-
-def _model_no(model: Model | None) -> str | None:
-    if not model:
-        return None
-    code = str(model.code or "").strip()
-    code_model_no, separator, _ = code.rpartition("-")
-    if not separator:
-        code_model_no = code
-    details = model.details_json if isinstance(model.details_json, dict) else {}
-    general = details.get("general") if isinstance(details.get("general"), dict) else {}
-    value = str(general.get("model_no") or general.get("modelNo") or code_model_no or "").strip()
-    return value or None
 
 
 def _work_order_model_context(db, production_order_ids: list[int]) -> dict[int, dict[str, str | None]]:
@@ -63,7 +51,7 @@ def _work_order_model_context(db, production_order_ids: list[int]) -> dict[int, 
     }
     return {
         int(po_id): {
-            "model_no": _model_no(models_by_id.get(int(model_id or 0))),
+            **model_number_fields(models_by_id.get(int(model_id or 0))),
             "material_image_url": (
                 fabric_batches_by_id.get(int(fabric_batch_id or 0)).image_url
                 if fabric_batches_by_id.get(int(fabric_batch_id or 0))

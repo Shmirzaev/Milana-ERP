@@ -193,6 +193,8 @@ class WorkOrderOut(ORMModel):
     received_bundle_qty: int = 0
     assigned_qty: int = 0
     assignable_qty: int = 0
+    model_no: Optional[str] = None
+    variant_no: Optional[str] = None
     model_image_url: Optional[str] = None
     material_image_url: Optional[str] = None
     start_time: Optional[datetime] = None
