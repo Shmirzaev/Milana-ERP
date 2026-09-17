@@ -10,7 +10,7 @@ from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionOrde
 from app.models.catalog import Model as CatalogModel
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
-from app.services.factory_scope import require_work_order_factory_access
+from app.services.factory_scope import require_factory_access, require_work_order_factory_access
 from app.schemas.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
 from app.services.audit import log_action
 from app.services.factory_scope import available_factory_codes, selected_factory_code
@@ -446,10 +446,15 @@ def list_passports(
 
 
 @router.get("/{pid}", response_model=CuttingPassportOut)
-def get_passport(pid: int, db: DbSession, _: CurrentUser):
+def get_passport(pid: int, db: DbSession, current: CurrentUser):
     p = db.get(CuttingPassport, pid)
     if not p:
         raise HTTPException(404, "Cutting passport not found")
+    if p.production_order_id:
+        _passport_order(db, p.production_order_id, current)
+    else:
+        # Unlinked legacy passports belong to Milana, as in list_passports.
+        require_factory_access(current, "MIL")
     return _serialize(p, db)
 
 
