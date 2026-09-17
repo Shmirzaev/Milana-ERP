@@ -47,6 +47,8 @@ jobs:
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q
+      - name: Attendance connector regressions
+        run: python -m pytest -q connectors/hikvision_attendance
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
 
@@ -90,6 +92,7 @@ jobs:
           app/tests/test_reset_token_revocation.py
           app/tests/test_purchase_receipt_idempotency.py
           app/tests/test_material_reservation_concurrency.py
+          app/tests/test_user_audit_history.py
 
   frontend:
     runs-on: ubuntu-latest
