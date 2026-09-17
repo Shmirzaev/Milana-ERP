@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.inventory.arrivalDate": "Kelgan sana",
     "qrOrders.none": "QR kodlar skanerlanmagan",
     "qrOrders.partial": "Qisman skanerlangan",
     "qrOrders.all": "Barcha QR kodlar skanerlangan",

@@ -12,6 +12,7 @@
   --erp-border: #e3dfd3;
   --erp-border-soft: #ecebe3;
   --erp-border-strong: #ded9ca;
+  --erp-input-border: #8a8472;
   --erp-text: #14110b;
   --erp-text-strong: #2c2920;
   --erp-text-soft: #56503f;
@@ -42,6 +43,7 @@
   --erp-border: #303744;
   --erp-border-soft: #262d38;
   --erp-border-strong: #3a4250;
+  --erp-input-border: #7a8494;
   --erp-text: #f4efe4;
   --erp-text-strong: #e8dfcf;
   --erp-text-soft: #c5ccd6;
@@ -247,7 +249,8 @@ dd {
   box-shadow: 0 1px 2px var(--erp-shadow);
 }
 .input {
-  border-color: var(--erp-border-strong);
+  border-width: 2px;
+  border-color: var(--erp-input-border);
   background-color: var(--erp-surface);
   color: var(--erp-text);
   box-shadow: 0 1px 2px var(--erp-shadow);
@@ -255,7 +258,8 @@ dd {
 .input::placeholder {
   color: var(--erp-text-muted);
 }
-.input:focus {
+.input:focus,
+.input:focus-within {
   border-color: var(--erp-accent);
   --tw-ring-color: color-mix(in srgb, var(--erp-accent) 24%, transparent);
 }

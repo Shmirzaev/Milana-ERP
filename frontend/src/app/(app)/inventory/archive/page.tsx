@@ -272,6 +272,7 @@ export default function FabricInventoryArchivePage() {
                       <div><div className="label mb-0">{t("page.inventory.receivedQuantity")}</div><div className="mono">{formatQuantity(batch.received_quantity)} {batch.unit}</div></div>
                       <div><div className="label mb-0">{t("page.inventory.usedQuantity")}</div><div className="mono">{formatQuantity(batch.used_quantity)} {batch.unit}</div></div>
                       <div><div className="label mb-0">{t("field.supplier")}</div><div>{batch.supplier_name || "-"}</div></div>
+                      <div><div className="label mb-0">{t("page.inventory.arrivalDate")}</div><div>{formatDate(batch.received_date, lang)}</div></div>
                       <div><div className="label mb-0">{t("page.inventory.archivedAt")}</div><div>{formatDate(batch.archived_at, lang)}</div></div>
                     </div>
                   </div>
@@ -281,7 +282,7 @@ export default function FabricInventoryArchivePage() {
             </div>
 
             <div className="hidden overflow-x-auto md:block">
-              <table className="table min-w-[1120px]">
+              <table className="table min-w-[1240px]">
                 <thead>
                   <tr>
                     <th>{t("field.picture")}</th>
@@ -291,6 +292,7 @@ export default function FabricInventoryArchivePage() {
                     <th>{t("page.inventory.receivedQuantity")}</th>
                     <th>{t("page.inventory.usedQuantity")}</th>
                     <th>{t("page.inventory.archiveReason")}</th>
+                    <th>{t("page.inventory.arrivalDate")}</th>
                     <th>{t("page.inventory.archivedAt")}</th>
                     {canRestore ? <th>{t("common.actions")}</th> : null}
                   </tr>
@@ -321,10 +323,8 @@ export default function FabricInventoryArchivePage() {
                       <td className="mono">{formatQuantity(batch.received_quantity)} {batch.unit}</td>
                       <td className="mono">{formatQuantity(batch.used_quantity)} {batch.unit}</td>
                       <td><span className="rounded-md border border-[#d8d1c0] bg-[#f4f1e8] px-2 py-1 text-xs text-[#56503f]">{reasonLabel(batch)}</span></td>
-                      <td>
-                        <div>{formatDate(batch.archived_at, lang)}</div>
-                        <div className="mt-1 text-xs text-[#6f684f]">{formatDate(batch.received_date, lang)}</div>
-                      </td>
+                      <td className="whitespace-nowrap">{formatDate(batch.received_date, lang)}</td>
+                      <td className="whitespace-nowrap">{formatDate(batch.archived_at, lang)}</td>
                       {canRestore ? <td>{restoreButton(batch)}</td> : null}
                     </tr>
                   ))}
