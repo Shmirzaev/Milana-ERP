@@ -1,6 +1,15 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
+
+## PO-0146 daily report cleanup and sewing-line return (2026-09-17)
+
+- At the user's explicit request, deleted exactly daily report rows 894, 895 and 896 for PO-0146 / PJ1235-V-6119 / batch 0168-01, dated 2026-09-12, on Besttex BST-BAND-01 (Oydinoy Mamadaliyeva). They represented 200 + 500 + 500 reported pieces and 2 + 3 + 11 defects. There were no actual sewing records or completed sewing quantities. The user explicitly confirmed both report deletion and return from the line.
+- The same transaction cancelled unused assignment 34 (600 pieces) and cleared work order 651's primary line. Assignment history and the production order were retained. PO-0146 remains at the sewing stage and 600 pieces are available for reassignment; there are now zero linked daily reports. No stock, payroll, bundles, packages, shipments, schema or other business entries were changed. Full prior row snapshots and the user-request reason are retained in system audit entries 20552–20555; that four-entry hash-chain segment validates. The historical audit-chain risk is not claimed fixed.
+- Applied the exact guarded script from commit `1e492f63` (`backend/scripts/remove_po0146_sewing_reports.py`). It is read-only by default, locks the order/work/assignment, rejects changed identities/quantities, additional reports/assignments and actual output, retains old values, commits atomically and supports safe repeat detection. Worktree `C:/ERP/.codex-work/sewing-report-delete-20260917`, branch `codex/sewing-report-delete-20260917`; legacy checkout preserved.
+- Verified full backup `/opt/milana-erp/shared/backups/pre_po0146_sewing_cleanup_20260917_050130.dump`: mode 0600, 53,758,151 bytes, 1,178 restore objects, SHA-256 `55423dde2089be80db57eb2e51ca470cfb42d8d4fe69a77cf288d0309427d127`; restore-list SHA-256 `f8da182de7ecfd708a50b282a7ff50e22a439cbcb37e7e7a58aa604cfec97122`. Restore only the reviewed affected rows if a reversal is requested; preserve later production transactions.
+- The requested Delete button already exists in the live Daily Sewing Report saved-entry Actions column, with confirmation, audit, existing sewing.workspace permission and factory-scoped backend authorization. It was deployed on September 12; no duplicate UI action or application release was needed. This task verified deployed-source parity. Browser inspection reached sign-in, so authenticated visual confirmation was unavailable.
+- Validation: 14 existing daily-report/assignment-return regressions and seven focused cleanup tests passed, including rejection and rollback checks; scoped Ruff and whitespace checks passed. Production read-only postflight verified zero remaining reports, retained cancelled assignment, 600 available pieces, unchanged production quantities/status and the audit segment. All four internal/public health/login checks returned HTTP 200. No deployment, merge, migration, restart or permission change occurred: active green release `20260916_033607`, rollback blue `20260915_121653`, database `0129_user_access_policy`. Both VM manifests and slot states matched the production baseline before work.
 
 ## Compact access checkboxes live; observation complete (2026-09-16)
 
