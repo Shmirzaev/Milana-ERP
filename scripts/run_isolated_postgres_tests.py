@@ -54,8 +54,18 @@ def main():
                    DATABASE_URL="sqlite:///:memory:", ENV="test", RUN_SEED_ON_STARTUP="false",
                    STARTUP_SCHEMA_SYNC="false", SHARED_STORE_URL="", REDIS_URL="", SMTP_HOST="",
                    RESEND_API_KEY="", AI_MONITOR_PASSWORD="", PYTHONDONTWRITEBYTECODE="1")
+        env["PYTHONPATH"] = str(repo / "backend")
+        # Run outside the checkout so settings cannot load a developer's .env.
+        # Resolve existing test paths while preserving pytest options/filters.
+        isolated_tests = []
+        for value in tests:
+            path, separator, node = value.partition("::")
+            candidate = repo / "backend" / path
+            isolated_tests.append(str(candidate.resolve()) + separator + node if candidate.exists() else value)
+        if not tests:
+            isolated_tests = [str(repo / "backend" / "app" / "tests")]
         print(f"Disposable PostgreSQL: 127.0.0.1:{port}; synthetic schemas only", flush=True)
-        result = subprocess.run([sys.executable, "-m", "pytest", *tests], cwd=repo / "backend", env=env)
+        result = subprocess.run([sys.executable, "-m", "pytest", *isolated_tests], cwd=scratch, env=env)
         return result.returncode
     finally:
         if password_file.exists():
