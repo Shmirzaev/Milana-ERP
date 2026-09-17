@@ -403,6 +403,7 @@ class ReadOnlyHikvision:
     def events(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         search_id = str(uuid.uuid4())
         position = 0
+        total: int | None = None
         result: list[dict[str, Any]] = []
         while True:
             payload = {"AcsEventCond": {
@@ -416,16 +417,38 @@ class ReadOnlyHikvision:
             }}
             data = self.post_search("/ISAPI/AccessControl/AcsEvent?format=json", payload)
             root = data.get("AcsEvent") or data.get("AcsEventSearchResult") or data
-            page = root.get("InfoList") or root.get("infoList") or []
+            status = str(root.get("responseStatusStrg", "")).strip().upper()
+            if status and status not in {"OK", "MORE", "NO MATCH"}:
+                raise RuntimeError(f"Hikvision event search failed: {status}")
+            if root.get("totalMatches") is None and not status:
+                raise RuntimeError("Hikvision event search omitted completion metadata")
+            page = _first(root, "InfoList", "infoList", default=[]) or []
             if isinstance(page, dict):
-                page = page.get("AcsEventInfo") or page.get("acsEventInfo") or [page]
+                page = _first(page, "AcsEventInfo", "acsEventInfo", default=[page]) or []
             if isinstance(page, dict):
                 page = [page]
-            result.extend(page)
-            matches = int(root.get("numOfMatches", len(page)) or 0)
-            total = int(root.get("totalMatches", len(result)) or len(result))
+            if not isinstance(page, list) or any(not isinstance(item, dict) for item in page):
+                raise RuntimeError("Hikvision event search returned an invalid event page")
+            matches = int(root.get("numOfMatches", len(page)))
+            if matches != len(page):
+                raise RuntimeError("Hikvision event search page count does not match its records")
+            if root.get("totalMatches") is not None:
+                page_total = int(root["totalMatches"])
+                if page_total < 0 or (total is not None and total != page_total):
+                    raise RuntimeError("Hikvision event search total changed during pagination")
+                total = page_total
             position += matches
-            if matches == 0 or position >= total:
+            if total is not None and position > total:
+                raise RuntimeError("Hikvision event search returned more records than its total")
+            complete = position == total if total is not None else status in {"OK", "NO MATCH"}
+            if (status == "MORE" and complete) or (status == "NO MATCH" and matches):
+                raise RuntimeError("Hikvision event search returned contradictory completion metadata")
+            if not matches and not complete:
+                raise RuntimeError("Hikvision event search ended before all records were collected")
+            result.extend(page)
+            # Returning a partial window would let sync_events permanently skip
+            # unread records when it checkpoints the end of this time window.
+            if complete:
                 break
         return result
 
