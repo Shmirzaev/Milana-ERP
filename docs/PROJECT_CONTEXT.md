@@ -2,6 +2,17 @@
 
 Last updated: 2026-09-17
 
+## Form borders and Fabric Archive arrival dates deployed (2026-09-17)
+
+- LIVE: backend/frontend blue release `20260917_083623`, exact application commit `566c2ed2934b8491fd19b7013649163ee461c954`, merged through PR #169. Both source manifests, image identities, current symlinks and slot states agree. Green `20260917_081317` remains running for rollback. Frontend activated `2026-09-17T08:46:59.791129+00:00`.
+- Shared `.input` controls (inputs, selects, textareas and searchable dropdown wrappers) now use darker 2px borders with light/night theme colors and retained accent focus indication. The surrounding application layout is unchanged. Fabric Archive shows the existing `received_date` as a separate Arrival date column on desktop and labeled field on mobile, alongside the archived date; EN/RU/UZ labels are provided.
+- Frontend-only presentation change: no business data, permissions or schema changes. Database remains `0131_sewing_corrections`; no new migration was applied. Startup seeding remained disabled.
+- Standard immutable CI [35200576531](https://github.com/Shmirzaev/Milana-ERP/actions/runs/35200576531) passed its existing backend/frontend validation and published exact-commit images/source. The user explicitly requested fast deployment without extra tests or monitoring: no additional local suites, browser/performance exercises or extended observation ran. Source diff, backup, unchanged schema, candidate warm-up/runtime and four immediate health checks passed. Extended observation is intentionally omitted, not claimed complete.
+- All four internal/public health/login checks returned HTTP 200. Both routers validated; two workers per backend slot, zero restarts/OOM/error markers. PostgreSQL 25/100 connections, zero invalid indexes. Disk 73% backend / 65% frontend. Historical audit/security risks remain unchanged.
+- Source manifest `7a66be5dc40b82ef6365481ba46ab8f674165f688fa150103b6397a6d136d2c4`, archive SHA-256 `beabef64491c3e1640569818f428140c177c5a884223b8ae382457421e2b6d02`, 866 source files verified against the exact Git commit. Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:5354c34bcd8e092237449df67008e79682cbcac7af5f687bf1705d33cacf8fa7`; frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:6291d8db0df5319b239b8d71e413177a00b3adee6c2db9da41e95cc6c1eaee15`.
+- Backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260917_083623.dump`: mode 0600, 53785766 bytes, 1202 restore objects; SHA-256 `12ae1df49cc785bcc749f105fb78ae07822a8094cdfcd266b055d77fab872241`, restore-list SHA-256 `e983f1bfd3347a367a8c3c0857fc93d6f7f6c90eb1576feb0b7682dc6a104860`. Backup hashes/freshness verified before staging. Application rollback uses the retained green release without database downgrade.
+- Worktree `C:/ERP/.codex-work/form-borders-fabric-arrival-20260917`; implementation branch `codex/form-borders-fabric-arrival-20260917` pushed/merged/deployed; record branch `codex/record-form-borders-fabric-arrival-20260917`. Evidence `outputs/deployment/evidence.json`; legacy checkout preserved; context mirrored to Obsidian.
+
 ## Sewing corrections, QR groups and Eco fabric tracking deployed (2026-09-17)
 
 - LIVE: backend/frontend green release `20260917_081317`, exact application commit `c0c11d473e42e26037cfe686304109139ae24b93`, merged through PR #167. Both source manifests, image identities, current symlinks and slot states agree. Blue `20260917_052400` remains running for rollback. Frontend activated `2026-09-17T08:24:38.751935+00:00`.
