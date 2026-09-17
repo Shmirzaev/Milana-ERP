@@ -25,6 +25,14 @@ def password_reset_url(token: str) -> str:
     return f"{base}/reset-password?token={token}"
 
 
+def revoke_password_reset_tokens(db: Session, user_id: int, revoked_at: datetime) -> None:
+    """Caller holds the user's row lock; commit with the password change."""
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user_id,
+        PasswordResetToken.used_at.is_(None),
+    ).update({PasswordResetToken.used_at: revoked_at}, synchronize_session="fetch")
+
+
 def create_password_reset_token(db: Session, user: User) -> str:
     raw_token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_MINUTES)

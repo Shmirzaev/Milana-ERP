@@ -28,6 +28,7 @@ from app.services.audit import log_action
 from app.services.factory_scope import assigned_factory_code, authorize_login_factory, available_factory_codes, selected_factory_code
 from app.services.password_reset import (
     create_password_reset_token,
+    revoke_password_reset_tokens,
     password_reset_hash,
     password_reset_url,
     send_password_email_safely,
@@ -290,20 +291,33 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
         raise HTTPException(400, str(e)) from e
 
     token_hash = password_reset_hash(payload.token.strip())
-    reset_token = db.query(PasswordResetToken).filter(PasswordResetToken.token_hash == token_hash).first()
+    user_id = db.query(PasswordResetToken.user_id).filter(PasswordResetToken.token_hash == token_hash).scalar()
+    if user_id is None:
+        raise HTTPException(400, "Invalid or expired reset link")
+
+    # Sibling links must serialize on the same account, not individual tokens.
+    # Re-read the token after acquiring the lock so a waiting reset observes the
+    # first reset's invalidation even if this session already loaded the token.
+    user = db.query(User).filter(User.id == user_id).with_for_update(of=User).populate_existing().first()
+    reset_token = (
+        db.query(PasswordResetToken)
+        .filter(PasswordResetToken.token_hash == token_hash)
+        .populate_existing()
+        .first()
+    )
     now = datetime.now(timezone.utc)
     if (
         not reset_token
         or reset_token.used_at is not None
         or as_utc(reset_token.expires_at) < now
-        or not reset_token.user
-        or not reset_token.user.is_active
+        or not user
+        or not user.is_active
     ):
         raise HTTPException(400, "Invalid or expired reset link")
 
-    reset_token.user.password_hash = hash_password(payload.new_password)
-    reset_token.user.tokens_valid_from = now
-    reset_token.used_at = now
+    user.password_hash = hash_password(payload.new_password)
+    user.tokens_valid_from = now
+    revoke_password_reset_tokens(db, user_id, now)
     db.commit()
     return {"message": "password_reset"}
 
@@ -359,6 +373,9 @@ def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
 def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser):
     if payload.new_password != payload.confirm_new_password:
         raise HTTPException(400, "New passwords do not match")
+    # Serialize every password mutation with reset-link redemption and refresh
+    # the credential before checking it after a possible lock wait.
+    user = db.query(User).filter(User.id == user.id).with_for_update(of=User).populate_existing().one()
     if not verify_password(payload.current_password, user.password_hash):
         raise HTTPException(400, "Current password is incorrect")
     try:
@@ -367,6 +384,7 @@ def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser)
         raise HTTPException(400, str(e)) from e
     user.password_hash = hash_password(payload.new_password)
     user.tokens_valid_from = datetime.now(timezone.utc)
+    revoke_password_reset_tokens(db, user.id, user.tokens_valid_from)
     log_action(db, user, "change_password", "User", user.id)
     db.commit()
     return {"message": "password_updated"}

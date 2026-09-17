@@ -1,6 +1,17 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-17
+Last updated: 2026-09-18
+
+## Security audit remediation pending review (2026-09-18)
+
+- Local source remediation on `codex/security-audit-fixes-20260918`, based on `origin/main` commit `80f4831e8b9e514f1a3ee16558ad45a782e0e29a`. Each reproduced bug has a dedicated agent and isolated worktree. Only relevant security patches from pending PR #175 were reused; unrelated stock, payment and UI work remains separate.
+- Permission grants now validate known identifiers and legacy factory wrappers before privilege checks. Super Admin deletion is protected even without wildcard access. Purchasing-price access requires explicit permissions, never mutable profile names or email addresses. See `SECURITY_PRICING_ACCESS_ROLLOUT.md` before deployment: verify the intended purchaser's immutable identity and explicitly grant access; no identity-based migration is safe.
+- Production planning PATCH rejects internal lifecycle/provenance fields; the edit dialog displays status read-only. Reset and password changes revoke outstanding reset links atomically with account-row locking. Protected model images check current account/session validity and release database connections before image work. Accounts that authored audit records must be deactivated; deletion returns 409 before detaching references.
+- Sewing assignment deletion, flow utilization and cutting-passport detail enforce the selected factory before accessing the record. Existing same-factory read policies remain intact. Factory selection also applies to Super Admin sessions; switch factories to access another factory's operations.
+- Patched Next.js/eslint-config-next 16.3.5, Pillow 12.3.0 and compatible transitive packages. Final npm lockfile audit returned zero known advisories; Pillow image/upload/QR checks passed. Frontend lint (three navigation warnings), strict types, workflow contracts and production build passed. See `SECURITY_REMEDIATION_2026-09-18.md` and PR checks for validation scope.
+- Validation uses synthetic local data and disposable databases. The CI backend job includes PostgreSQL for real simultaneous reset-redemption coverage. No schema migration or production data change is intended. Detailed validation and remaining scope are recorded in the PR.
+- NOT DEPLOYED. Per explicit user scope, production servers were not checked during remediation. Last recorded state, not freshly verified: blue `20260917_100146` active, green `20260917_091524` rollback, database `0131_sewing_corrections`. Reconcile manifests/slots and `deploy/production-base.json` before any later deployment. Existing damaged audit history and separate historical financial/stock concurrency findings are not declared repaired by these fixes.
+- Obsidian mirror location is unavailable on this host; repository context is maintained here.
 
 ## Sewing line model and variant visibility deployed (2026-09-17)
 

@@ -27,7 +27,7 @@ from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
 from app.services.audit import export_audit_hash_chain, log_action, verify_audit_hash_chain
-from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
+from app.services.password_reset import create_password_reset_token, password_reset_url, revoke_password_reset_tokens, send_password_email_safely
 from app.db.reset_demo import reset_to_seed
 from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
 from app.services.factory_scope import FACTORY_CODES, available_factory_codes
@@ -361,25 +361,48 @@ def _assert_can_grant_role(db: DbSession, actor: User, role_id: int | None) -> N
     role = db.get(Role, role_id)
     if not role:
         raise HTTPException(404, "Role not found")
-    target_perms = set(role.permissions or [])
-    if _role_grants_admin_control(role):
-        if not is_super_admin(actor):
-            raise HTTPException(403, "Only a super admin can assign administrator roles")
-        return
-    actor_perms = set(user_permissions(actor))
-    if "*" in actor_perms:
-        return
-    missing = target_perms - actor_perms
-    if missing:
-        raise HTTPException(403, f"You cannot grant permissions you don't hold: {sorted(missing)}")
+    if _role_is_super_admin(role) and not is_super_admin(actor):
+        raise HTTPException(403, "Only a super admin can assign administrator roles")
+    _assert_can_grant_permissions(actor, role.permissions, allow_factory=False)
 
 
-def _assert_can_grant_permissions(actor: User, permissions: list[str] | None) -> None:
-    target_perms = set(normalize_permissions(permissions))
+def _normalize_grants(permissions, *, allow_factory=True) -> list[str]:
+    """Validate persisted grant syntax before authorization or wildcard shortcuts."""
+    result = []
+    for token in normalize_permissions(permissions):
+        permission = token
+        if token.startswith("factory:"):
+            parts = token.split(":")
+            if len(parts) != 3 or not allow_factory:
+                raise HTTPException(400, "Factory grants belong in user additional access")
+            factory = normalize_factory_code(parts[1])
+            permission = parts[2].strip()
+            if permission == SUPER_ADMIN_PERMISSION:
+                raise HTTPException(400, "Super Admin access is configured in the primary factory only")
+            token = f"factory:{factory}:{permission}"
+        if permission not in PERMISSION_KEYS:
+            raise HTTPException(400, "Unknown permission")
+        if token not in result:
+            result.append(token)
+    return result
+
+
+def _assert_can_grant_permissions(actor: User, permissions: list[str] | None, *, allow_factory=True) -> None:
+    target_perms = set()
+    scoped_factories = set()
+    for token in _normalize_grants(permissions, allow_factory=allow_factory):
+        if token.startswith("factory:"):
+            _, factory, permission = token.split(":")
+            scoped_factories.add(factory)
+            target_perms.add(permission)
+        else:
+            target_perms.add(token)
+    if is_super_admin(actor):
+        return
     if _permissions_grant_admin_control(target_perms):
-        if not is_super_admin(actor):
-            raise HTTPException(403, "Only a super admin can grant administrator access")
-        return
+        raise HTTPException(403, "Only a super admin can grant administrator access")
+    if scoped_factories - {selected_factory_code(actor)}:
+        raise HTTPException(403, "Only Super Admin can configure another factory")
     actor_perms = set(user_permissions(actor))
     if "*" in actor_perms:
         return
@@ -421,9 +444,13 @@ def _count_active_super_admins(db: DbSession, exclude_user_id: int | None = None
 
 def _detach_user_references(db: DbSession, user_id: int) -> None:
     """Remove references that would otherwise block deleting a user account."""
+    # Actor IDs are part of the immutable audit hash payload. Check before
+    # detaching any references, including legacy entries without a hash.
+    if db.query(AuditLog.id).filter(AuditLog.user_id == user_id).first() is not None:
+        raise HTTPException(409, "This user has audit history and cannot be deleted. Deactivate the account instead.")
     users_table = User.__table__
     for table in Base.metadata.sorted_tables:
-        if table is users_table:
+        if table is users_table or table is AuditLog.__table__:
             continue
         for column in table.c:
             if not any(fk.column.table is users_table and fk.column.name == "id" for fk in column.foreign_keys):
@@ -451,7 +478,7 @@ def create_user(
     if password_provided:
         _require_strong_password(payload.password)
     _assert_can_grant_role(db, current, payload.role_id)
-    extra_permissions = normalize_permissions(payload.extra_permissions)
+    extra_permissions = _normalize_grants(payload.extra_permissions)
     _assert_can_grant_permissions(current, extra_permissions)
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(400, "Email already exists")
@@ -520,7 +547,7 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
         if data["factory_code"] != u.factory_code:
             u.tokens_valid_from = datetime.now(timezone.utc)
     if "extra_permissions" in data:
-        data["extra_permissions"] = normalize_permissions(data["extra_permissions"])
+        data["extra_permissions"] = _normalize_grants(data["extra_permissions"])
     # Guard against self-escalation and self-lockout by a non-superadmin manager.
     if u.id == current.id and not actor_is_super_admin:
         if "role_id" in data and data["role_id"] != u.role_id:
@@ -554,8 +581,10 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
         raise HTTPException(400, "Cannot remove the last active administrator")
     if "password" in data and data["password"]:
         _require_strong_password(data["password"])
+        db.query(User.id).filter(User.id == u.id).with_for_update(of=User).one()
         u.password_hash = hash_password(data.pop("password"))
         u.tokens_valid_from = datetime.now(timezone.utc)
+        revoke_password_reset_tokens(db, u.id, u.tokens_valid_from)
     elif "password" in data:
         data.pop("password")
     if "email" in data and data["email"]:
@@ -575,7 +604,7 @@ def delete_user(user_id: int, db: DbSession, current: User = Depends(require_per
         raise HTTPException(404, "User not found")
     if u.id == current.id:
         raise HTTPException(400, "You cannot delete your own account")
-    if "*" in user_permissions(u) and not is_super_admin(current):
+    if ("*" in user_permissions(u) or is_super_admin(u)) and not is_super_admin(current):
         raise HTTPException(403, "Only a super admin can delete administrator accounts")
     if is_super_admin(u) and _count_active_super_admins(db, exclude_user_id=u.id) == 0:
         raise HTTPException(400, "Cannot delete the last active super administrator")
@@ -595,7 +624,7 @@ def list_roles(db: DbSession, _: CurrentUser):
 
 @router.post("/roles", response_model=RoleOut, status_code=201)
 def create_role(payload: RoleIn, db: DbSession, current: User = Depends(require_permissions("*"))):
-    permissions = normalize_permissions(payload.permissions)
+    permissions = _normalize_grants(payload.permissions, allow_factory=False)
     if payload.name.strip().lower() == SUPER_ADMIN_ROLE_NAME.lower() and not is_super_admin(current):
         raise HTTPException(403, "Only a super admin can create the super admin role")
     _assert_can_grant_permissions(current, permissions)

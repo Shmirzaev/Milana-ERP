@@ -54,9 +54,9 @@ def test_factory_overrides_never_leak_primary_role():
     assert error.value.status_code == 403
 
 
-def test_named_and_department_pricing_can_be_revoked():
+def test_explicit_and_department_pricing_can_be_revoked():
     u = subject(["storage.items"], {"MIL": {"deny": ["price_calculation.purchasing", "price_calculation.accessories"]}})
-    u.name = "Abbosbek"
+    u.extra_permissions = ["price_calculation.purchasing"]
     u.department.code = "STR"
     assert not is_price_purchaser(u)
     assert not is_accessory_pricing_user(u)

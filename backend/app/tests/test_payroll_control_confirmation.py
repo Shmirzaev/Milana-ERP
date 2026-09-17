@@ -103,7 +103,7 @@ def test_control_preview_and_confirm_enforce_factory_permission_and_snapshot(cli
     payload = _confirmation(control, employee, preview)
     changed_employee = client.post("/api/payroll/scan/control-confirm", json={**payload, "employee_id": other_employee["id"]}, headers=auth_headers)
     assert changed_employee.status_code == 409
-    unauthorized = _create_user_with_permissions(client, auth_headers, email=f"no-payroll-{uuid4().hex}@example.com", permissions=["dashboard.view"])
+    unauthorized = _create_user_with_permissions(client, auth_headers, email=f"no-payroll-{uuid4().hex}@example.com", permissions=[])
     foreign = _create_user_with_permissions(client, auth_headers, email=f"foreign-payroll-{uuid4().hex}@example.com", permissions=["payroll.scan"], factory_code="BST")
     for route in ("control-preview", "control-confirm"):
         denied = client.post(f"/api/payroll/scan/{route}", json=payload, headers=unauthorized)
