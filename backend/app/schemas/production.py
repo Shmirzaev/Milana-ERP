@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import ORMModel, SchemaModel
 from app.schemas.inventory import ItemComposition
@@ -101,6 +101,29 @@ class ProductionOrderIn(SchemaModel):
     sewing_factory_code: Optional[str] = None
     items: list[ProductionOrderItemIn] = []
     batches: list[ProductionBatchIn] = []
+
+
+class ProductionOrderUpdate(SchemaModel):
+    """Planning edits only; lifecycle and provenance are server-managed."""
+
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+    model_id: int | None = Field(default=None, gt=0)
+    sales_order_id: int | None = Field(default=None, gt=0)
+    fabric_batch_id: int | None = Field(default=None, gt=0)
+    planned_quantity: int | None = Field(default=None, ge=0)
+    deadline: datetime | None = None
+    estimated_material_code: str | None = Field(default=None, max_length=128)
+    estimated_material_amount: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    estimated_material_unit: str | None = Field(default=None, max_length=32)
+    printing_instructions: str | None = None
+    printing_attachments: list[ProductionOrderPrintingAttachment] | None = None
+
+    @field_validator("model_id", "planned_quantity")
+    @classmethod
+    def reject_explicit_null(cls, value):
+        if value is None:
+            raise ValueError("Field cannot be null")
+        return value
 
 
 class ProductionOrderOut(ORMModel):
