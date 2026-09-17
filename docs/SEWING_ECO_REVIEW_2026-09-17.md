@@ -1,6 +1,6 @@
 # Sewing, QR Control and Eco fabric transfer review
 
-Prepared for user review on 2026-09-17. **Not merged or deployed.**
+Approved and deployed on 2026-09-17 as release **20260917_081317**, commit `c0c11d473e42e26037cfe686304109139ae24b93`. Original review and evidence follow.
 
 ## Scope
 
@@ -36,10 +36,10 @@ Reproducible entry points: `backend/scripts/preview_sewing_eco.py`, `frontend/sc
 - Browser checks and EN/RU PDF visual inspection passed; all three PDF languages generated in API tests.
 - Ruff and whitespace checks passed. Physical camera/scanner hardware was not exercised.
 
-## Release boundary
+## Original review baseline (superseded by approved deployment)
 
 Base: origin/main e0516965c497424df3a1c9e91d8766b4976cf844. Production remains blue release 20260917_052400, application commit 42cf6a67cf3cf0e149b60ffc8ca52e943020986c, database revision 0129_user_access_policy, with green 20260916_033607 retained for rollback. Production manifests and deploy/production-base.json agreed before editing. No production business rows or permissions were modified.
 
-Worktree: C:/ERP/.codex-work/sewing-qr-eco-transfers-20260917. Branch: codex/sewing-qr-eco-transfers-20260917. Legacy C:/ERP changes were preserved. Deployment awaits the user's approval after screenshot review and must follow DEPLOYMENT.md, including fresh source reconciliation, backup, exact-commit images, migration, blue/green gates and rollback preservation. Historical audit/security risks remain outside this change.
+Worktree: C:/ERP/.codex-work/sewing-qr-eco-transfers-20260917. Branch: codex/sewing-qr-eco-transfers-20260917. Legacy C:/ERP changes were preserved. The user approved deployment after screenshot review. The release followed fresh source reconciliation, backup, exact-commit images, migrations and blue/green activation. See PROJECT_CONTEXT.md for the active release and the user's explicit omission of extra tests/extended monitoring. Historical audit/security risks remain outside this change.
 
 Custody history must not be dropped on rollback. Migration 0130 refuses downgrade after dispatch history exists. Original per-roll weights are required for previously used batches whose weights cannot be safely reconstructed; the UI explains the required correction instead of guessing.
