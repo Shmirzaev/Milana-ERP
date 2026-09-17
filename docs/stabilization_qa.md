@@ -47,6 +47,10 @@ Each row names a repeatable regression. Browser checks complement these; they do
 | SEC02 | `test_user_audit_history.py`; Users → Delete/Edit | Delete an account with authored history: 409 and no cleanup. Edit → deactivate works; old session rejects. A concurrent audit insert also preserves actor/hash and rolls back cleanup. |
 | API06 | `test_name_authorization.py`, `test-name-authorization.mjs`; profile/pricing | Rename restricted user to `Abbosbek` or matching email. Same session still gets 403 from pricing GET/PATCH; navigation remains hidden. Explicitly granted users retain access. |
 | PERF41 | `test_eco_history_query_growth.py`, `test_eco_transfers.py`; Eco transfer history | Pagination/date/order/roll rows/global totals unchanged. Empty page works; historical snapshot is not rewritten. |
+| SEC01 | `test_scoped_permission_grants.py`; Users/roles APIs | Limited admins cannot grant wildcard/admin.super or change foreign-factory grants. Legitimate held permissions work; unchanged grants survive profile edits. |
+| SEC07 | `test_passport_get_scope.py`; passport GET | Own-factory linked passport returns unchanged data; wrong factory 403; missing record 404. Manual unlinked passports retain the existing read policy. |
+| DB04 | `test_fresh_migration_bootstrap.py`; isolated PostgreSQL | Empty database upgrades to 0131; rerun mutates nothing; 0130 row survives upgrade. Exact reviewed schema-drift baseline must match, not silently regenerate. |
+| ST05 | `test_accessory_return_balance.py`; accessory issue/return APIs | Stock issue 8 + manual issue 4 allows returns 3+6+3. Retry changes nothing; excess rejects. Warehouse = 20−8+returns; production net = 12−returns. |
 
 For UI QA, start a separate loopback-only frontend/backend with fresh synthetic accounts and database. Block external browser requests and backend connections. Test both a restricted and explicitly permitted account. Inspect the rendered error/success state and browser errors; screenshots must contain synthetic data only. Attendance connector and backend-only concurrency cases use protocol/transaction tests instead of screenshots.
 
@@ -61,6 +65,8 @@ For UI QA, start a separate loopback-only frontend/backend with fresh synthetic 
 | Attendance download | O(pages) device requests | O(events) processing/memory. Failure must not become a successful checkpoint. |
 | Pricing authorization | No added DB queries | O(p) permission evaluation; profile text no longer grants access. |
 | Audited account deletion | One additional history-existence lookup | Worst-case O(a) without an actor index. This is an integrity fix, not a speed claim. |
+| Scoped grants / passport access | No new grant queries; bounded linked-order lookups | Permission-set work grows with permissions. Passport serialization still depends on materials; no speed claim. |
+| Accessory return summary | No added queries | O(stock issues + manual issues) grouping; existing O(groups log groups) sorting. This fixes totals, not pagination or concurrent returns. |
 
 **Bounded round trips are not O(1) total work.** Unmeasured APIs remain unknown. Local timings under laptop memory pressure are not a 200–2,000-user capacity claim.
 

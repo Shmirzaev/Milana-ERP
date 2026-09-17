@@ -121,10 +121,10 @@
       "risk": "Buyer cannot complete a clean installation.",
       "proposed_fix": "Freeze initial schema; test blank installation.",
       "baseline_source": "backend/alembic/versions/0001_initial.py:21",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "1f3e20a",
+      "evidence": "test_fresh_migration_bootstrap.py: 13 lightweight + 2 isolated PostgreSQL cases passed; exact known drift retained, not ORM parity"
     },
     {
       "number": 11,
@@ -133,10 +133,10 @@
       "risk": "Administrator can grant unauthorized factory access.",
       "proposed_fix": "Validate scoped and normal grants identically.",
       "baseline_source": "backend/app/api/routes/admin.py:377",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "6458d9c",
+      "evidence": "test_scoped_permission_grants.py: 50 focused cases passed; cycle3 browser API denied 13 escalation attempts"
     },
     {
       "number": 12,
@@ -205,10 +205,10 @@
       "risk": "Factory data disclosure.",
       "proposed_fix": "Apply the scope check already used by DELETE.",
       "baseline_source": "backend/app/api/routes/cutting_passports.py:449",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "c855a27",
+      "evidence": "test_passport_get_scope.py: 35 focused cases passed; cycle3 browser API factory boundaries passed; unlinked passports retain existing policy"
     },
     {
       "number": 18,
@@ -325,10 +325,10 @@
       "risk": "Valid returns can be rejected.",
       "proposed_fix": "Count returns once.",
       "baseline_source": "backend/app/services/inventory.py:1219",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "b2c126a",
+      "evidence": "test_accessory_return_balance.py: baseline 4 failed; fixed 8 passed; compatibility batch 23 passed"
     },
     {
       "number": 28,
@@ -1493,6 +1493,18 @@
       "owner": null,
       "commit": null,
       "evidence": null
+    },
+    {
+      "number": 125,
+      "id": "DB08",
+      "bug": "ORM-only test schemas differ from the migration-created database.",
+      "risk": "Tests can miss production nullability, defaults, foreign-key behavior and index costs.",
+      "proposed_fix": "Review the 30 unresolved drift entries; align source contracts with intended migrations. Preserve legacy data; do not auto-generate destructive changes.",
+      "baseline_source": "backend/app/models; backend/alembic/versions",
+      "status": "open",
+      "owner": null,
+      "commit": null,
+      "evidence": "docs/audit-evidence/fresh-migration-schema-drift.json: full reviewed drift, including intentional migration-owned features; not 126 separate bugs"
     }
   ]
 }

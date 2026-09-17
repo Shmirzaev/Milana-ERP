@@ -2,7 +2,7 @@
 
 18 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**19 scoped fixes covering 20 of 124 recorded findings. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open.
+**24 of 125 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open.
 
 ## Fixed and regression-tested
 
@@ -17,23 +17,29 @@
 | **SEC04 — Revoked accounts still download model files** | Access survives account revocation | [main.py:338](backend/app/main.py#L338): check current user; release DB connection before file processing. |
 | **SEC05 — Old sibling reset links remain usable** | Password changed again using an old link | [auth.py:284](backend/app/api/routes/auth.py#L284): lock user; consume all outstanding links atomically. |
 | **SEC07 — Assignment deletion bypasses factory scope** | Changes another factory's work | [production_extra.py:385](backend/app/api/routes/production_extra.py#L385): enforce sewing-flow factory access before deletion. |
-| **SEC10 — Lower-privileged admin deletes super admin** | Privileged account removal | [admin.py:578](backend/app/api/routes/admin.py#L578): protect privileged targets on DELETE. |
+| **SEC10 — Lower-privileged admin deletes super admin** | Privileged account removal | [admin.py:593](backend/app/api/routes/admin.py#L593): protect privileged targets on DELETE. |
 | **UI01 — Temporary session failure logs users out** | Interrupted work | [auth.ts:20](frontend/src/lib/auth.ts#L20), [AuthGate.tsx:167](frontend/src/components/AuthGate.tsx#L167): distinguish 401/403 from outages; offer bounded retries. |
 | **UI02 — Body download escapes request timeout** | Screen can wait indefinitely | [api.ts:23](frontend/src/lib/api.ts#L23): deadline/cancellation covers response body too. |
 | **PY01 — Scans credit the wrong employee** | Incorrect payroll | [scan/page.tsx:896](frontend/src/app/(app)/payroll/scan/page.tsx#L896): process badge, work and manual-selection events in order. |
 | **PERF01 — Package list repeats DB queries per row** | Slow listings and wasted DB capacity | [packages.py:489](backend/app/api/routes/packages.py#L489): batch context/model reads. **50 packages: 152 → 5 SELECTs.** |
 | **AT02 — Partial attendance download advances checkpoint** | Missing clock-in/out events | [connector:403](connectors/hikvision_attendance/read_only_connector.py#L403): require complete pagination before upload/checkpoint. Commit `137637f`. |
-| **SEC02 — User deletion rewrites audit actors** | Broken history/hash verification | [admin.py:425](backend/app/api/routes/admin.py#L425): reject deletion with 409; deactivate instead. Concurrent insert rolls cleanup back. Commit `5b157d0`. |
+| **SEC02 — User deletion rewrites audit actors** | Broken history/hash verification | [admin.py:437](backend/app/api/routes/admin.py#L437): reject deletion with 409; deactivate instead. Concurrent insert rolls cleanup back. Commit `5b157d0`. |
 | **API06 — Profile name/email grants pricing access** | Unauthorized price viewing/editing | [price_calculation.py:29](backend/app/services/price_calculation.py#L29), [frontend:60](frontend/src/lib/priceCalculationRequests.ts#L60): require explicit permission. Existing name-authorized staff need a deliberate grant. Commit `d89059e`. |
 | **PERF41 — Eco history queries each dispatch's rolls** | Slow history pages | [eco_transfers.py:199](backend/app/api/routes/eco_transfers.py#L199): fetch page rolls together; omit unused snapshot. **50 dispatches: 54 → 5 SELECTs.** Commit `732b65d`. |
 | **SEC07 — Utilization exposes another factory's line** | Factory workload disclosure | [production_extra.py:475](backend/app/api/routes/production_extra.py#L475): enforce the selected-factory guard before reading workload. Commit `40c681e`; **46 scope/assignment/workspace tests passed**. No query optimization claimed. |
+| **SEC01 — Legacy scoped grants bypass restrictions** | Unauthorized factory/admin access | [admin.py:372](backend/app/api/routes/admin.py#L372): validate changed factory grants and role assignment. Commit `6458d9c`; **50 tests passed**. Existing grants are not automatically revoked. |
+| **SEC07 — Linked passport GET ignores factory** | Another factory's cutting data leaks | [cutting_passports.py:449](backend/app/api/routes/cutting_passports.py#L449): check linked order access before serialization. Commit `c855a27`; **35 tests passed**. Unlinked manual records keep their existing policy. |
+| **DB04 — Blank installation crashes at migration 0039** | Buyer cannot install | [0001_initial.py:20](backend/alembic/versions/0001_initial.py#L20): frozen historical schema, not current ORM metadata. Commit `1f3e20a`; **13 lightweight + 2 PostgreSQL tests passed**. Fresh upgrade to 0131, safe rerun, existing row preserved. |
+| **ST05 — Returns deducted from two issue groups** | Incorrect allowance; valid returns rejected | [inventory service:1245](backend/app/services/inventory.py#L1245): merge linked stock/manual issues before subtracting returns. Commit `b2c126a`; **23 tests passed**. Concurrent returns remain ST06. |
 
 ## Evidence
 
+- **Cycle 3 browser API:** 18 scenarios passed: factory boundaries, unchanged authorized payloads, forbidden grants and allowed scoped grant. [Results](docs/audit-evidence/cycle3-browser-results.json). Frontend launch was policy-blocked; no cycle-3 visual UI proof is claimed.
+- **Latest completed CI (`35655cc`):** PostgreSQL and frontend passed. Backend **1,242 passed / 1 failed / 22 skipped**. Failure: test hardcoded the production MCP URL while the isolated runner sets localhost. Test now uses explicit local configuration and passes; full rerun pending.
 - **Cycle 2:** attendance connector **30 passed**; audit/admin **54 passed** plus **1 PostgreSQL race passed**; pricing authorization/workflow **40 passed**; Eco suites **15 passed**. Five frontend stabilization scripts, ESLint, strict TypeScript and pinned Ruff passed. These are targeted results, not a new full-suite total.
 - **Cycle 2 browser:** same-session rename stayed forbidden; explicit pricing grant worked. Delete showed 409 guidance; deactivation rejected the old session. Eco history rendered 3 dispatches/6 rolls on desktop/mobile. No JavaScript page errors; expected denial responses and restricted-dashboard 403 console messages remain. [Results/screenshots](docs/audit-evidence/cycle2-results.json).
 - **CI for first-batch commit `3881177`:** backend, frontend and PostgreSQL jobs passed. Later changes require their own CI run.
-- **API coverage:** 510 method/route pairs inventoried. CI now records success/rejection/unhit operations and test failures as `backend-test-evidence`; route hits are not correctness or complexity proof. See the QA guide for collection/merge commands.
+- **API coverage:** [510-route ledger](docs/api_test_coverage.json): **388 observed, 377 with success, 220 with rejection, 122 unobserved** in that CI run. Categories overlap. Hits are not correctness or complexity proof; final-revision coverage remains required.
 - **PostgreSQL: 21 concurrency checks passed** on disposable local PostgreSQL 17; cluster stopped. Covers receipts, payments, invoice creation, sibling reset links, reservations and Cutting contention.
 - **Browser:** real login → temporary 503 → recovery; genuine 401 redirects. Real receipt commit → dropped response → reload/retry leaves quantity **5, not 10**. Rendered payroll UI with controlled API responses preserves badge/work order and manual selections (`[A, A, B]`). No JavaScript page errors in these scenarios.
 - Package SELECT counts for **1 / 10 / 50** rows: legacy **5/5/5**, distinct linked models **9/9/9**, order fallback **7/7/7**. Bounded round trips for these pages, **not O(1) total processing** or a load-capacity guarantee.
@@ -59,6 +65,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **Duplicates:** receipts need the same saved key. Different operators/keys can still represent the same physical delivery. Finance deduplication does not cover every 1C/workflow entry point.
 - **Recovery:** receipts require browser storage and Web Locks. Uncertain requests that later lose access/conflict retain evidence and need reconciliation; do not clear storage blindly.
 - **Security:** audit-chain concurrency and remaining cross-factory endpoints are not fixed. Account deletion now preserves history; already damaged history is not repaired. Signed sales-file URLs retain their existing expiry-based policy.
-- **Readiness:** other slow endpoints, fresh-database migrations, full workflow/load tests and backup-restore proof still need work. Other pre-existing lock-order risks remain. **Not a production-readiness sign-off.**
+- **DB08 — Schema drift:** fresh migrations work, but ORM-only test schemas are not identical. [Reviewed comparison](docs/audit-evidence/fresh-migration-schema-drift.json) keeps **30 unresolved drift entries**, plus intentional/default-representation differences. Align contracts deliberately; do not delete legacy tables automatically.
+- **Readiness:** other slow endpoints, full workflow/load tests and backup-restore proof still need work. Other pre-existing lock-order risks remain. **Not a production-readiness sign-off.**
 
 Recorded production application code matches the base; live servers/manifests were intentionally not queried. Revalidate deployment state before any release.
