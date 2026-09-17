@@ -59,13 +59,7 @@ function normalized(value: unknown): string {
 
 export function isAbbosbekPricingUser(me: Me | undefined): boolean {
   if (!me) return false;
-  if (me.permissions.includes("*")) return true;
-  if (me.access_configured) return me.permissions.includes("price_calculation.purchasing");
-  const name = normalized(me.name);
-  const emailLocal = normalized(me.email).split("@", 1)[0];
-  return name === "abbosbek"
-    || name.startsWith("abbosbek ")
-    || emailLocal === "abbosbek"
+  return me.permissions.includes("*")
     || me.permissions.includes("price_calculation.purchasing");
 }
 
