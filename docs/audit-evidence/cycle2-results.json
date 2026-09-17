@@ -1,0 +1,135 @@
+{
+  "scenarios": {
+    "renamed_restricted_same_session": {
+      "profile_patch": 200,
+      "name": "Abbosbek",
+      "permissions_unchanged": true,
+      "cookie_unchanged": true,
+      "pricing_nav_absent": true,
+      "pricing_get": 403,
+      "pricing_patch": 403
+    },
+    "direct_pricing_page_denied": true,
+    "explicit_pricing_permission": {
+      "pricing_nav_visible": true,
+      "pricing_get": 200,
+      "page_rendered": true
+    },
+    "audit_history_deletion": {
+      "delete_status": 409,
+      "visible_deactivation_guidance": true,
+      "account_retained": true,
+      "ui_deactivation_status": 200,
+      "old_session_status": 401
+    },
+    "eco_history": {
+      "dispatches": 3,
+      "visible_rolls": 6,
+      "outstanding_rolls": 3,
+      "outstanding_kg": 30,
+      "return_statuses_and_operators_visible": true,
+      "desktop_and_mobile_no_document_overflow": true,
+      "pdf_not_requested": true
+    }
+  },
+  "page_errors": [],
+  "console_errors": [
+    {
+      "context": "restricted",
+      "message": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+      "path": "/api/dashboard/active-production"
+    },
+    {
+      "context": "restricted",
+      "message": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+      "path": "/api/dashboard/production"
+    },
+    {
+      "context": "restricted",
+      "message": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+      "path": "/api/price-calculation/requests"
+    },
+    {
+      "context": "restricted",
+      "message": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+      "path": "/api/price-calculation/requests/999999/purchasing"
+    },
+    {
+      "context": "admin",
+      "message": "Failed to load resource: the server responded with a status of 409 (Conflict)",
+      "path": "/api/users/2"
+    },
+    {
+      "context": "restricted-direct",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "path": "/api/auth/me"
+    },
+    {
+      "context": "restricted-direct",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "path": "/api/auth/me"
+    }
+  ],
+  "error_responses": [
+    {
+      "context": "restricted",
+      "path": "/api/dashboard/active-production",
+      "method": "GET",
+      "status": 403
+    },
+    {
+      "context": "restricted",
+      "path": "/api/dashboard/production",
+      "method": "GET",
+      "status": 403
+    },
+    {
+      "context": "restricted",
+      "path": "/api/price-calculation/requests",
+      "method": "GET",
+      "status": 403
+    },
+    {
+      "context": "restricted",
+      "path": "/api/price-calculation/requests/999999/purchasing",
+      "method": "PATCH",
+      "status": 403
+    },
+    {
+      "context": "admin",
+      "path": "/api/users/2",
+      "method": "DELETE",
+      "status": 409
+    },
+    {
+      "context": "restricted-direct",
+      "path": "/api/auth/me",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "context": "restricted-direct",
+      "path": "/api/auth/me",
+      "method": "GET",
+      "status": 401
+    }
+  ],
+  "blocked_external": [],
+  "screenshots": [
+    "cycle2-name-change-no-pricing-access.png",
+    "cycle2-pricing-direct-access-denied.png",
+    "cycle2-explicit-pricing-access.png",
+    "cycle2-audit-history-delete-denied.png",
+    "cycle2-audit-account-deactivated.png",
+    "cycle2-eco-history-desktop.png",
+    "cycle2-eco-history-mobile.png"
+  ],
+  "environment": "Disposable loopback frontend3001/API8011; synthetic SQLite. Backend snapshot contains cycle2 fixes; not production.",
+  "application_fixes": [
+    "137637f",
+    "732b65d",
+    "5b157d0",
+    "d89059e"
+  ],
+  "limitations": "PDF not requested; no load test; dashboard 403 messages retained; attendance connector verified separately by protocol mocks."
+}

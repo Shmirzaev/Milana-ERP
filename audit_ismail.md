@@ -31,6 +31,7 @@
 ## Evidence
 
 - **Cycle 2:** attendance connector **30 passed**; audit/admin **54 passed** plus **1 PostgreSQL race passed**; pricing authorization/workflow **40 passed**; Eco suites **15 passed**. Five frontend stabilization scripts, ESLint, strict TypeScript and pinned Ruff passed. These are targeted results, not a new full-suite total.
+- **Cycle 2 browser:** same-session rename stayed forbidden; explicit pricing grant worked. Delete showed 409 guidance; deactivation rejected the old session. Eco history rendered 3 dispatches/6 rolls on desktop/mobile. No JavaScript page errors; expected denial responses and restricted-dashboard 403 console messages remain. [Results/screenshots](docs/audit-evidence/cycle2-results.json).
 - **CI for first-batch commit `3881177`:** backend, frontend and PostgreSQL jobs passed. Later changes require their own CI run.
 - **API coverage:** 510 method/route pairs inventoried. CI now records success/rejection/unhit operations and test failures as `backend-test-evidence`; route hits are not correctness or complexity proof. See the QA guide for collection/merge commands.
 - **PostgreSQL: 21 concurrency checks passed** on disposable local PostgreSQL 17; cluster stopped. Covers receipts, payments, invoice creation, sibling reset links, reservations and Cutting contention.
