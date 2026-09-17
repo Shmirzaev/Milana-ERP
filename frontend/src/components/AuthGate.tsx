@@ -167,11 +167,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Only redirect once /me definitively rejects the auth cookie.
     if (hasToken === false) router.replace("/login");
-    if (error) {
-      // Session rejected by the API (expired/invalid) -> clear it and bounce to login.
-      api.logout().finally(() => router.replace("/login"));
-    }
-  }, [hasToken, error, router]);
+  }, [hasToken, router]);
 
   useEffect(() => {
     if (redirectRestrictedSewingRole) router.replace(restrictedSewingHome);
@@ -181,6 +177,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     if (redirectNonMilanaHome) router.replace(factoryHome);
   }, [factoryHome, redirectNonMilanaHome, router]);
 
+  if (error && hasToken === undefined && !loading) {
+    return <div className="p-6 text-slate-600" role="alert">
+      <p>{t("auth.connectionFailed")}</p>
+      <button className="btn mt-3" onClick={() => { void refresh().catch(() => {}); }}>{t("common.retry")}</button>
+    </div>;
+  }
   // Still detecting the cookie-backed session, or /me hasn't responded yet -> spinner.
   if (hasToken === undefined || (hasToken && (loading || !me))) {
     return <div className="p-6 text-slate-500">{t("common.loading")}</div>;

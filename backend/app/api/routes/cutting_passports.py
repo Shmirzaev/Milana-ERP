@@ -499,6 +499,17 @@ def _add_passport_materials(db, order, work_order, payload, current):
     if len(passport_ids) != len(set(passport_ids)) or set(passport_ids) != expected:
         raise HTTPException(409, "The order materials changed. Reload the passport before saving")
     position = max((row.position for row in existing.values()), default=0)
+    # Acquire every new batch before the reservation item/numbering locks. A
+    # per-addition reservation call can retain the numbering lock while waiting
+    # for an item held by another request that is itself waiting for numbering.
+    db.flush()
+    batches = {
+        batch.id: batch for batch in db.query(StockBatch)
+        .filter(StockBatch.id.in_(sorted(set(ids) - set(existing))))
+        .order_by(StockBatch.id).with_for_update(of=StockBatch).populate_existing().all()
+    }
+    reservation_lines = []
+    pending_additions = []
     for addition in payload.additional_materials:
         prior = existing.get(addition.stock_batch_id)
         if prior:
@@ -506,7 +517,7 @@ def _add_passport_materials(db, order, work_order, payload, current):
             if abs(float(prior.estimated_quantity) - addition.estimated_quantity) > 0.0001 or prior.unit != addition.unit:
                 raise HTTPException(409, "This fabric is already assigned with a different quantity")
             continue
-        batch = db.query(StockBatch).filter(StockBatch.id == addition.stock_batch_id).with_for_update(of=StockBatch).first()
+        batch = batches.get(addition.stock_batch_id)
         item = db.get(Item, batch.item_id) if batch else None
         if not batch or not item or item.category not in _MATERIAL_CATEGORIES:
             raise HTTPException(400, "Select a fabric inventory batch")
@@ -522,11 +533,17 @@ def _add_passport_materials(db, order, work_order, payload, current):
         already_reserved = sum(max(0, float(row.reserved_quantity) - float(row.consumed_quantity or 0) - float(row.released_quantity or 0)) for row in reservations)
         missing = addition.estimated_quantity - already_reserved
         if missing > 0.0001:
-            create_material_reservations(db, production_order_id=order.id, lines=[{
+            reservation_lines.append({
                 "item_id": batch.item_id, "stock_batch_id": batch.id, "warehouse_id": batch.warehouse_id,
                 "reserved_quantity": missing, "unit": batch.unit,
                 "notes": f"Added by Cutting passport {payload.passport_no}",
-            }], user_id=current.id)
+            })
+        pending_additions.append((addition, batch))
+    if reservation_lines:
+        create_material_reservations(
+            db, production_order_id=order.id, lines=reservation_lines, user_id=current.id,
+        )
+    for addition, batch in pending_additions:
         position += 1
         row = ProductionOrderMaterial(production_order_id=order.id, stock_batch_id=batch.id,
                                       estimated_quantity=addition.estimated_quantity, unit=batch.unit, position=position)

@@ -1,6 +1,7 @@
 from app.models.eco_transfer import EcoFabricRoll
 from app.core.order_reference import canonical_business_order_reference, canonical_order_reference, order_reference_contains
 from datetime import date, datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Depends, Header, UploadFile, File, Response, Query
@@ -123,7 +124,7 @@ def _require_admin_force(current: User, force: bool) -> None:
 def _locked_stock_batch_statement(batch_id: int):
     # StockBatch.item is joined eagerly by default. PostgreSQL rejects a broad
     # FOR UPDATE when that optional eager relationship adds an outer join, so
-    # lock only the stock_batches query and load no relationship for deletion.
+    # lock only the stock_batches query and load no relationship for mutation.
     return (
         select(StockBatch)
         .options(lazyload(StockBatch.item))
@@ -1280,7 +1281,65 @@ def transfer_stock(
         return replay
     if payload.movement_type not in ("transfer", "issue", "consume", "adjustment", "return"):
         raise HTTPException(400, "Invalid movement_type")
-    mv = StockMovement(**payload.model_dump(), created_by=current.id)
+    quantity = Decimal(str(payload.quantity))
+    if not quantity.is_finite() or quantity <= 0 or quantity >= Decimal("10000000000"):
+        raise HTTPException(400, "Quantity must be finite, positive and less than 10000000000")
+    if quantity != quantity.quantize(Decimal("0.0001")):
+        raise HTTPException(400, "Quantity must have at most four decimal places")
+    item = db.get(Item, payload.item_id)
+    if not item:
+        raise HTTPException(404, "Item not found")
+    if payload.unit != item.unit:
+        raise HTTPException(409, "Movement unit must match the item unit")
+    for warehouse_id in (payload.from_warehouse_id, payload.to_warehouse_id):
+        if warehouse_id is not None and not db.get(Warehouse, warehouse_id):
+            raise HTTPException(404, "Warehouse not found")
+
+    movement_data = payload.model_dump()
+    movement_data["quantity"] = quantity
+    if payload.batch_id is not None:
+        batch = db.execute(
+            _locked_stock_batch_statement(payload.batch_id).execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if not batch:
+            raise HTTPException(404, "Active stock batch not found")
+        if batch.item_id != item.id:
+            raise HTTPException(409, "Stock batch does not belong to the selected item")
+        if payload.unit != batch.unit:
+            raise HTTPException(409, "Movement unit must match the batch unit")
+        if db.query(EcoFabricRoll.id).filter_by(batch_id=batch.id, returned_at=None).first():
+            raise HTTPException(409, "Return outstanding fabric through the Eco Cotton register before changing this batch")
+
+        outgoing = payload.movement_type in ("issue", "consume", "transfer")
+        warehouse_field = "from_warehouse_id" if outgoing else "to_warehouse_id"
+        movement_warehouse_id = movement_data[warehouse_field]
+        if movement_warehouse_id is not None and movement_warehouse_id != batch.warehouse_id:
+            raise HTTPException(409, "Movement warehouse must match the batch warehouse")
+        movement_data[warehouse_field] = batch.warehouse_id
+
+        if outgoing:
+            reserved = Decimal(str(reserved_stock_for_batch(db, batch.id)))
+            if quantity > batch.quantity - reserved:
+                raise HTTPException(409, "Movement quantity exceeds available batch stock")
+            if payload.movement_type == "transfer":
+                if payload.to_warehouse_id is None:
+                    raise HTTPException(400, "Destination warehouse is required")
+                if payload.to_warehouse_id == batch.warehouse_id:
+                    raise HTTPException(400, "Destination warehouse must differ from the source")
+                # A batch has one location. A partial relocation needs a separate
+                # batch identity, which this endpoint does not create.
+                if quantity != batch.quantity:
+                    raise HTTPException(409, "Only the entire unreserved batch can be transferred")
+                batch.warehouse_id = payload.to_warehouse_id
+            else:
+                batch.quantity -= quantity
+                archive_depleted_material_batch(db, batch, user_id=current.id)
+        else:
+            if batch.quantity + quantity >= Decimal("10000000000"):
+                raise HTTPException(400, "Resulting batch quantity is too large")
+            batch.quantity += quantity
+
+    mv = StockMovement(**movement_data, created_by=current.id)
     db.add(mv); db.flush()
     log_action(db, current, payload.movement_type, "StockMovement", mv.id)
     response = StockMovementOut.model_validate(mv).model_dump(mode="json")

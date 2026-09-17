@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_
+from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import Session, lazyload
 
 from app.core.pagination import clamp_pagination
@@ -38,6 +38,7 @@ RESERVATION_SOURCES = ("manual", "auto_bom", "planning")
 REQUIRE_RESERVATION_SETTING = "require_material_reservation_before_cutting"
 ACCESSORY_SEWING_BLOCK_REASON = "Accessories must be issued before sewing."
 EPSILON = 1e-9
+_RESERVATION_LOCK_NAMESPACE = 1_297_047_633
 
 
 def _accessory_match_key(value: object) -> str:
@@ -77,34 +78,33 @@ def categories_for_group(group: str | None) -> tuple[str, ...] | None:
 
 
 def current_stock_for_item(db: Session, item_id: int, warehouse_id: int | None = None) -> float:
-    """Compute on-hand stock for an item: sum of batches in warehouse minus issues out.
-
-    For MVP: stock = sum(StockBatch.quantity in warehouse) + net of stock_movements where
-    item matches and movements are receive/produce vs issue/consume/waste/shipment.
-    """
-    # Sum of batches (initial received) for the item — optionally filtered to warehouse
+    """Return current batch balances plus the applicable batchless ledger changes."""
     bq = db.query(func.coalesce(func.sum(StockBatch.quantity), 0)).filter(StockBatch.item_id == item_id)
     if warehouse_id is not None:
         bq = bq.filter(StockBatch.warehouse_id == warehouse_id)
     batch_total = float(bq.scalar() or 0)
 
-    # Sum movements: receives/produces add, issues/consumes/waste/shipments subtract
-    # Note: receive movements that already correspond to batches are NOT double counted
-    # because batches represent the canonical receive; we count only post-receipt activity.
-    movements = db.query(StockMovement.movement_type, func.coalesce(func.sum(StockMovement.quantity), 0)) \
-        .filter(StockMovement.item_id == item_id, StockMovement.batch_id.is_(None)) \
-        .group_by(StockMovement.movement_type).all()
-
-    delta = 0.0
-    out_types = {"issue", "consume", "waste", "shipment"}
-    in_types = {"produce", "return", "adjustment"}
-    for mt, qty in movements:
-        q = float(qty or 0)
-        if mt in out_types:
-            delta -= q
-        elif mt in in_types:
-            delta += q
-    return batch_total + delta
+    out_types = ("issue", "consume", "waste", "shipment")
+    in_types = ("produce", "return", "adjustment")
+    outgoing = StockMovement.movement_type.in_(out_types)
+    incoming = StockMovement.movement_type.in_(in_types)
+    if warehouse_id is not None:
+        # Transfers change each endpoint but have no effect on the global total.
+        # Legacy movements with no location belong only to the global balance.
+        outgoing = and_(
+            StockMovement.movement_type.in_((*out_types, "transfer")),
+            StockMovement.from_warehouse_id == warehouse_id,
+        )
+        incoming = and_(
+            StockMovement.movement_type.in_((*in_types, "transfer")),
+            StockMovement.to_warehouse_id == warehouse_id,
+        )
+    # Batch-linked movements are already reflected in StockBatch.quantity.
+    incoming_total, outgoing_total = db.query(
+        func.coalesce(func.sum(case((incoming, StockMovement.quantity), else_=0)), 0),
+        func.coalesce(func.sum(case((outgoing, StockMovement.quantity), else_=0)), 0),
+    ).filter(StockMovement.item_id == item_id, StockMovement.batch_id.is_(None)).one()
+    return batch_total + float(incoming_total) - float(outgoing_total)
 
 
 def _open_reservation_quantity(reservation: MaterialReservation) -> float:
@@ -471,6 +471,31 @@ def _lock_batch_query(db: Session, stock_batch_id: int):
     return qry
 
 
+def _lock_reservation_resources(db: Session, lines: list[dict]) -> dict[int, StockBatch]:
+    # Preserve pending stock changes before refreshing any already-loaded batch.
+    db.flush()
+    batches: dict[int, StockBatch] = {}
+    batch_ids = sorted({int(line["stock_batch_id"]) for line in lines if line.get("stock_batch_id")})
+    for batch_id in batch_ids:
+        batch = _lock_batch_query(db, batch_id).populate_existing().first()
+        if batch:
+            batches[batch_id] = batch
+
+    if db.bind and db.bind.dialect.name == "postgresql":
+        # Cutting callers may already hold batch locks, so always acquire those
+        # before reservation item locks. Acquire every resource before checking
+        # availability or entering the reservation-number stream, even when the
+        # request lists several items/batches in a different order.
+        # Use one item key across warehouses and batched/unbatched reservations:
+        # an unbatched availability check includes reservations for its batches.
+        for item_id in sorted({int(line.get("item_id") or 0) for line in lines}):
+            db.execute(
+                text("SELECT pg_advisory_xact_lock(:namespace, :item_id)"),
+                {"namespace": _RESERVATION_LOCK_NAMESPACE, "item_id": item_id},
+            )
+    return batches
+
+
 def create_material_reservations(
     db: Session,
     *,
@@ -487,6 +512,7 @@ def create_material_reservations(
     if not lines:
         raise HTTPException(400, "No reservation lines provided")
 
+    locked_batches = _lock_reservation_resources(db, lines)
     created: list[MaterialReservation] = []
     for idx, raw in enumerate(lines, start=1):
         item_id = int(raw.get("item_id") or 0)
@@ -508,7 +534,7 @@ def create_material_reservations(
             raise HTTPException(400, "Invalid reservation_type")
 
         if stock_batch_id is not None:
-            batch = _lock_batch_query(db, stock_batch_id).first()
+            batch = locked_batches.get(stock_batch_id)
             if not batch:
                 raise HTTPException(404, f"Stock batch #{stock_batch_id} not found")
             if int(batch.item_id) != int(item_id):

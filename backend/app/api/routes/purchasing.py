@@ -1,11 +1,13 @@
 
-from fastapi import APIRouter, Depends, File, UploadFile
-from sqlalchemy.orm import joinedload
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from app.core.deps import DbSession, require_permissions
 from app.core.config import settings
 from app.models import Item, PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, User
 from app.services import inventory_access
+from app.services.factory_scope import selected_factory_code
+from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.schemas.purchasing import (
     PurchaseOrderIn,
     PurchaseOrderOut,
@@ -170,14 +172,31 @@ def receive_order(
     payload: PurchaseOrderReceiveIn,
     db: DbSession,
     current: User = Depends(require_permissions("purchasing.receive", "*")),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    if inventory_access.materials_only(current):
-        order_items = db.query(PurchaseOrderLine.item_id).filter(PurchaseOrderLine.purchase_order_id == order_id).all()
-        for (item_id,) in order_items:
-            inventory_access.require_item(db, current, item_id)
+    # Serialize receipt/replay on the order before reading its current state.
+    # Disable eager outer joins so PostgreSQL locks only the purchase order.
+    order = (
+        db.query(PurchaseOrder).options(lazyload("*"), selectinload(PurchaseOrder.lines))
+        .filter(PurchaseOrder.id == order_id).with_for_update(of=PurchaseOrder)
+        .populate_existing().first()
+    )
+    if not order:
+        raise HTTPException(404, "Purchase order not found")
+    for line in order.lines:
+        inventory_access.require_item(db, current, line.item_id)
+    scope = f"purchasing.receive:{selected_factory_code(current)}:{current.id}:{order_id}"
+    fingerprint_payload = payload.model_dump(mode="json")
+    replay = replay_idempotent_response(db, scope=scope, key=idempotency_key, payload=fingerprint_payload)
+    if replay is not None:
+        return replay
     order = receive_purchase_order(db, order_id=order_id, data=payload.model_dump(), current=current)
     for line in order.lines:
         inventory_access.require_item(db, current, line.item_id)
+    response = PurchaseOrderOut.model_validate(order).model_dump(mode="json")
+    store_idempotent_response(
+        db, scope=scope, key=idempotency_key, payload=fingerprint_payload,
+        response=response, user=current, status_code=200,
+    )
     db.commit()
-    db.refresh(order)
-    return order
+    return response

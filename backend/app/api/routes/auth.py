@@ -290,20 +290,36 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
         raise HTTPException(400, str(e)) from e
 
     token_hash = password_reset_hash(payload.token.strip())
-    reset_token = db.query(PasswordResetToken).filter(PasswordResetToken.token_hash == token_hash).first()
+    user_id = db.query(PasswordResetToken.user_id).filter(PasswordResetToken.token_hash == token_hash).scalar()
+    if user_id is None:
+        raise HTTPException(400, "Invalid or expired reset link")
+
+    # Sibling links must serialize on the same account, not individual tokens.
+    # Re-read the token after acquiring the lock so a waiting reset observes the
+    # first reset's invalidation even if this session already loaded the token.
+    user = db.query(User).filter(User.id == user_id).with_for_update(of=User).populate_existing().first()
+    reset_token = (
+        db.query(PasswordResetToken)
+        .filter(PasswordResetToken.token_hash == token_hash)
+        .populate_existing()
+        .first()
+    )
     now = datetime.now(timezone.utc)
     if (
         not reset_token
         or reset_token.used_at is not None
         or as_utc(reset_token.expires_at) < now
-        or not reset_token.user
-        or not reset_token.user.is_active
+        or not user
+        or not user.is_active
     ):
         raise HTTPException(400, "Invalid or expired reset link")
 
-    reset_token.user.password_hash = hash_password(payload.new_password)
-    reset_token.user.tokens_valid_from = now
-    reset_token.used_at = now
+    user.password_hash = hash_password(payload.new_password)
+    user.tokens_valid_from = now
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user_id,
+        PasswordResetToken.used_at.is_(None),
+    ).update({PasswordResetToken.used_at: now}, synchronize_session="fetch")
     db.commit()
     return {"message": "password_reset"}
 

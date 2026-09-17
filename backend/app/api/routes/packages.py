@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
 from sqlalchemy import func, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 import base64
 from datetime import date
 from html import escape
@@ -91,6 +91,15 @@ def _package_context(db: DbSession, pkg: Package) -> dict:
         if pkg.model_id
         else None
     )
+    return _package_context_values(po, so, customer, model)
+
+
+def _package_context_values(
+    po: ProductionOrder | None,
+    so: SalesOrder | None,
+    customer: Customer | None,
+    model: Model | None,
+) -> dict:
     return {
         "production_no": po.production_no if po else None,
         "sales_order_no": so.order_no if so else None,
@@ -103,9 +112,9 @@ def _package_context(db: DbSession, pkg: Package) -> dict:
     }
 
 
-def _package_out_payload(db: DbSession, pkg: Package) -> dict:
+def _package_out_payload(db: DbSession, pkg: Package, *, context: dict | None = None) -> dict:
     data = PackageOut.model_validate(pkg).model_dump(mode="json")
-    data.update(_package_context(db, pkg))
+    data.update(_package_context(db, pkg) if context is None else context)
     return data
 
 
@@ -497,7 +506,12 @@ def list_packages(db: DbSession, current: CurrentUser,
     so_ids = {int(p.sales_order_id) for p in rows if p.sales_order_id}
     production_by_id = {
         int(po.id): po
-        for po in db.query(ProductionOrder).filter(ProductionOrder.id.in_(po_ids)).all()
+        for po in (
+            db.query(ProductionOrder)
+            .options(joinedload(ProductionOrder.sales_order))
+            .filter(ProductionOrder.id.in_(po_ids))
+            .all()
+        )
     } if po_ids else {}
     sales_by_id = {
         int(so.id): so
@@ -508,20 +522,30 @@ def list_packages(db: DbSession, current: CurrentUser,
         int(customer.id): customer
         for customer in db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
     } if customer_ids else {}
+    model_ids = {int(p.model_id) for p in rows if p.model_id}
+    model_by_id = {
+        int(model.id): model
+        for model in (
+            db.query(Model)
+            .options(
+                selectinload(Model.images),
+                selectinload(Model.bom).joinedload(ModelBOM.item),
+                selectinload(Model.bom).joinedload(ModelBOM.stock_batch),
+            )
+            .filter(Model.id.in_(model_ids))
+            .all()
+        )
+    } if model_ids else {}
 
     out = []
     for p in rows:
         qr_url = _ensure_package_qr_url(db, p)
-        row = _package_out_payload(db, p)
-        row["qr_code_url"] = qr_url
         po = production_by_id.get(int(p.production_order_id or 0))
         so = sales_by_id.get(int(p.sales_order_id or 0))
         customer = customer_by_id.get(int(so.customer_id or 0)) if so else None
-        row["production_no"] = po.production_no if po else None
-        row["sales_order_no"] = so.order_no if so else None
-        row["order_no"] = so.order_no if so else (po.order_no if po else None)
-        row["customer_name"] = customer.name if customer else None
-        row["order_type"] = so.order_type if so else (po.production_type if po else None)
+        model = model_by_id.get(int(p.model_id or 0))
+        row = _package_out_payload(db, p, context=_package_context_values(po, so, customer, model))
+        row["qr_code_url"] = qr_url
         out.append(row)
     db.commit()
     if include_total:
