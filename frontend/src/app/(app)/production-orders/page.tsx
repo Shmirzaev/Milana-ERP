@@ -18,11 +18,6 @@ type PO = {
   deadline: string | null;
 };
 
-const STATUSES = [
-  "new", "planning", "waiting_material", "cutting", "printing", "sewing",
-  "packaging", "finished_storage", "delivered", "closed", "cancelled",
-];
-
 export default function ProductionOrdersPage() {
   const { me } = useMe();
   const { t } = useT();
@@ -33,12 +28,12 @@ export default function ProductionOrdersPage() {
   const modelMap = new Map((models ?? []).map((m) => [m.id, m]));
 
   const [editing, setEditing] = useState<PO | null>(null);
-  const [edit, setEdit] = useState<{ status: string; planned_quantity: NumberInputValue; deadline: string }>({ status: "new", planned_quantity: "", deadline: "" });
+  const [edit, setEdit] = useState<{ planned_quantity: NumberInputValue; deadline: string }>({ planned_quantity: "", deadline: "" });
   const [editMsg, setEditMsg] = useState("");
 
   function openEdit(p: PO) {
     setEditing(p);
-    setEdit({ status: p.status, planned_quantity: p.planned_quantity, deadline: p.deadline ? p.deadline.slice(0, 10) : "" });
+    setEdit({ planned_quantity: p.planned_quantity, deadline: p.deadline ? p.deadline.slice(0, 10) : "" });
     setEditMsg("");
   }
   async function saveEdit(e: React.FormEvent) {
@@ -47,7 +42,6 @@ export default function ProductionOrdersPage() {
     setEditMsg("");
     try {
       await api.patch(`/api/production-orders/${editing.id}`, {
-        status: edit.status,
         planned_quantity: numberOrZero(edit.planned_quantity),
         deadline: edit.deadline ? new Date(edit.deadline).toISOString() : null,
       });
@@ -96,9 +90,7 @@ export default function ProductionOrdersPage() {
         <form onSubmit={saveEdit} className="space-y-3">
           <div>
             <label className="label">{t("field.status")}</label>
-            <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}>
-              {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s, t)}</option>)}
-            </select>
+            <span className="badge">{statusLabel(editing?.status ?? "", t)}</span>
           </div>
           <div>
             <label className="label">{t("field.plannedQty")}</label>
