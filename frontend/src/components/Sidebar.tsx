@@ -41,10 +41,10 @@ import {
 import { useMe, can } from "@/lib/auth";
 import { isSewingRole, isSewingWorkspaceNavItem } from "@/lib/access";
 import { useT } from "@/lib/i18n";
-import { isAbbosbekPricingUser, isAccessoryPricingUser } from "@/lib/priceCalculationRequests";
+import { isPurchasingPricingUser, isAccessoryPricingUser } from "@/lib/priceCalculationRequests";
 import BrandLogo from "@/components/BrandLogo";
 
-type NavAudience = "abbosbekPricing" | "accessoryPricing";
+type NavAudience = "purchasingPricing" | "accessoryPricing";
 type NavItem = { href: string; labelKey: string; perms?: string[]; superOnly?: boolean; audience?: NavAudience; icon: ComponentType<{ className?: string }> };
 type Section = { titleKey: string; items: NavItem[] };
 
@@ -118,7 +118,7 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.purchasing",
     items: [
-      { href: "/purchasing/price-calculation", labelKey: "nav.purchasingPriceRequests", audience: "abbosbekPricing", icon: Calculator },
+      { href: "/purchasing/price-calculation", labelKey: "nav.purchasingPriceRequests", audience: "purchasingPricing", icon: Calculator },
       { href: "/purchasing", labelKey: "nav.purchaseRequests", perms: ["purchasing.view", "purchasing.request", "purchasing.approve", "purchasing.order", "*"], icon: ShoppingBag },
       { href: "/purchasing/receiving", labelKey: "nav.purchaseReceiving", perms: ["purchasing.receive", "*"], icon: PackageCheck },
     ],
@@ -368,7 +368,7 @@ export default function Sidebar() {
           if (!hasInventoryPathAccess(me, i.href)) return false;
           if (isSewingRole(me) && !isSewingWorkspaceNavItem(i.href)) return false;
           if (i.superOnly) return isSuperAdmin(me);
-          if (i.audience === "abbosbekPricing" && !isAbbosbekPricingUser(me)) return false;
+          if (i.audience === "purchasingPricing" && !isPurchasingPricingUser(me)) return false;
           if (i.audience === "accessoryPricing" && !isAccessoryPricingUser(me)) return false;
           return !i.perms || can(me, ...i.perms);
         }),

@@ -113,7 +113,7 @@ def update_finance(request_id: int, payload: PriceCalculationFinanceIn, db: DbSe
 @router.patch("/requests/{request_id}/purchasing", response_model=PriceCalculationRequestOut)
 def update_purchasing(request_id: int, payload: PriceCalculationPurchasingIn, db: DbSession, current: CurrentUser):
     if not is_price_purchaser(current):
-        raise HTTPException(403, "Abbosbek purchasing access required")
+        raise HTTPException(403, "Purchasing price calculation access required")
     request = _request_or_404(db, request_id)
     update_purchasing_details(db, request, payload.model_dump(), current)
     db.commit()
