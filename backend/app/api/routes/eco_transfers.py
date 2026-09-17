@@ -207,5 +207,5 @@ def pdf(dispatch_id: int, db: DbSession, lang: str = "en", user: User = Depends(
     if not dispatch:
         raise HTTPException(404, "Not found")
     data = dispatch_data(db, dispatch)
-    return Response(build_pdf(data, dispatch.remaining_inventory, lang), media_type="application/pdf",
+    return Response(build_pdf(data, lang=lang), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{data["number"]}.pdf"'})

@@ -100,7 +100,7 @@ export default function EcoFabricTransfers() {
     return <div className="overflow-x-auto"><table className="table w-full"><thead><tr>
       {["fabricScans.fabric", "fabricScans.batch", "fabricScans.color", "fabricScans.roll", "ecoTransfers.weight", ...(removable ? ["common.actions"] : ["ecoTransfers.returnDate"])].map((key) => <th key={key}>{t(key)}</th>)}
     </tr></thead><tbody>{rows.map((row) => <tr key={row.code}><td>{row.fabric_name}</td><td>{row.batch_no}</td><td>{row.color || "—"}</td><td>{row.roll_number}</td>
-      <td className="whitespace-nowrap">{Number(row.quantity).toFixed(2)} {row.unit}</td><td>{removable ? <button type="button" className="btn" disabled={frozen || busy} aria-label={t("ecoTransfers.remove")} onClick={() => setDraft((rows) => rows.filter((r) => r.code !== row.code))}><Trash2 size={15}/></button> : row.returned_at ? <span>{new Date(row.returned_at).toLocaleString()}<br/>{row.return_operator_name}</span> : t("ecoTransfers.atEco")}</td>
+      <td className="whitespace-nowrap">{Number(row.quantity).toFixed(2)} {row.unit}</td><td>{removable ? <button type="button" className="btn" disabled={frozen || busy} aria-label={t("ecoTransfers.remove")} onClick={() => setDraft((rows) => rows.filter((r) => r.code !== row.code))}><Trash2 size={15}/></button> : row.returned_at ? <span><strong className="text-[var(--erp-success)]">{t("ecoTransfers.returnedStatus")}</strong><br/>{new Date(row.returned_at).toLocaleString()}<br/>{row.return_operator_name}</span> : t("ecoTransfers.atEco")}</td>
     </tr>)}</tbody></table></div>;
   }
   if (!me) return <p>{t("common.loading")}</p>;
@@ -134,7 +134,7 @@ export default function EcoFabricTransfers() {
       {isLoading && <p>{t("common.loading")}</p>}{error && <p role="alert">{t("ecoTransfers.failed")}</p>}
       {data?.items.length === 0 && <p>{t("ecoTransfers.emptyHistory")}</p>}
       {data?.items.map((dispatch) => <details className="border-t pt-3" key={dispatch.id}>
-        <summary className="cursor-pointer py-2 text-sm"><strong>{dispatch.number}</strong> · {new Date(dispatch.sent_at).toLocaleString()} · {dispatch.operator_name} · {t("ecoTransfers.sentCount")}: {dispatch.sent_rolls} / {Number(dispatch.sent_kg).toFixed(2)} kg · {t("ecoTransfers.outstanding")}: {dispatch.outstanding_rolls} / {Number(dispatch.outstanding_kg).toFixed(2)} kg</summary>
+        <summary className="cursor-pointer py-2 text-sm"><strong>{dispatch.number}</strong> · {new Date(dispatch.sent_at).toLocaleString()} · {dispatch.operator_name} · {t("ecoTransfers.sentCount")}: {dispatch.sent_rolls} / {Number(dispatch.sent_kg).toFixed(2)} kg · {t("ecoTransfers.outstanding")}: {dispatch.outstanding_rolls} / {Number(dispatch.outstanding_kg).toFixed(2)} kg · <strong className={dispatch.outstanding_rolls === 0 ? "text-[var(--erp-success)]" : undefined}>{t(dispatch.outstanding_rolls === 0 ? "ecoTransfers.allReturned" : dispatch.outstanding_rolls < dispatch.sent_rolls ? "ecoTransfers.partiallyReturned" : "ecoTransfers.atEco")}</strong></summary>
         <div className="py-3"><button className="btn mb-3" onClick={() => void download(dispatch)}><Download size={16}/>PDF</button>{rollTable(dispatch.rows)}</div>
       </details>)}
       {!!data?.total && <div className="flex items-center justify-end gap-3"><button className="btn" disabled={page === 1} onClick={() => setPage(page-1)}>{t("common.previous")}</button><span>{page} / {Math.ceil(data.total/30)}</span><button className="btn" disabled={page*30>=data.total} onClick={() => setPage(page+1)}>{t("common.next")}</button></div>}
