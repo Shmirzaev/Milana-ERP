@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from sqlalchemy import delete, update
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.deps import (
@@ -419,11 +420,17 @@ def _count_active_super_admins(db: DbSession, exclude_user_id: int | None = None
     return count
 
 
+def _assert_user_has_no_audit_history(db: DbSession, user_id: int) -> None:
+    if db.query(AuditLog.id).filter(AuditLog.user_id == user_id).first() is not None:
+        raise HTTPException(409, "User has audit history. Deactivate the account instead.")
+
+
 def _detach_user_references(db: DbSession, user_id: int) -> None:
     """Remove references that would otherwise block deleting a user account."""
     users_table = User.__table__
     for table in Base.metadata.sorted_tables:
-        if table is users_table:
+        # Audit actors are part of the hash payload and must never be rewritten.
+        if table is users_table or table is AuditLog.__table__:
             continue
         for column in table.c:
             if not any(fk.column.table is users_table and fk.column.name == "id" for fk in column.foreign_keys):
@@ -581,10 +588,18 @@ def delete_user(user_id: int, db: DbSession, current: User = Depends(require_per
         raise HTTPException(400, "Cannot delete the last active super administrator")
     if "*" in user_permissions(u) and _count_active_admins(db, exclude_user_id=u.id) == 0:
         raise HTTPException(400, "Cannot delete the last active administrator")
-    _detach_user_references(db, user_id)
-    db.delete(u)
-    log_action(db, current, "delete", "User", user_id)
-    db.commit()
+    _assert_user_has_no_audit_history(db, user_id)
+    try:
+        _detach_user_references(db, user_id)
+        db.delete(u)
+        log_action(db, current, "delete", "User", user_id)
+        db.commit()
+    except IntegrityError:
+        # A concurrent audit can appear after the guard. Its FK blocks deletion;
+        # roll back all reference cleanup before checking the committed history.
+        db.rollback()
+        _assert_user_has_no_audit_history(db, user_id)
+        raise
 
 
 # ===== Roles =====
