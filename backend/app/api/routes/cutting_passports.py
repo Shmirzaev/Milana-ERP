@@ -446,10 +446,12 @@ def list_passports(
 
 
 @router.get("/{pid}", response_model=CuttingPassportOut)
-def get_passport(pid: int, db: DbSession, _: CurrentUser):
+def get_passport(pid: int, db: DbSession, current: CurrentUser):
     p = db.get(CuttingPassport, pid)
     if not p:
         raise HTTPException(404, "Cutting passport not found")
+    if p.production_order_id:
+        _passport_order(db, p.production_order_id, current)
     return _serialize(p, db)
 
 
