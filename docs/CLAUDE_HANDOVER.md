@@ -109,15 +109,16 @@ regression evidence before declaring any risk resolved. September 17 disk was
 
 ## Access, tools and scheduling
 
-- Claude Desktop and CLI are installed. On September 18 Desktop still displayed
-  **Organization access is disabled**; CLI reported logged out and an expired
-  OAuth session. Model-side onboarding is NOT verified until access is restored.
+- Claude Desktop access was restored by the user on September 18. The session
+  **Milana ERP migration refresh** successfully read this worktree and the archive,
+  fetched GitHub, and completed the read-only acceptance below. The standalone
+  CLI still reports logged out; it requires a separate normal sign-in.
 - GitHub fetch and production SSH read-only access worked during this refresh.
 - Existing SSH keys remain under the current user's `.ssh` directory. Linux
   sudo uses Windows Credential Manager reference `MilanaERP/production-linux-sudo`.
   Never print or copy its value into context.
-- Existing ERP MCP configuration uses the production API. Its saved bearer token
-  was expired at the September 15 check. Treat it as unavailable until normal
+- Existing ERP MCP configuration uses the production API. Claude's September 18
+  read-only `erp_me` probe returned HTTP 401. Treat it as unavailable until normal
   reauthentication and a read-only check succeed. Never mint a token by reading
   signing keys or editing the database. Source development does not need this API.
 - Portable `cleanui` and `uncodixfy` skills are installed in `~/.claude/skills`.
@@ -136,6 +137,16 @@ Summarize the lifecycle, current release/schema, latest changes, unresolved
 risks and access/scheduling gaps. Do not edit, merge, deploy, create data, send
 communications or change automations. Then wait for the user's next ERP task.
 
-The migration is prepared locally, but cannot be described as fully operational
-until Claude successfully performs this read-only acceptance and any required
-integration/scheduling replacements are verified. Codex remains available.
+Acceptance passed in Claude Desktop session `c16b489d-5c7e-4e1f-8863-345877b7e617`,
+**Milana ERP migration refresh**. Claude opened the required documents and evidence,
+confirmed the current release/schema, explained the September 16-17 changes and
+retrieved the receipt correction from task `01a0adb9-a80b-7f40-a5a2-d48430078394`
+and manual-pack fix from task `01a09e9c-2b3f-7001-ba65-446123c73d64`. It correctly
+distinguished dated production evidence from a new live probe. Git fetch worked;
+the worktree remained clean. The response is saved in the external archive as
+`CLAUDE_ACCEPTANCE.md`.
+
+The source/context handover is verified and Claude Desktop is ready for ERP work.
+Full integration parity remains incomplete: standalone CLI login, ERP MCP login,
+and the daily email schedule have not moved. Keep Codex available for its existing
+automation until a verified replacement is ready; do not duplicate the sender.
