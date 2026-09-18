@@ -24,6 +24,13 @@ def _can_manage(user: User) -> bool:
     return "tasks.manage" in perms or "management.approve" in perms
 
 
+def _require_single_assignee(assigned: int | None, db: DbSession, current: User, is_manager: bool) -> None:
+    if assigned != current.id and not is_manager:
+        raise HTTPException(403, "Only managers can assign tasks to other users")
+    if assigned is not None and not db.get(User, assigned):
+        raise HTTPException(404, "Assigned user not found")
+
+
 def _task_link(t: Task) -> str | None:
     """Build a frontend URL for a task notification when the task references
     a concrete entity. Returns None when no mapping exists."""
@@ -134,10 +141,7 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
 
     # Non-managers can only assign tasks to themselves.
     assigned = requested_assignee or current.id
-    if assigned != current.id and not is_manager:
-        raise HTTPException(403, "Only managers can assign tasks to other users")
-    if not db.get(User, assigned):
-        raise HTTPException(404, "Assigned user not found")
+    _require_single_assignee(assigned, db, current, is_manager)
 
     t = Task(
         title=payload.title,
@@ -184,9 +188,10 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
     # Assignees may update status; only managers / creator may change other fields.
     changes = payload.model_dump(exclude_unset=True)
     is_assignee = t.assigned_to == current.id
-    is_manager = _can_manage(current) or t.created_by == current.id
+    is_manager = _can_manage(current)
+    can_edit = is_manager or t.created_by == current.id
 
-    if not is_manager:
+    if not can_edit:
         if not is_assignee:
             raise HTTPException(403, "Not allowed")
         # Restrict assignees to status-only changes.
@@ -195,6 +200,8 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
             raise HTTPException(403, "Assignees can only change status")
 
     previous_assignee = t.assigned_to
+    if "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
+        _require_single_assignee(changes["assigned_to"], db, current, is_manager)
     for k, v in changes.items():
         setattr(t, k, v)
 
