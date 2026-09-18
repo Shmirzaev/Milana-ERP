@@ -9,7 +9,6 @@ export type TimelineStage = {
   output_qty?: number;
   failed?: number;
   processed?: number;
-  has_open_replacements?: boolean;
   is_blocked?: boolean;
   block_reason?: string | null;
   overdue?: boolean;
@@ -44,8 +43,8 @@ export function processTimeline(stages: TimelineStage[]) {
       else if (ready > 0) state = "waitingAcceptance";
       else if (stage.status === "completed" && output > 0) state = "completed";
       else state = "notStarted";
-    } else if (stage.status === "completed" && !stage.has_open_replacements && (
-      planned === 0 || output >= planned || (operation === "cutting" && output > 0)
+    } else if (stage.status === "completed" && (
+      planned === 0 || output >= planned || quantity(stage.processed) >= planned || (operation === "cutting" && output > 0)
     )) {
       // Cutting can close with an accepted shortage. Its original plan and
       // real output remain visible; they do not override the saved closure.

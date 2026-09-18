@@ -4189,7 +4189,7 @@ def test_cutting_split_batches_can_exceed_plan_and_report_actual_quantity(client
     assert int(progress["remaining_quantity"]) == 1500
 
 
-def test_sewing_failure_stays_open_until_recut_and_resewn(client, auth_headers):
+def test_sewing_failure_is_recorded_without_replacement_work(client, auth_headers):
     r = client.post(
         "/api/planning/create-branded-production",
         json={
@@ -4258,106 +4258,26 @@ def test_sewing_failure_stays_open_until_recut_and_resewn(client, auth_headers):
     progress = r.json()["items"][0]
     assert int(progress["passed_qty"]) == 599
     assert int(progress["failed_qty"]) == 1
-    assert int(progress["remaining_quantity"]) == 1
-    assert int(progress["waiting_replacement_qty"]) == 1
-    assert float(progress["progress_pct"]) < 100.0
-
-    r = client.get(f"/api/work-orders/{sewing_wo['id']}/replacement-status", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    replacement = r.json()
-    assert int(replacement["open_qty"]) == 1
-    assert int(replacement["waiting_cutting_qty"]) == 1
-    assert int(replacement["waiting_sewing_qty"]) == 0
-
-    r = client.get("/api/inbox?dept=CUT", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    cutting_inbox = r.json()
-    replacement_rows = cutting_inbox["replacement_cutting_work"]
-    assert len(replacement_rows) == 1
-    assert replacement_rows[0]["cutting_work_order_id"] == cutting_wo["id"]
-    assert replacement_rows[0]["production_order_id"] == po_id
-    assert int(replacement_rows[0]["remaining_qty"]) == 1
-    assert replacement_rows[0]["sewing_line_name"] == "Line 7"
-    assert cutting_wo["id"] not in {row["id"] for row in cutting_inbox["pending_work_orders"]}
-
-    r = client.post(f"/api/work-orders/{sewing_wo['id']}/complete", headers=auth_headers)
-    assert r.status_code == 409, r.text
-
-    r = client.get(f"/api/work-orders/{cutting_wo['id']}", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "ready"
-
-    r = client.post(
-        "/api/cutting/records",
-        json={
-            "work_order_id": cutting_wo["id"],
-            "production_batch_id": batch["id"],
-            "fabric_batch_id": None,
-            "input_quantity": 1.0,
-            "input_unit": "kg",
-            "cut_pieces": 1,
-            "passed_pieces": 1,
-            "defective_pieces": 0,
-            "waste_quantity": 0,
-            "waste_unit": "kg",
-            "bundles": [],
-        },
-        headers=auth_headers,
-    )
-    assert r.status_code == 201, r.text
-    assert int(r.json()["replacement_cut_qty"]) == 1
-
-    r = client.get("/api/inbox?dept=CUT", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert r.json()["replacement_cutting_work"] == []
-
-    r = client.get(f"/api/work-orders/{sewing_wo['id']}/replacement-status", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert int(r.json()["waiting_cutting_qty"]) == 0
-    assert int(r.json()["waiting_sewing_qty"]) == 1
-
-    r = client.get("/api/inbox?dept=SEW", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    sewing_replacement_rows = [
-        row for row in r.json()["replacement_sewing_work"]
-        if int(row["production_order_id"]) == int(po_id)
-    ]
-    assert len(sewing_replacement_rows) == 1
-    assert int(sewing_replacement_rows[0]["sewing_work_order_id"]) == int(sewing_wo["id"])
-    assert int(sewing_replacement_rows[0]["remaining_qty"]) == 1
-
-    r = client.post(
-        "/api/sewing/records",
-        json={
-            "work_order_id": sewing_wo["id"],
-            "production_batch_id": batch["id"],
-            "input_qty": 1,
-            "sewn_qty": 1,
-            "passed_qty": 1,
-            "failed_qty": 0,
-            "rework_qty": 0,
-            "rejected_qty": 0,
-        },
-        headers=auth_headers,
-    )
-    assert r.status_code == 201, r.text
-    assert int(r.json()["replacement_completed_qty"]) == 1
-
-    r = client.get(f"/api/work-orders/{sewing_wo['id']}/replacement-status", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert int(r.json()["open_qty"]) == 0
-    r = client.get("/api/inbox?dept=SEW", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert not any(
-        int(row["production_order_id"]) == int(po_id)
-        for row in r.json()["replacement_sewing_work"]
-    )
-    r = client.get(f"/api/work-orders/{sewing_wo['id']}", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "completed"
+    assert int(progress["remaining_quantity"]) == 0
+    assert "waiting_replacement_qty" not in progress
+    assert float(progress["progress_pct"]) == 100.0
+    assert client.get(f"/api/work-orders/{sewing_wo['id']}/replacement-status", headers=auth_headers).status_code == 404
+    for department in ("CUT", "MIL"):
+        inbox = client.get(f"/api/inbox?dept={department}", headers=auth_headers)
+        assert inbox.status_code == 200, inbox.text
+        assert "replacement_cutting_work" not in inbox.json()
+        assert "replacement_sewing_work" not in inbox.json()
+    for work_order in (cutting_wo, sewing_wo):
+        response = client.get(f"/api/work-orders/{work_order['id']}", headers=auth_headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "completed"
+    from app.db.session import SessionLocal
+    from app.models import SewingReplacementRequest
+    with SessionLocal() as db:
+        assert db.query(SewingReplacementRequest).filter_by(production_order_id=po_id).count() == 0
 
 
-def test_packaging_progress_keeps_failed_sewing_quantity_open(client, auth_headers):
+def test_packaging_progress_finishes_with_sewing_defects(client, auth_headers):
     r = client.post(
         "/api/planning/create-branded-production",
         json={
@@ -4450,19 +4370,17 @@ def test_packaging_progress_keeps_failed_sewing_quantity_open(client, auth_heade
     progress = r.json()["items"][0]
     assert int(progress["packed_qty"]) == 599
     assert int(progress["damaged_qty"]) == 0
-    assert int(progress["remaining_quantity"]) == 1
-    assert int(progress["waiting_replacement_qty"]) == 1
-    assert float(progress["progress_pct"]) < 100.0
+    assert int(progress["remaining_quantity"]) == 0
+    assert "waiting_replacement_qty" not in progress
+    assert float(progress["progress_pct"]) == 100.0
     assert int(progress["available_to_package"]) == 599
 
     r = client.get("/api/packaging/received-orders", headers=auth_headers)
     assert r.status_code == 200, r.text
-    queue_row = next(row for row in r.json() if int(row["production_order_id"]) == po_id)
-    assert int(queue_row["remaining_quantity"]) == 0
-    assert int(queue_row["waiting_replacement_quantity"]) == 1
+    assert not any(int(row["production_order_id"]) == po_id for row in r.json())
 
 
-def test_process_tracking_keeps_failed_sewing_open_for_storage(client, auth_headers):
+def test_process_tracking_resolves_sewing_defects_for_storage(client, auth_headers):
     r = client.post(
         "/api/planning/create-branded-production",
         json={
@@ -4562,7 +4480,7 @@ def test_process_tracking_keeps_failed_sewing_open_for_storage(client, auth_head
     r = client.get(f"/api/work-orders/{storage_wo['id']}", headers=auth_headers)
     assert r.status_code == 200, r.text
     refreshed_storage = r.json()
-    assert refreshed_storage["status"] == "in_progress"
+    assert refreshed_storage["status"] == "completed"
     assert int(refreshed_storage["passed_qty"]) == 598
     assert int(refreshed_storage["failed_qty"]) == 0
 
@@ -4572,26 +4490,26 @@ def test_process_tracking_keeps_failed_sewing_open_for_storage(client, auth_head
     )
     assert r.status_code == 200, r.text
     proc = next(p for p in r.json()["rows"] if p["production_order_id"] == po_id)
-    assert proc["current_stage"] == "storage_transfer"
+    assert proc["current_stage"] == "completed"
 
     by_stage = {stage["operation"]: stage for stage in proc["stages"]}
     assert int(by_stage["sewing"]["completed"]) == 598
     assert int(by_stage["sewing"]["failed"]) == 2
-    assert int(by_stage["sewing"]["processed"]) == 598
-    assert float(by_stage["sewing"]["progress_pct"]) < 100.0
-    assert by_stage["packaging"]["status"] == "in_progress"
+    assert int(by_stage["sewing"]["processed"]) == 600
+    assert float(by_stage["sewing"]["progress_pct"]) == 100.0
+    assert by_stage["packaging"]["status"] == "completed"
     assert int(by_stage["packaging"]["completed"]) == 598
-    assert int(by_stage["packaging"]["processed"]) == 598
-    assert by_stage["storage_transfer"]["status"] == "in_progress"
+    assert int(by_stage["packaging"]["processed"]) == 600
+    assert by_stage["storage_transfer"]["status"] == "completed"
     assert int(by_stage["storage_transfer"]["completed"]) == 598
     assert int(by_stage["storage_transfer"]["failed"]) == 0
-    assert int(by_stage["storage_transfer"]["processed"]) == 598
+    assert int(by_stage["storage_transfer"]["processed"]) == 600
 
     batch_proc = proc["batches"][0]
     batch_storage = next(stage for stage in batch_proc["stages"] if stage["operation"] == "storage_transfer")
-    assert batch_proc["current_stage"] == "storage_transfer"
+    assert batch_proc["current_stage"] == "completed"
     assert int(batch_storage["completed"]) == 598
-    assert int(batch_storage["processed"]) == 598
+    assert int(batch_storage["processed"]) == 600
 
 
 def test_actual_quantity_mismatch_allows_breakdown_correction(client, auth_headers):

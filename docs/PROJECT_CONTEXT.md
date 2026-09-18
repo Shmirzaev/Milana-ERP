@@ -1,6 +1,12 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-17
+Last updated: 2026-09-18
+
+## Failed-piece replacement workflow removed, release pending (2026-09-18)
+
+- User explicitly requested complete removal and fast deployment without extra testing or monitoring. Removed replacement status API, Cutting/Sewing completion forms, department queues, Packaging waiting columns/banners, replacement allocation, notifications and completion blockers. Sewing failures/rejections remain defect/waste evidence and count as processed losses; downstream completion counts those losses without inventing good output or stock. Existing regression cases are updated to the new rule and run through standard immutable CI.
+- Verified both production manifests/slots and origin/main baseline: blue `20260917_100146`, manifest `abaae224fd198919a02b0fb1ee01b2780809da79123c2132f0d100762a29a94e`, DB `0131_sewing_corrections`. Read-only replacement aggregate: one historical request, eight requested, zero cut/replaced. Historical schema/records and linked-record deletion/correction protections are retained; no migration or business-data deletion is included.
+- Worktree `C:/ERP/.codex-work/remove-failed-replacement-20260918`, branch `codex/remove-failed-replacement-20260918`. Legacy checkout preserved. Deployment outcome is recorded in a follow-up entry after cutover; no additional browser/performance test or extended observation is planned, per the user.
 
 ## Sewing line model and variant visibility deployed (2026-09-17)
 

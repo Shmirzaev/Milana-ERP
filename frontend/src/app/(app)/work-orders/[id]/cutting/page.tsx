@@ -92,11 +92,6 @@ type CuttingMaterialForm = {
   unit: string;
 };
 type PassportAutofillField = "input_quantity" | "layer_material_kg" | "material_rolls_used" | "layup_operator_name" | "cut_pieces" | "notes";
-type ReplacementCompletionForm = {
-  production_batch_id: number;
-  completed_pieces: NumberInputValue;
-  input_quantity: NumberInputValue;
-};
 function canAdjustCuttingInventoryBundle(bundle: any): boolean {
   return Number(bundle?.cutting_record_id || 0) > 0;
 }
@@ -345,10 +340,6 @@ export default function CuttingPage() {
     wo ? `/api/work-orders/${id}/cutting-batch-progress` : null,
     fetcher,
   );
-  const { data: replacementStatus, mutate: mutateReplacementStatus } = useSWR<any>(
-    wo ? `/api/work-orders/${id}/replacement-status` : null,
-    fetcher,
-  );
   const { data: uslugaCuttingData, mutate: mutateUslugaCutting } = useSWR<any>(
     isUsluga && wo ? `/api/work-orders/${id}/usluga-cutting-batches` : null,
     fetcher,
@@ -433,14 +424,6 @@ export default function CuttingPage() {
   const [doneMsg, setDoneMsg] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState("");
-  const [replacementCompletion, setReplacementCompletion] = useState<ReplacementCompletionForm>({
-    production_batch_id: 0,
-    completed_pieces: "",
-    input_quantity: "",
-  });
-  const [replacementCompletionBusy, setReplacementCompletionBusy] = useState(false);
-  const [replacementCompletionErr, setReplacementCompletionErr] = useState("");
-  const [replacementCompletionDone, setReplacementCompletionDone] = useState("");
   const [adjustingBundle, setAdjustingBundle] = useState<BundleAdjustment | null>(null);
   const [adjustingBundleBusy, setAdjustingBundleBusy] = useState(false);
   const [adjustingBundleErr, setAdjustingBundleErr] = useState("");
@@ -590,17 +573,6 @@ export default function CuttingPage() {
       return { ...row, details };
     }));
   }, [materialPassports, plannedMaterials.length, cuttingMaterials.length]);
-  const pendingReplacementItems = useMemo(
-    () => (Array.isArray(replacementStatus?.items) ? replacementStatus.items : [])
-      .filter((row: any) => Number(row?.waiting_cutting_qty || 0) > 0),
-    [replacementStatus?.items],
-  );
-  const selectedReplacementItem = useMemo(
-    () => pendingReplacementItems.find(
-      (row: any) => Number(row?.production_batch_id || 0) === Number(replacementCompletion.production_batch_id || 0),
-    ) || pendingReplacementItems[0] || null,
-    [pendingReplacementItems, replacementCompletion.production_batch_id],
-  );
   const autoWasteQuantity = useMemo(
     () => wasteKgFromPassport(selectedCuttingPassport, numberOrZero(form.input_quantity)),
     [form.input_quantity, selectedCuttingPassport],
@@ -861,21 +833,6 @@ export default function CuttingPage() {
     });
   }, [fabricBatches, fabricPickedManually, form.fabric_batch_id, plannedMaterials.length, po?.fabric_batch_id]);
 
-  useEffect(() => {
-    if (pendingReplacementItems.length === 0) return;
-    setReplacementCompletion((prev) => {
-      const selected = pendingReplacementItems.find(
-        (row: any) => Number(row?.production_batch_id || 0) === Number(prev.production_batch_id || 0),
-      ) || pendingReplacementItems[0];
-      const waiting = Math.max(0, Number(selected?.waiting_cutting_qty || 0));
-      const currentQty = numberOrZero(prev.completed_pieces);
-      return {
-        ...prev,
-        production_batch_id: Number(selected?.production_batch_id || 0),
-        completed_pieces: currentQty > 0 && currentQty <= waiting ? prev.completed_pieces : waiting,
-      };
-    });
-  }, [pendingReplacementItems]);
 
   useEffect(() => {
     if (!form.fabric_batch_id) return;
@@ -1199,7 +1156,7 @@ export default function CuttingPage() {
         material_rolls_used: "",
         notes: "",
       }));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateReplacementStatus(), mutateUslugaCutting()]);
+      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting()]);
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -1284,55 +1241,6 @@ export default function CuttingPage() {
     }
   }
 
-  async function completeReplacementCutting() {
-    const completedPieces = numberOrZero(replacementCompletion.completed_pieces);
-    const materialUsed = numberOrZero(replacementCompletion.input_quantity);
-    const waitingPieces = Math.max(0, Number(selectedReplacementItem?.waiting_cutting_qty || 0));
-    setReplacementCompletionErr("");
-    setReplacementCompletionDone("");
-    if (!selectedReplacementItem || completedPieces <= 0 || completedPieces > waitingPieces) {
-      setReplacementCompletionErr(t("replacement.invalidCompletedQty", { count: waitingPieces.toLocaleString() }));
-      return;
-    }
-    if (!form.fabric_batch_id) {
-      setReplacementCompletionErr(t("replacement.selectFabricBatch"));
-      return;
-    }
-    if (materialUsed <= 0) {
-      setReplacementCompletionErr(t("replacement.materialUsedRequired"));
-      return;
-    }
-
-    setReplacementCompletionBusy(true);
-    try {
-      const result = await api.post("/api/cutting/records", {
-        work_order_id: id,
-        production_batch_id: selectedReplacementItem.production_batch_id || null,
-        fabric_batch_id: form.fabric_batch_id,
-        input_quantity: materialUsed,
-        input_unit: selectedFabricBatch?.unit || "kg",
-        cut_pieces: completedPieces,
-        passed_pieces: completedPieces,
-        defective_pieces: 0,
-        waste_quantity: 0,
-        waste_unit: selectedFabricBatch?.unit || "kg",
-        layer_material_kg: 0,
-        beika_kg: 0,
-        material_rolls_used: 0,
-        layup_operator_name: form.layup_operator_name.trim() || null,
-        notes: "Replacement cutting completed",
-        bundles: [],
-      }, 120_000);
-      const recorded = Math.max(0, Number(result?.replacement_cut_qty || 0));
-      setReplacementCompletionDone(t("replacement.cuttingCompleted", { count: recorded.toLocaleString() }));
-      setReplacementCompletion((prev) => ({ ...prev, input_quantity: "" }));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateReplacementStatus()]);
-    } catch (e: any) {
-      setReplacementCompletionErr(e?.message || t("replacement.cuttingCompleteFailed"));
-    } finally {
-      setReplacementCompletionBusy(false);
-    }
-  }
 
   function beginBundleAdjustment(bundle: any) {
     const recordId = Number(bundle?.cutting_record_id || 0);
@@ -1519,112 +1427,6 @@ export default function CuttingPage() {
         onSaveBreakdown={saveBreakdown}
       />
 
-      {Number(replacementStatus?.waiting_cutting_qty || 0) > 0 && (
-        <>
-          <div className="border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-            <div className="font-semibold">
-              {t("replacement.cuttingRequired", {
-                count: Number(replacementStatus.waiting_cutting_qty).toLocaleString(),
-              })}
-            </div>
-            <div className="mt-1 text-amber-900">{t("replacement.cuttingHint")}</div>
-            {Array.isArray(replacementStatus.items) && replacementStatus.items.length > 1 && (
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-amber-900">
-                {replacementStatus.items
-                  .filter((row: any) => Number(row.waiting_cutting_qty || 0) > 0)
-                  .map((row: any) => (
-                    <span key={row.production_batch_id || "order"}>
-                      {row.batch_no || t("field.batch")}: {Number(row.waiting_cutting_qty).toLocaleString()}
-                    </span>
-                  ))}
-              </div>
-            )}
-          </div>
-          <section className="card mb-4 rounded-t-none border-t-0 p-4">
-            <div className="mb-3">
-              <h2 className="text-base font-semibold">{t("replacement.completeCuttingTitle")}</h2>
-              <p className="mt-1 text-sm text-slate-600">{t("replacement.completeCuttingHint")}</p>
-            </div>
-            <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-4">
-              {pendingReplacementItems.length > 1 && (
-                <div>
-                  <label className="label">{t("batch.orderBatch")}</label>
-                  <select
-                    className="input"
-                    value={replacementCompletion.production_batch_id}
-                    onChange={(e) => {
-                      const batchId = Number(e.target.value || 0);
-                      const row = pendingReplacementItems.find((item: any) => Number(item?.production_batch_id || 0) === batchId);
-                      setReplacementCompletion((prev) => ({
-                        ...prev,
-                        production_batch_id: batchId,
-                        completed_pieces: Number(row?.waiting_cutting_qty || 0),
-                      }));
-                    }}
-                  >
-                    {pendingReplacementItems.map((row: any) => (
-                      <option key={row.production_batch_id || "order"} value={Number(row.production_batch_id || 0)}>
-                        {row.batch_no || t("field.batch")} ({Number(row.waiting_cutting_qty || 0).toLocaleString()})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="label">{t("field.fabricBatch")}</label>
-                <select
-                  className="input"
-                  value={form.fabric_batch_id}
-                  onChange={(e) => {
-                    const batch = allSearchableFabricBatches.find((row) => Number(row.id) === Number(e.target.value || 0)) || null;
-                    selectFabricBatch(batch);
-                  }}
-                >
-                  <option value={0}>{t("replacement.selectFabricBatchOption")}</option>
-                  {allSearchableFabricBatches.slice(0, 100).map((batch) => (
-                    <option key={batch.id} value={batch.id}>
-                      {fabricBatchCompactLabel(batch)} - {fmtQty(batchAvailableQty(batch))} {batch.unit}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label">{t("replacement.completedPieces")}</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={Math.max(1, Number(selectedReplacementItem?.waiting_cutting_qty || 1))}
-                  value={replacementCompletion.completed_pieces}
-                  onChange={(e) => setReplacementCompletion((prev) => ({ ...prev, completed_pieces: parseWholeInput(e.target.value) }))}
-                />
-              </div>
-              <div>
-                <label className="label">{t("replacement.materialUsed", { unit: selectedFabricBatch?.unit || "kg" })}</label>
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={replacementCompletion.input_quantity}
-                  onChange={(e) => setReplacementCompletion((prev) => ({ ...prev, input_quantity: parseDecimalInput(e.target.value) }))}
-                />
-              </div>
-            </div>
-            {replacementCompletionErr && <div className="mt-3 text-sm text-red-600">{replacementCompletionErr}</div>}
-            <div className="mt-3">
-              <button type="button" className="btn btn-primary" onClick={completeReplacementCutting} disabled={replacementCompletionBusy}>
-                {replacementCompletionBusy ? t("common.saving") : t("replacement.markCuttingDone")}
-              </button>
-            </div>
-          </section>
-        </>
-      )}
-      {replacementCompletionDone && (
-        <div className="mb-4 border-y border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          {replacementCompletionDone}
-        </div>
-      )}
 
       {!isAlreadyBatched && canCompleteWithShortage && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-y border-amber-200 bg-amber-50 px-4 py-3">

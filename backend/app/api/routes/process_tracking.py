@@ -15,7 +15,7 @@ from app.core.pagination import clamp_pagination
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models import (
     SalesOrder, ProductionOrder, WorkOrder, Customer, Model, ModelBOM, SewingFlow, SewingAssignment,
-    CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord, SewingReplacementRequest,
+    CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord,
     PackagingRecord, Package, PackageBatchAllocation, StockBatch, Department, Bundle,
 )
 from app.core.dt import as_utc, date_filter_bounds
@@ -60,7 +60,7 @@ def _actual_output_quantity(stages: list[dict]) -> int:
     return max((_positive_int(stage.get("completed")) for stage in stages), default=0)
 
 
-def _stage_dict(wo, flow, now: datetime, replacement_totals: dict[str, int] | None = None) -> dict:
+def _stage_dict(wo, flow, now: datetime) -> dict:
     deadline_dt = as_utc(wo.deadline)
     status = str(wo.status or "")
     if wo.operation == "storage_transfer" and status in _STARTED_STATUSES:
@@ -74,17 +74,9 @@ def _stage_dict(wo, flow, now: datetime, replacement_totals: dict[str, int] | No
     planned = int(wo.planned_output_qty or 0)
     passed = int(wo.passed_qty or 0)
     failed = int(wo.failed_qty or 0)
-    resolved_failed = 0 if wo.operation == "sewing" else failed
+    resolved_failed = failed
     processed = min(planned, passed + resolved_failed) if planned > 0 else passed + resolved_failed
     pct = round(100.0 * processed / planned, 1) if planned > 0 else 0.0
-    replacement_totals = replacement_totals or {}
-    has_open_replacements = (
-        int(replacement_totals.get("waiting_cutting_qty", 0)) > 0
-        if wo.operation == "cutting"
-        else int(replacement_totals.get("open_qty", 0)) > 0
-        if wo.operation in {"sewing", "packaging", "storage_transfer"}
-        else False
-    )
     return {
         "work_order_id": wo.id,
         "operation": wo.operation,
@@ -98,7 +90,6 @@ def _stage_dict(wo, flow, now: datetime, replacement_totals: dict[str, int] | No
         "processed": processed,
         "rework": int(wo.rework_qty or 0),
         "progress_pct": pct,
-        "has_open_replacements": has_open_replacements,
         "assigned_to": wo.assigned_to,
         "sewing_flow_id": wo.sewing_flow_id,
         "sewing_flow_code": flow.code if flow else None,
@@ -153,7 +144,6 @@ def _rollup_operation(operation: str, rows: list[dict]) -> dict:
         "processed": processed,
         "rework": rework,
         "progress_pct": pct,
-        "has_open_replacements": any(bool(r.get("has_open_replacements")) for r in rows),
         "assigned_to": None,
         "sewing_flow_id": None,
         "sewing_flow_code": flow_code,
@@ -199,14 +189,13 @@ def _apply_upstream_loss_progress(stages: list[dict]) -> None:
         planned = max(0, int(stage.get("planned") or 0))
         completed = max(0, int(stage.get("completed") or 0))
         failed = max(0, int(stage.get("failed") or 0))
-        resolved_failed = 0 if operation == "sewing" else failed
+        resolved_failed = failed
         processed = completed + resolved_failed + upstream_failed
         if planned > 0:
             processed = min(planned, processed)
             stage["progress_pct"] = round(100.0 * processed / planned, 1)
             if (
                 processed >= planned
-                and not stage.get("has_open_replacements")
                 and str(stage.get("status") or "") not in ("cancelled", "rejected")
             ):
                 stage["status"] = "completed"
@@ -438,7 +427,7 @@ def _internal_batch_stage_rows(db, po: ProductionOrder, base_stages: list[dict])
             row["planned"] = planned
             row["completed"] = completed
             row["failed"] = failed
-            row["processed"] = completed + (0 if op == "sewing" else failed)
+            row["processed"] = completed + failed
             row["rework"] = int(total.get("rework", 0))
             row["progress_pct"] = round(100.0 * int(row["processed"]) / planned, 1) if planned > 0 else 0.0
             row["status"] = _batch_stage_status(str(base.get("status") or "waiting"), planned, int(row["processed"]), activity)
@@ -713,7 +702,7 @@ def _internal_batch_stage_rows_from_totals(
             row["received_qty"] = int(total.get("received_qty", 0))
             row["output_qty"] = int(total.get("output_qty", completed))
             row["failed"] = failed
-            row["processed"] = completed + (0 if operation == "sewing" else failed)
+            row["processed"] = completed + failed
             row["rework"] = int(total.get("rework", 0))
             row["progress_pct"] = round(100.0 * int(row["processed"]) / planned, 1) if planned > 0 else 0.0
             row["status"] = _batch_stage_status(
@@ -986,25 +975,6 @@ def list_processes(
     for passport in passport_rows:
         passports_by_order.setdefault(int(passport.production_order_id), []).append(passport)
 
-    replacement_totals_by_order: dict[int, dict[str, int]] = {}
-    replacement_rows = (
-        db.query(
-            SewingReplacementRequest.production_order_id,
-            func.coalesce(func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.cut_qty), 0),
-            func.coalesce(func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.replaced_qty), 0),
-        )
-        .filter(SewingReplacementRequest.production_order_id.in_(production_order_ids))
-        .group_by(SewingReplacementRequest.production_order_id)
-        .all()
-        if production_order_ids
-        else []
-    )
-    for production_order_id, waiting_cutting_qty, open_qty in replacement_rows:
-        replacement_totals_by_order[int(production_order_id)] = {
-            "waiting_cutting_qty": max(0, int(waiting_cutting_qty or 0)),
-            "open_qty": max(0, int(open_qty or 0)),
-        }
-
     sewing_output_by_order: dict[int, dict] = {}
     sewing_output_by_batch: dict[tuple[int, int], dict] = {}
     if sewing_completed_only and production_order_ids:
@@ -1089,7 +1059,7 @@ def list_processes(
         all_stage_rows: list[dict] = []
         for wo in po.work_orders:
             flow = flows.get(wo.sewing_flow_id) if wo.sewing_flow_id else None
-            stage = _stage_dict(wo, flow, now, replacement_totals_by_order.get(int(po.id)))
+            stage = _stage_dict(wo, flow, now)
             if wo.operation == "sewing":
                 stage["received_qty"] = (
                     sewing_receipts_by_order.get(int(po.id), 0) if wo.production_batch_id is None

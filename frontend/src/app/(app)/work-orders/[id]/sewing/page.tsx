@@ -51,10 +51,6 @@ export default function SewingPage() {
     wo ? `/api/work-orders/${id}/sewing-batch-progress` : null,
     fetcher,
   );
-  const { data: replacementStatus, mutate: mutateReplacementStatus } = useSWR<any>(
-    wo ? `/api/work-orders/${id}/replacement-status` : null,
-    fetcher,
-  );
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
   const batchById = useMemo(() => new Map((po?.batches || []).map((b: any) => [Number(b.id), b])), [po?.batches]);
@@ -121,42 +117,11 @@ export default function SewingPage() {
     notes: "",
   });
   const [msg, setMsg] = useState("");
-  const [replacementCompletion, setReplacementCompletion] = useState<{
-    production_batch_id: number;
-    completed_pieces: NumberInputValue;
-    line_key: string;
-  }>({ production_batch_id: 0, completed_pieces: "", line_key: "" });
-  const [replacementCompletionBusy, setReplacementCompletionBusy] = useState(false);
-  const [replacementCompletionErr, setReplacementCompletionErr] = useState("");
-  const [replacementCompletionDone, setReplacementCompletionDone] = useState("");
   const isAlreadyBatched = Array.isArray(po?.batches) && po.batches.length > 0;
   const batchItems = Array.isArray(batchProgress?.items) ? batchProgress.items : [];
   const selectedLine = useMemo(
     () => lineOptions.find((opt) => opt.assignmentId === f.sewing_assignment_id && opt.lineName === f.line_name),
     [lineOptions, f.line_name, f.sewing_assignment_id],
-  );
-  const pendingReplacementItems = useMemo(
-    () => (Array.isArray(replacementStatus?.items) ? replacementStatus.items : [])
-      .filter((row: any) => Number(row?.waiting_sewing_qty || 0) > 0),
-    [replacementStatus?.items],
-  );
-  const selectedReplacementItem = useMemo(
-    () => pendingReplacementItems.find(
-      (row: any) => Number(row?.production_batch_id || 0) === Number(replacementCompletion.production_batch_id || 0),
-    ) || pendingReplacementItems[0] || null,
-    [pendingReplacementItems, replacementCompletion.production_batch_id],
-  );
-  const replacementLineOptions = useMemo(() => {
-    if (!selectedReplacementItem) return lineOptions;
-    const batchId = Number(selectedReplacementItem.production_batch_id || 0);
-    const batchLines = lineOptions.filter((option) => Number(option.productionBatchId || 0) === batchId);
-    return batchLines.length > 0 ? batchLines : lineOptions;
-  }, [lineOptions, selectedReplacementItem]);
-  const selectedReplacementLine = useMemo(
-    () => replacementLineOptions.find((option) => option.key === replacementCompletion.line_key)
-      || replacementLineOptions[0]
-      || null,
-    [replacementCompletion.line_key, replacementLineOptions],
   );
 
   useEffect(() => {
@@ -189,30 +154,6 @@ export default function SewingPage() {
     });
   }, [isAlreadyBatched, po?.batches]);
 
-  useEffect(() => {
-    if (pendingReplacementItems.length === 0) return;
-    setReplacementCompletion((prev) => {
-      const selected = pendingReplacementItems.find(
-        (row: any) => Number(row?.production_batch_id || 0) === Number(prev.production_batch_id || 0),
-      ) || pendingReplacementItems[0];
-      const nextBatchId = Number(selected?.production_batch_id || 0);
-      if (nextBatchId === Number(prev.production_batch_id || 0) && numberOrZero(prev.completed_pieces) > 0) return prev;
-      return {
-        ...prev,
-        production_batch_id: nextBatchId,
-        completed_pieces: Number(selected?.waiting_sewing_qty || 0),
-      };
-    });
-  }, [pendingReplacementItems]);
-
-  useEffect(() => {
-    if (replacementLineOptions.length === 0) return;
-    setReplacementCompletion((prev) => (
-      replacementLineOptions.some((option) => option.key === prev.line_key)
-        ? prev
-        : { ...prev, line_key: replacementLineOptions[0].key }
-    ));
-  }, [replacementLineOptions]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -238,7 +179,6 @@ export default function SewingPage() {
       mutateBatchProgress();
       mutateWo();
       void refreshSWR(`/api/work-orders/${id}/sewing-records`);
-      mutateReplacementStatus();
       setF((prev) => ({
         ...prev,
         input_qty: "",
@@ -250,42 +190,6 @@ export default function SewingPage() {
       setMsg(t("msg.saved"));
     } catch (e: any) {
       setMsg(e.message);
-    }
-  }
-
-  async function completeReplacementSewing() {
-    const completedPieces = numberOrZero(replacementCompletion.completed_pieces);
-    const waitingPieces = Math.max(0, Number(selectedReplacementItem?.waiting_sewing_qty || 0));
-    setReplacementCompletionErr("");
-    setReplacementCompletionDone("");
-    if (!selectedReplacementItem || completedPieces <= 0 || completedPieces > waitingPieces) {
-      setReplacementCompletionErr(t("replacement.invalidCompletedQty", { count: waitingPieces.toLocaleString() }));
-      return;
-    }
-
-    setReplacementCompletionBusy(true);
-    try {
-      const result = await api.post("/api/sewing/records", {
-        work_order_id: id,
-        production_batch_id: selectedReplacementItem.production_batch_id || null,
-        input_qty: completedPieces,
-        sewn_qty: completedPieces,
-        passed_qty: completedPieces,
-        failed_qty: 0,
-        rework_qty: 0,
-        rejected_qty: 0,
-        line_name: selectedReplacementLine?.lineName || "Replacement",
-        sewing_assignment_id: selectedReplacementLine?.assignmentId ?? null,
-        notes: "Replacement sewing completed",
-      });
-      const recorded = Math.max(0, Number(result?.replacement_completed_qty || 0));
-      setReplacementCompletionDone(t("replacement.sewingCompleted", { count: recorded.toLocaleString() }));
-      setReplacementCompletion((prev) => ({ ...prev, completed_pieces: "" }));
-      await Promise.all([mutateAssignments(), mutateBatchProgress(), mutateWo(), mutateReplacementStatus()]);
-    } catch (e: any) {
-      setReplacementCompletionErr(e?.message || t("replacement.sewingCompleteFailed"));
-    } finally {
-      setReplacementCompletionBusy(false);
     }
   }
 
@@ -308,91 +212,6 @@ export default function SewingPage() {
         customerName={so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : null}
         statusText={wo ? statusLabel(wo.status, t) : "-"}
       />
-      {Number(replacementStatus?.open_qty || 0) > 0 && (
-        <>
-          <div className={`${pendingReplacementItems.length > 0 ? "" : "mb-4"} border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950`}>
-            <div className="font-semibold">
-              {t("replacement.sewingOpen", { count: Number(replacementStatus.open_qty).toLocaleString() })}
-            </div>
-            <div className="mt-1 text-amber-900">
-              {t("replacement.sewingBreakdown", {
-                cutting: Number(replacementStatus.waiting_cutting_qty || 0).toLocaleString(),
-                sewing: Number(replacementStatus.waiting_sewing_qty || 0).toLocaleString(),
-              })}
-            </div>
-          </div>
-          {pendingReplacementItems.length > 0 && (
-            <section className="card mb-4 rounded-t-none border-t-0 p-4">
-              <div className="mb-3">
-                <h2 className="text-base font-semibold">{t("replacement.completeSewingTitle")}</h2>
-                <p className="mt-1 text-sm text-slate-600">{t("replacement.completeSewingHint")}</p>
-              </div>
-              <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-3">
-                {pendingReplacementItems.length > 1 && (
-                  <div>
-                    <label className="label">{t("batch.orderBatch")}</label>
-                    <select
-                      className="input"
-                      value={replacementCompletion.production_batch_id}
-                      onChange={(e) => {
-                        const batchId = Number(e.target.value || 0);
-                        const row = pendingReplacementItems.find((item: any) => Number(item?.production_batch_id || 0) === batchId);
-                        setReplacementCompletion((prev) => ({
-                          ...prev,
-                          production_batch_id: batchId,
-                          completed_pieces: Number(row?.waiting_sewing_qty || 0),
-                        }));
-                      }}
-                    >
-                      {pendingReplacementItems.map((row: any) => (
-                        <option key={row.production_batch_id || "order"} value={Number(row.production_batch_id || 0)}>
-                          {row.batch_no || t("field.batch")} ({Number(row.waiting_sewing_qty || 0).toLocaleString()})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {replacementLineOptions.length > 0 && (
-                  <div>
-                    <label className="label">{t("field.lineName")}</label>
-                    <select
-                      className="input"
-                      value={selectedReplacementLine?.key || ""}
-                      onChange={(e) => setReplacementCompletion((prev) => ({ ...prev, line_key: e.target.value }))}
-                    >
-                      {replacementLineOptions.map((option) => (
-                        <option key={option.key} value={option.key}>{option.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div>
-                  <label className="label">{t("replacement.completedPieces")}</label>
-                  <input
-                    className="input"
-                    type="number"
-                    min={1}
-                    max={Math.max(1, Number(selectedReplacementItem?.waiting_sewing_qty || 1))}
-                    value={replacementCompletion.completed_pieces}
-                    onChange={(e) => setReplacementCompletion((prev) => ({ ...prev, completed_pieces: parseNumberInput(e.target.value) }))}
-                  />
-                </div>
-              </div>
-              {replacementCompletionErr && <div className="mt-3 text-sm text-red-600">{replacementCompletionErr}</div>}
-              <div className="mt-3">
-                <button type="button" className="btn btn-primary" onClick={completeReplacementSewing} disabled={replacementCompletionBusy}>
-                  {replacementCompletionBusy ? t("common.saving") : t("replacement.markSewingDone")}
-                </button>
-              </div>
-            </section>
-          )}
-        </>
-      )}
-      {replacementCompletionDone && (
-        <div className="mb-4 border-y border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          {replacementCompletionDone}
-        </div>
-      )}
       {isAlreadyBatched && (
         <div className="card mb-4 p-4">
           <div className="mb-2 text-base font-semibold">{t("batch.managedInsideWorkOrder")}</div>
@@ -407,7 +226,6 @@ export default function SewingPage() {
                   <th>{t("statusValue.planned")}</th>
                   <th>{t("field.output")}</th>
                   <th>{t("field.failed")}</th>
-                  <th>{t("replacement.waiting")}</th>
                   <th>{t("field.remaining")}</th>
                   <th>{t("page.processes.progress")}</th>
                 </tr>
@@ -422,14 +240,13 @@ export default function SewingPage() {
                     <td>{row.planned_quantity}</td>
                     <td>{row.passed_qty}</td>
                     <td>{row.failed_qty}</td>
-                    <td>{row.waiting_replacement_qty || 0}</td>
                     <td>{row.remaining_quantity}</td>
                     <td>{row.progress_pct}%</td>
                   </tr>
                 ))}
                 {batchItems.length === 0 && (
                   <tr>
-                  <td colSpan={7} className="text-slate-500">{t("batch.noProgressYet")}</td>
+                  <td colSpan={6} className="text-slate-500">{t("batch.noProgressYet")}</td>
                   </tr>
                 )}
               </tbody>
