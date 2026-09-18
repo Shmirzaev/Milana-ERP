@@ -2,7 +2,9 @@ from __future__ import annotations
 
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError
+from sqlalchemy import text
 
 from app.core.config import settings as app_settings
 from app.core.deps import CurrentUser, DbSession, require_permissions
@@ -39,6 +41,16 @@ _SCHEMAS = {
     "financial": FinancialSettings,
     "preferences": SystemPreferences,
 }
+_SETTING_LOCK_KEYS = {"company_info": 1, "financial": 2, "preferences": 3}
+
+
+def _setting_for_update(db: DbSession, section: str) -> SystemSetting | None:
+    # A row lock alone cannot serialize the first two writes to an absent row.
+    # Both PATCH and logo updates use this section-scoped transaction lock.
+    if db.bind and db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:namespace, :section)"),
+                   {"namespace": 1_297_047_635, "section": _SETTING_LOCK_KEYS[section]})
+    return db.query(SystemSetting).filter(SystemSetting.key == section).with_for_update().populate_existing().first()
 
 
 def _default_payload() -> dict:
@@ -67,9 +79,21 @@ def save_settings_section(
     if section not in _SCHEMAS:
         raise HTTPException(404, "Settings section not found")
     schema = _SCHEMAS[section]
-    validated = schema(**payload).model_dump()
-    row = db.query(SystemSetting).filter(SystemSetting.key == section).first()
+    unknown = sorted(set(payload) - schema.model_fields.keys())
+    if unknown:
+        raise RequestValidationError([
+            {"type": "extra_forbidden", "loc": ("body", field), "msg": "Extra inputs are not permitted", "input": payload[field]}
+            for field in unknown
+        ])
+    row = _setting_for_update(db, section)
     old_value = row.value_json if row else None
+    previous = old_value if isinstance(old_value, dict) else {}
+    try:
+        validated = schema(**{**previous, **payload}).model_dump()
+    except ValidationError as exc:
+        raise RequestValidationError([
+            {**error, "loc": ("body", *error["loc"])} for error in exc.errors()
+        ]) from exc
     if row:
         row.value_json = validated
     else:
@@ -99,9 +123,9 @@ async def upload_company_logo(
     )
     logo_url = stored.file_url
 
-    company = _get_or_default(db, "company_info")
+    row = _setting_for_update(db, "company_info")
+    company = CompanyInfo(**(row.value_json if row and isinstance(row.value_json, dict) else {})).model_dump()
     company["logo_url"] = logo_url
-    row = db.query(SystemSetting).filter(SystemSetting.key == "company_info").first()
     if row:
         row.value_json = CompanyInfo(**company).model_dump()
     else:
