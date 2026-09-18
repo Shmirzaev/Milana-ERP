@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-17
+Last updated: 2026-09-18
+
+## Department test accounts created (2026-09-18)
+
+- At the user's explicit request, copied the 25 active non-test users into 25 department-named test accounts (user IDs 27-51), with the exact same role, department, factory, extra permissions, access policy, and effective access. Original accounts, role definitions, and the existing Test User #26 were unchanged. Names include source names when departments overlap; the Abbosbek prefix is retained for legacy frontend/backend purchasing access. Account mapping is in `docs/DEPARTMENT_TEST_ACCOUNTS_2026-09-18.md`. The shared password was supplied by the user and is not recorded here.
+- Before mutation, validated PostgreSQL backup `/opt/milana-erp/shared/backups/pre_department_test_users_20260918.dump`: mode 0600, 54,766,079 bytes, 1,202 restore objects, SHA-256 `2133474932a7e53bd075c3bd17ddd6b41ad363235f44b521edd37730edfdb17f`; restore-list SHA-256 `60e5aa969709524a6d2934e1b8c3bcfe032da688b30bf7b3b243d602036e9d40`.
+- All 25 production HTTPS logins passed. Session access fields and backend effective permissions matched each source in every allowed factory; unauthorized factory switches returned 403. Verified hashes and original-account preservation, and created 25 audit entries. Verification sessions logged out. All four internal/public health and login checks returned HTTP 200. Frontend navigation source rules were checked; no visual browser QA was performed.
+- Active backend/frontend release remains blue `20260917_100146`, manifest `abaae224fd198919a02b0fb1ee01b2780809da79123c2132f0d100762a29a94e`; rollback green `20260917_091524`. No application deployment, schema change, or operational business transaction. Historical audit/security risks remain unchanged.
+- Worktree `C:/ERP/.codex-work/department-test-users-20260918`, branch `codex/department-test-users-20260918`; operational evidence in `outputs/test-users/`. Documentation-only branch; no merge or deployment authorized.
 
 ## Sewing line model and variant visibility deployed (2026-09-17)
 
