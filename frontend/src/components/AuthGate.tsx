@@ -1,5 +1,5 @@
 "use client";
-import { hasInventoryPathAccess } from "@/lib/access";
+import { factoryWorkspaceHome, hasInventoryPathAccess } from "@/lib/access";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { can, useMe } from "@/lib/auth";
@@ -115,12 +115,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const restrictedSewingHome = sewingWorkspaceHome(me);
   const factoryHome = isSewingRole(me)
     ? restrictedSewingHome
-    : me?.factory_code === "BST"
-      ? "/departments/BST"
-      : me?.factory_code === "ECO"
-        ? "/departments/ECT"
-        : "/";
-  const redirectNonMilanaHome = Boolean(me && pathname === "/" && me.factory_code !== "MIL");
+    : factoryWorkspaceHome(me);
+  // Recover sessions/bookmarks sent to the old factory-wide login destination.
+  const deniedFactoryLanding = Boolean(me && !hasRouteAccess(me, pathname) && (
+    (me.factory_code === "BST" && pathname === "/departments/BST")
+    || (me.factory_code === "ECO" && pathname === "/departments/ECT")
+  ));
+  const redirectNonMilanaHome = Boolean(me && me.factory_code !== "MIL"
+    && pathname !== factoryHome && (pathname === "/" || deniedFactoryLanding));
   const operationalFactory = (() => {
     if (pathname === "/usluga" || pathname.startsWith("/usluga/")) return "ECO";
     const department = pathname.match(/^\/departments\/(CUT|PRT|SEW|MIL|PKG|BST|BPK|ECT|ECO|ECP)(?:\/|$)/)?.[1];

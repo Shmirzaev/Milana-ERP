@@ -12,7 +12,8 @@ function load(path) {
   return exports;
 }
 const { changeAccess, accessText } = load("src/lib/userAccess.ts");
-const { isSewingRole } = load("src/lib/access.ts");
+const access = load("src/lib/access.ts");
+const { isSewingRole, factoryWorkspaceHome } = access;
 let value = { MIL: { allow: ["finance.view"], deny: ["sales.orders"] } };
 const original = JSON.stringify(value);
 value = changeAccess(value, "ECO", "cutting.records", "allow");
@@ -40,6 +41,47 @@ const source = ts.transpileModule(fs.readFileSync("src/components/UserAccessEdit
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
 const runtime = await import("react/jsx-runtime");
+// Run the real AuthGate with department-scoped sessions: root login, old
+// bookmarked landings, intended destination, and unauthorized cross-factory URLs.
+const gateSource = ts.transpileModule(fs.readFileSync("src/components/AuthGate.tsx", "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
+}).outputText;
+const packingPermissions = ["packaging.records", "packaging.packages", "traceability.view", "processes.view"];
+for (const [factory, oldHome, packingHome] of [["BST", "/departments/BST", "/departments/BPK"], ["ECO", "/departments/ECT", "/departments/ECP"]]) {
+  const me = { role: "Packaging", factory_code: factory, available_factories: [factory], permissions: packingPermissions };
+  assert.equal(factoryWorkspaceHome(me), packingHome);
+  assert.equal(factoryWorkspaceHome({ ...me, access_configured: true, permissions: ["packaging.packages"] }), packingHome);
+  assert.equal(factoryWorkspaceHome({ ...me, permissions: [] }), oldHome);
+  assert.equal(factoryWorkspaceHome({ ...me, permissions: ["*"] }), oldHome);
+  assert.equal(factoryWorkspaceHome({ ...me, permissions: [...packingPermissions, "planning.production"] }), oldHome);
+  for (const [pathname, redirect, denied] of [["/", packingHome, false], [oldHome, packingHome, false], [packingHome, null, false], ["/departments/PKG", null, true], [factory === "BST" ? "/departments/ECP" : "/departments/BPK", null, true]]) {
+    const effects = [], redirects = [], gateExports = {};
+    vm.runInNewContext(gateSource, {
+      exports: gateExports, URLSearchParams,
+      require: (name) => {
+        if (name === "react/jsx-runtime") return runtime;
+        if (name === "react") return { useEffect: (fn) => effects.push(fn), useState: (initial) => [initial, () => {}] };
+        if (name === "next/navigation") return { usePathname: () => pathname, useRouter: () => ({ replace: (path) => redirects.push(path) }) };
+        if (name === "@/lib/access") return access;
+        if (name === "@/lib/auth") return { useMe: () => ({ me, loading: false, hasToken: true }), can: (user, ...perms) => user.permissions.some(p => p === "*" || perms.includes(p)) };
+        if (name === "@/lib/api") return { api: { post: () => { throw new Error("Unexpected factory switch"); } } };
+        if (name === "@/lib/i18n") return { useT: () => ({ t: (key) => key }) };
+        if (name === "@/lib/priceCalculationRequests") return {};
+        throw new Error(name);
+      },
+    });
+    const rendered = gateExports.default({ children: "packaging workspace" });
+    effects.forEach(fn => fn());
+    assert.deepEqual(redirects, redirect ? [redirect] : [], `${factory} ${pathname}`);
+    assert.equal(rendered?.props?.children === "auth.accessDenied", denied, `${factory} ${pathname}`);
+    if (!redirect && !denied) assert.equal(rendered.props.children, "packaging workspace");
+  }
+}
+assert.equal(factoryWorkspaceHome({ role: "Sewing", factory_code: "BST", permissions: ["sewing.workspace"] }), "/departments/BST");
+assert.equal(factoryWorkspaceHome({ role: "Sewing", factory_code: "ECO", permissions: ["sewing.workspace"] }), "/departments/ECO");
+assert.equal(factoryWorkspaceHome({ role: "Packaging", factory_code: "MIL", permissions: packingPermissions }), "/");
+assert.match(fs.readFileSync("src/app/login/page.tsx", "utf8"), /window\.location\.href = "\/";/);
+console.log("Packaging login and stale landing recovery passed; factory isolation and existing homes preserved.");
 let selectedFactory = "MIL";
 let effective = ["planning.view"];
 let grantable = true;

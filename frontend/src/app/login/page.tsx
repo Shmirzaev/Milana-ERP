@@ -100,11 +100,8 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await api.login(email, password, factoryCode);
-      window.location.href = factoryCode === "BST"
-        ? "/departments/BST"
-        : factoryCode === "ECO"
-          ? "/departments/ECT"
-          : "/";
+      // AuthGate selects the workspace from the authenticated account's permissions.
+      window.location.href = "/";
     } catch (err: any) {
       setError(err.message || t("auth.loginFailed"));
     } finally {
