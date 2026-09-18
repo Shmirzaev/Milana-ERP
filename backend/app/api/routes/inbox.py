@@ -17,8 +17,6 @@ from app.models import (
     SalesOrderItem,
     Shipment,
     StockReservation,
-    SewingRecord,
-    SewingReplacementRequest,
     WorkOrder,
     ModelBOM,
     ModelImage,
@@ -772,113 +770,6 @@ def _work_order_card_payload(
     }
 
 
-def _replacement_cutting_work_payload(
-    db: DbSession,
-    department_id: int,
-) -> list[dict]:
-    rows = (
-        db.query(SewingReplacementRequest, WorkOrder, ProductionOrder, SewingRecord)
-        .join(WorkOrder, WorkOrder.id == SewingReplacementRequest.cutting_work_order_id)
-        .join(ProductionOrder, ProductionOrder.id == SewingReplacementRequest.production_order_id)
-        .join(SewingRecord, SewingRecord.id == SewingReplacementRequest.sewing_record_id)
-        .filter(
-            WorkOrder.department_id == department_id,
-            SewingReplacementRequest.status == "waiting_cutting",
-            SewingReplacementRequest.cut_qty < SewingReplacementRequest.requested_qty,
-            ProductionOrder.status.notin_(_CANCELLED_PRODUCTION_STATUSES),
-        )
-        .order_by(SewingReplacementRequest.created_at.asc(), SewingReplacementRequest.id.asc())
-        .all()
-    )
-    if not rows:
-        return []
-
-    production_order_ids = sorted({int(request.production_order_id) for request, _, _, _ in rows})
-    material_by_po = _material_payload_by_production_order(db, production_order_ids)
-    production_context_by_po = _production_context_by_production_order(db, production_order_ids)
-
-    return [
-        {
-            "id": request.id,
-            "production_order_id": request.production_order_id,
-            "cutting_work_order_id": cutting_work_order.id,
-            "sewing_work_order_id": request.sewing_work_order_id,
-            "production_batch_id": request.production_batch_id,
-            "production_no": production_order.production_no,
-            "order_no": production_order.order_no,
-            "sales_order_no": production_order.sales_order_no,
-            "requested_qty": int(request.requested_qty or 0),
-            "cut_qty": int(request.cut_qty or 0),
-            "remaining_qty": max(0, int(request.requested_qty or 0) - int(request.cut_qty or 0)),
-            "sewing_line_name": sewing_record.line_name,
-            "defect_reason": request.defect_reason,
-            "created_at": request.created_at,
-            **_material_payload_for_po(material_by_po, int(request.production_order_id)),
-            **_production_context_for_po(production_context_by_po, int(request.production_order_id)),
-        }
-        for request, cutting_work_order, production_order, sewing_record in rows
-    ]
-
-
-def _replacement_sewing_work_payload(
-    db: DbSession,
-    department_ids: list[int],
-    textile_filter: str | None,
-) -> list[dict]:
-    rows = (
-        db.query(SewingReplacementRequest, WorkOrder, ProductionOrder)
-        .join(WorkOrder, WorkOrder.id == SewingReplacementRequest.sewing_work_order_id)
-        .join(ProductionOrder, ProductionOrder.id == SewingReplacementRequest.production_order_id)
-        .filter(
-            WorkOrder.department_id.in_(department_ids),
-            SewingReplacementRequest.status == "waiting_sewing",
-            SewingReplacementRequest.replaced_qty < SewingReplacementRequest.cut_qty,
-            ProductionOrder.status.notin_(_CANCELLED_PRODUCTION_STATUSES),
-        )
-        .order_by(SewingReplacementRequest.created_at.asc(), SewingReplacementRequest.id.asc())
-        .all()
-    )
-    if not rows:
-        return []
-
-    sewing_work_orders = [sewing_work_order for _, sewing_work_order, _ in rows]
-    textile_by_work_order_id = _textile_codes_for_work_orders(db, sewing_work_orders)
-    if textile_filter:
-        rows = [
-            row
-            for row in rows
-            if textile_by_work_order_id.get(int(row[1].id)) == textile_filter
-        ]
-    if not rows:
-        return []
-
-    production_order_ids = sorted({int(request.production_order_id) for request, _, _ in rows})
-    material_by_po = _material_payload_by_production_order(db, production_order_ids)
-    production_context_by_po = _production_context_by_production_order(db, production_order_ids)
-
-    return [
-        {
-            "id": request.id,
-            "production_order_id": request.production_order_id,
-            "sewing_work_order_id": sewing_work_order.id,
-            "production_batch_id": request.production_batch_id,
-            "production_no": production_order.production_no,
-            "order_no": production_order.order_no,
-            "sales_order_no": production_order.sales_order_no,
-            "requested_qty": int(request.requested_qty or 0),
-            "cut_qty": int(request.cut_qty or 0),
-            "replaced_qty": int(request.replaced_qty or 0),
-            "remaining_qty": max(0, int(request.cut_qty or 0) - int(request.replaced_qty or 0)),
-            "defect_reason": request.defect_reason,
-            "created_at": request.created_at,
-            **_textile_payload(textile_by_work_order_id.get(int(sewing_work_order.id))),
-            **_material_payload_for_po(material_by_po, int(request.production_order_id)),
-            **_production_context_for_po(production_context_by_po, int(request.production_order_id)),
-        }
-        for request, sewing_work_order, production_order in rows
-    ]
-
-
 @router.get("")
 def department_inbox(
     db: DbSession,
@@ -1034,25 +925,6 @@ def department_inbox(
         and as_utc(w.end_time)
         and as_utc(w.end_time).astimezone(client_tz).date() == today_client
     ]
-    replacement_cutting_work = (
-        _replacement_cutting_work_payload(db, int(d.id))
-        if d.code in {"CUT", DEPT_ECO_COTTON_CUTTING}
-        else []
-    )
-    replacement_sewing_work = (
-        _replacement_sewing_work_payload(db, inbox_department_ids, textile_filter)
-        if d.code in _SEWING_LOGISTICS_DEPTS
-        else []
-    )
-    replacement_work_order_ids = {
-        int(row["cutting_work_order_id"])
-        for row in replacement_cutting_work
-    }
-    if replacement_work_order_ids:
-        pending_work_orders = [w for w in pending_work_orders if int(w.id) not in replacement_work_order_ids]
-        in_progress_work_orders = [w for w in in_progress_work_orders if int(w.id) not in replacement_work_order_ids]
-        active = [w for w in active if int(w.id) not in replacement_work_order_ids]
-
     awaiting_packaging = []
     if d.code in {"PKG", DEPT_BESTTEX_PACKAGING, DEPT_ECO_COTTON_PACKAGING}:
         packaging_dept_id = int(d.id)
@@ -1285,8 +1157,6 @@ def department_inbox(
         ],
         "incoming_bundle_groups": incoming_bundle_groups,
         "incoming_work_orders": incoming_work_orders,
-        "replacement_cutting_work": replacement_cutting_work,
-        "replacement_sewing_work": replacement_sewing_work,
         "cutting_work_orders": [
             _work_order_card_payload(w, received_by_po, None, material_by_po, production_context_by_po)
             for w in work_orders

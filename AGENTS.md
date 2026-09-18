@@ -103,7 +103,7 @@ A mismatch is a hard stop.
 - Creating a Production Order starts Cutting automatically.
 - Optional stages are skipped when not required.
 - Cutting overproduction lifts downstream plans to real quantity.
-- Cutting shortfall and replacement work remain visible and traceable.
+- Cutting shortfalls and sewing defects remain visible and traceable. Failed pieces do not create replacement work.
 - User pages show business names/numbers, not raw IDs.
 - Sales prices are net; tax calculation is unused.
 - Package creation respects selected-batch quantities and partial packages.
