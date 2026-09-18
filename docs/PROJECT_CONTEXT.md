@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-17
+Last updated: 2026-09-18
+
+## Claude handover refreshed; account access pending (2026-09-18)
+
+- User resumed the assistant migration after continuing ERP work in Codex. New clean worktree `C:/ERP/.codex-work/claude-migration-20260918`, branch `codex/claude-migration-20260918`, starts at verified origin/main `80f4831e8b9e514f1a3ee16558ad45a782e0e29a`. Repository changes are documentation only; no merge or deployment is included.
+- Both live source manifests/slots match `deploy/production-base.json`: active blue `20260917_100146`, rollback green `20260917_091524`, application commit `9c3b7a3169b4ac9406915c79fc4f56a92a5a5edc`, manifest `abaae224fd198919a02b0fb1ee01b2780809da79123c2132f0d100762a29a94e`, DB `0131_sewing_corrections`. Four internal/public health/login probes passed. No production data or runtime changes.
+- Refreshed history and private incremental backup: `C:/Users/User/Documents/Milana-Claude-Handover-20260918`. Keep it together with the September 15 base archive. Original Codex records, old worktrees, dirty legacy files, credentials and production storage remain intact. Read `export-summary.json` for exact snapshot coverage and limitations; credentials/raw private backups must not be bulk-loaded into Claude.
+- `CLAUDE.md` and `docs/CLAUDE_HANDOVER.md` carry the project rules, current baseline, recent business changes and history retrieval instructions. Claude Desktop still shows **Organization access is disabled**; CLI authentication is expired. User reauthentication/account restoration is required before model-side onboarding can be verified. The ERP MCP token also needs normal reauthentication if operational API access is required.
+- Codex's existing daily activity email remains the sole active sender; the photo/Qolip follow-up remains paused. Their definitions are preserved, not transferred or duplicated. Full operational migration is pending access restoration and integration validation. No Codex context was deleted.
 
 ## Sewing line model and variant visibility deployed (2026-09-17)
 
