@@ -1,6 +1,16 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-17
+Last updated: 2026-09-18
+
+## Non-admin operational test account created (2026-09-18)
+
+- Created the explicitly requested active `test@milanapremium.uz` account, display name `Test User`, user ID `26`, through the deployed user-creation service. Its requested password was set without recording it here. Creation audit ID: `22188`.
+- No administrator role or department restriction is assigned. Per-factory access policies grant all 73 current operational permissions in Milana (`MIL`), Besttex (`BST`), and Eco Cotton (`ECO`). The restrictive `inventory.materials_only` flag is omitted. Wildcard and all `admin.*` permissions are excluded; explicit administrator denials are configured, with `admin.super` denial only in the primary MIL policy as required by the existing validator.
+- Public HTTPS sign-in and effective permissions passed for all three factories. All 48 read-only API checks passed: sales, production, payroll, employees, finance, shipments, sewing lines, packaging, and each relevant cutting/printing/sewing/packaging inbox returned 200; users, access catalog, audit logs, MCP administration, and super-data administration returned 403 in every factory. Role-list reads remain available to authenticated users by existing application design; role creation requires wildcard administrator access, which this account lacks.
+- Browser verification confirmed successful sign-in, operational navigation, Eco Cotton sewing lines, and rejection of direct User Administration navigation. No workflow transaction was submitted. Only the new user, its creation audit entry, and normal authentication/activity metadata were changed; no existing user, shared role, inventory, order, payroll, package, or shipment was edited.
+- Verified pre-change backup: `/opt/milana-erp/shared/backups/milana_erp_pre_test_user_20260918_040006.dump`, 54,256,060 bytes, 1,202 restore objects; dump SHA-256 `9fee68e801a31d3e044fa5488a5ec87ebc8c427801c5d60829242ddc9e432663`; restore-list SHA-256 `4ab35d0fbf62044468778a021acb382f125cb8b13266f02bbc7f0b1176a8c615`.
+- Backend/frontend remain on blue release `20260917_100146`; green rollback remains `20260917_091524`. Both VM source-manifest hashes and slot states agree with the recorded production baseline. All four internal/public health/login checks returned 200. No application deployment, migration, service restart, or workflow-code change occurred. Historical security/audit risks remain unchanged.
+- Documentation worktree: `C:/ERP/.codex-work/test-user-20260918`, branch `codex/test-user-20260918`; legacy checkout preserved. This is a real production account with operational write/approval access for testing, not an isolated sandbox.
 
 ## Sewing line model and variant visibility deployed (2026-09-17)
 
