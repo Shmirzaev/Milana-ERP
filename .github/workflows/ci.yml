@@ -108,6 +108,8 @@ jobs:
           app/tests/test_material_reservation_concurrency.py
           app/tests/test_user_audit_history.py
           app/tests/test_fresh_migration_bootstrap.py
+          app/tests/test_accessory_return_concurrency.py
+          app/tests/test_waste_disposal_integrity.py
 
   frontend:
     runs-on: ubuntu-latest
