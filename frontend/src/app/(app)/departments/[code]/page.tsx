@@ -99,8 +99,6 @@ export default function DepartmentInboxPage() {
   });
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
-  const replacementCuttingWork = Array.isArray(data?.replacement_cutting_work) ? data.replacement_cutting_work : [];
-  const replacementSewingWork = Array.isArray(data?.replacement_sewing_work) ? data.replacement_sewing_work : [];
   const cuttingWorkOrders = Array.isArray(data?.cutting_work_orders) ? data.cutting_work_orders : [];
   const incomingWorkOrders = useMemo(
     () => (Array.isArray(data?.incoming_work_orders) ? data.incoming_work_orders : []),
@@ -271,82 +269,6 @@ export default function DepartmentInboxPage() {
         actions={code === "FGS" ? <StocktakeLink /> : undefined}
       />
       {isLoading && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
-      {!isLoading && (code === "CUT" || code === "ECT") && (
-        <section className="card mb-4 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">
-            {t("replacement.cuttingSection", { count: replacementCuttingWork.length })}
-          </h2>
-          {replacementCuttingWork.length > 0 ? (
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-              {replacementCuttingWork.map((row: any) => (
-                <div key={row.id} className="rounded border border-amber-200 bg-amber-50/60 p-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MaterialThumb row={row} />
-                    <div className="min-w-0 flex-1">
-                      <div className="break-words font-medium">{orderReference(row, `#${row.production_order_id}`)}</div>
-                      {orderContextLine(row, t)}
-                      {materialLine(row)}
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs font-medium text-amber-900">
-                    {t("replacement.cuttingRemaining", { count: Number(row.remaining_qty || 0).toLocaleString() })}
-                  </div>
-                  <div className="text-xs text-slate-600">{t("replacement.failedSource")}</div>
-                  {row.sewing_line_name && (
-                    <div className="mt-1 text-xs text-slate-600">
-                      {t("field.lineName")}: {row.sewing_line_name}
-                    </div>
-                  )}
-                  {row.defect_reason && (
-                    <div className="mt-1 text-xs text-slate-600">
-                      {t("replacement.reason")}: {row.defect_reason}
-                    </div>
-                  )}
-                  <Link className="mt-2 inline-block text-xs text-brand-600 hover:underline" href={`/work-orders/${row.cutting_work_order_id}/cutting`}>
-                    {t("btn.open")}
-                  </Link>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-sm text-slate-400">{t("replacement.noCuttingWork")}</div>
-          )}
-        </section>
-      )}
-      {!isLoading && replacementSewingWork.length > 0 && (
-        <section className="card mb-4 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">
-            {t("replacement.sewingSection", { count: replacementSewingWork.length })}
-          </h2>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-            {replacementSewingWork.map((row: any) => (
-              <div key={row.id} className="rounded border border-amber-200 bg-amber-50/60 p-2 text-sm">
-                <div className="flex items-start gap-2">
-                  <MaterialThumb row={row} />
-                  <div className="min-w-0 flex-1">
-                    <div className="break-words font-medium">{orderReference(row, `#${row.production_order_id}`)}</div>
-                    {orderContextLine(row, t)}
-                    {materialLine(row)}
-                    {textileLine(row)}
-                  </div>
-                </div>
-                <div className="mt-2 text-xs font-medium text-amber-900">
-                  {t("replacement.sewingRemaining", { count: Number(row.remaining_qty || 0).toLocaleString() })}
-                </div>
-                <div className="text-xs text-slate-600">{t("replacement.cutReadySource")}</div>
-                {row.defect_reason && (
-                  <div className="mt-1 text-xs text-slate-600">
-                    {t("replacement.reason")}: {row.defect_reason}
-                  </div>
-                )}
-                <Link className="mt-2 inline-block text-xs text-brand-600 hover:underline" href={`/work-orders/${row.sewing_work_order_id}/sewing`}>
-                  {t("btn.open")}
-                </Link>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
       {!isLoading && (code === "CUT" || code === "ECT") ? (
         <CuttingOrderList
           rows={cuttingWorkOrders}

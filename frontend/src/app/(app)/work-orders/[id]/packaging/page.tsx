@@ -87,10 +87,6 @@ export default function PackagingPage() {
     wo ? `/api/work-orders/${id}/packaging-batch-progress` : null,
     fetcher,
   );
-  const { data: replacementStatus, mutate: mutateReplacementStatus } = useSWR<any>(
-    wo ? `/api/work-orders/${id}/replacement-status` : null,
-    fetcher,
-  );
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
   const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
@@ -493,7 +489,7 @@ export default function PackagingPage() {
   }, [isAlreadyBatched, po?.batches]);
 
   async function refreshPackagingOutputs() {
-    await Promise.all([mutateBatchProgress(), mutateWo(), mutatePo(), mutateReplacementStatus()]);
+    await Promise.all([mutateBatchProgress(), mutateWo(), mutatePo()]);
     setPackageQrRefreshKey((prev) => prev + 1);
   }
 
@@ -646,14 +642,6 @@ export default function PackagingPage() {
         canEditBreakdown={canEditBreakdown}
         onSaveBreakdown={saveBreakdown}
       />
-      {Number(replacementStatus?.open_qty || 0) > 0 && (
-        <div className="mb-4 border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          <div className="font-semibold">
-            {t("replacement.packagingOpen", { count: Number(replacementStatus.open_qty).toLocaleString() })}
-          </div>
-          <div className="mt-1 text-amber-900">{t("replacement.packagingHint")}</div>
-        </div>
-      )}
       <div className={`mb-4 grid gap-4 ${isAlreadyBatched ? "2xl:grid-cols-[360px_minmax(0,1fr)]" : "max-w-3xl"}`}>
         <form onSubmit={submitRec} className="card p-4">
           <div className="mb-3 text-base font-semibold">{t("btn.savePackagingRecord")}</div>
@@ -712,7 +700,6 @@ export default function PackagingPage() {
                     <th>{t("statusValue.planned")}</th>
                     <th>{t("field.packed")}</th>
                     <th>{t("field.damaged")}</th>
-                    <th>{t("replacement.waiting")}</th>
                     <th>{t("field.remaining")}</th>
                     <th>{t("page.processes.progress")}</th>
                   </tr>
@@ -727,14 +714,13 @@ export default function PackagingPage() {
                       <td>{row.planned_quantity}</td>
                       <td>{row.packed_qty}</td>
                       <td>{row.damaged_qty}</td>
-                      <td>{row.waiting_replacement_qty || 0}</td>
                       <td>{row.remaining_quantity}</td>
                       <td>{row.progress_pct}%</td>
                     </tr>
                   ))}
                   {batchItems.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="text-slate-500">{t("batch.noProgressYet")}</td>
+                      <td colSpan={6} className="text-slate-500">{t("batch.noProgressYet")}</td>
                     </tr>
                   )}
                 </tbody>

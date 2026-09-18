@@ -24,7 +24,6 @@ type Stage = {
   completed: number;
   received_qty: number;
   output_qty: number;
-  has_open_replacements?: boolean;
   failed: number;
   processed?: number;
   rework: number;

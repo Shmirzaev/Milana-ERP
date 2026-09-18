@@ -363,81 +363,6 @@ def _context_work_order(db: DbSession, source_wo: WorkOrder, operation: str) -> 
     return qry.order_by(WorkOrder.id.asc()).first()
 
 
-def _replacement_scope_query(db: DbSession, wo: WorkOrder):
-    qry = db.query(SewingReplacementRequest).filter(
-        SewingReplacementRequest.production_order_id == wo.production_order_id,
-    )
-    if wo.production_batch_id is not None:
-        qry = qry.filter(SewingReplacementRequest.production_batch_id == wo.production_batch_id)
-    return qry
-
-
-def _replacement_blocking_qty(db: DbSession, wo: WorkOrder) -> int:
-    qry = _replacement_scope_query(db, wo)
-    if wo.operation == "cutting":
-        value = qry.with_entities(
-            func.coalesce(func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.cut_qty), 0)
-        ).scalar()
-    else:
-        value = qry.with_entities(
-            func.coalesce(func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.replaced_qty), 0)
-        ).scalar()
-    return max(0, int(value or 0))
-
-
-def _ensure_replacements_do_not_block_completion(db: DbSession, wo: WorkOrder) -> None:
-    if wo.operation not in {"cutting", "sewing", "packaging", "storage_transfer"}:
-        return
-    remaining = _replacement_blocking_qty(db, wo)
-    if remaining <= 0:
-        return
-    if wo.operation == "cutting":
-        raise HTTPException(409, f"Cutting cannot close: {remaining} replacement piece(s) still need to be cut")
-    raise HTTPException(409, f"Work order cannot close: {remaining} failed piece(s) are still waiting for replacement")
-
-
-def _replacement_status_payload(db: DbSession, wo: WorkOrder) -> dict:
-    requests = _replacement_scope_query(db, wo).order_by(SewingReplacementRequest.id).all()
-    batch_ids = sorted({int(row.production_batch_id) for row in requests if row.production_batch_id is not None})
-    batches = db.query(ProductionBatch).filter(ProductionBatch.id.in_(batch_ids)).all() if batch_ids else []
-    batch_by_id = {int(batch.id): batch for batch in batches}
-
-    def blank(batch_id: int | None) -> dict:
-        batch = batch_by_id.get(int(batch_id)) if batch_id is not None else None
-        return {
-            "production_batch_id": batch_id,
-            "batch_no": batch.batch_no if batch else None,
-            "batch_name": batch.name if batch else None,
-            "requested_qty": 0,
-            "waiting_cutting_qty": 0,
-            "waiting_sewing_qty": 0,
-            "replaced_qty": 0,
-            "open_qty": 0,
-        }
-
-    total = blank(None)
-    by_batch: dict[int | None, dict] = {}
-    for request in requests:
-        batch_id = int(request.production_batch_id) if request.production_batch_id is not None else None
-        row = by_batch.setdefault(batch_id, blank(batch_id))
-        requested = max(0, int(request.requested_qty or 0))
-        cut = min(requested, max(0, int(request.cut_qty or 0)))
-        replaced = min(requested, max(0, int(request.replaced_qty or 0)))
-        waiting_cutting = max(0, requested - cut)
-        waiting_sewing = max(0, cut - replaced)
-        open_qty = max(0, requested - replaced)
-        for target in (row, total):
-            target["requested_qty"] += requested
-            target["waiting_cutting_qty"] += waiting_cutting
-            target["waiting_sewing_qty"] += waiting_sewing
-            target["replaced_qty"] += replaced
-            target["open_qty"] += open_qty
-    return {
-        "work_order_id": wo.id,
-        "production_order_id": wo.production_order_id,
-        **{key: value for key, value in total.items() if key not in {"production_batch_id", "batch_no", "batch_name"}},
-        "items": list(by_batch.values()),
-    }
 
 
 def _upstream_work_order_for_start(db: DbSession, wo: WorkOrder) -> WorkOrder | None:
@@ -1669,18 +1594,6 @@ def get_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(
     return _work_order_payload(wo, received_by_po, images_by_po)
 
 
-@router.get("/work-orders/{wid}/replacement-status")
-def work_order_replacement_status(
-    wid: int,
-    db: DbSession,
-    _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
-):
-    wo = db.get(WorkOrder, wid)
-    if not wo:
-        raise HTTPException(404, "Work order not found")
-    return _replacement_status_payload(db, wo)
-
-
 @router.patch("/work-orders/{wid}", response_model=WorkOrderOut)
 def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
@@ -1688,8 +1601,6 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User =
     if db.query(ProductionOrder.source_type).filter(ProductionOrder.id == wo.production_order_id).scalar() == "usluga":
         require_factory_access(current, "ECO")
     changes = payload.model_dump(exclude_unset=True)
-    if changes.get("status") == "completed":
-        _ensure_replacements_do_not_block_completion(db, wo)
     if (
         wo.operation == "storage_transfer"
         and changes.get("status") in ("in_progress", "pending", "collected", "ready", "paused")
@@ -1849,7 +1760,6 @@ def collect_printing_wo(
 def complete_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
-    _ensure_replacements_do_not_block_completion(db, wo)
     wo.status = "completed"
     wo.end_time = datetime.now(timezone.utc)
     log_action(db, current, "complete", "WorkOrder", wo.id)
@@ -2535,36 +2445,14 @@ def sewing_batch_progress(wid: int, db: DbSession, _: User = Depends(require_per
             "rejected_qty": int(rejected_sum or 0),
         }
 
-    replacement_by_batch: dict[int, dict[str, int]] = {}
-    replacement_rows = (
-        db.query(
-            SewingReplacementRequest.production_batch_id,
-            func.coalesce(func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.cut_qty), 0),
-            func.coalesce(func.sum(SewingReplacementRequest.cut_qty - SewingReplacementRequest.replaced_qty), 0),
-            func.coalesce(func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.replaced_qty), 0),
-        )
-        .filter(SewingReplacementRequest.sewing_work_order_id == wo.id)
-        .group_by(SewingReplacementRequest.production_batch_id)
-        .all()
-    )
-    for batch_id, waiting_cutting, waiting_sewing, open_qty in replacement_rows:
-        if batch_id is None:
-            continue
-        replacement_by_batch[int(batch_id)] = {
-            "waiting_cutting_qty": max(0, int(waiting_cutting or 0)),
-            "waiting_sewing_qty": max(0, int(waiting_sewing or 0)),
-            "waiting_replacement_qty": max(0, int(open_qty or 0)),
-        }
-
     items = []
     for b in batches:
         totals = totals_by_batch.get(int(b.id), {})
         passed = int(totals.get("passed_qty", 0))
         failed = int(totals.get("failed_qty", 0))
         rejected = int(totals.get("rejected_qty", 0))
-        processed = passed
+        processed = passed + failed + rejected
         planned = int(b.planned_quantity or 0)
-        replacement = replacement_by_batch.get(int(b.id), {})
         items.append({
             "id": b.id,
             "batch_no": b.batch_no,
@@ -2577,9 +2465,6 @@ def sewing_batch_progress(wid: int, db: DbSession, _: User = Depends(require_per
             "failed_qty": failed,
             "rework_qty": int(totals.get("rework_qty", 0)),
             "rejected_qty": rejected,
-            "waiting_cutting_qty": int(replacement.get("waiting_cutting_qty", 0)),
-            "waiting_sewing_qty": int(replacement.get("waiting_sewing_qty", 0)),
-            "waiting_replacement_qty": int(replacement.get("waiting_replacement_qty", 0)),
             "remaining_quantity": max(0, planned - processed),
             "progress_pct": round((100.0 * processed / planned), 1) if planned > 0 else 0.0,
             "start_date": b.start_date,
@@ -2796,35 +2681,26 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
             continue
         packaged_by_batch[int(batch_id)] = packaged_by_batch.get(int(batch_id), 0) + int(quantity or 0)
 
-    waiting_replacement_by_batch: dict[int, int] = {}
-    sew_wo = _context_work_order(db, wo, "sewing")
-    if sew_wo:
-        replacement_rows = (
-            db.query(
-                SewingReplacementRequest.production_batch_id,
-                func.coalesce(
-                    func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.replaced_qty),
-                    0,
-                ),
-            )
-            .filter(SewingReplacementRequest.sewing_work_order_id == sew_wo.id)
-            .group_by(SewingReplacementRequest.production_batch_id)
-            .all()
-        )
-        for batch_id, open_qty in replacement_rows:
-            if batch_id is None:
-                continue
-            waiting_replacement_by_batch[int(batch_id)] = max(0, int(open_qty or 0))
+    sewing_defects_by_batch = {
+        int(batch_id): int(quantity or 0)
+        for batch_id, quantity in db.query(
+            SewingRecord.production_batch_id,
+            func.coalesce(func.sum(SewingRecord.failed_qty + SewingRecord.rejected_qty), 0),
+        ).join(WorkOrder, WorkOrder.id == SewingRecord.work_order_id).filter(
+            WorkOrder.production_order_id == wo.production_order_id,
+            SewingRecord.production_batch_id.in_(batch_ids),
+        ).group_by(SewingRecord.production_batch_id).all()
+        if batch_id is not None
+    }
 
     items = []
     for b in batches:
         totals = totals_by_batch.get(int(b.id), {})
         packed = int(totals.get("packed_qty", 0))
         damaged = int(totals.get("damaged_qty", 0))
-        waiting_replacement = int(waiting_replacement_by_batch.get(int(b.id), 0))
         packaged = int(packaged_by_batch.get(int(b.id), 0))
         planned = int(b.planned_quantity or 0)
-        processed = min(planned, packed + damaged)
+        processed = min(planned, packed + damaged + sewing_defects_by_batch.get(int(b.id), 0))
         items.append({
             "id": b.id,
             "batch_no": b.batch_no,
@@ -2836,7 +2712,6 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
             "packaged_qty": packaged,
             "available_to_package": max(0, packed - packaged),
             "damaged_qty": damaged,
-            "waiting_replacement_qty": waiting_replacement,
             "remaining_quantity": max(0, planned - processed),
             "progress_pct": round((100.0 * processed / planned), 1) if planned > 0 else 0.0,
             "start_date": b.start_date,
@@ -2848,47 +2723,6 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
 
 # ===== Cutting =====
 _MAX_BUNDLES_PER_CUTTING_RECORD = 1000
-
-
-def _replacement_cut_total(db: DbSession, cutting_work_order_id: int) -> int:
-    return int(
-        db.query(func.coalesce(func.sum(SewingReplacementRequest.cut_qty), 0))
-        .filter(SewingReplacementRequest.cutting_work_order_id == cutting_work_order_id)
-        .scalar()
-        or 0
-    )
-
-
-def _allocate_replacement_cut(
-    db: DbSession,
-    wo: WorkOrder,
-    production_batch_id: int | None,
-    quantity: int,
-) -> int:
-    remaining = max(0, int(quantity or 0))
-    if remaining <= 0:
-        return 0
-    qry = db.query(SewingReplacementRequest).filter(
-        SewingReplacementRequest.cutting_work_order_id == wo.id,
-        SewingReplacementRequest.cut_qty < SewingReplacementRequest.requested_qty,
-    )
-    if production_batch_id is None:
-        qry = qry.filter(SewingReplacementRequest.production_batch_id.is_(None))
-    else:
-        qry = qry.filter(SewingReplacementRequest.production_batch_id == production_batch_id)
-    allocated = 0
-    for request in qry.order_by(SewingReplacementRequest.id).all():
-        needed = max(0, int(request.requested_qty or 0) - int(request.cut_qty or 0))
-        take = min(needed, remaining)
-        if take <= 0:
-            continue
-        request.cut_qty = int(request.cut_qty or 0) + take
-        request.status = "waiting_sewing" if request.cut_qty >= request.requested_qty else "waiting_cutting"
-        remaining -= take
-        allocated += take
-        if remaining <= 0:
-            break
-    return allocated
 
 
 def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
@@ -3322,34 +3156,6 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     elif report_piece_count:
         raise HTTPException(400, "Report-only pieces can be recorded only for secondary Usluga fabric")
 
-    if batch_id is not None:
-        batch = db.get(ProductionBatch, batch_id)
-        passed_before, defective_before = db.query(
-            func.coalesce(func.sum(CuttingRecord.passed_pieces), 0),
-            func.coalesce(func.sum(CuttingRecord.defective_pieces), 0),
-        ).filter(
-            CuttingRecord.work_order_id == wo.id,
-            CuttingRecord.production_batch_id == batch_id,
-        ).one()
-        replacement_cut_before = int(
-            db.query(func.coalesce(func.sum(SewingReplacementRequest.cut_qty), 0))
-            .filter(
-                SewingReplacementRequest.cutting_work_order_id == wo.id,
-                SewingReplacementRequest.production_batch_id == batch_id,
-            )
-            .scalar()
-            or 0
-        )
-        original_passed_before = max(0, int(passed_before or 0) - replacement_cut_before)
-        original_processed_before = original_passed_before + max(0, int(defective_before or 0))
-        original_plan = int(batch.planned_quantity or 0) if batch else 0
-    else:
-        replacement_cut_before = _replacement_cut_total(db, wo.id)
-        original_passed_before = max(0, int(wo.passed_qty or 0) - replacement_cut_before)
-        original_processed_before = original_passed_before + max(0, int(wo.failed_qty or 0))
-        original_plan = int(wo.planned_output_qty or 0)
-    original_remaining_before = max(0, original_plan - original_processed_before)
-
     rec = CuttingRecord(
         cutting_passport_id=payload.cutting_passport_id,
         work_order_id=payload.work_order_id,
@@ -3391,20 +3197,11 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         ))
 
     # Update work order quantities
-    replacement_cut_qty = 0
     if not usluga_material:
         wo.actual_input_qty += cut_pieces
         wo.actual_output_qty += passed_pieces
         wo.passed_qty += passed_pieces
         wo.failed_qty += defective_pieces
-        replacement_cut_qty = _allocate_replacement_cut(
-            db,
-            wo,
-            batch_id,
-            max(0, passed_pieces - original_remaining_before),
-        )
-        if replacement_cut_qty > 0:
-            db.flush()
     for material in cutting_materials:
         input_quantity = float(material["quantity"])
         reserved_consumed = consume_material_reservations_for_stock_batch(
@@ -3519,18 +3316,6 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             message=f"{to_printing} bundle(s) ready from order {wo.order_no or wo.id}.",
             link="/bundles/scan/printing",
         )
-    if replacement_cut_qty > 0 and not usluga_material:
-        notify_department(
-            db,
-            department_code=sewing_department_code,
-            title="Replacement pieces cut",
-            message=(
-                f"Order {wo.order_no or wo.id}: {replacement_cut_qty} replacement piece(s) were cut "
-                "and are moving back to sewing."
-            ),
-            link=f"/work-orders/{_context_work_order(db, wo, 'sewing').id}/sewing"
-            if _context_work_order(db, wo, "sewing") else "/departments",
-        )
     if usluga_material:
         pass
     elif to_sewing_by_code and not accessories_ready and accessory_plan:
@@ -3554,7 +3339,6 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         rec.id,
         new_value={
             "bundles": len(created_bundles),
-            "replacement_cut_qty": replacement_cut_qty,
             "layup_operator_name": rec.layup_operator_name,
             "cutting_batch_no": rec.cutting_batch_no,
             "material_role": rec.material_role,
@@ -3574,7 +3358,6 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     return {
         "id": rec.id,
         "bundles": created_bundles,
-        "replacement_cut_qty": replacement_cut_qty,
         "cutting_batch_no": rec.cutting_batch_no,
         "material_role": rec.material_role,
         "approval_status": rec.approval_status,
@@ -3939,7 +3722,6 @@ def finish_milana_cutting_and_print(
     html = cutting_production_sheet(rid, db, current, bundle_ids)
     if wo.status == "completed":
         return html
-    _ensure_replacements_do_not_block_completion(db, wo)
     _sync_cutting_work_order_from_records(db, wo)
     if wo.passed_qty <= 0:
         raise HTTPException(409, "Record at least one usable cut piece before printing the final sheet")
@@ -4201,15 +3983,7 @@ def _cutting_output_for_scope(
     )
     qry = _filter_production_batch(qry, CuttingRecord.production_batch_id, production_batch_id)
     passed = int(qry.scalar() or 0)
-    replacements = db.query(func.coalesce(func.sum(SewingReplacementRequest.cut_qty), 0)).filter(
-        SewingReplacementRequest.cutting_work_order_id == cutting_wo.id,
-    )
-    replacements = _filter_production_batch(
-        replacements,
-        SewingReplacementRequest.production_batch_id,
-        production_batch_id,
-    )
-    return max(0, passed - int(replacements.scalar() or 0))
+    return max(0, passed)
 
 
 def _planned_quantity_for_scope(
@@ -4664,42 +4438,6 @@ def _validated_sewing_size_quantities(
     return list(submitted.values())
 
 
-def _apply_replacement_sewing_output(
-    db: DbSession,
-    wo: WorkOrder,
-    production_batch_id: int | None,
-    passed_qty: int,
-) -> int:
-    remaining = max(0, int(passed_qty or 0))
-    if remaining <= 0:
-        return 0
-    qry = db.query(SewingReplacementRequest).filter(
-        SewingReplacementRequest.sewing_work_order_id == wo.id,
-        SewingReplacementRequest.replaced_qty < SewingReplacementRequest.cut_qty,
-    )
-    if production_batch_id is None:
-        qry = qry.filter(SewingReplacementRequest.production_batch_id.is_(None))
-    else:
-        qry = qry.filter(SewingReplacementRequest.production_batch_id == production_batch_id)
-    replaced = 0
-    for request in qry.order_by(SewingReplacementRequest.id).all():
-        available = max(0, int(request.cut_qty or 0) - int(request.replaced_qty or 0))
-        take = min(available, remaining)
-        if take <= 0:
-            continue
-        request.replaced_qty = int(request.replaced_qty or 0) + take
-        if request.replaced_qty >= request.requested_qty:
-            request.replaced_qty = int(request.requested_qty or 0)
-            request.status = "completed"
-        else:
-            request.status = "waiting_sewing" if request.cut_qty >= request.requested_qty else "waiting_cutting"
-        remaining -= take
-        replaced += take
-        if remaining <= 0:
-            break
-    return replaced
-
-
 @router.post("/sewing/records", status_code=201)
 def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(require_permissions("sewing.records", "*"))):
     wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update().first()
@@ -4807,14 +4545,11 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
     db.flush()
-    replaced_qty = _apply_replacement_sewing_output(db, wo, batch_id, int(payload.passed_qty or 0))
-    if replaced_qty > 0:
-        db.flush()
     wo.actual_input_qty += payload.input_qty
     wo.actual_output_qty += payload.passed_qty
     wo.passed_qty += payload.passed_qty
-    failed_replacement_qty = int(payload.failed_qty or 0) + int(payload.rejected_qty or 0)
-    wo.failed_qty += failed_replacement_qty
+    defect_qty = int(payload.failed_qty or 0) + int(payload.rejected_qty or 0)
+    wo.failed_qty += defect_qty
     wo.rework_qty += payload.rework_qty
     consumed_total = int(payload.passed_qty or 0) + int(payload.failed_qty or 0) + int(payload.rejected_qty or 0)
     if assignment and consumed_total > 0:
@@ -4833,55 +4568,6 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
             if not assignment.actual_start:
                 assignment.actual_start = datetime.now(timezone.utc)
             assignment.actual_end = datetime.now(timezone.utc)
-    replacement_request = None
-    if failed_replacement_qty > 0:
-        cutting_wo = _context_work_order(db, wo, "cutting")
-        replacement_request = SewingReplacementRequest(
-            production_order_id=wo.production_order_id,
-            sewing_work_order_id=wo.id,
-            cutting_work_order_id=cutting_wo.id if cutting_wo else None,
-            production_batch_id=batch_id,
-            sewing_record_id=rec.id,
-            requested_qty=failed_replacement_qty,
-            defect_reason=payload.defect_reason,
-            created_by=current.id,
-        )
-        db.add(replacement_request)
-        if cutting_wo and cutting_wo.status not in {"rejected", "cancelled"}:
-            cutting_wo.status = "ready"
-            cutting_wo.end_time = None
-        if wo.status == "completed":
-            wo.status = "in_progress"
-            wo.end_time = None
-        for downstream_operation in ("packaging", "storage_transfer"):
-            downstream = _context_work_order(db, wo, downstream_operation)
-            if downstream and downstream.status == "completed":
-                downstream.status = "in_progress"
-                downstream.end_time = None
-        cutting_department = db.get(Department, cutting_wo.department_id) if cutting_wo else None
-        if cutting_department:
-            notify_department(
-                db,
-                department_code=cutting_department.code,
-                title="Replacement cut required",
-                message=(
-                    f"Order {wo.order_no or wo.id}: prepare fabric and cut {failed_replacement_qty} "
-                    "replacement piece(s) for sewing failures."
-                ),
-                link=f"/work-orders/{cutting_wo.id}/cutting",
-            )
-        else:
-            notify_department(
-                db,
-                department_code="PLN",
-                title="Replacement cutting route missing",
-                message=(
-                    f"Order {wo.order_no or wo.id} needs {failed_replacement_qty} replacement piece(s), "
-                    "but no cutting work order was found."
-                ),
-                link=f"/production-orders/{wo.production_order_id}",
-            )
-        db.flush()
     create_waste_record(
         db,
         production_order_id=wo.production_order_id,
@@ -4890,21 +4576,16 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
         item_id=None,
         batch_id=None,
         waste_type="sewing_defect",
-        quantity=float(failed_replacement_qty),
+        quantity=float(defect_qty),
         unit="pcs",
         reason=payload.defect_reason or "Auto-created from sewing record",
         created_by=current.id,
     )
     packaging_department_code = sync_packaging_department_for_bundle_route(db, wo.production_order_id, batch_id)
     advance_workflow(db, wo, trigger_output_qty=int(payload.passed_qty or 0))
-    if int(payload.passed_qty or 0) > 0 or failed_replacement_qty > 0:
+    if int(payload.passed_qty or 0) > 0:
         pkg_wo = _context_work_order(db, wo, "packaging")
         message = f"Order {wo.order_no or wo.id} has {payload.passed_qty} pcs ready for packaging."
-        if failed_replacement_qty > 0:
-            message += (
-                f" {failed_replacement_qty} failed piece(s) are being replaced; "
-                "keep one package open for them."
-            )
         notify_department(
             db,
             department_code=packaging_department_code,
@@ -4921,16 +4602,11 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
         new_value={
             "work_order_id": wo.id,
             "size_quantities": size_quantities,
-            "replacement_requested_qty": failed_replacement_qty,
-            "replacement_completed_qty": replaced_qty,
         },
     )
     db.commit(); db.refresh(rec)
     return {
         "id": rec.id,
-        "replacement_request_id": replacement_request.id if replacement_request else None,
-        "replacement_requested_qty": failed_replacement_qty,
-        "replacement_completed_qty": replaced_qty,
     }
 
 
@@ -5169,22 +4845,6 @@ def packaging_received_orders(
         int(row.work_order_id): (int(row.packing_input_quantity or 0), int(row.packed_quantity or 0))
         for row in record_rows
     }
-    replacement_rows = (
-        db.query(
-            SewingReplacementRequest.production_order_id,
-            func.coalesce(
-                func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.replaced_qty),
-                0,
-            ).label("waiting_replacement_qty"),
-        )
-        .filter(SewingReplacementRequest.production_order_id.in_(production_order_ids))
-        .group_by(SewingReplacementRequest.production_order_id)
-        .all()
-    )
-    replacement_by_production_order = {
-        int(row.production_order_id): max(0, int(row.waiting_replacement_qty or 0))
-        for row in replacement_rows
-    }
     production_orders = db.query(ProductionOrder).filter(ProductionOrder.id.in_(production_order_ids)).all()
     po_by_id = {int(po.id): po for po in production_orders}
     model_ids = sorted({int(po.model_id) for po in production_orders if po.model_id})
@@ -5200,8 +4860,7 @@ def packaging_received_orders(
         received_quantity = int(row.received_quantity or 0)
         packing_input_quantity, packed_quantity = records_by_work_order.get(work_order_id, (0, 0))
         remaining_quantity = max(0, received_quantity - packing_input_quantity)
-        waiting_replacement_quantity = replacement_by_production_order.get(production_order_id, 0)
-        if remaining_quantity <= 0 and waiting_replacement_quantity <= 0:
+        if remaining_quantity <= 0:
             continue
         po = po_by_id.get(production_order_id)
         model = model_by_id.get(int(po.model_id)) if po and po.model_id else None
@@ -5223,7 +4882,6 @@ def packaging_received_orders(
             "packing_input_quantity": packing_input_quantity,
             "packed_quantity": packed_quantity,
             "remaining_quantity": remaining_quantity,
-            "waiting_replacement_quantity": waiting_replacement_quantity,
             "last_received_at": row.last_received_at,
         }
         if needle:
