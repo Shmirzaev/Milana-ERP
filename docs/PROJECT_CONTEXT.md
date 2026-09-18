@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-18
 
+## Bestpacking login redirect correction prepared (2026-09-18)
+
+- NOT DEPLOYED: Bestpacking user #52 has the correct Packaging role, BPK department, BST factory, and Packaging permissions. Production read-only authentication/inbox checks confirmed BPK HTTP 200 and BST/PKG/ECP HTTP 403. Login incorrectly sent every Besttex user to the Sewing page `/departments/BST`; direct `/departments/BPK` access works without account changes.
+- PR #179 selects the factory landing from existing effective permissions and recovers denied old factory landing URLs. Besttex/Eco Packaging-only accounts open BPK/ECP; existing Sewing, Cutting and administrator homes and all authorization guards remain. No permissions or business data were changed.
+- Worktree `C:/ERP/.codex-work/bestpacking-login-20260918`, branch `codex/bestpacking-login-20260918`. Frontend routing regression tests, lint, strict TypeScript, and optimized 88-route build passed. The real AuthGate regression covers root login, stale landings, correct workspace and cross-factory denials. After PR #178/#180 deployed concurrently, both production manifests and the updated baseline were verified and merged into this branch; routing/type checks passed again.
+- Active release remains `20260918_113409`, rollback `20260917_100146`, database `0131_sewing_corrections`. The stale first release workflow was cancelled before artifact publication or production changes. No cutover, migration or account changes occurred for this fix. Automatic approval review rejected starting the localhost frontend preview with `blocked by policy`; browser validation and the subsequent immutable release gates remain pending. Do not claim this redirect correction is live.
+
 ## Failed-piece replacement workflow removed and deployed (2026-09-18)
 
 - LIVE: backend/frontend green release `20260918_113409`, exact application commit `26452a0ce361e2c7e8a97400bc3d4d93c519b7a0`, merged through PR #178. Both source manifests, exact image identities, current symlinks and slot states agree. Blue `20260917_100146` remains running for rollback. Frontend activated `2026-09-18T11:44:12.554113+00:00`.
