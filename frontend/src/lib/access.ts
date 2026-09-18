@@ -43,6 +43,12 @@ export function factoryWorkspaceHome(me: Me | undefined): string {
   return "/";
 }
 
+export function packagingDepartmentForSession(me: Me | undefined, requested: string | null): string {
+  // Preserve explicit destinations so guards can reject cross-factory URLs.
+  if (requested?.trim()) return requested.trim().toUpperCase();
+  return me?.factory_code === "BST" ? "BPK" : me?.factory_code === "ECO" ? "ECP" : "PKG";
+}
+
 export function isSewingWorkspacePath(pathname: string): boolean {
   return SEWING_WORK_ORDER_PATH.test(pathname) || SEWING_WORKSPACE_NAV_ITEMS.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`),

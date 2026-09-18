@@ -1,7 +1,7 @@
 "use client";
-import { factoryWorkspaceHome, hasInventoryPathAccess } from "@/lib/access";
+import { factoryWorkspaceHome, hasInventoryPathAccess, packagingDepartmentForSession } from "@/lib/access";
 import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { can, useMe } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { isSewingRole, isSewingWorkspacePath, sewingWorkspaceHome } from "@/lib/access";
@@ -107,7 +107,7 @@ function hasRouteAccess(me: ReturnType<typeof useMe>["me"], pathname: string) {
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() || "/";
-  const searchParams = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+  const searchParams = useSearchParams();
   const { me, error, loading, hasToken, refresh } = useMe();
   const { t } = useT();
   const [factorySwitchError, setFactorySwitchError] = useState("");
@@ -136,8 +136,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     }
     if (pathname === "/packages/scan") return null;
     if (pathname === "/packages" || pathname.startsWith("/packaging/")) {
-      const code = (searchParams.get("packaging_department") || "PKG").toUpperCase();
-      return code === "BPK" ? "BST" : code === "ECP" ? "ECO" : "MIL";
+      const code = packagingDepartmentForSession(me, searchParams.get("packaging_department"));
+      return code === "BPK" ? "BST" : code === "ECP" ? "ECO" : code === "PKG" ? "MIL" : "INVALID";
     }
     if (pathname === "/bundles" || pathname.startsWith("/cutting-") || pathname.startsWith("/bundles/scan/cutting")) {
       return (searchParams.get("cutting_department") || "CUT").toUpperCase() === "ECT" ? "ECO" : "MIL";

@@ -5,6 +5,7 @@ import { Fragment, useMemo, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
+import { packagingDepartmentForSession } from "@/lib/access";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Modal from "@/components/Modal";
 import PageHeader from "@/components/PageHeader";
@@ -30,11 +31,11 @@ type EditForm = {
 export default function PackagesPage() {
   const { t } = useT();
   const searchParams = useSearchParams();
+  const { me } = useMe();
   const requestedDepartment = searchParams.get("packaging_department");
-  const packagingDepartment = requestedDepartment === "ECP" || requestedDepartment === "BPK" ? requestedDepartment : "PKG";
+  const packagingDepartment = packagingDepartmentForSession(me, requestedDepartment);
   const isEcoCotton = packagingDepartment === "ECP";
   const factoryLabel = isEcoCotton ? "Eco Cotton" : packagingDepartment === "BPK" ? "Besttex" : "Milana";
-  const { me } = useMe();
   const canApprovePackageChange = can(me, "management.approve");
   const canTraceability = can(me, "traceability.view");
   const [page, setPage] = useState(1);

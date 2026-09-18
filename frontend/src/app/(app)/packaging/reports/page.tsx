@@ -9,6 +9,7 @@ import PageHeader from "@/components/PageHeader";
 import PackagingReportTable from "@/components/PackagingReportTable";
 import { fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
+import { packagingDepartmentForSession } from "@/lib/access";
 import { useT } from "@/lib/i18n";
 import { packagingReportColumns, type PackagingReport } from "@/lib/packagingReport";
 
@@ -23,7 +24,7 @@ export default function PackagingReportsPage() {
   const { t, lang } = useT();
   const { me } = useMe();
   const searchParams = useSearchParams();
-  const department = searchParams.get("packaging_department") || "PKG";
+  const department = packagingDepartmentForSession(me, searchParams.get("packaging_department"));
   const factory = department === "ECP" ? "Eco Cotton" : department === "BPK" ? "Besttex" : "Milana";
   const [fromDate, setFromDate] = useState(() => `${today().slice(0, 7)}-01`);
   const [toDate, setToDate] = useState(today);

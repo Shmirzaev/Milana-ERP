@@ -1,5 +1,5 @@
 "use client";
-import { hasInventoryPathAccess } from "@/lib/access";
+import { hasInventoryPathAccess, packagingDepartmentForSession } from "@/lib/access";
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 import Link from "next/link";
@@ -410,7 +410,7 @@ export default function Sidebar() {
     const itemPackagingDepartment = itemParams.get("packaging_department") || "";
     const currentFactory = searchParams.get("factory") || me?.factory_code || "MIL";
     const currentCuttingDepartment = searchParams.get("cutting_department") || "CUT";
-    const currentPackagingDepartment = searchParams.get("packaging_department") || "PKG";
+    const currentPackagingDepartment = packagingDepartmentForSession(me, searchParams.get("packaging_department"));
     const bundlesScanMismatch = basePath === "/bundles" && pathname.startsWith("/bundles/scan");
     const packagesScanMismatch = basePath === "/packages" && pathname.startsWith("/packages/scan");
     const inventoryGroupMismatch = basePath === "/inventory" && (pathname !== "/inventory" || itemGroup !== inventoryGroup);

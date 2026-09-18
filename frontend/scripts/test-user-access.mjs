@@ -54,14 +54,25 @@ for (const [factory, oldHome, packingHome] of [["BST", "/departments/BST", "/dep
   assert.equal(factoryWorkspaceHome({ ...me, permissions: [] }), oldHome);
   assert.equal(factoryWorkspaceHome({ ...me, permissions: ["*"] }), oldHome);
   assert.equal(factoryWorkspaceHome({ ...me, permissions: [...packingPermissions, "planning.production"] }), oldHome);
-  for (const [pathname, redirect, denied] of [["/", packingHome, false], [oldHome, packingHome, false], [packingHome, null, false], ["/departments/PKG", null, true], [factory === "BST" ? "/departments/ECP" : "/departments/BPK", null, true]]) {
+  const department = factory === "BST" ? "BPK" : "ECP";
+  const packagingCases = ["/packages", "/packaging/queue", "/packaging/receive", "/packaging/reports"].flatMap(path => [
+    [path, null, false],
+    [`${path}?packaging_department=${department}`, null, false],
+    [`${path}?packaging_department=PKG`, null, true],
+    [`${path}?packaging_department=${factory === "BST" ? "ECP" : "BPK"}`, null, true],
+    [`${path}?packaging_department=INVALID`, null, true],
+  ]);
+  for (const [url, redirect, denied] of [["/", packingHome, false], [oldHome, packingHome, false], [packingHome, null, false], ["/departments/PKG", null, true], [factory === "BST" ? "/departments/ECP" : "/departments/BPK", null, true], ...packagingCases]) {
+    const [pathname, query = ""] = url.split("?");
     const effects = [], redirects = [], gateExports = {};
     vm.runInNewContext(gateSource, {
       exports: gateExports, URLSearchParams,
+      // Next renders the destination before window.location catches up.
+      window: { location: { search: `?packaging_department=${denied ? department : "PKG"}` } },
       require: (name) => {
         if (name === "react/jsx-runtime") return runtime;
         if (name === "react") return { useEffect: (fn) => effects.push(fn), useState: (initial) => [initial, () => {}] };
-        if (name === "next/navigation") return { usePathname: () => pathname, useRouter: () => ({ replace: (path) => redirects.push(path) }) };
+        if (name === "next/navigation") return { usePathname: () => pathname, useSearchParams: () => new URLSearchParams(query), useRouter: () => ({ replace: (path) => redirects.push(path) }) };
         if (name === "@/lib/access") return access;
         if (name === "@/lib/auth") return { useMe: () => ({ me, loading: false, hasToken: true }), can: (user, ...perms) => user.permissions.some(p => p === "*" || perms.includes(p)) };
         if (name === "@/lib/api") return { api: { post: () => { throw new Error("Unexpected factory switch"); } } };
@@ -82,6 +93,38 @@ assert.equal(factoryWorkspaceHome({ role: "Sewing", factory_code: "ECO", permiss
 assert.equal(factoryWorkspaceHome({ role: "Packaging", factory_code: "MIL", permissions: packingPermissions }), "/");
 assert.match(fs.readFileSync("src/app/login/page.tsx", "utf8"), /window\.location\.href = "\/";/);
 console.log("Packaging login and stale landing recovery passed; factory isolation and existing homes preserved.");
+// Exercise each page's real query construction, including query-less bookmarks.
+for (const page of ["packages", "packaging/queue", "packaging/receive", "packaging/reports"]) {
+  const pageSource = fs.readFileSync(`src/app/(app)/${page}/page.tsx`, "utf8");
+  const ast = ts.createSourceFile("page.tsx", pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const component = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword));
+  const declarations = [];
+  for (const statement of component.body.statements) {
+    if (ts.isFunctionDeclaration(statement) || ts.isReturnStatement(statement)) break;
+    declarations.push(statement.getText(ast));
+  }
+  const queryCode = ts.transpileModule(declarations.join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  for (const [factory, department] of [["MIL", "PKG"], ["BST", "BPK"], ["ECO", "ECP"]]) {
+    for (const query of ["", `packaging_department=${department}`]) {
+      const keys = [];
+      vm.runInNewContext(queryCode, {
+        URLSearchParams, Intl, Date,
+        useT: () => ({ t: value => value, lang: "en" }),
+        useMe: () => ({ me: { factory_code: factory, permissions: packingPermissions } }),
+        useSearchParams: () => new URLSearchParams(query),
+        useState: initial => [typeof initial === "function" ? initial() : initial, () => {}],
+        useRef: initial => ({ current: initial }),
+        useMemo: fn => fn(),
+        useSWR: key => { if (key) keys.push(key); return {}; },
+        packagingDepartmentForSession: access.packagingDepartmentForSession,
+        can: () => true, fetcher: () => {}, today: () => "2026-09-18",
+      });
+      assert.ok(keys.length > 0, page);
+      for (const key of keys) assert.equal(new URL(key, "https://erp.example").searchParams.get("packaging_department_code"), department, `${factory} ${page} ${key}`);
+    }
+  }
+}
+console.log("All four Packaging pages request only the selected factory, with or without query parameters.");
 let selectedFactory = "MIL";
 let effective = ["planning.view"];
 let grantable = true;
