@@ -1,9 +1,11 @@
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 import AuthGate from "@/components/AuthGate";
+import { Suspense } from "react";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
+    <Suspense fallback={<div className="p-6" aria-busy="true" />}>
     <AuthGate>
       <div className="flex min-h-screen w-full min-w-0 max-w-full flex-col bg-stone-100 min-[1440px]:flex-row">
         <Sidebar />
@@ -13,5 +15,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     </AuthGate>
+    </Suspense>
   );
 }

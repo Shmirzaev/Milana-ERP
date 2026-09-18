@@ -24,6 +24,31 @@ export function sewingWorkspaceHome(me: Me | undefined): string {
   return SEWING_WORKSPACE_HOME;
 }
 
+export function factoryWorkspaceHome(me: Me | undefined): string {
+  if (isSewingRole(me)) return sewingWorkspaceHome(me);
+  const permits = (...permissions: string[]) => Boolean(me?.permissions.some(
+    (permission) => permission === "*" || permissions.includes(permission),
+  ));
+  const packaging = permits("packaging.records", "packaging.packages", "planning.production");
+  if (me?.factory_code === "BST") {
+    return packaging && !permits("sewing.records", "sewing.bundles", "planning.production")
+      ? "/departments/BPK"
+      : "/departments/BST";
+  }
+  if (me?.factory_code === "ECO") {
+    return packaging && !permits("cutting.records", "cutting.bundles", "planning.production")
+      ? "/departments/ECP"
+      : "/departments/ECT";
+  }
+  return "/";
+}
+
+export function packagingDepartmentForSession(me: Me | undefined, requested: string | null): string {
+  // Preserve explicit destinations so guards can reject cross-factory URLs.
+  if (requested?.trim()) return requested.trim().toUpperCase();
+  return me?.factory_code === "BST" ? "BPK" : me?.factory_code === "ECO" ? "ECP" : "PKG";
+}
+
 export function isSewingWorkspacePath(pathname: string): boolean {
   return SEWING_WORK_ORDER_PATH.test(pathname) || SEWING_WORKSPACE_NAV_ITEMS.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`),
