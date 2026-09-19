@@ -110,7 +110,8 @@ jobs:
           app/tests/test_fresh_migration_bootstrap.py
           app/tests/test_accessory_return_concurrency.py
           app/tests/test_waste_disposal_integrity.py
-          app/tests/test_settings_patch_integrity.py
+            app/tests/test_settings_patch_integrity.py
+            app/tests/test_1c_payment_reassignment.py
 
   frontend:
     runs-on: ubuntu-latest
