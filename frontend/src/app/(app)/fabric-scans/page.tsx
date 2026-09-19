@@ -1,4 +1,5 @@
 "use client";
+import { ApiError } from "@/lib/errorMessages";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Camera, Download, RefreshCw } from "lucide-react";
@@ -59,7 +60,7 @@ export default function FabricScansPage() {
       setPage(1);
       void mutate();
     } catch (err) {
-      const text = err instanceof Error ? err.message : "";
+      const text = err instanceof ApiError ? err.rawDetail : err instanceof Error ? err.message : "";
       const key = ["invalid_roll_code", "fabric_not_found", "roll_not_found"].find((value) => text.includes(value));
       setScanError(t(key ? `fabricScans.${key}` : "fabricScans.saveError"));
       setFailedScans((rows) => rows.some((row) => row.code === value && row.direction === action) ? rows : [...rows, { code: value, direction: action }]);

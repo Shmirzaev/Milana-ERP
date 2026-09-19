@@ -298,14 +298,14 @@ export default function DepartmentInboxPage() {
           <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")}</h3>
           <table className="table">
             <thead>
-              <tr><th>{t("page.workOrder.modelPicture")}</th><th>{t("cuttingInbox.variantPicture")}</th><th>{t("field.salesOrderShort")}</th><th>{t("field.modelNo")}</th><th>{t("field.variantNo")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
+              <tr><th>{t("page.workOrder.modelPicture")}</th><th>{t("cuttingInbox.variantPicture")}</th><th>{t("field.orderNo")}</th><th>{t("field.modelNo")}</th><th>{t("field.variantNo")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
             </thead>
             <tbody>
               {data.awaiting_packaging.map((r: any) => (
                 <tr key={r.production_order_id}>
                   <td><ImageThumbnail imageUrl={r.model_image_url} label={r.model_no || r.model_name || ""} title={t("page.workOrder.modelPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
                   <td><ImageThumbnail imageUrl={r.material_image_url} label={r.variant_no || ""} title={t("cuttingInbox.variantPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
-                  <td>{r.planning_order_no || orderReference(r, "-")}</td>
+                  <td>{r.planning_order_no ? t("cuttingInbox.bsoNumber", { number: r.planning_order_no }) : orderReference(r, "-")}</td>
                   <td>{r.model_no || r.model_code || "-"}</td>
                   <td>{r.variant_no || "-"}</td>
                   <td>{r.ready_qty}</td>

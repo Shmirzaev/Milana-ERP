@@ -28,7 +28,7 @@ import SewingWorkPicker, {
   sewingWorkKey,
   type SewingModelIdentity,
 } from "@/components/SewingWorkPicker";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { defectReasonLabel } from "@/lib/defectReasons";
 import { formatBatchLabel } from "@/lib/batchSerial";
@@ -281,7 +281,7 @@ export default function SewingDailyReportPage() {
         lang,
         factory_code: factoryCode,
       });
-      const response = await fetch(`/api/sewing-daily-reports/export.${format}?${params.toString()}`, {
+      const response = await fetchResponse(`/api/sewing-daily-reports/export.${format}?${params.toString()}`, {
         credentials: "same-origin",
       });
       if (!response.ok) {

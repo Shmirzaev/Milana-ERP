@@ -1,6 +1,6 @@
 {
-  "release": "20260918_121209",
-  "source_manifest_sha256": "6cafdaedf78bbaca190629139f95c6669086b0159233d4977b47c82a0c7dbd2e",
+  "release": "20260919_113426",
+  "source_manifest_sha256": "f3d5523febf1c09b160404d54746d4c56dd6a71d35d4223a4b53597ce9fe5604",
   "database_revision": "0131_sewing_corrections",
-  "git_baseline_commit": "1c083d6365550d50afa381c851d0fe5dcb669a29"
+  "git_baseline_commit": "c88524c7badce443ba4494e4127eec17bababc0f"
 }

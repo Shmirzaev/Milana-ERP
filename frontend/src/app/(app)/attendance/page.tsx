@@ -8,7 +8,7 @@ import type { LucideIcon } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 
@@ -171,7 +171,7 @@ export default function AttendancePage() {
     try {
       const params = new URLSearchParams({ day, usage, lang });
       if (deferredQuery) params.set("query", deferredQuery);
-      const response = await fetch(`/api/attendance/reports/daily.xlsx?${params.toString()}`, {
+      const response = await fetchResponse(`/api/attendance/reports/daily.xlsx?${params.toString()}`, {
         credentials: "same-origin",
       });
       if (!response.ok) {

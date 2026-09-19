@@ -23,3 +23,33 @@ assert.match(new ApiError(0, "Failed to fetch").message, /Нет связи/);
 globalThis.document.documentElement.lang = "uz";
 assert.match(new ApiError(504, "Request timed out").message, /vaqtida/);
 console.log("Error locale, fallback, machine-status and language-switch checks passed.");
+
+for (const lang of ["ru", "uz"]) {
+  globalThis.document.documentElement.lang = lang;
+  const error = new ApiError(422, { detail: [{ loc: ["body", "report_date"], msg: "Field required" }] });
+  assert.equal(error.rawDetail, "report date: Field required");
+  assert.ok(!error.message.includes("Field required"));
+  for (const message of ["Could not load HR data.", "Select a brand for the production order.", "Select an available fabric batch for the cutting team.", "Enter estimated material amount greater than zero."]) {
+    assert.notEqual(localizeError(message), message);
+    assert.notEqual(localizeError(message), localizeError("Unknown backend detail"));
+  }
+  for (const code of ["fabricScans.roll_not_found", "ecoTransfers.alreadySent", "sewingEdit.stale"]) {
+    const coded = new ApiError(409, { detail: code });
+    assert.equal(coded.rawDetail, code);
+    assert.ok(!coded.message.includes(code));
+  }
+}
+const apiExports = {};
+new Function("exports", "require", ts.transpile(fs.readFileSync("src/lib/api.ts", "utf8"), { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }))(apiExports, () => exports);
+const originalFetch = globalThis.fetch;
+try {
+  globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+  globalThis.document.documentElement.lang = "ru";
+  await assert.rejects(apiExports.fetchResponse("/report.xlsx"), /Нет связи/);
+  globalThis.document.documentElement.lang = "uz";
+  await assert.rejects(apiExports.fetchResponse("/report.xlsx"), /aloqa/);
+  const abort = new DOMException("Cancelled", "AbortError");
+  globalThis.fetch = async () => { throw abort; };
+  await assert.rejects(apiExports.fetchResponse("/report.xlsx"), error => error === abort);
+} finally { globalThis.fetch = originalFetch; }
+console.log("Structured validation, client validation, preserved codes and download network error checks passed.");

@@ -1,11 +1,33 @@
 import type { Lang } from "./i18n/types";
 
+export function errorDetail(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(errorDetail).filter(Boolean).join("; ");
+  if (!value || typeof value !== "object") return "";
+  const error = value as Record<string, unknown>;
+  const message = errorDetail(error.detail) || errorDetail(error.message) || errorDetail(error.msg);
+  if (!message) return "";
+  const path = Array.isArray(error.loc)
+    ? error.loc.filter((part) => part !== "body" && part !== "query" && part !== "path")
+      .map((part) => typeof part === "number" ? `[${part + 1}]` : String(part).replaceAll("_", " "))
+      .join(" / ")
+    : "";
+  return path ? `${path}: ${message}` : message;
+}
+
 // Raw server detail remains on ApiError for diagnostics; only localized text is rendered.
 export function systemLanguage(): Lang {
   if (typeof document !== "undefined" && ["en", "ru", "uz"].includes(document.documentElement.lang)) return document.documentElement.lang as Lang;
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Could not load HR data.": ["Не удалось загрузить данные отдела кадров.", "Kadrlar bo‘limi ma’lumotlarini yuklab bo‘lmadi."],
+  "Select a brand for the production order.": ["Выберите бренд для производственного заказа.", "Ishlab chiqarish buyurtmasi uchun brendni tanlang."],
+  "Select an available fabric batch for the cutting team.": ["Выберите доступную партию ткани для раскроя.", "Bichish uchun mavjud mato partiyasini tanlang."],
+  "Enter estimated material amount greater than zero.": ["Укажите расчётный расход материала больше нуля.", "Hisoblangan mato sarfini noldan katta kiriting."],
+  "Enter material estimate before creating the production order.": ["Перед созданием производственного заказа укажите расчётный расход материала.", "Ishlab chiqarish buyurtmasini yaratishdan oldin mato sarfini kiriting."],
+  "Unable to load the variant price": ["Не удалось загрузить цену варианта.", "Variant narxini yuklab bo‘lmadi."],
+
   "No package items to create.": ["Нет изделий для создания упаковки.", "Qadoq yaratish uchun mahsulotlar yo‘q."],
   "Sign in before recording packages": ["Войдите в систему перед записью упаковок.", "Qadoqlarni qayd etishdan oldin tizimga kiring."],
   "Retry the saved package request before submitting changed values": ["Сначала повторите сохранённый запрос, затем изменяйте данные.", "Ma’lumotlarni o‘zgartirishdan oldin saqlangan so‘rovni qayta yuboring."],
@@ -69,8 +91,11 @@ export function localizeError(detail: string, status = 0, lang = systemLanguage(
   return fallback[lang][status >= 500 ? "server" : String(status)] || fallback[lang].default!;
 }
 export class ApiError extends Error {
-  constructor(public status: number, public rawDetail: string) {
+  public rawDetail: string;
+  constructor(public status: number, detail: unknown) {
+    const rawDetail = errorDetail(detail);
     super(`${status ? `${status}: ` : ""}${localizeError(rawDetail, status)}`);
+    this.rawDetail = rawDetail;
     this.name = "ApiError";
   }
 }
