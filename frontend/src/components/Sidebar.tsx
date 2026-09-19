@@ -252,6 +252,7 @@ const SECTIONS: Section[] = [
       { href: "/packages/scan", labelKey: "nav.scanPackage", perms: ["storage.packages"], icon: QrCode },
       { href: "/warehouse-map", labelKey: "nav.warehouseMap", perms: ["storage.packages", "storage.shipment"], icon: Warehouse },
       { href: "/shipments", labelKey: "nav.shipments", perms: ["storage.shipment"], icon: Truck },
+      { href: "/shipments/history", labelKey: "page.shipments.history", perms: ["storage.shipment"], icon: Truck },
     ],
   },
   {
@@ -425,6 +426,7 @@ export default function Sidebar() {
     const planningChildMismatch = basePath === "/planning" && pathname.startsWith("/planning/");
     const payrollChildMismatch = basePath === "/payroll" && pathname.startsWith("/payroll/");
     const uslugaChildMismatch = basePath === "/usluga" && pathname.startsWith("/usluga/");
+    const shipmentChildMismatch = basePath === "/shipments" && pathname.startsWith("/shipments/");
     const financeChildMismatch = basePath === "/finance" && pathname.startsWith("/finance/");
     return (
       !bundlesScanMismatch &&
@@ -439,6 +441,7 @@ export default function Sidebar() {
       !payrollChildMismatch &&
       !uslugaChildMismatch &&
       !financeChildMismatch &&
+      !shipmentChildMismatch &&
       (pathname === basePath || (basePath !== "/" && pathname?.startsWith(basePath)))
     );
   }

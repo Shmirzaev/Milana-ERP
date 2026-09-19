@@ -1,6 +1,8 @@
 import fs from "node:fs";
 
 const page = fs.readFileSync("src/app/(app)/shipments/page.tsx", "utf8");
+const history = fs.readFileSync("src/app/(app)/shipments/history/page.tsx", "utf8");
+if (!history.includes("historyQuery") || page.includes("filteredHistory")) throw new Error("History must have its own route");
 const workspace = fs.readFileSync("src/components/ShipmentPreparationWorkspace.tsx", "utf8");
 
 for (const token of [
@@ -11,7 +13,7 @@ for (const token of [
   "ShipmentOrderWorkspace",
   "orderFloorTitle",
   "orderFloorSearch",
-  "historyQuery",
+  "/shipments/history",
   "max-w-[1440px]",
 ]) {
   if (!page.includes(token)) throw new Error(`Shipments page is missing ${token}`);

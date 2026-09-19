@@ -1,4 +1,5 @@
 "use client";
+import { localizeError } from "@/lib/errorMessages";
 
 import { useEffect, useMemo, useState } from "react";
 import { formatModelComposition } from "@/lib/modelComposition";
@@ -281,7 +282,7 @@ export default function WorkOrderProductInfo({
       setBreakdownEditing(false);
       setBreakdownMsg(t("msg.saved"));
     } catch (e: any) {
-      setBreakdownMsg(e?.message || "Failed to save breakdown");
+      setBreakdownMsg(e?.message || localizeError("Failed to save breakdown"));
     } finally {
       setBreakdownSaving(false);
     }

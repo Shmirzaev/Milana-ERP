@@ -1,6 +1,6 @@
 "use client";
-import { formatOrderReference } from "@/lib/orderRef";
 
+import { localizeError } from "@/lib/errorMessages";
 import Link from "next/link";
 import ShipmentAddClient from "@/components/ShipmentAddClient";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -15,13 +15,11 @@ import ShipmentPreparationWorkspace, {
   type ShipmentPreparation,
   type ShipmentSummary,
 } from "@/components/ShipmentPreparationWorkspace";
-import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { shipmentReviewText } from "@/lib/shipmentReviewText";
-import ShipmentTransportDetails, { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
+import { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
 import { shipmentTransportText } from "@/lib/shipmentTransportText";
 
 type ShipmentRow = ShipmentSummary & {
@@ -51,7 +49,7 @@ type ShipmentOrder = EligibleOrder & {
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
-  return "Action failed.";
+  return localizeError("Action failed.");
 }
 
 function ShipmentOrderWorkspace({
@@ -120,9 +118,9 @@ function ShipmentOrderWorkspace({
         code: scanCode.trim(),
       });
       if (String(result.sign || "") === "error") {
-        setError(String(result.message || t("page.shipments.scanMismatch")));
+        setError(result.message ? localizeError(String(result.message), 400) : t("page.shipments.scanMismatch"));
       } else {
-        setMessage(String(result.message || t("page.shipments.scanProcessed")));
+        setMessage(t("page.shipments.scanProcessed"));
       }
       setScanCode("");
       await refresh();
@@ -200,8 +198,6 @@ export default function ShipmentsPage() {
   const [warehouseCreating, setWarehouseCreating] = useState(false);
   const [warehouseMessage, setWarehouseMessage] = useState("");
   const [warehouseError, setWarehouseError] = useState("");
-  const [historyQuery, setHistoryQuery] = useState("");
-  const [historyStatus, setHistoryStatus] = useState("all");
 
   const shipmentOrders = useMemo<ShipmentOrder[]>(() => {
     const byOrder = new Map<number, ShipmentOrder>();
@@ -232,15 +228,6 @@ export default function ShipmentsPage() {
       .some((value) => String(value || "").toLocaleLowerCase().includes(query)));
   }, [orderQuery, shipmentOrders]);
 
-  const filteredHistory = useMemo(() => {
-    const query = historyQuery.trim().toLocaleLowerCase();
-    return (data || []).filter((shipment) => {
-      if (historyStatus !== "all" && String(shipment.status || "") !== historyStatus) return false;
-      if (!query) return true;
-      return [shipment.shipment_no, shipment.sales_order_no, shipment.customer_name, shipment.notes]
-        .some((value) => String(value || "").toLocaleLowerCase().includes(query));
-    });
-  }, [data, historyQuery, historyStatus]);
 
   async function refreshOrders() {
     await Promise.all([mutate(), mutateOrders()]);
@@ -281,7 +268,7 @@ export default function ShipmentsPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.shipments.title")} />
+      <PageHeader title={t("page.shipments.title")} actions={<Link className="btn" href="/shipments/history">{t("page.shipments.history")}</Link>} />
       <div className="max-w-[1440px] space-y-4">
         <section className="card overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
@@ -325,39 +312,7 @@ export default function ShipmentsPage() {
           <ShipmentOrderWorkspace key={shipment.id} order={{ id: 0, order_no: "", status: shipment.status, shipment, is_scanned: !!shipment.is_complete }} canTraceability={canTraceability} onChanged={refreshOrders} />
         ))}
 
-        <section className="card overflow-hidden">
-          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#ded9ca] px-4 py-3 sm:px-5">
-            <div><h2 className="app-card-title">{t("page.shipments.history")}</h2><p className="mt-1 text-xs text-[#6f6a5b]">{t("page.shipments.historyHint")}</p></div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-              <input className="input w-full sm:w-72" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("page.shipments.historySearch")} aria-label={t("page.shipments.historySearch")} />
-              <select className="input w-full sm:w-44" value={historyStatus} onChange={(event) => setHistoryStatus(event.target.value)} aria-label={t("field.status")}>
-                <option value="all">{t("page.shipments.allStatuses")}</option>
-                {["created", "shipped", "delivered", "cancelled"].map((status) => <option key={status} value={status}>{statusLabel(status, t)}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="divide-y divide-[#ded9ca] md:hidden">
-            {filteredHistory.map((shipment) => (
-              <article key={shipment.id} className="p-4">
-                <div className="flex items-start justify-between gap-3"><div className="mono font-semibold text-[#14110b]">{shipment.shipment_no}</div><span className="badge">{statusLabel(shipment.status, t)}</span></div>
-                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#56503f]"><span>{shipment.shipment_type === "manual" ? manualText.type : shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</span><span className="text-right mono">{formatOrderReference(shipment.sales_order_no || "-")}</span><span>{shipment.customer_name || "-"}</span><span className="text-right tabular-nums">{Number(shipment.packages_count || 0)} {t("field.packages")} · {Number(shipment.total_qty || 0).toLocaleString()} {t("page.shipments.pieces")}</span></div>
-                {["shipped", "delivered"].includes(shipment.status) && <a className="btn mt-3" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}
-                {(!shipment.sales_order_id || !["draft", "created"].includes(shipment.status)) && <ShipmentTransportDetails shipment={shipment} onChanged={mutate} />}
-                {canTraceability ? <Link className="btn mt-3 h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : null}
-              </article>
-            ))}
-            {!filteredHistory.length ? <div className="p-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</div> : null}
-          </div>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="table min-w-[1180px]">
-              <thead><tr><th>{t("field.shipmentNo")}</th><th>{t("page.shipments.type")}</th><th>{t("page.shipments.salesOrder")}</th><th>{t("field.customer")}</th><th>{t("page.shipments.reference")}</th><th>{t("field.packages")}</th><th>{t("field.totalQty")}</th><th>{t("field.status")}</th><th>{t("field.shipped")}</th><th>{t("field.delivered")}</th><th>{t("field.actions")}</th></tr></thead>
-              <tbody>
-                {filteredHistory.map((shipment) => <tr key={shipment.id}><td className="mono whitespace-nowrap font-semibold text-[#14110b]">{shipment.shipment_no}</td><td>{shipment.shipment_type === "manual" ? manualText.type : shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</td><td className="mono whitespace-nowrap">{formatOrderReference(shipment.sales_order_no || "-")}</td><td>{shipment.customer_name || "-"}</td><td className="max-w-56 whitespace-normal">{shipment.notes || "-"}{(!shipment.sales_order_id || !["draft", "created"].includes(shipment.status)) && <ShipmentTransportDetails shipment={shipment} onChanged={mutate} />}</td><td className="tabular-nums">{Number(shipment.packages_count || 0)}</td><td className="tabular-nums">{Number(shipment.total_qty || 0).toLocaleString()}</td><td><span className="badge">{statusLabel(shipment.status, t)}</span></td><td className="whitespace-nowrap">{shipment.shipped_at ? new Date(shipment.shipped_at).toLocaleString() : "-"}</td><td className="whitespace-nowrap">{shipment.delivered_at ? new Date(shipment.delivered_at).toLocaleString() : "-"}</td><td>{["shipped", "delivered"].includes(shipment.status) && <a className="btn h-8 px-2.5 text-[11px]" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}{canTraceability ? <Link className="btn h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : "-"}</td></tr>)}
-                {!filteredHistory.length ? <tr><td colSpan={11} className="py-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</td></tr> : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
+
       </div>
     </div>
   );

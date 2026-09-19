@@ -1,6 +1,15 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-18
+Last updated: 2026-09-19
+
+## Cutting, shipment and packaging updates prepared (2026-09-19)
+
+- Worktree `C:/ERP/.codex-work/cutting-shipping-packaging-20260919`, branch `codex/cutting-shipping-packaging-20260919`, based on verified origin/main `1b114024`. Before editing both VM manifests and active blue slots matched release `20260918_121209`, manifest `6cafdaedf78bbaca190629139f95c6669086b0159233d4977b47c82a0c7dbd2e`, database baseline `0131_sewing_corrections`; rollback green `20260918_113409`. Legacy checkout preserved.
+- Planned-material Cutting now reads usage from its saved passport through existing transactional warehouse consumption; the duplicate entry panel is removed. Repeat use of a passport is rejected before another debit. Legacy/Usluga entry behavior remains. Cutting floor has text search with button/Enter. Shipment scanned-package rows expose Return to inventory using the existing audited removal/reservation-release endpoint. Shipment history has its own route/sidebar entry. Awaiting Packaging now supplies real order references and model/variant thumbnails.
+- Shared API/network/export errors render according to current EN/RU/UZ. Common cutting/shipping errors retain specific translations, unknown backend messages use localized status fallbacks, and raw details/status remain available on ApiError for diagnostics and existing machine-code handlers. This does not claim a full translation of every distinct historical backend message or all HR interface copy.
+- Local validation: full pre-cleanup backend suite 983 passed, plus three dedicated cleanup safety regressions; Ruff/compile passed. Frontend contracts, strict types and optimized 89-route build passed; ESLint has zero errors and five inherited unused-symbol warnings. Visual browser QA remains blocked: automatic approval review rejected starting the localhost Next preview twice, including after explicit user authorization, with only “blocked by policy”. No bypass or waiver was used.
+- User authorized deleting the six existing shipments (IDs 8–13) and returning their scanned packages. Read-only preview found seven package links, five shipped packs/450 pieces and two already-available packs/138 pieces, no reservations or quantity-adjustment evidence; the sole related manually generated order is SO-0001 (ID 7) and unpaid invoice ID 3 for 18.00, without payments/external references. Cleanup is fingerprint-bound and stops on drift. The reviewed script retains original accounting amounts in audit, voids/zeros the unpaid invoice and cancels/zeros its generated manual order so legacy totals show no debt. No cleanup or deployment is claimed yet.
+- Item 8 is proposal only in `docs/FIRST_GRADE_SINGLES_WORKFLOW.md`: good-quality incomplete-assortment pieces allocate by exact size into a separate singles inventory/sales flow with no duplicate stock.
 
 ## Bestpacking login and isolated packaging navigation deployed (2026-09-18)
 

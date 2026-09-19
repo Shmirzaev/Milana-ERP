@@ -1,4 +1,5 @@
 "use client";
+import { localizeError } from "@/lib/errorMessages";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -954,7 +955,7 @@ export default function ModelDetail() {
         setImageForms((prev) => ({ ...prev, [imageType]: { file_url: "" } }));
         await Promise.all([mutate(), mutateVariants()]);
       } catch (error: any) {
-        await dialogs.notify(String(error?.message || "Image upload failed"));
+        await dialogs.notify(String(error?.message || localizeError("Image upload failed")));
       } finally {
         setUploadingImageType(null);
       }

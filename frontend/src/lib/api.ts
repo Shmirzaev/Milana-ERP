@@ -1,3 +1,4 @@
+import { ApiError } from "./errorMessages";
 function errorDetail(value: unknown): string {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.map(errorDetail).filter(Boolean).join("; ");
@@ -32,10 +33,9 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   } catch (err: any) {
     if (err?.name === "AbortError") {
       if (callerSignal?.aborted) throw err;
-      throw new Error(
-        `Backend is not responding. Check backend server and frontend API proxy settings (NEXT_PUBLIC_API_URL/API_URL). Request: ${url}`
-      );
+      throw new ApiError(504, "Request timed out");
     }
+    if (err instanceof TypeError) throw new ApiError(0, "Failed to fetch");
     throw err;
   } finally {
     clearTimeout(timeout);
@@ -50,7 +50,7 @@ function sleep(ms: number) {
 function isTransientNetworkError(message: string): boolean {
   const m = (message || "").toLowerCase();
   return (
-    m.includes("backend is not responding") ||
+    m.includes("backend is not responding") || m.includes("request timed out") ||
     m.includes("failed to fetch") ||
     m.includes("networkerror") ||
     m.includes("network error") ||
@@ -91,7 +91,7 @@ async function request<T = any>(path: string, init: RequestInit = {}, timeoutMs 
       const body = await res.json();
       detail = errorDetail(body) || detail || "Request failed";
     } catch {}
-    throw new Error(`${res.status}: ${detail}`);
+    throw new ApiError(res.status, detail);
   }
   if (res.status === 204) return undefined as any;
   return res.json();
@@ -111,7 +111,7 @@ export const api = {
         const body = await res.json();
         detail = errorDetail(body) || detail || "Request failed";
       } catch {}
-      throw new Error(`${res.status}: ${detail}`);
+      throw new ApiError(res.status, detail);
     }
     if (res.status === 204) return undefined as any;
     return res.json();
@@ -163,9 +163,9 @@ export const api = {
             lastTransientError = `${res.status}: ${msg}`;
             continue;
           }
-          throw new Error(msg);
+          throw new ApiError(res.status, msg);
         } catch (err: any) {
-          const message = String(err?.message || "");
+          const message = err instanceof ApiError ? err.rawDetail : String(err?.message || "");
           if (isTransientNetworkError(message)) {
             lastTransientError = message;
             continue;
@@ -175,9 +175,7 @@ export const api = {
       }
       if (attempt < maxAttempts) await sleep(1200 * attempt);
     }
-    throw new Error(
-      lastTransientError ? `Backend is not responding (${lastTransientError})` : "Login failed",
-    );
+    throw new ApiError(503, lastTransientError || "Login failed");
   },
 
   async forgotPassword(email: string): Promise<{ message: string }> {
@@ -196,7 +194,7 @@ export const api = {
         const body = await res.json();
         msg = errorDetail(body) || msg;
       } catch {}
-      throw new Error(`${res.status}: ${msg}`);
+      throw new ApiError(res.status, msg);
     }
     return res.json();
   },
@@ -221,7 +219,7 @@ export const api = {
         const body = await res.json();
         msg = errorDetail(body) || msg;
       } catch {}
-      throw new Error(`${res.status}: ${msg}`);
+      throw new ApiError(res.status, msg);
     }
     return res.json();
   },
@@ -246,7 +244,7 @@ export const api = {
         const body = await res.json();
         detail = errorDetail(body) || detail || "Request failed";
       } catch {}
-      throw new Error(`${res.status}: ${detail}`);
+      throw new ApiError(res.status, detail);
     }
     const html = await res.text();
     const blob = new Blob([html], { type: "text/html" });

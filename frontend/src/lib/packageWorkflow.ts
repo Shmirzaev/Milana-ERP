@@ -1,3 +1,4 @@
+import { localizeError } from "./errorMessages";
 import { api } from "@/lib/api";
 import type { Lang } from "@/lib/i18n";
 
@@ -62,12 +63,12 @@ export function pendingPackageWorkflow(path: string, userId: number): PendingPac
 // Preserve BOTH identity and payload through uncertain responses/reload. Edits
 // cannot turn a lost response into an accidental second physical-stock receipt.
 export async function postPackageWorkflow<T>(path: string, body: unknown, userId: number): Promise<T> {
-  if (!userId) throw new Error("Sign in before recording packages");
+  if (!userId) throw new Error(localizeError("Sign in before recording packages"));
   const storageKey = `package-request:${userId}:${path}`;
   let pending = pendingPackageWorkflow(path, userId);
   const wasPending = !!pending;
   if (pending && JSON.stringify(pending.body) !== JSON.stringify(body)) {
-    throw new Error("Retry the saved package request before submitting changed values");
+    throw new Error(localizeError("Retry the saved package request before submitting changed values"));
   }
   if (!pending) {
     pending = { requestKey: crypto.randomUUID(), body: body as Record<string, any> };

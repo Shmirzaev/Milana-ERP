@@ -1,4 +1,5 @@
 "use client";
+import { ApiError } from "@/lib/errorMessages";
 
 import { useDeferredValue, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -179,7 +180,7 @@ export default function AttendancePage() {
           const body = await response.json();
           detail = body.detail || detail;
         } catch {}
-        throw new Error(`${response.status}: ${detail}`);
+        throw new ApiError(response.status, detail);
       }
       const disposition = response.headers.get("content-disposition") || "";
       const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]

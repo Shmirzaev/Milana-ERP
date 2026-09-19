@@ -1,8 +1,9 @@
 "use client";
+import { localizeError } from "@/lib/errorMessages";
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import useSWR, { useSWRConfig } from "swr";
-import CuttingMaterialBatchEditor from "@/components/CuttingMaterialBatchEditor";
+import useSWR from "swr";
+import Link from "next/link";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
@@ -314,9 +315,6 @@ function autoSplitRows(totalQty: number, maxPerBatch: number): SplitRow[] {
 export default function CuttingPage() {
   const { t } = useT();
   const dialogs = useDialogs();
-  const { mutate: mutateCache } = useSWRConfig();
-  const [editingMaterialBatch, setEditingMaterialBatch] = useState<number | null>(null);
-  const [correctedBatches, setCorrectedBatches] = useState<StockBatchOption[]>([]);
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
   const fabricListboxId = `fabric-batch-options-${id || "new"}`;
@@ -539,8 +537,8 @@ export default function CuttingPage() {
     [po?.materials],
   );
   const plannedMaterialBatchLookup = useMemo(
-    () => new Map([...allSearchableFabricBatches, ...correctedBatches].map((batch) => [Number(batch.id), batch])),
-    [allSearchableFabricBatches, correctedBatches],
+    () => new Map(allSearchableFabricBatches.map((batch) => [Number(batch.id), batch])),
+    [allSearchableFabricBatches],
   );
   const hasPlannedMaterials = plannedMaterials.length > 0;
   const [passportId, setPassportId] = useState<number>(0);
@@ -962,7 +960,7 @@ export default function CuttingPage() {
       await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]);
       setDoneMsg(t("batch.planSaved"));
     } catch (e: any) {
-      setSplitErr(e.message || "Failed to split into batches");
+      setSplitErr(e.message || localizeError("Failed to split into batches"));
     } finally {
       setSplitBusy(false);
     }
@@ -1013,7 +1011,7 @@ export default function CuttingPage() {
       setDoneMsg(t("batch.extraBatchCreated"));
       await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]);
     } catch (e: any) {
-      setExtraBatchErr(e.message || "Failed to add extra batch");
+      setExtraBatchErr(e.message || localizeError("Failed to add extra batch"));
     } finally {
       setExtraBatchBusy(false);
     }
@@ -1066,7 +1064,7 @@ export default function CuttingPage() {
       cancelBatchPlanEdit();
       setDoneMsg(t("batch.planUpdated"));
     } catch (e: any) {
-      setBatchPlanEditErr(e.message || "Failed to update batch plan");
+      setBatchPlanEditErr(e.message || localizeError("Failed to update batch plan"));
     } finally {
       setBatchPlanEditBusy(false);
     }
@@ -1080,7 +1078,6 @@ export default function CuttingPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (editingMaterialBatch !== null) return;
     setErr("");
     setDoneMsg("");
     if (isUsluga && !form.model_bom_id) {
@@ -1091,8 +1088,8 @@ export default function CuttingPage() {
       setErr(t("batch.selectBeforeSaving", { operation: operationLabel("cutting", t).toLowerCase() }));
       return;
     }
-    if (hasPlannedMaterials && cuttingMaterials.some((row) => numberOrZero(row.quantity) <= 0)) {
-      setErr(t("page.cutting.enterEveryMaterialAmount"));
+    if (hasPlannedMaterials && !selectedPassportId) {
+      setErr(t("passportBatch.select"));
       return;
     }
     setSubmitting(true);
@@ -1123,6 +1120,7 @@ export default function CuttingPage() {
         work_order_id: id,
         ...form,
         cutting_passport_id: selectedPassportId || null,
+        use_passport_materials: hasPlannedMaterials,
         input_quantity: primaryMaterial?.quantity ?? numberOrZero(form.input_quantity),
         input_unit: primaryMaterial?.unit ?? form.input_unit,
         layer_material_kg: numberOrZero(form.layer_material_kg),
@@ -1136,7 +1134,7 @@ export default function CuttingPage() {
         production_batch_id: form.production_batch_id || null,
         fabric_batch_id: isUsluga ? null : (primaryMaterial?.stock_batch_id ?? (form.fabric_batch_id || null)),
         model_bom_id: isUsluga ? (form.model_bom_id || null) : null,
-        materials: normalizedMaterials,
+        materials: hasPlannedMaterials ? [] : normalizedMaterials,
         bundles: normalizedBundles,
       }, 120_000);
       const created = Array.isArray(r?.bundles) ? r.bundles : [];
@@ -1291,7 +1289,7 @@ export default function CuttingPage() {
       setAdjustingBundle(null);
       setDoneMsg(t("page.cutting.bundleQuantityUpdated"));
     } catch (e: any) {
-      setAdjustingBundleErr(e.message || "Failed to update bundle quantity");
+      setAdjustingBundleErr(e.message || localizeError("Failed to update bundle quantity"));
     } finally {
       setAdjustingBundleBusy(false);
     }
@@ -2088,111 +2086,9 @@ export default function CuttingPage() {
               </select>
             </div>
           )}
-          {hasPlannedMaterials ? (
-            <div className="md:col-span-4">
-              <div className="mb-3">
-                <h2 className="text-sm font-semibold text-[#393528]">{t("page.cutting.materialUsage")}</h2>
-                <p className="mt-0.5 text-xs text-[#8a8472]">{t("page.cutting.materialUsageHelp")}</p>
-              </div>
-              <div className="divide-y divide-[#ecebe3] rounded-md border border-[#e3e0d5]">
-                {cuttingMaterials.map((material, index) => {
-                  const batch = plannedMaterialBatchLookup.get(material.stock_batch_id);
-                  const reservation = reservationForOrder(batch, po?.id);
-                  return (
-                    <div
-                      key={material.stock_batch_id}
-                      className="grid grid-cols-1 gap-3 p-3 md:grid-cols-[minmax(0,1fr)_150px_150px] md:items-end"
-                    >
-                      <div>
-                        <div className="text-sm font-medium text-[#14110b]">
-                          {batch
-                            ? compactParts([batch.item_sku, batch.item_name]) || t("page.cutting.itemId", { id: batch.item_id })
-                            : `${t("field.fabricBatch")} #${material.stock_batch_id}`}
-                        </div>
-                        <div className="mt-1 text-xs text-[#6f684f]">
-                          {batch?.batch_no ? `${t("field.batch")} ${batch.batch_no}` : `${t("field.batch")} #${material.stock_batch_id}`}
-                          {" · "}
-                          {t("page.cutting.plannedAmount")}: {fmtQty(material.planned_quantity)} {material.unit}
-                        </div>
-                        {batch && (
-                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#8a8472]">
-                            <span>{t("field.available")}: {fmtQty(batchAvailableQty(batch))} {batch.unit}</span>
-                            <span>{t("field.reserved")}: {fmtQty(batch.reserved_quantity)} {batch.unit}</span>
-                            {reservation && (
-                              <span>{t("page.cutting.forThisOrder")}: {fmtQty(reservation.remaining_quantity)} {reservation.unit || batch.unit}</span>
-                            )}
-                          </div>
-                        )}
-                        {can(me, "*", "cutting.records") && !isUsluga && !["completed", "cancelled"].includes(String(wo?.status)) && !["completed", "cancelled"].includes(String(po?.status)) && (
-                          <CuttingMaterialBatchEditor workOrderId={id} batchId={material.stock_batch_id}
-                            assignedIds={cuttingMaterials.map((row) => row.stock_batch_id)} unit={material.unit}
-                            disabled={submitting || (editingMaterialBatch !== null && editingMaterialBatch !== material.stock_batch_id)}
-                            onEditing={(editing) => setEditingMaterialBatch(editing ? material.stock_batch_id : null)}
-                            onChanged={async (selected) => {
-                              setCorrectedBatches((rows) => [...rows.filter((row) => row.id !== selected.id), selected]);
-                              setCuttingMaterials((rows) => rows.map((row) => row.stock_batch_id === material.stock_batch_id ? { ...row, stock_batch_id: selected.id } : row));
-                              setEditingMaterialBatch(null);
-                              await mutatePo();
-                              await mutateCache((key) => typeof key === "string" && (key.startsWith("/api/cutting-passports") || key.startsWith("/api/inventory/") || key.startsWith("/api/production-orders")));
-                            }} />
-                        )}
-                      </div>
-                      <div>
-                        <label className="label" htmlFor={`cutting-material-${material.stock_batch_id}`}>
-                          {t("page.cutting.actualAmountUsed")}
-                        </label>
-                        <input
-                          id={`cutting-material-${material.stock_batch_id}`}
-                          className="input"
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={material.quantity}
-                          onChange={(e) => {
-                            const quantity = parseDecimalInput(e.target.value);
-                            setCuttingMaterials((current) => current.map((row, rowIndex) => (
-                              rowIndex === index ? { ...row, quantity } : row
-                            )));
-                            if (index === 0) {
-                              setPassportAutofillField("input_quantity", quantity);
-                            }
-                          }}
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="label">{t("field.inputUnit")}</label>
-                        <input className="input" value={material.unit} readOnly />
-                      </div>
-                      {cuttingMaterials.length > 1 && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 md:col-span-3">
-                        <label className="block"><span className="label">{t("field.layerMaterialKg")}</span>
-                          <input className="input" type="number" min={0} step="0.01" value={material.details.layer_material_kg} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, layer_material_kg: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.beikaKg")}</span>
-                          <input className="input" type="number" min={0} step="0.01" value={material.details.beika_kg} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, beika_kg: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.materialRollsUsed")}</span>
-                          <input className="input" type="number" min={0} step="0.01" value={material.details.material_rolls_used} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, material_rolls_used: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.layupOperator")}</span>
-                          <input className="input" type="text" maxLength={128} value={material.details.layup_operator_name} onChange={(e) => { const value = e.target.value; setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, layup_operator_name: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.cutPieces")}</span>
-                          <input className="input" type="number" min={0} step={1} value={material.details.cut_pieces} onChange={(e) => { const value = parseWholeInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, cut_pieces: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.wasteQty")}</span>
-                          <input className="input" type="number" min={0} step="0.01" value={material.details.waste_quantity} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, waste_quantity: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.wasteUnit")}</span>
-                          <input className="input" type="text" maxLength={32} value={material.details.waste_unit} onChange={(e) => { const value = e.target.value; setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, waste_unit: value } } : row)); }} />
-                        </label>
-                      </div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : !isUsluga ? <div className="md:col-span-2">
+          {hasPlannedMaterials ? <div className="md:col-span-4">
+            <Link className="btn" href={`/cutting-passports?production_order_id=${po?.id}`}>{t("nav.cuttingPassports")}</Link>
+          </div> : !isUsluga ? <div className="md:col-span-2">
             <label className="label">{t("field.fabricBatch")}</label>
             <div
               className="relative"
@@ -2335,7 +2231,7 @@ export default function CuttingPage() {
             <label className="label">{t("field.inputUnit")}</label>
             <input className="input" value={form.input_unit} onChange={(e) => setForm({ ...form, input_unit: e.target.value })} />
           </div>}
-          {cuttingMaterials.length <= 1 && <>
+          {!hasPlannedMaterials && cuttingMaterials.length <= 1 && <>
           <div>
             <label className="label">{t("field.layerMaterialKg")}</label>
             <input className="input" type="number" step="0.01" value={form.layer_material_kg} onChange={(e) => setPassportAutofillField("layer_material_kg", parseDecimalInput(e.target.value))} />
@@ -2457,7 +2353,7 @@ export default function CuttingPage() {
 
         {doneMsg && <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{doneMsg}</div>}
         {err && <div className="text-sm text-red-600">{err}</div>}
-        <button className="btn btn-primary" disabled={submitting || editingMaterialBatch !== null}>
+        <button className="btn btn-primary" disabled={submitting}>
           {submitting
             ? t("common.saving")
             : isSecondaryUslugaFabric

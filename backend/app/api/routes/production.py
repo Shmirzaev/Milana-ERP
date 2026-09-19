@@ -3058,6 +3058,11 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             raise HTTPException(400, "The selected cutting passport does not belong to this order")
 
     raw_materials = [row.model_dump() for row in payload.materials]
+    if payload.use_passport_materials:
+        if po.source_type == "usluga":
+            raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
+        from app.services.cutting_passport_usage import passport_material_usage
+        raw_materials = passport_material_usage(db, po, payload.cutting_passport_id)
     if not raw_materials and payload.fabric_batch_id and float(payload.input_quantity or 0) > 0:
         raw_materials = [{
             "stock_batch_id": int(payload.fabric_batch_id),

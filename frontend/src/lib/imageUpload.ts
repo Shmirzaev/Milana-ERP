@@ -1,3 +1,4 @@
+import { localizeError } from "./errorMessages";
 const MODEL_IMAGE_MAX_LONG_EDGE = 1920;
 const MODEL_IMAGE_OPTIMIZE_FROM_BYTES = 4 * 1024 * 1024;
 
@@ -24,7 +25,7 @@ async function decodeImage(file: File): Promise<DecodedImage> {
   try {
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve();
-      image.onerror = () => reject(new Error("The selected image could not be read"));
+      image.onerror = () => reject(new Error(localizeError("The selected image could not be read")));
       image.src = objectUrl;
     });
     return {
@@ -42,7 +43,7 @@ async function decodeImage(file: File): Promise<DecodedImage> {
 function canvasBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
-      (blob) => blob ? resolve(blob) : reject(new Error("The selected image could not be optimized")),
+      (blob) => blob ? resolve(blob) : reject(new Error(localizeError("The selected image could not be optimized"))),
       "image/webp",
       quality,
     );
@@ -61,7 +62,7 @@ export async function prepareModelImageUpload(file: File): Promise<File> {
     canvas.width = Math.max(1, Math.round(decoded.width * scale));
     canvas.height = Math.max(1, Math.round(decoded.height * scale));
     const context = canvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("Image optimization is not available in this browser");
+    if (!context) throw new Error(localizeError("Image optimization is not available in this browser"));
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(decoded.source, 0, 0, canvas.width, canvas.height);
