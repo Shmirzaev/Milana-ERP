@@ -289,10 +289,10 @@
       "risk": "Small pages slow down as history grows.",
       "proposed_fix": "Bulk-resolve references and redesign global counts.",
       "baseline_source": "backend/app/api/routes/payroll.py:2572",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "6f5ee2e",
+      "evidence": "test_payroll_label_query_growth.py: 86 passed; 1/10/50 groups 9/36/156 SELECTs -> 9/9/9; alias pages 14; 401 references 12"
     },
     {
       "number": 25,
@@ -337,10 +337,10 @@
       "risk": "Returned stock can exceed issued stock.",
       "proposed_fix": "Lock the allowance.",
       "baseline_source": "backend/app/api/routes/inventory.py:842",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "712ccf1",
+      "evidence": "test_accessory_return_concurrency.py: baseline 14 returned against 10 issued; 9 PostgreSQL and 11 SQLite cases passed"
     },
     {
       "number": 29,
@@ -505,10 +505,10 @@
       "risk": "Disposed stock can reappear.",
       "proposed_fix": "Enforce terminal states and replay rules.",
       "baseline_source": "backend/app/api/routes/waste.py:108",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "2ed4150",
+      "evidence": "test_waste_disposal_integrity.py: 68 passed including 4 PostgreSQL races and production-flow regression; safe rejection retained"
     },
     {
       "number": 43,
@@ -565,10 +565,10 @@
       "risk": "Missing clock-in/out data during roster failures.",
       "proposed_fix": "Separate ingestion failure handling.",
       "baseline_source": "connectors/hikvision_attendance/read_only_connector.py:689",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "50f685b",
+      "evidence": "test_sync_stage_isolation.py: 4 baseline failures; 43 connector tests passed, mocked devices only"
     },
     {
       "number": 48,
@@ -769,10 +769,10 @@
       "risk": "Assignment restrictions bypassed.",
       "proposed_fix": "Reuse assignment authorization.",
       "baseline_source": "backend/app/api/routes/tasks.py:185",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "a77de07",
+      "evidence": "test_task_assignment_authorization.py: baseline 10 failed; 50 focused tests passed; broader API02 remains open"
     },
     {
       "number": 65,
@@ -793,10 +793,10 @@
       "risk": "Unrelated settings lost; poor error handling.",
       "proposed_fix": "Validate partial updates properly.",
       "baseline_source": "backend/app/api/routes/settings.py:61",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "68d9257",
+      "evidence": "test_settings_patch_integrity.py: baseline 14 failed; 18 SQLite + 4 PostgreSQL passed, including actual image upload"
     },
     {
       "number": 67,
@@ -1384,7 +1384,8 @@
       "status": "open",
       "owner": null,
       "commit": null,
-      "evidence": null
+      "evidence": null,
+      "external_review": "Friend S17 confirmed in source: deploy/slotctl.py:137 supplies DB_POOL_SIZE=8/DB_MAX_OVERFLOW=4; backend/app/db/session.py:6 ignores both. Live environment not inspected."
     },
     {
       "number": 116,
@@ -1505,6 +1506,30 @@
       "owner": null,
       "commit": null,
       "evidence": "docs/audit-evidence/fresh-migration-schema-drift.json: full reviewed drift, including intentional migration-owned features; not 126 separate bugs"
+    },
+    {
+      "number": 126,
+      "id": "SEC11",
+      "bug": "Quality-check creation accepts a work order without checking its factory.",
+      "risk": "A floor user can add quality records to another factory's production.",
+      "proposed_fix": "Apply existing work-order factory guard; prove scoped-user denial and allowed same-factory creation.",
+      "baseline_source": "backend/app/api/routes/production.py:5438",
+      "status": "open",
+      "owner": null,
+      "commit": null,
+      "evidence": "Friend S22; current source confirmed statically. Runtime regression in progress."
+    },
+    {
+      "number": 127,
+      "id": "UI05",
+      "bug": "Legacy home Production KPI adds cutting, printing, sewing and packaging quantities.",
+      "risk": "One garment may be presented as multiple units of production.",
+      "proposed_fix": "Label the total as stage activity, or obtain an approved finished-output metric; add UI contract test.",
+      "baseline_source": "frontend/src/app/(app)/page.tsx:289",
+      "status": "open",
+      "owner": null,
+      "commit": null,
+      "evidence": "Friend S14; current source confirmed statically. Management dashboard already explains separate stage totals."
     }
   ]
 }

@@ -56,6 +56,17 @@ For UI QA, start a separate loopback-only frontend/backend with fresh synthetic 
 
 ## Measured complexity
 
+Additional acceptance checks:
+
+| Bug | Test / where | Expected result |
+| --- | --- | --- |
+| AT03 | Connector `test_sync_stage_isolation.py` | Roster fails but events still upload; job reports roster failure. Failed event windows do not advance; TLS failure stops all work. |
+| ST06 | `test_accessory_return_concurrency.py`; return API | Two returns of 7 against 10 cannot both commit. Same-key replay creates one return; rollback frees allowance; unrelated orders do not block each other. |
+| WF09 | `test_waste_disposal_integrity.py`; Waste disposal | Received → pending → approved → disposed. Repeat/stale decisions reject without writes. Invalid historical pending records can still be rejected safely. |
+| PERF07 | `test_payroll_label_query_growth.py`; payroll QR list | Global counts, page filters, canonical aliases and original payloads remain correct. Ambiguous references still reject. |
+| API01 | `test_task_assignment_authorization.py`; task PATCH | Creator without manager permission cannot change another assignee or unassign. Ordinary edits and assignee status-only updates still work. |
+| API03 | `test_settings_patch_integrity.py`; Settings | Change phone only: address/logo survive. Invalid fields return 422 without writes. Parallel patches and logo uploads preserve both changes; missing-row creation produces one row. |
+
 `n` = returned parents; `r` = returned child rows; `p` = permissions; `a` = audit rows. Query counts include authentication in these test fixtures.
 
 | Path | Before → after | What remains |
@@ -65,6 +76,8 @@ For UI QA, start a separate loopback-only frontend/backend with fresh synthetic 
 | Attendance download | O(pages) device requests | O(events) processing/memory. Failure must not become a successful checkpoint. |
 | Pricing authorization | No added DB queries | O(p) permission evaluation; profile text no longer grants access. |
 | Audited account deletion | One additional history-existence lookup | Worst-case O(a) without an actor index. This is an integrity fix, not a speed claim. |
+| Payroll label list | 1/10/50 global groups: 9/36/156 → 9/9/9 SELECTs | Alias page fixtures use 14; 401 references use 12. Queries grow by batches of 400, not per label. Global aggregation/output remain proportional to history/groups; not O(1) total work. |
+| Return/disposal/settings guards | Bounded added lock/reference queries | Waiting depends on contention; existing audit/database work is not benchmarked. |
 | Scoped grants / passport access | No new grant queries; bounded linked-order lookups | Permission-set work grows with permissions. Passport serialization still depends on materials; no speed claim. |
 | Accessory return summary | No added queries | O(stock issues + manual issues) grouping; existing O(groups log groups) sorting. This fixes totals, not pagination or concurrent returns. |
 

@@ -1,8 +1,10 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-18
+Last updated: 2026-09-20
 
 ## Stabilization fixes prepared — not deployed (2026-09-18)
+
+- Continued 2026-09-20: 30 findings fixed in focused commits. New regressions cover independent attendance stages, concurrent accessory returns, disposal terminal states, payroll reference batching, task reassignment and settings partial updates. CI passed for `738daad`; later commits still need their final run. Three interrupted tasks resumed with cheaper subagents; friend-report comparison remains read-only until verified. No production contact or release.
 
 - Branch `feat/ismoiljon`, worktree `C:/ERP/.codex-work/ismoiljon-fixes`, base `80f4831e`. One review PR; no merge/deployment authorization. Concise scope, source locations, tests and remaining risks: [audit_ismail.md](../audit_ismail.md).
 - Fixes cover receipt recovery, stock movement/balance correctness, reservation/payment/invoice concurrency, reset/file/admin/factory access, session recovery, body timeouts, payroll scan ordering and package-list queries. No database redesign or production migration. Concurrency regressions use disposable PostgreSQL in CI; browser checks use synthetic local data.

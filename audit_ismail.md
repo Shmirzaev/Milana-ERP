@@ -1,8 +1,8 @@
 # Ismail audit — stabilization fixes
 
-18 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
+20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**24 of 125 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open.
+**30 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open.
 
 ## Fixed and regression-tested
 
@@ -30,16 +30,23 @@
 | **SEC01 — Legacy scoped grants bypass restrictions** | Unauthorized factory/admin access | [admin.py:372](backend/app/api/routes/admin.py#L372): validate changed factory grants and role assignment. Commit `6458d9c`; **50 tests passed**. Existing grants are not automatically revoked. |
 | **SEC07 — Linked passport GET ignores factory** | Another factory's cutting data leaks | [cutting_passports.py:449](backend/app/api/routes/cutting_passports.py#L449): check linked order access before serialization. Commit `c855a27`; **35 tests passed**. Unlinked manual records keep their existing policy. |
 | **DB04 — Blank installation crashes at migration 0039** | Buyer cannot install | [0001_initial.py:20](backend/alembic/versions/0001_initial.py#L20): frozen historical schema, not current ORM metadata. Commit `1f3e20a`; **13 lightweight + 2 PostgreSQL tests passed**. Fresh upgrade to 0131, safe rerun, existing row preserved. |
-| **ST05 — Returns deducted from two issue groups** | Incorrect allowance; valid returns rejected | [inventory service:1245](backend/app/services/inventory.py#L1245): merge linked stock/manual issues before subtracting returns. Commit `b2c126a`; **23 tests passed**. Concurrent returns remain ST06. |
+| **ST05 — Returns deducted from two issue groups** | Incorrect allowance; valid returns rejected | [inventory service:1245](backend/app/services/inventory.py#L1245): merge linked stock/manual issues before subtracting returns. Commit `b2c126a`; **23 tests passed**. Concurrent returns are covered below. |
+
+| **AT03 — Roster failure blocks attendance events** | Missing clock-in/out records | [connector:711](connectors/hikvision_attendance/read_only_connector.py#L711): isolate stages; retain failure reporting and valid checkpoints. Commit `50f685b`; **43 connector tests passed**. |
+| **ST06 — Concurrent returns exceed issued quantity** | Inventory overcredited | [inventory service:1135](backend/app/services/inventory.py#L1135): order-scoped lock before replay/check/write. Commit `712ccf1`; **9 PostgreSQL + 11 SQLite tests passed**. Generic movement writers remain outside this guard. |
+| **WF09 — Disposal decisions repeat/reopen stock** | Completed disposal becomes mutable | [waste.py:109](backend/app/api/routes/waste.py#L109): lock parent, enforce transitions, preserve safe rejection. Commit `2ed4150`; **68 tests passed**, including 4 PostgreSQL races. |
+| **PERF07 — Payroll labels resolve every order separately** | Small pages slow with history | [payroll.py:2519](backend/app/api/routes/payroll.py#L2519): batch shared reference resolution. Commit `6f5ee2e`; **86 tests passed**. 50 global groups: **156 → 9 SELECTs**. |
+| **API01 — Task creator bypasses assignment permissions** | Unauthorized reassignment | [tasks.py:185](backend/app/api/routes/tasks.py#L185): creator edit rights no longer imply manager rights. Commit `a77de07`; **50 tests passed**. |
+| **API03 — Settings PATCH resets omitted fields / returns 500** | Settings lost; invalid input crashes | [settings.py:73](backend/app/api/routes/settings.py#L73): merge validated fields under a section lock; malformed input returns 422. Commit `68d9257`; **18 SQLite + 4 PostgreSQL tests passed**, including real logo upload. |
 
 ## Evidence
 
 - **Cycle 3 browser API:** 18 scenarios passed: factory boundaries, unchanged authorized payloads, forbidden grants and allowed scoped grant. [Results](docs/audit-evidence/cycle3-browser-results.json). Frontend launch was policy-blocked; no cycle-3 visual UI proof is claimed.
-- **Latest completed CI (`35655cc`):** PostgreSQL and frontend passed. Backend **1,242 passed / 1 failed / 22 skipped**. Failure: test hardcoded the production MCP URL while the isolated runner sets localhost. Test now uses explicit local configuration and passes; full rerun pending.
+- **CI (`738daad`): all jobs passed.** Backend **1,314 passed / 24 opt-in PostgreSQL skipped**; PostgreSQL runs separately. The earlier configuration-dependent MCP test failure is corrected. Later commits need their own full rerun.
 - **Cycle 2:** attendance connector **30 passed**; audit/admin **54 passed** plus **1 PostgreSQL race passed**; pricing authorization/workflow **40 passed**; Eco suites **15 passed**. Five frontend stabilization scripts, ESLint, strict TypeScript and pinned Ruff passed. These are targeted results, not a new full-suite total.
 - **Cycle 2 browser:** same-session rename stayed forbidden; explicit pricing grant worked. Delete showed 409 guidance; deactivation rejected the old session. Eco history rendered 3 dispatches/6 rolls on desktop/mobile. No JavaScript page errors; expected denial responses and restricted-dashboard 403 console messages remain. [Results/screenshots](docs/audit-evidence/cycle2-results.json).
 - **CI for first-batch commit `3881177`:** backend, frontend and PostgreSQL jobs passed. Later changes require their own CI run.
-- **API coverage:** [510-route ledger](docs/api_test_coverage.json): **388 observed, 377 with success, 220 with rejection, 122 unobserved** in that CI run. Categories overlap. Hits are not correctness or complexity proof; final-revision coverage remains required.
+- **API coverage:** [510-route ledger](docs/api_test_coverage.json): **388 observed, 377 with success, 222 with rejection, 122 unobserved** in that CI run. Categories overlap. Hits are not correctness or complexity proof; final-revision coverage remains required.
 - **PostgreSQL: 21 concurrency checks passed** on disposable local PostgreSQL 17; cluster stopped. Covers receipts, payments, invoice creation, sibling reset links, reservations and Cutting contention.
 - **Browser:** real login → temporary 503 → recovery; genuine 401 redirects. Real receipt commit → dropped response → reload/retry leaves quantity **5, not 10**. Rendered payroll UI with controlled API responses preserves badge/work order and manual selections (`[A, A, B]`). No JavaScript page errors in these scenarios.
 - Package SELECT counts for **1 / 10 / 50** rows: legacy **5/5/5**, distinct linked models **9/9/9**, order fallback **7/7/7**. Bounded round trips for these pages, **not O(1) total processing** or a load-capacity guarantee.
@@ -60,6 +67,13 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 ```
 
 ## Still open / limits
+
+### Friend's review — not an identical audit
+
+- **New confirmed source findings:** S22 → SEC11 (quality-check factory access); S14 → UI05 (legacy KPI sums stage outputs). Both added to the backlog; runtime proof pending.
+- **More specific evidence:** S17 confirms deployment pool variables are ignored by the engine (OPS02). Attendance upload memory, file/object scope and additional factory endpoints need targeted checks; broad earlier findings do not close these paths.
+- **Overlap:** audit-chain races, invoice duplication, raw PATCH fields, image/event-loop work, SQLite rate-store blocking, index candidates and restore gaps already appear here.
+- **Stale/qualified:** S32's SQL typo is absent in this checkout. SEC04 revocation and API06 name grants are fixed, not file-object policy in general. Management dashboard labels already distinguish its counters. Unindexed/nullable foreign keys alone do not prove bugs or explain N+1 query counts. The friend's summary has no runtime reproductions or commit hash; its September 12 date references a September 15 schema.
 
 - **Inventory:** batchless reservations are not fully enforced by every batch-specific issue/allocation path. Old stock discrepancies are not repaired. Partial batch transfers reject with 409; splitting batches is a separate workflow.
 - **Duplicates:** receipts need the same saved key. Different operators/keys can still represent the same physical delivery. Finance deduplication does not cover every 1C/workflow entry point.
