@@ -10,7 +10,7 @@ import PaginationControls from "@/components/PaginationControls";
 import SearchableSelect from "@/components/SearchableSelect";
 import SewingSalarySummaryTable from "@/components/payroll/SewingSalarySummaryTable";
 import SewingProductionReportTable from "@/components/payroll/SewingProductionReportTable";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import {
   buildSewingReportParams,
@@ -203,7 +203,7 @@ export default function SewingProductionReportPage() {
       params.delete("offset");
       params.set("lang", lang);
       params.set("report_view", reportView);
-      const response = await fetch(`/api/payroll/reports/sewing-production.xlsx?${params.toString()}`, {
+      const response = await fetchResponse(`/api/payroll/reports/sewing-production.xlsx?${params.toString()}`, {
         credentials: "same-origin",
       });
       if (!response.ok) {

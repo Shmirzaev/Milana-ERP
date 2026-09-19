@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-19
 
+## Workflow release live; final locale display follow-up (2026-09-19)
+
+- LIVE green release `20260919_113426`, application commit `c88524c7badce443ba4494e4127eec17bababc0f`, PR #182, manifest `f3d5523febf1c09b160404d54746d4c56dd6a71d35d4223a4b53597ce9fe5604`; rollback blue `20260918_121209`. Both VMs/source/slot identities verified. DB remains `0131_sewing_corrections`; no migration or seed. Origin/main merge commit `93271530` has the same source tree. Production base is reconciled to this verified live release for the follow-up.
+- User-authorized cleanup completed: shipments 8–13 removed after verified backup; 450 pieces restored, seven receipt-backed packs/588 pieces available, zero shipments remained at verification. Original evidence is in audit #22468; unpaid invoice3 voided/zeroed and generated order7 cancelled/zeroed. No replacement business data created.
+- CI passed 986 backend tests and all frontend checks. Signed-in read-only local/live QA passed, including real order/model/variant thumbnails and typed cutting search. Initial serial p95 variance resolved with 63 paired samples under unchanged bounds. Public HTTPS performance is measured separately from loopback; the initial mismatched-transport comparison is retained as a measurement error. Thirty-minute high-risk observation runs until 2026-09-19T12:19:59Z; completion is not claimed in this entry.
+- The final item6 review found frontend-only planning validation/HR error prefixes outside the API wrapper and machine-code consumers for fabric/Eco/sewing correction messages. The follow-up localizes these, preserves diagnostic codes, normalizes structured validation errors, localizes report-download network failures, and labels branded Awaiting Packaging orders explicitly as BSO. It introduces no backend, data, permission or stock changes; its complete diff versus the live application is display-only and uses the 10-minute low-risk observation after the current observation finishes. It must not replace the rollback slot during this active observation.
+- Follow-up branch `codex/complete-workflow-locales-20260919` in the same dedicated worktree. Deployment evidence for the current release is `outputs/deployment/`; the local preview became reachable and was hash-verified after earlier launch denials, without an alternate launch workaround. Item8 remains proposal-only in `docs/FIRST_GRADE_SINGLES_WORKFLOW.md`.
+
 ## Cutting, shipment and packaging updates prepared (2026-09-19)
 
 - Worktree `C:/ERP/.codex-work/cutting-shipping-packaging-20260919`, branch `codex/cutting-shipping-packaging-20260919`, based on verified origin/main `1b114024`. Before editing both VM manifests and active blue slots matched release `20260918_121209`, manifest `6cafdaedf78bbaca190629139f95c6669086b0159233d4977b47c82a0c7dbd2e`, database baseline `0131_sewing_corrections`; rollback green `20260918_113409`. Legacy checkout preserved.

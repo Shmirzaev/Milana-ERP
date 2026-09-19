@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Archive, Download, Edit3, PackageCheck, Plus, QrCode, Search, Trash2, X } from "lucide-react";
 import useSWR from "swr";
 import Modal from "@/components/Modal";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import { can, useMe } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
@@ -1097,7 +1097,7 @@ export default function InventoryPage() {
       if (supplierFilter) reportParams.set("supplier_id", String(supplierFilter));
       if (createdFrom) reportParams.set("created_from", createdFrom);
       if (createdTo) reportParams.set("created_to", createdTo);
-      const response = await fetch(`/api/inventory/reports/material-stock.${format}?${reportParams.toString()}`, {
+      const response = await fetchResponse(`/api/inventory/reports/material-stock.${format}?${reportParams.toString()}`, {
         credentials: "same-origin",
       });
       if (!response.ok) {

@@ -290,9 +290,9 @@ function emptyMaterialEstimate(brandId = 0, fabricItemIds: number[] = [], fabric
 function validateMaterialEstimate(draft: MaterialEstimateDraft, fabricBatches: FabricBatch[]): { payload?: MaterialEstimatePayload; error?: string } {
   const batch = fabricBatches.find((row) => Number(row.id) === Number(draft.fabricBatchId));
   const amount = Number(draft.materialAmount);
-  if (!draft.brandId) return { error: "Select a brand for the production order." };
-  if (!batch) return { error: "Select an available fabric batch for the cutting team." };
-  if (!Number.isFinite(amount) || amount <= 0) return { error: "Enter estimated material amount greater than zero." };
+  if (!draft.brandId) return { error: localizeError("Select a brand for the production order.") };
+  if (!batch) return { error: localizeError("Select an available fabric batch for the cutting team.") };
+  if (!Number.isFinite(amount) || amount <= 0) return { error: localizeError("Enter estimated material amount greater than zero.") };
   return {
     payload: {
       brand_id: draft.brandId,
@@ -728,7 +728,7 @@ export default function PlanningDashboard() {
     if (!materialEstimate) return;
     const check = validateMaterialEstimate(materialEstimate, availableFabricBatches);
     if (check.error || !check.payload) {
-      setMaterialEstimateErr(check.error || "Enter material estimate before creating the production order.");
+      setMaterialEstimateErr(check.error || localizeError("Enter material estimate before creating the production order."));
       return;
     }
     setMaterialEstimateErr("");
@@ -805,7 +805,7 @@ export default function PlanningDashboard() {
     }
     const estimate = validateMaterialEstimate(batchPlan, availableFabricBatches);
     if (estimate.error || !estimate.payload) {
-      setBatchPlanErr(estimate.error || "Enter material estimate before creating the production order.");
+      setBatchPlanErr(estimate.error || localizeError("Enter material estimate before creating the production order."));
       return;
     }
     setBatchPlanErr("");

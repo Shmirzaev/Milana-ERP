@@ -1,17 +1,13 @@
-import { ApiError } from "./errorMessages";
-function errorDetail(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.map(errorDetail).filter(Boolean).join("; ");
-  if (!value || typeof value !== "object") return "";
-  const error = value as Record<string, unknown>;
-  const message = errorDetail(error.detail) || errorDetail(error.message) || errorDetail(error.msg);
-  if (!message) return "";
-  const path = Array.isArray(error.loc)
-    ? error.loc.filter((part) => part !== "body" && part !== "query" && part !== "path")
-      .map((part) => typeof part === "number" ? `[${part + 1}]` : String(part).replaceAll("_", " "))
-      .join(" / ")
-    : "";
-  return path ? `${path}: ${message}` : message;
+import { ApiError, errorDetail } from "./errorMessages";
+
+// Downloads retain their existing fetch options and timeout behavior.
+// Browser network failures use the same localized messages as JSON requests.
+export async function fetchResponse(url: string, init: RequestInit = {}): Promise<Response> {
+  try { return await fetch(url, init); }
+  catch (error) {
+    if (error instanceof TypeError) throw new ApiError(0, "Failed to fetch");
+    throw error;
+  }
 }
 
 function resolveUrl(path: string): string {

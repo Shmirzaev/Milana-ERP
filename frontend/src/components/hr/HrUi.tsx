@@ -1,5 +1,6 @@
 "use client";
 
+import { localizeError } from "@/lib/errorMessages";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -170,8 +171,9 @@ export function HrWorkspaceNav() {
 }
 
 export function LoadState({ loading, error, empty, children }: { loading?: boolean; error?: unknown; empty?: boolean; children: ReactNode }) {
+  const { lang } = useT();
   if (loading) return <div className="card p-8 text-center text-sm text-[#8a8472]">Loading…</div>;
-  if (error) return <div className="card border-red-200 p-5 text-sm text-red-700">Could not load HR data. {String((error as Error)?.message || "")}</div>;
+  if (error) return <div className="card border-red-200 p-5 text-sm text-red-700">{localizeError("Could not load HR data.", 0, lang)} {String((error as Error)?.message || "")}</div>;
   if (empty) return <div className="card p-8 text-center text-sm text-[#8a8472]">No records yet.</div>;
   return <>{children}</>;
 }

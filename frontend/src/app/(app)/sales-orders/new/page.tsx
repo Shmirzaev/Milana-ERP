@@ -241,7 +241,7 @@ export default function NewSalesOrderPage() {
           : line
       )));
     } catch (error) {
-      setErr(error instanceof Error ? error.message : "Unable to load the variant price");
+      setErr(error instanceof Error ? error.message : localizeError("Unable to load the variant price"));
     }
   }
   function addLine() {
