@@ -202,6 +202,11 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
     previous_assignee = t.assigned_to
     if "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
         _require_single_assignee(changes["assigned_to"], db, current, is_manager)
+    if "entity_type" in changes or "entity_id" in changes:
+        next_entity_type = changes.get("entity_type", t.entity_type)
+        next_entity_id = changes.get("entity_id", t.entity_id)
+        if (next_entity_type is None) != (next_entity_id is None):
+            raise HTTPException(422, "entity_id and entity_type must be provided together")
     for k, v in changes.items():
         setattr(t, k, v)
 
