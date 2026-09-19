@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -1122,6 +1122,7 @@ def _stock_rows_for_variant(
     color: str,
     size: str,
     brand_id: int | None,
+    stock_kind: str = "standard",
 ) -> list[FinishedGoodsStock]:
     qry = (
         db.query(FinishedGoodsStock)
@@ -1140,6 +1141,7 @@ def _stock_rows_for_variant(
             ).exists(),
         )
     )
+    qry = qry.filter(func.coalesce(Package.stock_kind, "standard") == stock_kind)
     if not _is_any_stock_token(color):
         qry = qry.filter(FinishedGoodsStock.color == color)
     if not _is_any_stock_token(size):
@@ -1336,6 +1338,10 @@ def _reserve_branded_stock(
     notify_storage_when_ready: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     line_rows = lines if lines is not None else db.query(SalesOrderItem).filter(SalesOrderItem.sales_order_id == so.id).all()
+    kinds = {line.source_type == "first_grade" for line in line_rows}
+    if len(kinds) > 1:
+        raise HTTPException(400, "FIRST_GRADE_SEPARATE_ORDER")
+    stock_kind = "first_grade" if True in kinds else "standard"
     if any(line.requested_pack_count is not None for line in line_rows):
         reservations = reserve_ready_packs(db, so=so, lines=line_rows, user_id=current.id)
         if notify_storage_when_ready:
@@ -1414,6 +1420,7 @@ def _reserve_branded_stock(
             color=color,
             size=size,
             brand_id=brand_id,
+            stock_kind=stock_kind,
         )
         stock_rows_by_variant[key] = stock_rows
         package_groups, partial_stocks = _package_allocation_candidates(db, stock_rows)
@@ -1538,6 +1545,21 @@ def _reserve_branded_stock(
         _notify_planning_shortage(db, so=so, current=current, shortages=shortages)
 
     return reservations, shortages
+
+
+@router.get("/first-grade-options")
+def first_grade_options(db: DbSession, current: User = Depends(require_permissions("sales.orders", "storage.packages", "*"))):
+    from app.services.ready_stock_sales import ready_pack_candidates
+    candidates = ready_pack_candidates(db, stock_kind="first_grade")
+    models = {m.id: m for m in db.query(Model).filter(Model.id.in_({p.model_id for p, _ in candidates})).all()}
+    grouped = {}
+    for package, rows in candidates:
+        for row in rows:
+            key = (row.model_id, row.color, row.size)
+            entry = grouped.setdefault(key, {"model_id": row.model_id, "model_code": models[row.model_id].code,
+                                             "color": row.color, "size": row.size, "available": 0})
+            entry["available"] += row.available_qty
+    return list(grouped.values())
 
 
 @router.get("/ready-stock-options")
@@ -1786,6 +1808,11 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         raise HTTPException(400, "Invalid order_type")
     if payload.order_type == "branded_stock_sale" and not payload.items:
         raise HTTPException(400, "A Ready stock order must have at least one line")
+    grade_lines = [item for item in payload.items if item.source_type == "first_grade"]
+    if grade_lines and (len(grade_lines) != len(payload.items) or payload.order_type != "branded_stock_sale"
+                        or any(item.requested_pack_count is not None or _is_any_stock_token(item.size)
+                               or _is_any_stock_token(item.color) or item.printing_required for item in grade_lines)):
+        raise HTTPException(400, "FIRST_GRADE_SEPARATE_ORDER")
     pack_order = any(item.requested_pack_count is not None for item in payload.items)
     if pack_order:
         if payload.order_type != "branded_stock_sale" or any(item.requested_pack_count is None for item in payload.items):

@@ -48,7 +48,7 @@ def _stock_payload(
 
 @router.get("", response_model=list[FinishedGoodsStockOut])
 def list_stock(db: DbSession, _: CurrentUser,
-               model_id: int | None = None, status: str | None = None, brand_id: int | None = None):
+               model_id: int | None = None, status: str | None = None, brand_id: int | None = None, stock_kind: str = "standard"):
     qry = (
         db.query(
             FinishedGoodsStock,
@@ -58,6 +58,8 @@ def list_stock(db: DbSession, _: CurrentUser,
         )
         .outerjoin(Model, Model.id == FinishedGoodsStock.model_id)
         .outerjoin(Brand, Brand.id == FinishedGoodsStock.brand_id)
+        .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
+        .filter(func.coalesce(Package.stock_kind, "standard") == stock_kind)
     )
     if model_id: qry = qry.filter(FinishedGoodsStock.model_id == model_id)
     if status: qry = qry.filter(FinishedGoodsStock.status == status)
@@ -88,6 +90,7 @@ def list_branded(db: DbSession, _: CurrentUser):
         .outerjoin(Brand, Brand.id == FinishedGoodsStock.brand_id)
         .outerjoin(PackageBrand, PackageBrand.id == Package.brand_id)
         .filter(
+            func.coalesce(Package.stock_kind, "standard") == "standard",
             FinishedGoodsStock.available_qty > 0,
             FinishedGoodsStock.status == "available",
             (
@@ -182,6 +185,8 @@ def reserve(stock_id: int, quantity: int, sales_order_id: int, db: DbSession,
     if not s: raise HTTPException(404, "Stock not found")
     if quantity <= 0: raise HTTPException(400, "Quantity must be > 0")
     package = db.get(Package, s.package_id) if s.package_id else None
+    if package and package.stock_kind == "first_grade":
+        raise HTTPException(409, "FIRST_GRADE_SEPARATE_ORDER")
     if package and package.manual_receipt_id:
         return _reserve_manual_package(db, current, s, quantity, sales_order_id)
     if quantity > s.available_qty: raise HTTPException(400, "Not enough available")

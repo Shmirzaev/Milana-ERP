@@ -13,7 +13,7 @@ from app.models import (
 
 
 def ready_pack_candidates(
-    db: Session, *, model_ids: set[int] | None = None, lock: bool = False,
+    db: Session, *, model_ids: set[int] | None = None, lock: bool = False, stock_kind: str = "standard",
 ) -> list[tuple[Package, list[FinishedGoodsStock]]]:
     """Return intact received packages, never synthetic bags or remaining pieces.
 
@@ -23,6 +23,7 @@ def ready_pack_candidates(
     package_query = db.query(Package).join(Model, Model.id == Package.model_id).filter(
         Package.status.in_(("received_in_storage", "reserved")),
         Package.total_quantity > 0,
+        Package.stock_kind == stock_kind,
         Package.sales_order_id.is_(None),
         Model.catalog_scope == "standard",
         ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(

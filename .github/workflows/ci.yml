@@ -26,6 +26,19 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: first_grade_qa_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,6 +62,20 @@ jobs:
         run: python -m pytest -q
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
+      - name: First Grade PostgreSQL migration and concurrency regression
+        env:
+          PYTHONPATH: ./backend
+          FIRST_GRADE_DISPOSABLE: "1"
+          DATABASE_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+          JWT_SECRET: disposable-local-test-secret-only
+          FILE_SIGNING_SECRET: disposable-local-file-signing-secret-only
+          INITIAL_ADMIN_EMAIL: admin@disposable.invalid
+          INITIAL_ADMIN_PASSWORD: disposable-local-test-password-123!
+          SEED_DEMO_USERS: "false"
+          SEED_SAMPLE_DATA: "true"
+          IMPORT_LEGACY_MODELS: "false"
+          BARCODE_STORAGE_DIR: /tmp/first-grade-test-barcodes
+        run: python scripts/test_first_grade_postgres.py
 
   frontend:
     runs-on: ubuntu-latest

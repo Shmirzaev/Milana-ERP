@@ -99,6 +99,7 @@ class PackageBatchAllocationOut(ORMModel):
 
 
 class PackageIn(SchemaModel):
+    stock_kind: Literal["standard", "first_grade"] = "standard"
     production_order_id: int
     production_batch_id: Optional[int] = None
     sales_order_id: Optional[int] = None
@@ -179,6 +180,7 @@ class PackageChangeDecisionIn(BaseModel):
 
 
 class PackageOut(ORMModel):
+    stock_kind: str = "standard"
     manual_receipt_id: Optional[int] = None
     id: int
     package_no: str

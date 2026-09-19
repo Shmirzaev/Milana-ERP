@@ -267,6 +267,7 @@ def create_package(
     brand_id: int | None = None,
     collection_id: int | None = None,
     package_type: str = "bag",
+    stock_kind: str = "standard",
     capacity: int = 60,
     weight_kg: float | None = None,
     batch_allocations: list[dict] | None = None,
@@ -277,6 +278,8 @@ def create_package(
     notes: str | None = None,
     packaging_department_code: str | None = None,
 ) -> Package:
+    if stock_kind not in {"standard", "first_grade"}:
+        raise HTTPException(400, "Invalid stock classification")
     if not items:
         raise HTTPException(400, "Package must contain at least one size line")
 
@@ -375,6 +378,16 @@ def create_package(
         total=total,
     )
 
+    if stock_kind == "first_grade":
+        if total != 1 or capacity != 1 or len(items) != 1:
+            raise HTTPException(400, "FIRST_GRADE_ONE_PIECE_REQUIRED")
+        if po.source_type != "standard" or po.sales_order_id or sales_order_id:
+            raise HTTPException(409, "FIRST_GRADE_CUSTOMER_OWNED")
+        if not _packaging_record_totals_by_batch(db, po.id):
+            raise HTTPException(409, "Save Packaging output before creating packages")
+    from app.services.first_grade import enforce_size_allocation
+    enforce_size_allocation(db, po, batch_id, items, normalized_allocations, first_grade=stock_kind == "first_grade")
+
     resolved_sales_order_id = sales_order_id if sales_order_id is not None else po.sales_order_id
     resolved_brand_id, resolved_collection_id = infer_brand_and_collection(
         db,
@@ -400,6 +413,7 @@ def create_package(
         model_id=model_id,
         color=color,
         package_type=package_type,
+        stock_kind=stock_kind,
         total_quantity=total,
         capacity=capacity,
         weight_kg=normalized_weight_kg,
@@ -486,6 +500,7 @@ def create_packages_bulk(
     brand_id: int | None = None,
     collection_id: int | None = None,
     package_type: str = "bag",
+    stock_kind: str = "standard",
     capacity: int = 60,
     weight_kg: float | None = None,
     weight_kg_values: list[float | None] | None = None,
@@ -531,6 +546,7 @@ def create_packages_bulk(
                 brand_id=brand_id,
                 collection_id=collection_id,
                 package_type=package_type,
+                stock_kind=stock_kind,
                 capacity=capacity,
                 weight_kg=package_weight,
                 batch_allocations=batch_allocations,
@@ -909,6 +925,12 @@ def _replace_finished_goods_for_package(
 
 
 def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user_id: int | None) -> Package:
+    identity = db.query(Package.production_order_id).filter(Package.id == request.package_id).first()
+    po = None
+    if identity and identity[0]:
+        # Same order lock as package creation: total and size budgets must be
+        # checked after any concurrent allocation has committed.
+        po = db.query(ProductionOrder).filter_by(id=identity[0]).with_for_update().populate_existing().one()
     pkg = db.query(Package).filter(Package.id == request.package_id).with_for_update().populate_existing().first()
     if not pkg:
         raise HTTPException(404, "Package not found")
@@ -927,6 +949,15 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
             total=int(target["total_quantity"]),
             exclude_package_id=int(pkg.id),
         )
+
+    if pkg.stock_kind == "first_grade":
+        old_items = sorted((item.model_id, item.color, item.size, item.quantity) for item in pkg.items)
+        new_items = sorted((item.get("model_id", pkg.model_id), item["color"], item["size"], item["quantity"]) for item in items)
+        if old_items != new_items or int(target["capacity"]) != 1 or target.get("production_batch_id") != pkg.production_batch_id:
+            raise HTTPException(409, "FIRST_GRADE_CONTENTS_IMMUTABLE")
+    if pkg.production_order_id:
+        from app.services.first_grade import enforce_size_allocation
+        enforce_size_allocation(db, po, target.get("production_batch_id"), items, allocations, exclude_package_id=pkg.id)
 
     previous_location = (pkg.storage_cell, pkg.storage_shelf)
     pkg.color = target["color"]
