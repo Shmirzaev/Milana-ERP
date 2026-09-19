@@ -30,7 +30,7 @@ class TaskIn(BaseModel):
     priority: TaskPriority = "medium"
     due_date: Optional[datetime] = None
     entity_type: Optional[str] = Field(default=None, min_length=1, max_length=64)
-    entity_id: Optional[int] = Field(default=None, gt=0)
+    entity_id: Optional[int] = Field(default=None, gt=0, le=2_147_483_647)
 
     @field_validator("title")
     @classmethod
@@ -63,7 +63,7 @@ class TaskUpdate(BaseModel):
     priority: Optional[TaskPriority] = None
     due_date: Optional[datetime] = None
     entity_type: Optional[str] = Field(default=None, min_length=1, max_length=64)
-    entity_id: Optional[int] = Field(default=None, gt=0)
+    entity_id: Optional[int] = Field(default=None, gt=0, le=2_147_483_647)
 
     @field_validator("title", "status", "priority", mode="before")
     @classmethod

@@ -44,7 +44,8 @@ def _create(client, headers, **payload):
 
 @pytest.mark.parametrize("field,value", [
     ("status", "bogus"), ("priority", "bogus"), ("title", "   "), ("title", "x" * 256),
-    ("due_date", 1_700_000_000), ("due_date", "1700000000.0"), ("due_date", "not-a-date"), ("entity_id", 0),
+    ("due_date", 1_700_000_000), ("due_date", "1700000000.0"), ("due_date", "not-a-date"),
+    ("entity_id", 0), ("entity_id", 2_147_483_648),
 ])
 def test_invalid_create_is_422_without_persisting(client, field, value):
     _, headers = _actor()
@@ -76,7 +77,7 @@ def test_patch_omitted_fields_stay_unchanged_and_optional_fields_can_clear(clien
 
 @pytest.mark.parametrize("field,value", [
     ("status", "bogus"), ("priority", "bogus"), ("title", "x" * 256),
-    ("due_date", 1_700_000_000), ("entity_type", "x" * 65), ("entity_type", " "),
+    ("due_date", 1_700_000_000), ("entity_id", 2_147_483_648), ("entity_type", "x" * 65), ("entity_type", " "),
 ])
 def test_invalid_patch_is_422_without_changes_or_audit(client, field, value):
     _, headers = _actor()
@@ -118,3 +119,11 @@ def test_create_and_patch_reference_pair_requires_positive_id(client):
     task_id = _create(client, headers, entity_type="WorkOrder", entity_id=123)
     response = client.patch(f"/api/tasks/{task_id}", headers=headers, json={"entity_id": 456})
     assert response.status_code == 200, response.text
+
+
+def test_postgres_int4_upper_entity_id_is_accepted_structurally(client):
+    _, headers = _actor()
+    response = client.post("/api/tasks", headers=headers, json={
+        "title": "Upper bound reference", "entity_type": "WorkOrder", "entity_id": 2_147_483_647,
+    })
+    assert response.status_code == 201, response.text
