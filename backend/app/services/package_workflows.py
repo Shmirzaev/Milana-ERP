@@ -28,6 +28,7 @@ def lock_request(db, user_id, operation, key):
 
 def contents(pkg):
     return {
+        **({"stock_kind": "first_grade"} if pkg.stock_kind == "first_grade" else {}),
         "package_no": pkg.package_no, "barcode": pkg.barcode,
         "model_id": pkg.model_id, "color": pkg.color,
         "production_order_id": pkg.production_order_id, "production_batch_id": pkg.production_batch_id,

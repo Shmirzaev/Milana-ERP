@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
+from app.services.package_label_pages import label_document
 from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 import base64
@@ -392,7 +393,7 @@ def _package_label_card_html(db: DbSession, pkg: Package) -> str:
             label_sizes = receipt.evidence.get("configured_sizes") or None
     return f"""
 <article class='label' data-package='{_h(pkg.package_no)}'>
-  <header class='label-head'><span>MILANA ERP</span><span>PACKAGE LABEL</span></header>
+  <header class='label-head'><span>MILANA ERP</span><span>{"1st Grade / 1-й сорт / 1-nav" if pkg.stock_kind == "first_grade" else "PACKAGE LABEL"}</span></header>
   <table class='details'>
     <tr><th>Client</th><td class='value-right'>{_h(details['client'])}</td></tr>
     <tr><th>Order number</th><td class='value-right'>{_h(details['order'])}</td></tr>
@@ -555,6 +556,7 @@ def create_pkg(
         brand_id=payload.brand_id,
         collection_id=payload.collection_id,
         package_type=payload.package_type,
+        stock_kind=payload.stock_kind,
         capacity=payload.capacity,
         weight_kg=payload.weight_kg,
         batch_allocations=[a.model_dump() for a in payload.batch_allocations],
@@ -607,6 +609,7 @@ def create_pkg_bulk(
         brand_id=payload.brand_id,
         collection_id=payload.collection_id,
         package_type=payload.package_type,
+        stock_kind=payload.stock_kind,
         capacity=payload.capacity,
         weight_kg=payload.weight_kg,
         weight_kg_values=payload.weight_kg_values,
@@ -646,7 +649,10 @@ def storage_map(
     created_from: date | None = None,
     created_to: date | None = None,
     include_unplaced: bool = False,
+    stock_kind: str = "standard",
 ):
+    if stock_kind not in {"standard", "first_grade"}:
+        raise HTTPException(422, "Invalid stock classification")
     start, end = date_filter_bounds(created_from, created_to)
     ready_statuses = ["packed", "received_in_storage", "reserved"]
     query = (
@@ -655,7 +661,7 @@ def storage_map(
         .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
         .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
         .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
-        .filter(Package.status.in_(ready_statuses))
+        .filter(Package.status.in_(ready_statuses), Package.stock_kind == stock_kind)
         .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
     )
     if include_unplaced:
@@ -737,6 +743,7 @@ def storage_map(
             )
             .filter(
                 Package.legacy_receipt_id.isnot(None),
+                Package.stock_kind == stock_kind,
                 Package.storage_cell.is_(None),
                 Package.status.in_(ready_statuses),
             )
@@ -1475,20 +1482,8 @@ def label(pid: int, db: DbSession, current: User = Depends(require_permissions(*
     p = db.get(Package, pid)
     if not p: raise HTTPException(404, "Package not found")
     require_package_access(current, p)
-    package_no = _h(p.package_no)
     card = _package_label_card_html(db, p)
-    cards = card * 4
-    return warehouse_print_response(f"""<!doctype html>
-<html><head><meta charset='utf-8'><title>Package Label {package_no}</title>
-<style>
-@page{{size:A4 portrait;margin:5mm}}
-{_PACKAGE_LABEL_CSS}
-.sheet{{display:grid;grid-template-columns:repeat(2,98.5mm);grid-template-rows:repeat(2,142mm);gap:3mm;justify-content:center;align-content:start}}
-</style></head>
-<body>
-<div class='sheet'>{cards}</div>
-<button class='print-button' onclick='window.print()'>Print</button>
-</body></html>""")
+    return warehouse_print_response(label_document(f"Package Label {p.package_no}", [card] * 4, _PACKAGE_LABEL_CSS))
 
 
 @router.get("/label-sheet/by-ids", response_class=HTMLResponse)
@@ -1513,14 +1508,4 @@ def label_sheet(ids: str, db: DbSession, current: User = Depends(require_permiss
         require_package_access(current, package)
 
     cards = [_package_label_card_html(db, p) for p in rows]
-    return warehouse_print_response(f"""<!doctype html>
-<html><head><meta charset='utf-8'><title>Package Label Sheet</title>
-<style>
-@page{{size:A4 portrait;margin:5mm}}
-{_PACKAGE_LABEL_CSS}
-.sheet{{display:grid;grid-template-columns:repeat(2,98.5mm);grid-template-rows:repeat(2,142mm);gap:3mm;justify-content:center;align-content:start}}
-</style></head>
-<body>
-<div class='sheet'>{''.join(cards)}</div>
-<button class='print-button' onclick='window.print()'>Print</button>
-</body></html>""")
+    return warehouse_print_response(label_document("Package Label Sheet", cards, _PACKAGE_LABEL_CSS))

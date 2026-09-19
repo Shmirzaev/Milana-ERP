@@ -1,6 +1,7 @@
 "use client";
 import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
+import { firstGradeText } from "@/lib/firstGradeText";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -28,6 +29,7 @@ export default function FinishedGoodsPage() {
         subtitle={t("page.finishedGoods.subtitle")}
         actions={(
           <><StocktakeLink />
+          <Link className="btn" href="/warehouse-stock?stock_kind=first_grade">{firstGradeText[lang].title}</Link>
           <Link className="btn btn-primary" href="/shipments?mode=warehouse_exit">
             {warehouseExitLabel[lang]}
           </Link>

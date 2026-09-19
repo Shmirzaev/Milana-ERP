@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
+import FirstGradePackaging from "@/components/FirstGradePackaging";
 import PackageQrSection from "@/components/PackageQrSection";
 import { postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import PageHeader from "@/components/PageHeader";
@@ -689,6 +690,8 @@ export default function PackagingPage() {
             {recMsg && <div className="text-sm text-slate-600">{recMsg}</div>}
           </div>
         </form>
+
+        {po && !po.sales_order_id && po.source_type !== "usluga" && <FirstGradePackaging key={`${po.id}:${rec.production_batch_id}:${color}`} productionOrderId={po.id} batchId={rec.production_batch_id || undefined} modelId={po.model_id} color={color} onChanged={async () => { setPackageQrRefreshKey(k => k + 1); await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]); }} />}
 
         {isAlreadyBatched && (
           <div className="card p-4">

@@ -2,6 +2,12 @@
 
 Last updated: 2026-09-19
 
+## First Grade and package details follow-up prepared (2026-09-19)
+
+- Candidate worktree `C:/ERP/.codex-work/first-grade-warehouse-packages-20260919`, branch `codex/first-grade-warehouse-packages-20260919`, based on verified main `5c4844e418e9db54c7e2f97643994b75b534a892`. Active production remains `20260919_120429` until deployment is recorded below.
+- Adds exact production numbers in Awaiting Packaging, First Grade singles with receipt-backed individual QR stock and piece sales, guarded deletion of undispatched manual shipments, model-to-package warehouse details in a new tab, and numbered A4 labels without a print-run QR cover.
+- Migration `0132_first_grade_singles` adds package classification and shipment tombstones; no existing business data is reclassified or deleted. See `docs/FIRST_GRADE_SINGLES_WORKFLOW.md` for implemented boundaries, required Sewing size evidence and rollback restrictions after new classifications/deletions are used.
+
 ## Final workflow locale follow-up deployed (2026-09-19)
 
 - LIVE: backend/frontend blue release `20260919_120429`, exact application commit `5e34934aeeedd57ee695e957b214f935b33ac88d`, merged through PR #183. Both source manifests, exact immutable image identities, current symlinks and slot states agree. Green `20260919_113426` remains running for rollback. Frontend activated `2026-09-19T12:25:54.457561+00:00`.

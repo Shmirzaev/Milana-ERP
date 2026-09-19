@@ -8,12 +8,61 @@ from app.models import Package, PackagePrintRun, PackagePrintRunMember, Producti
 from app.schemas.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn
 from app.services import package_workflows as service
 from app.services.audit import log_action
-from app.services.barcode import qr_png_data_uri
+from app.services.package_label_pages import label_document
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.packaging_scope import packaging_department_for_order, packaging_department_scope, require_package_access
 from app.services.packages import create_package, _packaging_record_totals_by_batch
 
 router = APIRouter()
+
+
+@router.get("/first-grade/balance/{production_order_id}")
+def first_grade_balance(production_order_id: int, db: DbSession, production_batch_id: int | None = None,
+                        current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.services.first_grade import size_balance
+    order = db.get(ProductionOrder, production_order_id)
+    if not order:
+        raise HTTPException(404, "Production order not found")
+    owner = packaging_department_for_order(db, order.id, production_batch_id)
+    packaging_department_scope(current, owner)
+    if order.source_type != "standard" or order.sales_order_id:
+        raise HTTPException(409, "FIRST_GRADE_CUSTOMER_OWNED")
+    return {"sizes": size_balance(db, order.id, production_batch_id)}
+
+
+@router.get("/warehouse-model/{model_id}")
+def warehouse_model_packages(model_id: int, db: DbSession, stock_kind: str = "standard",
+                              page: int = Query(1, ge=1),
+                              current: User = Depends(require_permissions("storage.packages", "storage.shipment", "sales.orders", "*"))):
+    from sqlalchemy.orm import selectinload
+    from app.models import Model, FinishedGoodsStock
+    from app.services.model_images import warehouse_stock_image_url
+    if stock_kind not in {"standard", "first_grade"}:
+        raise HTTPException(422, "Invalid stock classification")
+    model = db.get(Model, model_id)
+    if not model:
+        raise HTTPException(404, "Model not found")
+    query = db.query(Package).filter(Package.model_id == model_id, Package.stock_kind == stock_kind,
+                                     Package.status.in_(["packed", "received_in_storage", "reserved"]))
+    total = query.count()
+    packages = query.options(selectinload(Package.items)).order_by(Package.id.desc()).offset((page - 1) * 50).limit(50).all()
+    stocks = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_([p.id for p in packages])).all()
+    by_package = {}
+    for row in stocks:
+        quantities = by_package.setdefault(row.package_id, {"available": 0, "reserved": 0})
+        quantities["available"] += row.available_qty
+        quantities["reserved"] += row.reserved_qty
+    orders = {p.id: p.production_no for p in db.query(ProductionOrder).filter(
+        ProductionOrder.id.in_({p.production_order_id for p in packages if p.production_order_id})).all()}
+    return {"model_code": model.code, "model_name": model.name, "image_url": warehouse_stock_image_url(model),
+            "total": total, "page": page, "page_size": 50,
+            "packages": [{"id": p.id, "package_no": p.package_no, "barcode": p.barcode,
+                          "production_no": orders.get(p.production_order_id), "quantity": p.total_quantity,
+                          "weight_kg": p.weight_kg, "status": p.status, "received_at": p.received_at,
+                          "cell": p.storage_cell, "shelf": p.storage_shelf,
+                          **by_package.get(p.id, {"available": 0, "reserved": 0}),
+                          "items": [{"size": i.size, "color": i.color, "quantity": i.quantity} for i in p.items]}
+                         for p in packages]}
 
 
 def _write(db, current, operation, payload, action):
@@ -170,15 +219,5 @@ def print_run_label(rid: int, db: DbSession,
             raise HTTPException(409, "Package changed since printing; review required before receipt")
         current_quantity += pkg.total_quantity
         cards.append(_package_label_card_html(db, pkg))
-    # This cover QR resolves only the persisted run, never an order/time selection.
-    cover = f"""<section class='cover'><h1>{_h(run.run_no)}</h1>
-    <p>Packages / Упаковки / Qadoqlar: {len(members)}</p>
-    <p>Pieces / Изделия / Dona: {current_quantity}</p>
-    <img width='180' height='180' src='{qr_png_data_uri(run.code)}' alt='QR'>
-    <p>{_h(run.code)}</p><p>{', '.join(_h(m.snapshot['package_no']) for m in members)}</p></section>"""
-    return warehouse_print_response(f"""<!doctype html><html><head><meta charset='utf-8'><title>{_h(run.run_no)}</title>
-    <style>@page{{size:A4 portrait;margin:5mm}}{_PACKAGE_LABEL_CSS}
-    .cover{{font-family:sans-serif;break-after:page;padding:10mm}} .cover p{{overflow-wrap:anywhere}}
-    .sheet{{display:grid;grid-template-columns:repeat(2,98.5mm);gap:3mm}}</style></head>
-    <body>{cover}<div class='sheet'>{''.join(cards)}</div>
-    <button class='print-button' onclick='window.print()'>Print / Печать / Chop etish</button></body></html>""")
+    summary = f"<div class='run-summary'><b>{_h(run.run_no)}</b><p>Packages / Упаковки / Qadoqlar: {len(members)}</p><p>Pieces / Изделия / Dona: {current_quantity}</p></div>"
+    return warehouse_print_response(label_document(run.run_no, cards, _PACKAGE_LABEL_CSS, summary))
