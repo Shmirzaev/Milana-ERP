@@ -1,4 +1,5 @@
 "use client";
+import { localizeError } from "@/lib/errorMessages";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
@@ -322,7 +323,7 @@ export default function NewSalesOrderPage() {
       }
       setPrintingAttachments((prev) => [...prev, ...uploaded]);
     } catch (e: any) {
-      setErr(e.message || "Failed to upload file");
+      setErr(e.message || localizeError("Failed to upload file"));
     } finally {
       setUploadingPrintFile(false);
     }

@@ -9,10 +9,12 @@ const storage = new Map();
 const calls = [];
 let failure = null;
 let seq = 0;
+const errorExports = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(new URL("../src/lib/errorMessages.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports: errorExports });
 const context = {
   exports: {}, crypto: { randomUUID: () => `request-${++seq}` },
   sessionStorage: { getItem: key => storage.get(key) || null, setItem: (key, val) => storage.set(key, val), removeItem: key => storage.delete(key) },
-  require: () => ({ api: { post: async (url, body) => { calls.push({ url, body }); if (failure) throw Error(failure); return { ok: true }; } } }),
+  require: name => name.includes("errorMessages") ? errorExports : ({ api: { post: async (url, body) => { calls.push({ url, body }); if (failure) throw Error(failure); return { ok: true }; } } }),
 };
 vm.runInNewContext(code, context);
 const { postPackageWorkflow, pendingPackageWorkflow, packageWorkflowCopy } = context.exports;

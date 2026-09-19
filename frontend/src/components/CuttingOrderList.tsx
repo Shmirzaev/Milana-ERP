@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
@@ -84,6 +84,17 @@ export default function CuttingOrderList({
   onMoveToInProgress: (workOrderId: number) => void;
   t: CtxT;
 }) {
+  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
+  const filteredRows = useMemo(() => {
+    const words = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    return rows.filter(row => {
+      const text = [row.order_no, row.sales_order_no, row.production_no, row.planning_order_no,
+        row.planning_order_name, row.model_no, row.variant_no, row.model_name,
+        row.material_item_sku, row.material_item_name].filter(Boolean).join(" ").toLocaleLowerCase();
+      return words.every(word => text.includes(word));
+    });
+  }, [rows, search]);
   const groups = useMemo(() => {
     const grouped = new Map<string, {
       key: string;
@@ -92,7 +103,7 @@ export default function CuttingOrderList({
       rows: CuttingOrder[];
     }>();
 
-    for (const row of rows) {
+    for (const row of filteredRows) {
       const planningOrderId = Number(row.planning_order_id || 0);
       const key = planningOrderId > 0 ? `bso-${planningOrderId}` : `order-${row.production_order_id}`;
       const existing = grouped.get(key) || {
@@ -106,12 +117,12 @@ export default function CuttingOrderList({
     }
 
     return Array.from(grouped.values());
-  }, [rows]);
+  }, [filteredRows]);
 
   return (
     <section className="card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e3dfd3] px-4 py-3">
-        <h2 className="app-card-title">{t("cuttingInbox.orders", { count: rows.length })}</h2>
+        <h2 className="app-card-title">{t("cuttingInbox.orders", { count: filteredRows.length })}</h2>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#56503f]" aria-label={t("cuttingInbox.colorMeaning")}>
           <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-[#ded9ca] bg-white" />{t("cuttingInbox.untouched")}</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-amber-200 bg-yellow-50" />{t("cuttingInbox.cutWaitingShort")}</span>
@@ -119,6 +130,10 @@ export default function CuttingOrderList({
         </div>
       </div>
 
+      <form role="search" className="flex gap-2 border-b border-[#e3dfd3] px-4 py-3" onSubmit={event => { event.preventDefault(); setSearch(query); }}>
+        <input type="search" className="input min-w-0 flex-1" aria-label={t("common.search")} placeholder={t("common.search")} value={query} onChange={event => { setQuery(event.target.value); if (!event.target.value) setSearch(""); }} />
+        <button className="btn" type="submit">{t("common.search")}</button>
+      </form>
       {startError ? <div className="border-b border-[#e3dfd3] px-4 py-2 text-sm text-red-700">{startError}</div> : null}
 
       {groups.length ? (

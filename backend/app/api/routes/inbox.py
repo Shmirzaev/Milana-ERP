@@ -947,6 +947,7 @@ def department_inbox(
             for work_order in packaging_work_orders
         }
         packaging_context_by_po = _production_context_by_production_order(db, [int(po_id) for po_id in by_po_sew.keys()])
+        packaging_material_by_po = _material_payload_by_production_order(db, list(packaging_by_po))
         for po_id, sewn in by_po_sew.items():
             packaging_wo = packaging_by_po.get(int(po_id))
             if not packaging_wo:
@@ -958,13 +959,14 @@ def department_inbox(
             awaiting_packaging.append(
                 {
                     "production_order_id": po_id,
-                    "production_no": context.get("production_no"),
-                    "order_no": context.get("order_no"),
-                    "sales_order_no": context.get("sales_order_no"),
+                    "production_no": packaging_wo.production_no,
+                    "order_no": packaging_wo.order_no,
+                    "sales_order_no": packaging_wo.sales_order_no,
                     "ready_qty": sewn - already_packed,
                     "sewn_passed": sewn,
                     "already_packed": already_packed,
                     **context,
+                    **_material_payload_for_po(packaging_material_by_po, int(po_id)),
                 }
             )
 

@@ -1,4 +1,5 @@
 "use client";
+import { localizeError } from "@/lib/errorMessages";
 import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -555,7 +556,7 @@ export default function PlanningDashboard() {
       setNewBrandTarget(null);
       setNewBrandForm({ name: "", description: "" });
     } catch (error: any) {
-      setNewBrandError(error?.message || "Could not create brand.");
+      setNewBrandError(error?.message || localizeError("Could not create brand."));
     } finally {
       setNewBrandSaving(false);
     }
@@ -643,7 +644,7 @@ export default function PlanningDashboard() {
       }
       setBrandedPrintingAttachments((prev) => [...prev, ...uploaded]);
     } catch (e: any) {
-      setBrandedErr(e?.message || "Failed to upload file");
+      setBrandedErr(e?.message || localizeError("Failed to upload file"));
     } finally {
       setBrandedUploadingPrintFile(false);
     }
@@ -734,7 +735,7 @@ export default function PlanningDashboard() {
     try {
       await createPOForSO(materialEstimate.orderId, undefined, check.payload);
     } catch (e: any) {
-      setMaterialEstimateErr(e?.message || "Failed to create production order.");
+      setMaterialEstimateErr(e?.message || localizeError("Failed to create production order."));
     }
   }
 
@@ -811,7 +812,7 @@ export default function PlanningDashboard() {
     try {
       await createPOForSO(batchPlan.orderId, rows, estimate.payload);
     } catch (e: any) {
-      setBatchPlanErr(e?.message || "Failed to create production order.");
+      setBatchPlanErr(e?.message || localizeError("Failed to create production order."));
     }
   }
 

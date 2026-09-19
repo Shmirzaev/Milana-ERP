@@ -1,4 +1,5 @@
 "use client";
+import { ApiError } from "@/lib/errorMessages";
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -46,7 +47,7 @@ export default function PackagingReportsPage() {
       const response = await fetch(`/api/packaging/reports/export.xlsx?${params}&lang=${lang}`, { credentials: "same-origin" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(typeof payload?.detail === "string" ? payload.detail : t("packagingReport.downloadFailed"));
+        throw new ApiError(response.status, typeof payload?.detail === "string" ? payload.detail : "Request failed");
       }
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");

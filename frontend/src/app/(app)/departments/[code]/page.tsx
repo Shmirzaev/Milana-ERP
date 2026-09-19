@@ -1,10 +1,12 @@
 "use client";
+import { localizeError } from "@/lib/errorMessages";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
+import ImageThumbnail from "@/components/ImageThumbnail";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
 import CuttingOrderList from "@/components/CuttingOrderList";
@@ -222,7 +224,7 @@ export default function DepartmentInboxPage() {
       await api.post(`/api/work-orders/${workOrderId}/start`, {});
       await mutate();
     } catch (e: any) {
-      setStartError(e?.message || "Failed to move work order to in progress");
+      setStartError(e?.message || localizeError("Failed to move work order to in progress"));
     } finally {
       setStartingWoId(null);
     }
@@ -240,7 +242,7 @@ export default function DepartmentInboxPage() {
       await mutate();
       openShipment(soId, created.id);
     } catch (e: any) {
-      setShipmentError(e?.message || "Failed to create shipment");
+      setShipmentError(e?.message || localizeError("Failed to create shipment"));
     } finally {
       setCreatingShipmentFor(null);
     }
@@ -296,12 +298,16 @@ export default function DepartmentInboxPage() {
           <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")}</h3>
           <table className="table">
             <thead>
-              <tr><th>{t("field.production")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
+              <tr><th>{t("page.workOrder.modelPicture")}</th><th>{t("cuttingInbox.variantPicture")}</th><th>{t("field.salesOrderShort")}</th><th>{t("field.modelNo")}</th><th>{t("field.variantNo")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
             </thead>
             <tbody>
               {data.awaiting_packaging.map((r: any) => (
                 <tr key={r.production_order_id}>
-                  <td>{orderReference(r, `#${r.production_order_id}`)}</td>
+                  <td><ImageThumbnail imageUrl={r.model_image_url} label={r.model_no || r.model_name || ""} title={t("page.workOrder.modelPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
+                  <td><ImageThumbnail imageUrl={r.material_image_url} label={r.variant_no || ""} title={t("cuttingInbox.variantPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
+                  <td>{r.planning_order_no || orderReference(r, "-")}</td>
+                  <td>{r.model_no || r.model_code || "-"}</td>
+                  <td>{r.variant_no || "-"}</td>
                   <td>{r.ready_qty}</td>
                   <td>{r.sewn_passed}</td>
                   <td>{r.already_packed}</td>

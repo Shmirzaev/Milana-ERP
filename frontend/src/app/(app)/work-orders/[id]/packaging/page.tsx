@@ -1,4 +1,5 @@
 "use client";
+import { localizeError } from "@/lib/errorMessages";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -547,7 +548,7 @@ export default function PackagingPage() {
         production_batch_id: mergeAcrossBatches ? null : rec.production_batch_id || null,
       };
       if (packagePlans.length === 0) {
-        throw new Error("No package items to create.");
+        throw new Error(localizeError("No package items to create."));
       }
 
       if (po?.source_type !== "usluga") {

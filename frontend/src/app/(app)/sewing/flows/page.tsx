@@ -1,4 +1,5 @@
 "use client";
+import { ApiError } from "@/lib/errorMessages";
 import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import Link from "next/link";
@@ -413,7 +414,7 @@ function FlowDetail({
       await Promise.all([mutateAssigned(), mutateAvailableWos(), mutateGlobal(flowsUrl),
         mutateGlobal(`/api/work-orders/${wo.id}/assignments`)]);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "";
+      const message = error instanceof ApiError ? error.rawDetail : error instanceof Error ? error.message : "";
       setReturnMsg(t(message.includes("SEWING_RETURN_HAS_OUTPUT") ? "sewingReturn.hasOutput"
         : message.includes("SEWING_RETURN_MOVED") ? "sewingReturn.moved"
           : message.includes("SEWING_RETURN_INACTIVE") ? "sewingReturn.inactive" : "sewingReturn.failed"));

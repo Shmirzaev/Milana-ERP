@@ -2,7 +2,9 @@
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
-import { Check, PackageCheck, ScanLine } from "lucide-react";
+import { Check, PackageCheck, ScanLine, X } from "lucide-react";
+import { api } from "@/lib/api";
+import { shipmentReturnText } from "@/lib/shipmentReturnText";
 import { useId, useState } from "react";
 
 import ImageThumbnail from "@/components/ImageThumbnail";
@@ -127,6 +129,19 @@ export default function ShipmentPreparationWorkspace({
   const [transportDraft, setTransportDraft] = useState<TransportDetails>({});
   const reviewText = shipmentReviewText[lang];
   const scanInputId = useId();
+  const [returning, setReturning] = useState<number | null>(null);
+  const [returnError, setReturnError] = useState("");
+  const returnText = shipmentReturnText[lang];
+  async function returnPackage(id: number) {
+    if (!preparation || returning !== null) return;
+    setReturning(id); setReturnError("");
+    try {
+      await api.post(`/api/shipments/${preparation.shipment.id}/packages/${id}/remove`, { reason: returnText.reason });
+      await onReviewChanged();
+    } catch (error) { setReturnError(error instanceof Error ? error.message : String(error)); }
+    finally { setReturning(null); }
+  }
+
 
   if (isLoading) {
     return <section className="card px-4 py-10 text-center text-sm text-[#6f6a5b]">{t("page.shipments.loadingPreparation")}</section>;
@@ -378,7 +393,8 @@ export default function ShipmentPreparationWorkspace({
         )}
       </details>
 
-      <details>
+      {returnError && <p role="alert" className="px-4 py-2 text-sm text-red-700">{returnError}</p>}
+      <details open={preparation.scanned_count > 0}>
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">{t("page.shipments.packageChecklist")} · {preparation.scanned_count} / {preparation.required_count} {t("page.shipments.verifiedShort")}</summary>
         {packages.length ? (
           <>
@@ -395,6 +411,7 @@ export default function ShipmentPreparationWorkspace({
                       {pkg.scanned ? t("page.shipments.scanned") : t("page.shipments.notScanned")}
                     </span>
                   </div>
+                  {isOpen && canEditTransport && pkg.scanned && <button type="button" className="btn ml-2" disabled={returning !== null} aria-label={`${returnText.remove}: ${pkg.package_no}`} onClick={() => void returnPackage(pkg.id)}><X className="h-4 w-4" aria-hidden="true" />{returnText.remove}</button>}
                   <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[#ded9ca] pt-3 text-xs">
                     <div>
                       <div className="label mb-1">{t("page.shipments.contents")}</div>
@@ -449,6 +466,7 @@ export default function ShipmentPreparationWorkspace({
                         {pkg.scanned ? <Check className="h-4 w-4" aria-hidden="true" /> : <PackageCheck className="h-4 w-4" aria-hidden="true" />}
                         {pkg.scanned ? t("page.shipments.scanned") : t("page.shipments.notScanned")}
                       </span>
+                      {isOpen && canEditTransport && pkg.scanned && <button type="button" className="btn ml-2" disabled={returning !== null} aria-label={`${returnText.remove}: ${pkg.package_no}`} onClick={() => void returnPackage(pkg.id)}><X className="h-4 w-4" aria-hidden="true" />{returnText.remove}</button>}
                     </td>
                   </tr>
                 ))}
