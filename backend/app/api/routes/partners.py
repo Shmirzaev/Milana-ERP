@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Header
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import or_
 
 from app.core.dt import date_filter_bounds
@@ -35,7 +35,7 @@ router = APIRouter(tags=["partners"])
 
 class CustomerPaymentIn(BaseModel):
     sales_order_id: int | None = None
-    amount: float
+    amount: float = Field(ge=0.01, multiple_of=0.01, allow_inf_nan=False)
     paid_at: datetime | None = None
     payment_method: str | None = None
     notes: str | None = None
@@ -200,7 +200,7 @@ def create_customer_payment(
                 )
                 amount_remaining = round(amount_remaining - invoice_amount, 2)
 
-    if amount_remaining > 0.01:
+    if amount_remaining >= 0.01:
         advance_notes = payload.notes
         if sales_order and invoice and payment:
             suffix = f"Advance balance from overpayment on {sales_order.order_no}"
