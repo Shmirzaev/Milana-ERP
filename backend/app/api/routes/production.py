@@ -84,6 +84,7 @@ from app.services.model_identity import model_number_fields
 from app.services.model_images import material_preview_image_url, model_preview_image_url
 from app.services.cutting_sheet import render_cutting_sheet_html
 from app.services.factory_scope import require_factory_access, selected_factory_code
+from app.services.factory_scope import require_work_order_factory_access
 
 router = APIRouter(tags=["production"])
 
@@ -5437,8 +5438,10 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
 # ===== Quality =====
 @router.post("/quality/checks", response_model=QualityCheckOut, status_code=201)
 def post_quality(payload: QualityCheckIn, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
-    if not db.get(WorkOrder, payload.work_order_id):
+    work_order = db.get(WorkOrder, payload.work_order_id)
+    if not work_order:
         raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, work_order)
     q = QualityCheck(**payload.model_dump(), checked_by=current.id, checked_at=datetime.now(timezone.utc))
     db.add(q); db.flush()
     log_action(db, current, "create", "QualityCheck", q.id)
