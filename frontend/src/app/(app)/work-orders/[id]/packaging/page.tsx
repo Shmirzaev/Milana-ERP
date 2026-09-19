@@ -691,8 +691,6 @@ export default function PackagingPage() {
           </div>
         </form>
 
-        {po && !po.sales_order_id && po.source_type !== "usluga" && <FirstGradePackaging key={`${po.id}:${rec.production_batch_id}:${color}`} productionOrderId={po.id} batchId={rec.production_batch_id || undefined} modelId={po.model_id} color={color} onChanged={async () => { setPackageQrRefreshKey(k => k + 1); await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]); }} />}
-
         {isAlreadyBatched && (
           <div className="card p-4">
             <div className="mb-2 text-base font-semibold">{t("batch.managedInsideWorkOrder")}</div>
@@ -732,6 +730,10 @@ export default function PackagingPage() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="mb-4">
+        {po && !po.sales_order_id && po.source_type !== "usluga" && <FirstGradePackaging key={`${po.id}:${rec.production_batch_id}:${color}`} productionOrderId={po.id} batchId={rec.production_batch_id || undefined} modelId={po.model_id} color={color} onChanged={async () => { setPackageQrRefreshKey(k => k + 1); await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]); }} />}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
