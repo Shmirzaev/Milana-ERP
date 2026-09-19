@@ -2,12 +2,15 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**30 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open.
+**33 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **FN03 — Reassigned payment leaves old invoice paid** | Wrong receivables | [finance_1c.py:70](backend/app/services/finance_1c.py#L70): ordered locks, refresh both invoices. `163df36`; **21 tests passed**, including 6 PostgreSQL cases. Import savepoint/new-identity races remain separate findings. |
+| **FN05 — One-cent advance fails or disappears** | Missing customer credit | [partners.py](backend/app/api/routes/partners.py): accept cent-sized residuals; reject sub-cent/nonfinite input. `2d23e13`; **23 tests passed**. Existing invoice settlement tolerance is unchanged. |
+| **SEC11 — Quality writes ignore factory scope** | Cross-factory quality records | [production.py:5438](backend/app/api/routes/production.py#L5438): guard the work order before writes. `ac45b6b`; **93 scope/workflow tests passed** on this branch. |
 | **ST01 — Receipt retry adds stock twice** | Inventory overstated after a lost response | [purchasing.py:170](backend/app/api/routes/purchasing.py#L170): lock order and replay saved result atomically. [Receiving:238](frontend/src/app/(app)/purchasing/receiving/page.tsx#L238): persist request key/payload; recover after reload; coordinate tabs. |
 | **ST02 — Movement leaves batch unchanged / accepts another item's batch** | Wrong stock and traceability | [inventory.py:1270](backend/app/api/routes/inventory.py#L1270): validate quantity/item/unit/location; lock and update batch with ledger. |
 | **ST03 — W1 movements affect W2 balance** | Wrong warehouse availability | [inventory service:80](backend/app/services/inventory.py#L80): scope incoming/outgoing movements; transfers net to zero globally. |
@@ -70,8 +73,9 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 
 ### Friend's review — not an identical audit
 
-- **New confirmed source findings:** S22 → SEC11 (quality-check factory access); S14 → UI05 (legacy KPI sums stage outputs). Both added to the backlog; runtime proof pending.
-- **More specific evidence:** S17 confirms deployment pool variables are ignored by the engine (OPS02). Attendance upload memory, file/object scope and additional factory endpoints need targeted checks; broad earlier findings do not close these paths.
+- **New confirmed source findings:** S22 → SEC11 is fixed/tested above. S14 → UI05 (legacy KPI sums stage outputs) remains open.
+- **Partial infrastructure fix:** S17 pool variables are now honored (`cc7ffdf`; 9 construction/validation tests, no live connection). OPS02 stays open: total connection budget across workers/slots still needs verification. Attendance upload memory, file/object scope and additional factory endpoints need targeted checks.
+- **Review caught regressions before commit:** payroll issuance overcounted repeated new QR UIDs; distinct order references still caused **8/44/204 SELECTs for 1/10/50 labels**. Corrections are in progress; PERF05 is not marked fixed.
 - **Overlap:** audit-chain races, invoice duplication, raw PATCH fields, image/event-loop work, SQLite rate-store blocking, index candidates and restore gaps already appear here.
 - **Stale/qualified:** S32's SQL typo is absent in this checkout. SEC04 revocation and API06 name grants are fixed, not file-object policy in general. Management dashboard labels already distinguish its counters. Unindexed/nullable foreign keys alone do not prove bugs or explain N+1 query counts. The friend's summary has no runtime reproductions or commit hash; its September 12 date references a September 15 schema.
 

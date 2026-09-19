@@ -673,10 +673,10 @@
       "risk": "Old invoice remains incorrectly paid.",
       "proposed_fix": "Recalculate both invoices.",
       "baseline_source": "backend/app/services/finance_1c.py:122",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "163df36",
+      "evidence": "test_1c_payment_reassignment.py: 21 passed including 6 disposable PostgreSQL cases; old/new invoice status, ordered locks, rollback. FN01/new external-identity races remain separate."
     },
     {
       "number": 57,
@@ -685,10 +685,10 @@
       "risk": "500 response or missing residual amount.",
       "proposed_fix": "Use consistent minor-unit rules.",
       "baseline_source": "backend/app/api/routes/partners.py:203",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "2d23e13",
+      "evidence": "test_customer_payment_cents.py plus payment integrity: 23 passed; cent-sized advance/residual and invalid inputs. Existing invoice settlement tolerance unchanged."
     },
     {
       "number": 58,
@@ -1385,7 +1385,7 @@
       "owner": null,
       "commit": null,
       "evidence": null,
-      "external_review": "Friend S17 confirmed in source: deploy/slotctl.py:137 supplies DB_POOL_SIZE=8/DB_MAX_OVERFLOW=4; backend/app/db/session.py:6 ignores both. Live environment not inspected."
+      "external_review": "Friend S17 code defect fixed in cc7ffdf: honor DB_POOL_SIZE/DB_MAX_OVERFLOW; 9 isolated tests. OPS02 remains open: worker/slot/global connection budget and load behavior unproven. No live inspection."
     },
     {
       "number": 116,
@@ -1514,10 +1514,10 @@
       "risk": "A floor user can add quality records to another factory's production.",
       "proposed_fix": "Apply existing work-order factory guard; prove scoped-user denial and allowed same-factory creation.",
       "baseline_source": "backend/app/api/routes/production.py:5438",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": "Friend S22; current source confirmed statically. Runtime regression in progress."
+      "commit": "ac45b6b",
+      "evidence": "test_quality_check_factory_scope.py + test_production_flow.py: 93 passed; 6 cross-factory pairs reject without quality/audit writes, own/selected factory allowed. Latest-main compatibility remains untested."
     },
     {
       "number": 127,
