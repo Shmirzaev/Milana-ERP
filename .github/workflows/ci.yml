@@ -66,7 +66,7 @@ jobs:
         env:
           PYTHONPATH: ./backend
           FIRST_GRADE_DISPOSABLE: "1"
-          DATABASE_URL: postgresql+psycopg://postgres@127.0.0.1:5432/first_grade_qa_ci
+          DATABASE_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
           JWT_SECRET: disposable-local-test-secret-only
           FILE_SIGNING_SECRET: disposable-local-file-signing-secret-only
           INITIAL_ADMIN_EMAIL: admin@disposable.invalid
