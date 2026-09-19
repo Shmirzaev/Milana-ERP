@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timezone, datetime
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.models import Invoice, Payment, SalesOrder
@@ -67,6 +67,34 @@ def _refresh_invoice_status(db: Session, invoice: Invoice) -> None:
         invoice.status = "unpaid"
 
 
+def _lock_sync_rows(db: Session, payload: OneCSyncIn) -> None:
+    # Lock the whole batch before any writes, not one old/new pair per row.
+    # Manual payment paths only insert new payments after locking invoices;
+    # they do not lock these existing payment rows in the opposite order.
+    external_payment_ids = {row.external_id for row in payload.payments}
+    payments = (
+        db.query(Payment)
+        .filter(Payment.external_source == SOURCE_1C, Payment.external_id.in_(external_payment_ids))
+        .order_by(Payment.id).populate_existing().with_for_update(of=Payment).all()
+    ) if external_payment_ids else []
+    invoice_ids = {payment.invoice_id for payment in payments if payment.invoice_id is not None}
+    invoice_ids.update(row.invoice_id for row in payload.payments if row.invoice_id is not None)
+    invoice_nos = {row.invoice_no for row in payload.payments if row.invoice_no}
+    external_invoice_ids = {row.external_id for row in payload.invoices}
+    external_invoice_ids.update(row.invoice_external_id for row in payload.payments if row.invoice_external_id)
+    filters = []
+    if invoice_ids:
+        filters.append(Invoice.id.in_(invoice_ids))
+    if invoice_nos:
+        filters.append(Invoice.invoice_no.in_(invoice_nos))
+    if external_invoice_ids:
+        filters.append(and_(Invoice.external_source == SOURCE_1C, Invoice.external_id.in_(external_invoice_ids)))
+    if filters:
+        # Include invoice-import updates, which run before the payment loop.
+        # Invoices created by this transaction are not visible to competitors.
+        db.query(Invoice).filter(or_(*filters)).order_by(Invoice.id).populate_existing().with_for_update(of=Invoice).all()
+
+
 def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "invoices_created": 0,
@@ -75,6 +103,7 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
         "payments_updated": 0,
         "errors": [],
     }
+    _lock_sync_rows(db, payload)
 
     for i, row in enumerate(payload.invoices):
         try:
@@ -124,6 +153,7 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                 Payment.external_id == row.external_id,
             ).first()
             is_new = payment is None
+            previous_invoice_id = payment.invoice_id if payment else None
             if is_new:
                 payment = Payment(
                     invoice_id=invoice.id,
@@ -140,7 +170,10 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
             payment.notes = row.notes
             db.flush()
 
-            _refresh_invoice_status(db, invoice)
+            for invoice_id in sorted({invoice.id, previous_invoice_id} - {None}):
+                affected_invoice = db.get(Invoice, invoice_id)
+                if affected_invoice:
+                    _refresh_invoice_status(db, affected_invoice)
 
             if is_new:
                 summary["payments_created"] += 1
