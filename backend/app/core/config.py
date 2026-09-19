@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     ENV: str = "development"
     DEBUG: bool = False
     DATABASE_URL: str = "postgresql+psycopg2://erp:erp@db:5432/erp"
+    DB_POOL_SIZE: int | None = None
+    DB_MAX_OVERFLOW: int | None = None
     JWT_SECRET: str = "dev-secret"
     FILE_SIGNING_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
@@ -74,6 +76,20 @@ class Settings(BaseSettings):
                 return True
             if normalized in {"0", "false", "f", "no", "n", "off", "falce", "fasle", "flase"}:
                 return False
+        return value
+
+    @field_validator("DB_POOL_SIZE")
+    @classmethod
+    def validate_db_pool_size(cls, value):
+        if value is not None and value <= 0:
+            raise ValueError("DB_POOL_SIZE must be positive")
+        return value
+
+    @field_validator("DB_MAX_OVERFLOW")
+    @classmethod
+    def validate_db_max_overflow(cls, value):
+        if value is not None and value < 0:
+            raise ValueError("DB_MAX_OVERFLOW must be non-negative")
         return value
 
     @property
