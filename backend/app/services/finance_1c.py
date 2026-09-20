@@ -103,38 +103,49 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
         "payments_updated": 0,
         "errors": [],
     }
+    # Keep the caller's transaction as the durable batch boundary.  This is
+    # especially important on SQLite, where a first SAVEPOINT can otherwise
+    # become the only physical transaction and survive a caller rollback.
+    if not db.in_transaction():
+        db.begin()
+    if db.bind.dialect.name == "sqlite":
+        connection = db.connection()
+        raw_connection = connection.connection
+        if not raw_connection.in_transaction:
+            connection.exec_driver_sql("BEGIN")
     _lock_sync_rows(db, payload)
 
     for i, row in enumerate(payload.invoices):
         try:
-            sales_order = _resolve_sales_order(db, row.sales_order_id, row.sales_order_no)
-            if not sales_order:
-                raise ValueError("sales order not found (provide sales_order_id or sales_order_no)")
-            invoice = db.query(Invoice).filter(
-                Invoice.external_source == SOURCE_1C,
-                Invoice.external_id == row.external_id,
-            ).first()
-            is_new = invoice is None
-            if is_new:
-                invoice = Invoice(
-                    sales_order_id=sales_order.id,
-                    invoice_no=row.invoice_no or next_invoice_no(db),
-                    external_source=SOURCE_1C,
-                    external_id=row.external_id,
-                    issued_at=_as_utc(row.issued_at),
-                    due_date=_as_utc(row.due_date),
-                )
-                db.add(invoice)
-            else:
-                invoice.sales_order_id = sales_order.id
-                if row.invoice_no:
-                    invoice.invoice_no = row.invoice_no
-                invoice.issued_at = _as_utc(row.issued_at)
-                invoice.due_date = _as_utc(row.due_date)
+            with db.begin_nested():
+                sales_order = _resolve_sales_order(db, row.sales_order_id, row.sales_order_no)
+                if not sales_order:
+                    raise ValueError("sales order not found (provide sales_order_id or sales_order_no)")
+                invoice = db.query(Invoice).filter(
+                    Invoice.external_source == SOURCE_1C,
+                    Invoice.external_id == row.external_id,
+                ).first()
+                is_new = invoice is None
+                if is_new:
+                    invoice = Invoice(
+                        sales_order_id=sales_order.id,
+                        invoice_no=row.invoice_no or next_invoice_no(db),
+                        external_source=SOURCE_1C,
+                        external_id=row.external_id,
+                        issued_at=_as_utc(row.issued_at),
+                        due_date=_as_utc(row.due_date),
+                    )
+                    db.add(invoice)
+                else:
+                    invoice.sales_order_id = sales_order.id
+                    if row.invoice_no:
+                        invoice.invoice_no = row.invoice_no
+                    invoice.issued_at = _as_utc(row.issued_at)
+                    invoice.due_date = _as_utc(row.due_date)
 
-            invoice.amount = row.amount
-            invoice.status = row.status
-            db.flush()
+                invoice.amount = row.amount
+                invoice.status = row.status
+                db.flush()
 
             if is_new:
                 summary["invoices_created"] += 1
@@ -145,35 +156,36 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
 
     for i, row in enumerate(payload.payments):
         try:
-            invoice = _resolve_invoice(db, row.invoice_id, row.invoice_no, row.invoice_external_id)
-            if not invoice:
-                raise ValueError("invoice not found (provide invoice_id, invoice_no, or invoice_external_id)")
-            payment = db.query(Payment).filter(
-                Payment.external_source == SOURCE_1C,
-                Payment.external_id == row.external_id,
-            ).first()
-            is_new = payment is None
-            previous_invoice_id = payment.invoice_id if payment else None
-            if is_new:
-                payment = Payment(
-                    invoice_id=invoice.id,
-                    external_source=SOURCE_1C,
-                    external_id=row.external_id,
-                )
-                db.add(payment)
-            else:
-                payment.invoice_id = invoice.id
+            with db.begin_nested():
+                invoice = _resolve_invoice(db, row.invoice_id, row.invoice_no, row.invoice_external_id)
+                if not invoice:
+                    raise ValueError("invoice not found (provide invoice_id, invoice_no, or invoice_external_id)")
+                payment = db.query(Payment).filter(
+                    Payment.external_source == SOURCE_1C,
+                    Payment.external_id == row.external_id,
+                ).first()
+                is_new = payment is None
+                previous_invoice_id = payment.invoice_id if payment else None
+                if is_new:
+                    payment = Payment(
+                        invoice_id=invoice.id,
+                        external_source=SOURCE_1C,
+                        external_id=row.external_id,
+                    )
+                    db.add(payment)
+                else:
+                    payment.invoice_id = invoice.id
 
-            payment.amount = row.amount
-            payment.payment_method = row.payment_method
-            payment.paid_at = _as_utc(row.paid_at)
-            payment.notes = row.notes
-            db.flush()
+                payment.amount = row.amount
+                payment.payment_method = row.payment_method
+                payment.paid_at = _as_utc(row.paid_at)
+                payment.notes = row.notes
+                db.flush()
 
-            for invoice_id in sorted({invoice.id, previous_invoice_id} - {None}):
-                affected_invoice = db.get(Invoice, invoice_id)
-                if affected_invoice:
-                    _refresh_invoice_status(db, affected_invoice)
+                for invoice_id in sorted({invoice.id, previous_invoice_id} - {None}):
+                    affected_invoice = db.get(Invoice, invoice_id)
+                    if affected_invoice:
+                        _refresh_invoice_status(db, affected_invoice)
 
             if is_new:
                 summary["payments_created"] += 1
