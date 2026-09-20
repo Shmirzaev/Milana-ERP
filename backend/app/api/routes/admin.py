@@ -434,6 +434,16 @@ def _count_active_super_admins(db: DbSession, exclude_user_id: int | None = None
     return count
 
 
+def _lock_active_user_memberships(db: DbSession) -> None:
+    """Serialize changes that can remove the final administrator membership."""
+    # NO KEY UPDATE still serializes membership mutations while allowing the
+    # KEY SHARE lock used by a concurrent audit-log foreign-key insertion.
+    # SQLite ignores the lock clause in disposable tests.
+    db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(
+        of=User, key_share=True
+    ).populate_existing().all()
+
+
 def _assert_user_has_no_audit_history(db: DbSession, user_id: int) -> None:
     if db.query(AuditLog.id).filter(AuditLog.user_id == user_id).first() is not None:
         raise HTTPException(409, "User has audit history. Deactivate the account instead.")
@@ -524,10 +534,8 @@ def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions(
 
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
-    # Serialize changes that can remove the final administrator on PostgreSQL.
-    # SQLite ignores FOR UPDATE in disposable tests.
     if {"role_id", "extra_permissions", "access_policy", "is_active"} & payload.model_fields_set:
-        db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(of=User).populate_existing().all()
+        _lock_active_user_memberships(db)
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
@@ -591,6 +599,7 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
+    _lock_active_user_memberships(db)
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
