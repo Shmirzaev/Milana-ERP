@@ -46,11 +46,11 @@ def _find_order(db, namespace, reference=None, entity_id=None, *, lookup=None):
     return lookup.by_id(namespace, entity_id) if lookup is not None else query.filter(model.id == entity_id).first()
 
 
-def resolve_order_id(db, namespace: str, reference: str | None) -> int | None:
+def resolve_order_id(db, namespace: str, reference: str | None, *, lookup=None) -> int | None:
     """Resolve only the requested entity type; public factory SO labels are not sales."""
     if namespace == "PUBLIC_PO":
         raise ValueError("Public order labels do not identify sales records")
-    row = _find_order(db, namespace, reference)
+    row = _find_order(db, namespace, reference, lookup=lookup)
     return row.id if row else None
 
 
