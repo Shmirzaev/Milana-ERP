@@ -378,15 +378,24 @@ def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
 def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser):
     if payload.new_password != payload.confirm_new_password:
         raise HTTPException(400, "New passwords do not match")
-    if not verify_password(payload.current_password, user.password_hash):
+    locked_user = (
+        db.query(User)
+        .filter(User.id == user.id, User.is_active.is_(True))
+        .populate_existing()
+        .with_for_update(of=User)
+        .first()
+    )
+    if not locked_user:
+        raise HTTPException(401, "Invalid credentials")
+    if not verify_password(payload.current_password, locked_user.password_hash):
         raise HTTPException(400, "Current password is incorrect")
     try:
         validate_password_strength(payload.new_password)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    user.password_hash = hash_password(payload.new_password)
-    user.tokens_valid_from = datetime.now(timezone.utc)
-    log_action(db, user, "change_password", "User", user.id)
+    locked_user.password_hash = hash_password(payload.new_password)
+    locked_user.tokens_valid_from = datetime.now(timezone.utc)
+    log_action(db, locked_user, "change_password", "User", locked_user.id)
     db.commit()
     return {"message": "password_updated"}
 
