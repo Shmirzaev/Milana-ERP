@@ -28,6 +28,10 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| WF05 | `test_package_model_integrity.py`; single/bulk package APIs | Wrong header/item model rejects with 400 and creates no stock graph, even with admin override. Matching package still succeeds. Adds no queries; existing item validation remains O(n). |
+| WF06 | `test_packaging_stale_counters.py`; packaging receive/record APIs | Cached counters refresh before increment. Disposable PostgreSQL forces both receipt writers to wait: 5+3+4 ends at12 with two receipts. Adds one target lock/read; no full-path complexity claim. |
+| AT01 | `test_attendance_event_results.py`; attendance overview, XLSX and HR | Failed/unknown scans remain raw but do not create attendance/hours. Success and legacy NULL results count. Check used/not-used filters and exports. Adds a SQL predicate, not per-row queries. |
+| PERF42 | `test_sewing_line_context_query_growth.py`; line context | 1/12 assignments:2/2 capacity queries, previously5/60. Same order/batch/assignment limits, top/bottom values and legacy fallback. Python aggregation is O(grouped history + displayed rows), not O(1) total work. |
 | AT04 | `test_attendance_historical_profiles.py`; Attendance overview/daily XLSX | Import a profile and two scans, remove profile through a full snapshot, then reopen that date: hours still appear once in overview/export. Other dates and factories remain excluded. Query round trips remain bounded; database aggregation still grows with matching history. |
 | AT05 | `test_hr_attendance_validation.py`; HR attendance/settings | UTC events on either side of Tashkent midnight appear on the correct day. Invalid legacy hours fall back safely; nonfinite input returns 422. Factory settings read once. |
 | PERF34 | `test_shipment_document_query_growth.py`; shipment documents | 1/20 manual packages use 4 SELECTs. Exact/wildcard/ambiguous prices, line order, basis hash and frozen document remain unchanged. Inputs indexed once: O(P+I+L+output) processing, not constant total work. |

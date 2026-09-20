@@ -2,12 +2,16 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**46 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**50 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **WF05 — Package model differs from its order** | Wrong goods enter stock | [packages.py:321](backend/app/services/packages.py#L321): check header and every item against the order, including admin override. `70d3eaf`; **4 focused / 27 related tests passed**. |
+| **WF06 — Packaging overwrites cached counters** | Lost receipt/output totals | [production.py:5278](backend/app/api/routes/production.py#L5278): source→target locks and refreshed counters. `cdf9912`; **93 related tests + 1 real PostgreSQL race passed**. Two cached-counter regressions included. |
+| **AT01 — Failed events count as work** | False arrival/departure and hours | [attendance_event_policy.py:5](backend/app/services/attendance_event_policy.py#L5): shared successful-event filter for overview, export and HR. `6afe7eb`; **65 tests passed**. Raw history retained; legacy NULL results remain accepted for compatibility. |
+| **PERF42 — Capacity queries repeat per sewing assignment** | Line screens slow as assignments grow | [sewing_daily_reports.py:211](backend/app/api/routes/sewing_daily_reports.py#L211): grouped capacity reads; unchanged write validation. `2166dba`; **15 tests passed; 2 independently repeated**. 12 assignments: **60→2 capacity SELECTs**; not total API queries. |
 | **AT04 — Removed device profile hides earlier attendance** | Historical hours disappear from reports | [attendance.py:421](backend/app/api/routes/attendance.py#L421): retain profiles with selected-day events; prefer active copies and preserve factory scope. `27e0809`; **16 tests passed**, including overview/export and deduplication. |
 | **AT05 — HR uses the wrong day / unsafe scheduled hours** | Wrong attendance totals or 500 errors | [hr_workspace.py:183](backend/app/api/routes/hr_workspace.py#L183): Tashkent day boundaries; validated factory default and safe employee overrides. `76388c2`; **60 related tests passed; 8 independently repeated**. Shift/break/payroll policy unchanged. |
 | **PERF34 — Shipment documents repeatedly scan lists** | Quadratic processing and per-package receipt reads | [shipment_review.py:164](backend/app/services/shipment_review.py#L164), [shipment_invoice.py:33](backend/app/services/shipment_invoice.py#L33): index contents, prices and invoice lines; batch receipts. `a14827f`; **46 tests passed; 4 independently repeated**. 1/20 manual packages: **4/4 SELECTs**, unchanged pricing, order and basis hash. |

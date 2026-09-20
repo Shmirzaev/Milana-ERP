@@ -106,6 +106,7 @@ jobs:
           app/tests/test_reset_token_revocation.py
           app/tests/test_purchase_receipt_idempotency.py
           app/tests/test_purchase_conversion_integrity.py
+          app/tests/test_packaging_stale_counters.py
           app/tests/test_material_reservation_concurrency.py
           app/tests/test_user_audit_history.py
           app/tests/test_admin_membership_delete_race.py

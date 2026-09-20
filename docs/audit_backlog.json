@@ -445,22 +445,22 @@
       "risk": "Wrong goods and traceability.",
       "proposed_fix": "Validate order-model provenance.",
       "baseline_source": "backend/app/services/packages.py:258",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "70d3eaf",
+      "evidence": "4 focused and 27 related tests passed. Single/bulk wrong models reject before stock creation, including admin override; matching control succeeds. No new queries."
     },
     {
       "number": 38,
       "id": "WF06",
       "bug": "Packaging retains target counters loaded before its lock wait.",
-      "risk": "Possible lost updates; not reproduced.",
+      "risk": "Lost packaging counters reproduced with stale cached state.",
       "proposed_fix": "Lock and refresh affected target.",
       "baseline_source": "backend/app/api/routes/production.py:5322",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "cdf9912",
+      "evidence": "Source then target lock/refresh in receipt and record paths. 14 focused/related tests, 93 broader tests and 1 real PostgreSQL concurrent receipt test passed. Cached 5 after stored 9 plus 3 now yields12, not8; competing 3/4 receipts preserve both increments."
     },
     {
       "number": 39,
@@ -541,10 +541,10 @@
       "risk": "Incorrect working hours; device semantics need confirmation.",
       "proposed_fix": "Agree valid passage events.",
       "baseline_source": "connectors/hikvision_attendance/read_only_connector.py:532",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "6afe7eb",
+      "evidence": "65 related tests passed; 3 focused cover overview, usage, XLSX and HR. Failed/unknown results excluded from attendance but retained raw. Legacy NULL remains accepted; device-result semantics beyond explicit failure are not proven."
     },
     {
       "number": 46,
@@ -1285,10 +1285,10 @@
       "risk": "More assignments add queries.",
       "proposed_fix": "Bulk shared capacity aggregates.",
       "baseline_source": "backend/app/api/routes/sewing_daily_reports.py:170",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "2166dba",
+      "evidence": "15 related tests; 2 independently repeated. Capacity SELECTs at1/12 assignments:5/60 before,2/2 after. Preserve order/batch/assignment minima, negative legacy cap and planned fallback. Write-time validation unchanged."
     },
     {
       "number": 108,
