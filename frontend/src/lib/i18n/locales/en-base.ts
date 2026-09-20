@@ -1540,6 +1540,8 @@ export default {
     "home.customDates": "Custom dates",
     "home.applyCustomRange": "Apply custom range",
     "home.activeProduction": "Active production",
+    "home.stageActivity": "Stage activity (pieces)",
+    "home.stageActivityHint": "Counts each stage separately, not unique finished garments.",
     "home.ordersInFlight": "{count} orders - {value} in flight",
     "home.noOrdersForFilter": "No orders match selected filters.",
     "home.stationsToday": "Stations - today",

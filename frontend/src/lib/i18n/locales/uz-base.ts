@@ -1421,6 +1421,8 @@ export default {
     "home.customDates": "Maxsus sanalar",
     "home.applyCustomRange": "Oraliqni qo‘llash",
     "home.activeProduction": "Faol ishlab chiqarish",
+    "home.stageActivity": "Bosqichlar bo‘yicha ishlov (dona)",
+    "home.stageActivityHint": "Har bir bosqich alohida sanaladi; bu noyob tayyor mahsulotlar soni emas.",
     "home.ordersInFlight": "{count} buyurtma - {value} jarayonda",
     "home.noOrdersForFilter": "Tanlangan filtr bo‘yicha buyurtma topilmadi.",
     "home.stationsToday": "Sexlar - bugun",

@@ -1421,6 +1421,8 @@ export default {
     "home.customDates": "Произвольные даты",
     "home.applyCustomRange": "Применить период",
     "home.activeProduction": "Активное производство",
+    "home.stageActivity": "Обработка по этапам (шт.)",
+    "home.stageActivityHint": "Изделия учитываются на каждом этапе, а не как уникальная готовая продукция.",
     "home.ordersInFlight": "{count} заказов - {value} в работе",
     "home.noOrdersForFilter": "Нет заказов для выбранного фильтра.",
     "home.stationsToday": "Участки - сегодня",
