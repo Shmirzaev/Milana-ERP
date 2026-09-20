@@ -5275,6 +5275,8 @@ def receive_packaging_from_sewing(
         raise HTTPException(400, "Receiving quantity must be greater than zero")
     # Serialize handoff against edits/deletion of the source sewing ledger.
     db.query(WorkOrder).filter_by(id=source.id).with_for_update().populate_existing().one()
+    db.refresh(target, with_for_update=True)
+    require_packaging_work_order_access(current, db, target, department_code)
     sewing_passed, received = _packaging_sewing_totals(db, int(source.id), production_batch_id)
     available = max(0, sewing_passed - received)
     if quantity > available:
@@ -5325,7 +5327,7 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
         source = _context_work_order(db, target, "sewing")
         if source:
             db.query(WorkOrder).filter_by(id=source.id).with_for_update().populate_existing().one()
-    wo = db.get(WorkOrder, payload.work_order_id)
+    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update(of=WorkOrder).populate_existing().first()
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "packaging": raise HTTPException(400, "Work order is not a packaging operation")
     require_packaging_work_order_access(current, db, wo)
