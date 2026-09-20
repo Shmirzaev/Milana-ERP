@@ -409,10 +409,10 @@
       "risk": "Unauthorized or premature completion.",
       "proposed_fix": "Share transition authorization.",
       "baseline_source": "backend/app/api/routes/production.py:1685",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "84c322a",
+      "evidence": "Generic PATCH/start/complete enforce shared stage permissions, selected factory and explicit Usluga ECO scope.25 new cases +12 quality +2 prior security +7 command compatibility pass. Manual status/counter and partial-completion policy remains unchanged/open. docs/stabilization_qa.md"
     },
     {
       "number": 35,
@@ -625,10 +625,10 @@
       "risk": "Unauthorized pay changes if policy disallows them.",
       "proposed_fix": "Separate scanning and rate management.",
       "baseline_source": "backend/app/api/routes/payroll.py:2058",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": "Ledger correction: 538ff66 fixes PERF05 query growth, not caller-supplied payable authorization. PY03 remains open."
+      "commit": "900641e",
+      "evidence": "Five focused cases independently passed; full related run108 passed before approved obsolete issuance fixture correction. Real React role renders + same valid issuance handler allow/deny passed. Managers set pay; scanners consume trusted issued values only. Custom scan-only issuers need owner-reviewed permission/workflow changes before rollout. docs/stabilization_qa.md"
     },
     {
       "number": 53,
@@ -961,10 +961,10 @@
       "risk": "More materials mean more round trips.",
       "proposed_fix": "Hoist shared data.",
       "baseline_source": "backend/app/api/routes/cutting_passports.py:317",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "a3f8127,2279d2d",
+      "evidence": "Defaults1/50/401:10/157/1210 ->10/10/11SELECTs. List1/50/401:5/152/1205 ->4/4/7SELECTs, no image BLOB reads. Four defaults +three list tests independently repeated. Write/reservation path remains open. docs/stabilization_qa.md"
     },
     {
       "number": 81,
@@ -1141,10 +1141,10 @@
       "risk": "Large financial batches slow.",
       "proposed_fix": "Grouped totals and external IDs.",
       "baseline_source": "backend/app/api/routes/partners.py:243",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "91f2f73",
+      "evidence": "Customer payment candidate lookup1/50/401 invoices:2/51/402 ->2/2/3SELECTs, invoice locks/order retained.14 SQLite tests +6 real PostgreSQL payment races pass.1C per-row processing remains open. docs/stabilization_qa.md"
     },
     {
       "number": 96,
@@ -1237,10 +1237,10 @@
       "risk": "Contention can stall request processing.",
       "proposed_fix": "Use nonblocking or bounded offload.",
       "baseline_source": "backend/app/main.py:191",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "25fd549",
+      "evidence": "Five regressions pass and independently repeated: real SQLite counter I/O off event loop, exact concurrent limits, bypasses and singleton initialization. Related suite34 pass; its two WF02 permission-precedence failures corrected and individually retested. docs/stabilization_qa.md"
     },
     {
       "number": 104,

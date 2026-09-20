@@ -2,12 +2,14 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**55 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**57 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **PY03 — Scanner can choose payable values** | Unauthorized payroll amounts | [payroll.py:717](backend/app/api/routes/payroll.py#L717): require manage rights for issuance/manual pay; scanners use issued snapshots. `900641e`; **5 focused tests independently passed**, actual React role/handler tests passed. Custom scan-only issuers need owner-reviewed permissions before rollout. |
+| **PERF37 — Rate-store I/O blocks async requests** | Counter contention stalls unrelated requests | [main.py:194](backend/app/main.py#L194): offload counter I/O to bounded workers; serialize first store creation. `25fd549`; **5 focused tests independently repeated**. Related suite34 passed; its two WF02 compatibility failures were corrected and individually retested. No capacity claim. |
 | **WF01 — Production PATCH accepts internal fields** | Bypassed workflow-owned data | [production.py:1083](backend/app/api/routes/production.py#L1083): typed allowlist, value bounds and target checks; preserve Usluga rejection. `859b7ca`; **41 focused tests passed**, 12 after the compatibility correction. Broader run:112 passed; its one failure was fixed and individually retested, not a full rerun. |
 | **PERF15 — Planning repeats BOM and stock reads** | Large orders plan slowly | [planning.py:79](backend/app/services/planning.py#L79): batch BOM, stock and estimate enrichment. `f72d71b`; **9 selected tests passed; 5 independently repeated**. Requirements for 1/50 lines: **6/6 SELECTs**; full estimate for 1/50/401: **9/9/15**. |
 | **WF03 — Package creation lacks production evidence** | Unsupported goods enter stock | [packages.py:233](backend/app/services/packages.py#L233): reject missing/insufficient packaging output; bulk failure rolls back. `37258c7`; **86 production +67 compatibility tests passed**, five focused independently repeated. Historical corrections/manual receipts/imports unchanged. |
@@ -66,7 +68,7 @@
 
 ## Evidence
 
-- **Ledger correction:** payroll batching `538ff66` belongs to PERF05, not PY03. Caller-supplied payable authorization remains open; the corrected mapping does not increase the fixed count.
+- **Ledger correction:** payroll batching `538ff66` belongs to PERF05. PY03 authorization is fixed separately by `900641e`; do not confuse query batching with access control.
 - **CI wiring:** PostgreSQL selection includes administrator membership races. Corrected YAML indentation that would otherwise execute three test-file paths as shell commands. Workflow parsed locally; remote final-revision success is not yet claimed.
 
 - **Latest batch:** SEC06 tested real PostgreSQL concurrent deletes and concurrent audit insertion; disposable clusters stopped. WF10 tests assert no commit/dirty ORM state, unchanged historical totals, authorization and filters. Neither proves every role mutation or accounting report correct.
@@ -111,6 +113,9 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **AT06 partial:** device imports serialize; five real PostgreSQL cases pass (`853d2e4`), including forced lock waits and overtaking roster requests. Server-start timestamps reject overlapping stale work, but cannot identify an old snapshot uploaded later. Source-version support remains open.
 - **SEC09 partial:** earlier same-second tokens are revoked; profile edits preserve factory context (`177c3cd`; 48 tests passed, one PostgreSQL case skipped). Reset proxy trust and concurrent credential workflows still need review. Legacy integer tokens in the rotation second require a fresh login.
 - **PERF40 partial:** image conversion, file writes and thumbnails leave the event loop, with one upload slot per process (`170200f`; 10 image tests passed). Async route SQL and file lifecycle/partial-thumbnail cleanup remain open; this is not a full upload throughput benchmark.
+- **PERF14 partial:** cutting-passport defaults and lists batch lookups (`a3f8127`, `2279d2d`; seven tests independently passed). Defaults1/50/401: **10/157/1210 → 10/10/11 SELECTs**; lists: **5/152/1205 → 4/4/7**, without image binaries. Write/reservation queries remain open.
+- **WF02 partial:** generic work-order PATCH/start/complete enforce stage and factory rights, including legacy Usluga records (`84c322a`; 25 new +21 compatibility tests passed). Manual counters/status and partial-completion policy remain unchanged; specialized commands need separate checks.
+- **PERF29 partial:** customer payment allocation batches invoice totals (`91f2f73`; 14 tests +six PostgreSQL races passed). 1/50/401 invoices: **2/51/402 → 2/2/3 SELECTs**. Invoice locking, first-payable order and advances preserved; 1C per-row work remains open.
 - **PERF28 partial:** receipt catalog/reference reads are batched (`1efce38`; 26 tests passed, four independently repeated). Reference reads for1/10/50 values:1/1/1; audit-head reads still3/21/101. Audit-chain correctness/scaling remains open.
 - **Overlap:** audit-chain races, invoice duplication, raw PATCH fields, image/event-loop work, SQLite rate-store blocking, index candidates and restore gaps already appear here.
 - **Stale/qualified:** S32's SQL typo is absent in this checkout. SEC04 revocation and API06 name grants are fixed, not file-object policy in general. Management dashboard labels already distinguish its counters. Unindexed/nullable foreign keys alone do not prove bugs or explain N+1 query counts. The friend's summary has no runtime reproductions or commit hash; its September 12 date references a September 15 schema.
