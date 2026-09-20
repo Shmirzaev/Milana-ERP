@@ -3,7 +3,7 @@ from base64 import b64encode
 from functools import lru_cache
 from pathlib import Path
 from html import escape
-from collections import OrderedDict
+from collections import defaultdict, OrderedDict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import re
@@ -33,11 +33,12 @@ def invoice_model_identity(model, source: dict | None = None) -> tuple[str | Non
 def build_invoice_rows(lines: list[dict], packages: list[dict]) -> list[dict]:
     """One row per package/model/price; shared pack and weight cells span splits."""
     result = []
+    lines_by_package = defaultdict(list)
+    for line in lines:
+        lines_by_package[line.get("package_no")].append(line)
     for package in packages:
         groups: dict[tuple, dict] = OrderedDict()
-        for line in lines:
-            if line.get("package_no") != package["package_no"]:
-                continue
+        for line in lines_by_package.get(package["package_no"], ()):
             parsed_model, parsed_variant = invoice_model_identity(SimpleNamespace(code=line.get("model_code"), details_json={}))
             key = (line.get("model_no") or parsed_model, line.get("variant_no") or parsed_variant,
                    line.get("description"), line.get("unit_price"))

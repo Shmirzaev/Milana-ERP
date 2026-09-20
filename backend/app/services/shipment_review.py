@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
     Customer, FinishedGoodsStock, Invoice, Model, Package, PackageBatchAllocation, Payment,
-    PackageItem, SalesOrder, SalesOrderItem, Shipment, ShipmentPackage,
+    ManualPackageReceipt, PackageItem, SalesOrder, SalesOrderItem, Shipment, ShipmentPackage,
     StockReservation, User,
 )
 from app.schemas.shipment_review import ShipmentAmountReview, ShipmentQuantityReview
@@ -151,13 +151,29 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
     db.flush()
 
 
-def manual_invoice_sizes(db, package, size):
+def manual_invoice_sizes(db, package, size, *, receipts=None):
     if str(size).lower() != "mixed" or not package.manual_receipt_id:
         return None
-    from app.models import ManualPackageReceipt
-    receipt = db.get(ManualPackageReceipt, package.manual_receipt_id)
+    receipt = (receipts.get(package.manual_receipt_id) if receipts is not None
+               else db.get(ManualPackageReceipt, package.manual_receipt_id))
     sizes = receipt.evidence.get("configured_sizes", []) if receipt else []
     return ", ".join(dict.fromkeys(str(s) for s in sizes)) or None
+
+
+def _shipment_document_indexes(contents, order_items):
+    contents_by_package = defaultdict(list)
+    for item in contents:
+        contents_by_package[item.package_id].append(item)
+    exact_prices = defaultdict(set)
+    wildcard_prices = defaultdict(set)
+    for line in order_items:
+        price = Decimal(str(line.unit_price))
+        exact_prices[(line.model_id, line.color, line.size)].add(price)
+        if (line.color.lower() in {"mixed", "any", "*", ""} and
+                (line.size.lower() in {"any", "mixed", "*", "", "bag"} or
+                 line.size.lower().startswith("pack"))):
+            wildcard_prices[line.model_id].add(price)
+    return contents_by_package, exact_prices, wildcard_prices
 
 
 def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] | None = None) -> dict:
@@ -173,6 +189,10 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
     package_ids = [package.id for _, package in rows]
     contents = db.query(PackageItem).filter(PackageItem.package_id.in_(package_ids)).order_by(PackageItem.id).all() if package_ids else []
     models = {model.id: model for model in db.query(Model).filter(Model.id.in_({i.model_id for i in contents})).all()} if contents else {}
+    manual_receipt_ids = {package.manual_receipt_id for _, package in rows if package.manual_receipt_id}
+    manual_receipts = {receipt.id: receipt for receipt in db.query(ManualPackageReceipt).filter(
+        ManualPackageReceipt.id.in_(manual_receipt_ids)).all()} if manual_receipt_ids else {}
+    contents_by_package, exact_prices, wildcard_prices = _shipment_document_indexes(contents, order_items)
     lines = []
     total = Decimal("0")
     unknown_prices = False
@@ -186,16 +206,12 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
         pieces += link.quantity
         package_details.append({"package_no": package.package_no, "quantity": link.quantity,
                                 "weight_kg": str(package.weight_kg) if package.weight_kg is not None else None})
-        package_items = [item for item in contents if item.package_id == package.id]
+        package_items = contents_by_package.get(package.id, ())
         balanced = sum(item.quantity for item in package_items) == link.quantity
         if not balanced:
             unknown_prices = True
         for item in package_items:
-            candidates = [line for line in order_items if line.model_id == item.model_id]
-            exact = [line for line in candidates if line.color == item.color and line.size == item.size]
-            wildcard = [line for line in candidates if (line.color.lower() in {"mixed", "any", "*", ""}) and
-                        (line.size.lower() in {"any", "mixed", "*", "", "bag"} or line.size.lower().startswith("pack"))]
-            prices = {Decimal(str(line.unit_price)) for line in (exact or wildcard)}
+            prices = exact_prices.get((item.model_id, item.color, item.size)) or wildcard_prices.get(item.model_id, set())
             price = next(iter(prices)) if len(prices) == 1 and balanced else None
             if not order and (shipment.dispatch_snapshot or {}).get("manual") and balanced:
                 model_price = models.get(item.model_id)
@@ -214,7 +230,9 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
             lines.append({"package_no": package.package_no, "model_code": model.code if model else "",
                           "model_no": model_no, "variant_no": variant_no,
                           "description": description,
-                          "color": item.color, "size": item.size, "size_display": manual_invoice_sizes(db, package, item.size), "quantity": item.quantity,
+                          "color": item.color, "size": item.size,
+                          "size_display": manual_invoice_sizes(db, package, item.size, receipts=manual_receipts),
+                          "quantity": item.quantity,
                           "unit_price": str(price) if price is not None else None,
                           "amount": str(amount) if amount is not None else None})
     document = {"shipment_no": shipment.shipment_no, "sales_order_no": order.order_no if order else None,
