@@ -222,10 +222,20 @@ def import_people_snapshot(
         if external_id in seen:
             raise HTTPException(400, f"Duplicate person ID in snapshot: {external_id}")
         seen.add(external_id)
-        person = db.query(AttendancePerson).filter(
-            AttendancePerson.device_id == device.id,
-            AttendancePerson.external_person_id == external_id,
-        ).one_or_none()
+
+    existing_people = {}
+    incoming_ids = list(seen)
+    for offset in range(0, len(incoming_ids), 400):
+        existing_people.update({
+            person.external_person_id: person
+            for person in db.query(AttendancePerson).filter(
+                AttendancePerson.device_id == device.id,
+                AttendancePerson.external_person_id.in_(incoming_ids[offset:offset + 400]),
+            ).all()
+        })
+    for incoming in payload.people:
+        external_id = incoming.external_person_id
+        person = existing_people.get(external_id)
         if person is None:
             person = AttendancePerson(
                 factory_code=device.factory_code,
