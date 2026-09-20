@@ -2,12 +2,13 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**34 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**35 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **PERF05 — QR issuance repeats reference queries** | Slow bulk label generation | [payroll.py](backend/app/api/routes/payroll.py): batch label/order/reference reads; preserve unique creation counts. `538ff66`; **64 tests passed**. Reference-only 1/10/50 labels: **8/44/204 → 7/7/7 SELECTs**. Writes/output remain O(n). |
 | **FN01 — Bad 1C row aborts later imports** | Valid rows lost; batch fails | [finance_1c.py:122](backend/app/services/finance_1c.py#L122): savepoint per row; preserve caller rollback. `ccf409a`; FN01/FN03 **25 tests passed**, including 8 PostgreSQL cases. |
 | **FN03 — Reassigned payment leaves old invoice paid** | Wrong receivables | [finance_1c.py:70](backend/app/services/finance_1c.py#L70): ordered locks, refresh both invoices. `163df36`; **21 tests passed**, including 6 PostgreSQL cases. New external-identity races remain separate. |
 | **FN05 — One-cent advance fails or disappears** | Missing customer credit | [partners.py](backend/app/api/routes/partners.py): accept cent-sized residuals; reject sub-cent/nonfinite input. `2d23e13`; **23 tests passed**. Existing invoice settlement tolerance is unchanged. |
@@ -76,7 +77,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 
 - **New confirmed source findings:** S22 → SEC11 is fixed/tested above. S14 → UI05 (legacy KPI sums stage outputs) remains open.
 - **Partial infrastructure fix:** S17 pool variables are now honored (`cc7ffdf`; 9 construction/validation tests, no live connection). OPS02 stays open: total connection budget across workers/slots still needs verification. Attendance upload memory, file/object scope and additional factory endpoints need targeted checks.
-- **Review caught regressions before commit:** payroll issuance overcounted repeated new QR UIDs; distinct order references still caused **8/44/204 SELECTs for 1/10/50 labels**. Corrections are in progress; PERF05 is not marked fixed.
+- **Review corrections completed:** payroll duplicate creation/audit counts and residual reference N+1 fixed in `538ff66`; ambiguity, retries and factory-denial regressions passed. This does not prove every payroll endpoint is optimized.
 - **API02 partial:** task command validation now rejects bad states, dates, nulls, oversized/blank names and out-of-range integer references (`22593e7`, `c56a7f1`; 56 tests). Unrelated edits to old incomplete references still work. Reference target existence/access is not yet enforced; API02 remains open.
 - **Overlap:** audit-chain races, invoice duplication, raw PATCH fields, image/event-loop work, SQLite rate-store blocking, index candidates and restore gaps already appear here.
 - **Stale/qualified:** S32's SQL typo is absent in this checkout. SEC04 revocation and API06 name grants are fixed, not file-object policy in general. Management dashboard labels already distinguish its counters. Unindexed/nullable foreign keys alone do not prove bugs or explain N+1 query counts. The friend's summary has no runtime reproductions or commit hash; its September 12 date references a September 15 schema.
