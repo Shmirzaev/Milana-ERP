@@ -80,6 +80,7 @@
 
 ## Evidence
 
+- **PERF18 partial:** [production.py:5306](backend/app/api/routes/production.py#L5306), `3217856`: receive options use **two SELECTs**, with SQL limit for blank search. Fourteen SQLite cases and a50-scope PostgreSQL case independently pass. Database grouping and correlated lookups still grow with data; search remains unbounded. Not O(1) total work.
 - **PERF25 partial:** [sales.py:1741](backend/app/api/routes/sales.py#L1741), `565d1cd`: sales history loads **10 order objects instead of802** for a10-row page. Five focused and nine history/payment compatibility cases pass. Candidate keys still sort in memory; summaries remain per row. Concurrent deletion can shorten a page.
 - **PERF08 partial:** [packages.py:208](backend/app/api/routes/packages.py#L208), `890177e`: batch receiving-queue references; omit unused image bytes. 1/50/401 packages: **13/13/21 SELECTs**. All 13 queue/label cases independently pass. Full response remains unbounded; printed images retain their existing embedded format.
 - **PERF19 partial:** [production.py:4295](backend/app/api/routes/production.py#L4295), `87c1b76`: cutting reconciliation uses grouped evidence instead of repeated per-work-order queries. 1/50/401 scopes: **16/16/16 SELECTs**. All 16 focused cases independently pass. Other scalar validation callers remain unchanged; fixed query count does not mean constant database work.

@@ -1009,10 +1009,10 @@
       "risk": "Small screens still do full work.",
       "proposed_fix": "Filter/page eligible scopes.",
       "baseline_source": "backend/app/api/routes/production.py:5031",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "3217856",
+      "evidence": "Grouped receive options:2 SELECTs at1/50/401 scopes, blank-search SQL limit bounds returned rows.14 focused SQLite cases and one50-scope PostgreSQL case independently pass; one production-flow compatibility case passes. Preserve NULL/exact/fallback targets, normalized department validation, public order aliases and search. PG EXPLAIN shows indexed correlated target lookups but100 loops for50 scopes; aggregate/per-scope DB work and searched results remain unbounded."
     },
     {
       "number": 85,
