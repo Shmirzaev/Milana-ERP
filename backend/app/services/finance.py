@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.dt import as_utc
 from app.models import (
     SalesOrder, ProductionOrder, FinishedGoodsStock,
     WasteRecord, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
@@ -125,15 +126,17 @@ def list_recent_invoices(db: Session, limit: int = 50) -> list[dict]:
 
 def revenue_by_period(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict]:
     """Aggregate invoice revenue by month for charting."""
+    from_dt, to_dt = as_utc(from_dt), as_utc(to_dt)
     invoices = db.query(Invoice).order_by(Invoice.id.asc()).all()
     buckets: dict[str, float] = {}
     for invoice in invoices:
         dt = invoice.issued_at or invoice.created_at
         if not dt:
             continue
-        if from_dt and dt < from_dt:
+        comparison_dt = as_utc(dt)
+        if from_dt and comparison_dt < from_dt:
             continue
-        if to_dt and dt > to_dt:
+        if to_dt and comparison_dt > to_dt:
             continue
         key = dt.strftime("%Y-%m")
         buckets[key] = buckets.get(key, 0.0) + float(invoice.amount or 0)
