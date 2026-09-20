@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, require_permissions
@@ -207,15 +208,119 @@ def _validate_report_capacity(db, work_order, assignment, payload, exclude_id=No
         raise HTTPException(400, f"Daily sewing report exceeds the order quantity. Remaining: top {top_remaining}, bottom {bottom_remaining}.")
 
 
+def _line_context_capacity_maps(db, rows):
+    if not rows:
+        return {}, {}
+    production_ids = {int(work_order.production_order_id) for work_order, _ in rows}
+    batch_ids = {
+        int(assignment.production_batch_id if assignment and assignment.production_batch_id
+            else work_order.production_batch_id)
+        for work_order, assignment in rows
+        if assignment and assignment.production_batch_id or work_order.production_batch_id
+    }
+    assignment_ids = {int(assignment.id) for _, assignment in rows if assignment is not None}
+
+    order_bundle_totals = defaultdict(int)
+    batch_bundle_totals = defaultdict(int)
+    bundle_rows = (
+        db.query(Bundle.production_order_id, Bundle.production_batch_id, func.sum(Bundle.quantity))
+        .filter(Bundle.production_order_id.in_(production_ids), Bundle.status != "cancelled")
+        .group_by(Bundle.production_order_id, Bundle.production_batch_id)
+        .all()
+    )
+    for production_id, batch_id, quantity in bundle_rows:
+        order_bundle_totals[int(production_id)] += int(quantity or 0)
+        if batch_id is not None:
+            batch_bundle_totals[(int(production_id), int(batch_id))] += int(quantity or 0)
+
+    batches = {
+        int(batch.id): batch
+        for batch in db.query(ProductionBatch).filter(ProductionBatch.id.in_(batch_ids)).all()
+    } if batch_ids else {}
+
+    usage = {
+        "order": defaultdict(lambda: [0, 0]),
+        "batch": defaultdict(lambda: [0, 0]),
+        "assignment": defaultdict(lambda: [0, 0]),
+    }
+    top_value = case(
+        (SewingDailyReport.top_qty.is_not(None), SewingDailyReport.top_qty),
+        else_=SewingDailyReport.sewn_qty,
+    )
+    bottom_value = case(
+        (SewingDailyReport.bottom_qty.is_not(None), SewingDailyReport.bottom_qty),
+        else_=SewingDailyReport.sewn_qty,
+    )
+    conditions = [SewingDailyReport.production_order_id.in_(production_ids)]
+    if batch_ids:
+        conditions.append(SewingDailyReport.production_batch_id.in_(batch_ids))
+    if assignment_ids:
+        conditions.append(SewingDailyReport.sewing_assignment_id.in_(assignment_ids))
+    report_rows = (
+        db.query(
+            SewingDailyReport.production_order_id,
+            SewingDailyReport.production_batch_id,
+            SewingDailyReport.sewing_assignment_id,
+            func.sum(top_value),
+            func.sum(bottom_value),
+        )
+        .filter(or_(*conditions))
+        .group_by(
+            SewingDailyReport.production_order_id,
+            SewingDailyReport.production_batch_id,
+            SewingDailyReport.sewing_assignment_id,
+        )
+        .all()
+    )
+    for production_id, batch_id, assignment_id, top, bottom in report_rows:
+        for scope, scope_id in (
+            ("order", production_id), ("batch", batch_id), ("assignment", assignment_id),
+        ):
+            if scope_id is not None:
+                usage[scope][int(scope_id)][0] += int(top or 0)
+                usage[scope][int(scope_id)][1] += int(bottom or 0)
+
+    capacities = {}
+    for work_order, assignment in rows:
+        production_id = int(work_order.production_order_id)
+        order = work_order.production_order
+        order_limit = order_bundle_totals.get(production_id, int(order.planned_quantity or 0))
+        order_used = usage["order"][production_id]
+        top_remaining = min(order_limit, order_limit - order_used[0])
+        bottom_remaining = min(order_limit, order_limit - order_used[1])
+        batch_id = assignment.production_batch_id if assignment and assignment.production_batch_id else work_order.production_batch_id
+        if batch_id:
+            batch_id = int(batch_id)
+            batch = batches.get(batch_id)
+            batch_limit = batch_bundle_totals.get(
+                (production_id, batch_id), int(batch.planned_quantity if batch else 0),
+            )
+            batch_used = usage["batch"][batch_id]
+            top_remaining = min(top_remaining, batch_limit - batch_used[0])
+            bottom_remaining = min(bottom_remaining, batch_limit - batch_used[1])
+        assignment_id = int(assignment.id) if assignment is not None else None
+        if assignment_id is not None:
+            assignment_used = usage["assignment"][assignment_id]
+            top_remaining = min(top_remaining, int(assignment.quantity or 0) - assignment_used[0])
+            bottom_remaining = min(bottom_remaining, int(assignment.quantity or 0) - assignment_used[1])
+        capacities[(int(work_order.id), assignment_id)] = (
+            max(0, top_remaining), max(0, bottom_remaining),
+        )
+    return capacities, batches
+
+
 def _work_order_context(
     db,
     work_order: WorkOrder,
     *,
     sewing_assignment: SewingAssignment | None = None,
     kroy_cache: dict[int, str | None] | None = None,
+    capacity_cache: dict[tuple[int, int | None], tuple[int, int]] | None = None,
+    batch_cache: dict[int, ProductionBatch] | None = None,
 ) -> SewingDailyLineWorkOrder:
     batch_id = sewing_assignment.production_batch_id if sewing_assignment and sewing_assignment.production_batch_id else work_order.production_batch_id
-    batch = db.get(ProductionBatch, int(batch_id)) if batch_id else None
+    batch = ((batch_cache or {}).get(int(batch_id)) if batch_cache is not None
+             else db.get(ProductionBatch, int(batch_id))) if batch_id else None
     if sewing_assignment is not None:
         planned = int(sewing_assignment.quantity or 0)
         completed = int(sewing_assignment.completed_qty or 0)
@@ -224,7 +329,9 @@ def _work_order_context(
         planned = max(int(work_order.planned_input_qty or 0), int(work_order.planned_output_qty or 0))
         completed = int(work_order.passed_qty or 0) + int(work_order.failed_qty or 0)
         assignment_id = None
-    report_top, report_bottom = _report_capacity(db, work_order, sewing_assignment)
+    capacity_key = (int(work_order.id), int(sewing_assignment.id) if sewing_assignment is not None else None)
+    report_top, report_bottom = (capacity_cache[capacity_key] if capacity_cache is not None
+                                 else _report_capacity(db, work_order, sewing_assignment))
     return SewingDailyLineWorkOrder(
         work_order_id=int(work_order.id),
         sewing_assignment_id=assignment_id,
@@ -267,8 +374,8 @@ def _line_context(db, flow: SewingFlow) -> SewingDailyLineContext:
         .order_by(SewingAssignment.status.desc(), SewingAssignment.updated_at.desc(), SewingAssignment.id.desc())
         .all()
     )
-    active = [
-        _work_order_context(db, assignment.work_order, sewing_assignment=assignment, kroy_cache=kroy_cache)
+    context_rows = [
+        (assignment.work_order, assignment)
         for assignment in split_assignments
         if assignment.work_order is not None
     ]
@@ -296,7 +403,16 @@ def _line_context(db, flow: SewingFlow) -> SewingDailyLineContext:
         completed = int(work_order.passed_qty or 0) + int(work_order.failed_qty or 0)
         if planned > 0 and completed >= planned:
             continue
-        active.append(_work_order_context(db, work_order, kroy_cache=kroy_cache))
+        context_rows.append((work_order, None))
+
+    capacity_cache, batch_cache = _line_context_capacity_maps(db, context_rows)
+    active = [
+        _work_order_context(
+            db, work_order, sewing_assignment=assignment, kroy_cache=kroy_cache,
+            capacity_cache=capacity_cache, batch_cache=batch_cache,
+        )
+        for work_order, assignment in context_rows
+    ]
 
     active.sort(key=lambda row: (row.status != "in_progress", row.work_order_id))
     return SewingDailyLineContext(
