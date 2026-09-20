@@ -32,12 +32,9 @@ def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | Non
     return 0.0
 
 
-def _recalculate_value(db: DbSession, w: WasteRecord) -> float:
+def _estimated_value_for_waste(db: DbSession, w: WasteRecord) -> float:
     unit_cost = _unit_cost_for_waste(db, w.item_id, w.batch_id)
-    value = round(float(w.quantity or 0) * unit_cost, 2)
-    if float(w.estimated_value or 0) != value:
-        w.estimated_value = value
-    return value
+    return round(float(w.quantity or 0) * unit_cost, 2)
 
 
 @router.get("", response_model=list[WasteOut])
@@ -46,14 +43,14 @@ def list_waste(db: DbSession, _: CurrentUser, status: str | None = None, sellabl
     if status: qry = qry.filter(WasteRecord.status == status)
     if sellable is not None: qry = qry.filter(WasteRecord.sellable.is_(sellable))
     rows = qry.order_by(WasteRecord.id.desc()).all()
-    changed = False
-    for row in rows:
-        before = float(row.estimated_value or 0)
-        _recalculate_value(db, row)
-        changed = changed or before != float(row.estimated_value or 0)
-    if changed:
-        db.commit()
-    return rows
+    # Preserve the existing live-estimate response without rewriting the
+    # valuation snapshot stored with the historical waste record.
+    return [
+        WasteOut.model_validate(row).model_copy(
+            update={"estimated_value": _estimated_value_for_waste(db, row)},
+        )
+        for row in rows
+    ]
 
 
 @router.post("", response_model=WasteOut, status_code=201)
