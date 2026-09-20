@@ -711,8 +711,8 @@
       "baseline_source": "backend/app/schemas/sales.py",
       "status": "partial",
       "owner": null,
-      "commit": "5a68d12",
-      "evidence": "Invoice/payment finite amount and int4 ID bounds; payment method max32. 16 red schema cases become green; focused+payment selection29pass6PGskip, API422/no-write verified. Decimal precision, other states and input-list bounds remain open."
+      "commit": "5a68d12,41ae782",
+      "evidence": "Invoice/payment bounds retained. Sales-item nonfinite/oversized prices and int4 quantity/pack bounds added: 8 baseline failures; 13 new and 32 finance/status compatibility cases pass. Invalid API input422/no writes; zero/None preserved. Aggregate totals, model-derived prices, Decimal precision, other states and input-list bounds remain open."
     },
     {
       "number": 60,
@@ -937,10 +937,10 @@
       "risk": "Large print jobs slow.",
       "proposed_fix": "Share sheet-level context.",
       "baseline_source": "backend/app/api/routes/packages.py:1486",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "f27e240",
+      "evidence": "Package-sheet shared reference SELECTs1/50/401:11/11/13 total after batching; formerly each tracked reference table read per package. Five cases independently pass; nine focused/related pass before distinct-reference addition. Extra401 distinct models/orders test passes with12 context/render SELECTs. Exact cards and permission/deleted-label preflight preserved. Bundle label paths and unbounded output remain open."
     },
     {
       "number": 79,
@@ -1189,10 +1189,10 @@
       "risk": "O(R) memory/work; some sorting O(F log F).",
       "proposed_fix": "SQL pagination; bounded exports.",
       "baseline_source": "backend/app/api/routes/stocktake.py:139",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "7fe32ef",
+      "evidence": "Common blank-search detail filters SQL-page rows; limit10 serializes10 rather than401. 16 cases independently pass;12 existing stocktake cases pass. Exact filters/global totals/frozen NULL snapshots/deleted packages preserved. Live balance aggregation scoped to requested IDs. Summary still scans candidates; search/changed/CSV unchanged. READ COMMITTED is not atomic snapshot proof."
     },
     {
       "number": 100,

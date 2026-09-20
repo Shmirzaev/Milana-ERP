@@ -1,10 +1,10 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-20
+Last updated: 2026-09-21
 
 ## Stabilization fixes prepared — not deployed (2026-09-18)
 
-- Latest reviewed batches: **68/127 findings fixed;39 open;20 partial**. Password changes serialize with independently passing PostgreSQL proof. Accessory queue401 orders:3611→14 queries; material-origin401 references:401→2. Notification responses are bounded. These extend partial findings, not the fixed count. General sales edits cannot change workflow status; invoice entry points serialize. Audit/QA record tests and limits. CI passed at `f8e3a44`; later changes need a combined run. Review custom scan-only payroll roles and external manual-status clients before rollout. No deployment or production access; main conflicts remain unresolved.
+- Latest reviewed batches: **68/127 findings fixed;37 open;22 partial**. Password changes serialize with PostgreSQL proof. Accessory queue401 orders:3611→14 queries; label sheets401 packages:13 queries. Stocktake normal pages serialize only requested rows; summaries/search/exports remain partial. Sales numeric bounds and revenue-date comparisons are corrected. Audit-chain protocol is still an uncommitted prototype, not a fix claim. CI passed at `92baf3b` (1,911 backend passes/98 skips; separate PostgreSQL/frontend green); later changes need a combined run. Review custom scan-only payroll roles and manual-status clients before rollout. No deployment/production access; main conflicts remain unresolved.
 
 - Continued 2026-09-20: 35 findings fixed in focused commits. Payment reassignment/import isolation passed 25 tests including 8 PostgreSQL cases; quality factory scope passed 93 scope/workflow tests. Pool configuration and task input checks are corrected, but aggregate capacity and task target-access mapping remain open. Payroll issuance corrections passed 64 tests; reference SELECTs fell from 8/44/204 to 7/7/7 at 1/10/50 labels. CI passed for `738daad`; later commits need their final run. Latest main `5c4844e` conflicts with this branch; user requested continued branch-local fixes, not merge/release. No production contact.
 
