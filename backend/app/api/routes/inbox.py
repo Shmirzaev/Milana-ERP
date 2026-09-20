@@ -40,6 +40,7 @@ from app.services.bundles import (
 )
 from app.services.model_images import model_display_image_url
 from app.services.factory_scope import require_operational_department_access
+from app.services.production import WORK_ORDER_OPERATION_PERMISSIONS
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 _PENDING_WO_STATUSES = ("new", "planning", "ready", "waiting", "pending", "collected", "paused")
@@ -56,19 +57,6 @@ _DEPT_OPERATION = {
     DEPT_BESTTEX_PACKAGING: "packaging",
     DEPT_ECO_COTTON_PACKAGING: "packaging",
     "FGS": "storage_transfer",
-}
-_INBOX_OPERATION_PERMISSIONS = {
-    "cutting": {"cutting.records", "cutting.bundles", "planning.production"},
-    "printing": {"printing.records", "planning.production"},
-    "sewing": {"sewing.records", "sewing.bundles", "planning.production"},
-    "packaging": {"packaging.records", "packaging.packages", "planning.production"},
-    "storage_transfer": {
-        "storage.items",
-        "storage.receive",
-        "storage.transfer",
-        "storage.packages",
-        "planning.production",
-    },
 }
 _SEWING_LOGISTICS_DEPTS = {DEPT_SEW, DEPT_MILANA, DEPT_BESTTEX, DEPT_ECO_COTTON}
 _TEXTILE_MIXED = "MIXED"
@@ -888,7 +876,7 @@ def department_inbox(
 ):
     d = _resolve_department(db, current, dept)
     operation = _DEPT_OPERATION.get(d.code)
-    required = _INBOX_OPERATION_PERMISSIONS.get(operation or "", set())
+    required = WORK_ORDER_OPERATION_PERMISSIONS.get(operation or "", set())
     granted = set(user_permissions(current))
     if required and "*" not in granted and not required.intersection(granted):
         raise HTTPException(403, f"Missing permission for {d.code} department inbox")

@@ -9,7 +9,14 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
-from app.core.deps import CurrentUser, DbSession, PRODUCTION_READ_PERMISSIONS, require_permissions, is_admin
+from app.core.deps import (
+    CurrentUser,
+    DbSession,
+    PRODUCTION_READ_PERMISSIONS,
+    is_admin,
+    require_permissions,
+    user_permissions,
+)
 from app.core.model_search import model_code_contains
 from app.core.signing import sign_path
 from app.core.uploads import (
@@ -45,6 +52,7 @@ from app.services.packaging_scope import (
     require_packaging_work_order_access,
 )
 from app.services.production import (
+    WORK_ORDER_OPERATION_PERMISSIONS,
     create_production_order,
     create_production_batches,
     create_work_orders,
@@ -101,6 +109,9 @@ _PRODUCTION_FLOOR_PERMS = (
     "management.approve",
     "*",
 )
+_WORK_ORDER_COMMAND_PERMS = tuple(
+    sorted({"*", *(permission for values in WORK_ORDER_OPERATION_PERMISSIONS.values() for permission in values)})
+)
 
 
 def _require_standard_production_order(db: DbSession, pid: int) -> ProductionOrder:
@@ -131,6 +142,21 @@ _PO_PRE_CUTTING_EDIT_FIELDS = {
     "estimated_material_amount",
     "estimated_material_unit",
 }
+
+
+def _authorize_work_order_command(db: DbSession, current: User, work_order: WorkOrder) -> None:
+    required = WORK_ORDER_OPERATION_PERMISSIONS.get(str(work_order.operation or ""))
+    if not required:
+        raise HTTPException(403, "Unsupported work order operation")
+    granted = set(user_permissions(current))
+    if "*" not in granted and not granted.intersection(required):
+        raise HTTPException(403, "This account cannot update this production stage")
+    source_type = db.query(ProductionOrder.source_type).filter(
+        ProductionOrder.id == work_order.production_order_id,
+    ).scalar()
+    if source_type == "usluga":
+        require_factory_access(current, "ECO")
+    require_work_order_factory_access(current, db, work_order)
 
 
 def _notify_accessory_issue_block(db: DbSession, wo: WorkOrder, plan: dict, stage: str) -> None:
@@ -1705,11 +1731,15 @@ def work_order_replacement_status(
 
 
 @router.patch("/work-orders/{wid}", response_model=WorkOrderOut)
-def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
+def update_wo(
+    wid: int,
+    payload: WorkOrderUpdate,
+    db: DbSession,
+    current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS)),
+):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
-    if db.query(ProductionOrder.source_type).filter(ProductionOrder.id == wo.production_order_id).scalar() == "usluga":
-        require_factory_access(current, "ECO")
+    _authorize_work_order_command(db, current, wo)
     changes = payload.model_dump(exclude_unset=True)
     if changes.get("status") == "completed":
         _ensure_replacements_do_not_block_completion(db, wo)
@@ -1761,9 +1791,14 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User =
 
 
 @router.post("/work-orders/{wid}/start", response_model=WorkOrderOut)
-def start_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
+def start_wo(
+    wid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS)),
+):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    _authorize_work_order_command(db, current, wo)
     if wo.operation == "storage_transfer":
         raise HTTPException(400, "Storage transfer starts automatically when packages are received into storage.")
     upstream = _upstream_work_order_for_start(db, wo)
@@ -1869,9 +1904,14 @@ def collect_printing_wo(
 
 
 @router.post("/work-orders/{wid}/complete", response_model=WorkOrderOut)
-def complete_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
+def complete_wo(
+    wid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS)),
+):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    _authorize_work_order_command(db, current, wo)
     _ensure_replacements_do_not_block_completion(db, wo)
     wo.status = "completed"
     wo.end_time = datetime.now(timezone.utc)
