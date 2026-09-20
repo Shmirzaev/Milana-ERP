@@ -6,11 +6,13 @@ import subprocess
 import sys
 import warnings
 from dataclasses import dataclass
+from functools import partial
 from io import BytesIO
 from pathlib import Path
 from threading import BoundedSemaphore
 from uuid import uuid4
 
+from anyio import CapacityLimiter, to_thread
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -24,6 +26,9 @@ PREBUILT_THUMBNAIL_SIZES = (160, 320)
 MAX_IMAGE_PIXELS = 50_000_000
 
 _thumbnail_generation_slot = BoundedSemaphore(1)
+# Bound upload decoding per worker process without blocking the event loop or
+# occupying a thread while waiting. Acquire before buffering the upload too.
+_image_upload_slot = CapacityLimiter(1)
 
 
 @dataclass(frozen=True)
@@ -220,7 +225,26 @@ async def store_uploaded_image(
     max_bytes: int,
     prebuild_thumbnails: bool = False,
 ) -> StoredImage:
-    content, _ = await read_validated_image_upload(file, max_bytes)
+    async with _image_upload_slot:
+        content, _ = await read_validated_image_upload(file, max_bytes)
+        return await to_thread.run_sync(partial(
+            _store_image_content,
+            content,
+            target_dir=target_dir,
+            file_url_base=file_url_base,
+            name_prefix=name_prefix,
+            prebuild_thumbnails=prebuild_thumbnails,
+        ))
+
+
+def _store_image_content(
+    content: bytes,
+    *,
+    target_dir: str,
+    file_url_base: str,
+    name_prefix: str,
+    prebuild_thumbnails: bool,
+) -> StoredImage:
     converted = convert_image_to_webp(content)
     file_name = f"{_safe_prefix(name_prefix)}_{uuid4().hex}.webp"
     absolute_path = Path(target_dir) / file_name
