@@ -1568,10 +1568,35 @@ def test_locked_period_rejects_new_records_for_scanner(client, auth_headers):
     locked = client.post(f"/api/payroll/periods/{period['id']}/lock", headers=auth_headers)
     assert locked.status_code == 200, locked.text
 
-    payload = _record_payload(employee["id"], scan_uid=f"locked-{uuid4().hex}")
+    label_uid = f"locked-{uuid4().hex}"
+    issued = client.post(
+        "/api/payroll/qr-labels/issue",
+        json={
+            "labels": [{
+                "label_uid": label_uid,
+                "operation_section": "sewing",
+                "operation_code": "SEW-LOCKED",
+                "operation_name": "Locked period sewing",
+                "quantity": 10,
+                "rate_per_piece": 250,
+                "currency": "UZS",
+            }],
+        },
+        headers=auth_headers,
+    )
+    assert issued.status_code == 200, issued.text
+
+    payload = _record_payload(employee["id"], scan_uid=label_uid)
     payload["payroll_period_id"] = period["id"]
     denied = client.post("/api/payroll/records", json=payload, headers=scanner_headers)
     assert denied.status_code == 409, denied.text
+
+    labels = client.get(f"/api/payroll/qr-labels?search={label_uid}", headers=auth_headers)
+    assert labels.status_code == 200, labels.text
+    matching = [row for row in labels.json()["items"] if row["label_uid"] == label_uid]
+    assert len(matching) == 1
+    assert matching[0]["status"] == "available"
+    assert matching[0]["payroll_record_id"] is None
 
 
 def test_approve_and_mark_paid_permissions(client, auth_headers):

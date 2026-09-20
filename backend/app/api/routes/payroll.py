@@ -550,6 +550,10 @@ def _can_period_override(user: User) -> bool:
     return is_admin(user) or "management.approve" in perms or "payroll.approve" in perms
 
 
+def _can_set_payable_values(user: User) -> bool:
+    return is_admin(user) or "payroll.manage" in user_permissions(user)
+
+
 def _attach_period(
     db: DbSession,
     period_id: int | None,
@@ -629,7 +633,13 @@ def _dedupe_key(data: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _validate_and_enrich_record(db: DbSession, data: dict[str, Any], factory_code: str) -> dict[str, Any]:
+def _validate_and_enrich_record(
+    db: DbSession,
+    data: dict[str, Any],
+    factory_code: str,
+    *,
+    allow_manual_payable_values: bool,
+) -> dict[str, Any]:
     _canonicalize_payroll_input(db, data, factory_code)
     employee_id = data.get("employee_id")
     if not employee_id:
@@ -704,6 +714,8 @@ def _validate_and_enrich_record(db: DbSession, data: dict[str, Any], factory_cod
             .with_for_update()
             .one_or_none()
         )
+    if not issued_label and not allow_manual_payable_values:
+        raise HTTPException(403, "Payroll scan requires an issued payroll QR with server-approved pay values")
     if issued_label:
         if issued_label.status == "superseded":
             raise HTTPException(409, "This payroll QR was replaced by split labels and can no longer be scanned")
@@ -887,7 +899,12 @@ def _create_record_from_payload(
                 )
             return existing, False
 
-    data = _validate_and_enrich_record(db, data, factory_code)
+    data = _validate_and_enrich_record(
+        db,
+        data,
+        factory_code,
+        allow_manual_payable_values=_can_set_payable_values(current),
+    )
     if _is_control_operation(data) and not control_confirmed:
         raise HTTPException(409, "Control operation requires review and confirmation before payroll is recorded")
     existing = db.query(PayrollRecord).filter(
@@ -2096,7 +2113,7 @@ def sewing_production_report_excel(
 def issue_qr_labels(
     payload: PayrollQrLabelsIssueIn,
     db: DbSession,
-    current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
+    current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
     if not payload.labels:
         raise HTTPException(400, "At least one payroll QR label is required")

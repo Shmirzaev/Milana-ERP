@@ -24,7 +24,7 @@ import { formatBatchSerial } from "@/lib/batchSerial";
 import { orderReference, formatOrderReference } from "@/lib/orderRef";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { buildOperationLabelTokens, buildIssuedOperationNumbers, correctedOperationIdentityNeedsReview } from "@/lib/processQrLabelIdentity";
-import { useMe } from "@/lib/auth";
+import { can, useMe } from "@/lib/auth";
 import {
   clonePaidOperations,
   createPaidOperation,
@@ -685,6 +685,7 @@ export default function ProcessQrPage() {
   const dialogs = useDialogs();
   const { t, lang } = useT();
   const { me } = useMe();
+  const canManagePayroll = can(me, "payroll.manage", "*");
   const accountPaidOperationFactory = useMemo<PaidOperationFactory>(
     () => paidOperationFactoryFromDepartmentCode(me?.factory_code) || "milana",
     [me?.factory_code],
@@ -1259,7 +1260,7 @@ export default function ProcessQrPage() {
   }
 
   async function saveOperationsToModel() {
-    if (!selectedModel || !selectedModelId) return;
+    if (!canManagePayroll || !selectedModel || !selectedModelId) return;
     setSavingModelOperations(true);
     setModelSaveMsg("");
     try {
@@ -1289,7 +1290,7 @@ export default function ProcessQrPage() {
   }
 
   async function issueLabels() {
-    if (unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview) return;
+    if (!canManagePayroll || unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview) return;
     setIssuingLabels(true);
     setPrintError("");
     setIssueNotice("");
@@ -1340,7 +1341,7 @@ export default function ProcessQrPage() {
   }
 
   async function deleteIssuedSize(size: string, sizeLabels: IssuedLabelRow[]) {
-    if (deletingSize || sizeLabels.length === 0) return;
+    if (!canManagePayroll || deletingSize || sizeLabels.length === 0) return;
     const eligible = sizeLabels.every((label) => (
       label.status === "available"
       && !label.payroll_record_id
@@ -1396,7 +1397,7 @@ export default function ProcessQrPage() {
   }
 
   function openLabelCorrection(label: IssuedLabelRow) {
-    if (!canCorrectIssuedLabel(label)) return;
+    if (!canManagePayroll || !canCorrectIssuedLabel(label)) return;
     const initialSplit = equalSplitQuantities(Math.max(1, Number(label.quantity)), 2);
     setPrintError("");
     setLabelCorrection({
@@ -1433,7 +1434,7 @@ export default function ProcessQrPage() {
   }
 
   async function saveLabelCorrection() {
-    if (!labelCorrection || savingLabelCorrection) return;
+    if (!canManagePayroll || !labelCorrection || savingLabelCorrection) return;
     const operationName = labelCorrection.operationName.trim();
     const ratePerPiece = Number(labelCorrection.ratePerPiece);
     if (!operationName || !Number.isFinite(ratePerPiece) || ratePerPiece < 0) {
@@ -1576,10 +1577,10 @@ export default function ProcessQrPage() {
                 <Users />
                 <span>{t("page.processQr.printEmployees")}</span>
               </button>
-              <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview}>
+              {canManagePayroll && (<button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview}>
                 {issuingLabels ? <RefreshCw className="animate-spin" /> : <Printer />}
                 <span>{t(issuingLabels ? "page.processQr.issuingLabels" : "page.processQr.issueLabels")}</span>
-              </button>
+              </button>)}
             </div>
           )}
         />
@@ -1989,7 +1990,7 @@ export default function ProcessQrPage() {
                 <RefreshCw />
                 <span>{t("page.processQr.loadModel")}</span>
               </button>
-              <button
+              {canManagePayroll && (<button
                 type="button"
                 className="btn"
                 onClick={saveOperationsToModel}
@@ -1998,14 +1999,14 @@ export default function ProcessQrPage() {
               >
                 <Save />
                 <span>{savingModelOperations ? t("common.saving") : t("page.processQr.saveToModel")}</span>
-              </button>
+              </button>)}
 
               {sectionToggle("paidOperations")}
             </div>
           </div>
 
           <div className={`process-qr-collapsible ${collapsedSections.paidOperations ? "is-collapsed" : ""}`}>
-          <div className="mb-3"><PaidProcessPicker key={selectedModelId} existing={factoryOperations} onSelect={addOperation} /></div>
+          {canManagePayroll && <div className="mb-3"><PaidProcessPicker key={selectedModelId} existing={factoryOperations} onSelect={addOperation} /></div>}
           <div className="overflow-x-auto">
             <table className="table process-qr-operations">
               <colgroup>
@@ -2047,6 +2048,7 @@ export default function ProcessQrPage() {
                         className="h-4 w-4"
                         aria-label={`${t("page.processQr.use")}: ${operation.name}`}
                         checked={operation.selected}
+                        disabled={!canManagePayroll}
                         onChange={(event) => updateOperation(operation.id, { selected: event.target.checked })}
                       />
                     </td>
@@ -2054,6 +2056,7 @@ export default function ProcessQrPage() {
                       <select
                         className="input"
                         value={operation.section}
+                        disabled={!canManagePayroll}
                         onChange={(event) => updateOperation(operation.id, { section: event.target.value as SectionCode, sourceStage: event.target.value })}
                       >
                         {VALID_SECTIONS.map(section => <option key={section} value={section}>{paidSectionLabel(section, lang)}</option>)}
@@ -2063,6 +2066,7 @@ export default function ProcessQrPage() {
                       <input
                         className="input font-mono"
                         value={operation.code}
+                        disabled={!canManagePayroll}
                         onChange={(event) => updateOperation(operation.id, { code: event.target.value.toUpperCase() })}
                       />
                     </td>
@@ -2072,6 +2076,7 @@ export default function ProcessQrPage() {
                         rows={2}
                         aria-label={t("page.processQr.operationName")}
                         value={operation.name}
+                        disabled={!canManagePayroll}
                         onChange={(event) => updateOperation(operation.id, { name: event.target.value })}
                       />
                     </td>
@@ -2083,6 +2088,7 @@ export default function ProcessQrPage() {
                         step="0.01"
                         placeholder="0"
                         value={operation.rate}
+                        disabled={!canManagePayroll}
                         onChange={(event) => updateOperation(operation.id, { rate: event.target.value })}
                       />
                     </td>
@@ -2092,6 +2098,7 @@ export default function ProcessQrPage() {
                         type="number"
                         min={1}
                         value={operation.copies}
+                        disabled={!canManagePayroll}
                         onChange={(event) => updateOperation(operation.id, { copies: parseNumberInput(event.target.value) })}
                       />
                     </td>
@@ -2100,6 +2107,7 @@ export default function ProcessQrPage() {
                         <select
                           className="input"
                           value={operation.splitMode}
+                          disabled={!canManagePayroll}
                           onChange={(event) => updateOperation(operation.id, { splitMode: event.target.value as SplitMode })}
                         >
                           <option value="none">{t("page.processQr.noDivide")}</option>
@@ -2121,6 +2129,7 @@ export default function ProcessQrPage() {
                                   type="number"
                                   min={0}
                                   value={quantity}
+                                  disabled={!canManagePayroll}
                                   onChange={(event) => {
                                     const nextQuantities = splitQuantitiesForInputs(operation);
                                     nextQuantities[index] = parseNumberInput(event.target.value);
@@ -2141,7 +2150,7 @@ export default function ProcessQrPage() {
                           title={t("page.processQr.moveOperationUp")}
                           aria-label={t("page.processQr.moveOperationUp")}
                           onClick={() => moveOperation(operation.id, -1)}
-                          disabled={operationIndex === 0}
+                          disabled={!canManagePayroll || operationIndex === 0}
                         >
                           <ArrowUp />
                         </button>
@@ -2151,7 +2160,7 @@ export default function ProcessQrPage() {
                           title={t("page.processQr.moveOperationDown")}
                           aria-label={t("page.processQr.moveOperationDown")}
                           onClick={() => moveOperation(operation.id, 1)}
-                          disabled={operationIndex === factoryOperations.length - 1}
+                          disabled={!canManagePayroll || operationIndex === factoryOperations.length - 1}
                         >
                           <ArrowDown />
                         </button>
@@ -2160,7 +2169,7 @@ export default function ProcessQrPage() {
                           className="icon-btn"
                           title={t("page.processQr.removeOperation")}
                           onClick={() => removeOperation(operation.id)}
-                          disabled={factoryOperations.length <= 1}
+                          disabled={!canManagePayroll || factoryOperations.length <= 1}
                         >
                           <Trash2 />
                         </button>
@@ -2412,10 +2421,10 @@ export default function ProcessQrPage() {
               <CheckSquare className="h-4 w-4" />
               {t("page.processQr.unissuedLabelCount", { count: unissuedLabels.length.toLocaleString() })}
             </div>
-            <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview}>
+            {canManagePayroll && (<button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview}>
               {issuingLabels ? <RefreshCw className="animate-spin" /> : <QrCode />}
               <span>{t(issuingLabels ? "page.processQr.issuingLabels" : "page.processQr.issueLabels")}</span>
-            </button>
+            </button>)}
             {sectionToggle("workPreview")}
           </div>
         </div>
@@ -2487,7 +2496,7 @@ export default function ProcessQrPage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <button
+                    {canManagePayroll && (<button
                       type="button"
                       className="btn btn-danger"
                       onClick={() => deleteIssuedSize(size, sizeLabels)}
@@ -2506,7 +2515,7 @@ export default function ProcessQrPage() {
                     >
                       {deletingSize === size ? <RefreshCw className="animate-spin" /> : <Trash2 />}
                       <span>{t("page.processQr.deleteSize")}</span>
-                    </button>
+                    </button>)}
                     <button type="button" className="btn btn-primary" onClick={() => printIssuedLabels(sizeLabels)} disabled={preparingPrint}>
                       {preparingPrint ? <RefreshCw className="animate-spin" /> : <Printer />}
                       <span>{t("page.processQr.printThisSize", { size })}</span>
@@ -2519,8 +2528,8 @@ export default function ProcessQrPage() {
                       key={label.id}
                       label={label}
                       operationNumber={operationNumberForLabel(label, issuedOperationNumbers)}
-                      onEdit={() => openLabelCorrection(label)}
-                      editable={canCorrectIssuedLabel(label)}
+                      onEdit={canManagePayroll ? () => openLabelCorrection(label) : undefined}
+                      editable={canManagePayroll && canCorrectIssuedLabel(label)}
                       editDisabledReason={t("page.processQr.editLabelBlocked")}
                     />
                   ))}

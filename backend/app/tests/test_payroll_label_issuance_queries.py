@@ -160,7 +160,7 @@ def test_reference_resolved_in_wrong_factory_rejects_without_insert(client, auth
         db.commit()
     foreign_headers = _create_user_with_permissions(
         client, auth_headers, email=f"payroll-bst-{uuid4().hex}@example.com",
-        permissions=["payroll.scan"], factory_code="BST",
+        permissions=["payroll.scan", "payroll.manage"], factory_code="BST",
     )
     uid = f"wrong-factory-{uuid4().hex}"
     response = client.post("/api/payroll/qr-labels/issue", headers=foreign_headers, json={"labels": [{
