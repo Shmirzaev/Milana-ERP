@@ -100,11 +100,15 @@ The tool refuses an application `.env`, uses the existing temporary SQLite fixtu
 
 ### Latest reviewed fixes — local only
 
+- **FN01:** `test_1c_sync_row_isolation.py` + FN03 → 25 passed including 8 PostgreSQL cases. Import good/bad/good rows: valid rows commit, failed row leaves no partial changes; caller rollback removes accepted rows too. Dialect assertions guard against accidentally testing SQLite as PostgreSQL. O(n) savepoints/writes; no speed claim.
+
 - **FN03:** `test_1c_payment_reassignment.py` → 21 passed (6 PostgreSQL). Move payment A→B: A loses its credit, B gains it; amount edits, retries and rollback preserve totals. Concurrent moves/manual payments serialize. Run with the disposable-cluster command above. Added lock reads are bounded per batch; processing/status aggregation still grows with payment rows—no O(1) claim.
 - **FN05:** `test_customer_payment_cents.py` → submit 0.01 advance or 1.01 against a 1.00 invoice; residual credit is retained. Sub-cent, negative and nonfinite amounts reject before writes. Existing invoice settlement tolerance is unchanged.
 - **SEC11:** `test_quality_check_factory_scope.py` + `test_production_flow.py` → 93 passed. POST `/api/quality/checks`: six wrong-factory pairs return 403 with no quality/audit inserts; own/explicitly selected factory works, missing work order returns 404. One added department lookup; no throughput claim or visual UI proof.
 - **OPS02 partial:** `test_db_pool_configuration.py` → 9 passed without a PostgreSQL connection. Explicit 8/4 and zero-overflow honored; unset values retain 5/10; SQLite unaffected. Maximum configured connections must still be budgeted across every process/slot/client.
 - **PERF05 review:** no-reference test passed, but distinct order references produced 8/44/204 SELECTs at 1/10/50 labels. Same-request duplicate UID also inflated creation/audit counts. Both need accepted corrections before closing PERF05.
+- **API02 partial:** `test_task_input_validation.py` + `test_task_assignment_authorization.py` → 56 passed. POST/PATCH `/api/tasks`: invalid states, dates, blank/oversized title/type, int4 overflow and explicit required-field nulls return 422; omitted/nullable fields and legacy orphan edits remain compatible. Target existence/access remains open. Validation adds no database queries; string checks are linear in input length.
+- **Scoped API observation:** quality/task/payment regression batch → 83 passed, 6 PostgreSQL-only skipped; 114 requests across 7 routes, no failed tests. This is a dirty-worktree batch, not updated full-suite coverage. Separate PostgreSQL results above remain required.
 
 ### Final acceptance
 

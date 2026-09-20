@@ -661,10 +661,10 @@
       "risk": "Whole batch may fail unexpectedly.",
       "proposed_fix": "Use savepoints or all-or-nothing validation.",
       "baseline_source": "backend/app/services/finance_1c.py:79",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "ccf409a",
+      "evidence": "FN01+FN03 suites: 25 passed including 8 PostgreSQL cases. Explicit dialect assertions prove real PG use. Good/bad/good rows, constraint failures, failed payment move and whole-caller rollback preserve data. Batch lock acquisition failures remain transaction-level failures."
     },
     {
       "number": 56,
@@ -783,8 +783,8 @@
       "baseline_source": "backend/app/schemas/tasks.py:8",
       "status": "open",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "22593e7",
+      "evidence": "Partial fix: command enums, title/type/int4 bounds, null/date validation and paired references; 56 task/authorization tests passed, including follow-up c56a7f1. Legacy orphan references permit unrelated edits. Target existence/access mapping still needs implementation/policy; not closed."
     },
     {
       "number": 66,
