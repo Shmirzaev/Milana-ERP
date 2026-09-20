@@ -1021,10 +1021,10 @@
       "risk": "Costly updates on large orders.",
       "proposed_fix": "Grouped counters.",
       "baseline_source": "backend/app/api/routes/production.py:4220",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "87c1b76",
+      "evidence": "Reconciliation bulk-groups evidence: 16 SELECTs at 1/50/401 scopes. Sixteen focused cases independently pass, including each evidence source, replacement subtraction, allocation precedence and NULL scope; eight related cases passed. Other scalar validation callers remain unchanged; database row-processing cost is not constant."
     },
     {
       "number": 86,

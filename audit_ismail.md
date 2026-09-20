@@ -80,6 +80,7 @@
 
 ## Evidence
 
+- **PERF19 partial:** [production.py:4295](backend/app/api/routes/production.py#L4295), `87c1b76`: cutting reconciliation uses grouped evidence instead of repeated per-work-order queries. 1/50/401 scopes: **16/16/16 SELECTs**. All 16 focused cases independently pass. Other scalar validation callers remain unchanged; fixed query count does not mean constant database work.
 - **Audit contract change:** PostgreSQL audit objects have no ID/hash and are not query-visible until outer commit. Savepoints and rollback preserve atomicity. Requires READ COMMITTED; verify before deployment. SQLite keeps immediate writes. Later audit callbacks fail before flushing; future direct audit-table inserts must not bypass this protocol. Commit serialization adds waiting; no load-capacity claim.
 - **PERF12 partial:** [packages.py:259](backend/app/api/routes/packages.py#L259), `f27e240`: share label-sheet references and check all deleted labels before QR work.1/50/401 packages:11/11/13 total SELECTs; five cases independently pass. Extra401 distinct-model/order case passes. Bundle labels and output limits remain open.
 - **Revenue date crash fixed:** [finance.py:127](backend/app/services/finance.py#L127), `93ca1f1`: mixed timezone-aware/naive dates raised `TypeError`. Normalize comparisons; four API cases pass (UTC, offset, naive and fallback dates). Accounting/month-bucket policy is unchanged; FN08 remains open.
