@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
-from app.core.deps import DbSession, PRODUCTION_READ_PERMISSIONS, require_permissions, is_admin
+from app.core.deps import CurrentUser, DbSession, PRODUCTION_READ_PERMISSIONS, require_permissions, is_admin
 from app.core.model_search import model_code_contains
 from app.core.signing import sign_path
 from app.core.uploads import (
@@ -31,7 +31,7 @@ from app.models import (
 )
 from app.schemas.inventory import MaterialReservationOut, MaterialReservationStatusOut
 from app.schemas.production import (
-    ProductionOrderIn, ProductionOrderOut, ProductionOrderDetail,
+    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail,
     WorkOrderOut, WorkOrderUpdate,
     CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
     QualityCheckIn, QualityCheckOut,
@@ -110,6 +110,14 @@ def _require_standard_production_order(db: DbSession, pid: int) -> ProductionOrd
     if po.source_type == "usluga":
         raise HTTPException(409, "Use the isolated Eco Cotton Usluga workflow for this order")
     return po
+
+
+def _require_standard_production_order_update(
+    pid: int,
+    db: DbSession,
+    _: User = Depends(require_permissions("planning.production", "*")),
+) -> ProductionOrder:
+    return _require_standard_production_order(db, pid)
 
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
@@ -1073,9 +1081,15 @@ def get_po(pid: int, db: DbSession, current: User = Depends(require_permissions(
 
 
 @router.patch("/production-orders/{pid}", response_model=ProductionOrderOut)
-def update_po(pid: int, payload: dict, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
-    po = _require_standard_production_order(db, pid)
-    if _PO_PRE_CUTTING_EDIT_FIELDS.intersection(payload.keys()):
+def update_po(
+    pid: int,
+    payload: ProductionOrderUpdateIn,
+    db: DbSession,
+    current: CurrentUser,
+    po: ProductionOrder = Depends(_require_standard_production_order_update),
+):
+    updates = payload.model_dump(exclude_unset=True)
+    if _PO_PRE_CUTTING_EDIT_FIELDS.intersection(updates):
         cutting_wo = (
             db.query(WorkOrder)
             .filter(WorkOrder.production_order_id == pid, WorkOrder.operation == "cutting")
@@ -1084,11 +1098,19 @@ def update_po(pid: int, payload: dict, db: DbSession, current: User = Depends(re
         )
         if cutting_wo and cutting_wo.status not in _PRE_CUTTING_EDIT_STATUSES:
             raise HTTPException(409, "Production order planning fields are locked after cutting starts")
-    if "printing_attachments" in payload:
-        payload["printing_attachments"] = printing_attachments_for_storage(payload["printing_attachments"])
-    for k, v in payload.items():
-        if hasattr(po, k):
-            setattr(po, k, v)
+    if "model_id" in updates:
+        model_exists = db.query(Model.id).filter(
+            Model.id == updates["model_id"],
+            Model.catalog_scope == "standard",
+        ).first()
+        if not model_exists:
+            raise HTTPException(404, "Model not found")
+    if updates.get("sales_order_id") is not None and not db.get(SalesOrder, updates["sales_order_id"]):
+        raise HTTPException(404, "Sales order not found")
+    if "printing_attachments" in updates:
+        updates["printing_attachments"] = printing_attachments_for_storage(updates["printing_attachments"])
+    for key, value in updates.items():
+        setattr(po, key, value)
     log_action(db, current, "update", "ProductionOrder", po.id)
     db.commit(); db.refresh(po)
     return po
