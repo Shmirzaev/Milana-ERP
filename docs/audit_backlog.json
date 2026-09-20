@@ -649,10 +649,10 @@
       "risk": "Conflicting payable outcomes.",
       "proposed_fix": "Share label/period locking.",
       "baseline_source": "backend/app/api/routes/payroll.py:2869",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "a208223",
+      "evidence": "Four forced PostgreSQL races pass and are independently repeated; six SQLite compatibility cases pass. Fresh period-label-record locks, assignment recheck, paid/admin policy preserved. docs/stabilization_qa.md"
     },
     {
       "number": 55,
@@ -697,10 +697,10 @@
       "risk": "Cross-caller replay or retry failures.",
       "proposed_fix": "Scope and claim keys atomically.",
       "baseline_source": "backend/app/services/idempotency.py:31",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "c21e50b",
+      "evidence": "7 focused cases pass: 3 SQLite and 4 PostgreSQL owner/payload/concurrency/rollback cases; independent source review. 68 related pass,12 PG skipped in SQLite run. All 28 replay callers pass user; unknown historical owners reject409. No-key requests unchanged. docs/stabilization_qa.md"
     },
     {
       "number": 59,
@@ -709,10 +709,10 @@
       "risk": "Precision errors or late database failures.",
       "proposed_fix": "Validate Decimal amounts and limits.",
       "baseline_source": "backend/app/schemas/sales.py",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "5a68d12",
+      "evidence": "Invoice/payment finite amount and int4 ID bounds; payment method max32. 16 red schema cases become green; focused+payment selection29pass6PGskip, API422/no-write verified. Decimal precision, other states and input-list bounds remain open."
     },
     {
       "number": 60,
@@ -1045,10 +1045,10 @@
       "risk": "Single lookup can become expensive.",
       "proposed_fix": "Bound graph and bulk-load context.",
       "baseline_source": "backend/app/services/traceability.py:251",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "2f8f951",
+      "evidence": "Bundle department batching: cold1/50/401 full SELECTs9/58/409 to9/9/10; five focused cases independently pass. Other traceability loops and graph bounds remain open. docs/stabilization_qa.md"
     },
     {
       "number": 88,
@@ -1060,7 +1060,7 @@
       "status": "partial",
       "owner": null,
       "commit": "d1c4117",
-      "evidence": "Usluga1/50/401orders sharing models:9/352/2806 ->9/9/12SELECTs;401distinctmodels16SELECTs, no image BLOBs. Six focused tests pass incl scalar payload parity; four independently repeated. Related19pass3PGskip. Unbounded response remains open. docs/stabilization_qa.md"
+      "evidence": "Usluga1/50/401orders sharing models:9/352/2806 ->9/9/12SELECTs;401distinctmodels16SELECTs, no image BLOBs. Six focused tests pass incl scalar payload parity; all six independently repeated. Related19pass3PGskip. Unbounded response remains open. docs/stabilization_qa.md"
     },
     {
       "number": 89,

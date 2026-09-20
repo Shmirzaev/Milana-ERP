@@ -2,12 +2,14 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**63 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**65 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **FN06 — Retry keys replay another user's result or race** | Data disclosure or duplicate-write failure | [idempotency.py:32](backend/app/services/idempotency.py#L32): verify owner and serialize PostgreSQL retries. `c21e50b`; 7 focused cases pass, including 4 PostgreSQL races/rollback cases. Unknown legacy owners return 409 and require review. |
+| **PY05 — QR return races scanning/finalization** | Conflicting payroll results | [payroll.py:3238](backend/app/api/routes/payroll.py#L3238): refreshed period→label→record locks; reject changed assignment. `a208223`; 4 PostgreSQL races independently pass; 6 related SQLite cases pass. |
 | **PERF17 — Daily reports repeat model/passport reads** | Slow reports and sewing context | [sewing_daily_reports.py:157](backend/app/api/routes/sewing_daily_reports.py#L157):400-ID model/assets and ranked latest-passport batches. `3e2ff6a`;401 orders:report1206→9 SELECTs, line context1610→14. Five focused tests independently pass;18 related pass. Writes/locks unchanged. |
 | **PY02 — Writes race payroll finalization** | Approved pay changes or scans lose their period | [payroll.py:597](backend/app/api/routes/payroll.py#L597): refreshed period→label→record locks; ordered bulk locks; pin automatic period. `b285877`;110 SQLite and6 PostgreSQL tests pass. All six PostgreSQL cases independently repeated across two runs. QR returns remain PY05. |
 | **PERF24 — Sales/shipment lists repeat reference reads** | Slow listings as rows grow | [sales.py:1609](backend/app/api/routes/sales.py#L1609), [shipments.py:838](backend/app/api/routes/shipments.py#L838): reuse joined references. `93f8b59`, `d687557`;401 sales orders402→1 SELECTs;501 shipments1006→4. Six/seven focused cases pass, including package/scan totals and HTTP response. |
@@ -74,6 +76,10 @@
 
 ## Evidence
 
+- **FN07 partial:** `5a68d12` bounds invoice/payment amounts, IDs and method length before writes. 29 tests pass; 6 PostgreSQL cases skipped in this SQLite selection. Monetary precision and other financial states/lists remain open.
+- **PERF21 partial:** `2f8f951` batches bundle departments. 1/50/401 bundles: 9/9/10 SELECTs instead of 9/58/409; five tests independently pass. Other traceability loops and graph bounds remain open.
+- **Current CI:** `80044b9` PostgreSQL job passed. Frontend stopped on an outdated label-edit test; authorization render/handler tests passed. Full backend run and corrected-build confirmation pending. Validation uses loopback addresses, not production.
+
 - **Ledger correction:** payroll batching `538ff66` belongs to PERF05. PY03 authorization is fixed separately by `900641e`; do not confuse query batching with access control.
 - **CI wiring:** PostgreSQL selection includes administrator membership races. Corrected YAML indentation that would otherwise execute three test-file paths as shell commands. Workflow parsed locally; remote final-revision success is not yet claimed.
 
@@ -124,7 +130,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **PERF29 partial:** customer payment allocation batches invoice totals (`91f2f73`; 14 tests +six PostgreSQL races passed). 1/50/401 invoices: **2/51/402 → 2/2/3 SELECTs**. Invoice locking, first-payable order and advances preserved; 1C per-row work remains open.
 - **PERF36 partial:** task broadcasts batch writes (`c5b2483`; 35 SQLite +three PostgreSQL tests passed). 50 recipients: **101→2 flushes**; task/notification INSERT statements total2 on PostgreSQL. Fan-out still creates O(n) rows; admin-count path remains open.
 - **PERF23 partial:** pricing lists batch model assets (`b6b5aab`; eight pricing tests passed, five independently repeated). 1/50/501 requests: **3/101/1003→4/4/7 SELECTs**, without image binaries. Same payload/order/fallbacks; unbounded responses and polling remain open.
-- **PERF22 partial:** Usluga lists batch children (`d1c4117`; six focused tests, four independently repeated; related19 passed).401 orders sharing models: **2806→12 SELECTs**;401 distinct models use16. No image binaries; scalar payload parity passes. Unbounded responses remain open.
+- **PERF22 partial:** Usluga lists batch children (`d1c4117`; all six focused tests independently repeated; related19 passed).401 orders sharing models: **2806→12 SELECTs**;401 distinct models use16. No image binaries; scalar payload parity passes. Unbounded responses remain open.
 - **PERF28 partial:** receipt catalog/reference reads are batched (`1efce38`; 26 tests passed, four independently repeated). Reference reads for1/10/50 values:1/1/1; audit-head reads still3/21/101. Audit-chain correctness/scaling remains open.
 - **Overlap:** audit-chain races, invoice duplication, raw PATCH fields, image/event-loop work, SQLite rate-store blocking, index candidates and restore gaps already appear here.
 - **Stale/qualified:** S32's SQL typo is absent in this checkout. SEC04 revocation and API06 name grants are fixed, not file-object policy in general. Management dashboard labels already distinguish its counters. Unindexed/nullable foreign keys alone do not prove bugs or explain N+1 query counts. The friend's summary has no runtime reproductions or commit hash; its September 12 date references a September 15 schema.
