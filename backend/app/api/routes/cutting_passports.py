@@ -18,6 +18,13 @@ from app.services.model_images import model_display_image_url
 
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
 _MATERIAL_CATEGORIES = ("fabric", "semi_finished")
+_DEFAULTS_QUERY_CHUNK_SIZE = 400
+
+
+def _defaults_query_chunks(values):
+    ordered = sorted(set(values))
+    for start in range(0, len(ordered), _DEFAULTS_QUERY_CHUNK_SIZE):
+        yield ordered[start:start + _DEFAULTS_QUERY_CHUNK_SIZE]
 
 
 def _size_count_from_range(value: str | None) -> int:
@@ -265,20 +272,23 @@ def _passport_defaults_payload(
     model: CatalogModel | None,
     item: Item | None,
     batch: StockBatch | None,
+    has_print: bool | None = None,
+    sizes: list[str] | None = None,
 ) -> dict:
     model_no, variant_no = _model_code_parts(model)
-    has_print = bool(
-        db.query(WorkOrder.id)
-        .filter(WorkOrder.production_order_id == po.id, WorkOrder.operation == "printing")
-        .first()
-    )
+    if has_print is None:
+        has_print = bool(
+            db.query(WorkOrder.id)
+            .filter(WorkOrder.production_order_id == po.id, WorkOrder.operation == "printing")
+            .first()
+        )
     planned_kg = (
         float(po.estimated_material_amount)
         if po.estimated_material_amount is not None
         and str(po.estimated_material_unit or "").strip().lower() in {"", "kg", "kgs", "kilogram", "kilograms"}
         else None
     )
-    sizes = _size_options(db, po, model)
+    sizes = _size_options(db, po, model) if sizes is None else list(sizes)
     return {
         "source_type": po.source_type,
         "can_add_material": po.source_type != "usluga" and po.status not in {"completed", "cancelled"},
@@ -323,11 +333,26 @@ def material_defaults(
     model = db.get(CatalogModel, po.model_id)
 
     if po.materials:
+        materials = sorted(po.materials, key=lambda row: row.position)
+        batches = {
+            int(batch.id): batch
+            for chunk in _defaults_query_chunks(material.stock_batch_id for material in materials)
+            for batch in db.query(StockBatch).filter(StockBatch.id.in_(chunk)).all()
+        }
+        has_print = bool(
+            db.query(WorkOrder.id)
+            .filter(WorkOrder.production_order_id == po.id, WorkOrder.operation == "printing")
+            .first()
+        )
+        sizes = _size_options(db, po, model)
         rows = []
-        for material in sorted(po.materials, key=lambda row: row.position):
-            batch = db.get(StockBatch, material.stock_batch_id)
-            item = db.get(Item, batch.item_id) if batch else None
-            row = _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch)
+        for material in materials:
+            batch = batches.get(int(material.stock_batch_id))
+            item = batch.item if batch else None
+            row = _passport_defaults_payload(
+                db=db, po=po, model=model, item=item, batch=batch,
+                has_print=has_print, sizes=sizes,
+            )
             row["stock_batch_id"] = material.stock_batch_id
             row["planned_kg"] = float(material.estimated_quantity) if material.unit.lower() == "kg" else None
             rows.append(row)
