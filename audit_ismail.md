@@ -2,12 +2,15 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**50 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**53 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **WF03 — Package creation lacks production evidence** | Unsupported goods enter stock | [packages.py:233](backend/app/services/packages.py#L233): reject missing/insufficient packaging output; bulk failure rolls back. `37258c7`; **86 production +67 compatibility tests passed**, five focused independently repeated. Historical corrections/manual receipts/imports unchanged. |
+| **UI04 — Dashboard forces demo figures** | Managers cannot see live operations | [demoData.ts:4](frontend/src/components/dashboard/demoData.ts#L4): restore permission-gated live requests. `a445cc0`; **15 actual React render cases** cover values, permissions, loading and errors across three languages. No new visual browser proof. |
+| **UI05 — Stage totals look like finished output** | Managers overestimate unique production | [Home:291](frontend/src/app/(app)/page.tsx#L291): label stage activity and explain repeated counting in EN/RU/UZ. `a0818c4`; actual React renders, six stabilization scripts, strict types and ESLint passed. No new visual browser proof. |
 | **WF05 — Package model differs from its order** | Wrong goods enter stock | [packages.py:321](backend/app/services/packages.py#L321): check header and every item against the order, including admin override. `70d3eaf`; **4 focused / 27 related tests passed**. |
 | **WF06 — Packaging overwrites cached counters** | Lost receipt/output totals | [production.py:5278](backend/app/api/routes/production.py#L5278): source→target locks and refreshed counters. `cdf9912`; **93 related tests + 1 real PostgreSQL race passed**. Two cached-counter regressions included. |
 | **AT01 — Failed events count as work** | False arrival/departure and hours | [attendance_event_policy.py:5](backend/app/services/attendance_event_policy.py#L5): shared successful-event filter for overview, export and HR. `6afe7eb`; **65 tests passed**. Raw history retained; legacy NULL results remain accepted for compatibility. |
@@ -95,7 +98,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 
 ### Friend's review — not an identical audit
 
-- **New confirmed source findings:** S22 → SEC11 is fixed/tested above. S14 → UI05 (legacy KPI sums stage outputs) remains open.
+- **New confirmed source findings:** S22 → SEC11 and S14 → UI05 are fixed/tested above.
 - **Partial infrastructure fix:** S17 pool variables are now honored (`cc7ffdf`; 9 construction/validation tests, no live connection). OPS02 stays open: total connection budget across workers/slots still needs verification. Attendance upload memory, file/object scope and additional factory endpoints need targeted checks.
 - **Review corrections completed:** payroll duplicate creation/audit counts and residual reference N+1 fixed in `538ff66`; ambiguity, retries and factory-denial regressions passed. This does not prove every payroll endpoint is optimized.
 - **API02 partial:** task command validation now rejects bad states, dates, nulls, oversized/blank names and out-of-range integer references (`22593e7`, `c56a7f1`; 56 tests). Unrelated edits to old incomplete references still work. Reference target existence/access is not yet enforced; API02 remains open.
@@ -103,6 +106,8 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **ST09 partial:** already-damaged packages cannot be reserved (`9e336ce`; API regression and 3 PostgreSQL reserve races passed). Marking an existing reservation damaged still needs explicit quarantine policy and serialized transitions; not counted as fully fixed.
 - **WF04 partial:** [production schema:313](backend/app/schemas/production.py#L313) rejects negative/oversized packaging counts and `packed + damaged > input` (`983932f`; 11 targeted tests passed). Invalid submissions leave stock-processing records/counters unchanged. Other production-stage conservation checks remain open.
 - **UI03 clarified:** frontend retry tests pass: a first definite rejection already allows correction. The unresolved case is rejection after an earlier timeout/500; clearing its saved key without server reconciliation could duplicate stock. No unsafe reset added.
+- **AT06 partial:** device imports serialize; five real PostgreSQL cases pass (`853d2e4`), including forced lock waits and overtaking roster requests. Server-start timestamps reject overlapping stale work, but cannot identify an old snapshot uploaded later. Source-version support remains open.
+- **PERF28 partial:** receipt catalog/reference reads are batched (`1efce38`; 26 tests passed, four independently repeated). Reference reads for1/10/50 values:1/1/1; audit-head reads still3/21/101. Audit-chain correctness/scaling remains open.
 - **Overlap:** audit-chain races, invoice duplication, raw PATCH fields, image/event-loop work, SQLite rate-store blocking, index candidates and restore gaps already appear here.
 - **Stale/qualified:** S32's SQL typo is absent in this checkout. SEC04 revocation and API06 name grants are fixed, not file-object policy in general. Management dashboard labels already distinguish its counters. Unindexed/nullable foreign keys alone do not prove bugs or explain N+1 query counts. The friend's summary has no runtime reproductions or commit hash; its September 12 date references a September 15 schema.
 

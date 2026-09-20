@@ -313,10 +313,10 @@
       "risk": "Managers cannot see live figures.",
       "proposed_fix": "Disable demo mode for production.",
       "baseline_source": "frontend/src/components/dashboard/demoData.ts:4",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "a445cc0",
+      "evidence": "Forced demo disabled. Actual ManagementDashboard React render: 15 cases across EN/RU/UZ cover live values, denied permissions, finance visibility, loading and error without demo fallback. Seven stabilization scripts, strict TypeScript and targeted ESLint pass; no new visual browser proof."
     },
     {
       "number": 27,
@@ -421,10 +421,10 @@
       "risk": "Stock created without supported output.",
       "proposed_fix": "Separate draft labels from stock creation.",
       "baseline_source": "backend/app/services/packages.py:221",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "37258c7",
+      "evidence": "Legacy single/bulk creation requires PackagingRecord output; missing/zero/exceeded evidence rejects with no stock graph, bulk rollback tested. Evidence+production 86 passed; compatibility 67 passed; affected core 59 and sales 13 passed (overlapping runs). Five focused cases independently passed. Historical correction/manual receipt/import behavior retained."
     },
     {
       "number": 36,
@@ -603,8 +603,8 @@
       "baseline_source": "backend/app/api/routes/attendance.py:220",
       "status": "open",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "853d2e4",
+      "evidence": "Partial: per-device import lock and refreshed device row; 5 real PostgreSQL tests passed, deterministic lock-wait case rerun after cleanup fix. Overlapping older-start roster is ignored. A genuinely old snapshot uploaded later has no source version; remains open."
     },
     {
       "number": 51,
@@ -1131,8 +1131,8 @@
       "baseline_source": "backend/app/services/purchasing.py:93",
       "status": "open",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "1efce38",
+      "evidence": "Partial: 26 passed, 2 PostgreSQL skipped; 4 independently repeated. Reference SELECTs 1/10/50 become 1/1/1; 401 values use 2 chunks. Receipt catalog/reference reads stay 4. Audit-head reads remain 3/21/101; audit-chain work remains open."
     },
     {
       "number": 95,
@@ -1526,10 +1526,10 @@
       "risk": "One garment may be presented as multiple units of production.",
       "proposed_fix": "Label the total as stage activity, or obtain an approved finished-output metric; add UI contract test.",
       "baseline_source": "frontend/src/app/(app)/page.tsx:289",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": "Friend S14; current source confirmed statically. Management dashboard already explains separate stage totals."
+      "commit": "a0818c4",
+      "evidence": "Actual React Home render in EN/RU/UZ: four 100-piece stages display 400 as stage activity, explicitly not unique finished garments. Six stabilization scripts, strict TypeScript and full ESLint passed. No new visual browser proof."
     }
   ]
 }
