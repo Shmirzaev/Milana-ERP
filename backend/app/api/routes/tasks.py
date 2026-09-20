@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
 
 from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
-from app.models import Task, User
+from app.models import Notification, Task, User
 from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut
 from app.services.audit import log_action
 from app.services.notifications import notify
@@ -113,15 +113,17 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
                 entity_id=payload.entity_id,
             )
             db.add(t)
-            db.flush()
             created.append(t)
-            notify(
-                db, user_id=user.id,
+            db.add(Notification(
+                user_id=user.id,
                 title=f"New task: {t.title}",
                 message=(t.description or "")[:280],
                 link=_task_link(t),
-            )
+            ))
 
+        # No per-recipient generated ID is needed until the audit below.
+        # Flush once so PostgreSQL can batch task/notification inserts.
+        db.flush()
         first_task = created[0]
         log_action(
             db,
