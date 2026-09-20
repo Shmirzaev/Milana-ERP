@@ -367,7 +367,7 @@ def test_postgres_reserve_and_dispatch_never_recreate_stock(reserve_postgres_ses
         [_reserve_worker(fixture, 0, 4), dispatch_worker],
     )
 
-    assert reserve_status in {200, 400}
+    assert reserve_status in {200, 409}
     assert dispatch_status == 200
     with sessions() as db:
         stock = db.get(FinishedGoodsStock, fixture["stock_id"])

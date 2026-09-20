@@ -185,6 +185,8 @@ def _reserve_piece_stock(db, current, stock_id, package_id, quantity, sales_orde
         )
         if not package:
             raise HTTPException(409, "Stock package changed; reload before reserving")
+        if package.status not in {"received_in_storage", "reserved"}:
+            raise HTTPException(409, "Package is not available for reservation")
     stock = (
         db.query(FinishedGoodsStock).filter(FinishedGoodsStock.id == stock_id)
         .with_for_update(of=FinishedGoodsStock).populate_existing().first()
