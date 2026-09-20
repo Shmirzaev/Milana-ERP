@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -420,10 +420,16 @@ def _attendance_people_query(
     # representative per employee ID for the combined attendance view.
     representative_people = db.query(
         AttendancePerson.external_person_id.label("external_person_id"),
-        func.min(AttendancePerson.id).label("person_id"),
+        func.coalesce(
+            func.min(case((AttendancePerson.present_on_device.is_(True), AttendancePerson.id))),
+            func.min(AttendancePerson.id),
+        ).label("person_id"),
+    ).outerjoin(
+        event_rollup,
+        event_rollup.c.external_person_id == AttendancePerson.external_person_id,
     ).filter(
         AttendancePerson.factory_code == factory_code,
-        AttendancePerson.present_on_device.is_(True),
+        or_(AttendancePerson.present_on_device.is_(True), event_rollup.c.event_count.is_not(None)),
     ).group_by(AttendancePerson.external_person_id).subquery()
 
     base = db.query(
@@ -439,7 +445,6 @@ def _attendance_people_query(
         representative_people.c.person_id == AttendancePerson.id,
     ).filter(
         AttendancePerson.factory_code == factory_code,
-        AttendancePerson.present_on_device.is_(True),
     )
     search = query.strip()
     if search:
@@ -635,10 +640,9 @@ def attendance_overview(
         (page - 1) * page_size
     ).limit(page_size).all()
 
-    total_people = db.query(func.count(func.distinct(AttendancePerson.external_person_id))).filter(
-        AttendancePerson.factory_code == factory_code,
-        AttendancePerson.present_on_device.is_(True),
-    ).scalar() or 0
+    total_people = _attendance_people_query(
+        db, factory_code=factory_code, start=start, end=end, query="", usage="all",
+    ).count()
     used_today = db.query(func.count(func.distinct(AttendanceEvent.external_person_id))).filter(
         AttendanceEvent.factory_code == factory_code,
         AttendanceEvent.occurred_at >= start,
