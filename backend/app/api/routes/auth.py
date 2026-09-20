@@ -367,6 +367,9 @@ def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
         extra_permissions=user.extra_permissions or [],
         permissions=user_permissions(user),
         access_configured=selected_factory_code(user) in (user.access_policy or {}),
+        factory_code=selected_factory_code(user),
+        assigned_factory_code=assigned_factory_code(user),
+        available_factories=available_factory_codes(user),
     )
 
 
