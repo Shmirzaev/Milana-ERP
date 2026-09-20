@@ -11,7 +11,11 @@ from app.api.routes import payroll
 from app.models import PayrollPeriod, PayrollQrLabel, PayrollRecord, User
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_employee, _create_user_with_permissions, _record_payload
-from app.tests.test_payroll_period_races import _record, _seed, payroll_postgres_sessions
+from app.tests.test_payroll_period_races import (
+    _record,
+    _seed,
+    payroll_postgres_sessions as payroll_postgres_sessions,
+)
 
 
 def _seed_scanned_label(session_factory):
