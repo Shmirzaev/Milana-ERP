@@ -5,7 +5,16 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Department, FinishedGoodsStock, Model, Package, PackageItem, ProductionOrder, WorkOrder
+from app.models import (
+    Department,
+    FinishedGoodsStock,
+    Model,
+    Package,
+    PackageItem,
+    PackagingRecord,
+    ProductionOrder,
+    WorkOrder,
+)
 
 
 def _packaging_order():
@@ -25,14 +34,17 @@ def _packaging_order():
         db.add(order)
         db.flush()
         department_id = db.query(Department.id).filter(Department.code == "PKG").scalar()
-        db.add(WorkOrder(
+        work_order = WorkOrder(
             production_order_id=order.id,
             department_id=department_id,
             operation="packaging",
             planned_input_qty=20,
             planned_output_qty=20,
             status="in_progress",
-        ))
+        )
+        db.add(work_order)
+        db.flush()
+        db.add(PackagingRecord(work_order_id=work_order.id, input_qty=20, packed_qty=20, damaged_qty=0))
         db.commit()
         return order.id, expected.id, wrong.id
 

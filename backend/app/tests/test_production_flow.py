@@ -5,9 +5,37 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 from uuid import uuid4
 
+from app.db.session import SessionLocal
+from app.models import PackagingRecord, WorkOrder
+
 _VALID_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
 )
+
+
+def _record_packaging_output(
+    production_order_id: int,
+    quantity: int,
+    production_batch_id: int | None = None,
+) -> None:
+    with SessionLocal() as db:
+        query = db.query(WorkOrder).filter_by(
+            production_order_id=production_order_id,
+            operation="packaging",
+        )
+        work_order = None
+        if production_batch_id is not None:
+            work_order = query.filter(WorkOrder.production_batch_id == production_batch_id).one_or_none()
+        if work_order is None:
+            work_order = query.filter(WorkOrder.production_batch_id.is_(None)).one()
+        db.add(PackagingRecord(
+            work_order_id=work_order.id,
+            production_batch_id=production_batch_id,
+            input_qty=quantity,
+            packed_qty=quantity,
+            damaged_qty=0,
+        ))
+        db.commit()
 
 
 def _prepare_sales_order_for_po(client, headers, sales_order_id: int) -> None:
@@ -125,6 +153,7 @@ def _create_package_for_change_request(client, headers, quantity: int = 20) -> i
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -338,6 +367,7 @@ def test_printable_bundle_and_package_qr_labels_include_material_picture(client,
     )
     assert po.status_code == 201, po.text
     po_id = int(po.json()["id"])
+    _record_packaging_output(po_id, 60)
 
     bundle = client.post(
         "/api/bundles",
@@ -3847,6 +3877,7 @@ def test_process_tracking_internal_batch_storage_uses_received_packages(client, 
     po = r.json()
     batch_a = next(b for b in po["batches"] if b["name"] == "Batch A")
     batch_b = next(b for b in po["batches"] if b["name"] == "Batch B")
+    _record_packaging_output(po_id, 60, batch_a["id"])
 
     r = client.post(
         "/api/packages",
@@ -3913,6 +3944,8 @@ def test_package_can_merge_leftovers_from_multiple_batches(client, auth_headers)
     po = r.json()
     batch_a = next(b for b in po["batches"] if b["name"] == "Batch A")
     batch_b = next(b for b in po["batches"] if b["name"] == "Batch B")
+    _record_packaging_output(po_id, 50, batch_a["id"])
+    _record_packaging_output(po_id, 10, batch_b["id"])
 
     r = client.post(
         "/api/packages",
@@ -3974,6 +4007,7 @@ def test_partial_package_can_be_received_in_storage(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_packaging_output(po_id, 58)
 
     r = client.post(
         "/api/packages",
@@ -4020,6 +4054,7 @@ def test_process_tracking_prefers_storage_when_partial_order_reaches_storage(cli
     assert r.status_code == 201, r.text
     po = r.json()
     po_id = po["id"]
+    _record_packaging_output(po_id, 598)
 
     r = client.post(
         "/api/packages",
@@ -5442,6 +5477,7 @@ def test_package_bulk_create(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_packaging_output(po_id, 150)
 
     r = client.post(
         "/api/packages/bulk",
@@ -5479,6 +5515,7 @@ def test_package_bulk_create_accepts_per_package_weights(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_packaging_output(po_id, 150)
 
     r = client.post(
         "/api/packages/bulk",
@@ -5523,6 +5560,7 @@ def test_package_list_backfills_saved_qr_codes(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_packaging_output(po_id, 120)
 
     r = client.post(
         "/api/packages/bulk",
@@ -5598,6 +5636,7 @@ def test_storage_transfer_work_order_completes_after_full_storage_intake(client,
     assert r.status_code == 200, r.text
     by_op = {w["operation"]: w for w in r.json()}
     stg_wo = by_op["storage_transfer"]
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",

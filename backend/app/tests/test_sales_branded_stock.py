@@ -8,11 +8,13 @@ from app.models import (
     ModelImage,
     Package,
     PackageItem,
+    PackagingRecord,
     SalesOrder,
     SalesOrderItem,
     Shipment,
     ShipmentPackage,
     StockReservation,
+    WorkOrder,
 )
 
 
@@ -97,6 +99,21 @@ def _fgs_headers(client) -> dict[str, str]:
     assert r.status_code == 200, r.text
     token = r.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+def _record_packaging_output(production_order_id: int, quantity: int) -> None:
+    with SessionLocal() as db:
+        work_order = db.query(WorkOrder).filter_by(
+            production_order_id=production_order_id,
+            operation="packaging",
+        ).one()
+        db.add(PackagingRecord(
+            work_order_id=work_order.id,
+            input_qty=quantity,
+            packed_qty=quantity,
+            damaged_qty=0,
+        ))
+        db.commit()
 
 
 def test_branded_sales_order_auto_reserves_and_notifies_storage(client, auth_headers):
@@ -234,6 +251,7 @@ def test_branded_sales_order_repairs_legacy_stock_brand_metadata(client, auth_he
     )
     assert r.status_code == 201, r.text
     po_id = int(r.json()["id"])
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -322,6 +340,7 @@ def test_branded_stock_sale_lists_and_reserves_unbranded_branded_production_stoc
     )
     assert r.status_code == 201, r.text
     po_id = int(r.json()["id"])
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -394,10 +413,12 @@ def test_branded_sales_order_uses_received_package_instead_of_packed_stock(clien
             headers=auth_headers,
         )
         assert production.status_code == 201, production.text
+        production_order_id = int(production.json()["id"])
+        _record_packaging_output(production_order_id, 60)
         package = client.post(
             "/api/packages",
             json={
-                "production_order_id": int(production.json()["id"]),
+                "production_order_id": production_order_id,
                 "model_id": model_id,
                 "color": "white",
                 "capacity": 60,
@@ -560,6 +581,7 @@ def test_branded_stock_sale_can_reserve_not_full_package(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = int(r.json()["id"])
+    _record_packaging_output(po_id, 58)
 
     r = client.post(
         "/api/packages",
@@ -631,6 +653,7 @@ def test_branded_stock_sale_reserves_exact_and_then_whole_packages_only(client, 
     )
     assert r.status_code == 201, r.text
     production_order_id = int(r.json()["id"])
+    _record_packaging_output(production_order_id, 198)
 
     package_ids_by_qty: dict[int, list[int]] = {60: [], 78: []}
     for quantity in (60, 60, 78):
@@ -758,6 +781,7 @@ def test_fgs_inbox_shows_branded_sales_prep_queue_with_reserved_qty(client, auth
     )
     assert r.status_code == 201, r.text
     po_id = int(r.json()["id"])
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -874,6 +898,7 @@ def test_shipments_ready_packages_follow_stock_reservations(client, auth_headers
     )
     assert r.status_code == 201, r.text
     po_id = int(r.json()["id"])
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -1123,6 +1148,7 @@ def test_shipment_scan_accepts_unreserved_same_model_package_and_blocks_other_mo
         )
         assert r.status_code == 201, r.text
         po_id = int(r.json()["id"])
+        _record_packaging_output(po_id, 60)
 
         r = client.post(
             "/api/packages",

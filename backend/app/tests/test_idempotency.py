@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import PackageScanLog, Payment, ShipmentScanLog
+from app.models import PackagingRecord, PackageScanLog, Payment, ShipmentScanLog, WorkOrder
 
 
 def _model_id(client, headers) -> int:
@@ -71,6 +71,13 @@ def _create_package(client, headers) -> dict:
     )
     assert r.status_code == 201, r.text
     production_order_id = int(r.json()["id"])
+    with SessionLocal() as db:
+        work_order = db.query(WorkOrder).filter_by(
+            production_order_id=production_order_id,
+            operation="packaging",
+        ).one()
+        db.add(PackagingRecord(work_order_id=work_order.id, input_qty=12, packed_qty=12, damaged_qty=0))
+        db.commit()
     r = client.post(
         "/api/packages",
         json={

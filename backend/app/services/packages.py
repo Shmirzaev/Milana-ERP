@@ -225,9 +225,12 @@ def _enforce_packaged_quantity_available(
     allocations: list[dict[str, int]],
     total: int,
     exclude_package_id: int | None = None,
+    require_evidence: bool = False,
 ) -> None:
     packed_by_batch = _packaging_record_totals_by_batch(db, production_order_id)
     if not packed_by_batch:
+        if require_evidence:
+            raise HTTPException(409, "Save Packaging output before creating packages")
         return
 
     existing_by_batch = _existing_package_totals_by_batch(
@@ -375,6 +378,7 @@ def create_package(
         production_order_id=production_order_id,
         allocations=normalized_allocations,
         total=total,
+        require_evidence=True,
     )
 
     resolved_sales_order_id = sales_order_id if sales_order_id is not None else po.sales_order_id

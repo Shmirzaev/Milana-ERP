@@ -10,6 +10,7 @@ from app.models import (
     ManualAccessoryIssue,
     ModelBOM,
     Package,
+    PackagingRecord,
     ProductionOrder,
     ProductionOrderItem,
     SalesOrder,
@@ -50,6 +51,7 @@ def _create_traceable_package(client, headers, *, with_cutting_batch: bool = Tru
     r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=headers)
     assert r.status_code == 200, r.text
     cutting_wo = next(row for row in r.json() if row["operation"] == "cutting")
+    packaging_wo = next(row for row in r.json() if row["operation"] == "packaging")
 
     fabric_batch_id = None
     if with_cutting_batch:
@@ -87,6 +89,14 @@ def _create_traceable_package(client, headers, *, with_cutting_batch: bool = Tru
         headers=headers,
     )
     assert r.status_code == 201, r.text
+    with SessionLocal() as db:
+        db.add(PackagingRecord(
+            work_order_id=packaging_wo["id"],
+            input_qty=30,
+            packed_qty=30,
+            damaged_qty=0,
+        ))
+        db.commit()
 
     r = client.post(
         "/api/packages",

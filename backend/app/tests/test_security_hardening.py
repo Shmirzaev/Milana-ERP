@@ -8,6 +8,9 @@ import base64
 import os
 import time
 
+from app.db.session import SessionLocal
+from app.models import PackagingRecord, WorkOrder
+
 STRONG_PW = "Str0ngManager!2026"
 ESC_PW = "Esc4lation!Test2026"
 
@@ -556,6 +559,13 @@ def test_printable_package_label_escapes_database_values(client, auth_headers):
         headers=auth_headers,
     )
     assert po.status_code == 201, po.text
+    with SessionLocal() as db:
+        work_order = db.query(WorkOrder).filter_by(
+            production_order_id=po.json()["id"],
+            operation="packaging",
+        ).one()
+        db.add(PackagingRecord(work_order_id=work_order.id, input_qty=10, packed_qty=10, damaged_qty=0))
+        db.commit()
     payload = {
         "production_order_id": po.json()["id"],
         "model_id": 1,
