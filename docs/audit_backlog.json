@@ -87,8 +87,8 @@
       "baseline_source": "backend/app/api/routes/finance.py:68",
       "status": "fixed",
       "owner": null,
-      "commit": "3881177",
-      "evidence": "audit_ismail.md#evidence"
+      "commit": "3881177,6843712",
+      "evidence": "Alternate sales invoice route now shares fresh SalesOrder NO KEY UPDATE lock. Baseline4realPG duplicate-invoice failures; green6PG races (finance/finance,sales/sales,mixed),6SQLite plus2HTTP/stale-session cases across two runs. One invoice/one audit preserved."
     },
     {
       "number": 8,
@@ -1047,8 +1047,8 @@
       "baseline_source": "backend/app/services/traceability.py:251",
       "status": "partial",
       "owner": null,
-      "commit": "2f8f951",
-      "evidence": "Bundle department batching: cold1/50/401 full SELECTs9/58/409 to9/9/10; five focused cases independently pass. Other traceability loops and graph bounds remain open. docs/stabilization_qa.md"
+      "commit": "2f8f951,ae88bb5",
+      "evidence": "Bundle departments: cold1/50/401 SELECTs9/58/409 to9/9/10;5 focused independently pass. Cutting references:16/163/1216 to16/16/19;4 focused independently pass,30 related pass before set-based dedupe follow-up (4 retested). Other loops/graph bounds remain open. docs/stabilization_qa.md"
     },
     {
       "number": 88,

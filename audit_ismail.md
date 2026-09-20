@@ -49,7 +49,7 @@
 | **ST03 — W1 movements affect W2 balance** | Wrong warehouse availability | [inventory service:80](backend/app/services/inventory.py#L80): scope incoming/outgoing movements; transfers net to zero globally. |
 | **ST11 — Concurrent reservations exceed stock** | Material promised twice | [inventory service:474](backend/app/services/inventory.py#L474): ordered batch/item locks before availability checks. [Cutting:502](backend/app/api/routes/cutting_passports.py#L502): reserve additions together to avoid the discovered lock-order deadlock. |
 | **FN02 — Concurrent payments leave stale totals/status** | Wrong receivables or advance allocation | [payments.py:35](backend/app/services/payments.py#L35), [partners.py:242](backend/app/api/routes/partners.py#L242): lock/refresh invoices before calculation. Supported overpayments/advances remain supported. |
-| **FN04 — Finance requests create duplicate invoices** | Duplicate billing | [finance.py:68](backend/app/api/routes/finance.py#L68): serialize this endpoint's decision on the order. |
+| **FN04 — Concurrent requests create duplicate invoices** | Duplicate billing | [finance.py:68](backend/app/api/routes/finance.py#L68), [sales.py:1960](backend/app/api/routes/sales.py#L1960): both invoice entry points lock the order before checking. `6843712` closes the alternate-route gap; six PostgreSQL races pass, plus eight SQLite/HTTP cases across two runs. |
 | **SEC04 — Revoked accounts still download model files** | Access survives account revocation | [main.py:338](backend/app/main.py#L338): check current user; release DB connection before file processing. |
 | **SEC05 — Old sibling reset links remain usable** | Password changed again using an old link | [auth.py:284](backend/app/api/routes/auth.py#L284): lock user; consume all outstanding links atomically. |
 | **SEC07 — Assignment deletion bypasses factory scope** | Changes another factory's work | [production_extra.py:385](backend/app/api/routes/production_extra.py#L385): enforce sewing-flow factory access before deletion. |
@@ -78,8 +78,8 @@
 ## Evidence
 
 - **FN07 partial:** `5a68d12` bounds invoice/payment amounts, IDs and method length before writes. 29 tests pass; 6 PostgreSQL cases skipped in this SQLite selection. Monetary precision and other financial states/lists remain open.
-- **PERF21 partial:** `2f8f951` batches bundle departments. 1/50/401 bundles: 9/9/10 SELECTs instead of 9/58/409; five tests independently pass. Other traceability loops and graph bounds remain open.
-- **Current CI:** `80044b9` PostgreSQL job passed. Frontend stopped on an outdated label-edit test; authorization render/handler tests passed. Full backend run and corrected-build confirmation pending. Validation uses loopback addresses, not production.
+- **PERF21 partial:** bundle departments `2f8f951`: 401 bundles409→10 SELECTs, five tests independently pass. Cutting references `ae88bb5`: 401 rows1216→19 SELECTs, four tests independently pass; set-based material deduplication removes a quadratic loop. Other traceability loops and graph bounds remain open.
+- **Current CI:** `80044b9` backend/PostgreSQL passed; frontend's outdated label-edit test is corrected. `900a4e6` frontend/PostgreSQL passed; backend stopped on a fixture-import lint issue, corrected in `7495f04`. Combined green rerun pending. Validation uses loopback addresses, not production.
 
 - **Ledger correction:** payroll batching `538ff66` belongs to PERF05. PY03 authorization is fixed separately by `900641e`; do not confuse query batching with access control.
 - **CI wiring:** PostgreSQL selection includes administrator membership races. Corrected YAML indentation that would otherwise execute three test-file paths as shell commands. Workflow parsed locally; remote final-revision success is not yet claimed.
