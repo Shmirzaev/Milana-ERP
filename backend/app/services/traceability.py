@@ -41,6 +41,9 @@ from app.services.inventory import accessory_issue_summary
 from app.services.packages import format_storage_location
 
 
+_TRACE_CHUNK_SIZE = 400
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -245,15 +248,30 @@ def _cutting_payload(db: Session, row: CuttingRecord) -> tuple[dict, dict | None
     return payload, material, gap
 
 
-def _bundle_payload(db: Session, bundle: Bundle) -> dict:
-    departments = {
-        int(d.id): d
-        for d in db.query(Department).filter(
-            Department.id.in_([
-                did for did in [bundle.current_department_id, bundle.next_department_id] if did
-            ])
-        ).all()
-    } if (bundle.current_department_id or bundle.next_department_id) else {}
+def _bundle_departments(db: Session, bundles: list[Bundle]) -> dict[int, Department]:
+    department_ids = sorted({
+        int(department_id)
+        for bundle in bundles
+        for department_id in (bundle.current_department_id, bundle.next_department_id)
+        if department_id
+    })
+    departments = {}
+    for offset in range(0, len(department_ids), _TRACE_CHUNK_SIZE):
+        chunk = department_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        departments.update({
+            int(department.id): department
+            for department in db.query(Department).filter(Department.id.in_(chunk)).all()
+        })
+    return departments
+
+
+def _bundle_payload(
+    db: Session,
+    bundle: Bundle,
+    departments: dict[int, Department] | None = None,
+) -> dict:
+    if departments is None:
+        departments = _bundle_departments(db, [bundle])
     scan_logs = [
         {
             "id": int(log.id),
@@ -559,7 +577,9 @@ def build_traceability(
         bundle_rows = []
     if bundle and all(int(row.id) != int(bundle.id) for row in bundle_rows):
         bundle_rows.append(bundle)
-    bundle_payloads = [_bundle_payload(db, row) for row in sorted(bundle_rows, key=lambda r: r.id)]
+    bundle_rows = sorted(bundle_rows, key=lambda row: row.id)
+    bundle_departments = _bundle_departments(db, bundle_rows)
+    bundle_payloads = [_bundle_payload(db, row, bundle_departments) for row in bundle_rows]
     if po and not bundle_payloads:
         gaps.append("No bundles found for production route")
     for row in bundle_payloads:
