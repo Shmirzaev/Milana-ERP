@@ -184,8 +184,15 @@ def create_purchase_request_from_sales_order(db: Session, *, sales_order_id: int
     )
 
 
+def _locked_purchase_request(db: Session, request_id: int) -> PurchaseRequest | None:
+    return (
+        db.query(PurchaseRequest).filter(PurchaseRequest.id == request_id)
+        .with_for_update(of=PurchaseRequest).populate_existing().first()
+    )
+
+
 def approve_purchase_request(db: Session, *, request_id: int, data: dict, current: User) -> PurchaseRequest:
-    request = db.get(PurchaseRequest, request_id)
+    request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
     if request.status == "approved":
@@ -239,7 +246,7 @@ def approve_purchase_request(db: Session, *, request_id: int, data: dict, curren
 
 
 def reject_purchase_request(db: Session, *, request_id: int, current: User) -> PurchaseRequest:
-    request = db.get(PurchaseRequest, request_id)
+    request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
     if request.status not in REQUEST_REJECTABLE_STATUSES:
@@ -334,7 +341,7 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
 
 
 def convert_purchase_request_to_order(db: Session, *, request_id: int, data: dict, current: User) -> PurchaseOrder:
-    request = db.get(PurchaseRequest, request_id)
+    request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
     if request.status != "approved":
