@@ -4292,28 +4292,222 @@ def _planned_quantity_for_scope(
     return batch_total if batch_total > 0 else int(po.planned_quantity or 0)
 
 
-def _reconcile_cutting_workflow_plans(db: DbSession, cutting_wo: WorkOrder) -> None:
-    po = db.get(ProductionOrder, cutting_wo.production_order_id)
-    if not po:
-        return
-    db.flush()
-    work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()
+def _cutting_reconciliation_targets(
+    db: DbSession,
+    po: ProductionOrder,
+    work_orders: list[WorkOrder],
+    cutting_wo: WorkOrder,
+) -> dict[int | None, int]:
+    """Bulk-load the scalar workflow evidence used by cutting reconciliation."""
+    scopes = {
+        int(row.production_batch_id) if row.production_batch_id is not None else None
+        for row in work_orders
+    }
+    planned_by_scope: dict[int | None, int] = {}
+    if any(scope_id is not None for scope_id in scopes):
+        planned_by_scope.update({
+            int(batch_id): int(planned_quantity or 0)
+            for batch_id, planned_quantity in db.query(
+                ProductionBatch.id,
+                ProductionBatch.planned_quantity,
+            ).join(
+                WorkOrder,
+                WorkOrder.production_batch_id == ProductionBatch.id,
+            ).filter(
+                WorkOrder.production_order_id == po.id,
+            ).distinct()
+        })
+    if None in scopes:
+        batch_total = int(
+            db.query(func.coalesce(func.sum(ProductionBatch.planned_quantity), 0))
+            .filter(ProductionBatch.production_order_id == po.id)
+            .scalar()
+            or 0
+        )
+        planned_by_scope[None] = batch_total if batch_total > 0 else int(po.planned_quantity or 0)
+
+    bundle_by_scope = {
+        (int(scope_id) if scope_id is not None else None): int(quantity or 0)
+        for scope_id, quantity in db.query(
+            Bundle.production_batch_id,
+            func.coalesce(func.sum(Bundle.quantity), 0),
+        ).filter(
+            Bundle.production_order_id == po.id,
+            Bundle.status != "cancelled",
+        ).group_by(Bundle.production_batch_id)
+    }
+
     cutting_by_scope = {
         row.production_batch_id: row
         for row in work_orders
         if row.operation == "cutting"
     }
     fallback_cutting = cutting_by_scope.get(None) or cutting_wo
+    cutting_rows = {
+        (
+            int(work_order_id),
+            int(scope_id) if scope_id is not None else None,
+        ): int(quantity or 0)
+        for work_order_id, scope_id, quantity in db.query(
+            CuttingRecord.work_order_id,
+            CuttingRecord.production_batch_id,
+            func.coalesce(func.sum(CuttingRecord.passed_pieces), 0),
+        ).join(
+            WorkOrder,
+            WorkOrder.id == CuttingRecord.work_order_id,
+        ).filter(
+            WorkOrder.production_order_id == po.id,
+        ).group_by(
+            CuttingRecord.work_order_id,
+            CuttingRecord.production_batch_id,
+        )
+    }
+    replacement_rows = {
+        (
+            int(work_order_id),
+            int(scope_id) if scope_id is not None else None,
+        ): int(quantity or 0)
+        for work_order_id, scope_id, quantity in db.query(
+            SewingReplacementRequest.cutting_work_order_id,
+            SewingReplacementRequest.production_batch_id,
+            func.coalesce(func.sum(SewingReplacementRequest.cut_qty), 0),
+        ).join(
+            WorkOrder,
+            WorkOrder.id == SewingReplacementRequest.cutting_work_order_id,
+        ).filter(
+            WorkOrder.production_order_id == po.id,
+        ).group_by(
+            SewingReplacementRequest.cutting_work_order_id,
+            SewingReplacementRequest.production_batch_id,
+        )
+    }
+    cutting_output_by_scope: dict[int | None, int] = {}
+    for scope_id in scopes:
+        scoped_cutting = cutting_by_scope.get(scope_id) or fallback_cutting
+        key = (int(scoped_cutting.id), scope_id)
+        cutting_output_by_scope[scope_id] = max(
+            0,
+            cutting_rows.get(key, 0) - replacement_rows.get(key, 0),
+        )
+
+    downstream_by_scope = {scope_id: 0 for scope_id in scopes}
+
+    def merge_downstream(rows) -> None:
+        for row in rows:
+            scope_id = int(row[0]) if row[0] is not None else None
+            if scope_id not in downstream_by_scope:
+                continue
+            downstream_by_scope[scope_id] = max(
+                downstream_by_scope[scope_id],
+                *(int(value or 0) for value in row[1:]),
+            )
+
+    merge_downstream(db.query(
+        PrintingRecord.production_batch_id,
+        func.coalesce(func.sum(PrintingRecord.input_qty), 0),
+        func.coalesce(func.sum(PrintingRecord.printed_qty), 0),
+        func.coalesce(func.sum(PrintingRecord.passed_qty + PrintingRecord.rejected_qty), 0),
+    ).join(
+        WorkOrder,
+        WorkOrder.id == PrintingRecord.work_order_id,
+    ).filter(
+        WorkOrder.production_order_id == po.id,
+    ).group_by(PrintingRecord.production_batch_id))
+    merge_downstream(db.query(
+        SewingRecord.production_batch_id,
+        func.coalesce(func.sum(SewingRecord.input_qty), 0),
+        func.coalesce(func.sum(SewingRecord.sewn_qty), 0),
+        func.coalesce(func.sum(
+            SewingRecord.passed_qty + SewingRecord.failed_qty + SewingRecord.rejected_qty
+        ), 0),
+    ).join(
+        WorkOrder,
+        WorkOrder.id == SewingRecord.work_order_id,
+    ).filter(
+        WorkOrder.production_order_id == po.id,
+    ).group_by(SewingRecord.production_batch_id))
+    merge_downstream(db.query(
+        SewingAssignment.production_batch_id,
+        func.coalesce(func.sum(SewingAssignment.completed_qty), 0),
+    ).join(
+        WorkOrder,
+        WorkOrder.id == SewingAssignment.work_order_id,
+    ).filter(
+        WorkOrder.production_order_id == po.id,
+        SewingAssignment.status != "cancelled",
+    ).group_by(SewingAssignment.production_batch_id))
+    merge_downstream(db.query(
+        SewingDailyReport.production_batch_id,
+        func.coalesce(func.sum(SewingDailyReport.sewn_qty), 0),
+    ).filter(
+        SewingDailyReport.production_order_id == po.id,
+    ).group_by(SewingDailyReport.production_batch_id))
+    merge_downstream(db.query(
+        PackagingRecord.production_batch_id,
+        func.coalesce(func.sum(PackagingRecord.input_qty), 0),
+        func.coalesce(func.sum(PackagingRecord.packed_qty + PackagingRecord.damaged_qty), 0),
+        func.coalesce(func.sum(PackagingRecord.total_packed_quantity), 0),
+    ).join(
+        WorkOrder,
+        WorkOrder.id == PackagingRecord.work_order_id,
+    ).filter(
+        WorkOrder.production_order_id == po.id,
+    ).group_by(PackagingRecord.production_batch_id))
+    merge_downstream(db.query(
+        PackagingReceipt.production_batch_id,
+        func.coalesce(func.sum(PackagingReceipt.quantity), 0),
+    ).filter(
+        PackagingReceipt.production_order_id == po.id,
+    ).group_by(PackagingReceipt.production_batch_id))
+
+    allocated_by_scope = {
+        int(scope_id): int(quantity or 0)
+        for scope_id, quantity in db.query(
+            PackageBatchAllocation.production_batch_id,
+            func.coalesce(func.sum(PackageBatchAllocation.quantity), 0),
+        ).join(
+            Package,
+            Package.id == PackageBatchAllocation.package_id,
+        ).filter(
+            Package.production_order_id == po.id,
+        ).group_by(PackageBatchAllocation.production_batch_id)
+    }
+    direct_by_scope = {
+        (int(scope_id) if scope_id is not None else None): int(quantity or 0)
+        for scope_id, quantity in db.query(
+            Package.production_batch_id,
+            func.coalesce(func.sum(Package.total_quantity), 0),
+        ).filter(
+            Package.production_order_id == po.id,
+            ~Package.id.in_(db.query(PackageBatchAllocation.package_id)),
+        ).group_by(Package.production_batch_id)
+    }
+    for scope_id in scopes:
+        package_quantity = allocated_by_scope.get(scope_id, 0) + direct_by_scope.get(scope_id, 0)
+        downstream_by_scope[scope_id] = max(downstream_by_scope[scope_id], package_quantity)
+
+    return {
+        scope_id: max(
+            planned_by_scope.get(scope_id, 0),
+            bundle_by_scope.get(scope_id, 0),
+            cutting_output_by_scope.get(scope_id, 0),
+            downstream_by_scope.get(scope_id, 0),
+        )
+        for scope_id in scopes
+    }
+
+
+def _reconcile_cutting_workflow_plans(db: DbSession, cutting_wo: WorkOrder) -> None:
+    po = db.get(ProductionOrder, cutting_wo.production_order_id)
+    if not po:
+        return
+    db.flush()
+    work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()
+    target_by_scope = _cutting_reconciliation_targets(db, po, work_orders, cutting_wo)
 
     for row in work_orders:
         scope_id = int(row.production_batch_id) if row.production_batch_id is not None else None
-        scoped_cutting = cutting_by_scope.get(scope_id) or fallback_cutting
-        target = max(
-            _planned_quantity_for_scope(db, po, scope_id),
-            _bundle_total_for_scope(db, int(po.id), scope_id),
-            _cutting_output_for_scope(db, scoped_cutting, scope_id),
-            _downstream_committed_quantity(db, int(po.id), scope_id),
-        )
+        target = target_by_scope[scope_id]
         own_floor = max(
             int(row.actual_input_qty or 0),
             int(row.actual_output_qty or 0),
