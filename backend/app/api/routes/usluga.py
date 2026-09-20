@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from app.api.routes import catalog as catalog_routes
 from app.core.deps import DbSession, require_permissions
@@ -14,6 +14,7 @@ from app.models import (
     CuttingRecord,
     FinishedGoodsStock,
     Model,
+    ModelImage,
     Package,
     PackageScanLog,
     PackagingReceipt,
@@ -46,6 +47,8 @@ from app.schemas.catalog import (
 
 
 router = APIRouter(prefix="/usluga", tags=["usluga"])
+_PRELOAD_CHUNK_SIZE = 400
+_NOT_PRELOADED = object()
 
 
 def _require_eco(current: User) -> None:
@@ -143,7 +146,16 @@ def _model_payload(model: Model) -> dict:
 def _usluga_model_query(db: DbSession):
     return (
         db.query(Model)
-        .options(selectinload(Model.images), selectinload(Model.sizes), selectinload(Model.colors))
+        .options(
+            selectinload(Model.images).options(load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.is_primary,
+            )),
+            selectinload(Model.sizes),
+            selectinload(Model.colors),
+        )
         .filter(Model.catalog_scope == "usluga", Model.factory_code == "ECO")
     )
 
@@ -241,15 +253,22 @@ def _order_payload(
     db: DbSession,
     order: ProductionOrder,
     *,
+    model: Model | None | object = _NOT_PRELOADED,
+    items: list[ProductionOrderItem] | None = None,
+    work_orders: list[WorkOrder] | None = None,
     packages: list[Package] | None = None,
 ) -> dict:
-    model = _usluga_model_query(db).filter(Model.id == order.model_id).one_or_none()
-    work_orders = (
-        db.query(WorkOrder)
-        .filter(WorkOrder.production_order_id == order.id)
-        .order_by(WorkOrder.id)
-        .all()
-    )
+    if model is _NOT_PRELOADED:
+        model = _usluga_model_query(db).filter(Model.id == order.model_id).one_or_none()
+    if items is None:
+        items = sorted(order.items, key=lambda row: row.id)
+    if work_orders is None:
+        work_orders = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.production_order_id == order.id)
+            .order_by(WorkOrder.id)
+            .all()
+        )
     if packages is None:
         packages = db.query(Package).filter(Package.production_order_id == order.id).order_by(Package.id).all()
     by_operation = {row.operation: row for row in work_orders}
@@ -279,7 +298,7 @@ def _order_payload(
         "created_at": order.created_at,
         "items": [
             {"id": row.id, "color": row.color, "size": row.size, "planned_quantity": row.planned_quantity}
-            for row in sorted(order.items, key=lambda row: row.id)
+            for row in items
         ],
         "work_orders": [
             {
@@ -616,7 +635,57 @@ def list_usluga_orders(
     query = db.query(ProductionOrder).filter(ProductionOrder.source_type == "usluga")
     if status:
         query = query.filter(ProductionOrder.status == status)
-    return [_order_payload(db, row) for row in query.order_by(ProductionOrder.id.desc()).all()]
+    orders = query.order_by(ProductionOrder.id.desc()).all()
+    if not orders:
+        return []
+
+    order_ids = [int(order.id) for order in orders]
+    model_ids = sorted({int(order.model_id) for order in orders})
+    models_by_id: dict[int, Model] = {}
+    items_by_order: dict[int, list[ProductionOrderItem]] = {}
+    work_orders_by_order: dict[int, list[WorkOrder]] = {}
+    packages_by_order: dict[int, list[Package]] = {}
+
+    for start in range(0, len(model_ids), _PRELOAD_CHUNK_SIZE):
+        rows = _usluga_model_query(db).filter(
+            Model.id.in_(model_ids[start:start + _PRELOAD_CHUNK_SIZE]),
+        ).all()
+        models_by_id.update((int(row.id), row) for row in rows)
+    for start in range(0, len(order_ids), _PRELOAD_CHUNK_SIZE):
+        chunk = order_ids[start:start + _PRELOAD_CHUNK_SIZE]
+        for item in (
+            db.query(ProductionOrderItem)
+            .filter(ProductionOrderItem.production_order_id.in_(chunk))
+            .order_by(ProductionOrderItem.production_order_id, ProductionOrderItem.id)
+            .all()
+        ):
+            items_by_order.setdefault(int(item.production_order_id), []).append(item)
+        for work_order in (
+            db.query(WorkOrder)
+            .filter(WorkOrder.production_order_id.in_(chunk))
+            .order_by(WorkOrder.production_order_id, WorkOrder.id)
+            .all()
+        ):
+            work_orders_by_order.setdefault(int(work_order.production_order_id), []).append(work_order)
+        for package in (
+            db.query(Package)
+            .filter(Package.production_order_id.in_(chunk))
+            .order_by(Package.production_order_id, Package.id)
+            .all()
+        ):
+            packages_by_order.setdefault(int(package.production_order_id), []).append(package)
+
+    return [
+        _order_payload(
+            db,
+            order,
+            model=models_by_id.get(int(order.model_id)),
+            items=items_by_order.get(int(order.id), []),
+            work_orders=work_orders_by_order.get(int(order.id), []),
+            packages=packages_by_order.get(int(order.id), []),
+        )
+        for order in orders
+    ]
 
 
 @router.get("/orders/{order_id}")
