@@ -2,12 +2,13 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**65 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**66 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **PERF03 — Reservation plan queries every requirement** | Large plans overload the database | [inventory.py:580](backend/app/services/inventory.py#L580): batch balances, reservations and candidates; direct exact-batch lookup avoids quadratic scans. `8671636`; 401 requirements:2,815→21 SELECTs. Five focused cases independently pass;30 related pass. |
 | **FN06 — Retry keys replay another user's result or race** | Data disclosure or duplicate-write failure | [idempotency.py:32](backend/app/services/idempotency.py#L32): verify owner and serialize PostgreSQL retries. `c21e50b`; 7 focused cases pass, including 4 PostgreSQL races/rollback cases. Unknown legacy owners return 409 and require review. |
 | **PY05 — QR return races scanning/finalization** | Conflicting payroll results | [payroll.py:3238](backend/app/api/routes/payroll.py#L3238): refreshed period→label→record locks; reject changed assignment. `a208223`; 4 PostgreSQL races independently pass; 6 related SQLite cases pass. |
 | **PERF17 — Daily reports repeat model/passport reads** | Slow reports and sewing context | [sewing_daily_reports.py:157](backend/app/api/routes/sewing_daily_reports.py#L157):400-ID model/assets and ranked latest-passport batches. `3e2ff6a`;401 orders:report1206→9 SELECTs, line context1610→14. Five focused tests independently pass;18 related pass. Writes/locks unchanged. |

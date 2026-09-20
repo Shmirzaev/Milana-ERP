@@ -841,10 +841,10 @@
       "risk": "Large plans amplify database work.",
       "proposed_fix": "Bulk balances and candidate rows.",
       "baseline_source": "backend/app/services/inventory.py:377",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "8671636",
+      "evidence": "Reservation plan1/50/401 requirements15/358/2815 to14/14/21SELECTs;5 focused independently pass,30 related pass. Scalar parity plus401 exact batches sharing one item prove no quadratic candidate traversal. Writes/eligibility unchanged. docs/stabilization_qa.md"
     },
     {
       "number": 71,
