@@ -158,6 +158,22 @@ def _require_usluga_order(db: DbSession, order_id: int) -> ProductionOrder:
     return order
 
 
+def _lock_usluga_order(db: DbSession, order_id: int) -> ProductionOrder:
+    order = (
+        db.query(ProductionOrder)
+        .filter(
+            ProductionOrder.id == order_id,
+            ProductionOrder.source_type == "usluga",
+        )
+        .populate_existing()
+        .with_for_update(of=ProductionOrder)
+        .one_or_none()
+    )
+    if not order:
+        raise HTTPException(404, "Usluga order not found")
+    return order
+
+
 def _normalized_plan_lines(payload: UslugaOrderIn, model: Model) -> list[UslugaPlanLineIn]:
     allowed_sizes = {row.size for row in model.sizes}
     plan_lines = payload.lines or [
@@ -221,7 +237,12 @@ def _structural_edit_blocker(db: DbSession, order: ProductionOrder) -> str | Non
     return None
 
 
-def _order_payload(db: DbSession, order: ProductionOrder) -> dict:
+def _order_payload(
+    db: DbSession,
+    order: ProductionOrder,
+    *,
+    packages: list[Package] | None = None,
+) -> dict:
     model = _usluga_model_query(db).filter(Model.id == order.model_id).one_or_none()
     work_orders = (
         db.query(WorkOrder)
@@ -229,7 +250,8 @@ def _order_payload(db: DbSession, order: ProductionOrder) -> dict:
         .order_by(WorkOrder.id)
         .all()
     )
-    packages = db.query(Package).filter(Package.production_order_id == order.id).order_by(Package.id).all()
+    if packages is None:
+        packages = db.query(Package).filter(Package.production_order_id == order.id).order_by(Package.id).all()
     by_operation = {row.operation: row for row in work_orders}
     packaging = by_operation.get("packaging")
     required_operations_complete = all(
@@ -676,14 +698,7 @@ def update_usluga_order(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    order = (
-        db.query(ProductionOrder)
-        .filter(ProductionOrder.id == order_id, ProductionOrder.source_type == "usluga")
-        .with_for_update(of=ProductionOrder)
-        .one_or_none()
-    )
-    if not order:
-        raise HTTPException(404, "Usluga order not found")
+    order = _lock_usluga_order(db, order_id)
     if order.handed_over_at:
         raise HTTPException(409, "Handed-over Usluga orders are read-only")
 
@@ -791,7 +806,7 @@ def update_usluga_material(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    order = _require_usluga_order(db, order_id)
+    order = _lock_usluga_order(db, order_id)
     if order.handed_over_at:
         raise HTTPException(409, "Handed-over Usluga orders are read-only")
     before = {
@@ -816,13 +831,33 @@ def hand_over_usluga_order(
 ):
     _require_eco(current)
     order = _require_usluga_order(db, order_id)
+    packages = (
+        db.query(Package)
+        .filter(Package.production_order_id == order.id)
+        .order_by(Package.id)
+        .populate_existing()
+        .with_for_update(of=Package)
+        .all()
+    )
+    locked_package_ids = [int(package.id) for package in packages]
+    order = _lock_usluga_order(db, order_id)
+    current_package_ids = [
+        int(package_id)
+        for (package_id,) in (
+            db.query(Package.id)
+            .filter(Package.production_order_id == order.id)
+            .order_by(Package.id)
+            .all()
+        )
+    ]
+    if current_package_ids != locked_package_ids:
+        raise HTTPException(409, "Usluga packages changed; retry handover")
     if order.handed_over_at:
         raise HTTPException(409, "Usluga order was already handed over")
-    summary = _order_payload(db, order)
+    summary = _order_payload(db, order, packages=packages)
     if not summary["ready_for_handover"]:
         raise HTTPException(409, "Complete packaging and create all packages before handover")
-    packages = db.query(Package).filter(Package.production_order_id == order.id).all()
-    package_ids = [row.id for row in packages]
+    package_ids = locked_package_ids
     if db.query(FinishedGoodsStock.id).filter(FinishedGoodsStock.package_id.in_(package_ids)).first():
         raise HTTPException(409, "Usluga packages must not create finished-goods stock")
     now = datetime.now(timezone.utc)
