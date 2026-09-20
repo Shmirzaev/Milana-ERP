@@ -97,10 +97,10 @@
       "risk": "Activity history becomes unreliable.",
       "proposed_fix": "Serialize audit-chain appends.",
       "baseline_source": "backend/app/services/audit.py:75",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "735961d",
+      "evidence": "PostgreSQL READ COMMITTED: defer audit IDs/hash append until outer commit, after business flush and ordered actor locks; serialize chain under advisory lock. Twelve focused PG cases pass, independently included in30 PG audit/payment/invoice/receipt/retry cases. Mixed compatibility164 passes (12 PG/152 SQLite). Savepoint/failure/rollback/late-callback tests pass. Historical damage unchanged; SQLite immediate path unchanged."
     },
     {
       "number": 9,

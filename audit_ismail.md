@@ -2,12 +2,13 @@
 
 21 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**68 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**69 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **SEC03 — Concurrent audit writes fork the history chain** | History verification becomes unreliable | [audit.py:120](backend/app/services/audit.py#L120): serialize PostgreSQL appends at outer commit after business/actor locks. `735961d`;12 focused PostgreSQL cases independently pass within30 related PostgreSQL cases. Historical damage is not repaired. |
 | **PERF04 — Every bundle repeats the same accessory check** | Bulk receiving multiplies database work | [bundles.py:447](backend/app/services/bundles.py#L447): one order/transaction-bound gate per bulk request. `c72fcb7`; 50 bundles:50→1 BOM queries. Ten focused tests independently pass;39 related pass. Other per-bundle work remains. |
 | **WF07 — General edits can fake order progress** | Shipment/accounting steps bypassed | [sales.py:1884](backend/app/api/routes/sales.py#L1884): changed status returns409 before writes; use workflow commands. `b6b4912`; 11 focused +38 sales compatibility cases pass. Same-status forms remain supported. External manual-status clients must change. |
 | **PERF03 — Reservation plan queries every requirement** | Large plans overload the database | [inventory.py:580](backend/app/services/inventory.py#L580): batch balances, reservations and candidates; direct exact-batch lookup avoids quadratic scans. `8671636`; 401 requirements:2,815→21 SELECTs. Five focused cases independently pass;30 related pass. |
@@ -79,6 +80,7 @@
 
 ## Evidence
 
+- **Audit contract change:** PostgreSQL audit objects have no ID/hash and are not query-visible until outer commit. Savepoints and rollback preserve atomicity. Requires READ COMMITTED; verify before deployment. SQLite keeps immediate writes. Later audit callbacks fail before flushing; future direct audit-table inserts must not bypass this protocol. Commit serialization adds waiting; no load-capacity claim.
 - **PERF12 partial:** [packages.py:259](backend/app/api/routes/packages.py#L259), `f27e240`: share label-sheet references and check all deleted labels before QR work.1/50/401 packages:11/11/13 total SELECTs; five cases independently pass. Extra401 distinct-model/order case passes. Bundle labels and output limits remain open.
 - **Revenue date crash fixed:** [finance.py:127](backend/app/services/finance.py#L127), `93ca1f1`: mixed timezone-aware/naive dates raised `TypeError`. Normalize comparisons; four API cases pass (UTC, offset, naive and fallback dates). Accounting/month-bucket policy is unchanged; FN08 remains open.
 - **PERF33 partial:** [stocktake.py:252](backend/app/services/stocktake.py#L252), `7fe32ef`: normal detail pages serialize10 requested rows instead of all401.16 cases independently pass;12 existing cases pass. Global summaries still inspect candidates; search/changed/CSV remain unbounded. Live summary/page is not an atomic snapshot.
@@ -152,7 +154,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **Inventory:** batchless reservations are not fully enforced by every batch-specific issue/allocation path. Old stock discrepancies are not repaired. Partial batch transfers reject with 409; splitting batches is a separate workflow.
 - **Duplicates:** receipts need the same saved key. Different operators/keys can still represent the same physical delivery. Finance deduplication does not cover every 1C/workflow entry point.
 - **Recovery:** receipts require browser storage and Web Locks. Uncertain requests that later lose access/conflict retain evidence and need reconciliation; do not clear storage blindly.
-- **Security:** audit-chain concurrency and remaining cross-factory endpoints are not fixed. Account deletion now preserves history; already damaged history is not repaired. Signed sales-file URLs retain their existing expiry-based policy.
+- **Security:** future PostgreSQL audit appends are serialized; remaining cross-factory endpoints still need checks. Account deletion preserves history; already damaged history is not repaired. Signed sales-file URLs retain their existing expiry-based policy.
 - **DB08 — Schema drift:** fresh migrations work, but ORM-only test schemas are not identical. [Reviewed comparison](docs/audit-evidence/fresh-migration-schema-drift.json) keeps **30 unresolved drift entries**, plus intentional/default-representation differences. Align contracts deliberately; do not delete legacy tables automatically.
 - **Readiness:** other slow endpoints, full workflow/load tests and backup-restore proof still need work. Other pre-existing lock-order risks remain. **Not a production-readiness sign-off.**
 
