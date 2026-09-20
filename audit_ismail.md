@@ -2,12 +2,13 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**59 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**60 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **WF11 — Handover races material edits** | Duplicate release or changes after handover | [usluga.py:834](backend/app/api/routes/usluga.py#L834): refreshed package→order locks and membership recheck. `88b05a8`; three PostgreSQL races independently pass,15 SQLite cases pass. Competing handovers produce one success/one409 and one scan; post-handover edits reject. |
 | **PERF16 — Flow utilization repeats queries** | Slow line-capacity screens | [snapshot:262](backend/app/api/routes/sewing_flows.py#L262), [single flow:500](backend/app/api/routes/production_extra.py#L500): batch lookups and use SQL split exclusion. `3e29732`, `5e9418a`; snapshot401 added flows **1218→5 SELECTs**, one flow401 work orders **404→3**.22/21 overlapping test selections passed. |
 | **WF12 — Daily reports reverse sewing's lock order** | Writers can deadlock | [sewing_daily_reports.py:164](backend/app/api/routes/sewing_daily_reports.py#L164): work order→parent→report locks. `f943a42`; **three PostgreSQL lock-order tests independently passed**, 11 SQLite cases passed. Shared parent capacity guard retained; assignment accounting unchanged. |
 | **PY03 — Scanner can choose payable values** | Unauthorized payroll amounts | [payroll.py:717](backend/app/api/routes/payroll.py#L717): require manage rights for issuance/manual pay; scanners use issued snapshots. `900641e`; **5 focused tests independently passed**, actual React role/handler tests passed. Custom scan-only issuers need owner-reviewed permissions before rollout. |
@@ -119,6 +120,8 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **WF02 partial:** generic work-order PATCH/start/complete enforce stage and factory rights, including legacy Usluga records (`84c322a`; 25 new +21 compatibility tests passed). Manual counters/status and partial-completion policy remain unchanged; specialized commands need separate checks.
 - **PERF29 partial:** customer payment allocation batches invoice totals (`91f2f73`; 14 tests +six PostgreSQL races passed). 1/50/401 invoices: **2/51/402 → 2/2/3 SELECTs**. Invoice locking, first-payable order and advances preserved; 1C per-row work remains open.
 - **PERF36 partial:** task broadcasts batch writes (`c5b2483`; 35 SQLite +three PostgreSQL tests passed). 50 recipients: **101→2 flushes**; task/notification INSERT statements total2 on PostgreSQL. Fan-out still creates O(n) rows; admin-count path remains open.
+- **PERF23 partial:** pricing lists batch model assets (`b6b5aab`; eight pricing tests passed, five independently repeated). 1/50/501 requests: **3/101/1003→4/4/7 SELECTs**, without image binaries. Same payload/order/fallbacks; unbounded responses and polling remain open.
+- **PERF24 partial:** sales lists reuse joined customers (`93f8b59`; six focused tests pass). Related run:52 passed; its one test-URL typo was corrected and the focused suite rerun. 1/50/401 orders: **2/51/402→1/1/1 SELECTs**, plus one if totals requested. Paging/filter/response preserved; shipment serializers remain open.
 - **PERF28 partial:** receipt catalog/reference reads are batched (`1efce38`; 26 tests passed, four independently repeated). Reference reads for1/10/50 values:1/1/1; audit-head reads still3/21/101. Audit-chain correctness/scaling remains open.
 - **Overlap:** audit-chain races, invoice duplication, raw PATCH fields, image/event-loop work, SQLite rate-store blocking, index candidates and restore gaps already appear here.
 - **Stale/qualified:** S32's SQL typo is absent in this checkout. SEC04 revocation and API06 name grants are fixed, not file-object policy in general. Management dashboard labels already distinguish its counters. Unindexed/nullable foreign keys alone do not prove bugs or explain N+1 query counts. The friend's summary has no runtime reproductions or commit hash; its September 12 date references a September 15 schema.

@@ -529,10 +529,10 @@
       "risk": "Duplicate handover or changes after handover.",
       "proposed_fix": "Share order locking.",
       "baseline_source": "backend/app/api/routes/usluga.py:787",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "88b05a8",
+      "evidence": "Shared refreshed order locks; handover locks packages ascending before order then checks membership. Three PostgreSQL races independently pass;15SQLite pass. Duplicate handover once, material edit serialized, stale package membership409/no mutation. docs/stabilization_qa.md"
     },
     {
       "number": 45,
@@ -1069,10 +1069,10 @@
       "risk": "Repeated load across users.",
       "proposed_fix": "Bound responses and eager-load.",
       "baseline_source": "backend/app/api/routes/price_calculation.py:53",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "b6b5aab",
+      "evidence": "Pricing list1/50/501:3/101/1003 ->4/4/7SELECTs; metadata excludes image BLOBs. Eight pricing/workflow tests passed, five independently repeated. Payload/order/image fallback unchanged. Unbounded response and polling remain open. docs/stabilization_qa.md"
     },
     {
       "number": 90,
@@ -1081,10 +1081,10 @@
       "risk": "Cold distinct rows add queries.",
       "proposed_fix": "Complete reference maps.",
       "baseline_source": "backend/app/api/routes/sales.py:1638",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "93f8b59",
+      "evidence": "Sales list1/50/401 orders:2/51/402 ->1/1/1SELECTs,2with count. Six focused tests pass; related selection52passed, one test URL typo corrected and focused suite rerun. Existing response/filter/order/shared or null customer semantics retained. Shipment serializers remain open. docs/stabilization_qa.md"
     },
     {
       "number": 91,
