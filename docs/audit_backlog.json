@@ -759,8 +759,8 @@
       "baseline_source": "backend/app/core/deps.py:119",
       "status": "partial",
       "owner": null,
-      "commit": "177c3cd,b926fba",
-      "evidence": "Partial: same-second token revocation/profile context48pass1PGskip. Reset proxies15sec upstream fetch/body deadline:12 handler cases, strict types and targeted ESLint pass, independent source review. Trusted-proxy throttling, request-body bounds and concurrent credential workflows remain open."
+      "commit": "177c3cd,b926fba,16544e1",
+      "evidence": "Partial: token/profile and reset-proxy fixes retained. Password change refreshes and locks active user before verification: 55 SQLite compatibility tests pass, 2 PG skips; independent real-PG race passes (one success, one rejection, one audit). Stale inactive/deleted users reject401. Proxy trust, request-body bounds and cross-workflow credential policy remain open."
     },
     {
       "number": 64,
@@ -829,10 +829,10 @@
       "risk": "Large queues slow even small pages.",
       "proposed_fix": "Page eligible results; bulk stock totals.",
       "baseline_source": "backend/app/services/inventory.py:1425",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "2c30d5d",
+      "evidence": "401 orders3611->14 SELECTs; 1/50/401 now10/10/14. Five focused cases independently pass, 21 compatibility cases pass. Scalar payload/returns/manual labels/order aliases/filter/page/total preserved. All candidate lines still evaluated before derived filtering/sort; not full SQL pagination."
     },
     {
       "number": 70,
@@ -1047,8 +1047,8 @@
       "baseline_source": "backend/app/services/traceability.py:251",
       "status": "partial",
       "owner": null,
-      "commit": "2f8f951,ae88bb5,4447c97",
-      "evidence": "Bundle departments401fullSELECTs409->10(5independent tests); cutting401fullSELECTs1216->19(4independent tests), linear setdedupe. Shipping refs1/50/401:2/100/802->2/2/4; package warehouses1/50/401->1/1/2(4independent tests,34related). Material origins/graph bounds remain open. docs/stabilization_qa.md"
+      "commit": "2f8f951,ae88bb5,4447c97,a4f005a",
+      "evidence": "Bundle departments401fullSELECTs409->10; cutting401fullSELECTs1216->19, linear dedupe. Shipping refs401:802->4; warehouses401->2. Material origins1/50/401:1/50/401->1/1/2, including distinct items; 4 independently passing tests, 38 related pass before distinct-item fixture refinement. Graph bounds remain open. docs/stabilization_qa.md"
     },
     {
       "number": 88,
@@ -1213,10 +1213,10 @@
       "risk": "Memory spikes and oversized responses; candidates need measurement.",
       "proposed_fix": "Bound operational datasets",
       "baseline_source": null,
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "29d9aed",
+      "evidence": "Notification list limits clamp1..500, explicit zero remains empty. Nine API tests pass for bounds, private reads/counts/acknowledgements and login; one existing MCP test also passes. Other business lists/reports/exports remain open."
     },
     {
       "number": 102,
