@@ -497,18 +497,17 @@ def flow_utilization(fid: int, db: DbSession, current: CurrentUser):
             days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
             committed_today += round(remaining_qty / days)
     # Add directly assigned sewing WOs that are not split.
+    managed_assignment_exists = db.query(SewingAssignment.id).filter(
+        SewingAssignment.work_order_id == WorkOrder.id,
+        SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
+    ).exists()
     direct_wos = db.query(WorkOrder).filter(
         WorkOrder.sewing_flow_id == fid,
         WorkOrder.operation == "sewing",
         WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+        ~managed_assignment_exists,
     ).all()
     for w in direct_wos:
-        has_split = db.query(SewingAssignment.id).filter(
-            SewingAssignment.work_order_id == w.id,
-            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
-        ).first()
-        if has_split:
-            continue
         committed_today += max(0, int(w.planned_output_qty or 0) - int(w.passed_qty or 0))
     pct = (committed_today / f.capacity_per_day * 100) if f.capacity_per_day else 0
     return {
