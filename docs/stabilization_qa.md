@@ -28,6 +28,7 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| PERF11 | `test_print_run_query_growth.py`, `test_package_workflows.py`; GET `/api/packages/print-runs` | 1/10/50 runs use 3 SELECTs. Manifest corruption rejects; deleted members stay hidden; factory filtering, original payload and 100-run cap remain intact. |
 | SEC06 | `test_admin_membership_delete_race.py`, `test_user_audit_history.py`; isolated PostgreSQL | Concurrent deletes of the last two wildcard admins: one succeeds, one rejects, one admin remains. Concurrent audit insertion must still complete and preserve history. |
 | WF10 | `test_waste_readonly.py`; GET `/api/waste` | Change a synthetic batch cost, then read waste. Live response estimate changes; persisted historical value and finance totals do not. GET never commits. |
 | ST01 | `test_purchase_receipt_idempotency.py`; Purchasing → Receiving | Receive 5; lose the response; reload and retry the saved request. Still 5, one receipt. Changed payload with the old key rejects. Concurrent same-key submissions replay one result. |
@@ -72,6 +73,8 @@ Additional acceptance checks:
 `n` = returned parents; `r` = returned child rows; `p` = permissions; `a` = audit rows. Query counts include authentication in these test fixtures.
 
 SEC06 locks/scans active users: O(u) membership work, intentionally serialized; not O(1). WF10 removes writes, not read-query growth: per-row cost lookups and unbounded listing remain. Live waste estimates versus stored accounting snapshots (including automatically created zero values) still need an agreed FN08 valuation policy.
+
+PERF11: 1/10/50 runs fell from 3/12/52 to 3/3/3 SELECTs (100 returned runs: 102 → 3). Bounded database round trips for the existing 100-run page; O(n+r) Python work/memory for runs and members. Individual member counts and total database work are not constant.
 
 | Path | Before → after | What remains |
 | --- | --- | --- |

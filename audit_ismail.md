@@ -2,12 +2,13 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**37 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**38 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **PERF11 — Print history queries each run's members** | Slow history as rows increase | [package_workflows.py:115](backend/app/services/package_workflows.py#L115): batch selected runs' members, retain manifest checks and factory filters. `7dacb8d`; **50 runs: 52 → 3 SELECTs**. 7 focused + 18 existing workflow tests passed. |
 | **SEC06 — Concurrent deletes remove the last admin** | Administrator lockout | [admin.py:437](backend/app/api/routes/admin.py#L437): serialize membership changes with locks compatible with audit inserts. `74a2973`; **4 PostgreSQL tests passed**. |
 | **WF10 — Viewing waste rewrites stored values** | Historical valuations change on GET | [waste.py:41](backend/app/api/routes/waste.py#L41): calculate the response without writing. `7444997`; **3 focused tests independently passed**; related suite **66 passed / 4 PostgreSQL skipped**. Creation-time valuation policy remains open under FN08. |
 | **PERF05 — QR issuance repeats reference queries** | Slow bulk label generation | [payroll.py](backend/app/api/routes/payroll.py): batch label/order/reference reads; preserve unique creation counts. `538ff66`; **64 tests passed**. Reference-only 1/10/50 labels: **8/44/204 → 7/7/7 SELECTs**. Writes/output remain O(n). |
@@ -47,6 +48,9 @@
 | **API03 — Settings PATCH resets omitted fields / returns 500** | Settings lost; invalid input crashes | [settings.py:73](backend/app/api/routes/settings.py#L73): merge validated fields under a section lock; malformed input returns 422. Commit `68d9257`; **18 SQLite + 4 PostgreSQL tests passed**, including real logo upload. |
 
 ## Evidence
+
+- **Ledger correction:** payroll batching `538ff66` belongs to PERF05, not PY03. Caller-supplied payable authorization remains open; the corrected mapping does not increase the fixed count.
+- **CI wiring:** PostgreSQL selection includes administrator membership races. Corrected YAML indentation that would otherwise execute three test-file paths as shell commands. Workflow parsed locally; remote final-revision success is not yet claimed.
 
 - **Latest batch:** SEC06 tested real PostgreSQL concurrent deletes and concurrent audit insertion; disposable clusters stopped. WF10 tests assert no commit/dirty ORM state, unchanged historical totals, authorization and filters. Neither proves every role mutation or accounting report correct.
 

@@ -625,10 +625,10 @@
       "risk": "Unauthorized pay changes if policy disallows them.",
       "proposed_fix": "Separate scanning and rate management.",
       "baseline_source": "backend/app/api/routes/payroll.py:2058",
-      "status": "fixed",
+      "status": "open",
       "owner": null,
-      "commit": "538ff66",
-      "evidence": "64 payroll/list/issuance regressions passed. Reference-only SELECTs 8/44/204 -> 7/7/7 for 1/10/50; no-reference 4/4/4, retry 3/3/3. Duplicate counts/audit corrected; aliases, factory denial, ambiguous retries and 401-reference chunks tested. O(N) writes/output and chunked lookup costs remain; not whole-endpoint O(1)."
+      "commit": null,
+      "evidence": "Ledger correction: 538ff66 fixes PERF05 query growth, not caller-supplied payable authorization. PY03 remains open."
     },
     {
       "number": 53,
@@ -865,10 +865,10 @@
       "risk": "At least 10,000 lookups in that branch.",
       "proposed_fix": "Bulk validation with query budget.",
       "baseline_source": "backend/app/api/routes/payroll.py:2058",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "538ff66",
+      "evidence": "64 payroll/list/issuance regressions passed. Reference-only SELECTs 8/44/204 -> 7/7/7 for 1/10/50; no-reference 4/4/4, retry 3/3/3. O(n) writes/output and chunked lookup costs remain."
     },
     {
       "number": 73,
@@ -925,10 +925,10 @@
       "risk": "N+1 history reads.",
       "proposed_fix": "Bulk-load members.",
       "baseline_source": "backend/app/services/package_workflows.py:78",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "7dacb8d",
+      "evidence": "7 final focused tests and 18 existing workflow tests passed. 1/10/50 runs: 3/12/52 -> 3/3/3 SELECTs; 100-run cap preserved. O(n+r) Python work, not constant total cost."
     },
     {
       "number": 78,
