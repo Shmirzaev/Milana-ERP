@@ -375,8 +375,8 @@
       "baseline_source": "backend/app/services/packages.py:1166",
       "status": "open",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "9e336ce",
+      "evidence": "PARTIAL: reservation rejects already damaged packages; API regression and 3 PostgreSQL reserve races pass. Reverse mark-damaged transition remains unlocked; quarantine/reservation policy unresolved."
     },
     {
       "number": 32,
@@ -589,10 +589,10 @@
       "risk": "Wrong day totals or server errors.",
       "proposed_fix": "Share timezone/shift validation.",
       "baseline_source": "backend/app/api/routes/hr_workspace.py:350",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "76388c2",
+      "evidence": "60 related tests passed; 8 focused independently passed. Tashkent day bounds and finite bounded hours; one factory-settings read. Shift/break/payroll policy not covered."
     },
     {
       "number": 50,
@@ -1201,10 +1201,10 @@
       "risk": "O(P×I + I×L) CPU work.",
       "proposed_fix": "Build ID maps.",
       "baseline_source": "backend/app/api/routes/shipments.py:154",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "a14827f",
+      "evidence": "46 related tests passed; 4 independently passed. Indexed contents/prices/invoice lines; manual documents use 4 SELECTs at 1 and 20 packages. Ordering, prices, exact basis and frozen snapshot preserved."
     },
     {
       "number": 101,

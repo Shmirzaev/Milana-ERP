@@ -2,12 +2,14 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**43 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**45 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **AT05 — HR uses the wrong day / unsafe scheduled hours** | Wrong attendance totals or 500 errors | [hr_workspace.py:183](backend/app/api/routes/hr_workspace.py#L183): Tashkent day boundaries; validated factory default and safe employee overrides. `76388c2`; **60 related tests passed; 8 independently repeated**. Shift/break/payroll policy unchanged. |
+| **PERF34 — Shipment documents repeatedly scan lists** | Quadratic processing and per-package receipt reads | [shipment_review.py:164](backend/app/services/shipment_review.py#L164), [shipment_invoice.py:33](backend/app/services/shipment_invoice.py#L33): index contents, prices and invoice lines; batch receipts. `a14827f`; **46 tests passed; 4 independently repeated**. 1/20 manual packages: **4/4 SELECTs**, unchanged pricing, order and basis hash. |
 | **ST10 — Concurrent conversion creates duplicate orders** | Duplicate purchasing commitments | [purchasing.py:187](backend/app/services/purchasing.py#L187): approval/rejection/conversion share a refreshed request lock. `b409897`; **13 tests passed, including 2 real PostgreSQL races**. Rollback and stale-session checks included. |
 | **ST07 — Competing reservations overwrite balances** | Overselling or lost reservations | [finished_goods.py:178](backend/app/api/routes/finished_goods.py#L178): lock package then stock; refresh before checking availability. `c8e82dc`; **109 SQLite + 3 real PostgreSQL tests passed**. Damaged-stock eligibility remains ST09. |
 | **API04 — Invalid HR inputs and wrong-factory references** | Bad records or server errors | [hr_workspace.py:34](backend/app/api/routes/hr_workspace.py#L34): shared scope, salary/date, reference and required-text checks. `8250e0c`; **33 tests independently passed**. Valid same-factory cross-department links and optional clearing remain supported. |
@@ -93,6 +95,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **Review corrections completed:** payroll duplicate creation/audit counts and residual reference N+1 fixed in `538ff66`; ambiguity, retries and factory-denial regressions passed. This does not prove every payroll endpoint is optimized.
 - **API02 partial:** task command validation now rejects bad states, dates, nulls, oversized/blank names and out-of-range integer references (`22593e7`, `c56a7f1`; 56 tests). Unrelated edits to old incomplete references still work. Reference target existence/access is not yet enforced; API02 remains open.
 - **WF08 partial:** waste-sale API locks remaining capacity, rejects invalid input and supports user/record-scoped retry keys (`6cb2d3a`; 27 focused + 3 real PostgreSQL tests). Fractional-weight totals preserve PostgreSQL cent rounding. UI still lacks retained keys/remaining-balance handling; unkeyed retries remain ambiguous. Historical sold rows and finance valuation policy are unchanged.
+- **ST09 partial:** already-damaged packages cannot be reserved (`9e336ce`; API regression and 3 PostgreSQL reserve races passed). Marking an existing reservation damaged still needs explicit quarantine policy and serialized transitions; not counted as fully fixed.
 - **Overlap:** audit-chain races, invoice duplication, raw PATCH fields, image/event-loop work, SQLite rate-store blocking, index candidates and restore gaps already appear here.
 - **Stale/qualified:** S32's SQL typo is absent in this checkout. SEC04 revocation and API06 name grants are fixed, not file-object policy in general. Management dashboard labels already distinguish its counters. Unindexed/nullable foreign keys alone do not prove bugs or explain N+1 query counts. The friend's summary has no runtime reproductions or commit hash; its September 12 date references a September 15 schema.
 

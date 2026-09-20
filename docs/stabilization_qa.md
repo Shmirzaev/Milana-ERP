@@ -28,6 +28,9 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| AT05 | `test_hr_attendance_validation.py`; HR attendance/settings | UTC events on either side of Tashkent midnight appear on the correct day. Invalid legacy hours fall back safely; nonfinite input returns 422. Factory settings read once. |
+| PERF34 | `test_shipment_document_query_growth.py`; shipment documents | 1/20 manual packages use 4 SELECTs. Exact/wildcard/ambiguous prices, line order, basis hash and frozen document remain unchanged. Inputs indexed once: O(P+I+L+output) processing, not constant total work. |
+| ST09 (partial) | `test_finished_goods_damage_integrity.py`, `test_finished_goods_reserve_integrity.py` | Mark synthetic package damaged, then reserve: 409 and no balance change. Re-run 3 PostgreSQL reserve races. Reverse damage-after-reserve is still unresolved. |
 | ST10 | `test_purchase_conversion_integrity.py`, `test_purchasing.py`; request conversion API | Two simultaneous conversions create one order; losing request returns 409. Conversion racing rejection preserves one valid final state. Rollback allows later conversion; cached old approval does not bypass state checks. |
 | ST07 | `test_finished_goods_reserve_integrity.py`; finished-goods reserve API | Two reserves of 6 against 10: one succeeds, one rejects; stock stays 4 available/6 reserved. Reserve racing release preserves the other order; reserve racing dispatch never restores sold stock. |
 | API04 | `test_hr_workspace_validation.py`; HR organization/positions/recruitment/calendar/uploads | Wrong-factory links reject; salary/date inversions, nonfinite/oversized input and blank titles reject without writes. Valid scoped workflow and explicit optional clearing still work. |
