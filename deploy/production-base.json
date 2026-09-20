@@ -1,6 +1,6 @@
 {
-  "release": "20260919_120429",
-  "source_manifest_sha256": "99dcad2426398293320870c7d626d25ffe3450e438cbee3d075fff7d680ce19f",
-  "database_revision": "0131_sewing_corrections",
-  "git_baseline_commit": "5e34934aeeedd57ee695e957b214f935b33ac88d"
+  "release": "20260920_030043",
+  "source_manifest_sha256": "6e0fe7e13abf717b544995c5e06a7628636ecd8919236cc89f08117660b391e2",
+  "database_revision": "0132_first_grade_singles",
+  "git_baseline_commit": "f78b8b68067521ff0478e3a3b7210b3d4d57d2e9"
 }

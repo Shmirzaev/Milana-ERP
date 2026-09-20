@@ -1,6 +1,6 @@
-# Proposed First Grade singles workflow
+# First Grade singles workflow
 
-Status: proposal only; not included in the deployment of items 1–7.
+Status: core singles workflow deployed in `20260920_030043`. The implementation section below describes available operations; the original proposal includes optional future extensions.
 
 First Grade means a quality-approved product that cannot complete the required size assortment. It is not a defect grade. Label it “1st Grade — singles” so warehouse and sales staff do not confuse it with damaged or second-quality stock.
 
