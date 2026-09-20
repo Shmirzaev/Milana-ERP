@@ -7,10 +7,25 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy import func, case, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, noload, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import Bundle, CuttingPassport, Model, SewingAssignment, SewingDailyReport, SewingFlow, User, WorkOrder, ProductionOrder, ProductionBatch
+from app.models import (
+    Bundle,
+    CuttingPassport,
+    Item,
+    Model,
+    ModelBOM,
+    ModelImage,
+    ProductionBatch,
+    ProductionOrder,
+    SewingAssignment,
+    SewingDailyReport,
+    SewingFlow,
+    StockBatch,
+    User,
+    WorkOrder,
+)
 from app.schemas.sewing_daily_report import (
     SewingDailyLineContext,
     SewingDailyLineWorkOrder,
@@ -38,6 +53,7 @@ _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress"
 _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 _REPORT_READ_PERMS = ("sewing.workspace", "sewing.daily_reports.view")
+_READ_CHUNK_SIZE = 400
 
 
 def _uses_dynamic_sections(flow: SewingFlow) -> bool:
@@ -103,6 +119,84 @@ def _production_kroy_no(db, production_order_id: int | None, cache: dict[int, st
     result = str(value or "").strip() or None
     if cache is not None:
         cache[production_id] = result
+    return result
+
+
+def _read_chunks(values):
+    ordered = sorted({int(value) for value in values})
+    for offset in range(0, len(ordered), _READ_CHUNK_SIZE):
+        yield ordered[offset:offset + _READ_CHUNK_SIZE]
+
+
+def _model_read_options():
+    return (
+        selectinload(Model.images).load_only(
+            ModelImage.id,
+            ModelImage.model_id,
+            ModelImage.file_url,
+            ModelImage.file_name,
+            ModelImage.content_type,
+            ModelImage.image_type,
+            ModelImage.is_primary,
+        ),
+        selectinload(Model.bom)
+        .load_only(
+            ModelBOM.id,
+            ModelBOM.model_id,
+            ModelBOM.item_id,
+            ModelBOM.stock_batch_id,
+            ModelBOM.photo_url,
+        )
+        .options(
+            joinedload(ModelBOM.item).load_only(Item.id, Item.category, Item.image_url),
+            joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+        ),
+    )
+
+
+def _production_model_info_cache(db, production_orders) -> dict[int, dict]:
+    orders = {int(order.id): order for order in production_orders}
+    model_ids = {int(order.model_id) for order in orders.values() if order.model_id}
+    models_by_id = {}
+    for chunk in _read_chunks(model_ids):
+        models_by_id.update({
+            int(model.id): model
+            for model in (
+                db.query(Model)
+                .options(*_model_read_options())
+                .filter(Model.id.in_(chunk))
+                .all()
+            )
+        })
+    return {
+        production_id: _model_info(models_by_id.get(int(order.model_id)))
+        for production_id, order in orders.items()
+    }
+
+
+def _production_kroy_cache(db, production_order_ids) -> dict[int, str | None]:
+    production_ids = sorted({int(value) for value in production_order_ids})
+    result = {production_id: None for production_id in production_ids}
+    for chunk in _read_chunks(production_ids):
+        rank = func.row_number().over(
+            partition_by=CuttingPassport.production_order_id,
+            order_by=(CuttingPassport.date.desc(), CuttingPassport.id.desc()),
+        ).label("latest_rank")
+        ranked = (
+            db.query(
+                CuttingPassport.production_order_id.label("production_order_id"),
+                CuttingPassport.passport_no.label("passport_no"),
+                rank,
+            )
+            .filter(CuttingPassport.production_order_id.in_(chunk))
+            .subquery()
+        )
+        for production_id, passport_no in (
+            db.query(ranked.c.production_order_id, ranked.c.passport_no)
+            .filter(ranked.c.latest_rank == 1)
+            .all()
+        ):
+            result[int(production_id)] = str(passport_no or "").strip() or None
     return result
 
 
@@ -331,6 +425,7 @@ def _work_order_context(
     *,
     sewing_assignment: SewingAssignment | None = None,
     kroy_cache: dict[int, str | None] | None = None,
+    model_cache: dict[int, dict] | None = None,
     capacity_cache: dict[tuple[int, int | None], tuple[int, int]] | None = None,
     batch_cache: dict[int, ProductionBatch] | None = None,
 ) -> SewingDailyLineWorkOrder:
@@ -367,12 +462,11 @@ def _work_order_context(
         kroy_no=_production_kroy_no(db, work_order.production_order_id, kroy_cache),
         report_remaining_top_qty=report_top,
         report_remaining_bottom_qty=report_bottom,
-        **_production_model_info(db, work_order.production_order),
+        **_production_model_info(db, work_order.production_order, model_cache),
     )
 
 
 def _line_context(db, flow: SewingFlow) -> SewingDailyLineContext:
-    kroy_cache: dict[int, str | None] = {}
     order_ref_load = joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order)
     assignment_order_ref_load = (
         joinedload(SewingAssignment.work_order)
@@ -421,10 +515,18 @@ def _line_context(db, flow: SewingFlow) -> SewingDailyLineContext:
             continue
         context_rows.append((work_order, None))
 
+    production_orders = {
+        int(work_order.production_order_id): work_order.production_order
+        for work_order, _ in context_rows
+        if work_order.production_order is not None
+    }
+    model_cache = _production_model_info_cache(db, production_orders.values())
+    kroy_cache = _production_kroy_cache(db, production_orders)
     capacity_cache, batch_cache = _line_context_capacity_maps(db, context_rows)
     active = [
         _work_order_context(
             db, work_order, sewing_assignment=assignment, kroy_cache=kroy_cache,
+            model_cache=model_cache,
             capacity_cache=capacity_cache, batch_cache=batch_cache,
         )
         for work_order, assignment in context_rows
@@ -676,15 +778,16 @@ def _report_list(
     rows = qry.order_by(SewingDailyReport.report_date.desc(), SewingDailyReport.line_code.asc(), SewingDailyReport.created_at.desc()).all()
 
     production_ids = sorted({int(row.production_order_id) for row in rows if row.production_order_id})
-    production_orders = (
-        db.query(ProductionOrder)
-        .filter(ProductionOrder.id.in_(production_ids))
-        .all()
-        if production_ids
-        else []
-    )
+    production_orders = []
+    for chunk in _read_chunks(production_ids):
+        production_orders.extend(
+            db.query(ProductionOrder)
+            .options(noload(ProductionOrder.materials))
+            .filter(ProductionOrder.id.in_(chunk))
+            .all()
+        )
     production_by_id = {int(row.id): row for row in production_orders}
-    model_cache: dict[int, dict] = {}
+    model_cache = _production_model_info_cache(db, production_orders)
     row_payloads: list[dict] = []
     summary_map: dict[int, dict] = {}
     for row in rows:
