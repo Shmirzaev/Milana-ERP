@@ -160,8 +160,10 @@ class ShipmentScanOut(BaseModel):
 
 
 class InvoiceIn(BaseModel):
-    sales_order_id: int
-    amount: Optional[float] = None
+    sales_order_id: int = Field(gt=0, le=2_147_483_647)
+    amount: Optional[float] = Field(
+        default=None, ge=0, le=999_999_999_999.99, allow_inf_nan=False
+    )
 
 
 class InvoiceOut(ORMModel):
@@ -175,10 +177,10 @@ class InvoiceOut(ORMModel):
 
 
 class PaymentIn(BaseModel):
-    invoice_id: int
-    amount: float
+    invoice_id: int = Field(gt=0, le=2_147_483_647)
+    amount: float = Field(ge=0.01, le=999_999_999_999.99, allow_inf_nan=False)
     paid_at: Optional[datetime] = None
-    payment_method: Optional[str] = None
+    payment_method: Optional[str] = Field(default=None, max_length=32)
     notes: Optional[str] = None
 
 
