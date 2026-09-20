@@ -3,11 +3,12 @@ from __future__ import annotations
 import re
 import secrets
 from datetime import date, datetime, timedelta, timezone
+from math import isfinite
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func
 
 from app.core.config import settings
@@ -25,40 +26,65 @@ from app.models import (
     User,
 )
 from app.services.audit import log_action
-from app.services.factory_scope import selected_factory_code
+from app.services.factory_scope import factory_for_department, selected_factory_code
 
 
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])
 HrUser = Depends(require_permissions("hr.employees", "*"))
+MAX_INT4 = 2_147_483_647
+MAX_POSITION_SALARY = 999_999_999_999.99
 
 
 class OrgUnitIn(BaseModel):
-    parent_id: int | None = None
-    department_id: int | None = None
-    manager_employee_id: int | None = None
+    parent_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    manager_employee_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
     unit_type: str = Field(pattern="^(company|factory|department|section|team)$")
     name: str = Field(min_length=1, max_length=160)
     code: str | None = Field(default=None, max_length=48)
     sort_order: int = 0
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _required_text(value, "Organization unit name")
+
 
 class PositionIn(BaseModel):
-    org_unit_id: int | None = None
-    department_id: int | None = None
+    org_unit_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
     name: str = Field(min_length=1, max_length=160)
     job_description: str | None = None
     required_skills: list[str] = Field(default_factory=list)
     qualification_level: str | None = None
     grade_level: str | None = None
-    salary_min: float | None = Field(default=None, ge=0)
-    salary_max: float | None = Field(default=None, ge=0)
+    salary_min: float | None = Field(default=None, ge=0, le=MAX_POSITION_SALARY, allow_inf_nan=False)
+    salary_max: float | None = Field(default=None, ge=0, le=MAX_POSITION_SALARY, allow_inf_nan=False)
     approved_count: int = Field(default=0, ge=0)
     is_active: bool = True
 
+    @field_validator("salary_min", "salary_max", mode="before")
+    @classmethod
+    def validate_finite_salary(cls, value):
+        if isinstance(value, float) and not isfinite(value):
+            raise HTTPException(422, "Salary must be a finite number")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _required_text(value, "Position name")
+
+    @model_validator(mode="after")
+    def validate_salary_range(self):
+        if self.salary_min is not None and self.salary_max is not None and self.salary_min > self.salary_max:
+            raise ValueError("Minimum salary cannot exceed maximum salary")
+        return self
+
 
 class CandidateIn(BaseModel):
-    position_id: int | None = None
-    department_id: int | None = None
+    position_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
     full_name: str = Field(min_length=1, max_length=255)
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
@@ -83,15 +109,47 @@ class CandidateIn(BaseModel):
     interview_at: datetime | None = None
     notes: str | None = None
 
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: str) -> str:
+        return _required_text(value, "Candidate name")
+
+    @model_validator(mode="after")
+    def validate_passport_dates(self):
+        if (
+            self.passport_issue_date is not None
+            and self.passport_expiry_date is not None
+            and self.passport_expiry_date < self.passport_issue_date
+        ):
+            raise ValueError("Passport expiry date cannot precede its issue date")
+        return self
+
 
 class CalendarEventIn(BaseModel):
-    employee_id: int | None = None
+    employee_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
     event_type: str = Field(pattern="^(birthday|contract_expiry|probation_end|leave|training|interview|medical_check|certification|performance_review|other)$")
     title: str = Field(min_length=1, max_length=255)
     starts_at: datetime
     ends_at: datetime | None = None
     notes: str | None = None
     status: str = Field(default="scheduled", pattern="^(scheduled|completed|cancelled)$")
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        return _required_text(value, "Calendar event title")
+
+    @model_validator(mode="after")
+    def validate_date_range(self):
+        if self.ends_at is None:
+            return self
+        starts_aware = self.starts_at.tzinfo is not None and self.starts_at.utcoffset() is not None
+        ends_aware = self.ends_at.tzinfo is not None and self.ends_at.utcoffset() is not None
+        if starts_aware != ends_aware:
+            raise ValueError("Calendar start and end must use matching timezone formats")
+        if self.ends_at < self.starts_at:
+            raise ValueError("Calendar end cannot precede its start")
+        return self
 
 
 class HrSettingsIn(BaseModel):
@@ -103,6 +161,13 @@ class HrSettingsIn(BaseModel):
     weekend_days: list[int] = Field(default_factory=lambda: [6, 7])
 
 
+def _required_text(value: str, label: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{label} is required")
+    return normalized
+
+
 def _factory(current: User) -> str:
     return selected_factory_code(current)
 
@@ -112,6 +177,39 @@ def _employee(db: DbSession, factory: str, employee_id: int) -> Employee:
     if not row:
         raise HTTPException(404, "Employee not found")
     return row
+
+
+def _department(db: DbSession, factory: str, department_id: int) -> Department:
+    row = db.get(Department, department_id)
+    if not row:
+        raise HTTPException(404, "Department not found")
+    department_factory = factory_for_department(row.code)
+    if department_factory and department_factory != factory:
+        raise HTTPException(409, "Department belongs to another factory")
+    return row
+
+
+def _org_unit(db: DbSession, factory: str, unit_id: int) -> HrOrgUnit:
+    row = db.query(HrOrgUnit).filter(HrOrgUnit.id == unit_id, HrOrgUnit.factory_code == factory).first()
+    if not row:
+        raise HTTPException(404, "Organization unit not found")
+    return row
+
+
+def _validate_org_unit_links(payload: OrgUnitIn, db: DbSession, factory: str) -> None:
+    if payload.parent_id is not None:
+        _org_unit(db, factory, payload.parent_id)
+    if payload.department_id is not None:
+        _department(db, factory, payload.department_id)
+    if payload.manager_employee_id is not None:
+        _employee(db, factory, payload.manager_employee_id)
+
+
+def _validate_position_links(payload: PositionIn, db: DbSession, factory: str) -> None:
+    if payload.org_unit_id is not None:
+        _org_unit(db, factory, payload.org_unit_id)
+    if payload.department_id is not None:
+        _department(db, factory, payload.department_id)
 
 
 def _position_dict(row: HrPosition, occupied: int = 0) -> dict:
@@ -183,10 +281,7 @@ def list_organization(db: DbSession, current: User = HrUser):
 @router.post("/organization", status_code=201)
 def create_org_unit(payload: OrgUnitIn, db: DbSession, current: User = HrUser):
     factory = _factory(current)
-    if payload.parent_id and not db.query(HrOrgUnit).filter(HrOrgUnit.id == payload.parent_id, HrOrgUnit.factory_code == factory).first():
-        raise HTTPException(404, "Parent organization unit not found")
-    if payload.manager_employee_id:
-        _employee(db, factory, payload.manager_employee_id)
+    _validate_org_unit_links(payload, db, factory)
     row = HrOrgUnit(factory_code=factory, **payload.model_dump())
     db.add(row); db.flush()
     log_action(db, current, "create", "HrOrgUnit", row.id, new_value={"name": row.name, "unit_type": row.unit_type})
@@ -215,8 +310,7 @@ def list_positions(db: DbSession, current: User = HrUser):
 @router.post("/positions", status_code=201)
 def create_position(payload: PositionIn, db: DbSession, current: User = HrUser):
     factory = _factory(current)
-    if payload.salary_min is not None and payload.salary_max is not None and payload.salary_min > payload.salary_max:
-        raise HTTPException(422, "Minimum salary cannot exceed maximum salary")
+    _validate_position_links(payload, db, factory)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     row = HrPosition(factory_code=factory, **values)
     db.add(row); db.flush(); log_action(db, current, "create", "HrPosition", row.id, new_value={"name": row.name}); db.commit(); db.refresh(row)
@@ -228,6 +322,7 @@ def update_position(position_id: int, payload: PositionIn, db: DbSession, curren
     factory = _factory(current)
     row = db.query(HrPosition).filter(HrPosition.id == position_id, HrPosition.factory_code == factory).first()
     if not row: raise HTTPException(404, "Position not found")
+    _validate_position_links(payload, db, factory)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     for key, value in values.items(): setattr(row, key, value)
     log_action(db, current, "update", "HrPosition", row.id, new_value=values); db.commit(); db.refresh(row)
@@ -247,12 +342,12 @@ def list_candidates(db: DbSession, current: User = HrUser):
 
 
 def _validate_candidate_links(payload: CandidateIn, db: DbSession, factory: str, candidate_id: int | None = None) -> None:
-    if payload.position_id and not db.query(HrPosition).filter(
+    if payload.position_id is not None and not db.query(HrPosition).filter(
         HrPosition.id == payload.position_id, HrPosition.factory_code == factory,
     ).first():
         raise HTTPException(404, "Staffing position not found")
-    if payload.department_id and not db.query(Department).filter(Department.id == payload.department_id).first():
-        raise HTTPException(404, "Department not found")
+    if payload.department_id is not None:
+        _department(db, factory, payload.department_id)
     if payload.pinfl:
         duplicate = db.query(HrRecruitmentCandidate).filter(
             HrRecruitmentCandidate.factory_code == factory,
@@ -315,6 +410,9 @@ async def upload_document(
     factory = _factory(current); _employee(db, factory, employee_id)
     allowed_categories = {"employment_contract", "passport_id", "diploma", "certificate", "employment_order", "salary_amendment", "leave", "disciplinary", "training", "resignation", "other"}
     if category not in allowed_categories: raise HTTPException(422, "Unsupported HR document category")
+    title = title.strip()
+    if not title: raise HTTPException(422, "Document title is required")
+    if len(title) > 255: raise HTTPException(422, "Document title is too long")
     content = await file.read(settings.HR_DOCUMENT_MAX_BYTES + 1)
     if not content or len(content) > settings.HR_DOCUMENT_MAX_BYTES: raise HTTPException(413, "Document is empty or too large")
     safe_original = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(file.filename or "document").name)[:255]
@@ -322,7 +420,7 @@ async def upload_document(
     root = Path(settings.HR_DOCUMENTS_DIR); root.mkdir(parents=True, exist_ok=True)
     target = root / stored
     with target.open("xb") as stream: stream.write(content)
-    row = HrEmployeeDocument(factory_code=factory, employee_id=employee_id, category=category, title=title.strip(), original_name=safe_original, stored_name=stored, content_type=file.content_type, size_bytes=len(content), expires_on=expires_on, uploaded_by=current.id)
+    row = HrEmployeeDocument(factory_code=factory, employee_id=employee_id, category=category, title=title, original_name=safe_original, stored_name=stored, content_type=file.content_type, size_bytes=len(content), expires_on=expires_on, uploaded_by=current.id)
     db.add(row); db.flush(); log_action(db, current, "create", "HrEmployeeDocument", row.id, new_value={"employee_id": employee_id, "category": category, "title": title}); db.commit(); db.refresh(row)
     return _document_dict(row)
 
@@ -392,7 +490,7 @@ def list_calendar(db: DbSession, current: User = HrUser):
 @router.post("/calendar", status_code=201)
 def create_calendar_event(payload: CalendarEventIn, db: DbSession, current: User = HrUser):
     factory = _factory(current)
-    if payload.employee_id: _employee(db, factory, payload.employee_id)
+    if payload.employee_id is not None: _employee(db, factory, payload.employee_id)
     row = HrCalendarEvent(factory_code=factory, **payload.model_dump())
     db.add(row); db.flush(); log_action(db, current, "create", "HrCalendarEvent", row.id, new_value={"title": row.title, "event_type": row.event_type}); db.commit(); db.refresh(row)
     return {"id": row.id}
