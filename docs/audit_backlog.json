@@ -613,10 +613,10 @@
       "risk": "Approved payroll can change afterward.",
       "proposed_fix": "Lock the same payroll period.",
       "baseline_source": "backend/app/api/routes/payroll.py:516",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "b285877",
+      "evidence": "Shared fresh period locks; bulk locks period IDs then label UIDs sorted; automatic period pinned across wait, Control token refreshed. Final110SQLite pass6PGskip;6realPG pass, independently repeated across two runs. Replay/status/override preserved; QR return separatePY05. docs/stabilization_qa.md"
     },
     {
       "number": 52,
@@ -997,10 +997,10 @@
       "risk": "Large reports slow.",
       "proposed_fix": "Bulk latest-passport context.",
       "baseline_source": "backend/app/api/routes/sewing_daily_reports.py:200",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "3e2ff6a",
+      "evidence": "Daily report1/50/401orders:6/153/1206 ->5/5/9SELECTs; linecontext10/206/1610 ->10/10/14. Five focused cases independently pass; related18pass3PGskip.400-ID model/assets/latestpassport batches, no imageBLOB. Scalar semantics/filter/manual override retained; writes/locks unchanged. docs/stabilization_qa.md"
     },
     {
       "number": 84,
@@ -1057,10 +1057,10 @@
       "risk": "Growing history slows the page.",
       "proposed_fix": "Page and bulk-load.",
       "baseline_source": "backend/app/api/routes/usluga.py:588",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "d1c4117",
+      "evidence": "Usluga1/50/401orders sharing models:9/352/2806 ->9/9/12SELECTs;401distinctmodels16SELECTs, no image BLOBs. Six focused tests pass incl scalar payload parity; four independently repeated. Related19pass3PGskip. Unbounded response remains open. docs/stabilization_qa.md"
     },
     {
       "number": 89,
@@ -1081,10 +1081,10 @@
       "risk": "Cold distinct rows add queries.",
       "proposed_fix": "Complete reference maps.",
       "baseline_source": "backend/app/api/routes/sales.py:1638",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "93f8b59",
-      "evidence": "Sales list1/50/401 orders:2/51/402 ->1/1/1SELECTs,2with count. Six focused tests pass; related selection52passed, one test URL typo corrected and focused suite rerun. Existing response/filter/order/shared or null customer semantics retained. Shipment serializers remain open. docs/stabilization_qa.md"
+      "commit": "93f8b59,d687557",
+      "evidence": "Sales1/50/401:2/51/402 ->1/1/1SELECTs,2with count;6focused pass. Shipment1/50/501:5/103/1006 ->3/3/4;7focused pass incl HTTP and scan totals. Related52sales/38shipment pass; test fixture/URL errors corrected then focused reruns passed. Lists retain filters/order/nulls/overrides. Other history/write performance tracked separately. docs/stabilization_qa.md"
     },
     {
       "number": 91,

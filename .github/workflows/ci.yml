@@ -112,6 +112,7 @@ jobs:
           app/tests/test_sewing_daily_report_lock_order.py
           app/tests/test_task_broadcast_batching.py
           app/tests/test_usluga_handover_integrity.py
+          app/tests/test_payroll_period_races.py
           app/tests/test_material_reservation_concurrency.py
           app/tests/test_user_audit_history.py
           app/tests/test_admin_membership_delete_race.py
