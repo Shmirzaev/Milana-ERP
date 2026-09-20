@@ -114,7 +114,8 @@ def list_print_runs(db: DbSession, production_order_id: int | None = None,
     permissions = set(user_permissions(current))
     if not permissions.intersection({"storage.packages", "storage.shipment", "*"}):
         query = query.filter(PackagePrintRun.packaging_department_code == packaging_department_scope(current))
-    return [service.run_payload(db, row) for row in query.order_by(PackagePrintRun.id.desc()).limit(100).all()]
+    runs = query.order_by(PackagePrintRun.id.desc()).limit(100).all()
+    return service.run_list_payload(db, runs)
 
 
 @router.get("/print-runs/resolve")

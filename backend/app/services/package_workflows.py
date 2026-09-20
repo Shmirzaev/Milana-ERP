@@ -75,8 +75,9 @@ def create_run(db, current, packages, *, received=False):
     return run
 
 
-def run_members(db, run):
-    members = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.run_id == run.id).order_by(PackagePrintRunMember.id).all()
+def run_members(db, run, *, members=None):
+    if members is None:
+        members = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.run_id == run.id).order_by(PackagePrintRunMember.id).all()
     if [m.package_id for m in members] != run.package_ids:
         raise HTTPException(409, "Print run membership does not match its immutable manifest")
     return members
@@ -87,9 +88,9 @@ def require_active_run(run):
         raise HTTPException(410, "This mistaken manual receipt was deleted")
 
 
-def active_run_members(db, run):
+def active_run_members(db, run, *, members=None):
     deleted = set(run.deleted_package_ids or [])
-    return [member for member in run_members(db, run) if member.package_id not in deleted]
+    return [member for member in run_members(db, run, members=members) if member.package_id not in deleted]
 
 
 def require_active_label(db, package_id):
@@ -100,15 +101,29 @@ def require_active_label(db, package_id):
             raise HTTPException(410, "This manual package label was deleted")
 
 
-def run_payload(db, run):
+def run_payload(db, run, *, members=None):
     require_active_run(run)
-    members = active_run_members(db, run)
+    members = active_run_members(db, run, members=members)
     return {"id": run.id, "run_no": run.run_no, "code": run.code,
             "created_at": run.created_at.isoformat(), "received_at": run.received_at.isoformat() if run.received_at else None,
             "manual_receipt": bool(members) and all(m.snapshot.get("manual_receipt_id") for m in members),
             "count": len(members), "quantity": sum(m.snapshot["quantity"] for m in members),
             "package_ids": [m.package_id for m in members],
             "packages": [{"id": m.package_id, **m.snapshot} for m in members]}
+
+
+def run_list_payload(db, runs):
+    """Load members together for the route's bounded 100-run page."""
+    if not runs:
+        return []
+    grouped = {run.id: [] for run in runs}
+    members = db.query(PackagePrintRunMember).filter(
+        PackagePrintRunMember.run_id.in_(grouped),
+    ).order_by(PackagePrintRunMember.id).all()
+    for member in members:
+        grouped[member.run_id].append(member)
+    # Pass all members, including deleted identities, through manifest validation.
+    return [run_payload(db, run, members=grouped[run.id]) for run in runs]
 
 
 def manual_receipt(db, current, payload):
