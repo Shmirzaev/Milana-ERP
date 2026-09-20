@@ -466,13 +466,13 @@
       "number": 39,
       "id": "WF12",
       "bug": "Daily reports and sewing writes lock parent/child in different orders.",
-      "risk": "Possible deadlocks; not reproduced.",
+      "risk": "Reproduced lock inversion can block report/sewing writers.",
       "proposed_fix": "Use one lock order.",
       "baseline_source": "backend/app/api/routes/sewing_daily_reports.py:163",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "f943a42",
+      "evidence": "Daily create/update/delete lock fresh work order then parent then report. Three real PostgreSQL wait/NOWAIT regressions independently pass; same-parent capacity retained.11 SQLite daily/capacity cases pass. Assignment accounting remains separate. docs/stabilization_qa.md"
     },
     {
       "number": 40,
@@ -985,10 +985,10 @@
       "risk": "More flows increase database trips.",
       "proposed_fix": "Grouped flow summaries.",
       "baseline_source": "backend/app/api/routes/sewing_flows.py:274",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "3e29732,5e9418a",
+      "evidence": "Snapshot1/50/401 addedflows incl seededlines:18/165/1218 ->3/3/5SELECTs.22 focused/scope tests pass; five independently repeated. Single-flow1/50/401workorders:4/53/404 ->3/3/3SELECTs;21 focused/scope tests pass. Status/date/rounding/split semantics preserved. Counts overlap, no capacity guarantee. docs/stabilization_qa.md"
     },
     {
       "number": 83,
@@ -1225,10 +1225,10 @@
       "risk": "Heavy work at scale; not ordinary read N+1.",
       "proposed_fix": "Bound fan-out and on-demand counts.",
       "baseline_source": "backend/app/api/routes/tasks.py:94",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "c5b2483",
+      "evidence": "Task broadcast flushes1/50 recipients:3/101 ->2/2; PostgreSQL task+notification INSERT statements2/2.35 related SQLite tests and three real PostgreSQL cases pass; recipient/output/audit/rollback preserved. Fan-out remains O(n), admin-count path remains open. docs/stabilization_qa.md"
     },
     {
       "number": 103,
