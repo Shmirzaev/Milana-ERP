@@ -69,12 +69,17 @@ def _serialize_sales_order(
     so: SalesOrder,
     *,
     include_items: bool = False,
+    customers: dict[int, Customer] | None = None,
 ) -> dict:
     """Shape sales-order payloads with customer/model names for frontend display."""
     schema_cls = SalesOrderDetail if include_items else SalesOrderOut
     payload = schema_cls.model_validate(so).model_dump()
 
-    customer = db.get(Customer, so.customer_id) if so.customer_id else None
+    customer = (
+        customers.get(so.customer_id)
+        if customers is not None
+        else db.get(Customer, so.customer_id) if so.customer_id else None
+    )
     if customer:
         payload["customer_name"] = customer.name
         payload["customer"] = {"id": customer.id, "name": customer.name}
@@ -1600,7 +1605,7 @@ def list_sales_orders(
     page: int = 1, page_size: int = 50,
     include_total: bool = False,
 ):
-    qry = db.query(SalesOrder).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+    qry = db.query(SalesOrder, Customer).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
     if status: qry = qry.filter(SalesOrder.status == status)
     if order_type: qry = qry.filter(SalesOrder.order_type == order_type)
     if customer_id: qry = qry.filter(SalesOrder.customer_id == customer_id)
@@ -1636,7 +1641,11 @@ def list_sales_orders(
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 500))
     rows = qry.order_by(SalesOrder.id.desc()).offset((safe_page - 1) * safe_size).limit(safe_size).all()
-    payload = [_serialize_sales_order(db, so, include_items=False) for so in rows]
+    customers = {customer.id: customer for _, customer in rows if customer is not None}
+    payload = [
+        _serialize_sales_order(db, so, include_items=False, customers=customers)
+        for so, _ in rows
+    ]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
     return payload
