@@ -5,8 +5,8 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, HTTPException, Depends, File, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func
-from sqlalchemy.orm import joinedload
+from sqlalchemy import and_, case, func, or_
+from sqlalchemy.orm import aliased, joinedload
 
 from app.core.config import settings
 from app.core.deps import (
@@ -28,7 +28,8 @@ from app.core.uploads import (
 )
 from app.models import (
     CuttingPassport,
-    ProductionOrder, ProductionOrderMaterial, WorkOrder, CuttingRecord, CuttingMaterialUsage,
+    ProductionOrder, ProductionOrderMaterial, WorkOrder, public_production_order_no,
+    CuttingRecord, CuttingMaterialUsage,
     PrintingRecord, SewingRecord, SewingReplacementRequest,
     PackagingRecord, PackagingReceipt,
     SalesOrder, QualityCheck, User, Department, SewingFlow, SewingAssignment, SewingDailyReport,
@@ -47,8 +48,8 @@ from app.schemas.production import (
 from app.core.dt import as_utc
 from app.services.audit import log_action
 from app.services.packaging_scope import (
+    normalize_packaging_department_code,
     packaging_department_scope,
-    packaging_work_order_department_code,
     require_packaging_work_order_access,
 )
 from app.services.production import (
@@ -5310,63 +5311,167 @@ def packaging_receive_options(
     packaging_department_code: str | None = None,
 ):
     department_code = packaging_department_scope(current, packaging_department_code)
-    rows = (
+    safe_limit = max(1, min(int(limit or 100), 500))
+    sewing_totals = (
         db.query(
-            SewingRecord.work_order_id,
-            WorkOrder.production_order_id,
-            SewingRecord.production_batch_id,
-            func.coalesce(func.sum(SewingRecord.passed_qty), 0),
+            SewingRecord.work_order_id.label("source_work_order_id"),
+            WorkOrder.production_order_id.label("production_order_id"),
+            SewingRecord.production_batch_id.label("production_batch_id"),
+            func.coalesce(func.sum(SewingRecord.passed_qty), 0).label("sewing_passed"),
         )
         .join(WorkOrder, WorkOrder.id == SewingRecord.work_order_id)
         .filter(WorkOrder.operation == "sewing", SewingRecord.passed_qty > 0)
         .group_by(SewingRecord.work_order_id, WorkOrder.production_order_id, SewingRecord.production_batch_id)
+        .subquery()
+    )
+    receipt_totals = (
+        db.query(
+            PackagingReceipt.source_work_order_id.label("source_work_order_id"),
+            PackagingReceipt.production_batch_id.label("production_batch_id"),
+            func.coalesce(func.sum(PackagingReceipt.quantity), 0).label("received_quantity"),
+        )
+        .group_by(
+            PackagingReceipt.source_work_order_id,
+            PackagingReceipt.production_batch_id,
+        )
+        .subquery()
+    )
+    target_candidate = aliased(WorkOrder)
+    target_id = (
+        db.query(target_candidate.id)
+        .filter(
+            target_candidate.production_order_id == sewing_totals.c.production_order_id,
+            target_candidate.operation == "packaging",
+        )
+        .order_by(
+            case(
+                (
+                    target_candidate.production_batch_id == sewing_totals.c.production_batch_id,
+                    0,
+                ),
+                (target_candidate.production_batch_id.is_(None), 1),
+                else_=2,
+            ),
+            target_candidate.id.asc(),
+        )
+        .limit(1)
+        .correlate(sewing_totals)
+        .scalar_subquery()
+    )
+    target = aliased(WorkOrder)
+    received_quantity = func.coalesce(receipt_totals.c.received_quantity, 0)
+    selected_targets = (
+        db.query(
+            target.id.label("work_order_id"),
+            target.department_id.label("department_id"),
+            sewing_totals.c.source_work_order_id,
+            sewing_totals.c.production_order_id,
+            sewing_totals.c.production_batch_id,
+            sewing_totals.c.sewing_passed,
+        )
+        .select_from(sewing_totals)
+        .join(target, target.id == target_id)
+        .subquery()
+    )
+    raw_department_codes = (
+        db.query(Department.code)
+        .select_from(selected_targets)
+        .outerjoin(Department, Department.id == selected_targets.c.department_id)
+        .distinct()
         .all()
     )
-    po_ids = sorted({int(row[1]) for row in rows})
-    po_by_id = {int(po.id): po for po in db.query(ProductionOrder).filter(ProductionOrder.id.in_(po_ids)).all()} if po_ids else {}
-    model_ids = sorted({int(po.model_id) for po in po_by_id.values()})
-    model_by_id = {int(model.id): model for model in db.query(Model).filter(Model.id.in_(model_ids)).all()} if model_ids else {}
-    batch_ids = sorted({int(row[2]) for row in rows if row[2] is not None})
-    batch_by_id = {
-        int(batch.id): batch for batch in db.query(ProductionBatch).filter(ProductionBatch.id.in_(batch_ids)).all()
-    } if batch_ids else {}
+    matching_department_codes: set[str] = set()
+    include_missing_department = False
+    for (raw_code,) in raw_department_codes:
+        normalized_code = normalize_packaging_department_code(raw_code)
+        if normalized_code != department_code:
+            continue
+        if raw_code is None:
+            include_missing_department = True
+        else:
+            matching_department_codes.add(raw_code)
+    department_filters = []
+    if matching_department_codes:
+        department_filters.append(Department.code.in_(matching_department_codes))
+    if include_missing_department:
+        department_filters.append(Department.code.is_(None))
+    if not department_filters:
+        return []
+
+    rows_query = (
+        db.query(
+            selected_targets.c.work_order_id,
+            selected_targets.c.source_work_order_id,
+            selected_targets.c.production_order_id,
+            selected_targets.c.production_batch_id,
+            ProductionOrder.production_no,
+            SalesOrder.order_no.label("sales_order_no"),
+            Model.code.label("model_code"),
+            Model.name.label("model_name"),
+            ProductionBatch.batch_no,
+            ProductionBatch.name.label("batch_name"),
+            selected_targets.c.sewing_passed,
+            received_quantity.label("received_quantity"),
+            (selected_targets.c.sewing_passed - received_quantity).label("available_quantity"),
+        )
+        .select_from(selected_targets)
+        .outerjoin(Department, Department.id == selected_targets.c.department_id)
+        .join(ProductionOrder, ProductionOrder.id == selected_targets.c.production_order_id)
+        .outerjoin(Model, Model.id == ProductionOrder.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
+        .outerjoin(
+            ProductionBatch,
+            ProductionBatch.id == selected_targets.c.production_batch_id,
+        )
+        .outerjoin(
+            receipt_totals,
+            and_(
+                receipt_totals.c.source_work_order_id == selected_targets.c.source_work_order_id,
+                receipt_totals.c.production_batch_id.is_not_distinct_from(
+                    selected_targets.c.production_batch_id,
+                ),
+            ),
+        )
+        .filter(
+            or_(*department_filters),
+            selected_targets.c.sewing_passed - received_quantity > 0,
+        )
+        .order_by(
+            (selected_targets.c.sewing_passed - received_quantity).desc(),
+            selected_targets.c.work_order_id.desc(),
+        )
+    )
     needle = str(q or "").strip().lower()
+    if not needle:
+        rows_query = rows_query.limit(safe_limit)
+
     options: list[dict] = []
-    for source_work_order_id, production_order_id, production_batch_id, sewing_passed in rows:
-        target = _packaging_target_work_order(db, int(production_order_id), production_batch_id)
-        if not target:
-            continue
-        if packaging_work_order_department_code(db, target) != department_code:
-            continue
-        _, received = _packaging_sewing_totals(db, int(source_work_order_id), production_batch_id)
-        available = max(0, int(sewing_passed or 0) - received)
-        if available <= 0:
-            continue
-        po = po_by_id.get(int(production_order_id))
-        model = model_by_id.get(int(po.model_id)) if po else None
-        batch = batch_by_id.get(int(production_batch_id)) if production_batch_id is not None else None
+    for row in rows_query.all():
         option = {
-            "work_order_id": target.id,
-            "source_work_order_id": int(source_work_order_id),
-            "production_order_id": int(production_order_id),
-            "production_batch_id": production_batch_id,
-            "production_no": po.production_no if po else None,
-            "order_no": po.order_no if po else None,
-            "model_code": model.code if model else None,
-            "model_name": model.name if model else None,
-            "batch_no": batch.batch_no if batch else None,
-            "batch_name": batch.name if batch else None,
-            "sewing_passed": int(sewing_passed or 0),
-            "received_quantity": received,
-            "available_quantity": available,
+            "work_order_id": int(row.work_order_id),
+            "source_work_order_id": int(row.source_work_order_id),
+            "production_order_id": int(row.production_order_id),
+            "production_batch_id": row.production_batch_id,
+            "production_no": row.production_no,
+            "order_no": (
+                row.sales_order_no
+                or public_production_order_no(row.production_no)
+                or row.production_no
+            ),
+            "model_code": row.model_code,
+            "model_name": row.model_name,
+            "batch_no": row.batch_no,
+            "batch_name": row.batch_name,
+            "sewing_passed": int(row.sewing_passed or 0),
+            "received_quantity": int(row.received_quantity or 0),
+            "available_quantity": int(row.available_quantity or 0),
         }
         if needle:
             haystack = " ".join(str(value or "") for value in option.values()).lower()
             if needle not in haystack and not model_code_contains(option.get("model_code"), needle):
                 continue
         options.append(option)
-    options.sort(key=lambda row: (-int(row["available_quantity"]), -int(row["work_order_id"])))
-    return options[: max(1, min(int(limit or 100), 500))]
+    return options[:safe_limit]
 
 
 @router.get("/packaging/receipts")
