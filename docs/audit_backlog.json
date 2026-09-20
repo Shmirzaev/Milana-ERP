@@ -265,7 +265,7 @@
       "risk": "Operator cannot recover without intervention.",
       "proposed_fix": "Reconcile request status and rejected retry state.",
       "baseline_source": "frontend/src/lib/packageWorkflow.ts:64",
-      "status": "open",
+      "status": "partial",
       "owner": null,
       "commit": "3ef1c83",
       "evidence": "Partial: manual receipts can reconcile committed results or atomically cancel uncommitted keys with durable tombstones. Five API cases independently passed; two real PostgreSQL ordering tests passed. Frontend late-A/new-B UUID clearing and listener regressions pass. Other package workflows remain retry-only; deleted results/revoked access require operator review."
@@ -373,7 +373,7 @@
       "risk": "Damaged goods can be promised or shipped.",
       "proposed_fix": "Reconcile quarantine and reservations.",
       "baseline_source": "backend/app/services/packages.py:1166",
-      "status": "open",
+      "status": "partial",
       "owner": null,
       "commit": "9e336ce",
       "evidence": "PARTIAL: reservation rejects already damaged packages; API regression and 3 PostgreSQL reserve races pass. Reverse mark-damaged transition remains unlocked; quarantine/reservation policy unresolved."
@@ -433,7 +433,7 @@
       "risk": "Impossible production quantities may be accepted.",
       "proposed_fix": "Validate conservation rules.",
       "baseline_source": "backend/app/api/routes/production.py:5321",
-      "status": "open",
+      "status": "partial",
       "owner": null,
       "commit": "983932f",
       "evidence": "PARTIAL: PackagingRecordIn rejects negative/int4-overflow values and packed+damaged above input. 11 targeted tests passed; invalid API requests leave real work-order counters/records unchanged. Cutting/printing/sewing conservation remains unreviewed."
@@ -481,10 +481,10 @@
       "risk": "Missing shipment/accounting side effects.",
       "proposed_fix": "Use transition commands.",
       "baseline_source": "backend/app/api/routes/sales.py:1875",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "b6b4912",
+      "evidence": "Generic PATCH rejects changed/null/bogus status409 before writes/audit; unchanged status omitted from update. Eleven focused plus38 sales compatibility cases pass. Independent source review. External clients must use workflow commands, not manual PATCH transitions."
     },
     {
       "number": 41,
@@ -493,7 +493,7 @@
       "risk": "Invalid or repeated sales; lost partial balances.",
       "proposed_fix": "Validate and lock sale capacity.",
       "baseline_source": "backend/app/api/routes/waste.py:85",
-      "status": "open",
+      "status": "partial",
       "owner": null,
       "commit": "6cb2d3a",
       "evidence": "PARTIAL: backend validates remaining capacity/precision, locks parent and replays user+parent scoped keys; 27 independently rerun tests plus3 real PostgreSQL races passed. UI still lacks retained keys and remaining-balance workflow. Unkeyed partial retries remain ambiguous; finance valuation policy unchanged."
@@ -601,7 +601,7 @@
       "risk": "Failed imports or stale presence state.",
       "proposed_fix": "Version snapshots and handle duplicates.",
       "baseline_source": "backend/app/api/routes/attendance.py:220",
-      "status": "open",
+      "status": "partial",
       "owner": null,
       "commit": "853d2e4",
       "evidence": "Partial: per-device import lock and refreshed device row; 5 real PostgreSQL tests passed, deterministic lock-wait case rerun after cleanup fix. Overlapping older-start roster is ignored. A genuinely old snapshot uploaded later has no source version; remains open."
@@ -757,10 +757,10 @@
       "risk": "Revocation, factory-state or timeout errors.",
       "proposed_fix": "Version sessions and unify contracts.",
       "baseline_source": "backend/app/core/deps.py:119",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": "177c3cd",
-      "evidence": "Partial: fractional JWT issue/cutoff comparison rejects older same-second bearer/cookie tokens and missing issue times after rotation; profile PATCH retains factory context. Red5 failures, final48 passed/1 PostgreSQL opt-in skipped (auth, static files, reset). Trusted-proxy reset throttling and concurrent credential workflows remain open."
+      "commit": "177c3cd,b926fba",
+      "evidence": "Partial: same-second token revocation/profile context48pass1PGskip. Reset proxies15sec upstream fetch/body deadline:12 handler cases, strict types and targeted ESLint pass, independent source review. Trusted-proxy throttling, request-body bounds and concurrent credential workflows remain open."
     },
     {
       "number": 64,
@@ -781,7 +781,7 @@
       "risk": "Invalid tasks or uncontrolled errors.",
       "proposed_fix": "Use strict command schemas.",
       "baseline_source": "backend/app/schemas/tasks.py:8",
-      "status": "open",
+      "status": "partial",
       "owner": null,
       "commit": "22593e7",
       "evidence": "Partial fix: command enums, title/type/int4 bounds, null/date validation and paired references; 56 task/authorization tests passed, including follow-up c56a7f1. Legacy orphan references permit unrelated edits. Target existence/access mapping still needs implementation/policy; not closed."
@@ -1129,7 +1129,7 @@
       "risk": "Large receipts are expensive.",
       "proposed_fix": "Bulk references; safe audit append.",
       "baseline_source": "backend/app/services/purchasing.py:93",
-      "status": "open",
+      "status": "partial",
       "owner": null,
       "commit": "1efce38",
       "evidence": "Partial: 26 passed, 2 PostgreSQL skipped; 4 independently repeated. Reference SELECTs 1/10/50 become 1/1/1; 401 values use 2 chunks. Receipt catalog/reference reads stay 4. Audit-head reads remain 3/21/101; audit-chain work remains open."
@@ -1273,7 +1273,7 @@
       "risk": "Worker stalls, orphan files or memory pressure.",
       "proposed_fix": "Bound/offload processing; reconcile files.",
       "baseline_source": "backend/app/services/image_storage.py:180",
-      "status": "open",
+      "status": "partial",
       "owner": null,
       "commit": "170200f",
       "evidence": "Partial: upload conversion/original write/thumbnails run off event loop, one upload slot per process acquired before buffering. Red thread assertion reproduced blocking; 10 image regressions pass including three concurrent uploads and failure cleanup. Async route SQL, cross-process capacity and partial-file lifecycle remain open."
