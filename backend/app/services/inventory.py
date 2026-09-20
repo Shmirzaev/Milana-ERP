@@ -163,6 +163,48 @@ def available_stock_for_item(db: Session, item_id: int, warehouse_id: int | None
     )
 
 
+_BULK_STOCK_CHUNK_SIZE = 400
+
+
+def available_stock_for_items(db: Session, item_ids) -> dict[int | None, float]:
+    """Bulk global equivalent of available_stock_for_item for planning reads."""
+    raw_ids = set(item_ids)
+    ids = sorted({int(item_id) for item_id in raw_ids if item_id is not None})
+    result = {item_id: 0.0 for item_id in ids}
+    if None in raw_ids:
+        result[None] = 0.0
+    out_types = ("issue", "consume", "waste", "shipment")
+    in_types = ("produce", "return", "adjustment")
+    for start in range(0, len(ids), _BULK_STOCK_CHUNK_SIZE):
+        chunk = ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+        batch_totals = dict(
+            db.query(StockBatch.item_id, func.coalesce(func.sum(StockBatch.quantity), 0))
+            .filter(StockBatch.item_id.in_(chunk)).group_by(StockBatch.item_id).all()
+        )
+        movement_totals = {
+            int(item_id): (float(incoming or 0), float(outgoing or 0))
+            for item_id, incoming, outgoing in db.query(
+                StockMovement.item_id,
+                func.coalesce(func.sum(case((StockMovement.movement_type.in_(in_types), StockMovement.quantity), else_=0)), 0),
+                func.coalesce(func.sum(case((StockMovement.movement_type.in_(out_types), StockMovement.quantity), else_=0)), 0),
+            ).filter(
+                StockMovement.item_id.in_(chunk), StockMovement.batch_id.is_(None),
+            ).group_by(StockMovement.item_id).all()
+        }
+        reserved_totals = dict(
+            db.query(MaterialReservation.item_id, _active_reserved_sum_query(db))
+            .filter(
+                MaterialReservation.item_id.in_(chunk),
+                MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+            ).group_by(MaterialReservation.item_id).all()
+        )
+        for item_id in chunk:
+            incoming, outgoing = movement_totals.get(item_id, (0.0, 0.0))
+            reserved = max(0.0, float(reserved_totals.get(item_id, 0) or 0))
+            result[item_id] = float(batch_totals.get(item_id, 0) or 0) + incoming - outgoing - reserved
+    return result
+
+
 def current_stock_for_batch(db: Session, stock_batch_id: int) -> float:
     batch = db.get(StockBatch, stock_batch_id)
     if not batch:

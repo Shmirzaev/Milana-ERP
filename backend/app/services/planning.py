@@ -1,8 +1,58 @@
 """Planning service: calculate material requirements from BOM and stock."""
+from types import SimpleNamespace
+
 from sqlalchemy.orm import Session
 
 from app.models import Model, ModelBOM, Item, SalesOrder, SalesOrderItem
-from app.services.inventory import available_stock_for_item
+from app.services.inventory import available_stock_for_items
+
+
+_QUERY_CHUNK_SIZE = 400
+
+
+def _chunks(values):
+    ordered = sorted(set(values))
+    for start in range(0, len(ordered), _QUERY_CHUNK_SIZE):
+        yield ordered[start:start + _QUERY_CHUNK_SIZE]
+
+
+def _bom_by_model(db: Session, model_ids) -> dict[int, list[ModelBOM]]:
+    grouped: dict[int, list[ModelBOM]] = {}
+    for chunk in _chunks(model_ids):
+        for row in db.query(ModelBOM).filter(ModelBOM.model_id.in_(chunk)).order_by(ModelBOM.id).all():
+            grouped.setdefault(int(row.model_id), []).append(row)
+    return grouped
+
+
+def _requirements_from_lines(db: Session, lines) -> list[dict]:
+    agg: dict[int, dict] = {}
+    bom_by_model = _bom_by_model(db, (int(line.model_id) for line in lines))
+    for line in lines:
+        for b in bom_by_model.get(int(line.model_id), ()):
+            if b.size and b.size != line.size:
+                continue
+            if b.color and b.color != line.color:
+                continue
+            required = float(b.quantity_per_piece) * int(line.quantity or 0)
+            if b.item_id not in agg:
+                item = b.item
+                agg[b.item_id] = {
+                    "item_id": b.item_id,
+                    "sku": item.sku if item else "",
+                    "name": item.name if item else "",
+                    "composition": _item_composition(item),
+                    "unit": b.unit,
+                    "required_quantity": 0.0,
+                    "available_quantity": 0.0,
+                    "shortage": 0.0,
+                }
+            agg[b.item_id]["required_quantity"] += required
+    availability = available_stock_for_items(db, agg)
+    for item_id, row in agg.items():
+        avail = availability[item_id]
+        row["available_quantity"] = avail
+        row["shortage"] = max(0.0, row["required_quantity"] - avail)
+    return list(agg.values())
 
 
 def _item_composition(item: Item | None) -> list[dict]:
@@ -35,70 +85,16 @@ def material_requirements_for_sales_order(db: Session, sales_order_id: int) -> l
     if not so:
         return []
 
-    agg: dict[int, dict] = {}
     lines = db.query(SalesOrderItem).filter(SalesOrderItem.sales_order_id == sales_order_id).all()
-    for line in lines:
-        bom_lines = db.query(ModelBOM).filter(ModelBOM.model_id == line.model_id).all()
-        for b in bom_lines:
-            # match on size/color if BOM specifies them
-            if b.size and b.size != line.size:
-                continue
-            if b.color and b.color != line.color:
-                continue
-            required = float(b.quantity_per_piece) * int(line.quantity or 0)
-            if b.item_id not in agg:
-                item = db.get(Item, b.item_id)
-                agg[b.item_id] = {
-                    "item_id": b.item_id,
-                    "sku": item.sku if item else "",
-                    "name": item.name if item else "",
-                    "composition": _item_composition(item),
-                    "unit": b.unit,
-                    "required_quantity": 0.0,
-                    "available_quantity": 0.0,
-                    "shortage": 0.0,
-                }
-            agg[b.item_id]["required_quantity"] += required
-
-    for item_id, row in agg.items():
-        avail = available_stock_for_item(db, item_id)
-        row["available_quantity"] = avail
-        row["shortage"] = max(0.0, row["required_quantity"] - avail)
-
-    return list(agg.values())
+    return _requirements_from_lines(db, lines)
 
 
 def material_requirements_for_quantity(db: Session, model_id: int, items: list[dict]) -> list[dict]:
     """items: [{color, size, quantity}, ...]"""
-    agg: dict[int, dict] = {}
-    bom_lines = db.query(ModelBOM).filter(ModelBOM.model_id == model_id).all()
-    for line in items:
-        for b in bom_lines:
-            if b.size and b.size != line.get("size"):
-                continue
-            if b.color and b.color != line.get("color"):
-                continue
-            required = float(b.quantity_per_piece) * int(line.get("quantity", 0))
-            if b.item_id not in agg:
-                item = db.get(Item, b.item_id)
-                agg[b.item_id] = {
-                    "item_id": b.item_id,
-                    "sku": item.sku if item else "",
-                    "name": item.name if item else "",
-                    "composition": _item_composition(item),
-                    "unit": b.unit,
-                    "required_quantity": 0.0,
-                    "available_quantity": 0.0,
-                    "shortage": 0.0,
-                }
-            agg[b.item_id]["required_quantity"] += required
-
-    for item_id, row in agg.items():
-        avail = available_stock_for_item(db, item_id)
-        row["available_quantity"] = avail
-        row["shortage"] = max(0.0, row["required_quantity"] - avail)
-
-    return list(agg.values())
+    lines = [SimpleNamespace(model_id=model_id, color=line.get("color"),
+                             size=line.get("size"), quantity=line.get("quantity", 0))
+             for line in items]
+    return _requirements_from_lines(db, lines)
 
 
 def planning_estimate_for_sales_order(db: Session, sales_order_id: int) -> dict | None:
@@ -113,8 +109,13 @@ def planning_estimate_for_sales_order(db: Session, sales_order_id: int) -> dict 
     material_rows = material_requirements_for_sales_order(db, sales_order_id)
     estimated_material_cost = 0.0
     enriched_materials: list[dict] = []
+    items_by_id = {
+        int(item.id): item
+        for chunk in _chunks(row["item_id"] for row in material_rows if row["item_id"] is not None)
+        for item in db.query(Item).filter(Item.id.in_(chunk)).all()
+    }
     for row in material_rows:
-        item = db.get(Item, row["item_id"])
+        item = items_by_id.get(int(row["item_id"])) if row["item_id"] is not None else None
         unit_cost = float(item.default_cost or 0) if item else 0.0
         est_cost = float(row["required_quantity"] or 0) * unit_cost
         estimated_material_cost += est_cost
@@ -129,10 +130,16 @@ def planning_estimate_for_sales_order(db: Session, sales_order_id: int) -> dict 
 
     total_qty = 0
     estimated_minutes = 0.0
-    for line in so.items:
+    sales_lines = list(so.items)
+    models = {
+        int(model.id): model
+        for chunk in _chunks(int(line.model_id) for line in sales_lines)
+        for model in db.query(Model).filter(Model.id.in_(chunk)).all()
+    }
+    for line in sales_lines:
         qty = int(line.quantity or 0)
         total_qty += qty
-        model = db.get(Model, line.model_id)
+        model = models.get(int(line.model_id))
         if not model:
             continue
         estimated_minutes += float(model.sam_minutes or 0) * qty
