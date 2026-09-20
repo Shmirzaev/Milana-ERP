@@ -25,9 +25,26 @@ from app.services.shipment_invoice import build_invoice_rows, invoice_model_iden
 
 def locked_shipment(db: Session, shipment_id: int) -> Shipment:
     shipment = db.query(Shipment).filter(Shipment.id == shipment_id).with_for_update().populate_existing().first()
-    if not shipment:
+    if not shipment or shipment.deleted_at:
         raise HTTPException(404, "Shipment not found")
     return shipment
+
+
+def delete_manual_shipment(db: Session, shipment: Shipment, reason: str, user: User) -> None:
+    from datetime import datetime, timezone
+    if (not (shipment.dispatch_snapshot or {}).get("manual") or shipment.sales_order_id
+            or shipment.status not in {"draft", "created"} or shipment.shipped_at or shipment.delivered_at):
+        raise HTTPException(409, "SHIPMENT_DELETE_BEFORE_DISPATCH")
+    package_ids = sorted(link.package_id for link in shipment.packages)
+    # Hold every package lock until the deletion and all releases commit together.
+    db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update().all()
+    for package_id in package_ids:
+        detach_shipment_package(db, shipment, package_id, reason, user)
+    shipment.status = "cancelled"
+    shipment.deleted_at = datetime.now(timezone.utc)
+    log_action(db, user, "delete_manual_shipment", "Shipment", shipment.id,
+               old_value={"shipment_no": shipment.shipment_no, "package_ids": package_ids},
+               new_value={"reason": reason.strip(), "deleted_at": shipment.deleted_at.isoformat()})
 
 
 def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
@@ -62,6 +79,8 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
     if sum(item.quantity for item in items) != package.total_quantity:
         raise HTTPException(409, "Package contents do not balance; reconcile the package first")
     total = sum(proposed.values())
+    if package.stock_kind == "first_grade" and total != 1:
+        raise HTTPException(409, "FIRST_GRADE_ONE_PIECE_REQUIRED")
     if total <= 0:
         raise HTTPException(409, "Remove the whole package from the shipment instead of setting its total to zero")
     if increases and total > 10000:

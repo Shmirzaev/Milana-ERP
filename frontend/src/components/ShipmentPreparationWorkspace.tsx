@@ -2,6 +2,8 @@
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
+import { useDialogs } from "@/components/DialogProvider";
+import { firstGradeText } from "@/lib/firstGradeText";
 import { Check, PackageCheck, ScanLine, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { shipmentReturnText } from "@/lib/shipmentReturnText";
@@ -125,6 +127,10 @@ export default function ShipmentPreparationWorkspace({
 }) {
   const { t, lang } = useT();
   const { me } = useMe();
+  const dialogs = useDialogs();
+  const deleteText = firstGradeText[lang];
+  const [deleting, setDeleting] = useState(false);
+  const [deleted, setDeleted] = useState<number | null>(null);
   const canEditTransport = can(me, "storage.shipment");
   const [transportDraft, setTransportDraft] = useState<TransportDetails>({});
   const reviewText = shipmentReviewText[lang];
@@ -142,6 +148,8 @@ export default function ShipmentPreparationWorkspace({
     finally { setReturning(null); }
   }
 
+
+  if (deleted && deleted === preparation?.shipment.id) return <section className="card p-4" role="status">{deleteText.deleted}</section>;
 
   if (isLoading) {
     return <section className="card px-4 py-10 text-center text-sm text-[#6f6a5b]">{t("page.shipments.loadingPreparation")}</section>;
@@ -220,6 +228,15 @@ export default function ShipmentPreparationWorkspace({
           </div>
 
           {!isPreview ? <div className="flex flex-wrap gap-2 lg:justify-end">
+            {isOpen && canEditTransport && shipment.shipment_type === "manual" && <button type="button" className="btn" disabled={deleting} onClick={async () => {
+              if (!(await dialogs.ask({ message: deleteText.deleteConfirm, confirmText: deleteText.deleteShipment, tone: "danger" }))) return;
+              setDeleting(true); setReturnError("");
+              try {
+                await api.post(`/api/shipments/${shipment.id}/delete`, { reason: deleteText.deleteReason });
+                setDeleted(shipment.id); await onReviewChanged();
+              } catch (error) { setReturnError(error instanceof Error ? error.message : String(error)); }
+              finally { setDeleting(false); }
+            }}>{deleteText.deleteShipment}</button>}
             {shipment.sales_order_id && isOpen ? (
               <button type="button" className="btn" onClick={onAddReadyPackages}>{t("page.shipments.addReadyPackages")}</button>
             ) : null}

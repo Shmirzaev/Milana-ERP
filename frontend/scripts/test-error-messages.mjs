@@ -5,6 +5,12 @@ const source = fs.readFileSync("src/lib/errorMessages.ts", "utf8");
 const exports = {};
 new Function("exports", ts.transpile(source, { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }))(exports);
 const { localizeError, ApiError } = exports;
+for (const lang of ["en", "ru", "uz"]) {
+  for (const code of ["FIRST_GRADE_SIZE_EVIDENCE_REQUIRED", "FIRST_GRADE_SIZE_EXCEEDED", "FIRST_GRADE_ONE_PIECE_REQUIRED", "SHIPMENT_DELETE_BEFORE_DISPATCH", "SHIPMENT_ALREADY_DELETED"]) {
+    const message = localizeError(code, 409, lang);
+    assert.ok(message.length > 15 && !message.includes(code), `${code} must have a ${lang} message`);
+  }
+}
 assert.match(localizeError("Package not found", 404, "ru"), /Упаковка/);
 assert.match(localizeError("Package not found", 404, "uz"), /Qadoq/);
 assert.equal(localizeError("Package not found", 404, "en"), "Package not found");

@@ -59,6 +59,8 @@ _SHIPMENT_ORDER_STATUSES = {
 
 
 def _shipment_payload(db: DbSession, sh: Shipment, *, scanned_count: int | None = None) -> dict:
+    if sh.deleted_at:
+        raise HTTPException(404, "Shipment not found")
     so = db.get(SalesOrder, sh.sales_order_id) if sh.sales_order_id else None
     customer = db.get(Customer, sh.customer_id or (so.customer_id if so else None)) if (sh.customer_id or (so.customer_id if so else None)) else None
     packages_count = len(sh.packages or [])
@@ -820,7 +822,7 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
 
 @router.get("", response_model=list[ShipmentOut])
 def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = None):
-    qry = db.query(Shipment).options(selectinload(Shipment.packages))
+    qry = db.query(Shipment).options(selectinload(Shipment.packages)).filter(Shipment.deleted_at.is_(None))
     if sales_order_id:
         qry = qry.filter(Shipment.sales_order_id == sales_order_id)
     rows = qry.order_by(Shipment.id.desc()).all()
@@ -988,6 +990,9 @@ def create_shipment(
         raise HTTPException(404, "Sales order not found")
     replay = replay_idempotent_response(db, scope="shipments.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
+        previous = db.get(Shipment, replay.get("id"))
+        if previous and previous.deleted_at:
+            raise HTTPException(410, "SHIPMENT_ALREADY_DELETED")
         return replay
     if payload.manual:
         if payload.sales_order_id or not payload.customer_id:
@@ -1228,6 +1233,16 @@ def remove_reviewed_package(sid: int, pid: int, payload: ShipmentPackageRemoval,
     detach_shipment_package(db, shipment, pid, payload.reason, current)
     db.commit()
     return _shipment_preparation_payload(db, shipment)
+
+
+@router.post("/{sid}/delete")
+def delete_mistaken_manual_shipment(sid: int, payload: ShipmentPackageRemoval, db: DbSession,
+                                    current: User = Depends(require_permissions("storage.shipment", "*"))):
+    from app.services.shipment_review import delete_manual_shipment
+    shipment = locked_shipment(db, sid)
+    delete_manual_shipment(db, shipment, payload.reason, current)
+    db.commit()
+    return {"deleted": True, "shipment_id": sid}
 
 
 def _invoice_print_details(db, shipment, document):

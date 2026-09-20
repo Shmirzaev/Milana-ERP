@@ -54,6 +54,8 @@ class BundleScanLog(Base, PkMixin):
 class Package(Base, PkMixin, TimestampMixin):
     __tablename__ = "packages"
     __table_args__ = (
+        CheckConstraint("stock_kind IN ('standard', 'first_grade')", name="ck_packages_stock_kind"),
+        CheckConstraint("stock_kind != 'first_grade' OR (total_quantity <= 1 AND capacity = 1)", name="ck_packages_single_quantity"),
         CheckConstraint("total_quantity >= 0", name="ck_packages_total_quantity_nonnegative"),
         CheckConstraint("quantity_shortfall >= 0", name="ck_packages_shortfall_nonnegative"),
         CheckConstraint("capacity > 0", name="ck_packages_capacity_positive"),
@@ -92,6 +94,7 @@ class Package(Base, PkMixin, TimestampMixin):
     model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
     color: Mapped[str] = mapped_column(String(64), nullable=False)
     package_type: Mapped[str] = mapped_column(String(16), default="bag", nullable=False)
+    stock_kind: Mapped[str] = mapped_column(String(16), default="standard", server_default="standard", nullable=False, index=True)
     total_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_shortfall: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     capacity: Mapped[int] = mapped_column(Integer, default=60, nullable=False)

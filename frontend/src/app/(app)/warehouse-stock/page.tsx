@@ -11,7 +11,9 @@ import { statusLabel } from "@/components/StagePipeline";
 import { fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
+import { useSearchParams } from "next/navigation";
+import { firstGradeText } from "@/lib/firstGradeText";
+import { storageThumbnailUrl } from "@/lib/modelImages";
 import { modelSearchIncludes } from "@/lib/modelCode";
 import { formatOrderReference, rawOrderReference } from "@/lib/orderRef";
 
@@ -102,7 +104,10 @@ function packageListText(packages: DetailRow["packages"], packageCount: number) 
 }
 
 export default function WarehouseStockPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const copy = firstGradeText[lang];
+  const search = useSearchParams();
+  const [stockKind, setStockKind] = useState(search.get("stock_kind") === "first_grade" ? "first_grade" : "standard");
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const [query, setQuery] = useState("");
@@ -111,12 +116,13 @@ export default function WarehouseStockPage() {
   const stockUrl = useMemo(() => {
     const params = new URLSearchParams();
     params.set("include_unplaced", "true");
+    params.set("stock_kind", stockKind);
     if (createdFrom) params.set("created_from", createdFrom);
     if (createdTo) params.set("created_to", createdTo);
     const qs = params.toString();
     return `/api/packages/storage-map${qs ? `?${qs}` : ""}`;
-  }, [createdFrom, createdTo]);
-  const { data, isLoading } = useSWR<StorageMapResponse>(stockUrl, fetcher);
+  }, [createdFrom, createdTo, stockKind]);
+  const { data, isLoading, error } = useSWR<StorageMapResponse>(stockUrl, fetcher);
 
   const placements = useMemo(() => data?.placements || [], [data?.placements]);
   const filtered = useMemo(() => {
@@ -260,6 +266,12 @@ export default function WarehouseStockPage() {
     <div>
       <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<StocktakeLink />} />
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button className={`btn ${stockKind === "standard" ? "btn-primary" : ""}`} onClick={() => setStockKind("standard")}>{copy.standard}</button>
+        <button className={`btn ${stockKind === "first_grade" ? "btn-primary" : ""}`} onClick={() => setStockKind("first_grade")}>{copy.title}</button>
+        {stockKind === "first_grade" && can(me, "sales.orders") && <Link className="btn" href="/sales-orders/first-grade">{copy.sale}</Link>}
+      </div>
+      {error && <p role="alert" className="mb-4 text-red-700">{error.message}</p>}
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="kpi-card">
           <div className="flex items-center justify-between gap-3">
@@ -335,7 +347,7 @@ export default function WarehouseStockPage() {
               <div className="grid min-h-[132px] grid-cols-[104px_minmax(0,1fr)]">
                 <div className="bg-[#f1efe8]">
                   {group.model_image_url ? (
-                    <a href={imagePreviewHref(group.model_image_url, group.model_name || group.model_code || "")} target="_blank" rel="noreferrer" className="block h-full min-h-[132px] w-full">
+                    <a href={`/warehouse-stock/models/${group.model_id}?stock_kind=${stockKind}`} target="_blank" rel="noreferrer" className="block h-full min-h-[132px] w-full">
                       <img src={storageThumbnailUrl(group.model_image_url, 320)} alt={group.model_name || group.model_code || ""} className="h-full min-h-[132px] w-full object-contain p-1" loading="lazy" />
                     </a>
                   ) : (
@@ -345,7 +357,7 @@ export default function WarehouseStockPage() {
                   )}
                 </div>
                 <div className="flex min-w-0 flex-col p-3">
-                  <div className="mono text-xs font-semibold uppercase text-[#8a8472]">{group.model_code || group.model_id || "-"}</div>
+                  <div className="mono text-xs font-semibold uppercase text-[#8a8472]"><a className="underline" target="_blank" rel="noreferrer" href={`/warehouse-stock/models/${group.model_id}?stock_kind=${stockKind}`}>{group.model_code || group.model_id || "-"}</a></div>
                   <div className="mt-1 line-clamp-2 text-sm font-semibold leading-snug text-[#14110b]">{group.model_name || t("page.models.noPreview")}</div>
                   <div className="mt-auto grid grid-cols-2 gap-2 pt-3 text-xs text-[#56503f]">
                     <div>
@@ -397,7 +409,7 @@ export default function WarehouseStockPage() {
                 <tr key={row.key}>
                   <td>
                     {row.model_image_url ? (
-                      <a href={imagePreviewHref(row.model_image_url, row.model_name || row.model_code || "")} target="_blank" rel="noreferrer" className="block h-12 w-12 overflow-hidden rounded-md border border-[#e3dfd3]">
+                      <a href={`/warehouse-stock/models/${row.model_id}?stock_kind=${stockKind}`} target="_blank" rel="noreferrer" className="block h-12 w-12 overflow-hidden rounded-md border border-[#e3dfd3]">
                         <img src={storageThumbnailUrl(row.model_image_url, 160)} alt={row.model_name || row.model_code || ""} className="h-full w-full object-contain p-1" loading="lazy" />
                       </a>
                     ) : (
@@ -407,7 +419,7 @@ export default function WarehouseStockPage() {
                     )}
                   </td>
                   <td>
-                    <div className="mono font-semibold text-[#14110b]">{row.model_code || row.model_id || "-"}</div>
+                    <div className="mono font-semibold text-[#14110b]"><a className="underline" target="_blank" rel="noreferrer" href={`/warehouse-stock/models/${row.model_id}?stock_kind=${stockKind}`}>{row.model_code || row.model_id || "-"}</a></div>
                     <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{row.model_name || "-"}</div>
                   </td>
                   <td className="mono">{formatOrderReference(row.order_no)}</td>
