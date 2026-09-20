@@ -161,11 +161,27 @@ def _report_audit_values(report: SewingDailyReport) -> dict:
     }
 
 
-def _lock_report_order(db, work_order_id):
-    """Serialize report writes across dates, lines and assignments of one order."""
-    order_id = db.query(WorkOrder.production_order_id).filter(WorkOrder.id == work_order_id).scalar()
-    if order_id:
-        db.query(ProductionOrder).filter(ProductionOrder.id == order_id).with_for_update().first()
+def _lock_report_order(db, work_order_id) -> WorkOrder | None:
+    """Serialize report writes after the work-order lock used by sewing writes."""
+    if work_order_id is None:
+        return None
+    work_order = (
+        db.query(WorkOrder)
+        .filter(WorkOrder.id == work_order_id)
+        .populate_existing()
+        .with_for_update(of=WorkOrder)
+        .first()
+    )
+    if not work_order:
+        return None
+    (
+        db.query(ProductionOrder)
+        .filter(ProductionOrder.id == work_order.production_order_id)
+        .populate_existing()
+        .with_for_update(of=ProductionOrder)
+        .first()
+    )
+    return work_order
 
 
 def _report_capacity(db, work_order, assignment=None, exclude_id=None):
@@ -453,14 +469,7 @@ def create_report(
     work_order = None
     assignment = None
     if payload.work_order_id is not None:
-        _lock_report_order(db, payload.work_order_id)
-        work_order = (
-            db.query(WorkOrder)
-            .options(joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order))
-            .filter(WorkOrder.id == payload.work_order_id)
-            .with_for_update(of=WorkOrder)
-            .first()
-        )
+        work_order = _lock_report_order(db, payload.work_order_id)
         if not work_order or work_order.operation != "sewing":
             raise HTTPException(404, "Sewing work order not found")
         if payload.sewing_assignment_id is not None:
@@ -549,7 +558,7 @@ def update_report(
     report = db.get(SewingDailyReport, report_id)
     if not report:
         raise HTTPException(404, "Daily sewing report entry not found")
-    _lock_report_order(db, report.work_order_id)
+    locked_work_order = _lock_report_order(db, report.work_order_id)
     report = db.query(SewingDailyReport).filter(SewingDailyReport.id == report_id).populate_existing().with_for_update().first()
     if not report:
         raise HTTPException(404, "Daily sewing report entry not found")
@@ -562,7 +571,7 @@ def update_report(
 
     old_value = _report_audit_values(report)
     if report.work_order_id and not payload.manual_model_no:
-        work_order = db.get(WorkOrder, report.work_order_id)
+        work_order = locked_work_order
         assignment = db.get(SewingAssignment, report.sewing_assignment_id) if report.sewing_assignment_id else None
         _validate_report_capacity(db, work_order, assignment, payload if _uses_dynamic_sections(flow) else payload.model_copy(update={"top_qty": None, "bottom_qty": None}), report.id)
     uses_sections = _uses_dynamic_sections(flow)
