@@ -105,11 +105,38 @@ def active_run_members(db, run, *, members=None):
 
 
 def require_active_label(db, package_id):
-    member = db.query(PackagePrintRunMember).filter_by(package_id=package_id).first()
-    if member:
-        run = db.get(PackagePrintRun, member.run_id)
-        if run.deleted_at is not None or package_id in (run.deleted_package_ids or []):
-            raise HTTPException(410, "This manual package label was deleted")
+    require_active_labels(db, [package_id])
+
+
+def require_active_labels(db, package_ids):
+    ordered_ids = [int(package_id) for package_id in package_ids]
+    members_by_package = {}
+    for offset in range(0, len(ordered_ids), 400):
+        chunk = ordered_ids[offset:offset + 400]
+        members_by_package.update({
+            int(member.package_id): member
+            for member in db.query(PackagePrintRunMember).filter(
+                PackagePrintRunMember.package_id.in_(chunk),
+            ).all()
+        })
+    run_ids = sorted({int(member.run_id) for member in members_by_package.values()})
+    runs_by_id = {}
+    for offset in range(0, len(run_ids), 400):
+        chunk = run_ids[offset:offset + 400]
+        runs_by_id.update({
+            int(run.id): run
+            for run in db.query(PackagePrintRun).filter(PackagePrintRun.id.in_(chunk)).all()
+        })
+    deleted_package_ids_by_run = {
+        run_id: set(run.deleted_package_ids or [])
+        for run_id, run in runs_by_id.items()
+    }
+    for package_id in ordered_ids:
+        member = members_by_package.get(package_id)
+        if member:
+            run = runs_by_id.get(int(member.run_id))
+            if run is None or run.deleted_at is not None or package_id in deleted_package_ids_by_run[int(run.id)]:
+                raise HTTPException(410, "This manual package label was deleted")
 
 
 def run_payload(db, run, *, members=None):

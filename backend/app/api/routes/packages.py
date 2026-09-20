@@ -19,6 +19,7 @@ from app.core.model_search import (
 from app.models import (
     Customer,
     Package,
+    PackageBatchAllocation,
     PackageBarcodeAlias,
     PackageChangeRequest,
     PackageScanLog,
@@ -29,6 +30,7 @@ from app.models import (
     SalesOrder,
     StockBatch,
     User,
+    ManualPackageReceipt,
 )
 from app.schemas.tracking import (
     PackageIn,
@@ -72,6 +74,7 @@ from app.services.packaging_scope import (
 )
 
 router = APIRouter(prefix="/packages", tags=["packages"])
+_LABEL_CONTEXT_CHUNK_SIZE = 400
 _RECEIVING_QUEUE_EVENTS = (
     "queued_storage",
     "removed_storage_queue",
@@ -253,6 +256,81 @@ def _label_model(db: DbSession, model_id: int | None) -> Model | None:
     )
 
 
+def _package_label_reference_context(db: DbSession, packages: list[Package]) -> dict:
+    def load_map(model_type, ids, *, options=()):
+        loaded = {}
+        ordered_ids = sorted({int(row_id) for row_id in ids if row_id})
+        for offset in range(0, len(ordered_ids), _LABEL_CONTEXT_CHUNK_SIZE):
+            chunk = ordered_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
+            query = db.query(model_type)
+            if options:
+                query = query.options(*options)
+            loaded.update({
+                int(row.id): row
+                for row in query.filter(model_type.id.in_(chunk)).all()
+            })
+        return loaded
+
+    models = load_map(
+        Model,
+        (pkg.model_id for pkg in packages),
+        options=(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item)),
+    )
+    production_orders = load_map(
+        ProductionOrder,
+        (pkg.production_order_id for pkg in packages),
+    )
+    sales_order_ids = []
+    for pkg in packages:
+        production_order = production_orders.get(int(pkg.production_order_id)) if pkg.production_order_id else None
+        sales_order_ids.append(pkg.sales_order_id or (production_order.sales_order_id if production_order else None))
+    sales_orders = load_map(SalesOrder, sales_order_ids)
+    customers = load_map(Customer, (order.customer_id for order in sales_orders.values()))
+    fabric_batches = load_map(
+        StockBatch,
+        (order.fabric_batch_id for order in production_orders.values()),
+    )
+
+    package_ids = sorted({int(pkg.id) for pkg in packages})
+    allocations_by_package = {package_id: [] for package_id in package_ids}
+    for offset in range(0, len(package_ids), _LABEL_CONTEXT_CHUNK_SIZE):
+        chunk = package_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
+        allocations = (
+            db.query(PackageBatchAllocation)
+            .filter(PackageBatchAllocation.package_id.in_(chunk))
+            .order_by(PackageBatchAllocation.id.asc())
+            .all()
+        )
+        for allocation in allocations:
+            allocations_by_package[int(allocation.package_id)].append(allocation)
+    batch_ids = {
+        int(allocation.production_batch_id)
+        for allocations in allocations_by_package.values()
+        for allocation in allocations
+        if allocation.production_batch_id
+    }
+    batch_ids.update(
+        int(pkg.production_batch_id)
+        for pkg in packages
+        if pkg.production_batch_id and not allocations_by_package.get(int(pkg.id))
+    )
+    production_batches = load_map(ProductionBatch, batch_ids)
+    manual_receipts = load_map(
+        ManualPackageReceipt,
+        (pkg.manual_receipt_id for pkg in packages),
+    )
+    return {
+        "models": models,
+        "production_orders": production_orders,
+        "sales_orders": sales_orders,
+        "customers": customers,
+        "fabric_batches": fabric_batches,
+        "allocations_by_package": allocations_by_package,
+        "production_batches": production_batches,
+        "manual_receipts": manual_receipts,
+    }
+
+
 def _variant_picture_html(model: Model | None) -> str:
     src = variant_label_image_src(model)
     picture_class = "variant-picture"
@@ -307,15 +385,37 @@ def _composition_label(item) -> str:
     return ", ".join(parts)
 
 
-def _package_label_details(db: DbSession, pkg: Package, model: Model | None) -> dict[str, str]:
-    po = db.get(ProductionOrder, pkg.production_order_id) if pkg.production_order_id else None
+def _package_label_details(
+    db: DbSession,
+    pkg: Package,
+    model: Model | None,
+    *,
+    context: dict | None = None,
+) -> dict[str, str]:
+    po = (
+        context["production_orders"].get(int(pkg.production_order_id))
+        if context is not None and pkg.production_order_id
+        else db.get(ProductionOrder, pkg.production_order_id) if pkg.production_order_id else None
+    )
     sales_order_id = pkg.sales_order_id or (po.sales_order_id if po else None)
-    so = db.get(SalesOrder, sales_order_id) if sales_order_id else None
-    customer = db.get(Customer, so.customer_id) if so and so.customer_id else None
+    so = (
+        context["sales_orders"].get(int(sales_order_id))
+        if context is not None and sales_order_id
+        else db.get(SalesOrder, sales_order_id) if sales_order_id else None
+    )
+    customer = (
+        context["customers"].get(int(so.customer_id))
+        if context is not None and so and so.customer_id
+        else db.get(Customer, so.customer_id) if so and so.customer_id else None
+    )
 
     fabric_item = None
     if po and po.fabric_batch_id:
-        fabric_batch = db.get(StockBatch, po.fabric_batch_id)
+        fabric_batch = (
+            context["fabric_batches"].get(int(po.fabric_batch_id))
+            if context is not None
+            else db.get(StockBatch, po.fabric_batch_id)
+        )
         fabric_item = fabric_batch.item if fabric_batch else None
     if not fabric_item and model:
         fabric_row = next(
@@ -384,19 +484,38 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:"DejaVu Sans
 """
 
 
-def _package_label_card_html(db: DbSession, pkg: Package) -> str:
+def _package_label_card_html(
+    db: DbSession,
+    pkg: Package,
+    *,
+    context: dict | None = None,
+    active_label_checked: bool = False,
+) -> str:
     from app.services.package_workflows import require_active_label
-    require_active_label(db, pkg.id)
-    model = _label_model(db, pkg.model_id)
-    details = _package_label_details(db, pkg, model)
+    if not active_label_checked:
+        require_active_label(db, pkg.id)
+    model = (
+        context["models"].get(int(pkg.model_id))
+        if context is not None and pkg.model_id
+        else _label_model(db, pkg.model_id)
+    )
+    details = _package_label_details(db, pkg, model, context=context)
     qr = _qr_data_uri_for_package(db, pkg)
     picture = _variant_picture_html(model)
-    batches = _batch_allocations_html(db, pkg) or "-"
+    batches = _batch_allocations_html(
+        db,
+        pkg,
+        allocations=context["allocations_by_package"].get(int(pkg.id)) if context is not None else None,
+        production_batches=context["production_batches"] if context is not None else None,
+    ) or "-"
     weight = _format_weight_kg(pkg.weight_kg) or "-"
     label_sizes = None
     if pkg.manual_receipt_id:
-        from app.models import ManualPackageReceipt
-        receipt = db.get(ManualPackageReceipt, pkg.manual_receipt_id)
+        receipt = (
+            context["manual_receipts"].get(int(pkg.manual_receipt_id))
+            if context is not None
+            else db.get(ManualPackageReceipt, pkg.manual_receipt_id)
+        )
         if receipt and receipt.evidence.get("pack_quantities"):
             label_sizes = receipt.evidence.get("configured_sizes") or None
     return f"""
@@ -462,10 +581,16 @@ def _package_lookup_candidates(raw_code: str) -> list[str]:
     return unique
 
 
-def _batch_allocations_html(db: DbSession, pkg: Package) -> str:
+def _batch_allocations_html(
+    db: DbSession,
+    pkg: Package,
+    *,
+    allocations: list[PackageBatchAllocation] | None = None,
+    production_batches: dict[int, ProductionBatch] | None = None,
+) -> str:
     rows = [
         (int(alloc.production_batch_id), int(alloc.quantity or 0))
-        for alloc in (pkg.batch_allocations or [])
+        for alloc in (pkg.batch_allocations if allocations is None else allocations)
     ]
     if not rows and pkg.production_batch_id:
         rows = [(int(pkg.production_batch_id), int(pkg.total_quantity or 0))]
@@ -474,7 +599,11 @@ def _batch_allocations_html(db: DbSession, pkg: Package) -> str:
 
     parts = []
     for batch_id, _quantity in rows:
-        batch = db.get(ProductionBatch, batch_id)
+        batch = (
+            production_batches.get(batch_id)
+            if production_batches is not None
+            else db.get(ProductionBatch, batch_id)
+        )
         if batch:
             label = batch.batch_no
             if batch.name:
@@ -1536,7 +1665,18 @@ def label_sheet(ids: str, db: DbSession, current: User = Depends(require_permiss
     for package in rows:
         require_package_access(current, package)
 
-    cards = [_package_label_card_html(db, p) for p in rows]
+    from app.services.package_workflows import require_active_labels
+    require_active_labels(db, [int(package.id) for package in rows])
+    context = _package_label_reference_context(db, rows)
+    cards = [
+        _package_label_card_html(
+            db,
+            package,
+            context=context,
+            active_label_checked=True,
+        )
+        for package in rows
+    ]
     return warehouse_print_response(f"""<!doctype html>
 <html><head><meta charset='utf-8'><title>Package Label Sheet</title>
 <style>
