@@ -58,9 +58,25 @@ _SHIPMENT_ORDER_STATUSES = {
 }
 
 
-def _shipment_payload(db: DbSession, sh: Shipment, *, scanned_count: int | None = None) -> dict:
-    so = db.get(SalesOrder, sh.sales_order_id) if sh.sales_order_id else None
-    customer = db.get(Customer, sh.customer_id or (so.customer_id if so else None)) if (sh.customer_id or (so.customer_id if so else None)) else None
+def _shipment_payload(
+    db: DbSession,
+    sh: Shipment,
+    *,
+    scanned_count: int | None = None,
+    sales_orders: dict[int, SalesOrder] | None = None,
+    customers: dict[int, Customer] | None = None,
+) -> dict:
+    so = (
+        sales_orders.get(sh.sales_order_id)
+        if sales_orders is not None
+        else db.get(SalesOrder, sh.sales_order_id) if sh.sales_order_id else None
+    )
+    customer_id = sh.customer_id or (so.customer_id if so else None)
+    customer = (
+        customers.get(customer_id)
+        if customers is not None
+        else db.get(Customer, customer_id) if customer_id else None
+    )
     packages_count = len(sh.packages or [])
     total_qty = sum(int(sp.quantity or 0) for sp in (sh.packages or []))
     if scanned_count is None:
@@ -820,10 +836,18 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
 
 @router.get("", response_model=list[ShipmentOut])
 def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = None):
-    qry = db.query(Shipment).options(selectinload(Shipment.packages))
+    qry = (
+        db.query(Shipment, SalesOrder, Customer)
+        .outerjoin(SalesOrder, SalesOrder.id == Shipment.sales_order_id)
+        .outerjoin(Customer, Customer.id == func.coalesce(func.nullif(Shipment.customer_id, 0), SalesOrder.customer_id))
+        .options(selectinload(Shipment.packages))
+    )
     if sales_order_id:
         qry = qry.filter(Shipment.sales_order_id == sales_order_id)
-    rows = qry.order_by(Shipment.id.desc()).all()
+    joined_rows = qry.order_by(Shipment.id.desc()).all()
+    rows = [shipment for shipment, _, _ in joined_rows]
+    sales_orders = {order.id: order for _, order, _ in joined_rows if order is not None}
+    customers = {customer.id: customer for _, _, customer in joined_rows if customer is not None}
     shipment_ids = [int(sh.id) for sh in rows]
     scanned_by_shipment = (
         {
@@ -852,7 +876,12 @@ def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
         else {}
     )
     return [
-        _shipment_payload(db, sh, scanned_count=scanned_by_shipment.get(int(sh.id), 0))
+        _shipment_payload(
+            db, sh,
+            scanned_count=scanned_by_shipment.get(int(sh.id), 0),
+            sales_orders=sales_orders,
+            customers=customers,
+        )
         for sh in rows
     ]
 
