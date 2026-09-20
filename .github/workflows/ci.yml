@@ -3,7 +3,7 @@ name: ERP validation and immutable release artifacts
 on:
   pull_request:
   push:
-    branches: [main, "codex/**"]
+    branches: [main, "codex/**", "feat/ismoiljon"]
   workflow_dispatch:
     inputs:
       release_id:
@@ -144,8 +144,10 @@ jobs:
       - name: Optimized production build and contracts
         working-directory: frontend
         env:
-          NEXT_PUBLIC_API_URL: https://erp.milanapremium.uz
-          API_URL: http://172.16.10.4:8000
+          # Validation must never depend on or contact the factory servers.
+          # Release image build arguments below remain separate.
+          NEXT_PUBLIC_API_URL: https://127.0.0.1:9
+          API_URL: http://127.0.0.1:9
         run: npm run build
 
   release:
