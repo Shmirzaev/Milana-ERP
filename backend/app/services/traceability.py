@@ -177,11 +177,63 @@ def _production_order_payload(po: ProductionOrder | None) -> dict | None:
     }
 
 
-def _cutting_payload(db: Session, row: CuttingRecord) -> tuple[dict, dict | None, str | None]:
-    batch = db.get(StockBatch, row.fabric_batch_id) if row.fabric_batch_id else None
+def _cutting_reference_maps(
+    db: Session,
+    rows: list[CuttingRecord],
+) -> tuple[dict[int, StockBatch], dict[int, Supplier], dict[int, Warehouse]]:
+    batch_ids = sorted({int(row.fabric_batch_id) for row in rows if row.fabric_batch_id})
+    batches = {}
+    for offset in range(0, len(batch_ids), _TRACE_CHUNK_SIZE):
+        chunk = batch_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        batches.update({
+            int(batch.id): batch
+            for batch in db.query(StockBatch).filter(StockBatch.id.in_(chunk)).all()
+        })
+
+    supplier_ids = sorted({int(batch.supplier_id) for batch in batches.values() if batch.supplier_id})
+    suppliers = {}
+    for offset in range(0, len(supplier_ids), _TRACE_CHUNK_SIZE):
+        chunk = supplier_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        suppliers.update({
+            int(supplier.id): supplier
+            for supplier in db.query(Supplier).filter(Supplier.id.in_(chunk)).all()
+        })
+
+    warehouse_ids = sorted({int(batch.warehouse_id) for batch in batches.values() if batch.warehouse_id})
+    warehouses = {}
+    for offset in range(0, len(warehouse_ids), _TRACE_CHUNK_SIZE):
+        chunk = warehouse_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        warehouses.update({
+            int(warehouse.id): warehouse
+            for warehouse in db.query(Warehouse).filter(Warehouse.id.in_(chunk)).all()
+        })
+    return batches, suppliers, warehouses
+
+
+def _cutting_payload(
+    db: Session,
+    row: CuttingRecord,
+    *,
+    stock_batches: dict[int, StockBatch] | None = None,
+    suppliers: dict[int, Supplier] | None = None,
+    warehouses: dict[int, Warehouse] | None = None,
+) -> tuple[dict, dict | None, str | None]:
+    batch = (
+        stock_batches.get(int(row.fabric_batch_id))
+        if stock_batches is not None and row.fabric_batch_id
+        else db.get(StockBatch, row.fabric_batch_id) if row.fabric_batch_id else None
+    )
     item = batch.item if batch and batch.item else (db.get(Item, batch.item_id) if batch else None)
-    supplier = db.get(Supplier, batch.supplier_id) if batch and batch.supplier_id else None
-    warehouse = db.get(Warehouse, batch.warehouse_id) if batch and batch.warehouse_id else None
+    supplier = (
+        suppliers.get(int(batch.supplier_id))
+        if suppliers is not None and batch and batch.supplier_id
+        else db.get(Supplier, batch.supplier_id) if batch and batch.supplier_id else None
+    )
+    warehouse = (
+        warehouses.get(int(batch.warehouse_id))
+        if warehouses is not None and batch and batch.warehouse_id
+        else db.get(Warehouse, batch.warehouse_id) if batch and batch.warehouse_id else None
+    )
     material = None
     if batch:
         material = {
@@ -540,6 +592,10 @@ def build_traceability(
 
     cutting_rows = []
     material_batches: list[dict] = []
+    material_batch_ids = {
+        int(material["id"])
+        for material in material_batches
+    }
     if wo_ids:
         all_cutting = (
             db.query(CuttingRecord)
@@ -547,11 +603,20 @@ def build_traceability(
             .order_by(CuttingRecord.created_at.asc(), CuttingRecord.id.asc())
             .all()
         )
-        for row in _filter_records_for_package(all_cutting, batch_ids, strict=strict_batch_scope):
-            payload, material, gap = _cutting_payload(db, row)
+        cutting_records = _filter_records_for_package(all_cutting, batch_ids, strict=strict_batch_scope)
+        stock_batches, suppliers, warehouses = _cutting_reference_maps(db, cutting_records)
+        for row in cutting_records:
+            payload, material, gap = _cutting_payload(
+                db,
+                row,
+                stock_batches=stock_batches,
+                suppliers=suppliers,
+                warehouses=warehouses,
+            )
             cutting_rows.append(payload)
-            if material and all(material["id"] != existing["id"] for existing in material_batches):
+            if material and int(material["id"]) not in material_batch_ids:
                 material_batches.append(material)
+                material_batch_ids.add(int(material["id"]))
             if gap:
                 gaps.append(gap)
     if po and not cutting_rows:
