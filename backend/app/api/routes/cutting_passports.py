@@ -2,12 +2,13 @@ from types import SimpleNamespace
 from app.core.order_reference import canonical_business_order_reference, order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import or_
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models.cutting_passport import CuttingPassport
 from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
-from app.models.catalog import Model as CatalogModel
+from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
 from app.services.factory_scope import require_work_order_factory_access
@@ -21,7 +22,7 @@ _MATERIAL_CATEGORIES = ("fabric", "semi_finished")
 _DEFAULTS_QUERY_CHUNK_SIZE = 400
 
 
-def _defaults_query_chunks(values):
+def _query_chunks(values):
     ordered = sorted(set(values))
     for start in range(0, len(ordered), _DEFAULTS_QUERY_CHUNK_SIZE):
         yield ordered[start:start + _DEFAULTS_QUERY_CHUNK_SIZE]
@@ -156,6 +157,48 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None) -> 
     ]
     d.update(_compute(p))
     return d
+
+
+def _passport_model_cache(db: DbSession, passports: list[CuttingPassport]) -> dict[int, tuple]:
+    model_ids = sorted({
+        int(passport.production_order.model_id)
+        for passport in passports
+        if passport.production_order and passport.production_order.model_id
+    })
+    cache = {model_id: (None, None, None) for model_id in model_ids}
+    for chunk in _query_chunks(model_ids):
+        models = (
+            db.query(CatalogModel)
+            .options(
+                load_only(CatalogModel.id, CatalogModel.code, CatalogModel.name),
+                selectinload(CatalogModel.images).load_only(
+                    ModelImage.id,
+                    ModelImage.model_id,
+                    ModelImage.file_url,
+                    ModelImage.file_name,
+                    ModelImage.content_type,
+                    ModelImage.image_type,
+                    ModelImage.is_primary,
+                ),
+                selectinload(CatalogModel.bom)
+                .load_only(
+                    ModelBOM.id,
+                    ModelBOM.model_id,
+                    ModelBOM.item_id,
+                    ModelBOM.stock_batch_id,
+                    ModelBOM.photo_url,
+                )
+                .options(
+                    joinedload(ModelBOM.item).load_only(Item.id, Item.category, Item.image_url),
+                    joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+                ),
+            )
+            .filter(CatalogModel.id.in_(chunk))
+            .all()
+        )
+        for model in models:
+            cache[int(model.id)] = (model.code, model.name, model_display_image_url(model))
+    return cache
 
 
 def _order_reference_set(po: ProductionOrder) -> set[str]:
@@ -336,7 +379,7 @@ def material_defaults(
         materials = sorted(po.materials, key=lambda row: row.position)
         batches = {
             int(batch.id): batch
-            for chunk in _defaults_query_chunks(material.stock_batch_id for material in materials)
+            for chunk in _query_chunks(material.stock_batch_id for material in materials)
             for batch in db.query(StockBatch).filter(StockBatch.id.in_(chunk)).all()
         }
         has_print = bool(
@@ -433,7 +476,16 @@ def list_passports(
     cutting_department_code: str | None = None,
     limit: int = Query(200, ge=1, le=500),
 ):
-    qry = db.query(CuttingPassport).order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())
+    qry = (
+        db.query(CuttingPassport)
+        .options(
+            joinedload(CuttingPassport.production_order).options(
+                joinedload(ProductionOrder.sales_order),
+                noload(ProductionOrder.materials),
+            )
+        )
+        .order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())
+    )
     from app.services.factory_scope import cutting_department_scope
     scope = cutting_department_scope(current, cutting_department_code)
     if scope:
@@ -466,7 +518,7 @@ def list_passports(
             | CuttingPassport.operator_name_manual.ilike(like)
         )
     rows = qry.limit(limit).all()
-    model_cache: dict = {}
+    model_cache = _passport_model_cache(db, rows)
     return [_serialize(r, db, model_cache) for r in rows]
 
 
