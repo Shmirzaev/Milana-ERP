@@ -889,10 +889,10 @@
       "risk": "Slow queue and oversized response.",
       "proposed_fix": "Page minimal results.",
       "baseline_source": "backend/app/api/routes/packages.py:1032",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "890177e",
+      "evidence": "Full-detail queue reference batching: 1/50/401 packages use13/13/21 SELECTs, model reads1/1/2 instead of per row. Thirteen queue/shared-label cases independently pass, including permissions, membership, scalar payload parity, remove, BOM images and embedded label images. Queue omits image blobs; labels keep eager blobs. Full response/children remain unbounded; pagination is not implemented."
     },
     {
       "number": 75,
@@ -1093,10 +1093,10 @@
       "risk": "High memory and latency.",
       "proposed_fix": "SQL-page summaries.",
       "baseline_source": "backend/app/api/routes/sales.py:1735",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "565d1cd",
+      "evidence": "Project candidate IDs/dates before sorting; hydrate only selected page and its production children. For802 candidates page10 now loads10 order objects instead of802. Five focused tests pass plus9 real history/payment compatibility cases. Stable timestamp/ID ties preserved. O(N log N) key sorting and per-selected-row summaries remain; concurrent deletion can shorten a page."
     },
     {
       "number": 92,

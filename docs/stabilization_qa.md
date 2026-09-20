@@ -28,6 +28,8 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| PERF25 history candidates (partial) | `test_sales_history_candidate_loading.py` + `test_customer_payment_history.py`; `/api/sales-orders/history` | Five focused + nine compatibility cases pass. At802 candidates/page10, load10 orders and only selected production children; keep filters, counts, empty pages and sales-first ties. Candidate sorting O(N log N), key memory O(N); summaries remain per selected row. Concurrent changes may shorten a page; this is not an atomic snapshot. |
+| PERF08 receiving queue (partial) | `test_receiving_queue_query_growth.py` + `test_package_label_query_growth.py`; GET/remove `/api/packages/receiving-queue` | 13 independent passes. 1/50/401 packages:13/13/21 SELECTs. Order, latest-event membership, permissions, child arrays, manual/legacy evidence, model/BOM images and remove responses preserved. Queue excludes image bytes; labels embed them without lazy per-image queries. Trips O(chunked unique references); output/memory still O(queue and children), no pagination. |
 | PERF19 cutting reconciliation (partial) | `test_cutting_reconciliation_query_growth.py`; cutting workflow updates | 16 independent passes. 1/50/401 scopes use 16 SELECTs. Each evidence source, replacement subtraction, allocated-vs-direct packages, NULL isolation and reopening remain correct. Query trips O(1); grouping still reads matching evidence, application work O(scopes + work orders). Other scalar callers remain unchanged. |
 | SEC03 audit chain | `test_audit_chain_concurrency.py`; every PostgreSQL `log_action` transaction |12 cases: simultaneous empty/existing-chain commits, nested commit/rollback, active savepoint commit, close/reuse, anonymous actor, callback/flush failure and actor-delete contention. Independently passes within30 PG audit/finance/receipt/retry cases. IDs/hashes appear only at outer commit; verify READ COMMITTED before rollout. Ordered actor locks precede global chain lock; one head read per transaction, O(audit rows) hashing/inserts. Historical damage and throughput capacity are not covered. |
 | PERF12 package labels (partial) | `test_package_label_query_growth.py`; `/api/packages/label-sheet/by-ids` | Shared-reference sheets1/50/401:11/11/13 SELECTs;401 distinct model/order context:12 SELECTs including rendering. Five independently passing cases plus added distinct-boundary case. Exact cards/fallbacks/order preserved; later deleted label rejects before any QR callback. Trips O(chunked unique references), cards/assets O(packages); bundle sheets/output caps remain open. QR generation is stubbed in growth tests, not hardware/browser proof. |
@@ -159,7 +161,7 @@ ST10 replaces an unlocked parent read with one locked/refreshed read. Conversion
 
 ## API coverage ledger
 
-The saved 510-route report is historical. CI `5a9f3fb` observes511 routes:413 hit,402 successful,252 rejected,98 unobserved; categories overlap. Evidence: run35510170944 artifact `backend-test-evidence` (6,022 requests). Refresh again on the final revision.
+The saved 510-route report is historical. CI `2b3e73c` observes511 routes:418 hit,407 successful,257 rejected,93 unobserved; categories overlap. Evidence: run35543521077 artifact `backend-test-evidence` (6,131 requests). Refresh again on the final revision.
 
 From `backend/`, run a selected test file with HTTP observation:
 
