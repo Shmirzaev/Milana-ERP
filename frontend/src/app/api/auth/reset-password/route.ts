@@ -26,6 +26,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ detail: "Invalid JSON" }, { status: 400 });
   }
 
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), 15_000);
   try {
     const baseUrl = apiBaseUrl();
     const res = await fetch(`${baseUrl}/api/auth/reset-password`, {
@@ -33,12 +35,14 @@ export async function POST(request: Request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       cache: "no-store",
+      signal: controller.signal,
     });
 
     let body: unknown = null;
     try {
       body = await res.json();
-    } catch {
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
       body = { detail: res.statusText || "Password reset failed" };
     }
 
@@ -51,5 +55,7 @@ export async function POST(request: Request) {
       { detail: "Password reset service is unavailable" },
       { status: 503 },
     );
+  } finally {
+    clearTimeout(deadline);
   }
 }
