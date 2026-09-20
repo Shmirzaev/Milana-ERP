@@ -660,32 +660,56 @@ def _validate_and_enrich_record(
     allow_manual_payable_values: bool,
     locked_labels: dict[str, PayrollQrLabel] | None = None,
     issued_label_validator: Callable[[PayrollQrLabel], None] | None = None,
+    validation_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    _canonicalize_payroll_input(db, data, factory_code)
+    context = validation_context or {}
+    _canonicalize_payroll_input(
+        db,
+        data,
+        factory_code,
+        lookup=context.get("order_lookup"),
+        factory_production_ids=context.get("factory_production_ids"),
+    )
     employee_id = data.get("employee_id")
     if not employee_id:
         raise HTTPException(400, "employee_id is required")
-    employee = db.query(Employee).filter(
-        Employee.id == int(employee_id),
-        Employee.factory_code == factory_code,
-    ).first()
+    employee = (
+        context["employees"].get(int(employee_id))
+        if validation_context is not None else
+        db.query(Employee).filter(
+            Employee.id == int(employee_id),
+            Employee.factory_code == factory_code,
+        ).first()
+    )
     if not employee:
         raise HTTPException(404, "Employee not found")
     if not data.get("employee_user_id") and employee.user_id:
         data["employee_user_id"] = employee.user_id
     if data.get("employee_user_id"):
-        employee_user = db.query(User).filter(
-            User.id == int(data["employee_user_id"]),
-            User.factory_code == factory_code,
-        ).first()
+        employee_user = (
+            context["users"].get(int(data["employee_user_id"]))
+            if validation_context is not None else
+            db.query(User).filter(
+                User.id == int(data["employee_user_id"]),
+                User.factory_code == factory_code,
+            ).first()
+        )
         if not employee_user:
             raise HTTPException(404, "Employee user not found")
 
-    wo = db.get(WorkOrder, int(data["work_order_id"])) if data.get("work_order_id") else None
+    wo = (
+        context["work_orders"].get(int(data["work_order_id"]))
+        if validation_context is not None and data.get("work_order_id") else
+        db.get(WorkOrder, int(data["work_order_id"])) if data.get("work_order_id") else None
+    )
     if data.get("work_order_id") and not wo:
         raise HTTPException(404, "Work order not found")
     if wo:
-        require_work_order_factory(db, wo, factory_code)
+        if validation_context is not None:
+            if int(wo.production_order_id) not in context["factory_production_ids"]:
+                raise HTTPException(404, "Work order was not found in this factory")
+        else:
+            require_work_order_factory(db, wo, factory_code)
         if data.get("production_order_id") and int(data["production_order_id"]) != int(wo.production_order_id):
             raise HTTPException(400, "work_order_id does not belong to production_order_id")
         if wo.production_batch_id and data.get("production_batch_id") and int(data["production_batch_id"]) != int(wo.production_batch_id):
@@ -694,22 +718,38 @@ def _validate_and_enrich_record(
         data["production_batch_id"] = data.get("production_batch_id") or wo.production_batch_id
         data["operation_section"] = data.get("operation_section") or wo.operation
 
-    po = db.get(ProductionOrder, int(data["production_order_id"])) if data.get("production_order_id") else None
+    po = (
+        context["production_orders"].get(int(data["production_order_id"]))
+        if validation_context is not None and data.get("production_order_id") else
+        db.get(ProductionOrder, int(data["production_order_id"])) if data.get("production_order_id") else None
+    )
     if data.get("production_order_id") and not po:
         raise HTTPException(404, "Production order not found")
     if po:
-        require_production_order_factory(db, int(po.id), factory_code)
+        if validation_context is not None:
+            if int(po.id) not in context["factory_production_ids"]:
+                raise HTTPException(404, "Production order was not found in this factory")
+        else:
+            require_production_order_factory(db, int(po.id), factory_code)
         data["production_no"] = po.production_no
         data["sales_order_id"] = data.get("sales_order_id") or po.sales_order_id
         data["model_id"] = data.get("model_id") or po.model_id
 
-    so = db.get(SalesOrder, int(data["sales_order_id"])) if data.get("sales_order_id") else None
+    so = (
+        context["sales_orders"].get(int(data["sales_order_id"]))
+        if validation_context is not None and data.get("sales_order_id") else
+        db.get(SalesOrder, int(data["sales_order_id"])) if data.get("sales_order_id") else None
+    )
     if data.get("sales_order_id") and not so:
         raise HTTPException(404, "Sales order not found")
     if so:
         data["sales_order_no"] = so.order_no
 
-    batch = db.get(ProductionBatch, int(data["production_batch_id"])) if data.get("production_batch_id") else None
+    batch = (
+        context["production_batches"].get(int(data["production_batch_id"]))
+        if validation_context is not None and data.get("production_batch_id") else
+        db.get(ProductionBatch, int(data["production_batch_id"])) if data.get("production_batch_id") else None
+    )
     if data.get("production_batch_id") and not batch:
         raise HTTPException(404, "Production batch not found")
     if batch:
@@ -718,7 +758,11 @@ def _validate_and_enrich_record(
         data["production_order_id"] = data.get("production_order_id") or batch.production_order_id
         data["batch_no"] = data.get("batch_no") or batch.batch_no
 
-    model = db.get(Model, int(data["model_id"])) if data.get("model_id") else None
+    model = (
+        context["models"].get(int(data["model_id"]))
+        if validation_context is not None and data.get("model_id") else
+        db.get(Model, int(data["model_id"])) if data.get("model_id") else None
+    )
     if data.get("model_id") and not model:
         raise HTTPException(404, "Model not found")
     if model:
@@ -754,8 +798,16 @@ def _validate_and_enrich_record(
             "work_order_id": issued_label.work_order_id,
             "production_batch_id": issued_label.production_batch_id,
             "model_id": issued_label.model_id,
-            "production_no": _canonical_payroll_reference(db, "PO", issued_label.production_no, entity_id=issued_label.production_order_id),
-            "sales_order_no": _canonical_payroll_reference(db, "SO", issued_label.sales_order_no, entity_id=issued_label.sales_order_id, production_order_id=issued_label.production_order_id),
+            "production_no": _canonical_payroll_reference(
+                db, "PO", issued_label.production_no,
+                entity_id=issued_label.production_order_id, lookup=context.get("order_lookup"),
+            ),
+            "sales_order_no": _canonical_payroll_reference(
+                db, "SO", issued_label.sales_order_no,
+                entity_id=issued_label.sales_order_id,
+                production_order_id=issued_label.production_order_id,
+                lookup=context.get("order_lookup"),
+            ),
             "batch_no": _normalize_production_batch_no(issued_label.batch_no),
             "model_code": issued_label.model_code,
             "operation_section": issued_label.operation_section,
@@ -848,15 +900,25 @@ def _serialize_record(
     }
 
 
-def _mark_qr_label_scanned(db: DbSession, record: PayrollRecord, data: dict[str, Any]) -> None:
+def _mark_qr_label_scanned(
+    db: DbSession,
+    record: PayrollRecord,
+    data: dict[str, Any],
+    *,
+    locked_labels: dict[str, PayrollQrLabel] | None = None,
+) -> None:
     label_uid = _to_text(record.scan_uid)
     if not label_uid:
         return
     raw_work = data.get("raw_work_json") if isinstance(data.get("raw_work_json"), dict) else {}
-    label = db.query(PayrollQrLabel).filter(
-        PayrollQrLabel.label_uid == label_uid,
-        PayrollQrLabel.factory_code == record.factory_code,
-    ).first()
+    label = (
+        locked_labels.get(label_uid)
+        if locked_labels is not None else
+        db.query(PayrollQrLabel).filter(
+            PayrollQrLabel.label_uid == label_uid,
+            PayrollQrLabel.factory_code == record.factory_code,
+        ).first()
+    )
     if not label:
         label = PayrollQrLabel(
             factory_code=record.factory_code,
@@ -921,15 +983,23 @@ def _create_record_from_payload(
     prelocked_period: PayrollPeriod | None | object = _PERIOD_NOT_PRELOCKED,
     locked_labels: dict[str, PayrollQrLabel] | None = None,
     issued_label_validator: Callable[[PayrollQrLabel], None] | None = None,
+    validation_context: dict[str, Any] | None = None,
+    data_is_validated: bool = False,
+    known_scan_records: dict[str, PayrollRecord] | None = None,
+    known_dedupe_records: dict[str, PayrollRecord] | None = None,
 ) -> tuple[PayrollRecord, bool]:
     factory_code = selected_factory_code(current)
     data = dict(prepared_data) if prepared_data is not None else _prepare_record_data(payload, period_id_override)
 
     if data.get("scan_uid"):
-        existing = db.query(PayrollRecord).filter(
-            PayrollRecord.factory_code == factory_code,
-            PayrollRecord.scan_uid == data["scan_uid"],
-        ).first()
+        existing = (
+            known_scan_records.get(data["scan_uid"])
+            if known_scan_records is not None else
+            db.query(PayrollRecord).filter(
+                PayrollRecord.factory_code == factory_code,
+                PayrollRecord.scan_uid == data["scan_uid"],
+            ).first()
+        )
         if existing:
             if data.get("employee_id") and int(existing.employee_id) != int(data["employee_id"]):
                 raise HTTPException(
@@ -945,20 +1015,26 @@ def _create_record_from_payload(
         if data.get("payroll_period_id") and period is None:
             raise HTTPException(404, "Payroll period not found")
 
-    data = _validate_and_enrich_record(
-        db,
-        data,
-        factory_code,
-        allow_manual_payable_values=_can_set_payable_values(current),
-        locked_labels=locked_labels,
-        issued_label_validator=issued_label_validator,
-    )
+    if not data_is_validated:
+        data = _validate_and_enrich_record(
+            db,
+            data,
+            factory_code,
+            allow_manual_payable_values=_can_set_payable_values(current),
+            locked_labels=locked_labels,
+            issued_label_validator=issued_label_validator,
+            validation_context=validation_context,
+        )
     if _is_control_operation(data) and not control_confirmed:
         raise HTTPException(409, "Control operation requires review and confirmation before payroll is recorded")
-    existing = db.query(PayrollRecord).filter(
-        PayrollRecord.dedupe_key == data["dedupe_key"],
-        PayrollRecord.factory_code == factory_code,
-    ).first()
+    existing = (
+        known_dedupe_records.get(data["dedupe_key"])
+        if known_dedupe_records is not None else
+        db.query(PayrollRecord).filter(
+            PayrollRecord.dedupe_key == data["dedupe_key"],
+            PayrollRecord.factory_code == factory_code,
+        ).first()
+    )
     if existing:
         return existing, False
 
@@ -1008,7 +1084,7 @@ def _create_record_from_payload(
     )
     db.add(record)
     db.flush()
-    _mark_qr_label_scanned(db, record, data)
+    _mark_qr_label_scanned(db, record, data, locked_labels=locked_labels)
     if audit_individual:
         log_action(
             db,
@@ -3355,57 +3431,182 @@ def create_record(
     return _serialize_record(record, duplicate=not created, employees=employees, departments=departments)
 
 
+def _bulk_chunks(values, size=400):
+    ordered = sorted(set(values))
+    for start in range(0, len(ordered), size):
+        yield ordered[start:start + size]
+
+
+def _bulk_id_map(db: DbSession, model, values, *filters) -> dict[int, Any]:
+    rows = []
+    for chunk in _bulk_chunks(values):
+        rows.extend(db.query(model).filter(model.id.in_(chunk), *filters).all())
+    return {int(row.id): row for row in rows}
+
+
+def _bulk_record_order_lookup(
+    db: DbSession,
+    prepared: list[dict[str, Any]],
+    labels: dict[str, PayrollQrLabel],
+):
+    requests, snapshots = set(), set()
+
+    def collect(namespace, reference, *, entity_id=None, production_order_id=None):
+        if reference or entity_id is not None:
+            snapshots.add((namespace, reference, entity_id, production_order_id))
+        return reference
+
+    for data in prepared:
+        requests.add(("PO", data.get("production_no"), data.get("production_order_id"), None))
+        requests.add((
+            "SO", data.get("sales_order_no"), data.get("sales_order_id"), data.get("production_order_id"),
+        ))
+        _map_payroll_snapshot_references(
+            data.get("raw_work_json"),
+            collect,
+            production_order_id=data.get("production_order_id"),
+            sales_order_id=data.get("sales_order_id"),
+        )
+    for label in labels.values():
+        requests.add(("PO", label.production_no, label.production_order_id, None))
+        requests.add(("SO", label.sales_order_no, label.sales_order_id, label.production_order_id))
+        _map_payroll_snapshot_references(
+            label.payload,
+            collect,
+            production_order_id=label.production_order_id,
+            sales_order_id=label.sales_order_id,
+        )
+    return _PayrollOrderLookup(db, requests | snapshots, snapshots)
+
+
+def _bulk_validation_context(
+    db: DbSession,
+    prepared: list[dict[str, Any]],
+    labels: dict[str, PayrollQrLabel],
+    factory_code: str,
+) -> dict[str, Any]:
+    employee_ids = {int(data["employee_id"]) for data in prepared if data.get("employee_id")}
+    employees = _bulk_id_map(db, Employee, employee_ids, Employee.factory_code == factory_code)
+    user_ids = {int(data["employee_user_id"]) for data in prepared if data.get("employee_user_id")}
+    user_ids.update(int(row.user_id) for row in employees.values() if row.user_id)
+    work_order_ids = {int(data["work_order_id"]) for data in prepared if data.get("work_order_id")}
+    work_orders = _bulk_id_map(db, WorkOrder, work_order_ids)
+    order_lookup = _bulk_record_order_lookup(db, prepared, labels)
+    production_ids = {int(data["production_order_id"]) for data in prepared if data.get("production_order_id")}
+    production_ids.update(int(row.production_order_id) for row in work_orders.values())
+    production_ids.update(int(identity) for identity in order_lookup.orders["PO"])
+    production_orders = _bulk_id_map(db, ProductionOrder, production_ids)
+    sales_order_ids = {int(data["sales_order_id"]) for data in prepared if data.get("sales_order_id")}
+    sales_order_ids.update(
+        int(row.sales_order_id) for row in production_orders.values() if row.sales_order_id is not None
+    )
+    batch_ids = {int(data["production_batch_id"]) for data in prepared if data.get("production_batch_id")}
+    batch_ids.update(
+        int(row.production_batch_id) for row in work_orders.values() if row.production_batch_id is not None
+    )
+    model_ids = {int(data["model_id"]) for data in prepared if data.get("model_id")}
+    model_ids.update(int(row.model_id) for row in production_orders.values() if row.model_id is not None)
+    factory_production_ids = set()
+    for chunk in _bulk_chunks(production_ids):
+        factory_production_ids.update(
+            int(row[0])
+            for row in db.query(ProductionOrder.id).filter(
+                ProductionOrder.id.in_(chunk),
+                production_order_factory_condition(factory_code),
+            ).all()
+        )
+    return {
+        "employees": employees,
+        "users": _bulk_id_map(db, User, user_ids, User.factory_code == factory_code),
+        "work_orders": work_orders,
+        "production_orders": production_orders,
+        "sales_orders": _bulk_id_map(db, SalesOrder, sales_order_ids),
+        "production_batches": _bulk_id_map(db, ProductionBatch, batch_ids),
+        "models": _bulk_id_map(db, Model, model_ids),
+        "factory_production_ids": factory_production_ids,
+        "order_lookup": order_lookup,
+    }
+
+
 def _prelock_bulk_record_resources(
     db: DbSession,
     payload: PayrollRecordBulkIn,
     factory_code: str,
-) -> tuple[list[dict[str, Any]], list[PayrollPeriod | None], dict[str, PayrollQrLabel]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[PayrollPeriod | None],
+    dict[str, PayrollQrLabel],
+    dict[str, PayrollRecord],
+    dict[str, Any],
+]:
     prepared = [_prepare_record_data(row, payload.payroll_period_id) for row in payload.records]
+    open_periods = (
+        db.query(PayrollPeriod)
+        .filter(PayrollPeriod.factory_code == factory_code, PayrollPeriod.status == "open")
+        .order_by(PayrollPeriod.id.desc())
+        .all()
+        if any(data.get("payroll_period_id") is None for data in prepared) else []
+    )
     candidate_ids: list[int | None] = []
     for data in prepared:
-        candidate = _find_period(
-            db,
-            data.get("payroll_period_id"),
-            data["scanned_at"],
-            factory_code,
-            for_update=False,
+        requested_id = data.get("payroll_period_id")
+        candidate = next(
+            (
+                period for period in open_periods
+                if as_utc(period.start_date) <= as_utc(data["scanned_at"]) <= as_utc(period.end_date)
+            ),
+            open_periods[0] if open_periods else None,
         )
-        candidate_ids.append(int(candidate.id) if candidate else None)
+        candidate_ids.append(int(requested_id) if requested_id is not None else int(candidate.id) if candidate else None)
 
     unique_period_ids = sorted({period_id for period_id in candidate_ids if period_id is not None})
-    locked_periods = {
-        int(period.id): period
-        for period in (
+    locked_period_rows = []
+    for chunk in _bulk_chunks(unique_period_ids):
+        locked_period_rows.extend(
             db.query(PayrollPeriod)
             .filter(
                 PayrollPeriod.factory_code == factory_code,
-                PayrollPeriod.id.in_(unique_period_ids),
+                PayrollPeriod.id.in_(chunk),
             )
             .order_by(PayrollPeriod.id)
             .populate_existing()
             .with_for_update()
             .all()
-            if unique_period_ids else []
         )
-    }
+    locked_periods = {int(period.id): period for period in locked_period_rows}
 
     scan_uids = sorted({data["scan_uid"] for data in prepared if data.get("scan_uid")})
-    labels = (
-        db.query(PayrollQrLabel)
-        .filter(
-            PayrollQrLabel.factory_code == factory_code,
-            PayrollQrLabel.label_uid.in_(scan_uids),
+    label_rows = []
+    for chunk in _bulk_chunks(scan_uids):
+        label_rows.extend(
+            db.query(PayrollQrLabel)
+            .filter(
+                PayrollQrLabel.factory_code == factory_code,
+                PayrollQrLabel.label_uid.in_(chunk),
+            )
+            .order_by(PayrollQrLabel.label_uid)
+            .populate_existing()
+            .with_for_update()
+            .all()
         )
-        .order_by(PayrollQrLabel.label_uid)
-        .populate_existing()
-        .with_for_update()
-        .all()
-        if scan_uids else []
-    )
+    labels = {label.label_uid: label for label in label_rows}
+    existing_scan_records = {}
+    for chunk in _bulk_chunks(scan_uids):
+        for record in db.query(PayrollRecord).filter(
+            PayrollRecord.factory_code == factory_code,
+            PayrollRecord.scan_uid.in_(chunk),
+        ).all():
+            existing_scan_records[record.scan_uid] = record
+    rows_to_validate = [
+        data for data in prepared
+        if not data.get("scan_uid") or data["scan_uid"] not in existing_scan_records
+    ]
     return (
         prepared,
         [locked_periods.get(period_id) if period_id is not None else None for period_id in candidate_ids],
-        {label.label_uid: label for label in labels},
+        labels,
+        existing_scan_records,
+        _bulk_validation_context(db, rows_to_validate, labels, factory_code),
     )
 
 
@@ -3416,7 +3617,47 @@ def create_records_bulk(
     current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
 ):
     factory_code = selected_factory_code(current)
-    prepared, periods, labels = _prelock_bulk_record_resources(db, payload, factory_code)
+    prepared, periods, labels, scan_records, validation_context = _prelock_bulk_record_resources(
+        db, payload, factory_code,
+    )
+    dedupe_keys = set()
+    new_scan_uids = set()
+    for data, period in zip(prepared, periods):
+        if data.get("scan_uid") and data["scan_uid"] in scan_records:
+            existing = scan_records[data["scan_uid"]]
+            if data.get("employee_id") and int(existing.employee_id) != int(data["employee_id"]):
+                raise HTTPException(
+                    409,
+                    "This payroll work QR was already recorded for another employee; generate a separate payroll QR for another payable worker/unit",
+                )
+            continue
+        if data.get("scan_uid") and data["scan_uid"] in new_scan_uids:
+            # The first occurrence is validated and created before this row;
+            # the later row must keep the historical duplicate-replay path.
+            continue
+        if data.get("scan_uid"):
+            new_scan_uids.add(data["scan_uid"])
+        if data.get("payroll_period_id") is not None and period is None:
+            raise HTTPException(404, "Payroll period not found")
+        _validate_and_enrich_record(
+            db,
+            data,
+            factory_code,
+            allow_manual_payable_values=_can_set_payable_values(current),
+            locked_labels=labels,
+            validation_context=validation_context,
+        )
+        if _is_control_operation(data):
+            raise HTTPException(409, "Control operation requires review and confirmation before payroll is recorded")
+        dedupe_keys.add(data["dedupe_key"])
+    dedupe_records = {}
+    for chunk in _bulk_chunks(dedupe_keys):
+        for record in db.query(PayrollRecord).filter(
+            PayrollRecord.factory_code == factory_code,
+            PayrollRecord.dedupe_key.in_(chunk),
+        ).all():
+            dedupe_records[record.dedupe_key] = record
+
     records: list[PayrollRecord] = []
     created_count = 0
     duplicate_count = 0
@@ -3432,11 +3673,18 @@ def create_records_bulk(
             prepared_data=data,
             prelocked_period=period,
             locked_labels=labels,
+            validation_context=validation_context,
+            data_is_validated=True,
+            known_scan_records=scan_records,
+            known_dedupe_records=dedupe_records,
         )
         records.append(record)
         if created:
             created_count += 1
             created_ids.append(int(record.id))
+            if record.scan_uid:
+                scan_records[record.scan_uid] = record
+            dedupe_records[record.dedupe_key] = record
         else:
             duplicate_count += 1
             duplicates.add(int(record.id))
@@ -3449,8 +3697,16 @@ def create_records_bulk(
         new_value={"created_count": created_count, "duplicate_count": duplicate_count, "record_ids": created_ids},
     )
     db.commit()
-    for record in records:
-        db.refresh(record)
+    refreshed_records = {}
+    for chunk in _bulk_chunks(int(record.id) for record in records):
+        for record in (
+            db.query(PayrollRecord)
+            .filter(PayrollRecord.id.in_(chunk), PayrollRecord.factory_code == factory_code)
+            .populate_existing()
+            .all()
+        ):
+            refreshed_records[int(record.id)] = record
+    records = [refreshed_records[int(record.id)] for record in records]
     employees, departments = _load_employee_maps(db, {int(r.employee_id) for r in records})
     return {
         "records": [
