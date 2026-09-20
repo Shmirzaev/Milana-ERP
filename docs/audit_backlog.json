@@ -435,8 +435,8 @@
       "baseline_source": "backend/app/api/routes/production.py:5321",
       "status": "open",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "983932f",
+      "evidence": "PARTIAL: PackagingRecordIn rejects negative/int4-overflow values and packed+damaged above input. 11 targeted tests passed; invalid API requests leave real work-order counters/records unchanged. Cutting/printing/sewing conservation remains unreviewed."
     },
     {
       "number": 37,

@@ -28,6 +28,7 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| WF04 (partial) | `test_packaging_quantity_validation.py`; packaging records | Negative, int4 overflow or output above input returns422 and preserves real work-order counters/records. Partial/zero reports still validate. Constant-time numeric validation; other stages are not covered. |
 | WF05 | `test_package_model_integrity.py`; single/bulk package APIs | Wrong header/item model rejects with 400 and creates no stock graph, even with admin override. Matching package still succeeds. Adds no queries; existing item validation remains O(n). |
 | WF06 | `test_packaging_stale_counters.py`; packaging receive/record APIs | Cached counters refresh before increment. Disposable PostgreSQL forces both receipt writers to wait: 5+3+4 ends at12 with two receipts. Adds one target lock/read; no full-path complexity claim. |
 | AT01 | `test_attendance_event_results.py`; attendance overview, XLSX and HR | Failed/unknown scans remain raw but do not create attendance/hours. Success and legacy NULL results count. Check used/not-used filters and exports. Adds a SQL predicate, not per-row queries. |
