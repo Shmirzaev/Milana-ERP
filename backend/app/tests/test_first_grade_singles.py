@@ -79,6 +79,13 @@ def test_singles_share_size_budget_and_survive_receipt_sale(client, auth_headers
         assert sum(s.sold_qty for s in db.query(FinishedGoodsStock).filter_by(package_id=reserved_id)) == 1
 
 
+def test_packaging_form_color_case_matches_production(client, auth_headers, output):
+    payload = {**output, "color": "white", "items": [{**output["items"][0], "color": "white"}]}
+    response, _ = create(client, auth_headers, [payload])
+    assert response.status_code == 201, response.text
+    assert response.json()["packages"][0]["stock_kind"] == "first_grade"
+
+
 def test_grade_then_normal_cannot_reuse_size_even_with_total_room(client, auth_headers, output):
     assert create(client, auth_headers, [output] * 5)[0].status_code == 201
     normal = {**output, "stock_kind": "standard", "capacity": 3, "items": [{**output["items"][0], "quantity": 1}]}

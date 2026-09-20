@@ -52,8 +52,8 @@ def enforce_size_allocation(db, order, batch_id, items, allocations, *, first_gr
     if not has_singles:
         return
     sources = db.query(ProductionOrderItem).filter_by(production_order_id=order.id).all()
-    colors = {row.color for row in sources}
-    if len(colors) != 1 or any(item.get("model_id", order.model_id) != order.model_id or item["color"] not in colors for item in items):
+    colors = {str(row.color or "").strip().casefold() for row in sources}
+    if len(colors) != 1 or any(item.get("model_id", order.model_id) != order.model_id or str(item["color"]).strip().casefold() not in colors for item in items):
         raise HTTPException(409, "FIRST_GRADE_VARIANT_EVIDENCE")
     if len(allocations) > 1:
         raise HTTPException(409, "FIRST_GRADE_MIXED_BATCH_EVIDENCE")
