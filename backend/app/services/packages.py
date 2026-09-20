@@ -306,7 +306,7 @@ def create_package(
         if normalized_weight_kg < 0:
             raise HTTPException(400, "Package weight must be >= 0")
 
-    # All items must share the same model unless admin override
+    # Reject mixed models early; the locked order check below also applies to admin overrides.
     distinct_models = {int(it.get("model_id", model_id)) for it in items}
     if len(distinct_models) > 1 and not (override_capacity and is_admin):
         raise HTTPException(400, "Package contains different models — admin override required")
@@ -318,6 +318,8 @@ def create_package(
     po = db.query(ProductionOrder).filter(ProductionOrder.id == production_order_id).with_for_update().populate_existing().first()
     if not po:
         raise HTTPException(404, "Production order not found")
+    if int(model_id) != int(po.model_id) or distinct_models != {int(po.model_id)}:
+        raise HTTPException(400, "Package model must match the production order")
 
     if packaging_department_code is None:
         from app.services.packaging_scope import packaging_department_for_order
