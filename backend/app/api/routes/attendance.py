@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -28,6 +28,7 @@ from app.services.audit import log_action
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
+ATTENDANCE_IMPORT_LOCK_NAMESPACE = 1096043342
 
 
 class DeviceIn(BaseModel):
@@ -162,26 +163,46 @@ def _integration_factory() -> str:
     return normalize_factory_code(settings.ATTENDANCE_INTEGRATION_FACTORY_CODE, default="MIL")
 
 
+def _lock_attendance_import(db: Session, factory_code: str, device_key: str) -> None:
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, hashtext(:resource))"),
+            {
+                "namespace": ATTENDANCE_IMPORT_LOCK_NAMESPACE,
+                "resource": f"{factory_code}:{device_key}",
+            },
+        )
+
+
 def _upsert_device(
     db: Session,
     payload: DeviceIn,
     identity: AttendanceDevice | None,
     *,
+    sync_started_at: datetime,
     people_sync: bool = False,
     event_sync: bool = False,
-) -> AttendanceDevice:
+) -> tuple[AttendanceDevice, bool]:
     if identity is not None:
         if identity.device_key != payload.device_key:
             raise HTTPException(403, "Connector token does not belong to this attendance device")
         factory_code = identity.factory_code
-        device = identity
     else:
         factory_code = _integration_factory()
-        device = db.query(AttendanceDevice).filter(
-            AttendanceDevice.factory_code == factory_code,
-            AttendanceDevice.device_key == payload.device_key,
-        ).one_or_none()
-    now = utcnow()
+    _lock_attendance_import(db, factory_code, payload.device_key)
+    device_query = db.query(AttendanceDevice).filter(
+        AttendanceDevice.factory_code == factory_code,
+        AttendanceDevice.device_key == payload.device_key,
+    ).populate_existing()
+    if db.get_bind().dialect.name == "postgresql":
+        device_query = device_query.with_for_update(of=AttendanceDevice)
+    device = device_query.one_or_none()
+    if identity is not None and device is None:
+        raise HTTPException(404, "Attendance device not found")
+    if people_sync and device is not None:
+        previous_people_sync = as_utc(device.last_people_sync_at)
+        if previous_people_sync is not None and previous_people_sync >= sync_started_at:
+            return device, True
     if device is None:
         device = AttendanceDevice(
             factory_code=factory_code,
@@ -199,12 +220,16 @@ def _upsert_device(
     device.source_host = payload.source_host
     device.reported_person_count = payload.reported_person_count
     device.read_only = True
-    device.last_seen_at = now
+    previous_seen = as_utc(device.last_seen_at)
+    if previous_seen is None or sync_started_at > previous_seen:
+        device.last_seen_at = sync_started_at
     if people_sync:
-        device.last_people_sync_at = now
+        device.last_people_sync_at = sync_started_at
     if event_sync:
-        device.last_event_sync_at = now
-    return device
+        previous_event_sync = as_utc(device.last_event_sync_at)
+        if previous_event_sync is None or sync_started_at > previous_event_sync:
+            device.last_event_sync_at = sync_started_at
+    return device, False
 
 
 @router.post("/integration/people")
@@ -213,16 +238,38 @@ def import_people_snapshot(
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    device = _upsert_device(db, payload.device, identity, people_sync=True)
-    now = utcnow()
     seen: set[str] = set()
-    created = 0
-    updated = 0
     for incoming in payload.people:
         external_id = incoming.external_person_id
         if external_id in seen:
             raise HTTPException(400, f"Duplicate person ID in snapshot: {external_id}")
         seen.add(external_id)
+    if payload.full_snapshot and not seen and (payload.device.reported_person_count or 0) != 0:
+        raise HTTPException(400, "Refusing an empty full snapshot for a non-empty device")
+
+    sync_started_at = utcnow()
+    device, ignored = _upsert_device(
+        db,
+        payload.device,
+        identity,
+        sync_started_at=sync_started_at,
+        people_sync=True,
+    )
+    if ignored:
+        device_id = device.id
+        db.commit()
+        return {
+            "device_id": device_id,
+            "received": len(payload.people),
+            "created": 0,
+            "updated": 0,
+            "marked_absent": 0,
+            "reported_person_count": payload.device.reported_person_count,
+            "ignored": True,
+        }
+    now = sync_started_at
+    created = 0
+    updated = 0
 
     existing_people = {}
     incoming_ids = list(seen)
@@ -263,8 +310,6 @@ def import_people_snapshot(
 
     marked_absent = 0
     if payload.full_snapshot:
-        if not seen and (payload.device.reported_person_count or 0) != 0:
-            raise HTTPException(400, "Refusing an empty full snapshot for a non-empty device")
         absent_query = db.query(AttendancePerson).filter(
             AttendancePerson.device_id == device.id,
             AttendancePerson.present_on_device.is_(True),
@@ -280,6 +325,7 @@ def import_people_snapshot(
         "updated": updated,
         "marked_absent": marked_absent,
         "reported_person_count": payload.device.reported_person_count,
+        "ignored": False,
     }
 
 
@@ -289,7 +335,14 @@ def import_events(
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    device = _upsert_device(db, payload.device, identity, event_sync=True)
+    sync_started_at = utcnow()
+    device, _ignored = _upsert_device(
+        db,
+        payload.device,
+        identity,
+        sync_started_at=sync_started_at,
+        event_sync=True,
+    )
     incoming_uids = [event.event_uid for event in payload.events]
     if len(incoming_uids) != len(set(incoming_uids)):
         raise HTTPException(400, "Duplicate event UID in batch")
