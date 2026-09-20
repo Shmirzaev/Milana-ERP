@@ -25,12 +25,14 @@ from app.models import (
     PackageScanLog,
     Model,
     ModelBOM,
+    ModelImage,
     ProductionOrder,
     ProductionBatch,
     SalesOrder,
     StockBatch,
     User,
     ManualPackageReceipt,
+    PackagePrintRunMember,
 )
 from app.schemas.tracking import (
     PackageIn,
@@ -121,14 +123,25 @@ def _package_out_payload(db: DbSession, pkg: Package, *, context: dict | None = 
     return data
 
 
-def _package_detail_payload(db: DbSession, pkg: Package) -> dict:
+def _package_detail_payload(db: DbSession, pkg: Package, *, context: dict | None = None) -> dict:
     data = PackageDetail.model_validate(pkg).model_dump(mode="json")
-    data.update(_package_context(db, pkg))
-    from app.models.package_workflows import ManualPackageReceipt, PackagePrintRunMember
-    member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
+    if context is None:
+        data.update(_package_context(db, pkg))
+        member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
+    else:
+        po = context["production_orders"].get(int(pkg.production_order_id)) if pkg.production_order_id else None
+        so = context["sales_orders"].get(int(pkg.sales_order_id)) if pkg.sales_order_id else None
+        customer = context["customers"].get(int(so.customer_id)) if so and so.customer_id else None
+        model = context["models"].get(int(pkg.model_id)) if pkg.model_id else None
+        data.update(_package_context_values(po, so, customer, model))
+        member = context["print_members"].get(int(pkg.id))
     data["print_run_id"] = member.run_id if member else None
     if pkg.manual_receipt_id:
-        manual = db.get(ManualPackageReceipt, pkg.manual_receipt_id)
+        manual = (
+            context["manual_receipts"].get(int(pkg.manual_receipt_id))
+            if context is not None
+            else db.get(ManualPackageReceipt, pkg.manual_receipt_id)
+        )
         data["manual_source"] = {"receipt_no": manual.receipt_no, "evidence": manual.evidence,
                                  "created_by": manual.created_by, "created_at": manual.created_at} if manual else None
     receipt = pkg.legacy_receipt
@@ -146,6 +159,102 @@ def _package_detail_payload(db: DbSession, pkg: Package) -> dict:
     return data
 
 
+def _model_display_load_options():
+    return (
+        selectinload(Model.images).load_only(
+            ModelImage.id,
+            ModelImage.model_id,
+            ModelImage.file_url,
+            ModelImage.file_name,
+            ModelImage.content_type,
+            ModelImage.image_type,
+            ModelImage.is_primary,
+        ),
+        selectinload(Model.bom).options(
+            joinedload(ModelBOM.item),
+            joinedload(ModelBOM.stock_batch),
+        ),
+    )
+
+
+def _model_label_load_options():
+    return (
+        selectinload(Model.images),
+        selectinload(Model.bom).options(
+            joinedload(ModelBOM.item),
+            joinedload(ModelBOM.stock_batch),
+        ),
+    )
+
+
+def _load_reference_map(db: DbSession, model_type, ids, *, options=()) -> dict:
+    loaded = {}
+    ordered_ids = sorted({int(row_id) for row_id in ids if row_id})
+    for offset in range(0, len(ordered_ids), _LABEL_CONTEXT_CHUNK_SIZE):
+        chunk = ordered_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
+        query = db.query(model_type)
+        if options:
+            query = query.options(*options)
+        loaded.update({
+            int(row.id): row
+            for row in query.filter(model_type.id.in_(chunk)).all()
+        })
+    return loaded
+
+
+def _package_detail_reference_context(db: DbSession, packages: list[Package]) -> dict:
+    production_orders = _load_reference_map(
+        db,
+        ProductionOrder,
+        (pkg.production_order_id for pkg in packages),
+        options=(joinedload(ProductionOrder.sales_order),),
+    )
+    sales_orders = _load_reference_map(
+        db,
+        SalesOrder,
+        (pkg.sales_order_id for pkg in packages),
+    )
+    customers = _load_reference_map(
+        db,
+        Customer,
+        (order.customer_id for order in sales_orders.values()),
+    )
+    models = _load_reference_map(
+        db,
+        Model,
+        (pkg.model_id for pkg in packages),
+        options=_model_display_load_options(),
+    )
+    manual_receipts = _load_reference_map(
+        db,
+        ManualPackageReceipt,
+        (pkg.manual_receipt_id for pkg in packages),
+    )
+    package_ids = sorted({int(pkg.id) for pkg in packages})
+    print_members = {}
+    for offset in range(0, len(package_ids), _LABEL_CONTEXT_CHUNK_SIZE):
+        chunk = package_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
+        print_members.update({
+            int(member.package_id): member
+            for member in db.query(PackagePrintRunMember)
+            .filter(PackagePrintRunMember.package_id.in_(chunk))
+            .all()
+        })
+    return {
+        "production_orders": production_orders,
+        "sales_orders": sales_orders,
+        "customers": customers,
+        "models": models,
+        "manual_receipts": manual_receipts,
+        "print_members": print_members,
+    }
+
+
+def _package_detail_payloads(db: DbSession, packages: list[Package]) -> list[dict]:
+    context = _package_detail_reference_context(db, packages)
+    return [_package_detail_payload(db, pkg, context=context) for pkg in packages]
+
+
 def _receiving_queue_packages(db: DbSession) -> list[Package]:
     latest_event = (
         db.query(
@@ -158,6 +267,12 @@ def _receiving_queue_packages(db: DbSession) -> list[Package]:
     )
     return (
         db.query(Package)
+        .options(
+            selectinload(Package.items),
+            selectinload(Package.batch_allocations),
+            selectinload(Package.scan_logs),
+            joinedload(Package.legacy_receipt),
+        )
         .join(latest_event, latest_event.c.package_id == Package.id)
         .join(PackageScanLog, PackageScanLog.id == latest_event.c.event_id)
         .filter(
@@ -257,26 +372,14 @@ def _label_model(db: DbSession, model_id: int | None) -> Model | None:
 
 
 def _package_label_reference_context(db: DbSession, packages: list[Package]) -> dict:
-    def load_map(model_type, ids, *, options=()):
-        loaded = {}
-        ordered_ids = sorted({int(row_id) for row_id in ids if row_id})
-        for offset in range(0, len(ordered_ids), _LABEL_CONTEXT_CHUNK_SIZE):
-            chunk = ordered_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
-            query = db.query(model_type)
-            if options:
-                query = query.options(*options)
-            loaded.update({
-                int(row.id): row
-                for row in query.filter(model_type.id.in_(chunk)).all()
-            })
-        return loaded
-
-    models = load_map(
+    models = _load_reference_map(
+        db,
         Model,
         (pkg.model_id for pkg in packages),
-        options=(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item)),
+        options=_model_label_load_options(),
     )
-    production_orders = load_map(
+    production_orders = _load_reference_map(
+        db,
         ProductionOrder,
         (pkg.production_order_id for pkg in packages),
     )
@@ -284,9 +387,10 @@ def _package_label_reference_context(db: DbSession, packages: list[Package]) -> 
     for pkg in packages:
         production_order = production_orders.get(int(pkg.production_order_id)) if pkg.production_order_id else None
         sales_order_ids.append(pkg.sales_order_id or (production_order.sales_order_id if production_order else None))
-    sales_orders = load_map(SalesOrder, sales_order_ids)
-    customers = load_map(Customer, (order.customer_id for order in sales_orders.values()))
-    fabric_batches = load_map(
+    sales_orders = _load_reference_map(db, SalesOrder, sales_order_ids)
+    customers = _load_reference_map(db, Customer, (order.customer_id for order in sales_orders.values()))
+    fabric_batches = _load_reference_map(
+        db,
         StockBatch,
         (order.fabric_batch_id for order in production_orders.values()),
     )
@@ -314,8 +418,9 @@ def _package_label_reference_context(db: DbSession, packages: list[Package]) -> 
         for pkg in packages
         if pkg.production_batch_id and not allocations_by_package.get(int(pkg.id))
     )
-    production_batches = load_map(ProductionBatch, batch_ids)
-    manual_receipts = load_map(
+    production_batches = _load_reference_map(db, ProductionBatch, batch_ids)
+    manual_receipts = _load_reference_map(
+        db,
         ManualPackageReceipt,
         (pkg.manual_receipt_id for pkg in packages),
     )
@@ -1195,7 +1300,7 @@ def receiving_queue(
     db: DbSession,
     _: User = Depends(require_permissions("storage.packages", "*")),
 ):
-    return [_package_detail_payload(db, pkg) for pkg in _receiving_queue_packages(db)]
+    return _package_detail_payloads(db, _receiving_queue_packages(db))
 
 
 @router.post("/receiving-queue/scan", response_model=PackageDetail)
@@ -1257,7 +1362,7 @@ def remove_from_receiving_queue(
 ):
     requested_ids = {int(package_id) for package_id in payload.package_ids if int(package_id or 0) > 0}
     if not requested_ids:
-        return {"count": 0, "packages": [_package_detail_payload(db, pkg) for pkg in _receiving_queue_packages(db)]}
+        return {"count": 0, "packages": _package_detail_payloads(db, _receiving_queue_packages(db))}
 
     active_by_id = {int(pkg.id): pkg for pkg in _receiving_queue_packages(db)}
     removed = 0
@@ -1285,7 +1390,7 @@ def remove_from_receiving_queue(
     db.commit()
     return {
         "count": removed,
-        "packages": [_package_detail_payload(db, pkg) for pkg in _receiving_queue_packages(db)],
+        "packages": _package_detail_payloads(db, _receiving_queue_packages(db)),
     }
 
 
