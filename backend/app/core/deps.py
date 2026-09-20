@@ -1,3 +1,4 @@
+import math
 from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -114,9 +115,17 @@ def get_current_user(
     # password change/reset invalidates any previously stolen session.
     valid_from = getattr(user, "tokens_valid_from", None)
     issued_at = payload.get("iat")
-    if valid_from is not None and issued_at is not None:
+    if valid_from is not None:
         from app.core.dt import as_utc
-        if int(issued_at) < int(as_utc(valid_from).timestamp()):
+        # Keep subsecond precision: a token minted before rotation within the
+        # same second must not remain valid. Legacy integer dates are supported,
+        # but a rotated account requires a usable issue time.
+        try:
+            issued_timestamp = float(issued_at)
+        except (TypeError, ValueError, OverflowError):
+            issued_timestamp = float("nan")
+        if (isinstance(issued_at, bool) or not math.isfinite(issued_timestamp)
+                or issued_timestamp < as_utc(valid_from).timestamp()):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired, please sign in again")
     bind_session_factory(user, payload.get("factory_code"))
     enforce_request_factory_scope(user, request)
