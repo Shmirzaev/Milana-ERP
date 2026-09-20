@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import re
 import secrets
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from math import isfinite
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import func
 
 from app.core.config import settings
@@ -26,6 +26,7 @@ from app.models import (
     User,
 )
 from app.services.audit import log_action
+from app.services.attendance_reports import TASHKENT
 from app.services.factory_scope import factory_for_department, selected_factory_code
 
 
@@ -154,11 +155,18 @@ class CalendarEventIn(BaseModel):
 
 class HrSettingsIn(BaseModel):
     company_name: str = "Milana Premium"
-    default_workday_hours: float = Field(default=8, gt=0, le=24)
-    default_monthly_hours: float = Field(default=176, ge=0, le=744)
+    default_workday_hours: float = Field(default=8, gt=0, le=24, allow_inf_nan=False)
+    default_monthly_hours: float = Field(default=176, ge=0, le=744, allow_inf_nan=False)
     probation_days: int = Field(default=90, ge=0, le=730)
     contract_warning_days: int = Field(default=30, ge=0, le=365)
     weekend_days: list[int] = Field(default_factory=lambda: [6, 7])
+
+    @field_validator("default_workday_hours", "default_monthly_hours", mode="before")
+    @classmethod
+    def validate_finite_hours(cls, value):
+        if isinstance(value, float) and not isfinite(value):
+            raise HTTPException(422, "Scheduled hours must be finite")
+        return value
 
 
 def _required_text(value: str, label: str) -> str:
@@ -170,6 +178,40 @@ def _required_text(value: str, label: str) -> str:
 
 def _factory(current: User) -> str:
     return selected_factory_code(current)
+
+
+def _attendance_day_bounds(day: date) -> tuple[datetime, datetime]:
+    start_local = datetime.combine(day, time.min, tzinfo=TASHKENT)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def _safe_hr_settings(value) -> HrSettingsIn:
+    if not isinstance(value, dict):
+        return HrSettingsIn()
+    try:
+        return HrSettingsIn.model_validate(value)
+    except (HTTPException, ValidationError):
+        return HrSettingsIn()
+
+
+def _load_hr_settings(db: DbSession, factory: str) -> HrSettingsIn:
+    row = db.query(SystemSetting).filter(SystemSetting.key == _settings_key(factory)).first()
+    return _safe_hr_settings(row.value_json if row else {})
+
+
+def _scheduled_minutes(profile, default_hours: float) -> int:
+    raw_hours = profile.get("scheduled_daily_hours") if isinstance(profile, dict) else None
+    if raw_hours in (None, "") or isinstance(raw_hours, bool):
+        hours = default_hours
+    else:
+        try:
+            hours = float(raw_hours)
+        except (OverflowError, TypeError, ValueError):
+            hours = default_hours
+    if not isfinite(hours) or hours <= 0 or hours > 24:
+        hours = default_hours
+    return int(hours * 60)
 
 
 def _employee(db: DbSession, factory: str, employee_id: int) -> Employee:
@@ -446,8 +488,9 @@ def delete_document(document_id: int, db: DbSession, current: User = HrUser):
 
 @router.get("/attendance")
 def hr_attendance(db: DbSession, current: User = HrUser, day: date | None = None):
-    factory = _factory(current); selected = day or datetime.now(timezone.utc).date()
-    start = datetime.combine(selected, datetime.min.time(), tzinfo=timezone.utc); end = start + timedelta(days=1)
+    factory = _factory(current); selected = day or datetime.now(TASHKENT).date()
+    start, end = _attendance_day_bounds(selected)
+    default_hours = _load_hr_settings(db, factory).default_workday_hours
     employees = db.query(Employee).filter(Employee.factory_code == factory, Employee.status == "active").all()
     events = db.query(AttendanceEvent).filter(AttendanceEvent.factory_code == factory, AttendanceEvent.occurred_at >= start, AttendanceEvent.occurred_at < end).order_by(AttendanceEvent.occurred_at).all()
     grouped: dict[str, list[AttendanceEvent]] = {}
@@ -458,8 +501,8 @@ def hr_attendance(db: DbSession, current: User = HrUser, day: date | None = None
         scans = grouped.get(str(employee.employee_no or ""), [])
         first = scans[0].occurred_at if scans else None; last = scans[-1].occurred_at if len(scans) > 1 else None
         worked = max(0, int((last - first).total_seconds() // 60)) if first and last else 0
-        scheduled = float((employee.hr_profile_json or {}).get("scheduled_daily_hours") or 8) * 60
-        rows.append({"employee_id": employee.id, "employee_no": employee.employee_no, "full_name": employee.full_name, "arrival_at": first, "departure_at": last, "worked_minutes": worked, "scheduled_minutes": int(scheduled), "variance_minutes": worked - int(scheduled), "status": "present" if scans else "absent"})
+        scheduled = _scheduled_minutes(employee.hr_profile_json, default_hours)
+        rows.append({"employee_id": employee.id, "employee_no": employee.employee_no, "full_name": employee.full_name, "arrival_at": first, "departure_at": last, "worked_minutes": worked, "scheduled_minutes": scheduled, "variance_minutes": worked - scheduled, "status": "present" if scans else "absent"})
     return {"day": selected, "summary": {"employees": len(rows), "present": sum(1 for row in rows if row["status"] == "present"), "absent": sum(1 for row in rows if row["status"] == "absent"), "overtime_minutes": sum(max(0, row["variance_minutes"]) for row in rows)}, "rows": rows}
 
 
@@ -502,8 +545,7 @@ def _settings_key(factory: str) -> str:
 
 @router.get("/settings")
 def get_hr_settings(db: DbSession, current: User = HrUser):
-    row = db.query(SystemSetting).filter(SystemSetting.key == _settings_key(_factory(current))).first()
-    return HrSettingsIn(**(row.value_json if row else {}))
+    return _load_hr_settings(db, _factory(current))
 
 
 @router.put("/settings")
