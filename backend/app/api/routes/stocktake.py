@@ -15,7 +15,15 @@ from app.core.deps import DbSession, require_permissions
 from app.models import Package, User
 from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
 from app.services.audit import log_action
-from app.services.stocktake import package_snapshots, resolve_package, row_payload, scan_fields, scan_summary
+from app.services.stocktake import (
+    package_snapshots,
+    resolve_package,
+    row_payload,
+    scan_fields,
+    scan_summary,
+    stocktake_detail_page,
+    stocktake_summary,
+)
 
 router = APIRouter(prefix="/warehouse-stocktakes", tags=["warehouse_stocktakes"])
 access = require_permissions("storage.packages", "storage.shipment")
@@ -136,14 +144,26 @@ def detail(
     limit: int = Query(100, ge=1, le=200),
 ):
     count = get_count(db, count_id)
+    needle = q.strip().casefold()
+    if not needle and result != "changed":
+        summary = stocktake_summary(db, count)
+        total, page_rows = stocktake_detail_page(
+            db,
+            count,
+            result=result,
+            offset=offset,
+            limit=limit,
+        )
+        return {**count_info(count), "summary": summary, "total": total, "rows": page_rows}
+
     rows = results(db, count)
     summary = {
-        key: sum(r["result"] == key for r in rows) for key in ("found", "missing", "unknown", "unexpected", "ambiguous")
+        key: sum(row["result"] == key for row in rows)
+        for key in ("found", "missing", "unknown", "unexpected", "ambiguous")
     }
-    summary["expected"] = sum(r["expected"] for r in rows)
-    summary["changed"] = sum(r["changed"] for r in rows)
+    summary["expected"] = sum(row["expected"] for row in rows)
+    summary["changed"] = sum(row["changed"] for row in rows)
     summary.update(scan_summary(rows))
-    needle = q.strip().casefold()
     filtered = [
         r
         for r in rows

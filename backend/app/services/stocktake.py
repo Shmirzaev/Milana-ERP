@@ -2,23 +2,33 @@
 
 from datetime import timezone
 
-from sqlalchemy import func, or_
+from sqlalchemy import and_, case, func, or_
 
 from app.models import FinishedGoodsStock, Model, Package, PackageBarcodeAlias, PackageItem
+from app.models.stocktake import WarehouseStocktakeRow
+
+
+_STOCKTAKE_PAGE_CHUNK_SIZE = 400
 
 STORAGE_STATUSES = ("received_in_storage", "reserved", "damaged")
 
 
 def package_snapshots(db, package_ids=None, *, expected_only=False, include_items=False):
-    balance = (
+    requested_ids = (
+        None
+        if package_ids is None
+        else sorted({int(package_id) for package_id in package_ids if package_id is not None})
+    )
+    balance_query = (
         db.query(
             FinishedGoodsStock.package_id.label("package_id"),
             func.sum(FinishedGoodsStock.available_qty).label("available"),
             func.sum(FinishedGoodsStock.reserved_qty).label("reserved"),
         )
-        .group_by(FinishedGoodsStock.package_id)
-        .subquery()
     )
+    if requested_ids is not None:
+        balance_query = balance_query.filter(FinishedGoodsStock.package_id.in_(requested_ids))
+    balance = balance_query.group_by(FinishedGoodsStock.package_id).subquery()
     query = (
         db.query(Package, Model.code, Model.name, balance.c.available, balance.c.reserved)
         .outerjoin(
@@ -29,8 +39,8 @@ def package_snapshots(db, package_ids=None, *, expected_only=False, include_item
     )
     if expected_only:
         query = query.filter(Package.status.in_(STORAGE_STATUSES))
-    if package_ids is not None:
-        query = query.filter(Package.id.in_(package_ids))
+    if requested_ids is not None:
+        query = query.filter(Package.id.in_(requested_ids))
     snapshots = {
         p.id: {
             "package_no": p.package_no,
@@ -143,3 +153,143 @@ def row_payload(row, current):
         "scan_code": row.scan_code,
         "scanned_by": row.scanned_by,
     }
+
+
+def stocktake_summary(db, count):
+    expected_found = and_(WarehouseStocktakeRow.expected.is_(True), WarehouseStocktakeRow.scanned_at.is_not(None))
+    expected_missing = and_(WarehouseStocktakeRow.expected.is_(True), WarehouseStocktakeRow.scanned_at.is_(None))
+    unexpected = WarehouseStocktakeRow.expected.is_(False)
+    aggregate = db.query(
+        func.coalesce(func.sum(case((expected_found, 1), else_=0)), 0),
+        func.coalesce(func.sum(case((expected_missing, 1), else_=0)), 0),
+        func.coalesce(func.sum(case((and_(unexpected, WarehouseStocktakeRow.category == "unknown"), 1), else_=0)), 0),
+        func.coalesce(func.sum(case((and_(unexpected, WarehouseStocktakeRow.category == "unexpected"), 1), else_=0)), 0),
+        func.coalesce(func.sum(case((and_(unexpected, WarehouseStocktakeRow.category == "ambiguous"), 1), else_=0)), 0),
+        func.coalesce(func.sum(case((WarehouseStocktakeRow.expected.is_(True), 1), else_=0)), 0),
+    ).filter(WarehouseStocktakeRow.stocktake_id == count.id).one()
+
+    scanned = 0
+    scanned_packages = 0
+    scanned_pieces = 0
+    estimated_packages = 0
+    unquantified_packages = 0
+    seen_packages: set[int] = set()
+    scanned_rows = db.query(
+        WarehouseStocktakeRow.package_id,
+        WarehouseStocktakeRow.scanned_at,
+        WarehouseStocktakeRow.scan_snapshot,
+        WarehouseStocktakeRow.snapshot,
+        WarehouseStocktakeRow.expected,
+    ).filter(
+        WarehouseStocktakeRow.stocktake_id == count.id,
+        WarehouseStocktakeRow.scanned_at.is_not(None),
+    ).order_by(WarehouseStocktakeRow.id.asc()).yield_per(_STOCKTAKE_PAGE_CHUNK_SIZE)
+    for row in scanned_rows:
+        scanned += 1
+        if row.package_id is None or int(row.package_id) in seen_packages:
+            continue
+        seen_packages.add(int(row.package_id))
+        fields = scan_fields(row)
+        scanned_packages += 1
+        scanned_pieces += fields["scanned_pieces"] or 0
+        estimated_packages += fields["scan_evidence_source"] == "count_start"
+        unquantified_packages += fields["scanned_pieces"] is None
+
+    changed = 0
+    if count.completed_at:
+        completed_current: dict[int, dict | None] = {}
+        completed_rows = db.query(
+            WarehouseStocktakeRow.package_id,
+            WarehouseStocktakeRow.final_snapshot,
+        ).filter(
+            WarehouseStocktakeRow.stocktake_id == count.id,
+            WarehouseStocktakeRow.package_id.is_not(None),
+        ).order_by(WarehouseStocktakeRow.id.asc()).yield_per(_STOCKTAKE_PAGE_CHUNK_SIZE)
+        for row in completed_rows:
+            completed_current[int(row.package_id)] = row.final_snapshot
+        snapshot_rows = db.query(
+            WarehouseStocktakeRow.package_id,
+            WarehouseStocktakeRow.snapshot,
+        ).filter(
+            WarehouseStocktakeRow.stocktake_id == count.id,
+            WarehouseStocktakeRow.package_id.is_not(None),
+        ).yield_per(_STOCKTAKE_PAGE_CHUNK_SIZE)
+        changed = sum(completed_current[int(row.package_id)] != row.snapshot for row in snapshot_rows)
+    else:
+        last_row_id = 0
+        while True:
+            snapshot_rows = db.query(
+                WarehouseStocktakeRow.id,
+                WarehouseStocktakeRow.package_id,
+                WarehouseStocktakeRow.snapshot,
+            ).filter(
+                WarehouseStocktakeRow.stocktake_id == count.id,
+                WarehouseStocktakeRow.package_id.is_not(None),
+                WarehouseStocktakeRow.id > last_row_id,
+            ).order_by(WarehouseStocktakeRow.id.asc()).limit(_STOCKTAKE_PAGE_CHUNK_SIZE).all()
+            if not snapshot_rows:
+                break
+            current = package_snapshots(db, [int(row.package_id) for row in snapshot_rows])
+            changed += sum(current.get(int(row.package_id), {}) != row.snapshot for row in snapshot_rows)
+            last_row_id = int(snapshot_rows[-1].id)
+
+    return {
+        "found": int(aggregate[0] or 0),
+        "missing": int(aggregate[1] or 0),
+        "unknown": int(aggregate[2] or 0),
+        "unexpected": int(aggregate[3] or 0),
+        "ambiguous": int(aggregate[4] or 0),
+        "expected": int(aggregate[5] or 0),
+        "changed": int(changed),
+        "scanned": scanned,
+        "scanned_packages": scanned_packages,
+        "scanned_pieces": scanned_pieces,
+        "estimated_packages": estimated_packages,
+        "unquantified_packages": unquantified_packages,
+    }
+
+
+def stocktake_detail_page(db, count, *, result: str, offset: int, limit: int) -> tuple[int, list[dict]]:
+    query = db.query(WarehouseStocktakeRow).filter(WarehouseStocktakeRow.stocktake_id == count.id)
+    if result == "scanned":
+        query = query.filter(WarehouseStocktakeRow.scanned_at.is_not(None))
+    elif result == "found":
+        query = query.filter(
+            WarehouseStocktakeRow.expected.is_(True),
+            WarehouseStocktakeRow.scanned_at.is_not(None),
+        )
+    elif result == "missing":
+        query = query.filter(
+            WarehouseStocktakeRow.expected.is_(True),
+            WarehouseStocktakeRow.scanned_at.is_(None),
+        )
+    elif result in {"unknown", "unexpected", "ambiguous"}:
+        query = query.filter(
+            WarehouseStocktakeRow.expected.is_(False),
+            WarehouseStocktakeRow.category == result,
+        )
+    elif result != "all":
+        raise ValueError(f"Unsupported SQL stocktake result filter: {result}")
+
+    total = query.count()
+    if result == "scanned":
+        query = query.order_by(
+            WarehouseStocktakeRow.scanned_at.desc(),
+            WarehouseStocktakeRow.id.desc(),
+        )
+    else:
+        query = query.order_by(WarehouseStocktakeRow.id.asc())
+    rows = query.offset(offset).limit(limit).all()
+    package_ids = sorted({int(row.package_id) for row in rows if row.package_id})
+    if count.completed_at:
+        completed_rows = db.query(
+            WarehouseStocktakeRow.package_id,
+            WarehouseStocktakeRow.final_snapshot,
+        ).filter(
+            WarehouseStocktakeRow.stocktake_id == count.id,
+            WarehouseStocktakeRow.package_id.in_(package_ids),
+        ).order_by(WarehouseStocktakeRow.id.asc()).all()
+        current = {int(package_id): final_snapshot for package_id, final_snapshot in completed_rows}
+    else:
+        current = package_snapshots(db, package_ids)
+    return total, [row_payload(row, current) for row in rows]
