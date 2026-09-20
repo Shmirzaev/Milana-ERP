@@ -19,6 +19,7 @@ router = APIRouter(prefix="/sewing-flows", tags=["sewing-flows"])
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
+_UTILIZATION_QUERY_CHUNK_SIZE = 400
 
 
 def _work_order_model_context(db, production_order_ids: list[int]) -> dict[int, dict[str, str | None]]:
@@ -258,6 +259,68 @@ def _committed_today(db, flow_id: int) -> int:
     return int(committed)
 
 
+def _committed_today_by_flow(db, flow_ids, *, now: datetime | None = None) -> dict[int, int]:
+    ids = sorted({int(flow_id) for flow_id in flow_ids if flow_id})
+    committed_by_flow = {flow_id: 0 for flow_id in ids}
+    if not ids:
+        return committed_by_flow
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+
+    for start_index in range(0, len(ids), _UTILIZATION_QUERY_CHUNK_SIZE):
+        chunk = ids[start_index:start_index + _UTILIZATION_QUERY_CHUNK_SIZE]
+        assignments = (
+            db.query(
+                SewingAssignment.sewing_flow_id,
+                SewingAssignment.quantity,
+                SewingAssignment.completed_qty,
+                SewingAssignment.planned_start,
+                SewingAssignment.planned_end,
+            )
+            .join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id)
+            .filter(
+                SewingAssignment.sewing_flow_id.in_(chunk),
+                SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES),
+                WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+            )
+            .all()
+        )
+        for flow_id, quantity, completed_qty, planned_start, planned_end in assignments:
+            remaining = max(0, int(quantity or 0) - int(completed_qty or 0))
+            if remaining <= 0 or not planned_start or not planned_end:
+                continue
+            start = planned_start if planned_start.tzinfo else planned_start.replace(tzinfo=timezone.utc)
+            end = planned_end if planned_end.tzinfo else planned_end.replace(tzinfo=timezone.utc)
+            if start <= current <= end:
+                days = max(1.0, (end - start).total_seconds() / 86400.0)
+                committed_by_flow[int(flow_id)] += round(remaining / days)
+
+        managed_assignment_exists = db.query(SewingAssignment.id).filter(
+            SewingAssignment.work_order_id == WorkOrder.id,
+            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
+        ).exists()
+        direct_rows = (
+            db.query(
+                WorkOrder.sewing_flow_id,
+                WorkOrder.planned_output_qty,
+                WorkOrder.passed_qty,
+            )
+            .filter(
+                WorkOrder.sewing_flow_id.in_(chunk),
+                WorkOrder.operation == "sewing",
+                WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+                ~managed_assignment_exists,
+            )
+            .all()
+        )
+        for flow_id, planned_output_qty, passed_qty in direct_rows:
+            committed_by_flow[int(flow_id)] += max(
+                0, int(planned_output_qty or 0) - int(passed_qty or 0),
+            )
+    return committed_by_flow
+
+
 @router.get("/utilization-snapshot")
 def utilization_snapshot(db: DbSession, current: CurrentUser, factory_code: str | None = None):
     factory = sewing_line_factory_scope(current, factory_code)
@@ -265,9 +328,10 @@ def utilization_snapshot(db: DbSession, current: CurrentUser, factory_code: str 
         SewingFlow.factory_code == factory,
         SewingFlow.is_active.is_(True),
     ).order_by(SewingFlow.code).all()
+    committed_by_flow = _committed_today_by_flow(db, (flow.id for flow in flows))
     out = []
     for flow in flows:
-        committed = _committed_today(db, int(flow.id))
+        committed = committed_by_flow[int(flow.id)]
         capacity = int(flow.capacity_per_day or 0)
         pct = (committed / capacity * 100) if capacity else 0
         out.append(
