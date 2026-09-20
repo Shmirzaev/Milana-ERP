@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 
 from app.core.dt import date_filter_bounds
 from app.core.deps import (
@@ -250,8 +250,19 @@ def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | N
         .with_for_update(of=Invoice)
         .all()
     )
+    # All candidate invoices are locked above before reading their totals.
+    # Batch the sums without loading each payment or changing allocation order.
+    paid_by_invoice = {}
+    invoice_ids = [int(invoice.id) for invoice in invoices]
+    for start in range(0, len(invoice_ids), 400):
+        paid_by_invoice.update(
+            db.query(Payment.invoice_id, func.sum(Payment.amount))
+            .filter(Payment.invoice_id.in_(invoice_ids[start:start + 400]))
+            .group_by(Payment.invoice_id)
+            .all()
+        )
     for invoice in invoices:
-        balance_due = max(float(invoice.amount or 0) - invoice_paid_total(db, int(invoice.id)), 0)
+        balance_due = max(float(invoice.amount or 0) - float(paid_by_invoice.get(int(invoice.id)) or 0), 0)
         if balance_due > 0.01:
             return invoice
     return None
