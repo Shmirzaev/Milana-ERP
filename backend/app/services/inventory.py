@@ -265,11 +265,23 @@ def _bom_requirement_rows(
     )
     include_materials = categories is None or any(category in MATERIAL_CATEGORIES for category in categories)
     if explicit_materials and include_materials:
+        planned_batch_ids = sorted({int(row.stock_batch_id) for row in explicit_materials})
+        planned_batches: dict[int, tuple[StockBatch, Item]] = {}
+        for start in range(0, len(planned_batch_ids), _BULK_STOCK_CHUNK_SIZE):
+            chunk = planned_batch_ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+            rows = (
+                db.query(StockBatch, Item)
+                .options(lazyload(StockBatch.item))
+                .join(Item, Item.id == StockBatch.item_id)
+                .filter(StockBatch.id.in_(chunk))
+                .all()
+            )
+            planned_batches.update((int(batch.id), (batch, item)) for batch, item in rows)
         for planned in explicit_materials:
-            stock_batch = db.get(StockBatch, planned.stock_batch_id)
-            item = db.get(Item, stock_batch.item_id) if stock_batch else None
-            if not stock_batch or not item:
+            planned_batch = planned_batches.get(int(planned.stock_batch_id))
+            if not planned_batch:
                 continue
+            stock_batch, item = planned_batch
             unit = str(planned.unit or stock_batch.unit or item.unit or "").strip() or item.unit
             key = (int(item.id), unit, int(stock_batch.id))
             required[key] = {
@@ -417,39 +429,221 @@ def _reservation_coverage_by_item_unit_batch(db: Session, production_order_id: i
     return coverage
 
 
+def _reservation_coverage_maps(
+    db: Session,
+    production_order_id: int,
+) -> tuple[dict[tuple[int, str], float], dict[tuple[int, str, int], float]]:
+    rows = (
+        db.query(
+            MaterialReservation.item_id,
+            MaterialReservation.unit,
+            MaterialReservation.stock_batch_id,
+            MaterialReservation.reserved_quantity,
+            MaterialReservation.consumed_quantity,
+            MaterialReservation.released_quantity,
+            MaterialReservation.status,
+        )
+        .filter(MaterialReservation.production_order_id == production_order_id)
+        .all()
+    )
+    by_item: dict[tuple[int, str], float] = {}
+    by_batch: dict[tuple[int, str, int], float] = {}
+    for item_id, unit, batch_id, reserved, consumed, released, status in rows:
+        raw_consumed_quantity = float(consumed or 0)
+        consumed_quantity = max(0.0, raw_consumed_quantity)
+        active_remaining = (
+            max(0.0, float(reserved or 0) - raw_consumed_quantity - float(released or 0))
+            if status in ACTIVE_RESERVATION_STATUSES
+            else 0.0
+        )
+        covered = 0.0 if status == "cancelled" else consumed_quantity + active_remaining
+        item_key = (int(item_id), str(unit or ""))
+        by_item[item_key] = by_item.get(item_key, 0.0) + covered
+        if batch_id is not None:
+            batch_key = (*item_key, int(batch_id))
+            by_batch[batch_key] = by_batch.get(batch_key, 0.0) + covered
+    return by_item, by_batch
+
+
+def _reservation_plan_stock_context(db: Session, requirement_rows: list[dict]) -> dict:
+    item_ids = sorted({int(row["item_id"]) for row in requirement_rows})
+    exact_batch_ids = sorted({
+        int(row["stock_batch_id"])
+        for row in requirement_rows
+        if row.get("stock_batch_id") is not None
+    })
+    batch_totals: dict[int, float] = {}
+    movement_totals: dict[int, tuple[float, float]] = {}
+    reserved_by_item_raw: dict[int, float] = {}
+    reserved_by_batch_raw: dict[int, float] = {}
+    candidate_batches_by_item: dict[int, dict[int, StockBatch]] = {}
+    batches_by_id: dict[int, StockBatch] = {}
+    in_types = ("produce", "return", "adjustment")
+    out_types = ("issue", "consume", "waste", "shipment")
+
+    for start in range(0, len(item_ids), _BULK_STOCK_CHUNK_SIZE):
+        chunk = item_ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+        batch_totals.update({
+            int(item_id): float(quantity or 0)
+            for item_id, quantity in (
+                db.query(StockBatch.item_id, func.coalesce(func.sum(StockBatch.quantity), 0))
+                .filter(StockBatch.item_id.in_(chunk))
+                .group_by(StockBatch.item_id)
+                .all()
+            )
+        })
+        movement_totals.update({
+            int(item_id): (float(incoming or 0), float(outgoing or 0))
+            for item_id, incoming, outgoing in (
+                db.query(
+                    StockMovement.item_id,
+                    func.coalesce(func.sum(case((StockMovement.movement_type.in_(in_types), StockMovement.quantity), else_=0)), 0),
+                    func.coalesce(func.sum(case((StockMovement.movement_type.in_(out_types), StockMovement.quantity), else_=0)), 0),
+                )
+                .filter(StockMovement.item_id.in_(chunk), StockMovement.batch_id.is_(None))
+                .group_by(StockMovement.item_id)
+                .all()
+            )
+        })
+        for item_id, quantity in (
+            db.query(
+                MaterialReservation.item_id,
+                _active_reserved_sum_query(db),
+            )
+            .filter(
+                MaterialReservation.item_id.in_(chunk),
+                MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+            )
+            .group_by(MaterialReservation.item_id)
+            .all()
+        ):
+            reserved_by_item_raw[int(item_id)] = reserved_by_item_raw.get(int(item_id), 0.0) + float(quantity or 0)
+        candidates = (
+            db.query(StockBatch)
+            .options(lazyload(StockBatch.item))
+            .filter(StockBatch.item_id.in_(chunk), StockBatch.quantity > 0)
+            .order_by(StockBatch.item_id, StockBatch.received_date, StockBatch.id)
+            .all()
+        )
+        for batch in candidates:
+            batch_id = int(batch.id)
+            item_id = int(batch.item_id)
+            batches_by_id[batch_id] = batch
+            candidate_batches_by_item.setdefault(item_id, {})[batch_id] = batch
+
+    for start in range(0, len(exact_batch_ids), _BULK_STOCK_CHUNK_SIZE):
+        chunk = exact_batch_ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+        exact_batches = (
+            db.query(StockBatch)
+            .options(lazyload(StockBatch.item))
+            .filter(StockBatch.id.in_(chunk))
+            .all()
+        )
+        batches_by_id.update((int(batch.id), batch) for batch in exact_batches)
+
+    candidate_batch_ids = sorted(batches_by_id)
+    for start in range(0, len(candidate_batch_ids), _BULK_STOCK_CHUNK_SIZE):
+        chunk = candidate_batch_ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+        reserved_by_batch_raw.update({
+            int(batch_id): float(quantity or 0)
+            for batch_id, quantity in (
+                db.query(
+                    MaterialReservation.stock_batch_id,
+                    _active_reserved_sum_query(db),
+                )
+                .filter(
+                    MaterialReservation.stock_batch_id.in_(chunk),
+                    MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+                )
+                .group_by(MaterialReservation.stock_batch_id)
+                .all()
+            )
+        })
+
+    current_by_item: dict[int, float] = {}
+    reserved_by_item: dict[int, float] = {}
+    for item_id in item_ids:
+        incoming, outgoing = movement_totals.get(item_id, (0.0, 0.0))
+        current_by_item[item_id] = float(batch_totals.get(item_id, 0.0)) + incoming - outgoing
+        reserved_by_item[item_id] = max(0.0, reserved_by_item_raw.get(item_id, 0.0))
+    return {
+        "current_by_item": current_by_item,
+        "reserved_by_item": reserved_by_item,
+        "reserved_by_batch": {
+            batch_id: max(0.0, quantity)
+            for batch_id, quantity in reserved_by_batch_raw.items()
+        },
+        "candidate_batches_by_item": {
+            item_id: list(batches.values())
+            for item_id, batches in candidate_batches_by_item.items()
+        },
+        "batches_by_id": batches_by_id,
+    }
+
+
 def reservation_plan_for_production_order(db: Session, production_order_id: int, categories: tuple[str, ...] | None = None) -> dict:
     po = db.get(ProductionOrder, production_order_id)
     if not po:
         raise HTTPException(404, "Production order not found")
 
     model_code, model_name = _model_label_fields(db, po.model_id)
-    coverage = _reservation_coverage_by_item_unit(db, int(po.id))
-    batch_coverage = _reservation_coverage_by_item_unit_batch(db, int(po.id))
+    coverage, batch_coverage = _reservation_coverage_maps(db, int(po.id))
+    requirement_rows = _bom_requirement_rows(db, po, categories or RESERVABLE_CATEGORIES)
+    stock_context = _reservation_plan_stock_context(db, requirement_rows)
     rows = []
-    for row in _bom_requirement_rows(db, po, categories or RESERVABLE_CATEGORIES):
+    for row in requirement_rows:
+        item_id = int(row["item_id"])
+        unit = str(row["unit"])
         stock_batch_id = int(row["stock_batch_id"]) if row.get("stock_batch_id") else None
         if stock_batch_id is not None:
-            coverage_key = (int(row["item_id"]), str(row["unit"]), stock_batch_id)
+            coverage_key = (item_id, unit, stock_batch_id)
             already_reserved = float(batch_coverage.get(coverage_key, 0.0))
         else:
-            coverage_key = (int(row["item_id"]), str(row["unit"]))
+            coverage_key = (item_id, unit)
             already_reserved = float(coverage.get(coverage_key, 0.0))
         required = float(row["required_quantity"] or 0)
         remaining = max(0.0, required - already_reserved)
         if stock_batch_id is not None:
-            current = current_stock_for_batch(db, stock_batch_id)
-            available = available_stock_for_batch(db, stock_batch_id)
+            batch = stock_context["batches_by_id"].get(stock_batch_id)
+            if not batch:
+                raise HTTPException(404, "Stock batch not found")
+            current = float(batch.quantity or 0)
+            reserved = float(stock_context["reserved_by_batch"].get(stock_batch_id, 0.0))
         else:
-            current = current_stock_for_item(db, int(row["item_id"]))
-            available = available_stock_for_item(db, int(row["item_id"]))
+            current = float(stock_context["current_by_item"].get(item_id, 0.0))
+            reserved = float(stock_context["reserved_by_item"].get(item_id, 0.0))
+        available = current - reserved
         shortage = max(0.0, remaining - max(0.0, available))
-        suggested_batches = _suggest_batches_for_requirement(
-            db,
-            item_id=int(row["item_id"]),
-            unit=str(row["unit"]),
-            quantity=remaining,
-            stock_batch_id=stock_batch_id,
-        )
+        left = remaining
+        suggested_batches = []
+        if stock_batch_id is not None:
+            exact_candidate = stock_context["batches_by_id"].get(stock_batch_id)
+            candidates = [exact_candidate] if exact_candidate and float(exact_candidate.quantity or 0) > 0 else []
+        else:
+            candidates = stock_context["candidate_batches_by_item"].get(item_id, [])
+        for candidate in candidates:
+            if left <= EPSILON:
+                break
+            candidate_id = int(candidate.id)
+            if str(candidate.unit or "").strip() != unit.strip():
+                continue
+            candidate_reserved = float(stock_context["reserved_by_batch"].get(candidate_id, 0.0))
+            candidate_available = max(0.0, float(candidate.quantity or 0) - candidate_reserved)
+            if candidate_available <= EPSILON:
+                continue
+            suggested = min(left, candidate_available)
+            suggested_batches.append({
+                "stock_batch_id": candidate_id,
+                "batch_no": candidate.batch_no,
+                "warehouse_id": int(candidate.warehouse_id),
+                "received_date": candidate.received_date,
+                "current_quantity": float(candidate.quantity or 0),
+                "reserved_quantity": candidate_reserved,
+                "available_quantity": candidate_available,
+                "suggested_quantity": suggested,
+                "unit": candidate.unit,
+            })
+            left -= suggested
         if remaining <= EPSILON:
             status = "ready"
         elif shortage > EPSILON:
@@ -462,7 +656,7 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
             "already_reserved_quantity": already_reserved,
             "remaining_to_reserve": remaining,
             "current_stock": current,
-            "reserved_stock": reserved_stock_for_batch(db, stock_batch_id) if stock_batch_id is not None else reserved_stock_for_item(db, int(row["item_id"])),
+            "reserved_stock": reserved,
             "available_stock": available,
             "shortage": shortage,
             "suggested_batches": suggested_batches,
