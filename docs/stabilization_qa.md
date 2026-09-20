@@ -28,6 +28,8 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| SEC06 | `test_admin_membership_delete_race.py`, `test_user_audit_history.py`; isolated PostgreSQL | Concurrent deletes of the last two wildcard admins: one succeeds, one rejects, one admin remains. Concurrent audit insertion must still complete and preserve history. |
+| WF10 | `test_waste_readonly.py`; GET `/api/waste` | Change a synthetic batch cost, then read waste. Live response estimate changes; persisted historical value and finance totals do not. GET never commits. |
 | ST01 | `test_purchase_receipt_idempotency.py`; Purchasing → Receiving | Receive 5; lose the response; reload and retry the saved request. Still 5, one receipt. Changed payload with the old key rejects. Concurrent same-key submissions replay one result. |
 | ST02 | `test_inventory_movement_integrity.py`; inventory movement API | Issue 4 from 10: batch and movement agree at 6. Wrong item/batch, unit, location or invalid amount rejects without writes. |
 | ST03 | `test_inventory_movement_integrity.py`; warehouse balances | A W1 movement does not change W2. Transfer changes the two warehouse balances but not the global total. |
@@ -68,6 +70,8 @@ Additional acceptance checks:
 | API03 | `test_settings_patch_integrity.py`; Settings | Change phone only: address/logo survive. Invalid fields return 422 without writes. Parallel patches and logo uploads preserve both changes; missing-row creation produces one row. |
 
 `n` = returned parents; `r` = returned child rows; `p` = permissions; `a` = audit rows. Query counts include authentication in these test fixtures.
+
+SEC06 locks/scans active users: O(u) membership work, intentionally serialized; not O(1). WF10 removes writes, not read-query growth: per-row cost lookups and unbounded listing remain. Live waste estimates versus stored accounting snapshots (including automatically created zero values) still need an agreed FN08 valuation policy.
 
 | Path | Before → after | What remains |
 | --- | --- | --- |

@@ -517,10 +517,10 @@
       "risk": "Past valuations change during a read.",
       "proposed_fix": "Make GET read-only.",
       "baseline_source": "backend/app/api/routes/waste.py:43",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "7444997",
+      "evidence": "audit_ismail.md#evidence; test_waste_readonly.py: GET leaves stored values unchanged; creation-time valuation policy remains FN08"
     },
     {
       "number": 44,
@@ -733,10 +733,10 @@
       "risk": "Last-admin races remain untested.",
       "proposed_fix": "Serialize all membership changes.",
       "baseline_source": "backend/app/api/routes/admin.py:507",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "74a2973",
+      "evidence": "audit_ismail.md#evidence; test_admin_membership_delete_race.py: 3 PostgreSQL cases plus audit-insert compatibility regression"
     },
     {
       "number": 62,

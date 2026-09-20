@@ -4,6 +4,8 @@ Last updated: 2026-09-20
 
 ## Stabilization fixes prepared — not deployed (2026-09-18)
 
+- Latest reviewed batch: **37/127 findings fixed**. SEC06 administrator deletion race passed four actual PostgreSQL tests including audit-insert compatibility (`74a2973`). WF10 waste GET no longer persists current-cost recalculation (`7444997`); three focused tests independently passed. HR validation, reservation release and waste-sale capacity are the active batch. Creation-time waste valuation remains an accounting-policy gap; no deployment or production access.
+
 - Continued 2026-09-20: 35 findings fixed in focused commits. Payment reassignment/import isolation passed 25 tests including 8 PostgreSQL cases; quality factory scope passed 93 scope/workflow tests. Pool configuration and task input checks are corrected, but aggregate capacity and task target-access mapping remain open. Payroll issuance corrections passed 64 tests; reference SELECTs fell from 8/44/204 to 7/7/7 at 1/10/50 labels. CI passed for `738daad`; later commits need their final run. Latest main `5c4844e` conflicts with this branch; user requested continued branch-local fixes, not merge/release. No production contact.
 
 - Branch `feat/ismoiljon`, worktree `C:/ERP/.codex-work/ismoiljon-fixes`, base `80f4831e`. One review PR; no merge/deployment authorization. Concise scope, source locations, tests and remaining risks: [audit_ismail.md](../audit_ismail.md).

@@ -2,12 +2,14 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**35 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**37 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **SEC06 — Concurrent deletes remove the last admin** | Administrator lockout | [admin.py:437](backend/app/api/routes/admin.py#L437): serialize membership changes with locks compatible with audit inserts. `74a2973`; **4 PostgreSQL tests passed**. |
+| **WF10 — Viewing waste rewrites stored values** | Historical valuations change on GET | [waste.py:41](backend/app/api/routes/waste.py#L41): calculate the response without writing. `7444997`; **3 focused tests independently passed**; related suite **66 passed / 4 PostgreSQL skipped**. Creation-time valuation policy remains open under FN08. |
 | **PERF05 — QR issuance repeats reference queries** | Slow bulk label generation | [payroll.py](backend/app/api/routes/payroll.py): batch label/order/reference reads; preserve unique creation counts. `538ff66`; **64 tests passed**. Reference-only 1/10/50 labels: **8/44/204 → 7/7/7 SELECTs**. Writes/output remain O(n). |
 | **FN01 — Bad 1C row aborts later imports** | Valid rows lost; batch fails | [finance_1c.py:122](backend/app/services/finance_1c.py#L122): savepoint per row; preserve caller rollback. `ccf409a`; FN01/FN03 **25 tests passed**, including 8 PostgreSQL cases. |
 | **FN03 — Reassigned payment leaves old invoice paid** | Wrong receivables | [finance_1c.py:70](backend/app/services/finance_1c.py#L70): ordered locks, refresh both invoices. `163df36`; **21 tests passed**, including 6 PostgreSQL cases. New external-identity races remain separate. |
@@ -45,6 +47,8 @@
 | **API03 — Settings PATCH resets omitted fields / returns 500** | Settings lost; invalid input crashes | [settings.py:73](backend/app/api/routes/settings.py#L73): merge validated fields under a section lock; malformed input returns 422. Commit `68d9257`; **18 SQLite + 4 PostgreSQL tests passed**, including real logo upload. |
 
 ## Evidence
+
+- **Latest batch:** SEC06 tested real PostgreSQL concurrent deletes and concurrent audit insertion; disposable clusters stopped. WF10 tests assert no commit/dirty ORM state, unchanged historical totals, authorization and filters. Neither proves every role mutation or accounting report correct.
 
 - **Cycle 3 browser API:** 18 scenarios passed: factory boundaries, unchanged authorized payloads, forbidden grants and allowed scoped grant. [Results](docs/audit-evidence/cycle3-browser-results.json). Frontend launch was policy-blocked; no cycle-3 visual UI proof is claimed.
 - **CI (`738daad`): all jobs passed.** Backend **1,314 passed / 24 opt-in PostgreSQL skipped**; PostgreSQL runs separately. The earlier configuration-dependent MCP test failure is corrected. Later commits need their own full rerun.

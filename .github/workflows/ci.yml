@@ -100,13 +100,14 @@ jobs:
           PAYMENT_INTEGRITY_POSTGRES_URL: postgresql+psycopg2://regression:regression-only@127.0.0.1:5432/regression
           STABILIZATION_POSTGRES_URL: postgresql+psycopg2://regression:regression-only@127.0.0.1:5432/regression
         run: >-
-          python -m pytest -q -k postgres
+          python -m pytest -q -k "postgres or membership_delete_race"
           app/tests/test_payment_integrity.py
           app/tests/test_invoice_creation_integrity.py
           app/tests/test_reset_token_revocation.py
           app/tests/test_purchase_receipt_idempotency.py
           app/tests/test_material_reservation_concurrency.py
           app/tests/test_user_audit_history.py
+          app/tests/test_admin_membership_delete_race.py
           app/tests/test_fresh_migration_bootstrap.py
           app/tests/test_accessory_return_concurrency.py
           app/tests/test_waste_disposal_integrity.py
