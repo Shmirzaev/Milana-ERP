@@ -361,10 +361,10 @@
       "risk": "Sold goods become available again.",
       "proposed_fix": "Reject consumed or shipped reservations.",
       "baseline_source": "backend/app/api/routes/finished_goods.py:258",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "aa71976",
+      "evidence": "108 SQLite tests passed, 2 opt-in skipped; final 2 actual PostgreSQL release/dispatch and retry races passed separately. Nonpositive or aggregate-mismatched legacy reservations fail closed. ST07 reserve writers remain separate."
     },
     {
       "number": 31,

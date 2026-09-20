@@ -2,12 +2,13 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**38 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**39 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **ST08 — Release recreates consumed stock** | Sold goods become available again | [finished_goods.py:257](backend/app/api/routes/finished_goods.py#L257): lock and refresh package/stock/reservations; reject shipped, invalid or inconsistent balances. `aa71976`; **108 SQLite + 2 real PostgreSQL tests passed**. ST07 reserve-writer races remain separate. |
 | **PERF11 — Print history queries each run's members** | Slow history as rows increase | [package_workflows.py:115](backend/app/services/package_workflows.py#L115): batch selected runs' members, retain manifest checks and factory filters. `7dacb8d`; **50 runs: 52 → 3 SELECTs**. 7 focused + 18 existing workflow tests passed. |
 | **SEC06 — Concurrent deletes remove the last admin** | Administrator lockout | [admin.py:437](backend/app/api/routes/admin.py#L437): serialize membership changes with locks compatible with audit inserts. `74a2973`; **4 PostgreSQL tests passed**. |
 | **WF10 — Viewing waste rewrites stored values** | Historical valuations change on GET | [waste.py:41](backend/app/api/routes/waste.py#L41): calculate the response without writing. `7444997`; **3 focused tests independently passed**; related suite **66 passed / 4 PostgreSQL skipped**. Creation-time valuation policy remains open under FN08. |
