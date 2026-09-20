@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.pagination import clamp_pagination
 from app.models import Department, Notification, Role, User
 from app.schemas.tasks import NotificationOut
 from app.services.audit import log_action
@@ -92,10 +93,11 @@ def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User
 
 @router.get("", response_model=list[NotificationOut])
 def list_my_notifications(db: DbSession, current: CurrentUser, only_unread: bool = False, limit: int = 50):
+    safe_limit = 0 if limit == 0 else clamp_pagination(page_size=limit)[1]
     qry = db.query(Notification).filter(Notification.user_id == current.id)
     if only_unread:
         qry = qry.filter(Notification.is_read.is_(False))
-    return qry.order_by(Notification.id.desc()).limit(limit).all()
+    return qry.order_by(Notification.id.desc()).limit(safe_limit).all()
 
 
 @router.get("/unread-count")
