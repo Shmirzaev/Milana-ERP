@@ -28,6 +28,7 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| AT04 | `test_attendance_historical_profiles.py`; Attendance overview/daily XLSX | Import a profile and two scans, remove profile through a full snapshot, then reopen that date: hours still appear once in overview/export. Other dates and factories remain excluded. Query round trips remain bounded; database aggregation still grows with matching history. |
 | AT05 | `test_hr_attendance_validation.py`; HR attendance/settings | UTC events on either side of Tashkent midnight appear on the correct day. Invalid legacy hours fall back safely; nonfinite input returns 422. Factory settings read once. |
 | PERF34 | `test_shipment_document_query_growth.py`; shipment documents | 1/20 manual packages use 4 SELECTs. Exact/wildcard/ambiguous prices, line order, basis hash and frozen document remain unchanged. Inputs indexed once: O(P+I+L+output) processing, not constant total work. |
 | ST09 (partial) | `test_finished_goods_damage_integrity.py`, `test_finished_goods_reserve_integrity.py` | Mark synthetic package damaged, then reserve: 409 and no balance change. Re-run 3 PostgreSQL reserve races. Reverse damage-after-reserve is still unresolved. |

@@ -577,10 +577,10 @@
       "risk": "Historical hours disappear from view.",
       "proposed_fix": "Use retained event history.",
       "baseline_source": "backend/app/api/routes/attendance.py:416",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "27e0809",
+      "evidence": "16 related tests passed. Removed profiles with selected-day events remain in overview/export; active representative preferred, factory isolation and filters retained. No fabricated absent historical roster."
     },
     {
       "number": 49,

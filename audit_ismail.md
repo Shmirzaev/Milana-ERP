@@ -2,12 +2,13 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**45 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**46 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **AT04 — Removed device profile hides earlier attendance** | Historical hours disappear from reports | [attendance.py:421](backend/app/api/routes/attendance.py#L421): retain profiles with selected-day events; prefer active copies and preserve factory scope. `27e0809`; **16 tests passed**, including overview/export and deduplication. |
 | **AT05 — HR uses the wrong day / unsafe scheduled hours** | Wrong attendance totals or 500 errors | [hr_workspace.py:183](backend/app/api/routes/hr_workspace.py#L183): Tashkent day boundaries; validated factory default and safe employee overrides. `76388c2`; **60 related tests passed; 8 independently repeated**. Shift/break/payroll policy unchanged. |
 | **PERF34 — Shipment documents repeatedly scan lists** | Quadratic processing and per-package receipt reads | [shipment_review.py:164](backend/app/services/shipment_review.py#L164), [shipment_invoice.py:33](backend/app/services/shipment_invoice.py#L33): index contents, prices and invoice lines; batch receipts. `a14827f`; **46 tests passed; 4 independently repeated**. 1/20 manual packages: **4/4 SELECTs**, unchanged pricing, order and basis hash. |
 | **ST10 — Concurrent conversion creates duplicate orders** | Duplicate purchasing commitments | [purchasing.py:187](backend/app/services/purchasing.py#L187): approval/rejection/conversion share a refreshed request lock. `b409897`; **13 tests passed, including 2 real PostgreSQL races**. Rollback and stale-session checks included. |
