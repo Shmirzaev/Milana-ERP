@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.order_reference import canonical_business_order_reference
+from app.core.order_reference import BusinessOrderReferenceLookup, canonical_business_order_reference
 
 from app.models import (
     Item,
@@ -61,6 +61,15 @@ def _require_warehouse(db: Session, warehouse_id: int | None) -> Warehouse:
     if not warehouse:
         raise HTTPException(404, f"Warehouse {warehouse_id} not found")
     return warehouse
+
+
+def _bulk_by_id(db: Session, model, ids, *, chunk_size=400):
+    rows = {}
+    ordered = sorted(set(ids))
+    for start in range(0, len(ordered), chunk_size):
+        for row in db.query(model).filter(model.id.in_(ordered[start:start + chunk_size])).all():
+            rows[int(row.id)] = row
+    return rows
 
 
 def create_purchase_request(db: Session, *, data: dict, current: User) -> PurchaseRequest:
@@ -434,7 +443,26 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
 
     order_lines_by_id = {int(line.id): line for line in order.lines}
     default_supplier_id = data.get("supplier_id") or order.supplier_id
-    _require_supplier(db, int(default_supplier_id) if default_supplier_id else None)
+    selected_lines = [order_lines_by_id.get(int(raw.get("purchase_order_line_id") or 0)) for raw in line_inputs]
+    item_ids = {int(line.item_id) for line in selected_lines if line is not None}
+    warehouse_ids = {
+        int(raw.get("warehouse_id") or order_lines_by_id.get(int(raw.get("purchase_order_line_id") or 0)).warehouse_id)
+        for raw in line_inputs
+        if order_lines_by_id.get(int(raw.get("purchase_order_line_id") or 0)) and
+        (raw.get("warehouse_id") or order_lines_by_id[int(raw.get("purchase_order_line_id") or 0)].warehouse_id)
+    }
+    supplier_ids = {int(default_supplier_id)} if default_supplier_id else set()
+    for raw in line_inputs:
+        line = order_lines_by_id.get(int(raw.get("purchase_order_line_id") or 0))
+        supplier_id = raw.get("supplier_id") or (line.supplier_id if line else None) or default_supplier_id
+        if supplier_id:
+            supplier_ids.add(int(supplier_id))
+    items = _bulk_by_id(db, Item, item_ids)
+    warehouses = _bulk_by_id(db, Warehouse, warehouse_ids)
+    suppliers = _bulk_by_id(db, Supplier, supplier_ids)
+    if default_supplier_id and int(default_supplier_id) not in suppliers:
+        raise HTTPException(404, f"Supplier {int(default_supplier_id)} not found")
+    reference_lookup = BusinessOrderReferenceLookup(db, (raw.get("order_no") for raw in line_inputs))
     old_status = order.status
 
     for raw in line_inputs:
@@ -452,11 +480,17 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             raise HTTPException(400, "batch_no is required")
 
         warehouse_id = raw.get("warehouse_id") or line.warehouse_id
-        _require_warehouse(db, int(warehouse_id) if warehouse_id else None)
+        if not warehouse_id:
+            raise HTTPException(400, "warehouse_id is required")
+        if int(warehouse_id) not in warehouses:
+            raise HTTPException(404, f"Warehouse {int(warehouse_id)} not found")
         supplier_id = raw.get("supplier_id") or line.supplier_id or default_supplier_id
-        _require_supplier(db, int(supplier_id) if supplier_id else None)
+        if supplier_id and int(supplier_id) not in suppliers:
+            raise HTTPException(404, f"Supplier {int(supplier_id)} not found")
 
-        item = _require_item(db, int(line.item_id))
+        item = items.get(int(line.item_id))
+        if not item:
+            raise HTTPException(404, f"Item {int(line.item_id)} not found")
         unit = str(line.unit or item.unit or "").strip() or item.unit
         cost_per_unit = _num(raw.get("cost_per_unit")) if raw.get("cost_per_unit") is not None else _num(line.unit_cost)
         roll_weights, piece_count = normalize_material_roll_weights(
@@ -476,7 +510,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             old_code=raw.get("old_code"),
             color_code=raw.get("color_code"),
             color_status=raw.get("color_status"),
-            order_no=canonical_business_order_reference(db, raw.get("order_no")) or order.po_no,
+            order_no=canonical_business_order_reference(db, raw.get("order_no"), lookup=reference_lookup) or order.po_no,
             width=raw.get("width"),
             gsm=raw.get("gsm"),
             quantity=quantity,
