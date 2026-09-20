@@ -18,12 +18,14 @@ from app.models import (
     ProductionOrder,
     ProductionOrderItem,
     ProductionOrderMaterial,
+    SalesOrder,
     SewingRecord,
     StockBatch,
     StockMovement,
     SystemSetting,
     Warehouse,
     WorkOrder,
+    public_production_order_no,
 )
 from app.services.numbering import next_material_reservation_no
 from app.services.workflow import consume_item_from_batches, consume_stock_batch, notify_department
@@ -1694,6 +1696,300 @@ def accessory_issue_plan(db: Session, production_order_id: int) -> dict:
     }
 
 
+def _accessory_request_issue_totals(
+    db: Session,
+    production_order_ids: list[int],
+) -> tuple[dict[tuple[int, int, str], float], dict[tuple[int, str, str], float]]:
+    issued_by_item_unit: dict[tuple[int, int, str], float] = {}
+    manual_by_label_unit: dict[tuple[int, str, str], float] = {}
+    if not production_order_ids:
+        return issued_by_item_unit, manual_by_label_unit
+
+    work_order_to_po: dict[int, int] = {}
+    for start in range(0, len(production_order_ids), _BULK_STOCK_CHUNK_SIZE):
+        chunk = production_order_ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+        work_order_to_po.update({
+            int(work_order_id): int(production_order_id)
+            for work_order_id, production_order_id in db.query(
+                WorkOrder.id,
+                WorkOrder.production_order_id,
+            ).filter(WorkOrder.production_order_id.in_(chunk)).all()
+        })
+
+    reference_to_po: dict[str, dict[int, int]] = {
+        "WorkOrder": work_order_to_po,
+        "CuttingRecord": {},
+        "SewingRecord": {},
+        "PackagingRecord": {},
+    }
+    work_order_ids = sorted(work_order_to_po)
+    for record_type, model_cls in (
+        ("CuttingRecord", CuttingRecord),
+        ("SewingRecord", SewingRecord),
+        ("PackagingRecord", PackagingRecord),
+    ):
+        mapping = reference_to_po[record_type]
+        for start in range(0, len(work_order_ids), _BULK_STOCK_CHUNK_SIZE):
+            chunk = work_order_ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+            for record_id, work_order_id in db.query(model_cls.id, model_cls.work_order_id).filter(
+                model_cls.work_order_id.in_(chunk)
+            ).all():
+                production_order_id = work_order_to_po.get(int(work_order_id))
+                if production_order_id:
+                    mapping[int(record_id)] = production_order_id
+
+    def add_movement_rows(reference_types: tuple[str, ...], reference_to_order: dict[int, int]) -> None:
+        reference_ids = sorted(reference_to_order)
+        for start in range(0, len(reference_ids), _BULK_STOCK_CHUNK_SIZE):
+            chunk = reference_ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+            movement_rows = (
+                db.query(
+                    StockMovement.reference_id,
+                    StockMovement.item_id,
+                    StockMovement.unit,
+                    Item.unit,
+                    func.coalesce(func.sum(StockMovement.quantity), 0),
+                )
+                .join(Item, Item.id == StockMovement.item_id)
+                .filter(
+                    Item.category.in_(ACCESSORY_CATEGORIES),
+                    StockMovement.movement_type.in_(("consume", "issue")),
+                    StockMovement.reference_type.in_(reference_types),
+                    StockMovement.reference_id.in_(chunk),
+                )
+                .group_by(
+                    StockMovement.reference_id,
+                    StockMovement.item_id,
+                    StockMovement.unit,
+                    Item.unit,
+                )
+                .all()
+            )
+            for reference_id, item_id, raw_unit, item_unit, quantity in movement_rows:
+                production_order_id = reference_to_order.get(int(reference_id))
+                if not production_order_id:
+                    continue
+                unit = str(raw_unit or item_unit or "").strip() or str(item_unit or "")
+                key = (production_order_id, int(item_id), str(unit or ""))
+                issued_by_item_unit[key] = issued_by_item_unit.get(key, 0.0) + float(quantity or 0)
+
+    direct_to_po = {production_order_id: production_order_id for production_order_id in production_order_ids}
+    add_movement_rows(("ProductionOrder", "ProductionOrderAccessoryIssue"), direct_to_po)
+    for reference_type, mapping in reference_to_po.items():
+        add_movement_rows((reference_type,), mapping)
+
+    grouped_manual: dict[tuple[int, int, str] | tuple[int, int, str, str], dict] = {}
+    for start in range(0, len(production_order_ids), _BULK_STOCK_CHUNK_SIZE):
+        chunk = production_order_ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+        manual_rows = (
+            db.query(
+                ManualAccessoryIssue.production_order_id,
+                ManualAccessoryIssue.item_id,
+                ManualAccessoryIssue.item_sku,
+                ManualAccessoryIssue.item_name,
+                ManualAccessoryIssue.quantity,
+                ManualAccessoryIssue.unit,
+            )
+            .filter(ManualAccessoryIssue.production_order_id.in_(chunk))
+            .order_by(ManualAccessoryIssue.created_at.desc(), ManualAccessoryIssue.id.desc())
+            .all()
+        )
+        for production_order_id, raw_item_id, item_sku, item_name, quantity, raw_unit in manual_rows:
+            item_id = int(raw_item_id or 0)
+            unit = str(raw_unit or "").strip() or "pcs"
+            normalized_name = str(item_name or "").strip() or str(item_sku or "").strip() or "Manual accessory"
+            normalized_sku = str(item_sku or "").strip()
+            key = (
+                (int(production_order_id), item_id, unit)
+                if item_id > 0
+                else (
+                    int(production_order_id),
+                    item_id,
+                    unit,
+                    _accessory_match_key(normalized_sku or normalized_name),
+                )
+            )
+            grouped = grouped_manual.setdefault(key, {
+                "production_order_id": int(production_order_id),
+                "item_id": item_id,
+                "item_sku": normalized_sku or normalized_name,
+                "item_name": normalized_name,
+                "unit": unit,
+                "quantity": 0.0,
+            })
+            grouped["quantity"] += float(quantity or 0)
+
+    for grouped in grouped_manual.values():
+        production_order_id = int(grouped["production_order_id"])
+        item_id = int(grouped["item_id"])
+        unit = str(grouped["unit"])
+        quantity = float(grouped["quantity"])
+        if item_id > 0:
+            key = (production_order_id, item_id, unit)
+            issued_by_item_unit[key] = issued_by_item_unit.get(key, 0.0) + quantity
+            continue
+        for value in (grouped["item_sku"], grouped["item_name"]):
+            label_key = _accessory_match_key(value)
+            if not label_key:
+                continue
+            key = (production_order_id, label_key, unit)
+            manual_by_label_unit[key] = manual_by_label_unit.get(key, 0.0) + quantity
+
+    return issued_by_item_unit, manual_by_label_unit
+
+
+def _accessory_request_rows(
+    db: Session,
+    *,
+    production_order_id: int | None,
+    model_id: int | None,
+) -> list[dict]:
+    order_query = db.query(
+        ProductionOrder.id,
+        ProductionOrder.production_no,
+        SalesOrder.order_no.label("sales_order_no"),
+        ProductionOrder.model_id,
+        ProductionOrder.planned_quantity,
+    ).outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
+    if production_order_id is not None:
+        order_query = order_query.filter(ProductionOrder.id == production_order_id)
+    else:
+        order_query = order_query.filter(
+            ProductionOrder.status.notin_(("finished_storage", "cancelled", "rejected"))
+        )
+    if model_id is not None:
+        order_query = order_query.filter(ProductionOrder.model_id == model_id)
+    orders = order_query.order_by(ProductionOrder.created_at.desc(), ProductionOrder.id.desc()).all()
+    order_ids = [int(order.id) for order in orders]
+    if not order_ids:
+        return []
+
+    items_by_order: dict[int, list] = {}
+    model_ids = {int(order.model_id) for order in orders}
+    for start in range(0, len(order_ids), _BULK_STOCK_CHUNK_SIZE):
+        chunk = order_ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+        item_rows = db.query(
+            ProductionOrderItem.production_order_id,
+            ProductionOrderItem.model_id,
+            ProductionOrderItem.color,
+            ProductionOrderItem.size,
+            ProductionOrderItem.planned_quantity,
+        ).filter(ProductionOrderItem.production_order_id.in_(chunk)).order_by(
+            ProductionOrderItem.id.asc()
+        ).all()
+        for item_row in item_rows:
+            items_by_order.setdefault(int(item_row.production_order_id), []).append(item_row)
+            if item_row.model_id:
+                model_ids.add(int(item_row.model_id))
+
+    model_labels: dict[int, tuple[str | None, str | None]] = {}
+    boms_by_model: dict[int, list] = {}
+    sorted_model_ids = sorted(model_ids)
+    for start in range(0, len(sorted_model_ids), _BULK_STOCK_CHUNK_SIZE):
+        chunk = sorted_model_ids[start:start + _BULK_STOCK_CHUNK_SIZE]
+        model_labels.update({
+            int(row.id): (row.code, row.name)
+            for row in db.query(Model.id, Model.code, Model.name).filter(Model.id.in_(chunk)).all()
+        })
+        bom_rows = (
+            db.query(
+                ModelBOM.id,
+                ModelBOM.model_id,
+                ModelBOM.item_id,
+                ModelBOM.stock_batch_id,
+                ModelBOM.size,
+                ModelBOM.color,
+                ModelBOM.quantity_per_piece,
+                ModelBOM.unit,
+                ModelBOM.waste_percent,
+                Item.sku.label("item_sku"),
+                Item.name.label("item_name"),
+                Item.image_url.label("item_image_url"),
+                Item.category.label("item_category"),
+                Item.unit.label("item_unit"),
+            )
+            .join(Item, Item.id == ModelBOM.item_id)
+            .filter(ModelBOM.model_id.in_(chunk), Item.category.in_(ACCESSORY_CATEGORIES))
+            .order_by(ModelBOM.id.asc())
+            .all()
+        )
+        for bom_row in bom_rows:
+            boms_by_model.setdefault(int(bom_row.model_id), []).append(bom_row)
+
+    issued_by_item_unit, manual_by_label_unit = _accessory_request_issue_totals(db, order_ids)
+    requirements_by_order: dict[int, list[dict]] = {}
+    required_item_ids: set[int] = set()
+    for order in orders:
+        order_id = int(order.id)
+        requirements: dict[tuple[int, str, int | None], dict] = {}
+        order_items = items_by_order.get(order_id)
+        planning_rows = order_items or [order]
+        for planning_row in planning_rows:
+            planned_quantity = int(planning_row.planned_quantity or 0)
+            planning_model_id = int(planning_row.model_id or order.model_id)
+            for bom in boms_by_model.get(planning_model_id, []):
+                if order_items and bom.size and bom.size != planning_row.size:
+                    continue
+                if order_items and bom.color and bom.color != planning_row.color:
+                    continue
+                quantity = float(bom.quantity_per_piece or 0) * max(0, planned_quantity)
+                quantity *= 1.0 + float(bom.waste_percent or 0) / 100.0
+                if quantity <= 0:
+                    continue
+                unit = str(bom.unit or bom.item_unit or "").strip() or str(bom.item_unit or "")
+                key = (int(bom.item_id), unit, int(bom.stock_batch_id) if bom.stock_batch_id else None)
+                requirement = requirements.get(key)
+                if not requirement:
+                    requirement = {
+                        "item_id": int(bom.item_id),
+                        "item_sku": bom.item_sku,
+                        "item_name": bom.item_name,
+                        "item_image_url": bom.item_image_url,
+                        "category": bom.item_category,
+                        "unit": unit,
+                        "required_quantity": 0.0,
+                    }
+                    requirements[key] = requirement
+                requirement["required_quantity"] += quantity
+        requirements_by_order[order_id] = sorted(
+            requirements.values(),
+            key=lambda row: (row["category"], row["item_sku"], row["unit"]),
+        )
+        required_item_ids.update(int(row["item_id"]) for row in requirements.values())
+
+    available_by_item = available_stock_for_items(db, required_item_ids)
+    rows: list[dict] = []
+    for order in orders:
+        order_id = int(order.id)
+        model_code, model_name = model_labels.get(int(order.model_id), (None, None))
+        for requirement in requirements_by_order[order_id]:
+            item_id = int(requirement["item_id"])
+            unit = str(requirement["unit"])
+            issued = issued_by_item_unit.get((order_id, item_id, unit), 0.0)
+            for value in (requirement["item_sku"], requirement["item_name"]):
+                issued += manual_by_label_unit.get((order_id, _accessory_match_key(value), unit), 0.0)
+            remaining = max(0.0, float(requirement["required_quantity"] or 0) - issued)
+            available = float(available_by_item.get(item_id, 0.0))
+            shortage = max(0.0, remaining - available)
+            status = "ready" if remaining <= EPSILON else "shortage" if shortage > EPSILON else "partial"
+            rows.append({
+                "production_order_id": order_id,
+                "production_no": order.production_no,
+                "order_no": order.sales_order_no or public_production_order_no(order.production_no) or order.production_no,
+                "model_id": int(order.model_id),
+                "model_code": model_code,
+                "model_name": model_name,
+                "planned_quantity": int(order.planned_quantity or 0),
+                **requirement,
+                "issued_quantity": issued,
+                "remaining_quantity": remaining,
+                "available_quantity": available,
+                "shortage": shortage,
+                "status": status,
+            })
+    return rows
+
+
 def accessory_issue_requests(
     db: Session,
     *,
@@ -1703,45 +1999,15 @@ def accessory_issue_requests(
     include_complete: bool = False,
     page: int | None = None,
     page_size: int | None = None,
-) -> list[dict]:
-    qry = db.query(ProductionOrder)
-    if production_order_id is not None:
-        qry = qry.filter(ProductionOrder.id == production_order_id)
-    else:
-        qry = qry.filter(ProductionOrder.status.notin_(("finished_storage", "cancelled", "rejected")))
-    if model_id is not None:
-        qry = qry.filter(ProductionOrder.model_id == model_id)
-    qry = qry.order_by(ProductionOrder.created_at.desc(), ProductionOrder.id.desc())
-    production_orders = qry.all()
-
-    rows: list[dict] = []
-    for po in production_orders:
-        plan = accessory_issue_plan(db, int(po.id))
-        for row in plan["rows"]:
-            remaining = float(row.get("remaining_quantity") or 0)
-            if not include_complete and remaining <= EPSILON:
-                continue
-            rows.append({
-                "production_order_id": int(po.id),
-                "production_no": po.production_no,
-                "order_no": po.order_no,
-                "model_id": int(po.model_id),
-                "model_code": plan.get("model_code"),
-                "model_name": plan.get("model_name"),
-                "planned_quantity": int(po.planned_quantity or 0),
-                "item_id": int(row["item_id"]),
-                "item_sku": row["item_sku"],
-                "item_name": row["item_name"],
-                "item_image_url": row.get("item_image_url"),
-                "category": row["category"],
-                "unit": row["unit"],
-                "required_quantity": float(row.get("required_quantity") or 0),
-                "issued_quantity": float(row.get("issued_quantity") or 0),
-                "remaining_quantity": remaining,
-                "available_quantity": float(row.get("available_quantity") or 0),
-                "shortage": float(row.get("shortage") or 0),
-                "status": row["status"],
-            })
+    include_total: bool = False,
+) -> list[dict] | tuple[list[dict], int]:
+    rows = _accessory_request_rows(
+        db,
+        production_order_id=production_order_id,
+        model_id=model_id,
+    )
+    if not include_complete:
+        rows = [row for row in rows if float(row.get("remaining_quantity") or 0) > EPSILON]
 
     search = (q or "").strip().lower()
     if search:
@@ -1768,8 +2034,10 @@ def accessory_issue_requests(
     )
     if page is not None or page_size is not None:
         safe_page, safe_size, offset = clamp_pagination(page or 1, page_size or 50)
-        return rows[offset: offset + safe_size]
-    return rows
+        page_rows = rows[offset: offset + safe_size]
+    else:
+        page_rows = rows
+    return (page_rows, len(rows)) if include_total else page_rows
 
 
 def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
