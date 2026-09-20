@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.common import ORMModel, SchemaModel
 from app.schemas.inventory import ItemComposition
@@ -313,12 +313,18 @@ class SewingRecordIn(BaseModel):
 class PackagingRecordIn(BaseModel):
     work_order_id: int
     production_batch_id: Optional[int] = None
-    input_qty: int
-    packed_qty: int
-    damaged_qty: int = 0
+    input_qty: int = Field(ge=0, le=2_147_483_647)
+    packed_qty: int = Field(ge=0, le=2_147_483_647)
+    damaged_qty: int = Field(default=0, ge=0, le=2_147_483_647)
     packaging_material_used: Optional[str] = None
     operator_id: Optional[int] = None
     notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_output_quantity(self):
+        if self.packed_qty + self.damaged_qty > self.input_qty:
+            raise ValueError("Packed and damaged quantities cannot exceed input quantity")
+        return self
 
 
 class QualityCheckIn(BaseModel):
