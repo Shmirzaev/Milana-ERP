@@ -1741,18 +1741,36 @@ def list_sales_order_history(
             )
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 200))
+    # Sort lightweight keys first; eagerly loading every production child before
+    # slicing a page multiplies memory even when the caller requests ten rows.
     candidates = (
-        [(so.created_at, "sales", so) for so in qry.all()]
-        + [(po.created_at, "production", po) for po in stock_qry.all()]
+        [(created_at, "sales", row_id) for row_id, created_at in
+         qry.enable_eagerloads(False).with_entities(SalesOrder.id, SalesOrder.created_at).all()]
+        + [(created_at, "production", row_id) for row_id, created_at in
+           stock_qry.enable_eagerloads(False).with_entities(ProductionOrder.id, ProductionOrder.created_at).all()]
     )
-    candidates.sort(key=lambda entry: ((entry[0].isoformat() if entry[0] else ""), int(entry[2].id)), reverse=True)
+    candidates.sort(key=lambda entry: ((entry[0].isoformat() if entry[0] else ""), int(entry[2])), reverse=True)
     total = len(candidates)
     start_index = (safe_page - 1) * safe_size
     selected = candidates[start_index:start_index + safe_size]
+    sales_ids = [row_id for _, kind, row_id in selected if kind == "sales"]
+    production_ids = [row_id for _, kind, row_id in selected if kind == "production"]
+    selected_sales = {
+        row.id: row for row in db.query(SalesOrder).filter(SalesOrder.id.in_(sales_ids)).all()
+    } if sales_ids else {}
+    selected_production = {
+        row.id: row for row in db.query(ProductionOrder).options(
+            joinedload(ProductionOrder.planning_order),
+            joinedload(ProductionOrder.items),
+            joinedload(ProductionOrder.batches),
+            joinedload(ProductionOrder.work_orders),
+        ).filter(ProductionOrder.id.in_(production_ids)).all()
+    } if production_ids else {}
     payload = [
         _sales_order_history(db, entity, include_detail=False)
         if kind == "sales" else _stock_production_history(db, entity, include_detail=False)
-        for _, kind, entity in selected
+        for _, kind, row_id in selected
+        if (entity := (selected_sales if kind == "sales" else selected_production).get(row_id)) is not None
     ]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
