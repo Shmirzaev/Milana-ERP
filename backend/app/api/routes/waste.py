@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from math import isfinite
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import WasteRecord, WasteSale, WasteDisposalRequest, User, StockBatch, Item
@@ -8,6 +9,7 @@ from app.schemas.waste import (
     WasteIn, WasteOut, WasteSaleIn, WasteSaleOut, WasteDisposalIn, WasteDisposalOut,
 )
 from app.services.audit import log_action
+from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 
 router = APIRouter(prefix="/waste", tags=["waste"])
 
@@ -80,26 +82,120 @@ def receive_waste(wid: int, db: DbSession, current: User = Depends(require_permi
 
 
 @router.post("/{wid}/sell", response_model=WasteSaleOut)
-def sell_waste(wid: int, payload: WasteSaleIn, db: DbSession, current: User = Depends(require_permissions("waste.sell", "*"))):
-    w = db.get(WasteRecord, wid)
+def sell_waste(
+    wid: int,
+    payload: WasteSaleIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("waste.sell", "*")),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    idempotency_scope = f"waste.sales.{current.id}.{wid}"
+    fingerprint_payload = {"waste_record_id": wid, **payload.model_dump(mode="json")}
+    replay = replay_idempotent_response(
+        db, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
+    )
+    if replay:
+        return replay
+
+    w = (
+        db.query(WasteRecord)
+        .filter(WasteRecord.id == wid)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
     if not w: raise HTTPException(404, "Waste record not found")
+
+    # A concurrent request can store its replay only after releasing this
+    # parent lock, so check the key again after the serialized handoff.
+    replay = replay_idempotent_response(
+        db, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
+    )
+    if replay:
+        return replay
+
     if not w.sellable: raise HTTPException(400, "Waste is not marked sellable")
     if w.status not in ("received_by_waste_department",):
         raise HTTPException(400, f"Cannot sell from status '{w.status}'")
+
+    buyer_name, quantity, unit_price, total_amount = _validated_sale_values(payload)
+    remaining_quantity = _remaining_sale_quantity(db, w)
+    if quantity > remaining_quantity:
+        raise HTTPException(400, f"Sale quantity exceeds remaining waste quantity {remaining_quantity:f}")
+
     sale = WasteSale(
         waste_record_id=w.id,
-        buyer_name=payload.buyer_name,
-        quantity=payload.quantity,
-        unit_price=payload.unit_price,
-        total_amount=float(payload.quantity) * float(payload.unit_price),
+        buyer_name=buyer_name,
+        quantity=quantity,
+        unit_price=unit_price,
+        total_amount=total_amount,
         sold_by=current.id,
         sold_at=datetime.now(timezone.utc),
     )
     db.add(sale); db.flush()
-    w.status = "sold"
-    log_action(db, current, "sell", "WasteRecord", w.id, new_value={"amount": float(sale.total_amount)})
+    remaining_after_sale = remaining_quantity - quantity
+    if remaining_after_sale == 0:
+        w.status = "sold"
+    log_action(db, current, "sell", "WasteRecord", w.id, new_value={
+        "quantity": float(quantity),
+        "remaining_quantity": float(remaining_after_sale),
+        "amount": float(total_amount),
+    })
+    response = WasteSaleOut.model_validate(sale).model_dump(mode="json")
+    store_idempotent_response(
+        db,
+        scope=idempotency_scope,
+        key=idempotency_key,
+        payload=fingerprint_payload,
+        response=response,
+        user=current,
+    )
     db.commit(); db.refresh(sale)
-    return sale
+    return response
+
+
+def _validated_sale_values(payload: WasteSaleIn) -> tuple[str, Decimal, Decimal, Decimal]:
+    buyer_name = payload.buyer_name.strip()
+    if not buyer_name:
+        raise HTTPException(400, "Buyer name is required")
+    if len(buyer_name) > 255:
+        raise HTTPException(400, "Buyer name must be at most 255 characters")
+    try:
+        quantity = Decimal(str(payload.quantity))
+        unit_price = Decimal(str(payload.unit_price))
+        if not quantity.is_finite() or quantity <= 0:
+            raise HTTPException(400, "Sale quantity must be finite and greater than zero")
+        if not unit_price.is_finite() or unit_price < 0:
+            raise HTTPException(400, "Unit price must be finite and nonnegative")
+        if quantity != quantity.quantize(Decimal("0.0001")):
+            raise HTTPException(400, "Sale quantity supports at most 4 decimal places")
+        if unit_price != unit_price.quantize(Decimal("0.01")):
+            raise HTTPException(400, "Unit price supports at most 2 decimal places")
+        # Match PostgreSQL NUMERIC(14,2) storage for positive sale totals.
+        total_amount = (quantity * unit_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        raise HTTPException(400, "Sale values exceed supported precision") from None
+    if quantity > Decimal("9999999999.9999") or unit_price > Decimal("9999999999.99"):
+        raise HTTPException(400, "Sale values exceed supported precision")
+    if total_amount > Decimal("999999999999.99"):
+        raise HTTPException(400, "Sale total exceeds supported precision")
+    return buyer_name, quantity, unit_price, total_amount
+
+
+def _remaining_sale_quantity(db: DbSession, waste_record: WasteRecord) -> Decimal:
+    original_quantity = Decimal(str(waste_record.quantity or 0))
+    if not original_quantity.is_finite() or original_quantity <= 0:
+        raise HTTPException(400, "Stored waste quantity is invalid")
+    sold_quantity = Decimal("0")
+    for row in db.query(WasteSale.quantity).filter(WasteSale.waste_record_id == waste_record.id).all():
+        historical_quantity = Decimal(str(row[0]))
+        if not historical_quantity.is_finite() or historical_quantity <= 0:
+            raise HTTPException(400, "Historical waste sale quantity is invalid")
+        sold_quantity += historical_quantity
+    remaining_quantity = original_quantity - sold_quantity
+    if remaining_quantity <= 0:
+        raise HTTPException(400, "Waste has no remaining sellable quantity")
+    return remaining_quantity
 
 
 @router.post("/{wid}/request-disposal", response_model=WasteDisposalOut)
