@@ -3241,31 +3241,77 @@ def return_qr_label(
     current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
     factory_code = selected_factory_code(current)
-    label = db.query(PayrollQrLabel).filter(
+    label_snapshot = db.query(PayrollQrLabel).filter(
         PayrollQrLabel.id == label_id,
         PayrollQrLabel.factory_code == factory_code,
     ).first()
-    if not label:
+    if not label_snapshot:
         raise HTTPException(404, "Payroll QR label not found")
-    record = db.query(PayrollRecord).filter(
-        PayrollRecord.id == label.payroll_record_id,
-        PayrollRecord.factory_code == factory_code,
-    ).first() if label.payroll_record_id else None
-    if not record:
-        record = db.query(PayrollRecord).filter(
+
+    def find_record(label: PayrollQrLabel, *, for_update: bool) -> PayrollRecord | None:
+        def first(query):
+            if for_update:
+                query = query.populate_existing().with_for_update()
+            return query.first()
+
+        linked = first(db.query(PayrollRecord).filter(
+            PayrollRecord.id == label.payroll_record_id,
+            PayrollRecord.factory_code == factory_code,
+        )) if label.payroll_record_id else None
+        if linked:
+            return linked
+        return first(db.query(PayrollRecord).filter(
             PayrollRecord.factory_code == factory_code,
             PayrollRecord.scan_uid == label.label_uid,
-        ).first()
+        ))
+
+    record_snapshot = find_record(label_snapshot, for_update=False)
+    discovered_record_id = int(record_snapshot.id) if record_snapshot else None
+    discovered_period_id = (
+        int(record_snapshot.payroll_period_id)
+        if record_snapshot and record_snapshot.payroll_period_id is not None
+        else None
+    )
+
+    # Every period-bound payroll mutation uses period -> label -> record. An
+    # initially periodless return never acquires a period after locking its
+    # label; a concurrent new assignment must instead be retried.
+    period = None
+    if discovered_period_id is not None:
+        period = (
+            db.query(PayrollPeriod)
+            .filter(
+                PayrollPeriod.id == discovered_period_id,
+                PayrollPeriod.factory_code == factory_code,
+            )
+            .populate_existing()
+            .with_for_update()
+            .first()
+        )
+        if not period:
+            raise HTTPException(409, "Payroll QR assignment changed; retry the return")
+
+    label = (
+        db.query(PayrollQrLabel)
+        .filter(PayrollQrLabel.id == label_id, PayrollQrLabel.factory_code == factory_code)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if not label:
+        raise HTTPException(404, "Payroll QR label not found")
+    record = find_record(label, for_update=True)
     if not record:
         raise HTTPException(409, "This payroll QR is not assigned to an employee")
-    if record.status == "paid" and not is_admin(current):
-        raise HTTPException(409, "Paid payroll QR records can only be returned by an admin")
-    period = db.query(PayrollPeriod).filter(
-        PayrollPeriod.id == record.payroll_period_id,
-        PayrollPeriod.factory_code == factory_code,
-    ).first() if record.payroll_period_id else None
+    if discovered_record_id is None or int(record.id) != discovered_record_id:
+        raise HTTPException(409, "Payroll QR assignment changed; retry the return")
+    current_period_id = int(record.payroll_period_id) if record.payroll_period_id is not None else None
+    if current_period_id != discovered_period_id:
+        raise HTTPException(409, "Payroll QR assignment changed; retry the return")
     if period and period.status in MUTATION_LOCKED_PERIOD_STATUSES:
         raise HTTPException(409, f"Payroll period {period.period_no} is {period.status}")
+    if record.status == "paid" and not is_admin(current):
+        raise HTTPException(409, "Paid payroll QR records can only be returned by an admin")
 
     previous = {
         "payroll_record_id": record.id,
