@@ -268,7 +268,7 @@
       "status": "open",
       "owner": null,
       "commit": null,
-      "evidence": null
+      "evidence": "Rechecked with Bun check-package-workflow-idempotency.mjs: definite first422 clears and allows correction already. A timeout/500 followed by rejection deliberately retains the old identity; safely releasing that pending state still requires server-side reconciliation, not simply deleting browser state."
     },
     {
       "number": 23,
