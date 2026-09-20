@@ -1,7 +1,7 @@
 import { DailyOutput, Factory, factoryCodes, factoryNames, Overview, Stage, stageKeys } from "./types";
 
-// User-authorized presentation mode. No demo records are written to ERP APIs.
-export const dashboardDemoEnabled = true;
+// Operational dashboards use API data. Retain fixtures for isolated presentation tests.
+export const dashboardDemoEnabled = false;
 export const demoFinance = { revenue_total: 428650, payments_received: 386420 };
 export const demoMessages = {
   en: { label: "Demo data", note: "Illustrative figures for all three factories. This dashboard does not show live production or financial data.", generated: "Demo generated" },
