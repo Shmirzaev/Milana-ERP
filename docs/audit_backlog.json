@@ -495,8 +495,8 @@
       "baseline_source": "backend/app/api/routes/waste.py:85",
       "status": "open",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "6cb2d3a",
+      "evidence": "PARTIAL: backend validates remaining capacity/precision, locks parent and replays user+parent scoped keys; 27 independently rerun tests plus3 real PostgreSQL races passed. UI still lacks retained keys and remaining-balance workflow. Unkeyed partial retries remain ambiguous; finance valuation policy unchanged."
     },
     {
       "number": 42,
@@ -805,10 +805,10 @@
       "risk": "Wrong-factory records or invalid HR data.",
       "proposed_fix": "Share scoped validators.",
       "baseline_source": "backend/app/api/routes/hr_workspace.py:184",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "8250e0c",
+      "evidence": "33 focused tests independently passed: factory links, names/title, salary range/nonfinite/Numeric boundary, reference int4 bounds, passport/calendar ranges. Valid cross-department same-factory links and optional clearing preserved. Not exhaustive HR validation."
     },
     {
       "number": 68,
@@ -1165,10 +1165,10 @@
       "risk": "Large roster synchronization slow.",
       "proposed_fix": "Bulk person lookup.",
       "baseline_source": "backend/app/api/routes/attendance.py:220",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "a0b9862",
+      "evidence": "14 attendance tests passed. 1/10/50 people: 3/12/52 -> 3/3/3 SELECTs; 401 people403 ->4. Creates/updates, duplicate rollback, full/partial absence and device isolation tested. O(ceil(n/400)) lookup queries; O(n) writes/memory."
     },
     {
       "number": 98,

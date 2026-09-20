@@ -28,6 +28,9 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| API04 | `test_hr_workspace_validation.py`; HR organization/positions/recruitment/calendar/uploads | Wrong-factory links reject; salary/date inversions, nonfinite/oversized input and blank titles reject without writes. Valid scoped workflow and explicit optional clearing still work. |
+| PERF31 | `test_attendance_people_query_growth.py`, `test_attendance.py`; integration people API | Create/update 1/10/50 people with 3 SELECTs; 401 with 4. Duplicate snapshot rolls back; partial snapshot keeps absent people; full snapshot affects only its device. |
+| WF08 (partial) | `test_waste_sale_integrity.py`; waste sale API | Sell 4 then 6 of 10: stays received then sold. Overage rejects. Same user/record/key replays one sale; changed payload conflicts. Concurrent oversales reject, and disposal cannot consume sold portions. Current UI does not send retained keys. |
 | ST08 | `test_finished_goods_release_integrity.py`; finished-goods release API | Shipped/consumed/nonpositive reservations return 409 without changing stock. Intact sibling reservations release correctly. Two simultaneous releases restore once; release racing dispatch never restores sold goods. Run the two `postgres` cases on disposable PostgreSQL. |
 | PERF11 | `test_print_run_query_growth.py`, `test_package_workflows.py`; GET `/api/packages/print-runs` | 1/10/50 runs use 3 SELECTs. Manifest corruption rejects; deleted members stay hidden; factory filtering, original payload and 100-run cap remain intact. |
 | SEC06 | `test_admin_membership_delete_race.py`, `test_user_audit_history.py`; isolated PostgreSQL | Concurrent deletes of the last two wildcard admins: one succeeds, one rejects, one admin remains. Concurrent audit insertion must still complete and preserve history. |
@@ -78,6 +81,8 @@ SEC06 locks/scans active users: O(u) membership work, intentionally serialized; 
 PERF11: 1/10/50 runs fell from 3/12/52 to 3/3/3 SELECTs (100 returned runs: 102 → 3). Bounded database round trips for the existing 100-run page; O(n+r) Python work/memory for runs and members. Individual member counts and total database work are not constant.
 
 ST08 uses a bounded number of reads but locks/scans all r reservations for the selected stock: O(r) Python work/memory. Inconsistent historical balances reject rather than auto-repair. Shared legacy reserve locking is tracked separately as ST07.
+
+PERF31 lookup round trips are O(ceil(n/400)); payload, processing and writes remain O(n). WF08 scans s prior sales for one record: O(s) work/memory, a fixed number of lookup queries, not constant total database work. API04 adds at most a few reference lookups per command; no per-list optimization claim.
 
 | Path | Before → after | What remains |
 | --- | --- | --- |

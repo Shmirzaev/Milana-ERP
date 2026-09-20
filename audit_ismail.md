@@ -2,12 +2,14 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**39 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**41 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **API04 — Invalid HR inputs and wrong-factory references** | Bad records or server errors | [hr_workspace.py:34](backend/app/api/routes/hr_workspace.py#L34): shared scope, salary/date, reference and required-text checks. `8250e0c`; **33 tests independently passed**. Valid same-factory cross-department links and optional clearing remain supported. |
+| **PERF31 — Roster import reads each person separately** | Slow attendance synchronization | [attendance.py:226](backend/app/api/routes/attendance.py#L226): device-scoped lookup in chunks of 400. `a0b9862`; **14 tests passed; 401 people: 403 → 4 SELECTs**. Writes remain O(n). |
 | **ST08 — Release recreates consumed stock** | Sold goods become available again | [finished_goods.py:257](backend/app/api/routes/finished_goods.py#L257): lock and refresh package/stock/reservations; reject shipped, invalid or inconsistent balances. `aa71976`; **108 SQLite + 2 real PostgreSQL tests passed**. ST07 reserve-writer races remain separate. |
 | **PERF11 — Print history queries each run's members** | Slow history as rows increase | [package_workflows.py:115](backend/app/services/package_workflows.py#L115): batch selected runs' members, retain manifest checks and factory filters. `7dacb8d`; **50 runs: 52 → 3 SELECTs**. 7 focused + 18 existing workflow tests passed. |
 | **SEC06 — Concurrent deletes remove the last admin** | Administrator lockout | [admin.py:437](backend/app/api/routes/admin.py#L437): serialize membership changes with locks compatible with audit inserts. `74a2973`; **4 PostgreSQL tests passed**. |
@@ -88,6 +90,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **Partial infrastructure fix:** S17 pool variables are now honored (`cc7ffdf`; 9 construction/validation tests, no live connection). OPS02 stays open: total connection budget across workers/slots still needs verification. Attendance upload memory, file/object scope and additional factory endpoints need targeted checks.
 - **Review corrections completed:** payroll duplicate creation/audit counts and residual reference N+1 fixed in `538ff66`; ambiguity, retries and factory-denial regressions passed. This does not prove every payroll endpoint is optimized.
 - **API02 partial:** task command validation now rejects bad states, dates, nulls, oversized/blank names and out-of-range integer references (`22593e7`, `c56a7f1`; 56 tests). Unrelated edits to old incomplete references still work. Reference target existence/access is not yet enforced; API02 remains open.
+- **WF08 partial:** waste-sale API locks remaining capacity, rejects invalid input and supports user/record-scoped retry keys (`6cb2d3a`; 27 focused + 3 real PostgreSQL tests). Fractional-weight totals preserve PostgreSQL cent rounding. UI still lacks retained keys/remaining-balance handling; unkeyed retries remain ambiguous. Historical sold rows and finance valuation policy are unchanged.
 - **Overlap:** audit-chain races, invoice duplication, raw PATCH fields, image/event-loop work, SQLite rate-store blocking, index candidates and restore gaps already appear here.
 - **Stale/qualified:** S32's SQL typo is absent in this checkout. SEC04 revocation and API06 name grants are fixed, not file-object policy in general. Management dashboard labels already distinguish its counters. Unindexed/nullable foreign keys alone do not prove bugs or explain N+1 query counts. The friend's summary has no runtime reproductions or commit hash; its September 12 date references a September 15 schema.
 
