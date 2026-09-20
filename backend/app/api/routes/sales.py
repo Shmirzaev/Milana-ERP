@@ -1960,7 +1960,15 @@ def generate_invoice_for_order(
     db: DbSession,
     current: User = Depends(require_permissions("finance.invoice", "sales.orders", "*")),
 ):
-    so = db.get(SalesOrder, sid)
+    # Match finance.create_invoice: both entry points must serialize on the
+    # order before checking whether an invoice already exists.
+    so = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == sid)
+        .populate_existing()
+        .with_for_update(of=SalesOrder, key_share=True)
+        .first()
+    )
     if not so:
         raise HTTPException(404, "Sales order not found")
     allowed = {"confirmed", "in_production", "cutting", "sewing", "packaging", "storage", "ready", "reserved", "shipped", "delivered", "planning", "planning_approved", "production"}

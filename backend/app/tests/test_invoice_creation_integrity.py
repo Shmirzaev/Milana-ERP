@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes import finance
+from app.api.routes import finance, sales
 from app.db.base import Base
 from app.db.session import SessionLocal
 from app.models import AuditLog, Invoice, SalesOrder
@@ -64,6 +64,36 @@ def test_invoice_creation_unknown_order_keeps_404(client, auth_headers):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Sales order not found"
+
+
+def test_sales_invoice_creation_replays_via_both_endpoints(client, auth_headers):
+    order_id = _create_order(SessionLocal)
+    with SessionLocal() as db:
+        db.get(SalesOrder, order_id).status = "confirmed"
+        db.commit()
+    first = client.post(f"/api/sales-orders/{order_id}/generate-invoice", headers=auth_headers)
+    repeated = client.post(f"/api/sales-orders/{order_id}/generate-invoice", headers=auth_headers)
+    alternate = client.post("/api/finance/invoices", headers=auth_headers, json={"sales_order_id": order_id})
+    assert first.status_code == repeated.status_code == 200
+    assert alternate.status_code == 201
+    assert first.json()["id"] == repeated.json()["id"] == alternate.json()["id"]
+    assert first.json()["created_existing"] is False
+    assert repeated.json()["created_existing"] is True
+
+
+def test_sales_invoice_creation_refreshes_cached_amount_and_state():
+    order_id = _create_order(SessionLocal)
+    with SessionLocal() as db:
+        cached = db.get(SalesOrder, order_id)
+        with SessionLocal() as other:
+            order = other.get(SalesOrder, order_id)
+            order.status = "confirmed"
+            order.total_amount = 150
+            other.commit()
+        assert cached.status == "draft"
+        result = sales.generate_invoice_for_order(order_id, db, current=None)
+        assert result["amount"] == 150
+        assert cached.status == "confirmed"
 
 
 def test_invoice_creation_rollback_can_retry(monkeypatch):
@@ -124,7 +154,8 @@ def invoice_postgres_engine():
 
 
 @pytest.mark.parametrize("requested_amounts", [(None, None), (70, 90)])
-def test_postgres_concurrent_invoice_creation_returns_one_invoice(invoice_postgres_engine, requested_amounts):
+@pytest.mark.parametrize("entrypoints", [("finance", "finance"), ("sales", "sales"), ("finance", "sales")])
+def test_postgres_concurrent_invoice_creation_returns_one_invoice(invoice_postgres_engine, requested_amounts, entrypoints):
     """Old callers both pass existence checking before their numbering lock wait.
 
     Holding the order and numbering locks forces both old and new implementations
@@ -133,15 +164,22 @@ def test_postgres_concurrent_invoice_creation_returns_one_invoice(invoice_postgr
     """
     session_factory = sessionmaker(bind=invoice_postgres_engine, autoflush=False, expire_on_commit=False)
     order_id = _create_order(session_factory)
+    with session_factory() as db:
+        db.get(SalesOrder, order_id).status = "confirmed"
+        db.commit()
     ready = Queue()
     start = Event()
 
-    def create(amount):
+    def create(amount, entrypoint):
         with session_factory() as db:
             cached = db.get(SalesOrder, order_id)
             ready.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
             assert start.wait(10), "Invoice workers were not started"
-            invoice = finance.create_invoice(InvoiceIn(sales_order_id=order_id, amount=amount), db, current=None)
+            if entrypoint == "sales":
+                result = sales.generate_invoice_for_order(order_id, db, current=None)
+                invoice = db.get(Invoice, result["id"])
+            else:
+                invoice = finance.create_invoice(InvoiceIn(sales_order_id=order_id, amount=amount), db, current=None)
             assert cached.id == order_id
             return invoice.id, invoice.invoice_no, float(invoice.amount)
 
@@ -149,7 +187,7 @@ def test_postgres_concurrent_invoice_creation_returns_one_invoice(invoice_postgr
         holder.execute(text("SELECT id FROM sales_orders WHERE id = :id FOR UPDATE"), {"id": order_id})
         # Use the real numbering function to hold exactly the application's lock.
         finance.next_invoice_no(holder)
-        futures = [workers.submit(create, amount) for amount in requested_amounts]
+        futures = [workers.submit(create, amount, entrypoint) for amount, entrypoint in zip(requested_amounts, entrypoints)]
         try:
             worker_pids = [ready.get(timeout=10) for _ in futures]
             start.set()
@@ -170,7 +208,10 @@ def test_postgres_concurrent_invoice_creation_returns_one_invoice(invoice_postgr
         results = [future.result(timeout=10) for future in futures]
 
     assert results[0] == results[1]
-    assert results[0][2] in {100 if amount is None else amount for amount in requested_amounts}
+    assert results[0][2] in {
+        100 if amount is None or entrypoint == "sales" else amount
+        for amount, entrypoint in zip(requested_amounts, entrypoints)
+    }
     with session_factory() as db:
         assert db.query(Invoice).filter_by(sales_order_id=order_id).count() == 1
         assert db.query(AuditLog).filter_by(entity_type="Invoice", entity_id=results[0][0]).count() == 1
