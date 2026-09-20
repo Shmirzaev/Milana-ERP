@@ -38,6 +38,7 @@ from app.services.bundles import (
     receive_at_printing,
     send_to_sewing,
     receive_at_sewing,
+    verify_sewing_accessory_gate,
     bundle_qr_payload,
     format_batch_passport,
     resolve_sewing_factory_code,
@@ -573,10 +574,11 @@ def manual_receive_sewing(
     if not bundles:
         raise HTTPException(404, "No bundles are waiting for sewing receive")
 
+    accessory_gate = verify_sewing_accessory_gate(db, payload.production_order_id)
     received_quantity = 0
     received_ids: list[int] = []
     for bundle in bundles:
-        receive_at_sewing(db, bundle, current)
+        receive_at_sewing(db, bundle, current, accessory_gate)
         log_action(db, current, "manual_receive_at_sewing", "Bundle", bundle.id)
         received_quantity += int(bundle.quantity or 0)
         received_ids.append(int(bundle.id))
@@ -760,6 +762,11 @@ def accept_sewing_batch(
             f"This sewing work order is already assigned to {current_flow.name if current_flow else wo.sewing_flow_id}",
         )
 
+    accessory_gate = (
+        verify_sewing_accessory_gate(db, int(batch.production_order_id))
+        if has_unreceived_bundles
+        else None
+    )
     total_quantity = sum(int(bundle.quantity or 0) for bundle in bundles)
     assignment: SewingAssignment
     if batch_assignments:
@@ -805,7 +812,7 @@ def accept_sewing_batch(
     for bundle in bundles:
         if bundle.status == "received_sewing":
             continue
-        receive_at_sewing(db, bundle, current)
+        receive_at_sewing(db, bundle, current, accessory_gate)
         received_ids.append(int(bundle.id))
 
     log_action(

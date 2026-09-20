@@ -1,4 +1,6 @@
 """Bundle service: create cutting bundles with QR/barcode, manage scan transitions."""
+from dataclasses import dataclass
+
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -11,6 +13,23 @@ from app.services.numbering import next_bundle_no
 from app.services.sewing_scope import sewing_line_factory_scope
 from app.services.workflow import notify_department, sync_production_order_status
 from app.models.order_reference import BusinessOrderAlias
+
+
+@dataclass(frozen=True)
+class SewingAccessoryGate:
+    production_order_id: int
+    transaction: object
+
+
+def verify_sewing_accessory_gate(db: Session, production_order_id: int) -> SewingAccessoryGate:
+    """Verify the shared order-level gate for receipt calls in this transaction."""
+    from app.services.inventory import ensure_accessories_issued_for_sewing
+
+    ensure_accessories_issued_for_sewing(db, production_order_id)
+    transaction = db.get_transaction()
+    if transaction is None:  # pragma: no cover - the gate always performs database reads
+        raise RuntimeError("Accessory verification requires an active transaction")
+    return SewingAccessoryGate(production_order_id=production_order_id, transaction=transaction)
 
 
 def find_bundle_by_scanned_code(db: Session, raw_code: str) -> Bundle | None:
@@ -425,15 +444,25 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
     sync_production_order_status(db, bundle.production_order_id)
 
 
-def receive_at_sewing(db: Session, bundle: Bundle, current: User):
+def receive_at_sewing(
+    db: Session,
+    bundle: Bundle,
+    current: User,
+    accessory_gate: SewingAccessoryGate | None = None,
+):
     # Authorize the persisted destination before any receiving side effects.
     sewing_line_factory_scope(current, resolve_sewing_factory_code(bundle.sewing_factory_code))
     user_id = current.id
     if bundle.status == "received_sewing":
         raise HTTPException(409, "This bundle sticker was already received at sewing")
-    from app.services.inventory import ensure_accessories_issued_for_sewing
-
-    ensure_accessories_issued_for_sewing(db, int(bundle.production_order_id))
+    production_order_id = int(bundle.production_order_id)
+    if accessory_gate is None:
+        accessory_gate = verify_sewing_accessory_gate(db, production_order_id)
+    elif (
+        accessory_gate.production_order_id != production_order_id
+        or accessory_gate.transaction is not db.get_transaction()
+    ):
+        raise HTTPException(409, "Accessory verification does not match this receipt transaction")
     target = _sewing_factory_dept(db, bundle.sewing_factory_code)
     generic = _dept(db, DEPT_SEW)
     allowed_ids = {d.id for d in (target, generic) if d}
