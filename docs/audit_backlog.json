@@ -349,10 +349,10 @@
       "risk": "Overselling; reservations disagree with counters.",
       "proposed_fix": "Use one locked reservation path.",
       "baseline_source": "backend/app/api/routes/finished_goods.py:179",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "c8e82dc",
+      "evidence": "109 SQLite cases passed (5 PG opt-ins skipped); 3 real PostgreSQL races passed separately: competing reserves, reserve/release, reserve/dispatch. Package->stock locks and refreshed balances. Damaged-stock policy remains ST09."
     },
     {
       "number": 30,
@@ -385,10 +385,10 @@
       "risk": "Duplicate purchase orders.",
       "proposed_fix": "Lock and recheck conversion.",
       "baseline_source": "backend/app/services/purchasing.py:336",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "b409897",
+      "evidence": "13 purchasing tests passed, including2 real PostgreSQL races. Two conversions create one order; conversion versus rejection preserves the winning state. Stale identity-map, rollback and existing purchasing API workflow tested. Direct order creation policy unchanged."
     },
     {
       "number": 33,

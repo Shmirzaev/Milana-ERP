@@ -105,10 +105,12 @@ jobs:
           app/tests/test_invoice_creation_integrity.py
           app/tests/test_reset_token_revocation.py
           app/tests/test_purchase_receipt_idempotency.py
+          app/tests/test_purchase_conversion_integrity.py
           app/tests/test_material_reservation_concurrency.py
           app/tests/test_user_audit_history.py
           app/tests/test_admin_membership_delete_race.py
           app/tests/test_finished_goods_release_integrity.py
+          app/tests/test_finished_goods_reserve_integrity.py
           app/tests/test_fresh_migration_bootstrap.py
           app/tests/test_accessory_return_concurrency.py
           app/tests/test_waste_disposal_integrity.py

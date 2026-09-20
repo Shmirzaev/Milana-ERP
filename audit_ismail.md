@@ -2,15 +2,17 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**41 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**43 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Findings outside this table remain open. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **ST10 — Concurrent conversion creates duplicate orders** | Duplicate purchasing commitments | [purchasing.py:187](backend/app/services/purchasing.py#L187): approval/rejection/conversion share a refreshed request lock. `b409897`; **13 tests passed, including 2 real PostgreSQL races**. Rollback and stale-session checks included. |
+| **ST07 — Competing reservations overwrite balances** | Overselling or lost reservations | [finished_goods.py:178](backend/app/api/routes/finished_goods.py#L178): lock package then stock; refresh before checking availability. `c8e82dc`; **109 SQLite + 3 real PostgreSQL tests passed**. Damaged-stock eligibility remains ST09. |
 | **API04 — Invalid HR inputs and wrong-factory references** | Bad records or server errors | [hr_workspace.py:34](backend/app/api/routes/hr_workspace.py#L34): shared scope, salary/date, reference and required-text checks. `8250e0c`; **33 tests independently passed**. Valid same-factory cross-department links and optional clearing remain supported. |
 | **PERF31 — Roster import reads each person separately** | Slow attendance synchronization | [attendance.py:226](backend/app/api/routes/attendance.py#L226): device-scoped lookup in chunks of 400. `a0b9862`; **14 tests passed; 401 people: 403 → 4 SELECTs**. Writes remain O(n). |
-| **ST08 — Release recreates consumed stock** | Sold goods become available again | [finished_goods.py:257](backend/app/api/routes/finished_goods.py#L257): lock and refresh package/stock/reservations; reject shipped, invalid or inconsistent balances. `aa71976`; **108 SQLite + 2 real PostgreSQL tests passed**. ST07 reserve-writer races remain separate. |
+| **ST08 — Release recreates consumed stock** | Sold goods become available again | [finished_goods.py:280](backend/app/api/routes/finished_goods.py#L280): lock and refresh package/stock/reservations; reject shipped, invalid or inconsistent balances. `aa71976`; **108 SQLite + 2 real PostgreSQL tests passed**. Shared reserve writers are covered by ST07 above. |
 | **PERF11 — Print history queries each run's members** | Slow history as rows increase | [package_workflows.py:115](backend/app/services/package_workflows.py#L115): batch selected runs' members, retain manifest checks and factory filters. `7dacb8d`; **50 runs: 52 → 3 SELECTs**. 7 focused + 18 existing workflow tests passed. |
 | **SEC06 — Concurrent deletes remove the last admin** | Administrator lockout | [admin.py:437](backend/app/api/routes/admin.py#L437): serialize membership changes with locks compatible with audit inserts. `74a2973`; **4 PostgreSQL tests passed**. |
 | **WF10 — Viewing waste rewrites stored values** | Historical valuations change on GET | [waste.py:41](backend/app/api/routes/waste.py#L41): calculate the response without writing. `7444997`; **3 focused tests independently passed**; related suite **66 passed / 4 PostgreSQL skipped**. Creation-time valuation policy remains open under FN08. |

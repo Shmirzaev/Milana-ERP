@@ -28,6 +28,8 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| ST10 | `test_purchase_conversion_integrity.py`, `test_purchasing.py`; request conversion API | Two simultaneous conversions create one order; losing request returns 409. Conversion racing rejection preserves one valid final state. Rollback allows later conversion; cached old approval does not bypass state checks. |
+| ST07 | `test_finished_goods_reserve_integrity.py`; finished-goods reserve API | Two reserves of 6 against 10: one succeeds, one rejects; stock stays 4 available/6 reserved. Reserve racing release preserves the other order; reserve racing dispatch never restores sold stock. |
 | API04 | `test_hr_workspace_validation.py`; HR organization/positions/recruitment/calendar/uploads | Wrong-factory links reject; salary/date inversions, nonfinite/oversized input and blank titles reject without writes. Valid scoped workflow and explicit optional clearing still work. |
 | PERF31 | `test_attendance_people_query_growth.py`, `test_attendance.py`; integration people API | Create/update 1/10/50 people with 3 SELECTs; 401 with 4. Duplicate snapshot rolls back; partial snapshot keeps absent people; full snapshot affects only its device. |
 | WF08 (partial) | `test_waste_sale_integrity.py`; waste sale API | Sell 4 then 6 of 10: stays received then sold. Overage rejects. Same user/record/key replays one sale; changed payload conflicts. Concurrent oversales reject, and disposal cannot consume sold portions. Current UI does not send retained keys. |
@@ -80,9 +82,11 @@ SEC06 locks/scans active users: O(u) membership work, intentionally serialized; 
 
 PERF11: 1/10/50 runs fell from 3/12/52 to 3/3/3 SELECTs (100 returned runs: 102 → 3). Bounded database round trips for the existing 100-run page; O(n+r) Python work/memory for runs and members. Individual member counts and total database work are not constant.
 
-ST08 uses a bounded number of reads but locks/scans all r reservations for the selected stock: O(r) Python work/memory. Inconsistent historical balances reject rather than auto-repair. Shared legacy reserve locking is tracked separately as ST07.
+ST08 uses a bounded number of reads but locks/scans all r reservations for the selected stock: O(r) Python work/memory. Inconsistent historical balances reject rather than auto-repair. ST07 locks the same package/stock before reserving, adding a bounded number of reads; it does not establish constant total SQL/audit cost.
 
 PERF31 lookup round trips are O(ceil(n/400)); payload, processing and writes remain O(n). WF08 scans s prior sales for one record: O(s) work/memory, a fixed number of lookup queries, not constant total database work. API04 adds at most a few reference lookups per command; no per-list optimization claim.
+
+ST10 replaces an unlocked parent read with one locked/refreshed read. Conversion still processes n request lines and retains per-line reads/writes: O(n); no N+1 optimization claim.
 
 | Path | Before → after | What remains |
 | --- | --- | --- |
