@@ -1923,7 +1923,7 @@ def reserve_stock(
 ):
     """For branded_stock_sale: try to reserve from FinishedGoodsStock for each line."""
     fingerprint_payload = {"sales_order_id": sid}
-    replay = replay_idempotent_response(db, scope="sales.reserve-stock", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="sales.reserve-stock", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
 

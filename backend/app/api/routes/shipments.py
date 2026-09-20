@@ -1015,7 +1015,7 @@ def create_shipment(
     )
     if payload.sales_order_id and not so:
         raise HTTPException(404, "Sales order not found")
-    replay = replay_idempotent_response(db, scope="shipments.create", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="shipments.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     if payload.manual:
@@ -1091,7 +1091,7 @@ def update_shipment(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"shipment_id": sid, "payload": payload}
-    replay = replay_idempotent_response(db, scope="shipments.update", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="shipments.update", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     sh = locked_shipment(db, sid)
@@ -1139,7 +1139,7 @@ def add_package(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"shipment_id": sid, "package_id": package_id}
-    replay = replay_idempotent_response(db, scope="shipments.add-package", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="shipments.add-package", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     sh = locked_shipment(db, sid)
@@ -1180,7 +1180,7 @@ def add_ready_packages(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"shipment_id": sid}
-    replay = replay_idempotent_response(db, scope="shipments.add-ready-packages", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="shipments.add-ready-packages", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     sh = locked_shipment(db, sid)
@@ -1366,7 +1366,7 @@ def scan_package(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"shipment_id": sid, **payload.model_dump(mode="json")}
-    replay = replay_idempotent_response(db, scope="shipments.scan-package", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="shipments.scan-package", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
 
@@ -1604,7 +1604,7 @@ def ship_all(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"shipment_id": sid}
-    replay = replay_idempotent_response(db, scope="shipments.ship", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="shipments.ship", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     sh = locked_shipment(db, sid)
@@ -1640,7 +1640,7 @@ def mark_shipped(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"shipment_id": sid}
-    replay = replay_idempotent_response(db, scope="shipments.mark-shipped", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="shipments.mark-shipped", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     sh = locked_shipment(db, sid)
@@ -1678,7 +1678,7 @@ def deliver(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"shipment_id": sid}
-    replay = replay_idempotent_response(db, scope="shipments.deliver", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="shipments.deliver", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     sh = locked_shipment(db, sid)

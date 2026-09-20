@@ -565,7 +565,7 @@ def create_pkg(
     )
     packaging_department_scope(current, department_code)
     fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="packages.create", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     pkg = create_package(
@@ -616,7 +616,7 @@ def create_pkg_bulk(
     )
     packaging_department_scope(current, department_code)
     fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="packages.bulk-create", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.bulk-create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     pkgs = create_packages_bulk(
@@ -1298,7 +1298,7 @@ def api_receive(
         "warehouse_id": warehouse_id,
         "payload": payload.model_dump(mode="json") if payload else None,
     }
-    replay = replay_idempotent_response(db, scope="packages.receive-storage", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.receive-storage", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1337,7 +1337,7 @@ def api_place_on_map(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"package_id": pid, **payload.model_dump(mode="json")}
-    replay = replay_idempotent_response(db, scope="packages.place-on-map", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.place-on-map", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1379,7 +1379,7 @@ def api_reserve(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"package_id": pid}
-    replay = replay_idempotent_response(db, scope="packages.reserve", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.reserve", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1407,7 +1407,7 @@ def api_ship(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"package_id": pid}
-    replay = replay_idempotent_response(db, scope="packages.ship", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.ship", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1435,7 +1435,7 @@ def api_delivered(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"package_id": pid}
-    replay = replay_idempotent_response(db, scope="packages.mark-delivered", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.mark-delivered", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1463,7 +1463,7 @@ def api_damaged(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"package_id": pid}
-    replay = replay_idempotent_response(db, scope="packages.mark-damaged", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.mark-damaged", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)

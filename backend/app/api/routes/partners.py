@@ -155,7 +155,7 @@ def create_customer_payment(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"customer_id": cid, **payload.model_dump(mode="json")}
-    replay = replay_idempotent_response(db, scope="customers.payments", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="customers.payments", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
 

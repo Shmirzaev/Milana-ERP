@@ -38,7 +38,7 @@ def _write(db, current, operation, payload, action):
     scope = f"packages.{operation}.{current.id}"
     service.lock_request(db, current.id, operation, key)
     body = _request_body(operation, payload)
-    replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
+    replay = replay_idempotent_response(db, user=current, scope=scope, key=key, payload=body)
     if replay is not None:
         if operation == "manual-receipt":
             _validate_manual_receipt_replay(db, replay)
@@ -74,7 +74,7 @@ def reconcile_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
     scope = f"packages.{operation}.{current.id}"
     body = _request_body(operation, payload)
     service.lock_request(db, current.id, operation, key)
-    replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
+    replay = replay_idempotent_response(db, user=current, scope=scope, key=key, payload=body)
     if replay is not None:
         if service.is_cancelled_request(replay):
             db.commit()

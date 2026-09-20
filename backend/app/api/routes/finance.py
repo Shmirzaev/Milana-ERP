@@ -101,7 +101,7 @@ def create_payment(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="finance.payments", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="finance.payments", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     inv = db.get(Invoice, payload.invoice_id)

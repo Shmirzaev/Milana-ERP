@@ -783,7 +783,7 @@ def receive_stock(
         fingerprint_payload.pop("length_m", None)
     if not payload.roll_lengths_m:
         fingerprint_payload.pop("roll_lengths_m", None)
-    replay = replay_idempotent_response(db, scope="inventory.receive", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="inventory.receive", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return _canonical_stock_replay(db, replay)
 
@@ -854,7 +854,7 @@ def collect_back_accessory(
         fingerprint_payload.pop("length_m", None)
     if not payload.roll_lengths_m:
         fingerprint_payload.pop("roll_lengths_m", None)
-    replay = replay_idempotent_response(db, scope="inventory.accessory-return", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="inventory.accessory-return", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return _canonical_stock_replay(db, replay, production_order_id=payload.production_order_id)
 
@@ -1117,7 +1117,7 @@ def create_material_reservation(
     inventory_access.require_item(db, current, payload.item_id)
     inventory_access.require_batch(db, current, payload.stock_batch_id)
     fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="inventory.reservations.create", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="inventory.reservations.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
 
@@ -1278,7 +1278,7 @@ def transfer_stock(
     inventory_access.require_item(db, current, payload.item_id)
     inventory_access.require_batch(db, current, payload.batch_id)
     fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="inventory.transfer", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="inventory.transfer", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     if payload.movement_type not in ("transfer", "issue", "consume", "adjustment", "return"):

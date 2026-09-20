@@ -92,7 +92,7 @@ def sell_waste(
     idempotency_scope = f"waste.sales.{current.id}.{wid}"
     fingerprint_payload = {"waste_record_id": wid, **payload.model_dump(mode="json")}
     replay = replay_idempotent_response(
-        db, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
+        db, user=current, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
     )
     if replay:
         return replay
@@ -109,7 +109,7 @@ def sell_waste(
     # A concurrent request can store its replay only after releasing this
     # parent lock, so check the key again after the serialized handoff.
     replay = replay_idempotent_response(
-        db, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
+        db, user=current, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
     )
     if replay:
         return replay

@@ -187,7 +187,7 @@ def receive_order(
         inventory_access.require_item(db, current, line.item_id)
     scope = f"purchasing.receive:{selected_factory_code(current)}:{current.id}:{order_id}"
     fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope=scope, key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope=scope, key=idempotency_key, payload=fingerprint_payload)
     if replay is not None:
         return replay
     order = receive_purchase_order(db, order_id=order_id, data=payload.model_dump(), current=current)

@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models import IdempotencyRecord, User
@@ -31,6 +32,7 @@ def request_fingerprint(payload: Any) -> str:
 def replay_idempotent_response(
     db: Session,
     *,
+    user: User | None,
     scope: str,
     key: str | None,
     payload: Any,
@@ -39,14 +41,26 @@ def replay_idempotent_response(
     if not normalized_key:
         return None
 
+    if user is None or user.id is None:
+        raise HTTPException(401, "An authenticated user is required for request replay")
+    if db.get_bind().dialect.name == "postgresql":
+        # Serialize the entire operation, not just insertion of its saved
+        # response. The lock matches the existing global scope/key constraint.
+        lock_payload = json.dumps(["milana-idempotency", scope, normalized_key], separators=(",", ":"))
+        lock_id = int.from_bytes(hashlib.sha256(lock_payload.encode()).digest()[:8], signed=True)
+        db.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id})
+
     fingerprint = request_fingerprint(payload)
     row = (
         db.query(IdempotencyRecord)
         .filter(IdempotencyRecord.scope == scope, IdempotencyRecord.key == normalized_key)
+        .populate_existing()
         .first()
     )
     if not row:
         return None
+    if row.user_id != user.id:
+        raise HTTPException(409, "Idempotency-Key cannot be replayed by this user; review the original operation before retrying")
     if row.request_hash != fingerprint:
         raise HTTPException(409, "Idempotency-Key was already used with a different request payload")
     return row.response_json
