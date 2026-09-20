@@ -370,8 +370,29 @@ def _record_payload(row: Any, fields: list[str]) -> dict:
     return out
 
 
-def _package_payload(db: Session, pkg: Package) -> dict:
-    warehouse = db.get(Warehouse, pkg.warehouse_id) if pkg.warehouse_id else None
+def _package_warehouses(db: Session, packages: list[Package]) -> dict[int, Warehouse]:
+    warehouse_ids = sorted({int(pkg.warehouse_id) for pkg in packages if pkg.warehouse_id})
+    warehouses = {}
+    for offset in range(0, len(warehouse_ids), _TRACE_CHUNK_SIZE):
+        chunk = warehouse_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        warehouses.update({
+            int(warehouse.id): warehouse
+            for warehouse in db.query(Warehouse).filter(Warehouse.id.in_(chunk)).all()
+        })
+    return warehouses
+
+
+def _package_payload(
+    db: Session,
+    pkg: Package,
+    *,
+    warehouses: dict[int, Warehouse] | None = None,
+) -> dict:
+    warehouse = (
+        warehouses.get(int(pkg.warehouse_id))
+        if warehouses is not None and pkg.warehouse_id
+        else db.get(Warehouse, pkg.warehouse_id) if pkg.warehouse_id else None
+    )
     return {
         "id": int(pkg.id),
         "package_no": pkg.package_no,
@@ -401,6 +422,11 @@ def _package_payload(db: Session, pkg: Package) -> dict:
     }
 
 
+def _package_payloads(db: Session, packages: list[Package]) -> list[dict]:
+    warehouses = _package_warehouses(db, packages)
+    return [_package_payload(db, pkg, warehouses=warehouses) for pkg in packages]
+
+
 def _package_items(pkg: Package) -> list[dict]:
     return [
         {
@@ -428,11 +454,62 @@ def _package_scans(pkg: Package) -> list[dict]:
     ]
 
 
-def _shipment_payload(db: Session, shipment: Shipment | None) -> dict | None:
+def _shipment_reference_maps(
+    db: Session,
+    shipments: list[Shipment],
+) -> tuple[dict[int, SalesOrder], dict[int, Customer]]:
+    sales_order_ids = sorted({int(row.sales_order_id) for row in shipments if row.sales_order_id})
+    sales_orders = {}
+    for offset in range(0, len(sales_order_ids), _TRACE_CHUNK_SIZE):
+        chunk = sales_order_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        sales_orders.update({
+            int(order.id): order
+            for order in db.query(SalesOrder).filter(SalesOrder.id.in_(chunk)).all()
+        })
+
+    customer_ids = sorted({
+        int(customer_id)
+        for shipment in shipments
+        for customer_id in (
+            shipment.customer_id
+            or (
+                sales_orders.get(int(shipment.sales_order_id)).customer_id
+                if shipment.sales_order_id and int(shipment.sales_order_id) in sales_orders
+                else None
+            ),
+        )
+        if customer_id
+    })
+    customers = {}
+    for offset in range(0, len(customer_ids), _TRACE_CHUNK_SIZE):
+        chunk = customer_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        customers.update({
+            int(customer.id): customer
+            for customer in db.query(Customer).filter(Customer.id.in_(chunk)).all()
+        })
+    return sales_orders, customers
+
+
+def _shipment_payload(
+    db: Session,
+    shipment: Shipment | None,
+    *,
+    sales_orders: dict[int, SalesOrder] | None = None,
+    customers: dict[int, Customer] | None = None,
+) -> dict | None:
     if not shipment:
         return None
-    so = db.get(SalesOrder, shipment.sales_order_id) if shipment.sales_order_id else None
-    customer = db.get(Customer, shipment.customer_id or (so.customer_id if so else None)) if (shipment.customer_id or (so and so.customer_id)) else None
+    so = (
+        sales_orders.get(int(shipment.sales_order_id))
+        if sales_orders is not None and shipment.sales_order_id
+        else db.get(SalesOrder, shipment.sales_order_id) if shipment.sales_order_id else None
+    )
+    customer_id = shipment.customer_id or (so.customer_id if so else None)
+    customer = (
+        customers.get(int(customer_id))
+        if customers is not None and customer_id
+        else db.get(Customer, customer_id) if customer_id else None
+    )
     return {
         "id": int(shipment.id),
         "shipment_no": shipment.shipment_no,
@@ -446,6 +523,22 @@ def _shipment_payload(db: Session, shipment: Shipment | None) -> dict | None:
         "created_at": _dt(shipment.created_at),
         "notes": shipment.notes,
     }
+
+
+def _shipment_payloads(db: Session, shipments: list[Shipment]) -> list[dict]:
+    sales_orders, customers = _shipment_reference_maps(db, shipments)
+    return [
+        payload
+        for shipment in shipments
+        if (
+            payload := _shipment_payload(
+                db,
+                shipment,
+                sales_orders=sales_orders,
+                customers=customers,
+            )
+        )
+    ]
 
 
 def _shipment_packages(db: Session, shipment_ids: list[int]) -> list[dict]:
@@ -711,7 +804,7 @@ def build_traceability(
             )
         ]
 
-    package_payload = _package_payload(db, package) if package else None
+    package_payload = _package_payloads(db, [package])[0] if package else None
     package_items = _package_items(package) if package else []
     package_scan_history = _package_scans(package) if package else []
     if package and not any(log["scan_type"] == "received_storage" for log in package_scan_history):
@@ -719,9 +812,17 @@ def build_traceability(
 
     shipments = _related_shipments_for_package(db, int(package.id)) if package else ([shipment] if shipment else [])
     shipment_ids = [int(sh.id) for sh in shipments if sh]
-    shipment_payloads = [_shipment_payload(db, row) for row in shipments]
-    shipment_payloads = [row for row in shipment_payloads if row]
-    primary_shipment = _shipment_payload(db, shipment) if shipment else (shipment_payloads[0] if shipment_payloads else None)
+    shipment_context = list(shipments)
+    if shipment and all(int(row.id) != int(shipment.id) for row in shipment_context):
+        shipment_context.append(shipment)
+    shipment_context_payloads = _shipment_payloads(db, shipment_context)
+    shipment_payloads_by_id = {int(row["id"]): row for row in shipment_context_payloads}
+    shipment_payloads = [shipment_payloads_by_id[int(row.id)] for row in shipments]
+    primary_shipment = (
+        shipment_payloads_by_id.get(int(shipment.id))
+        if shipment
+        else shipment_payloads[0] if shipment_payloads else None
+    )
     shipment_package_rows = _shipment_packages(db, shipment_ids)
     shipment_scan_rows = _shipment_scan_logs(db, shipment_ids, package_id=int(package.id) if package else None)
     if package and not shipment_payloads:
@@ -733,10 +834,9 @@ def build_traceability(
 
     warehouse_location = None
     if package:
-        warehouse = db.get(Warehouse, package.warehouse_id) if package.warehouse_id else None
         warehouse_location = {
             "warehouse_id": int(package.warehouse_id) if package.warehouse_id else None,
-            "warehouse_name": warehouse.name if warehouse else None,
+            "warehouse_name": package_payload.get("warehouse_name") if package_payload else None,
             "storage_cell": package.storage_cell,
             "storage_shelf": package.storage_shelf,
             "location": format_storage_location(package.storage_cell, package.storage_shelf),
@@ -809,7 +909,7 @@ def production_order_traceability(db: Session, po: ProductionOrder) -> dict:
         .order_by(Package.id.asc())
         .all()
     )
-    data["packages"] = [_package_payload(db, pkg) for pkg in packages]
+    data["packages"] = _package_payloads(db, packages)
     if not packages:
         data["gaps"].append("Production order has no packages")
         data["trace_gap"] = True
@@ -943,8 +1043,7 @@ def production_batch_traceability(db: Session, batch: ProductionBatch) -> dict:
     )
     packages, batch_quantity_by_package = _batch_packages(db, int(batch.id), int(po.id))
     package_payloads = []
-    for package in packages:
-        payload = _package_payload(db, package)
+    for package, payload in zip(packages, _package_payloads(db, packages), strict=True):
         payload["batch_quantity"] = int(batch_quantity_by_package.get(int(package.id), 0))
         package_payloads.append(payload)
 
@@ -959,8 +1058,7 @@ def production_batch_traceability(db: Session, batch: ProductionBatch) -> dict:
         else []
     )
     shipment_ids = [int(row.id) for row in shipment_rows]
-    shipment_payloads = [_shipment_payload(db, row) for row in shipment_rows]
-    shipment_payloads = [row for row in shipment_payloads if row]
+    shipment_payloads = _shipment_payloads(db, shipment_rows)
 
     package_scans = []
     for package in packages:
@@ -1144,7 +1242,7 @@ def shipment_traceability(db: Session, shipment: Shipment) -> dict:
     data["package"] = None
     data["package_items"] = []
     data["package_scan_history"] = []
-    data["packages"] = [_package_payload(db, pkg) for pkg in packages]
+    data["packages"] = _package_payloads(db, packages)
     data["shipment"] = _shipment_payload(db, shipment)
     data["shipments"] = [data["shipment"]] if data["shipment"] else []
     data["shipment_packages"] = _shipment_packages(db, [int(shipment.id)])
