@@ -1885,6 +1885,11 @@ def update_sales_order(sid: int, payload: SalesOrderUpdate, db: DbSession, curre
     so = db.get(SalesOrder, sid)
     if not so: raise HTTPException(404, "Sales order not found")
     updates = payload.model_dump(exclude_unset=True)
+    if "status" in updates:
+        if updates.pop("status") != so.status:
+            raise HTTPException(409, "Order status is controlled by workflow commands, not general edits")
+        # A full-form resubmission may include the unchanged status. Never write
+        # that snapshot back over progress made by another workflow command.
     if "printing_attachments" in updates:
         updates["printing_attachments"] = _attachments_for_storage(updates["printing_attachments"])
     for k, v in updates.items():
