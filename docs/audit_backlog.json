@@ -1454,10 +1454,10 @@
       "risk": "Unsupported or vulnerable deployed components may remain.",
       "proposed_fix": "Verify versions, patch and retest",
       "baseline_source": null,
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "1896408",
+      "evidence": "2026-09-21 manifest scans: Pillow12.2→12.3 removes13 unique advisories;27 image/upload/QR tests pass using actual12.3 wheel, six independently repeated. Transitive ecdsa advisory remains (JWT defaults to configurable HS256; deployed algorithm unverified), connector scan clean. Frontend lock still reports5 vulnerable production packages; upgrades pending. Node20 EOL; no local Docker/image scanner. Not a full dependency or runtime sign-off."
     },
     {
       "number": 122,
