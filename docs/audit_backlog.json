@@ -267,8 +267,8 @@
       "baseline_source": "frontend/src/lib/packageWorkflow.ts:64",
       "status": "open",
       "owner": null,
-      "commit": null,
-      "evidence": "Rechecked with Bun check-package-workflow-idempotency.mjs: definite first422 clears and allows correction already. A timeout/500 followed by rejection deliberately retains the old identity; safely releasing that pending state still requires server-side reconciliation, not simply deleting browser state."
+      "commit": "3ef1c83",
+      "evidence": "Partial: manual receipts can reconcile committed results or atomically cancel uncommitted keys with durable tombstones. Five API cases independently passed; two real PostgreSQL ordering tests passed. Frontend late-A/new-B UUID clearing and listener regressions pass. Other package workflows remain retry-only; deleted results/revoked access require operator review."
     },
     {
       "number": 23,
@@ -397,10 +397,10 @@
       "risk": "Workflow invariants can be bypassed.",
       "proposed_fix": "Allowlist editable fields.",
       "baseline_source": "backend/app/api/routes/production.py:1075",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "859b7ca",
+      "evidence": "Typed PATCH allowlist rejects internal/relationship fields; int4/Decimal/text bounds, nullable clears and target existence tested. Focused41 passed independently; broad112 passed/one Usluga precedence failure, then dependency ordering corrected and12 targeted cases passed including exact failure. Typed OpenAPI retained; no full113 rerun or workflow/concurrency claim."
     },
     {
       "number": 34,
@@ -759,8 +759,8 @@
       "baseline_source": "backend/app/core/deps.py:119",
       "status": "open",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "177c3cd",
+      "evidence": "Partial: fractional JWT issue/cutoff comparison rejects older same-second bearer/cookie tokens and missing issue times after rotation; profile PATCH retains factory context. Red5 failures, final48 passed/1 PostgreSQL opt-in skipped (auth, static files, reset). Trusted-proxy reset throttling and concurrent credential workflows remain open."
     },
     {
       "number": 64,
@@ -973,10 +973,10 @@
       "risk": "Large orders plan slowly.",
       "proposed_fix": "Group BOM and stock.",
       "baseline_source": "backend/app/services/planning.py:28",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "f72d71b",
+      "evidence": "Nine selected tests passed; five focused independently repeated. Cold material requirements1/50 lines:6/6 SELECTs. Full estimate1/50/401:9/9/15. Stock/BOM/null/negative/reservation parity asserted; chunk400 reads. These are measured after counts, not measured legacy timing or complete capacity proof."
     },
     {
       "number": 82,
@@ -1275,8 +1275,8 @@
       "baseline_source": "backend/app/services/image_storage.py:180",
       "status": "open",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "170200f",
+      "evidence": "Partial: upload conversion/original write/thumbnails run off event loop, one upload slot per process acquired before buffering. Red thread assertion reproduced blocking; 10 image regressions pass including three concurrent uploads and failure cleanup. Async route SQL, cross-process capacity and partial-file lifecycle remain open."
     },
     {
       "number": 107,

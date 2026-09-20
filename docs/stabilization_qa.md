@@ -28,6 +28,11 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| WF01 | `test_production_order_update_integrity.py`; production-order PATCH | Internal/source/identity/relationship fields reject422; invalid targets reject404 without writes. Supported edits/coercion/null clearing work; Usluga stays409 and denied caller403. Typed OpenAPI remains. Added target reads are bounded; stage transitions/concurrent edits are separate findings. |
+| PERF40 (partial) | `test_image_upload_scheduling.py`, image-storage/model-image suites | Three simultaneous uploads run conversion/disk/thumbnail hooks off-loop, one conversion at a time; output dimensions, content type and files remain valid. Thumbnail failure propagates and removes original. Processing still scales with pixels/bytes; no SQL optimization, cross-process memory or cancellation/lifecycle guarantee. |
+| UI03 (partial) | `test_manual_receipt_reconciliation.py` + `check-package-workflow-idempotency.mjs`; manual receipt dialog | Lose response, then cancel/recover: committed receipt returns its original result; otherwise a durable tombstone prevents delayed creation. Network errors retain saved identity. Late request A cannot erase newer B. PostgreSQL forces both orderings; no new browser layout proof. Other operations remain retry-only. |
+| PERF15 | `test_planning_query_growth.py`; planning requirements/estimate | Cold requirements 1/50 lines use 6/6 SELECTs; estimates 1/50/401 use 9/9/15. Preserve shared/size/color BOM, signed stock, batchless movements, active reservation subtraction, nullable items and ordering. Chunked lookup queries; Python work includes each sales-line/BOM match plus O(n log n) key sorting. Not O(1) total work. |
+| SEC09 (partial) | `test_auth_credential_cutoff.py`; auth/session profile | Issue token at .100s, rotate at .500s: bearer/cookie reject401; .750s token succeeds. Missing/malformed issue time rejects after rotation. BST profile PATCH preserves factory fields. No added SQL; clock skew/concurrent credential changes/proxy trust are not covered. |
 | WF03 | `test_package_evidence_integrity.py`; single/bulk package APIs | Missing/zero output returns409, 7 available cannot create two5-piece packages, and failure leaves no package/item/stock. Output10 permits two5-piece packages. Uses existing aggregate query; no speed claim. |
 | UI04 | `frontend/scripts/test-dashboard-live-data.mjs`; management dashboard | With management permission, request live overview; finance requires its own permission. Synthetic live values appear; loading/error never falls back to demo figures.15 actual React render cases; manual browser check remains. |
 | UI05 | `frontend/scripts/test-home-stage-kpi.mjs`; Home | Four stages of100 display400 as stage activity, with an explicit unique-output warning in EN/RU/UZ. Actual React render; browser layout still needs verification. No query/arithmetic change. |
@@ -117,6 +122,8 @@ ST10 replaces an unlocked parent read with one locked/refreshed read. Conversion
 **Bounded round trips are not O(1) total work.** Unmeasured APIs remain unknown. Local timings under laptop memory pressure are not a 200–2,000-user capacity claim.
 
 ## API coverage ledger
+
+The saved 510-route report predates the new manual-receipt reconciliation endpoint. Refresh the inventory/observed coverage on the final revision; do not treat the old counts as current coverage.
 
 From `backend/`, run a selected test file with HTTP observation:
 
