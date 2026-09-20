@@ -853,10 +853,10 @@
       "risk": "Large orders multiply round trips.",
       "proposed_fix": "Check shared requirements once.",
       "baseline_source": "backend/app/services/inventory.py:1344",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "c72fcb7",
+      "evidence": "Manual/batch sewing receipt verifies shared accessory gate once per transitioning request, transaction/order-bound.50bundles50->1BOM queries;10 focused independently pass and39compatibility pass. Already-received/empty batches unchanged. Other per-bundle logs/transitions remain."
     },
     {
       "number": 72,
@@ -877,10 +877,10 @@
       "risk": "Heavy requests exhaust resources.",
       "proposed_fix": "Cap input; bulk references/results.",
       "baseline_source": "backend/app/api/routes/payroll.py:2938",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "f42637c",
+      "evidence": "Bulk1/50/401 SELECTs12/355/2812->11/60/415, including audit2/51/402. Seven final focused independently pass;10 prior payroll PostgreSQL races pass on final diff. Earlier full111pass6skip before final replay/decimal refinements. Audit reads, unbounded input, legacy no-scan queries and O(rows*open periods) matching remain."
     },
     {
       "number": 74,
@@ -1047,8 +1047,8 @@
       "baseline_source": "backend/app/services/traceability.py:251",
       "status": "partial",
       "owner": null,
-      "commit": "2f8f951,ae88bb5",
-      "evidence": "Bundle departments: cold1/50/401 SELECTs9/58/409 to9/9/10;5 focused independently pass. Cutting references:16/163/1216 to16/16/19;4 focused independently pass,30 related pass before set-based dedupe follow-up (4 retested). Other loops/graph bounds remain open. docs/stabilization_qa.md"
+      "commit": "2f8f951,ae88bb5,4447c97",
+      "evidence": "Bundle departments401fullSELECTs409->10(5independent tests); cutting401fullSELECTs1216->19(4independent tests), linear setdedupe. Shipping refs1/50/401:2/100/802->2/2/4; package warehouses1/50/401->1/1/2(4independent tests,34related). Material origins/graph bounds remain open. docs/stabilization_qa.md"
     },
     {
       "number": 88,

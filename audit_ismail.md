@@ -2,12 +2,13 @@
 
 20 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**67 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**68 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
 ## Fixed and regression-tested
 
 | Bug | Risk | Code / fix |
 | --- | --- | --- |
+| **PERF04 — Every bundle repeats the same accessory check** | Bulk receiving multiplies database work | [bundles.py:447](backend/app/services/bundles.py#L447): one order/transaction-bound gate per bulk request. `c72fcb7`; 50 bundles:50→1 BOM queries. Ten focused tests independently pass;39 related pass. Other per-bundle work remains. |
 | **WF07 — General edits can fake order progress** | Shipment/accounting steps bypassed | [sales.py:1884](backend/app/api/routes/sales.py#L1884): changed status returns409 before writes; use workflow commands. `b6b4912`; 11 focused +38 sales compatibility cases pass. Same-status forms remain supported. External manual-status clients must change. |
 | **PERF03 — Reservation plan queries every requirement** | Large plans overload the database | [inventory.py:580](backend/app/services/inventory.py#L580): batch balances, reservations and candidates; direct exact-batch lookup avoids quadratic scans. `8671636`; 401 requirements:2,815→21 SELECTs. Five focused cases independently pass;30 related pass. |
 | **FN06 — Retry keys replay another user's result or race** | Data disclosure or duplicate-write failure | [idempotency.py:32](backend/app/services/idempotency.py#L32): verify owner and serialize PostgreSQL retries. `c21e50b`; 7 focused cases pass, including 4 PostgreSQL races/rollback cases. Unknown legacy owners return 409 and require review. |
@@ -78,9 +79,12 @@
 
 ## Evidence
 
+- **PERF06 partial:** payroll bulk reference reads are batched (`f42637c`).401 records: **2812→415 SELECTs**, including402 audit reads. Seven final focused cases independently pass; ten existing PostgreSQL payroll races pass on the final change. Inputs remain unbounded; legacy/manual queries and period matching still scale.
+- **PERF21 shipping partial:** `4447c97`;401 shipment references802→4 SELECTs, warehouse references401→2. Four focused tests independently pass;34 related pass. Customer overrides, missing references and response order preserved.
+
 - **FN07 partial:** `5a68d12` bounds invoice/payment amounts, IDs and method length before writes. 29 tests pass; 6 PostgreSQL cases skipped in this SQLite selection. Monetary precision and other financial states/lists remain open.
 - **PERF21 partial:** bundle departments `2f8f951`: 401 bundles409→10 SELECTs, five tests independently pass. Cutting references `ae88bb5`: 401 rows1216→19 SELECTs, four tests independently pass; set-based material deduplication removes a quadratic loop. Other traceability loops and graph bounds remain open.
-- **Current CI:** `80044b9` backend/PostgreSQL passed; frontend's outdated label-edit test is corrected. `900a4e6` frontend/PostgreSQL passed; backend stopped on a fixture-import lint issue, corrected in `7495f04`. Combined green rerun pending. Validation uses loopback addresses, not production.
+- **Current CI:** [`5a9f3fb`](https://github.com/Shmirzaev/Milana-ERP/actions/runs/35510170944): backend **1,858 passed / 97 skipped**; separate PostgreSQL job **97 passed**; frontend passed; release skipped. Later commits need their own combined run. Validation uses loopback addresses, not production.
 
 - **Ledger correction:** payroll batching `538ff66` belongs to PERF05. PY03 authorization is fixed separately by `900641e`; do not confuse query batching with access control.
 - **CI wiring:** PostgreSQL selection includes administrator membership races. Corrected YAML indentation that would otherwise execute three test-file paths as shell commands. Workflow parsed locally; remote final-revision success is not yet claimed.
@@ -92,7 +96,7 @@
 - **Cycle 2:** attendance connector **30 passed**; audit/admin **54 passed** plus **1 PostgreSQL race passed**; pricing authorization/workflow **40 passed**; Eco suites **15 passed**. Five frontend stabilization scripts, ESLint, strict TypeScript and pinned Ruff passed. These are targeted results, not a new full-suite total.
 - **Cycle 2 browser:** same-session rename stayed forbidden; explicit pricing grant worked. Delete showed 409 guidance; deactivation rejected the old session. Eco history rendered 3 dispatches/6 rolls on desktop/mobile. No JavaScript page errors; expected denial responses and restricted-dashboard 403 console messages remain. [Results/screenshots](docs/audit-evidence/cycle2-results.json).
 - **CI for first-batch commit `3881177`:** backend, frontend and PostgreSQL jobs passed. Later changes require their own CI run.
-- **API coverage:** [510-route ledger](docs/api_test_coverage.json): **388 observed, 377 with success, 222 with rejection, 122 unobserved** in that CI run. Categories overlap. Hits are not correctness or complexity proof; final-revision coverage remains required.
+- **API coverage at `5a9f3fb`: 511 routes; 413 observed, 402 with success, 252 with rejection, 98 unobserved.** CI artifact `backend-test-evidence`,6,022 requests; categories overlap. Hits are not correctness or Big O proof. The [older saved ledger](docs/api_test_coverage.json) is historical; final-revision coverage remains required.
 - **PostgreSQL: 21 concurrency checks passed** on disposable local PostgreSQL 17; cluster stopped. Covers receipts, payments, invoice creation, sibling reset links, reservations and Cutting contention.
 - **Browser:** real login → temporary 503 → recovery; genuine 401 redirects. Real receipt commit → dropped response → reload/retry leaves quantity **5, not 10**. Rendered payroll UI with controlled API responses preserves badge/work order and manual selections (`[A, A, B]`). No JavaScript page errors in these scenarios.
 - Package SELECT counts for **1 / 10 / 50** rows: legacy **5/5/5**, distinct linked models **9/9/9**, order fallback **7/7/7**. Bounded round trips for these pages, **not O(1) total processing** or a load-capacity guarantee.

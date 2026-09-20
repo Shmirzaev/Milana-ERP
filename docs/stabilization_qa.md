@@ -28,6 +28,9 @@ Each row names a repeatable regression. Browser checks complement these; they do
 
 | Bug | Test / where | Expected result |
 | --- | --- | --- |
+| PERF06 (partial) | `test_payroll_bulk_query_growth.py`; bulk payroll records | 1/50/401 records:11/60/415 SELECTs, audit2/51/402, other9/9/13. Seven final focused cases independently pass: same-QR replay, employee conflict rollback, duplicate ordering, finalized replay, trusted label values and database-rounded response. Ten PostgreSQL period/return races pass on final diff. Non-audit reference trips are chunked; audit O(n), automatic matching O(n×open periods), legacy manual queries/input bounds remain open. |
+| PERF21 shipping (partial) | `test_traceability_shipping_query_growth.py`; traceability read aggregators | 1/50/401 shipment references:2/2/4 SELECTs; package warehouses1/1/2. Four independently passing cases preserve scalar payloads, order, direct/fallback customers including legacy0, absent references and no lazy fallback. Trips O(ceil(unique references/400)), output O(rows); no graph-size cap. |
+| PERF04 | `test_bundle_accessory_gate_batching.py`; manual/batch sewing receipt | One accessory gate for1/50 transitioning bundles; incomplete gate rejects before bundle/log/assignment mutation. Scanner still checks individually. Another order or ended transaction cannot reuse context. Already-received/empty cases preserved. Ten independently passing focused cases +39 related. Gate component no longer O(bundles×accessories); per-bundle transitions/audits remain O(bundles). |
 | SEC09 proxy (partial) | `test-reset-proxy-deadline.mjs`; forgot/reset password proxy handlers | Both upstream fetch and body stalls abort at15 seconds and return503; no automatic retries. Twelve mocked handler cases preserve upstream status, payload, no-store, malformed JSON handling and timer cleanup. Strict types/targeted lint pass. Request-body parsing and proxy trust remain outside this fix; no browser or network load claim. |
 | WF07 | `test_sales_status_patch_guard.py`; PATCH `/api/sales-orders/{id}` | Changed/null/bogus status returns409 without notes/status/audit changes, including admin. Same-status/omitted-status edits work; dedicated confirmation still advances draft. Eleven focused +38 sales cases pass. No extra SQL; constant scalar check. External manual-status callers must use workflow commands. |
 | PERF21 cutting (partial) | `test_traceability_cutting_query_growth.py`; traceability cutting histories | 1/50/401 rows:16/16/19 full SELECTs; each batch/supplier/warehouse component1/1/2. Four focused tests independently pass; follow-up set-based dedupe retested by author. Preserve scalar payload, first-seen material ordering, missing-reference gaps and strict batch scope. Chunked lookup trips; expected O(rows) dedupe, no total O(1) claim. |
@@ -146,7 +149,7 @@ ST10 replaces an unlocked parent read with one locked/refreshed read. Conversion
 
 ## API coverage ledger
 
-The saved 510-route report predates the new manual-receipt reconciliation endpoint. Refresh the inventory/observed coverage on the final revision; do not treat the old counts as current coverage.
+The saved 510-route report is historical. CI `5a9f3fb` observes511 routes:413 hit,402 successful,252 rejected,98 unobserved; categories overlap. Evidence: run35510170944 artifact `backend-test-evidence` (6,022 requests). Refresh again on the final revision.
 
 From `backend/`, run a selected test file with HTTP observation:
 
@@ -155,7 +158,7 @@ python scripts/report_api_test_coverage.py run --output ../outputs/api-batch.jso
 python scripts/report_api_test_coverage.py merge --output ../outputs/api-merged.json ../outputs/api-batch.json ../outputs/another-batch.json
 ```
 
-CI runs all `app/tests/test_*.py` files through this observer and uploads `backend-test-evidence`: route/status JSON plus JUnit failures. PostgreSQL concurrency remains a separate job. The inventory currently has **510 HTTP method/route pairs**, excluding docs/static mounts/WebSockets. Statuses separate success, rejection, errors and unobserved routes. A 2xx is not proof of correct stock or permissions; inspect the test assertions too. Direct service calls are not HTTP coverage.
+CI runs all `app/tests/test_*.py` files through this observer and uploads `backend-test-evidence`: route/status JSON plus JUnit failures. PostgreSQL concurrency remains a separate job. At `5a9f3fb`, inventory has **511 HTTP method/route pairs**, excluding docs/static mounts/WebSockets. Statuses separate success, rejection, errors and unobserved routes. A 2xx is not proof of correct stock or permissions; inspect assertions too. Direct service calls are not HTTP coverage.
 
 The tool refuses an application `.env`, uses the existing temporary SQLite fixture, clears external-service settings and blocks non-loopback Python sockets. It is not a sandbox for arbitrary tests/native subprocesses. Reports contain route patterns, aggregate outcomes, Git revision and dirty-state flag—not request data or concrete record IDs. Only combine compatible inventories; a merged old run is not proof of the final implementation. Do not interpret instrumented timing as a benchmark.
 
