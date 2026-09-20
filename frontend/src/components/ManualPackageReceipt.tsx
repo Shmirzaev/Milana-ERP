@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { can, useMe } from "@/lib/auth";
-import { packageWorkflowCopy, pendingPackageWorkflow, postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
+import { packageWorkflowCopy, pendingPackageWorkflow, postPackageWorkflow, reconcilePendingPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import Modal from "@/components/Modal";
 
@@ -21,6 +21,7 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [result, setResult] = useState<{ receipt_no: string; print_run: PackagePrintRun } | null>(null);
   const modelRequest = useRef(0);
   const [pendingBody, setPendingBody] = useState<Record<string, any> | null>(null);
@@ -41,7 +42,7 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
     <Modal open={open} title={c.manual} onClose={() => { if (!busy) setOpen(false); }} wide>
       <form onSubmit={async event => {
         event.preventDefault();
-        setBusy(true); setError("");
+        setBusy(true); setError(""); setNotice("");
         try {
           const saved = await postPackageWorkflow<{ receipt_no: string; print_run: PackagePrintRun }>("/api/packages/manual-receipt", pendingBody || {
             model_id: model, color, weight_kg: Number(weight), count: quantities.length,
@@ -53,6 +54,7 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
       }} className="space-y-4">
         <p className="text-sm">{c.review}</p>
         {error && <p role="alert" className="text-red-700">{error}</p>}
+        {notice && <p role="status">{notice}</p>}
         {pendingBody && <p role="status">{c.pendingRequest}</p>}
         {result ? <div>
           <p role="status">{c.received}: {result.receipt_no} · {result.print_run.count} {c.packages} · {result.print_run.quantity} {c.pieces}</p>
@@ -61,6 +63,23 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
             catch (e: any) { setError(e.message); }
           }}>{c.reprint}</button>
         </div> : <>
+          {pendingBody && <button type="button" className="btn" disabled={busy} onClick={async () => {
+            setBusy(true); setError(""); setNotice("");
+            try {
+              const reconciled = await reconcilePendingPackageWorkflow<{ receipt_no: string; print_run: PackagePrintRun }>("/api/packages/manual-receipt", me!.id);
+              setPendingBody(null);
+              if (reconciled.status === "completed") {
+                setResult(reconciled.result);
+                onCreated();
+              } else {
+                setNotice(c.pendingCancelled);
+              }
+            } catch (e: any) {
+              setError(e.message);
+              setPendingBody(pendingPackageWorkflow("/api/packages/manual-receipt", me!.id)?.body || null);
+            }
+            finally { setBusy(false); }
+          }}>{c.cancelPending}</button>}
           <fieldset disabled={busy || !!pendingBody} className="space-y-4">
             <div><label className="label" htmlFor="manual-package-model">{c.model}</label>
               <ModelAsyncSelect value={model} status="approved" inputId="manual-package-model" required disabled={busy || !!pendingBody}

@@ -16,21 +16,32 @@ from app.services.packages import create_package, _packaging_record_totals_by_ba
 router = APIRouter()
 
 
+def _request_body(operation, payload):
+    body = payload.model_dump(mode="json")
+    if operation == "manual-receipt" and body.get("pack_quantities") is None:
+        body.pop("pack_quantities", None)
+    return body
+
+
+def _validate_manual_receipt_replay(db, replay):
+    if service.is_cancelled_request(replay):
+        raise HTTPException(409, "This manual receipt request was cancelled; submit a corrected request with a new key")
+    run = db.get(PackagePrintRun, replay["print_run"]["id"])
+    if run:
+        service.require_active_run(run)
+        if run.deleted_package_ids:
+            raise HTTPException(410, "Some labels in this manual receipt were deleted")
+
+
 def _write(db, current, operation, payload, action):
     key = str(payload.request_key)
     scope = f"packages.{operation}.{current.id}"
     service.lock_request(db, current.id, operation, key)
-    body = payload.model_dump(mode="json")
-    if operation == "manual-receipt" and body.get("pack_quantities") is None:
-        body.pop("pack_quantities", None)
+    body = _request_body(operation, payload)
     replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
-    if replay:
+    if replay is not None:
         if operation == "manual-receipt":
-            run = db.get(PackagePrintRun, replay["print_run"]["id"])
-            if run:
-                service.require_active_run(run)
-                if run.deleted_package_ids:
-                    raise HTTPException(410, "Some labels in this manual receipt were deleted")
+            _validate_manual_receipt_replay(db, replay)
         return replay
     result = action()
     store_idempotent_response(db, scope=scope, key=key, payload=body, response=result, user=current)
@@ -53,6 +64,35 @@ def _run(db, current, rid):
 def create_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
                           current: User = Depends(require_permissions("storage.packages", "*"))):
     return _write(db, current, "manual-receipt", payload, lambda: service.manual_receipt(db, current, payload))
+
+
+@router.post("/manual-receipt/reconcile")
+def reconcile_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
+                             current: User = Depends(require_permissions("storage.packages", "*"))):
+    operation = "manual-receipt"
+    key = str(payload.request_key)
+    scope = f"packages.{operation}.{current.id}"
+    body = _request_body(operation, payload)
+    service.lock_request(db, current.id, operation, key)
+    replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
+    if replay is not None:
+        if service.is_cancelled_request(replay):
+            db.commit()
+            return {"status": "cancelled"}
+        _validate_manual_receipt_replay(db, replay)
+        db.commit()
+        return {"status": "completed", "result": replay}
+    store_idempotent_response(
+        db,
+        scope=scope,
+        key=key,
+        payload=body,
+        response=service.cancelled_request_response(),
+        user=current,
+        status_code=409,
+    )
+    db.commit()
+    return {"status": "cancelled"}
 
 
 @router.post("/print-runs", status_code=201)

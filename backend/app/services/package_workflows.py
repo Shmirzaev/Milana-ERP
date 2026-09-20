@@ -19,6 +19,17 @@ from app.services.packages import (
 )
 
 
+_CANCELLED_REQUEST_RESPONSE = {"_package_workflow_status": "cancelled"}
+
+
+def cancelled_request_response():
+    return dict(_CANCELLED_REQUEST_RESPONSE)
+
+
+def is_cancelled_request(response) -> bool:
+    return response == _CANCELLED_REQUEST_RESPONSE
+
+
 def lock_request(db, user_id, operation, key):
     # Same-user retries serialize before reading the idempotency record.
     if db.bind.dialect.name == "postgresql":
