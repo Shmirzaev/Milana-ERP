@@ -957,22 +957,49 @@ def _batch_packages(db: Session, batch_id: int, production_order_id: int) -> tup
 
 def _batch_material_usage(db: Session, data: dict) -> list[dict]:
     origin_cache = {int(row["id"]): row for row in data.get("material_batches") or [] if row.get("id")}
+    referenced_batch_ids: set[int] = set()
+    for record in data.get("cutting_records") or []:
+        material_rows = record.get("materials") or []
+        if material_rows:
+            referenced_batch_ids.update(
+                int(usage["stock_batch_id"])
+                for usage in material_rows
+                if usage.get("stock_batch_id")
+            )
+        elif record.get("fabric_batch_id"):
+            referenced_batch_ids.add(int(record["fabric_batch_id"]))
+
+        beika_rows = record.get("beika_materials") or []
+        referenced_batch_ids.update(
+            int(usage["stock_batch_id"])
+            for usage in beika_rows
+            if usage.get("stock_batch_id")
+        )
+
+    missing_ids = sorted(referenced_batch_ids - origin_cache.keys())
+    stock_batches = {}
+    for offset in range(0, len(missing_ids), _TRACE_CHUNK_SIZE):
+        chunk = missing_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        stock_batches.update({
+            int(stock_batch.id): stock_batch
+            for stock_batch in db.query(StockBatch).filter(StockBatch.id.in_(chunk)).all()
+        })
+    for stock_batch_id in missing_ids:
+        stock_batch = stock_batches.get(stock_batch_id)
+        item = stock_batch.item if stock_batch and stock_batch.item else None
+        origin_cache[stock_batch_id] = {
+            "batch_no": stock_batch.batch_no if stock_batch else None,
+            "item_id": int(stock_batch.item_id) if stock_batch else None,
+            "item_sku": item.sku if item else None,
+            "item_name": item.name if item else None,
+            "color": stock_batch.color if stock_batch else None,
+        }
     grouped: dict[tuple[str, int | None, str], dict] = {}
 
     def origin(stock_batch_id: int | None) -> dict:
         if not stock_batch_id:
             return {}
-        if stock_batch_id not in origin_cache:
-            stock_batch = db.get(StockBatch, stock_batch_id)
-            item = stock_batch.item if stock_batch and stock_batch.item else None
-            origin_cache[stock_batch_id] = {
-                "batch_no": stock_batch.batch_no if stock_batch else None,
-                "item_id": int(stock_batch.item_id) if stock_batch else None,
-                "item_sku": item.sku if item else None,
-                "item_name": item.name if item else None,
-                "color": stock_batch.color if stock_batch else None,
-            }
-        return origin_cache[stock_batch_id]
+        return origin_cache.get(stock_batch_id, {})
 
     def add_usage(*, usage_type: str, stock_batch_id: int | None, quantity: float, unit: str) -> None:
         source = origin(stock_batch_id)
