@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import CurrentUser, DbSession
+from app.models import Item, ModelBOM, StockBatch
+from app.models.catalog import Model, ModelImage, ModelSize
 from app.models.price_calculation import PriceCalculationRequest
 from app.schemas.price_calculation import (
     PriceCalculationAccessoriesIn,
@@ -34,6 +36,36 @@ from app.services.price_calculation import (
 router = APIRouter(prefix="/price-calculation", tags=["price_calculation"])
 
 
+def _list_request_load_options():
+    return (
+        joinedload(PriceCalculationRequest.model).options(
+            selectinload(Model.sizes).load_only(ModelSize.id, ModelSize.model_id, ModelSize.size),
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            selectinload(Model.bom)
+            .load_only(
+                ModelBOM.id,
+                ModelBOM.model_id,
+                ModelBOM.item_id,
+                ModelBOM.stock_batch_id,
+                ModelBOM.photo_url,
+            )
+            .options(
+                joinedload(ModelBOM.item).load_only(Item.id, Item.category, Item.image_url),
+                joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+            ),
+        ),
+        joinedload(PriceCalculationRequest.cutting_passport),
+    )
+
+
 def _request_or_404(db: DbSession, request_id: int) -> PriceCalculationRequest:
     request = (
         db.query(PriceCalculationRequest)
@@ -55,10 +87,7 @@ def list_requests(db: DbSession, current: CurrentUser):
         raise HTTPException(403, "Price calculation access required")
     requests = (
         db.query(PriceCalculationRequest)
-        .options(
-            joinedload(PriceCalculationRequest.model),
-            joinedload(PriceCalculationRequest.cutting_passport),
-        )
+        .options(*_list_request_load_options())
         .order_by(PriceCalculationRequest.id.desc())
         .all()
     )
