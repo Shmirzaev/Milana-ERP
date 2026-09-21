@@ -1162,6 +1162,8 @@ def _stock_rows_for_variant(
 def _package_allocation_candidates(
     db: DbSession,
     stock_rows: list[FinishedGoodsStock],
+    *,
+    package_cache: dict[int, Package] | None = None,
 ) -> tuple[dict[int, tuple[Package, list[FinishedGoodsStock]]], list[FinishedGoodsStock]]:
     """Split physical whole bags from legacy stock that permits piece allocation."""
     rows_by_package: dict[int, list[FinishedGoodsStock]] = defaultdict(list)
@@ -1171,10 +1173,16 @@ def _package_allocation_candidates(
     if not rows_by_package:
         return {}, [row for row in stock_rows if row.package_id is None]
 
-    package_query = db.query(Package).filter(Package.id.in_(rows_by_package))
-    if db.bind and db.bind.dialect.name == "postgresql":
-        package_query = package_query.with_for_update(of=Package)
-    packages = {int(package.id): package for package in package_query.order_by(Package.id).all()}
+    packages = package_cache if package_cache is not None else {}
+    missing_package_ids = sorted(set(rows_by_package) - set(packages))
+    if missing_package_ids:
+        package_query = db.query(Package).filter(Package.id.in_(missing_package_ids))
+        if db.bind and db.bind.dialect.name == "postgresql":
+            package_query = package_query.with_for_update(of=Package)
+        packages.update({
+            int(package.id): package
+            for package in package_query.order_by(Package.id).all()
+        })
 
     partial_rows = [
         row
@@ -1357,16 +1365,18 @@ def _reserve_branded_stock(
         key = _stock_variant_key(line.model_id, line.color, line.size, line.brand_id)
         requested_by_variant[key] += int(line.quantity or 0)
 
+    package_cache: dict[int, Package] = {}
     if db.bind and db.bind.dialect.name == "postgresql":
         # Lock across all lines before metadata repair or any stock lock, so
         # opposite model-line ordering cannot invert the package lock order.
-        db.query(Package).filter(
+        locked_packages = db.query(Package).filter(
             Package.model_id.in_({key[0] for key in requested_by_variant}),
             Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
             ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
                 ShipmentPackage.package_id == Package.id, Shipment.status != "cancelled",
             ).exists(),
         ).order_by(Package.id).with_for_update(of=Package).all()
+        package_cache.update({int(package.id): package for package in locked_packages})
 
     # Legacy rows need inferred metadata only when a requested brand must be
     # matched. Keep that repair scoped to the models in this order instead of
@@ -1421,7 +1431,11 @@ def _reserve_branded_stock(
             brand_id=brand_id,
         )
         stock_rows_by_variant[key] = stock_rows
-        package_groups, partial_stocks = _package_allocation_candidates(db, stock_rows)
+        package_groups, partial_stocks = _package_allocation_candidates(
+            db,
+            stock_rows,
+            package_cache=package_cache,
+        )
         available_qty = sum(
             int(package.total_quantity or 0)
             for package, _rows in package_groups.values()
@@ -1459,7 +1473,11 @@ def _reserve_branded_stock(
         model_id, color, size, brand_id = key
         needed = int(requested_qty)
         stocks = stock_rows_by_variant[key]
-        package_groups, partial_stocks = _package_allocation_candidates(db, stocks)
+        package_groups, partial_stocks = _package_allocation_candidates(
+            db,
+            stocks,
+            package_cache=package_cache,
+        )
         selected_package_ids = _select_whole_packages(package_groups, needed)
         for package_id in selected_package_ids:
             package, package_stocks = package_groups[package_id]
