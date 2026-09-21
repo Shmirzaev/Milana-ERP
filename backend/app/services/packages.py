@@ -246,9 +246,30 @@ def _compute_cost(db: Session, model_id: int) -> float:
     """Estimate cost-per-piece from BOM × avg batch cost. Used for finished goods valuation."""
     cost = 0.0
     bom = db.query(ModelBOM).filter(ModelBOM.model_id == model_id).all()
+    item_ids = sorted({int(row.item_id) for row in bom if row.item_id is not None})
+    latest_cost_by_item_id = {}
+    if item_ids:
+        latest_batch_ids = (
+            db.query(
+                StockBatch.item_id.label("item_id"),
+                func.max(StockBatch.id).label("batch_id"),
+            )
+            .filter(StockBatch.item_id.in_(item_ids))
+            .group_by(StockBatch.item_id)
+            .subquery()
+        )
+        latest_cost_by_item_id = {
+            int(item_id): cost_per_unit
+            for item_id, cost_per_unit in (
+                db.query(StockBatch.item_id, StockBatch.cost_per_unit)
+                .join(latest_batch_ids, latest_batch_ids.c.batch_id == StockBatch.id)
+                .all()
+            )
+        }
     for b in bom:
-        avg_cost_row = db.query(StockBatch).filter(StockBatch.item_id == b.item_id).order_by(StockBatch.id.desc()).first()
-        unit_cost = float(avg_cost_row.cost_per_unit) if avg_cost_row else 0.0
+        item_id = int(b.item_id) if b.item_id is not None else None
+        cost_per_unit = latest_cost_by_item_id.get(item_id) if item_id is not None else None
+        unit_cost = float(cost_per_unit) if item_id in latest_cost_by_item_id else 0.0
         cost += float(b.quantity_per_piece) * unit_cost * (1.0 + float(b.waste_percent) / 100.0)
     return round(cost, 4)
 
