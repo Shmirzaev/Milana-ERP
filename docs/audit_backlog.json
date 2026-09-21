@@ -495,8 +495,8 @@
       "baseline_source": "backend/app/api/routes/waste.py:85",
       "status": "partial",
       "owner": null,
-      "commit": "6cb2d3a",
-      "evidence": "PARTIAL: backend validates remaining capacity/precision, locks parent and replays user+parent scoped keys; 27 independently rerun tests plus3 real PostgreSQL races passed. UI still lacks retained keys and remaining-balance workflow. Unkeyed partial retries remain ambiguous; finance valuation policy unchanged."
+      "commit": "6cb2d3a, 2948674",
+      "evidence": "Backend validates/locks remaining capacity and keyed retries;27 independently rerun tests plus3 PostgreSQL races. UI real buyer/price/quantity and tab-persisted exact retries; actual handler/recovery tests independently pass, strict types/lint pass. Double-confirm, corrupt evidence, sold-row lost-response recovery and post-success refresh failure covered. Balance still not displayed; cross-tab/unkeyed retries, historical data and valuation policy remain open. No visual QA claim."
     },
     {
       "number": 42,
@@ -949,10 +949,10 @@
       "risk": "Bulk acceptance scales poorly.",
       "proposed_fix": "Bulk context; synchronize once.",
       "baseline_source": "backend/app/api/routes/bundles.py:326",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "ef9cb88",
+      "evidence": "Transaction-bound department and WorkOrder identity reuse; dynamic factory/quantity queries and per-bundle synchronization preserved.13 focused plus10 accessory compatibility tests independently pass.1/50/401 manual receipts22/316/2422 SELECTs, batch acceptance32/326/2432; audits excluded. Total reads remain O(N), quantity/factory scans data-dependent. Scalar parity, NULL/multiple batches, mixed routes, rollback and stale gates covered."
     },
     {
       "number": 80,
@@ -1105,10 +1105,10 @@
       "risk": "Slow multi-variant orders.",
       "proposed_fix": "Bulk candidates; separate repair.",
       "baseline_source": "backend/app/api/routes/sales.py:1328",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "5a89e27",
+      "evidence": "Reuse locked Package identities between allocation checks; recompute mutable stock completeness each call, do not cache candidate eligibility. Five focused database-backed cases independently pass plus four real branded-stock compatibility cases. At1/50/401 packages two helper calls issue one Package SELECT; depleted candidates disappear. Missing IDs/legacy partials/metadata repair preserved. Variant/stock/repair paths and total API complexity remain open."
     },
     {
       "number": 93,
@@ -1117,10 +1117,10 @@
       "risk": "Slow scanning and dispatch.",
       "proposed_fix": "Batch reads; synchronize each order once.",
       "baseline_source": "backend/app/api/routes/shipments.py:978",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "9d1755e",
+      "evidence": "Reuse existing sorted/refreshed locked Package rows instead of per-row get/relock.1/50/401 packages use one Package SELECT in isolated component tests; stock/sync mocked only there. Five focused plus two actual shipment stock/workflow integrations independently pass. Invalid-middle rollback and stale identity refresh covered. Stock/reservation reads and sync remain per package; no total API O(1) or new PostgreSQL race claim."
     },
     {
       "number": 94,
@@ -1177,10 +1177,10 @@
       "risk": "Hidden query growth.",
       "proposed_fix": "Bounded reference maps.",
       "baseline_source": "backend/app/api/routes/inbox.py:689",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "f79d195",
+      "evidence": "Inbox production context preloads model images/BOM without binary image data. Two focused tests independently pass:1/50/401/501 models6/6/6/8 SELECTs; none/model/material/BOM/stock/item fallback precedence preserved. Trips grow with selectin chunks of500; output/memory still linear. Other inbox/forecast paths remain unmeasured."
     },
     {
       "number": 99,
@@ -1261,10 +1261,10 @@
       "risk": "Extra waiting and network traffic.",
       "proposed_fix": "Canonical keys; defer unused requests.",
       "baseline_source": "frontend/src/components/AuthGate.tsx:183",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "ada4aaf",
+      "evidence": "HR documents no longer fetches full employee directory while upload modal is closed. Actual component hook/render test independently passes: closed key null, opening modal requests employees and renders options. Strict types/lint pass. Other dependent requests/duplicate keys remain open; no browser visual proof."
     },
     {
       "number": 106,
