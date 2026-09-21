@@ -63,8 +63,8 @@ export default function PurchasingPage() {
 
   const { data: requests, mutate: refreshRequests } = useSWR<PurchaseRequest[]>(canView ? "/api/purchasing/requests" : null, fetcher);
   const { data: orders, mutate: refreshOrders } = useSWR<PurchaseOrder[]>(canView ? "/api/purchasing/orders" : null, fetcher);
-  const { data: materialItems } = useSWR<Item[]>(canRequest || canApprove ? "/api/inventory/items?group=materials&page_size=500" : null, fetcher);
-  const { data: accessoryItems } = useSWR<Item[]>(canRequest || canApprove ? "/api/inventory/items?group=accessories&page_size=500" : null, fetcher);
+  const { data: materialItems } = useSWR<Item[]>(canRequest && showRequestForm ? "/api/inventory/items?group=materials&page_size=500" : null, fetcher);
+  const { data: accessoryItems } = useSWR<Item[]>(canRequest && showRequestForm ? "/api/inventory/items?group=accessories&page_size=500" : null, fetcher);
   const { data: suppliers } = useSWR<Supplier[]>(canRequest || canApprove ? "/api/suppliers" : null, fetcher);
   const items = useMemo(() => [...(materialItems || []), ...(accessoryItems || [])].sort((a, b) => a.name.localeCompare(b.name)), [materialItems, accessoryItems]);
 
