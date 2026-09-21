@@ -449,6 +449,7 @@ def create_package(
         if not has_batches:
             raise HTTPException(400, "Batch allocations require a batched production order")
         batch_totals: dict[int, int] = {}
+        batch_exists_by_id: dict[int, bool] = {}
         for raw in batch_allocations:
             try:
                 alloc_batch_id = int(raw.get("production_batch_id") or 0)
@@ -457,10 +458,13 @@ def create_package(
                 raise HTTPException(400, "Invalid batch allocation")
             if alloc_batch_id <= 0 or qty <= 0:
                 raise HTTPException(400, "Batch allocation quantities must be > 0")
-            batch_exists = db.query(ProductionBatch.id).filter(
-                ProductionBatch.id == alloc_batch_id,
-                ProductionBatch.production_order_id == po.id,
-            ).first()
+            batch_exists = batch_exists_by_id.get(alloc_batch_id)
+            if batch_exists is None:
+                batch_exists = db.query(ProductionBatch.id).filter(
+                    ProductionBatch.id == alloc_batch_id,
+                    ProductionBatch.production_order_id == po.id,
+                ).first() is not None
+                batch_exists_by_id[alloc_batch_id] = batch_exists
             if not batch_exists:
                 raise HTTPException(404, "Production batch not found for this production order")
             batch_totals[alloc_batch_id] = batch_totals.get(alloc_batch_id, 0) + qty
