@@ -1,0 +1,26 @@
+{
+  "kind": "verification",
+  "pageId": "2:2",
+  "screens": 147,
+  "dialogs": 1476,
+  "wired": 6460,
+  "obsolete": 41,
+  "issues": [],
+  "blank": [],
+  "broken": [],
+  "reactionNodes": 9940,
+  "flows": [
+    {
+      "nodeId": "2:161",
+      "name": "Explore Milana ERP"
+    },
+    {
+      "nodeId": "2:206",
+      "name": "Sign in to the demo"
+    },
+    {
+      "nodeId": "2:180",
+      "name": "Sales order to shipment"
+    }
+  ]
+}

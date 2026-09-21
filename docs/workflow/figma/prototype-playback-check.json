@@ -1,0 +1,29 @@
+{
+  "date": "2026-09-21",
+  "prototypeUrl": "https://www.figma.com/proto/N28GP08RtekAjQuSsgpcPr/Milana-ERP-Business-Workflow-and-Navigation?node-id=2-161&t=kFcVYrTKTOJspo0D-0&scaling=scale-down&content-scaling=fixed&page-id=2%3A2&starting-point-node-id=2%3A161",
+  "fileKey": "N28GP08RtekAjQuSsgpcPr",
+  "pageId": "2:2",
+  "checks": [
+    "Dashboard to Sales orders",
+    "Sales orders to Create sales order",
+    "Create order opens simulated save confirmation",
+    "Save confirmation sends to Planning",
+    "Planning opens Production order detail",
+    "Production detail opens Cutting",
+    "Cutting save opens next-department dialog",
+    "Cutting dialog opens Printing",
+    "Department navigation opens Sewing",
+    "Department navigation opens Packaging",
+    "Packaging save opens confirmation",
+    "Packaging confirmation opens Warehouse Stock",
+    "Warehouse opens Shipments",
+    "All workspaces opens module selector",
+    "Human resources opens its page menu",
+    "HR menu opens Employees",
+    "Overview returns to Dashboard"
+  ],
+  "limitations": [
+    "Prototype inputs are prefilled and transactions are simulated.",
+    "Every route frame was structurally checked; only the listed flows were manually played."
+  ]
+}

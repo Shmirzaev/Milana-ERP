@@ -136,16 +136,12 @@ Other significant query state: `group=materials|accessories`, `stock_kind=first_
 
 ## Figma structure
 
-The prepared import package creates one new Figma page containing:
+[Open the interactive ERP prototype](https://www.figma.com/proto/N28GP08RtekAjQuSsgpcPr/Milana-ERP-Business-Workflow-and-Navigation?node-id=2-161&scaling=scale-down&page-id=2%3A2&starting-point-node-id=2%3A161).
 
-1. A reading guide and source/release statement.
-2. A business handoff diagram; its arrows represent workflow, not UI navigation.
-3. A full index of every route template, plus concrete sidebar query/factory variants.
-4. A wireframe frame for each screen/variant, with all attributable discovered controls and their evidence IDs.
-5. Clickable connections for destinations that resolve to known screens.
-6. Explanatory overlays for local, data-changing, external-file and unresolved actions. These are clearly marked annotations; they do not pretend to save ERP data.
-7. A shared-control reference for controls outside resolved page imports, so coverage gaps remain inspectable.
+The native Figma page **01 · Interactive ERP** contains 147 separate application screens, covering 102 route templates and 45 factory/query variants. It includes fictional data, reusable navigation, dashboards, tables, forms, boards, scanner screens and dialogs. Use **Present**, then **Explore Milana ERP** or **Sales order to shipment**.
 
-These are functional navigation wireframes, not screenshots of current populated pages. Conditional destinations and source labels remain explicit; no employee/customer/order records are uploaded. The importer performs no network requests and does not call production. Cross-page browser new-tab behavior is described in the annotation, with a prototype transition only where the destination is known.
+The sidebar opens main workspaces. **All workspaces** opens the module selector; **All … pages** lists the screens in each module. Row clicks, primary actions and **More** connect to screens and simulated dialogs. The main sales-to-shipment navigation and the HR module selector were checked in Figma presentation mode. Native validation found no blank screens, missing targets or broken reactions.
 
-The cloud Figma file still requires sign-in/connection and a successful actual import. A generator ZIP, SVG or JSON must not be mislabeled as a native `.fig` file. After verified creation in Figma, the user can save a local `.fig` copy through Figma's own file export.
+This is a source-informed application prototype, not a pixel-identical export or running ERP. Inputs are prefilled; saves, scans, filters, language choices and downloads are illustrative. They do not change real records. No real employee, customer, order, stock or payroll data was uploaded.
+
+The earlier control-map page, SVG sheets and source registers remain supporting evidence. The prototype is the recommended review entry point; source registers remain authoritative for conditional actions and permissions. See the Figma package README for actual node IDs, checks and build scripts.

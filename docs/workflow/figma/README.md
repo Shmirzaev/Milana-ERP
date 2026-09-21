@@ -1,47 +1,39 @@
-# Milana ERP Figma import package
+# Milana ERP interactive prototype
 
-This package prepares an editable **functional navigation model** in Figma Design. It is not a native `.fig` file and has not yet been run in a signed-in Figma editor. The cloud file remains pending connection/sign-in.
+[Open the native Figma design](https://www.figma.com/design/N28GP08RtekAjQuSsgpcPr/Milana-ERP-Business-Workflow-and-Navigation?node-id=2-161). Select **01 · Interactive ERP** and use **Present** to explore the screens.
 
-## What the generator creates
+The prototype contains 147 separate application screens: 102 route templates and 45 factory/query variants. They use editable Figma frames, text, reusable sidebar/topbar/button components, color variables, the ERP brand mark and Inter typography. Tables, forms, dashboards, department boards, scanner views and reports contain fictional sample records.
 
-- One new Figma page, without deleting or editing existing pages.
-- 147 screen frames: every one of the 102 route templates and 45 concrete sidebar/query/factory variants.
-- A full screen index, configured ERP sidebar, business handoff overview and shared-control reference.
-- Native editable text and frames, using the ERP's Inter font and restrained cream/charcoal palette.
-- The 948 discovered source control definitions expanded where screens share components or menus render configured links.
-- Prototype connections to known routes; conditional choices and explanatory overlays for saves, scans, local dialogs, downloads and unresolved destinations.
+Use the sidebar for the main workspaces. **All workspaces** opens the module selector; **All … pages** opens every screen in that module. **More** exposes page actions. Rows and primary buttons open details, forms and dialogs. Starting flows: **Explore Milana ERP**, **Sign in to the demo**, and **Sales order to shipment**.
 
-The current structural dry run produces 465 direct control links and 1,779 explanatory overlays. It includes no real customer, employee, order, payroll or stock records. It makes no network requests and never connects to the ERP.
+## Sample workflow
 
-Screens are inventories of possible controls, including conditional states. They do not claim that every listed control is visible simultaneously for a particular role or department. A new-tab link is noted as such; prototype playback navigates to its corresponding frame. No database save, scan receipt or file download is simulated as a successful transaction.
+Sales & customers → New order → Create order → Send to planning → Production order → Cutting → Printing when required → Sewing → Packaging → Warehouse & shipments → Shipments.
 
-## Create the actual Figma file
-
-1. Sign in to Figma and open a new **Figma Design** file named **Milana ERP Business Workflow and Navigation**.
-2. In the desktop editor, use **Plugins → Development → Import plugin from manifest** and select this folder's `manifest.json`.
-3. If Figma requires a development-plugin ID, use **Create new plugin**, choose a Figma Design plugin, and copy the ID Figma assigns into this manifest. Do not substitute a guessed published-plugin ID.
-4. Run **Milana ERP workflow and navigation**. The generator adds one page. A second run adds another page; it does not replace the first one.
-5. Wait for the completion notification. Check the frame count, select **Read me**, then run the prototype. Open the index and test Sales Orders → New Order, Packages → View, Packaging Queue → Packing, Warehouse Stock → model packages, and the HR menu.
-6. Inspect conditional annotations and the factory-specific variants. Verify actual font wrapping and prototype behavior; the local dry run cannot prove Figma rendering.
-7. After successful review, save the file in your Figma workspace. Use Figma's **Save local copy** command if a downloadable `.fig` is needed.
-
-A Figma connection alone does not prove file creation. Record the resulting file URL and import/playback checks only after they succeed.
+The prototype uses prefilled example inputs and simulated save/scan confirmations. It does not connect to the ERP, persist business records, authenticate users, calculate actual payroll, send email, or export operational documents. Filters, pagination and language choices illustrate controls rather than implementing a data engine or complete localization. Real production behavior is specified in the business requirements and source register.
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `manifest.json` and `code.js` | Self-contained local development importer |
-| `map-data.json` | Route, scope, control and destination data |
-| `structural-check.json` | Local mock validation result, explicitly not live Figma verification |
-| `svg/` | Sixteen vector sheets showing module navigation; may be imported into Figma independently |
+- `prototype-spec.json`: source-derived titles, fields, controls, routes, module membership, colors and fictional-data declaration.
+- `prototype-state.json`: actual Figma node IDs and creation/link results gathered from the editor.
+- `prototype-verification.json`: final native screen, dialog, reaction and destination checks.
+- `../tools/build-prototype-spec.cjs`: derives the specification from repository source and English translations.
+- `../tools/figma-prototype-runtime.js`: creates variables, components and native application screens.
+- `../tools/figma-prototype-overlays.js`: creates menus and simulated action dialogs.
+- `../tools/figma-prototype-wire.js`: connects controls and validates destination nodes.
 
-SVG import provides editable vector artwork, but does not create prototype wires. Run the generator to create the connected native model. The Markdown/CSV registers remain the exact source reference.
+These scripts were executed through the official Figma Community Scripter plugin because the Figma connector write tools were not exposed in this session. Scripts contain no credentials or live records and make no network calls.
 
-## Validation and maintenance
+## Supporting source map
 
-Local checks cover route coverage, all sidebar destinations, existing connection targets, JavaScript syntax, selected read-only Figma API properties, conservative text-box geometry, SVG text bounds and PDF rendering. The generated assets were reviewed locally. Actual Figma import/playback remains pending.
+The earlier `map-data.json`, `code.js`, `manifest.json`, `structural-check.json`, and `svg/` files document the source navigation inventory. That generator produces a functional control map; it is distinct from the application prototype. Its dry-run counts do not describe the native prototype. The older source-map page in Figma is a reference and is not the recommended presentation entry point.
 
-API implementation follows Figma's official [plugin manifest](https://developers.figma.com/docs/plugins/manifest/), [reactions](https://developers.figma.com/docs/plugins/api/Reaction/), [node actions](https://developers.figma.com/docs/plugins/api/Action/) and [page flow starting points](https://developers.figma.com/docs/plugins/api/properties/PageNode-flowstartingpoints/) documentation. The importer uses asynchronous reaction updates and adds only a new page.
+All 147 screens are separate top-level frames on one Figma page so presentation links connect them. This fits the current file's three-page limit. No business data, application code, permissions or production release was changed.
 
-To regenerate after source changes, run the inventory tool, build-map tool, JavaScript syntax check and structural check described in the parent README. Review unresolved dynamic destinations before presenting the result as a verified runtime specification.
+## Native validation
+
+The editor check found 147 populated screens, 1,476 dialogs and 6,460 assigned interactions, with zero missing destinations, blank screens or reaction errors. The 41 obsolete link records belong to earlier layout revisions and were safely skipped. The native node check also counts inherited component reactions, so that total is larger than the assigned interaction count.
+
+Presentation checks covered dashboard → sales → new order → save confirmation → planning → production detail → cutting → printing → sewing → packaging → warehouse → shipments, plus the workspace selector → HR employee screen. Follow-up checks corrected detail-card stacking, source-expression labels, button padding and selected sample quantities. See the additional prototype check JSON files and polish scripts for those refinements.
+
+The builder accepts SPEC from prototype-spec.json and a JOB describing init, render or overlays. The final refinement order is labels, data-polish, layout-fix, handoff-polish, finalize and sample-values, followed by the wire check. The polish script checks button-label fit. Use small batches in Scripter and collect each printed result before starting the next batch. Final playback evidence is in prototype-playback-check.json. All scripts only target the created prototype page.

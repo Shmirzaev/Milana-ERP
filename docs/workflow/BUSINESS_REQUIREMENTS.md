@@ -363,12 +363,12 @@ Run mutations only in an authorized isolated test environment, with representati
 
 ## 10 Open issues and explicit exclusions
 
-- Native Figma account creation is pending a usable Figma connection/sign-in. The accompanying generator/import assets are preparation, not a claim that a cloud `.fig` document exists.
+- A native Figma prototype now contains 147 separate application screens with fictional data and simulated interactions. Open the live link in the navigation guide; actual creation and connection checks are recorded in the Figma package.
 - This source inventory does not evaluate every dynamic map, handler callback, runtime permission combination or response-dependent destination. Unresolved controls remain visible in the registers.
 - First Grade recombination/repacking and post-delivery commercial returns are future operations.
 - Historical security findings and audit chain record `#744` are not closed by writing this manual. The current release record explicitly retains unrelated risks.
 - Existing business data has not been reconciled or changed. No sample business records, user accounts, stock, shipments, payroll entries or purchases were created.
-- Pixel-exact screenshots for all roles and populated production states require a separate authorized capture pass; the Figma model is a functional wireframe specification.
+- Pixel-exact screenshots for all roles and populated production states require a separate authorized capture pass; the Figma prototype is a source-informed application mockup with prefilled fictional records.
 
 ## 11 Source references
 

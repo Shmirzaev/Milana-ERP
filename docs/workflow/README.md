@@ -7,7 +7,7 @@ Created 21 September 2026 from production source release `20260920_030043` and G
 1. [Business requirements and workflow](BUSINESS_REQUIREMENTS.md): actors, objects, 18 workflow areas, 28 numbered requirements, state/exception rules and end-to-end review scenarios.
 2. [Page and button navigation guide](NAVIGATION_GUIDE.md): which actions open a page, dialog, file or local result; critical factory/query variants.
 3. [Complete page and button reference](PAGE_AND_BUTTON_REFERENCE.md): route-by-route source evidence for 102 page templates and discovered controls.
-4. [Figma import package](figma/README.md): editable native-frame/prototype generator and sixteen SVG module maps. Actual cloud Figma creation remains pending sign-in/connection.
+4. [Interactive Figma prototype](figma/README.md): 147 separate application screens with fictional records, shared navigation, dialogs and button connections in the native Figma design.
 
 The printable manual is generated at `output/pdf/Milana-ERP-Business-Workflow-and-Navigation.pdf` in this worktree. It combines the business guide and readable navigation guide; the detailed 948-control appendix stays in searchable Markdown/CSV/JSON. The distribution ZIP bundles the manual, all registers, source tools and Figma assets.
 
@@ -30,7 +30,7 @@ Both production source trees and their manifests were verified read-only against
 
 No business data, database schema, application code, permissions, production configuration or release was changed. Runtime slot files were not readable with the available non-elevated session; their last recorded state is documented as recorded, not freshly verified. No live mutation or comprehensive permission/security retest was performed.
 
-This is a functional source-based map, not a pixel-identical UI export. Conditional states, callbacks from outside a component and response-dependent transitions require runtime review. Source evidence is authoritative over a heuristic action category. Historical high-risk findings remain open unless current implementation and regression evidence establish closure.
+The accompanying Figma prototype is a source-informed application mockup with fictional records, not a pixel-identical UI export or a running ERP. Conditional states, callbacks from outside a component and response-dependent transitions require runtime review. Source evidence is authoritative over a heuristic action category. Historical high-risk findings remain open unless current implementation and regression evidence establish closure.
 
 ## Reproduce
 
@@ -52,7 +52,7 @@ PDF/SVG verification tools require ReportLab, PyMuPDF and Pillow plus Windows Ar
 
 - Worktree: `C:/ERP/.codex-work/workflow-documentation-20260921`
 - Branch: `codex/workflow-documentation-20260921`
-- Scope: documentation, source inventory, local artifact generators and Figma import preparation only
+- Scope: documentation, source inventory, local artifact generators and a native Figma prototype
 - Deployment: none; production source remains verified release `20260920_030043`
-- Remaining external step: connect/sign in to Figma, execute the import and verify the actual native file/prototype
+- Figma: use the 01 · Interactive ERP page and Present to explore the prototype
 - Commit/push status: see the final task handoff and branch log; no merge to main is authorized by this request
