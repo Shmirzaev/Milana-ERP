@@ -59,6 +59,7 @@ from app.services.packages import (
     mark_delivered,
     mark_damaged,
     place_on_storage_map,
+    place_packages_on_storage_map,
     prepare_locked_package_receive,
     format_storage_location,
     create_package_change_request,
@@ -1488,15 +1489,18 @@ def api_batch_place_on_map(
     if missing:
         raise HTTPException(404, f"Package not found: {missing[0]}")
 
+    ordered_packages = [packages_by_id[package_id] for package_id in package_ids]
     for package_id in package_ids:
-        pkg = packages_by_id[package_id]
-        place_on_storage_map(
-            db,
-            pkg,
-            storage_cell=payload.storage_cell,
-            storage_shelf=payload.storage_shelf,
-            user_id=current.id,
-        )
+        require_package_access(current, packages_by_id[package_id])
+
+    place_packages_on_storage_map(
+        db,
+        ordered_packages,
+        storage_cell=payload.storage_cell,
+        storage_shelf=payload.storage_shelf,
+        user_id=current.id,
+    )
+    for pkg in ordered_packages:
         log_action(
             db,
             current,

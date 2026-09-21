@@ -151,6 +151,23 @@ def _require_warehouse_package(db: Session, pkg: Package) -> None:
         raise HTTPException(400, "Usluga packages are handed directly to the customer and cannot enter warehouse flow")
 
 
+def _warehouse_source_types(db: Session, packages: list[Package]) -> dict[int, str]:
+    # SessionLocal disables autoflush; validate the transaction's current state.
+    db.flush()
+    order_ids = sorted({int(pkg.production_order_id) for pkg in packages if pkg.production_order_id})
+    source_types = {}
+    for offset in range(0, len(order_ids), _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE):
+        chunk = order_ids[offset:offset + _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE]
+        source_types.update({
+            int(order_id): str(source_type)
+            for order_id, source_type in db.query(
+                ProductionOrder.id,
+                ProductionOrder.source_type,
+            ).filter(ProductionOrder.id.in_(chunk)).all()
+        })
+    return source_types
+
+
 def normalize_storage_cell(cell: str | None) -> str | None:
     if cell is None:
         return None
@@ -1254,6 +1271,23 @@ def place_on_storage_map(
     user_id: int | None,
 ):
     _require_warehouse_package(db, pkg)
+    _place_on_storage_map(
+        db,
+        pkg,
+        storage_cell=storage_cell,
+        storage_shelf=storage_shelf,
+        user_id=user_id,
+    )
+
+
+def _place_on_storage_map(
+    db: Session,
+    pkg: Package,
+    *,
+    storage_cell: str,
+    storage_shelf: str | None,
+    user_id: int | None,
+):
     if pkg.status in ("shipped", "delivered", "damaged"):
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be moved on storage map")
     cell, shelf = validate_storage_location(storage_cell, storage_shelf, require_cell=True)
@@ -1274,6 +1308,28 @@ def place_on_storage_map(
         )
     )
     db.flush()
+
+
+def place_packages_on_storage_map(
+    db: Session,
+    packages: list[Package],
+    *,
+    storage_cell: str,
+    storage_shelf: str | None,
+    user_id: int | None,
+) -> None:
+    source_types = _warehouse_source_types(db, packages)
+    for pkg in packages:
+        source_type = source_types.get(int(pkg.production_order_id or 0))
+        if source_type == "usluga":
+            raise HTTPException(400, "Usluga packages are handed directly to the customer and cannot enter warehouse flow")
+        _place_on_storage_map(
+            db,
+            pkg,
+            storage_cell=storage_cell,
+            storage_shelf=storage_shelf,
+            user_id=user_id,
+        )
 
 
 def reserve_package(db: Session, pkg: Package, user_id: int | None):

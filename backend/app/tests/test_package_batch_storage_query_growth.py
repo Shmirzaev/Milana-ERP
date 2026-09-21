@@ -9,6 +9,7 @@ from app.api.routes import packages as package_routes
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
 from app.models import (
+    AuditLog,
     Model,
     Package,
     PackageItem,
@@ -133,13 +134,14 @@ def test_batch_receive_batches_locked_guards_and_response_context(monkeypatch, p
 
 
 @pytest.mark.parametrize("package_count", [1, 50, 401])
-def test_batch_place_batches_response_but_preserves_unlocked_source_checks(monkeypatch, package_count):
+def test_batch_place_batches_fresh_source_checks_and_response_context(monkeypatch, package_count):
     package_ids = _batch_packages(package_count, status="received_in_storage")
     request_ids = list(reversed(package_ids))
     monkeypatch.setattr(package_routes, "log_action", lambda *_args, **_kwargs: None)
 
     with SessionLocal() as db:
         current = db.query(User).filter(User.email == "admin@example.com").one()
+        current.department
         result, statements = _select_trace(
             db.bind,
             lambda: package_routes.api_batch_place_on_map(
@@ -156,11 +158,124 @@ def test_batch_place_batches_response_but_preserves_unlocked_source_checks(monke
     assert result["count"] == package_count
     assert [row["id"] for row in result["packages"]] == request_ids
     assert all((row["storage_cell"], row["storage_shelf"]) == ("C-03", "S2") for row in result["packages"])
+    assert all(
+        len(row["items"]) == 1
+        and len(row["scan_logs"]) == 1
+        and row["scan_logs"][0]["scan_type"] == "relocated_storage"
+        and row["scan_logs"][0]["location"] == "C-03/S2"
+        for row in result["packages"]
+    )
     expected_chunks = ceil(package_count / 400)
     assert _table_selects(statements, "models") == expected_chunks
     assert _table_selects(statements, "package_items") == expected_chunks
     assert _table_selects(statements, "package_scan_logs") == expected_chunks
-    assert _table_selects(statements, "production_orders") == package_count + expected_chunks
+    assert _table_selects(statements, "production_orders") == 2 * expected_chunks
+    assert len(statements) <= 12 * expected_chunks
+
+
+def test_batch_place_rejects_other_factory_before_any_mutation():
+    package_ids = _batch_packages(2, status="received_in_storage")
+    with SessionLocal() as db:
+        first = db.get(Package, package_ids[0])
+        second = db.get(Package, package_ids[1])
+        first.packaging_department_code = "PKG"
+        second.packaging_department_code = "BPK"
+        db.commit()
+
+    with SessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        with pytest.raises(HTTPException) as exc_info:
+            package_routes.api_batch_place_on_map(
+                PackageBatchStoragePlacementIn(
+                    package_ids=package_ids,
+                    storage_cell="C-03",
+                    storage_shelf="S2",
+                ),
+                db,
+                current,
+            )
+        assert exc_info.value.status_code == 403
+
+    with SessionLocal() as db:
+        packages = db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).all()
+        assert [(row.storage_cell, row.storage_shelf) for row in packages] == [("A-01", "S1"), ("A-01", "S1")]
+        assert db.query(PackageScanLog).filter(PackageScanLog.package_id.in_(package_ids)).count() == 0
+
+
+def test_batch_place_usluga_rejection_rolls_back_and_preserves_audits(client, auth_headers):
+    package_ids = _batch_packages(2, status="received_in_storage")
+    with SessionLocal() as db:
+        second = db.get(Package, package_ids[1])
+        db.get(ProductionOrder, second.production_order_id).source_type = "usluga"
+        before_audits = db.query(AuditLog).count()
+        db.commit()
+
+    response = client.post(
+        "/api/packages/batch/place-on-map",
+        json={"package_ids": package_ids, "storage_cell": "C-03", "storage_shelf": "S2"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    assert "cannot enter warehouse flow" in response.json()["detail"]
+
+    with SessionLocal() as db:
+        packages = db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).all()
+        assert [(row.storage_cell, row.storage_shelf) for row in packages] == [("A-01", "S1"), ("A-01", "S1")]
+        assert db.query(PackageScanLog).filter(PackageScanLog.package_id.in_(package_ids)).count() == 0
+        assert db.query(AuditLog).count() == before_audits
+
+
+def test_batch_place_reads_fresh_uncommitted_source_type():
+    package_id = _batch_packages(1, status="received_in_storage")[0]
+    with SessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        package = db.get(Package, package_id)
+        db.get(ProductionOrder, package.production_order_id).source_type = "usluga"
+
+        with pytest.raises(HTTPException, match="cannot enter warehouse flow"):
+            package_routes.api_batch_place_on_map(
+                PackageBatchStoragePlacementIn(
+                    package_ids=[package_id],
+                    storage_cell="C-03",
+                    storage_shelf="S2",
+                ),
+                db,
+                current,
+            )
+        db.rollback()
+
+    with SessionLocal() as db:
+        package = db.get(Package, package_id)
+        assert (package.storage_cell, package.storage_shelf) == ("A-01", "S1")
+        assert db.query(PackageScanLog).filter_by(package_id=package_id).count() == 0
+
+
+def test_batch_place_writes_one_ordered_audit_per_package(client, auth_headers):
+    package_ids = _batch_packages(2, status="received_in_storage")
+    request_ids = list(reversed(package_ids))
+    response = client.post(
+        "/api/packages/batch/place-on-map",
+        json={"package_ids": request_ids, "storage_cell": "C-03", "storage_shelf": "S2"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200, response.text
+
+    with SessionLocal() as db:
+        audits = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.action == "place_storage_map",
+                AuditLog.entity_type == "Package",
+                AuditLog.entity_id.in_(package_ids),
+            )
+            .order_by(AuditLog.id)
+            .all()
+        )
+        assert [int(row.entity_id) for row in audits] == request_ids
+        assert [row.new_value_json for row in audits] == [
+            {"storage_cell": "C-03", "storage_shelf": "S2", "mode": "batch"},
+            {"storage_cell": "C-03", "storage_shelf": "S2", "mode": "batch"},
+        ]
 
 
 def test_batch_receive_gate_rejects_other_package_identity_session_and_transaction():
