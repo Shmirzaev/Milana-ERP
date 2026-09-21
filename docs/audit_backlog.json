@@ -903,8 +903,8 @@
       "baseline_source": "backend/app/services/packages.py:258",
       "status": "partial",
       "owner": null,
-      "commit": "0066d32",
-      "evidence": "Package costing batches highest-ID stock costs by BOM item; formula/order/duplicates unchanged. Seven independently passing cases:1/50/401 BOM rows2 SELECTs, empty BOM1; missing/manual items zero, newest zero cost overrides older cost. Isolated create_package cost persistence passes with other workflow effects stubbed. Other allocation/workflow writes remain open; constant trips are not constant total DB work."
+      "commit": "0066d32, a51eb6f",
+      "evidence": "Package costing batches highest-ID stock costs by BOM item. Duplicate allocation IDs reuse existence results without changing validation order. Twelve focused cases pass: cost1/50/401 rows use2 SELECTs; repeated allocation1/50/401 also stays at2. Other workflow writes remain open; constant trips are not constant total DB work."
     },
     {
       "number": 76,
@@ -1263,8 +1263,8 @@
       "baseline_source": "frontend/src/components/AuthGate.tsx:183",
       "status": "partial",
       "owner": null,
-      "commit": "ada4aaf, 5a85dcd",
-      "evidence": "HR documents defers employee directory until upload opens; recruitment defers departments until create/edit opens, preserving visible positions data. Actual component tests independently pass for closed/create/edit states and rendered options; strict types/lint pass. Other dependent requests/duplicate keys remain open; no browser visual proof."
+      "commit": "ada4aaf, 5a85dcd, 0094748",
+      "evidence": "HR documents, recruitment and inventory Accessories defer hidden option directories until their UI opens. Actual component tests and stabilization suite pass; visible data, authorization and endpoints stay unchanged; strict types/lint pass. Other dependent requests/duplicate keys remain open; no browser visual proof."
     },
     {
       "number": 106,
@@ -1357,10 +1357,10 @@
       "risk": "New identifiers eventually stop; remaining capacity unknown.",
       "proposed_fix": "Measure headroom; extend without recycling",
       "baseline_source": "backend/app/services/numbering.py:65",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "b350c4f",
-      "evidence": "User-approved expansion beyond9999 preserves existing identifiers/aliases and stops gap recycling. Root-reviewed;22 focused SQLite/QR/migration-compatibility cases independently pass, Ruff clean. PostgreSQL boundary concurrency and combined CI remain pending. No historical migrations or production data changed."
+      "commit": "b350c4f, 11aabc1",
+      "evidence": "User-approved expansion beyond9999 preserves identifiers/aliases and stops gap recycling.22 SQLite/QR/migration cases pass. A disposable PostgreSQL two-writer boundary race produced BND-10000 and BND-10001 with durable reservations. Prior combined branch CI is green. No migration or production data changed."
     },
     {
       "number": 114,

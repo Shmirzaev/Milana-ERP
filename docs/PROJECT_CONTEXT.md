@@ -4,7 +4,7 @@ Last updated: 2026-09-21
 
 ## Stabilization fixes prepared — not deployed (2026-09-18)
 
-- Latest reviewed batches: **69/127 findings fixed;23 open;35 partial**. Warehouse/bundle/shipment/inbox/allocation/cost references improved; waste UI retains retries; hidden HR form fetches deferred. CI `3f5afa3` passed backend/PostgreSQL/frontend. User-approved longer identifiers committed as `b350c4f`:22 focused cases independently pass; existing values/migrations unchanged. PostgreSQL boundary concurrency and latest combined CI remain pending. No deployment/production access; main conflicts, historical audit damage, runtime lifecycle and load validation remain open.
+- Latest reviewed batches: **70/127 findings fixed;23 open;34 partial**. Package costing/allocation reads and hidden HR/inventory fetches improved. Longer identifiers pass22 compatibility cases and a real disposable-PostgreSQL two-writer boundary race (`b350c4f`, `11aabc1`). Prior branch CI `38e4fa7` passed backend/PostgreSQL/frontend. No deployment/production access; main conflicts, historical audit damage, runtime lifecycle and load validation remain open.
 
 - Continued 2026-09-20: 35 findings fixed in focused commits. Payment reassignment/import isolation passed 25 tests including 8 PostgreSQL cases; quality factory scope passed 93 scope/workflow tests. Pool configuration and task input checks are corrected, but aggregate capacity and task target-access mapping remain open. Payroll issuance corrections passed 64 tests; reference SELECTs fell from 8/44/204 to 7/7/7 at 1/10/50 labels. CI passed for `738daad`; later commits need their final run. Latest main `5c4844e` conflicts with this branch; user requested continued branch-local fixes, not merge/release. No production contact.
 

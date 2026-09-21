@@ -2,7 +2,20 @@
 
 21 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
 
-**69 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+**70 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+
+## Repository workflow audit — read only
+
+| Finding | Risk | Shortest fix |
+| --- | --- | --- |
+| **194 remote branches:**154 verified merged,18 open-PR,21 unmerged/no PR | Noise and wrong-branch mistakes; not ERP runtime slowness | Delete only the154 verified merged heads; owner-review the other39. Enable auto-delete after merge. |
+| `main` has no protection/ruleset; auto-delete is off; no `develop` exists | Direct unsafe changes can reach production source | Protect `main`; add protected `develop` only if it represents shared staging. Require PR, one approval, green CI and resolved conversations. |
+| Permanent person branches encourage large/conflicting PRs | Slow review and integration | Use short-lived `feat/<person>/<ticket>` or `fix/<person>/<ticket>`; PR→`develop`; release PR `develop`→`main`; hotfix from `main`, then sync back. Keep `main`; do not add duplicate `master`. |
+| Last100 CI runs cover63 unique commits:37 duplicate same-SHA runs | Queue delay and redundant artifacts | Validate PRs once; push CI only on `main`/`develop`; cancel superseded runs. |
+| [ci.yml:3](.github/workflows/ci.yml#L3) runs full backend/PostgreSQL/frontend on PR, topic push and manual dispatch | One commit can run two or three full suites | Add workflow concurrency; separate validation from release; restrict release to `main`/tag. |
+| [ci.yml:22](.github/workflows/ci.yml#L22) grants `packages:write` workflow-wide | Validation jobs have excess token permission | Default to `contents:read`; grant package write only to release. |
+
+The repository is public, so standard GitHub-hosted runner time is currently free. The duplicated runs are still poor CI practice because they waste review time, queue capacity and storage. No branch, setting or workflow cleanup was performed.
 
 ## Fixed and regression-tested
 
@@ -132,11 +145,11 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 
 ## Still open / limits
 
-- **DB07 partial — Identifier ceiling:** `b350c4f` allows approved growth past9999 without renumbering existing rows or recycling gaps. Lookup/QR/alias compatibility:22 independently passing cases. PostgreSQL boundary concurrency and combined CI remain pending; not a deployment sign-off.
-- **PERF09 partial — Cost lookup per BOM row:** `0066d32`, [packages.py:245](backend/app/services/packages.py#L245): fetch latest item costs together. Seven independent tests pass;1/50/401 rows use two SELECTs, empty BOM uses one. Formula, duplicates, missing/manual items and zero-cost behavior preserved. Other package-write queries remain open.
+- **DB07 fixed — Identifier ceiling:** `b350c4f`, `11aabc1` allow growth past9999 without renumbering or gap reuse.22 compatibility cases and a real PostgreSQL two-writer boundary race pass; branch CI at `38e4fa7` is green.
+- **PERF09 partial — Package writes:** `0066d32`, `a51eb6f`, [packages.py:245](backend/app/services/packages.py#L245): batch cost reads and reuse duplicate allocation validation. Cost1/50/401 uses two SELECTs; repeated allocation1/50/401 also stays at two.12 focused cases pass. Other workflow writes remain open.
 - **PERF26 partial — Repeated reservation package reads:** `5a89e27`, [sales.py:1162](backend/app/api/routes/sales.py#L1162): reuse locked package identities, not changing eligibility. Five database-backed cases independently pass; four real reservation workflows pass. Two helper passes use one Package SELECT at1/50/401 packages; depleted stock is rechecked. Other variant/repair queries remain.
 - **PERF32 partial — Inbox image N+1:** `f79d195`, [inbox.py:679](backend/app/api/routes/inbox.py#L679): preload image/BOM references without binary files.1/50/401/501 models:6/6/6/8 SELECTs; two independent tests preserve all image fallbacks. Other inbox/forecast paths remain open.
-- **PERF39 partial — Hidden form fetches:** `ada4aaf`, `5a85dcd`: HR documents loads employees only when upload opens; recruitment loads departments only when create/edit opens. Actual component tests independently pass; types/lint pass. Other request waterfalls remain open.
+- **PERF39 partial — Hidden form fetches:** `ada4aaf`, `5a85dcd`, `0094748`: HR documents, recruitment and inventory Accessories load option data only when opened. Actual component tests and stabilization suite pass; types/lint pass. Other request waterfalls remain open.
 - **PERF13 partial — Slow bulk bundle receipt:** `ef9cb88`, [bundles.py:574](backend/app/services/bundles.py#L574): reuse departments/work-order references;23 independent tests pass. Dynamic quantities, factory checks and per-bundle synchronization stay unchanged.401 manual receipts still use2,422 SELECTs excluding audit; further optimization needed.
 - **PERF27 partial — Shipment re-locks each package:** `9d1755e`, [shipments.py:777](backend/app/api/routes/shipments.py#L777): reuse the existing sorted, refreshed lock result. One Package SELECT at1/50/401 in isolated tests; seven independent tests include real stock/dispatch workflows. Stock reads and synchronization remain per package.
 
