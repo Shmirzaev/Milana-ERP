@@ -1,4 +1,5 @@
 """Bundle service: create cutting bundles with QR/barcode, manage scan transitions."""
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from fastapi import HTTPException
@@ -19,6 +20,14 @@ from app.models.order_reference import BusinessOrderAlias
 class SewingAccessoryGate:
     production_order_id: int
     transaction: object
+
+
+@dataclass
+class SewingReceiptContext:
+    accessory_gate: SewingAccessoryGate
+    transaction: object
+    departments: dict[str, Department]
+    work_orders: dict[int, list[WorkOrder]]
 
 
 def verify_sewing_accessory_gate(db: Session, production_order_id: int) -> SewingAccessoryGate:
@@ -85,7 +94,13 @@ SEWING_FACTORY_ALIASES = {
 }
 
 
-def _dept(db: Session, code: str) -> Department | None:
+def _dept(
+    db: Session,
+    code: str,
+    receipt_context: SewingReceiptContext | None = None,
+) -> Department | None:
+    if receipt_context is not None:
+        return receipt_context.departments.get(code)
     return db.query(Department).filter(Department.code == code).first()
 
 
@@ -101,9 +116,13 @@ def is_sewing_department_code(code: str | None) -> bool:
     return normalized in SEWING_DEPARTMENT_CODES or normalized in SEWING_FACTORY_ALIASES
 
 
-def _sewing_factory_dept(db: Session, code: str | None) -> Department | None:
+def _sewing_factory_dept(
+    db: Session,
+    code: str | None,
+    receipt_context: SewingReceiptContext | None = None,
+) -> Department | None:
     factory_code = resolve_sewing_factory_code(code)
-    return _dept(db, factory_code) or _dept(db, DEPT_SEW)
+    return _dept(db, factory_code, receipt_context) or _dept(db, DEPT_SEW, receipt_context)
 
 
 def _factory_codes_for_scope(
@@ -154,7 +173,19 @@ def _work_orders_for_route(
     production_order_id: int,
     production_batch_id: int | None,
     operation: str,
+    receipt_context: SewingReceiptContext | None = None,
 ) -> list[WorkOrder]:
+    if receipt_context is not None:
+        rows = [
+            row for row in receipt_context.work_orders.get(production_order_id, [])
+            if row.operation == operation
+        ]
+        if production_batch_id is not None:
+            scoped = [row for row in rows if row.production_batch_id == production_batch_id]
+            if scoped:
+                return scoped
+        generic = [row for row in rows if row.production_batch_id is None]
+        return generic or rows
     base = db.query(WorkOrder).filter(
         WorkOrder.production_order_id == production_order_id,
         WorkOrder.operation == operation,
@@ -174,11 +205,14 @@ def _assign_work_order_department(
     operation: str,
     department_code: str,
     fallback_code: str,
+    receipt_context: SewingReceiptContext | None = None,
 ) -> str:
-    target = _dept(db, department_code) or _dept(db, fallback_code)
+    target = _dept(db, department_code, receipt_context) or _dept(db, fallback_code, receipt_context)
     if not target:
         return fallback_code
-    for wo in _work_orders_for_route(db, production_order_id, production_batch_id, operation):
+    for wo in _work_orders_for_route(
+        db, production_order_id, production_batch_id, operation, receipt_context
+    ):
         if wo.department_id != target.id:
             wo.department_id = target.id
     return target.code
@@ -188,6 +222,7 @@ def sync_sewing_department_for_bundle_route(
     db: Session,
     production_order_id: int,
     production_batch_id: int | None = None,
+    receipt_context: SewingReceiptContext | None = None,
 ) -> str:
     return _assign_work_order_department(
         db,
@@ -196,6 +231,7 @@ def sync_sewing_department_for_bundle_route(
         "sewing",
         sewing_department_code_for_bundle_route(db, production_order_id, production_batch_id),
         DEPT_SEW,
+        receipt_context,
     )
 
 
@@ -203,6 +239,7 @@ def sync_packaging_department_for_bundle_route(
     db: Session,
     production_order_id: int,
     production_batch_id: int | None = None,
+    receipt_context: SewingReceiptContext | None = None,
 ) -> str:
     return _assign_work_order_department(
         db,
@@ -211,6 +248,7 @@ def sync_packaging_department_for_bundle_route(
         "packaging",
         packaging_department_code_for_bundle_route(db, production_order_id, production_batch_id),
         DEPT_PKG,
+        receipt_context,
     )
 
 
@@ -218,9 +256,14 @@ def sync_textile_departments_for_bundle_route(
     db: Session,
     production_order_id: int,
     production_batch_id: int | None = None,
+    receipt_context: SewingReceiptContext | None = None,
 ) -> tuple[str, str]:
-    sewing_code = sync_sewing_department_for_bundle_route(db, production_order_id, production_batch_id)
-    packaging_code = sync_packaging_department_for_bundle_route(db, production_order_id, production_batch_id)
+    sewing_code = sync_sewing_department_for_bundle_route(
+        db, production_order_id, production_batch_id, receipt_context
+    )
+    packaging_code = sync_packaging_department_for_bundle_route(
+        db, production_order_id, production_batch_id, receipt_context
+    )
     return sewing_code, packaging_code
 
 
@@ -251,7 +294,23 @@ def bundle_qr_payload(db: Session, bundle: Bundle) -> str:
     return "|".join(part for part in parts if part)
 
 
-def _work_order_for_bundle(db: Session, bundle: Bundle, operation: str) -> WorkOrder | None:
+def _work_order_for_bundle(
+    db: Session,
+    bundle: Bundle,
+    operation: str,
+    receipt_context: SewingReceiptContext | None = None,
+) -> WorkOrder | None:
+    if receipt_context is not None:
+        rows = [
+            row for row in receipt_context.work_orders.get(int(bundle.production_order_id), [])
+            if row.operation == operation
+        ]
+        if bundle.production_batch_id is not None:
+            scoped = [row for row in rows if row.production_batch_id == bundle.production_batch_id]
+            if scoped:
+                return scoped[0]
+        generic = [row for row in rows if row.production_batch_id is None]
+        return generic[0] if generic else (rows[0] if rows else None)
     base = db.query(WorkOrder).filter(
         WorkOrder.production_order_id == bundle.production_order_id,
         WorkOrder.operation == operation,
@@ -360,9 +419,10 @@ def _require_cutting_batch_approved(db: Session, bundle: Bundle) -> None:
 def _transition(
     db: Session, bundle: Bundle, scan_type: str, new_status: str,
     from_code: str | None, to_code: str | None, user_id: int | None,
+    receipt_context: SewingReceiptContext | None = None,
 ):
-    f = _dept(db, from_code) if from_code else None
-    t = _dept(db, to_code) if to_code else None
+    f = _dept(db, from_code, receipt_context) if from_code else None
+    t = _dept(db, to_code, receipt_context) if to_code else None
     bundle.status = new_status
     if t:
         bundle.current_department_id = t.id
@@ -449,6 +509,7 @@ def receive_at_sewing(
     bundle: Bundle,
     current: User,
     accessory_gate: SewingAccessoryGate | None = None,
+    receipt_context: SewingReceiptContext | None = None,
 ):
     # Authorize the persisted destination before any receiving side effects.
     sewing_line_factory_scope(current, resolve_sewing_factory_code(bundle.sewing_factory_code))
@@ -463,20 +524,34 @@ def receive_at_sewing(
         or accessory_gate.transaction is not db.get_transaction()
     ):
         raise HTTPException(409, "Accessory verification does not match this receipt transaction")
-    target = _sewing_factory_dept(db, bundle.sewing_factory_code)
-    generic = _dept(db, DEPT_SEW)
+    if receipt_context is not None and (
+        receipt_context.accessory_gate is not accessory_gate
+        or receipt_context.transaction
+        is not (db.get_nested_transaction() or db.get_transaction())
+    ):
+        raise HTTPException(409, "Receipt context does not match this receipt transaction")
+    target = _sewing_factory_dept(db, bundle.sewing_factory_code, receipt_context)
+    generic = _dept(db, DEPT_SEW, receipt_context)
     allowed_ids = {d.id for d in (target, generic) if d}
     target_code = target.code if target else DEPT_SEW
     if bundle.status == "created" and bundle.next_department_id in allowed_ids:
         bundle.sewing_factory_code = resolve_sewing_factory_code(bundle.sewing_factory_code)
-        _transition(db, bundle, "received_sewing", "received_sewing", DEPT_CUT, target_code, user_id)
+        _transition(
+            db, bundle, "received_sewing", "received_sewing", DEPT_CUT, target_code,
+            user_id, receipt_context,
+        )
     elif bundle.status == "sent_to_sewing":
         bundle.sewing_factory_code = resolve_sewing_factory_code(bundle.sewing_factory_code)
-        _transition(db, bundle, "received_sewing", "received_sewing", None, target_code, user_id)
+        _transition(
+            db, bundle, "received_sewing", "received_sewing", None, target_code,
+            user_id, receipt_context,
+        )
     else:
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be received at sewing")
-    sync_textile_departments_for_bundle_route(db, bundle.production_order_id, bundle.production_batch_id)
-    wo = _work_order_for_bundle(db, bundle, "sewing")
+    sync_textile_departments_for_bundle_route(
+        db, bundle.production_order_id, bundle.production_batch_id, receipt_context
+    )
+    wo = _work_order_for_bundle(db, bundle, "sewing", receipt_context)
     if wo:
         qty_filters = [
             Bundle.production_order_id == bundle.production_order_id,
@@ -494,3 +569,63 @@ def receive_at_sewing(
         if wo.status in ("new", "planning", "waiting"):
             wo.status = "in_progress"
     sync_production_order_status(db, bundle.production_order_id)
+
+
+def _sewing_receipt_context(
+    db: Session,
+    bundles: list[Bundle],
+    accessory_gate: SewingAccessoryGate,
+) -> SewingReceiptContext:
+    root_transaction = db.get_transaction()
+    transaction = db.get_nested_transaction() or root_transaction
+    order_ids = {int(bundle.production_order_id) for bundle in bundles}
+    if (
+        len(order_ids) != 1
+        or accessory_gate.production_order_id not in order_ids
+        or accessory_gate.transaction is not root_transaction
+    ):
+        raise HTTPException(409, "Accessory verification does not match this receipt transaction")
+
+    department_codes = (
+        DEPT_CUT, DEPT_SEW, DEPT_MILANA, DEPT_BESTTEX, DEPT_ECO_COTTON,
+        DEPT_PKG, DEPT_BESTTEX_PACKAGING, DEPT_ECO_COTTON_PACKAGING,
+    )
+    departments = {
+        row.code: row
+        for row in db.query(Department).filter(Department.code.in_(department_codes)).all()
+    }
+    work_orders = {order_id: [] for order_id in order_ids}
+    for row in (
+        db.query(WorkOrder)
+        .filter(WorkOrder.production_order_id.in_(order_ids))
+        .order_by(WorkOrder.id)
+        .all()
+    ):
+        work_orders[int(row.production_order_id)].append(row)
+
+    return SewingReceiptContext(
+        accessory_gate=accessory_gate,
+        transaction=transaction,
+        departments=departments,
+        work_orders=work_orders,
+    )
+
+
+def receive_many_at_sewing(
+    db: Session,
+    bundles: list[Bundle],
+    current: User,
+    accessory_gate: SewingAccessoryGate,
+    after_receive: Callable[[Bundle], None] | None = None,
+) -> list[int]:
+    if not bundles:
+        return []
+    context = _sewing_receipt_context(db, bundles, accessory_gate)
+
+    received_ids: list[int] = []
+    for bundle in bundles:
+        receive_at_sewing(db, bundle, current, accessory_gate, context)
+        received_ids.append(int(bundle.id))
+        if after_receive:
+            after_receive(bundle)
+    return received_ids
