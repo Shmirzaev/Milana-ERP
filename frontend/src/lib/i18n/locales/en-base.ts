@@ -1463,6 +1463,18 @@ export default {
     "page.waste.nonSellable": "Non-sellable",
     "page.waste.wasteType": "Waste type",
     "page.waste.sellPrice": "Sell @0.1",
+    "page.waste.sell": "Record sale",
+    "page.waste.retrySale": "Retry pending sale",
+    "page.waste.buyer": "Buyer name",
+    "page.waste.unitPrice": "Unit price",
+    "page.waste.originalQuantity": "Original recorded quantity",
+    "page.waste.remainingChecked": "The available remainder is checked when the sale is saved.",
+    "page.waste.confirmSale": "Confirm sale",
+    "page.waste.saleConfirm": "Record this waste sale with the entered buyer, quantity, and unit price?",
+    "page.waste.saleRecorded": "Waste sale recorded",
+    "page.waste.saleRecordedRefreshFailed": "Waste sale recorded. Refresh the page to update the list.",
+    "page.waste.saleFailed": "Waste sale could not be recorded",
+    "page.waste.saleInvalid": "Enter a buyer, a positive quantity, and a nonnegative unit price.",
     "field.wasteType": "Type",
 
     // ----- Finance -----
