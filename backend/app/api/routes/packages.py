@@ -59,6 +59,7 @@ from app.services.packages import (
     mark_delivered,
     mark_damaged,
     place_on_storage_map,
+    prepare_locked_package_receive,
     format_storage_location,
     create_package_change_request,
     approve_package_change_request,
@@ -255,6 +256,31 @@ def _package_detail_payloads(db: DbSession, packages: list[Package]) -> list[dic
     return [_package_detail_payload(db, pkg, context=context) for pkg in packages]
 
 
+def _package_detail_relationship_options():
+    return (
+        selectinload(Package.items),
+        selectinload(Package.batch_allocations),
+        selectinload(Package.scan_logs),
+        joinedload(Package.legacy_receipt),
+    )
+
+
+def _package_details_by_ids(db: DbSession, package_ids: list[int]) -> list[Package]:
+    packages_by_id = {}
+    ordered_ids = list(dict.fromkeys(int(package_id) for package_id in package_ids))
+    for offset in range(0, len(ordered_ids), _LABEL_CONTEXT_CHUNK_SIZE):
+        chunk = ordered_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
+        packages_by_id.update({
+            int(pkg.id): pkg
+            for pkg in db.query(Package)
+            .options(*_package_detail_relationship_options())
+            .filter(Package.id.in_(chunk))
+            .populate_existing()
+            .all()
+        })
+    return [packages_by_id[package_id] for package_id in ordered_ids if package_id in packages_by_id]
+
+
 def _receiving_queue_packages(db: DbSession) -> list[Package]:
     latest_event = (
         db.query(
@@ -267,12 +293,7 @@ def _receiving_queue_packages(db: DbSession) -> list[Package]:
     )
     return (
         db.query(Package)
-        .options(
-            selectinload(Package.items),
-            selectinload(Package.batch_allocations),
-            selectinload(Package.scan_logs),
-            joinedload(Package.legacy_receipt),
-        )
+        .options(*_package_detail_relationship_options())
         .join(latest_event, latest_event.c.package_id == Package.id)
         .join(PackageScanLog, PackageScanLog.id == latest_event.c.event_id)
         .filter(
@@ -1410,13 +1431,12 @@ def api_batch_receive_storage(
     if not package_ids:
         raise HTTPException(400, "package_ids is required")
 
-    packages = db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update().populate_existing().all()
-    packages_by_id = {int(pkg.id): pkg for pkg in packages}
+    receive_gate = prepare_locked_package_receive(db, package_ids)
+    packages_by_id = receive_gate.packages_by_id
     missing = [package_id for package_id in package_ids if package_id not in packages_by_id]
     if missing:
         raise HTTPException(404, f"Package not found: {missing[0]}")
 
-    updated: list[dict] = []
     for package_id in package_ids:
         pkg = packages_by_id[package_id]
         receive_at_storage(
@@ -1426,6 +1446,7 @@ def api_batch_receive_storage(
             current.id,
             storage_cell=payload.storage_cell,
             storage_shelf=payload.storage_shelf,
+            receive_gate=receive_gate,
         )
         log_action(
             db,
@@ -1435,11 +1456,8 @@ def api_batch_receive_storage(
             pkg.id,
             new_value={"storage_cell": pkg.storage_cell, "storage_shelf": pkg.storage_shelf, "mode": "batch"},
         )
-        updated.append(_package_detail_payload(db, pkg))
-
+    updated = _package_detail_payloads(db, _package_details_by_ids(db, package_ids))
     db.commit()
-    for pkg in packages:
-        db.refresh(pkg)
     return {
         "count": len(updated),
         "packages": updated,
@@ -1462,13 +1480,14 @@ def api_batch_place_on_map(
     if not package_ids:
         raise HTTPException(400, "package_ids is required")
 
-    packages = db.query(Package).filter(Package.id.in_(package_ids)).all()
-    packages_by_id = {int(pkg.id): pkg for pkg in packages}
+    packages_by_id = {
+        int(pkg.id): pkg
+        for pkg in db.query(Package).filter(Package.id.in_(package_ids)).all()
+    }
     missing = [package_id for package_id in package_ids if package_id not in packages_by_id]
     if missing:
         raise HTTPException(404, f"Package not found: {missing[0]}")
 
-    updated: list[dict] = []
     for package_id in package_ids:
         pkg = packages_by_id[package_id]
         place_on_storage_map(
@@ -1486,11 +1505,8 @@ def api_batch_place_on_map(
             pkg.id,
             new_value={"storage_cell": pkg.storage_cell, "storage_shelf": pkg.storage_shelf, "mode": "batch"},
         )
-        updated.append(_package_detail_payload(db, pkg))
-
+    updated = _package_detail_payloads(db, _package_details_by_ids(db, package_ids))
     db.commit()
-    for pkg in packages:
-        db.refresh(pkg)
     return {
         "count": len(updated),
         "packages": updated,

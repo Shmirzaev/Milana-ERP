@@ -1,14 +1,15 @@
 """Package service: build packages of finished goods with QR/barcode."""
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.models import (
     Package, PackageItem, PackageBatchAllocation, PackageScanLog, PackageChangeRequest,
     ProductionOrder, FinishedGoodsStock, Warehouse, ModelBOM, StockBatch,
     ProductionBatch, StockReservation, ShipmentPackage, User, Notification,
-    PackagingRecord, WorkOrder,
+    PackagingRecord, WorkOrder, PackagePrintRunMember,
 )
 from app.core.deps import user_permissions
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
@@ -44,6 +45,93 @@ VALID_STORAGE_CELLS = {
 VALID_STORAGE_SHELVES = {"S1", "S2"}
 PACKAGE_CHANGE_ALLOWED_STATUSES = {"packed", "received_in_storage"}
 PACKAGE_CHANGE_PENDING_STATUS = "pending"
+_PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE = 400
+
+
+def _active_package_receive_transaction(db: Session):
+    return db.get_nested_transaction() or db.get_transaction()
+
+
+@dataclass(frozen=True)
+class LockedPackageReceiveGate:
+    session: Session
+    transaction: object
+    packages_by_id: dict[int, Package]
+    member_run_ids: dict[int, int]
+    source_types_by_order_id: dict[int, str]
+    print_run_id: int | None
+
+
+def prepare_locked_package_receive(
+    db: Session,
+    package_ids,
+    *,
+    print_run_id: int | None = None,
+) -> LockedPackageReceiveGate:
+    ordered_ids = sorted({int(package_id) for package_id in package_ids})
+    packages = (
+        db.query(Package)
+        .filter(Package.id.in_(ordered_ids))
+        .order_by(Package.id)
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    packages_by_id = {int(pkg.id): pkg for pkg in packages}
+    if any(object_session(pkg) is not db for pkg in packages):  # pragma: no cover - ORM invariant
+        raise RuntimeError("Locked packages must belong to the receiving session")
+
+    member_run_ids: dict[int, int] = {}
+    for offset in range(0, len(ordered_ids), _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE):
+        chunk = ordered_ids[offset:offset + _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE]
+        member_run_ids.update({
+            int(package_id): int(run_id)
+            for package_id, run_id in db.query(
+                PackagePrintRunMember.package_id,
+                PackagePrintRunMember.run_id,
+            ).filter(PackagePrintRunMember.package_id.in_(chunk)).all()
+        })
+
+    order_ids = sorted({int(pkg.production_order_id) for pkg in packages if pkg.production_order_id})
+    source_types_by_order_id: dict[int, str] = {}
+    for offset in range(0, len(order_ids), _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE):
+        chunk = order_ids[offset:offset + _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE]
+        source_types_by_order_id.update({
+            int(order_id): str(source_type)
+            for order_id, source_type in db.query(
+                ProductionOrder.id,
+                ProductionOrder.source_type,
+            ).filter(ProductionOrder.id.in_(chunk)).all()
+        })
+
+    transaction = _active_package_receive_transaction(db)
+    if transaction is None:  # pragma: no cover - locking query always starts a transaction
+        raise RuntimeError("Package receiving requires an active transaction")
+    return LockedPackageReceiveGate(
+        session=db,
+        transaction=transaction,
+        packages_by_id=packages_by_id,
+        member_run_ids=member_run_ids,
+        source_types_by_order_id=source_types_by_order_id,
+        print_run_id=print_run_id,
+    )
+
+
+def _validate_locked_package_receive_gate(
+    db: Session,
+    pkg: Package,
+    gate: LockedPackageReceiveGate,
+    *,
+    print_run_id: int | None,
+) -> None:
+    if (
+        gate.session is not db
+        or gate.transaction is not _active_package_receive_transaction(db)
+        or gate.packages_by_id.get(int(pkg.id)) is not pkg
+        or object_session(pkg) is not db
+        or gate.print_run_id != print_run_id
+    ):
+        raise HTTPException(409, "Invalid locked package context for receiving")
 
 
 def _sync_package_production(db: Session, production_order_id: int | None) -> None:
@@ -1073,13 +1161,27 @@ def receive_at_storage(
     storage_cell: str | None = None,
     storage_shelf: str | None = None,
     print_run_id: int | None = None,
+    receive_gate: LockedPackageReceiveGate | None = None,
 ):
-    from app.models.package_workflows import PackagePrintRunMember
-    pkg = db.query(Package).filter(Package.id == pkg.id).with_for_update().populate_existing().one()
-    member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
-    if member and member.run_id != print_run_id:
+    if receive_gate is None:
+        pkg = db.query(Package).filter(Package.id == pkg.id).with_for_update().populate_existing().one()
+        member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
+        member_run_id = int(member.run_id) if member else None
+    else:
+        _validate_locked_package_receive_gate(
+            db,
+            pkg,
+            receive_gate,
+            print_run_id=print_run_id,
+        )
+        member_run_id = receive_gate.member_run_ids.get(int(pkg.id))
+        source_type = receive_gate.source_types_by_order_id.get(int(pkg.production_order_id or 0))
+    if member_run_id is not None and member_run_id != print_run_id:
         raise HTTPException(409, "Scan a package in this print run to receive the complete run together")
-    _require_warehouse_package(db, pkg)
+    if receive_gate is None:
+        _require_warehouse_package(db, pkg)
+    elif source_type == "usluga":
+        raise HTTPException(400, "Usluga packages are handed directly to the customer and cannot enter warehouse flow")
     if pkg.status not in ("packed",):
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be received at storage")
     cell, shelf = validate_storage_location(storage_cell, storage_shelf, require_cell=False)
