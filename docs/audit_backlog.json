@@ -901,10 +901,10 @@
       "risk": "Bulk creation/edit becomes slow.",
       "proposed_fix": "Reuse locked context.",
       "baseline_source": "backend/app/services/packages.py:258",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "0066d32",
+      "evidence": "Package costing batches highest-ID stock costs by BOM item; formula/order/duplicates unchanged. Seven independently passing cases:1/50/401 BOM rows2 SELECTs, empty BOM1; missing/manual items zero, newest zero cost overrides older cost. Isolated create_package cost persistence passes with other workflow effects stubbed. Other allocation/workflow writes remain open; constant trips are not constant total DB work."
     },
     {
       "number": 76,
@@ -1263,8 +1263,8 @@
       "baseline_source": "frontend/src/components/AuthGate.tsx:183",
       "status": "partial",
       "owner": null,
-      "commit": "ada4aaf",
-      "evidence": "HR documents no longer fetches full employee directory while upload modal is closed. Actual component hook/render test independently passes: closed key null, opening modal requests employees and renders options. Strict types/lint pass. Other dependent requests/duplicate keys remain open; no browser visual proof."
+      "commit": "ada4aaf, 5a85dcd",
+      "evidence": "HR documents defers employee directory until upload opens; recruitment defers departments until create/edit opens, preserving visible positions data. Actual component tests independently pass for closed/create/edit states and rendered options; strict types/lint pass. Other dependent requests/duplicate keys remain open; no browser visual proof."
     },
     {
       "number": 106,
@@ -1356,11 +1356,11 @@
       "bug": "Four-digit order/bundle namespaces have finite capacity.",
       "risk": "New identifiers eventually stop; remaining capacity unknown.",
       "proposed_fix": "Measure headroom; extend without recycling",
-      "baseline_source": null,
+      "baseline_source": "backend/app/services/numbering.py:65",
       "status": "open",
       "owner": null,
       "commit": null,
-      "evidence": null
+      "evidence": "Explicit9999 guards confirmed. User approved longer identifiers on2026-09-21. Runtime implementation is uncommitted:22 focused SQLite cases pass; PostgreSQL concurrency proof and final root review pending. Existing identifiers/migrations remain unchanged. Not included in current reviewed push; production headroom not queried."
     },
     {
       "number": 114,
@@ -1417,11 +1417,11 @@
       "bug": "Basic health endpoint does not prove dependency readiness.",
       "risk": "Traffic may reach a broken instance.",
       "proposed_fix": "Bounded readiness checks.",
-      "baseline_source": "backend/app/main.py:452",
+      "baseline_source": "backend/app/main.py:443",
       "status": "open",
       "owner": null,
       "commit": null,
-      "evidence": null
+      "evidence": "Read-only review: /health is process liveness; startup verifies security and Alembic/DB, but later DB/Redis failure still leaves health200. Candidate/HAProxy/postflight use this path. Proposed separate bounded readiness endpoint; existing pool/connect waits need explicit limits. Adopting readiness for routing and deciding Redis failure policy require infrastructure approval; no probe/deployment changes made."
     },
     {
       "number": 119,
