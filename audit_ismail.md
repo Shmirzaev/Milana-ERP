@@ -12,7 +12,7 @@
 | **Total remaining** | **55** | Partial + open; not production-ready |
 | **Total audited** | **127** | 56.7% fully resolved |
 
-[Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`; final combined validation is incomplete. Latest validation-only run: frontend and PostgreSQL passed, backend still running.
+[Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`. Validation-only run `35589397268` passed backend, frontend and PostgreSQL; release was skipped.
 
 ## Repository workflow cleanup
 
