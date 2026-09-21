@@ -4,7 +4,7 @@ Last updated: 2026-09-21
 
 ## Stabilization fixes prepared — not deployed (2026-09-18)
 
-- Latest reviewed batches: **71/127 findings fixed;22 open;34 partial**. Payroll no longer auto-attaches unmatched scan dates. Package allocation validation is chunked; hidden Purchasing item directories are deferred. Longer identifiers pass compatibility and PostgreSQL race tests. Branch CI `b01ae83` passed backend/PostgreSQL/frontend. No deployment/production access; main conflicts, historical audit damage, runtime lifecycle and load validation remain open.
+- Latest reviewed batches: **72/127 findings fixed;21 open;34 partial**. Reserved stock can no longer race into damaged state. Usluga cutting reads are chunked; first-attempt429 receipt retries can be corrected. Prior branch CI `b01ae83` passed backend/PostgreSQL/frontend. No deployment/production access; main conflicts, historical audit damage, runtime lifecycle and load validation remain open.
 
 - Continued 2026-09-20: 35 findings fixed in focused commits. Payment reassignment/import isolation passed 25 tests including 8 PostgreSQL cases; quality factory scope passed 93 scope/workflow tests. Pool configuration and task input checks are corrected, but aggregate capacity and task target-access mapping remain open. Payroll issuance corrections passed 64 tests; reference SELECTs fell from 8/44/204 to 7/7/7 at 1/10/50 labels. CI passed for `738daad`; later commits need their final run. Latest main `5c4844e` conflicts with this branch; user requested continued branch-local fixes, not merge/release. No production contact.
 

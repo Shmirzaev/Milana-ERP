@@ -267,8 +267,8 @@
       "baseline_source": "frontend/src/lib/packageWorkflow.ts:64",
       "status": "partial",
       "owner": null,
-      "commit": "3ef1c83",
-      "evidence": "Partial: manual receipts can reconcile committed results or atomically cancel uncommitted keys with durable tombstones. Five API cases independently passed; two real PostgreSQL ordering tests passed. Frontend late-A/new-B UUID clearing and listener regressions pass. Other package workflows remain retry-only; deleted results/revoked access require operator review."
+      "commit": "3ef1c83, 0056773",
+      "evidence": "Partial: manual receipts reconcile committed results or atomically cancel uncommitted keys. First-attempt429, rejected before handler execution, now clears the key; corrected input submits with a new key. Frontend handler/stabilization/types/lint pass. Other package workflows and deleted results/revoked access remain."
     },
     {
       "number": 23,
@@ -373,10 +373,10 @@
       "risk": "Damaged goods can be promised or shipped.",
       "proposed_fix": "Reconcile quarantine and reservations.",
       "baseline_source": "backend/app/services/packages.py:1166",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "9e336ce",
-      "evidence": "PARTIAL: reservation rejects already damaged packages; API regression and 3 PostgreSQL reserve races pass. Reverse mark-damaged transition remains unlocked; quarantine/reservation policy unresolved."
+      "commit": "9e336ce, f40f4e4",
+      "evidence": "Reservations reject damaged packages. Damage and both piece/package reservation transitions now share package-to-stock locks; damage rejects409 until reservations release. Six real PostgreSQL race cases and focused compatibility pass."
     },
     {
       "number": 32,
@@ -1033,10 +1033,10 @@
       "risk": "Large records multiply work.",
       "proposed_fix": "Bulk supporting data.",
       "baseline_source": "backend/app/api/routes/production.py:3012",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "57a0b35",
+      "evidence": "Usluga cutting-batch list preloads ProductionBatch and Bundle rows in400-ID chunks. Real SQL at1/50/401 records improves8/106/808 to8/8/10 SELECTs; payload/order retained and17 compatibility/query cases pass. Other cutting/packaging paths remain."
     },
     {
       "number": 87,
