@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, or_
+from sqlalchemy.orm import selectinload
 
 from app.core.deps import CurrentUser, DbSession, user_permissions
 from app.core.dt import as_utc
@@ -675,7 +676,15 @@ def _production_context_by_production_order(db: DbSession, production_order_ids:
     model_ids = sorted(set(model_by_po.values()))
     model_by_id = {
         int(model.id): model
-        for model in db.query(Model).filter(Model.id.in_(model_ids)).all()
+        for model in (
+            db.query(Model)
+            .options(
+                selectinload(Model.images).defer(ModelImage.file_data),
+                selectinload(Model.bom),
+            )
+            .filter(Model.id.in_(model_ids))
+            .all()
+        )
     } if model_ids else {}
 
     sizes_by_po: dict[int, list[str]] = {}
