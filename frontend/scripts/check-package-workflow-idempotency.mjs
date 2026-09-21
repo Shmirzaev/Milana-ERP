@@ -55,6 +55,17 @@ const { postPackageWorkflow, pendingPackageWorkflow, reconcilePendingPackageWork
   await assert.rejects(postPackageWorkflow(url, body, 9));
   assert.equal(pendingPackageWorkflow(url, 9), null, "a definite first rejection can be corrected");
 
+  failure = "429: Too Many Requests";
+  await assert.rejects(postPackageWorkflow(url, body, 14));
+  const rateLimitedKey = calls.at(-1).body.request_key;
+  assert.equal(pendingPackageWorkflow(url, 14), null, "a rate-limited first request must not block corrected values");
+  failure = null;
+  const correctedBody = { ...body, count: 4 };
+  await postPackageWorkflow(url, correctedBody, 14);
+  assert.equal(calls.at(-1).body.count, 4);
+  assert.notEqual(calls.at(-1).body.request_key, rateLimitedKey);
+  assert.equal(pendingPackageWorkflow(url, 14), null);
+
   failure = "Network timeout";
   await assert.rejects(postPackageWorkflow(url, body, 10));
   await assert.rejects(reconcilePendingPackageWorkflow(url, 10));

@@ -101,7 +101,7 @@ export async function postPackageWorkflow<T>(path: string, body: unknown, userId
   } catch (error: any) {
     // A definite first rejection can be corrected. Once an earlier outcome is
     // uncertain, even a later permission/rate-limit error cannot prove it failed.
-    if (!wasPending && /^(400|401|403|404|409|422):/.test(String(error?.message))) {
+    if (!wasPending && /^(400|401|403|404|409|422|429):/.test(String(error?.message))) {
       clearPendingPackageWorkflow(storageKey, pending.requestKey);
     }
     throw error;
