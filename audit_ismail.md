@@ -12,7 +12,7 @@
 | **Total remaining** | **55** | Partial + open; not production-ready |
 | **Total audited** | **127** | 56.7% fully resolved |
 
-[Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`. Validation-only run `35589397268` passed backend, frontend and PostgreSQL; release was skipped.
+[Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`. Validation-only run `35593521935` passed backend, frontend and all 115 PostgreSQL selections on application revision `dafa169`; release was skipped. The first PostgreSQL attempt exposed a pre-existing nondeterministic assertion (valid rejection 400 versus expected 409); its single failed-job rerun passed and is recorded rather than hidden.
 
 ## Repository workflow cleanup
 

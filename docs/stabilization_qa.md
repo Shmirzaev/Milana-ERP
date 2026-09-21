@@ -22,6 +22,8 @@ The PostgreSQL launcher creates a fresh loopback-only cluster on an unused port,
 
 CI portability: `94972e3` failed15 packaging cases on CI SQLite; PostgreSQL/frontend passed. `e1b3b78` removes outer references from subquery ordering while preserving exact-batch/legacy/oldest precedence. Rerun `test_packaging_receive_options_query_growth.py` on both engines and the packaging-receive API workflow; local reruns pass, combined CI remains required.
 
+Final cycle validation: run `35593521935` on application revision `dafa169` passed the backend suite, frontend lint/strict types/build/contracts, and all 115 selected PostgreSQL cases; release skipped. The first PostgreSQL attempt was 114 passed/1 failed because `test_postgres_package_reserve_and_damage_keep_one_valid_state` observed the valid damage-first rejection 400 while asserting only 409. One failed-job rerun passed. Treat the nondeterministic assertion as a separate test-contract defect; do not erase the first attempt.
+
 For one regression: `cd backend`, then `python -m pytest -q app/tests/<file>.py`. Add `-s` to see query counts. Do not set a PostgreSQL URL manually unless it points to a verified disposable database.
 
 ## Acceptance cases
