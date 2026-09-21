@@ -189,7 +189,7 @@ export default function InventoryMasterDataPage() {
     fetcher,
   );
   const { data: accessories, mutate: refreshAccessories } = useSWR<Item[]>(
-    canEditAccessories ? "/api/inventory/items?group=accessories&page_size=500" : null,
+    canEditAccessories && tab === "accessories" ? "/api/inventory/items?group=accessories&page_size=500" : null,
     fetcher,
   );
   const { data: suppliers, mutate: refreshSuppliers } = useSWR<Supplier[]>(
