@@ -132,6 +132,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 
 ## Still open / limits
 
+- **DB07 partial — Identifier ceiling:** `b350c4f` allows approved growth past9999 without renumbering existing rows or recycling gaps. Lookup/QR/alias compatibility:22 independently passing cases. PostgreSQL boundary concurrency and combined CI remain pending; not a deployment sign-off.
 - **PERF09 partial — Cost lookup per BOM row:** `0066d32`, [packages.py:245](backend/app/services/packages.py#L245): fetch latest item costs together. Seven independent tests pass;1/50/401 rows use two SELECTs, empty BOM uses one. Formula, duplicates, missing/manual items and zero-cost behavior preserved. Other package-write queries remain open.
 - **PERF26 partial — Repeated reservation package reads:** `5a89e27`, [sales.py:1162](backend/app/api/routes/sales.py#L1162): reuse locked package identities, not changing eligibility. Five database-backed cases independently pass; four real reservation workflows pass. Two helper passes use one Package SELECT at1/50/401 packages; depleted stock is rechecked. Other variant/repair queries remain.
 - **PERF32 partial — Inbox image N+1:** `f79d195`, [inbox.py:679](backend/app/api/routes/inbox.py#L679): preload image/BOM references without binary files.1/50/401/501 models:6/6/6/8 SELECTs; two independent tests preserve all image fallbacks. Other inbox/forecast paths remain open.

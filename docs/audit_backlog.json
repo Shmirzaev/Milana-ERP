@@ -1357,10 +1357,10 @@
       "risk": "New identifiers eventually stop; remaining capacity unknown.",
       "proposed_fix": "Measure headroom; extend without recycling",
       "baseline_source": "backend/app/services/numbering.py:65",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": "Explicit9999 guards confirmed. User approved longer identifiers on2026-09-21. Runtime implementation is uncommitted:22 focused SQLite cases pass; PostgreSQL concurrency proof and final root review pending. Existing identifiers/migrations remain unchanged. Not included in current reviewed push; production headroom not queried."
+      "commit": "b350c4f",
+      "evidence": "User-approved expansion beyond9999 preserves existing identifiers/aliases and stops gap recycling. Root-reviewed;22 focused SQLite/QR/migration-compatibility cases independently pass, Ruff clean. PostgreSQL boundary concurrency and combined CI remain pending. No historical migrations or production data changed."
     },
     {
       "number": 114,
