@@ -913,10 +913,10 @@
       "risk": "Scanner actions slow under load.",
       "proposed_fix": "Batch supporting reads.",
       "baseline_source": "backend/app/api/routes/packages.py:1131",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "ba1fe9a",
+      "evidence": "Batch receive locks and preloads member/source checks, batches response refs and removes unused postcommit refreshes.14 focused tests independently pass; agent17 including compatibility. With audit/workflow synchronization isolated,1/50/401 packages use13/13/25 SELECTs. Actual PostgreSQL race independently passes: contender waits, one receipt/log/audit, other request400. Placement source checks, sync/writes/audit remain per package. No total O(1) or placement concurrency claim."
     },
     {
       "number": 77,
@@ -1456,8 +1456,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "1896408",
-      "evidence": "2026-09-21 manifest scans: Pillow12.2→12.3 removes13 unique advisories;27 image/upload/QR tests pass using actual12.3 wheel, six independently repeated. Transitive ecdsa advisory remains (JWT defaults to configurable HS256; deployed algorithm unverified), connector scan clean. Frontend lock still reports5 vulnerable production packages; upgrades pending. Node20 EOL; no local Docker/image scanner. Not a full dependency or runtime sign-off."
+      "commit": "1896408, f288ada",
+      "evidence": "2026-09-21: Pillow12.3 removes13 advisories;27 image/upload/QR tests pass, six independently repeated. Next16.3.5/PostCSS8.5.23 lock patches: full/production npm audits zero vulnerabilities; stabilization, strict types, lint and88-page build pass. Root verifies candidate lock hashes and standalone/manifests. Ecdsa advisory, configurable JWT deployed algorithm, Node20 EOL and container scans remain unresolved. Not a runtime/security sign-off."
     },
     {
       "number": 122,
