@@ -1,0 +1,262 @@
+{
+  "routeTemplates": 102,
+  "routeFrames": 102,
+  "variantFrames": 45,
+  "totalFrames": 147,
+  "sourceControls": 948,
+  "controlsWithRouteOwners": 913,
+  "unownedControls": 35,
+  "sidebarEntries": 96,
+  "resolvedSidebarEntries": 96,
+  "screenControlInstances": 2209,
+  "resolvedNavigationControls": 463,
+  "unresolvedDestinationControls": [
+    {
+      "screen": "P032",
+      "control": "C0139",
+      "destination": "row.download_url"
+    },
+    {
+      "screen": "P044",
+      "control": "C0195",
+      "destination": "isImage ? imagePreviewHref(url, alt) : url"
+    },
+    {
+      "screen": "P044",
+      "control": "C0199",
+      "destination": "inventoryHref(group, searchDraft)"
+    },
+    {
+      "screen": "P044",
+      "control": "C0200",
+      "destination": "inventoryHref(group, \"\")"
+    },
+    {
+      "screen": "P044",
+      "control": "C0201",
+      "destination": "inventoryHref(group, searchDraft)"
+    },
+    {
+      "screen": "P045",
+      "control": "C0221",
+      "destination": "isImage ? imagePreviewHref(url, alt) : url"
+    },
+    {
+      "screen": "P046",
+      "control": "C0247",
+      "destination": "modelPageBase"
+    },
+    {
+      "screen": "P046",
+      "control": "C0277",
+      "destination": "img.file_url"
+    },
+    {
+      "screen": "P055",
+      "control": "C0777",
+      "destination": "orderHref(o)!"
+    },
+    {
+      "screen": "P061",
+      "control": "C0408",
+      "destination": "file.file_url"
+    },
+    {
+      "screen": "P062",
+      "control": "C0408",
+      "destination": "file.file_url"
+    },
+    {
+      "screen": "P070",
+      "control": "C0506",
+      "destination": "line.photo_url"
+    },
+    {
+      "screen": "P071",
+      "control": "C0545",
+      "destination": "file.file_url"
+    },
+    {
+      "screen": "P073",
+      "control": "C0523",
+      "destination": "file.file_url"
+    },
+    {
+      "screen": "P076",
+      "control": "C0548",
+      "destination": "row.url"
+    },
+    {
+      "screen": "P081",
+      "control": "C0580",
+      "destination": "`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`"
+    },
+    {
+      "screen": "P081",
+      "control": "C0582",
+      "destination": "`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`"
+    },
+    {
+      "screen": "P081",
+      "control": "C0892",
+      "destination": "`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`"
+    },
+    {
+      "screen": "P082",
+      "control": "C0892",
+      "destination": "`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`"
+    },
+    {
+      "screen": "P084",
+      "control": "C0247",
+      "destination": "modelPageBase"
+    },
+    {
+      "screen": "P084",
+      "control": "C0277",
+      "destination": "img.file_url"
+    },
+    {
+      "screen": "P087",
+      "control": "C0601",
+      "destination": "`/work-orders/${workOrder.id}/${workOrder.operation}`"
+    },
+    {
+      "screen": "P088",
+      "control": "C0615",
+      "destination": "workOrderLink(workOrder)"
+    },
+    {
+      "screen": "P090",
+      "control": "C0637",
+      "destination": "`/api/warehouse-stocktakes/${count.id}/export.csv`"
+    },
+    {
+      "screen": "P090",
+      "control": "C0913",
+      "destination": "`${base}/export.csv`"
+    },
+    {
+      "screen": "P094",
+      "control": "C0943",
+      "destination": "file.file_url || \"#\""
+    },
+    {
+      "screen": "P095",
+      "control": "C0824",
+      "destination": "p.qr_code_url"
+    },
+    {
+      "screen": "P095",
+      "control": "C0943",
+      "destination": "file.file_url || \"#\""
+    },
+    {
+      "screen": "P096",
+      "control": "C0716",
+      "destination": "file.file_url"
+    },
+    {
+      "screen": "P096",
+      "control": "C0943",
+      "destination": "file.file_url || \"#\""
+    },
+    {
+      "screen": "P097",
+      "control": "C0943",
+      "destination": "file.file_url || \"#\""
+    },
+    {
+      "screen": "P099",
+      "control": "C0721",
+      "destination": "src"
+    },
+    {
+      "screen": "P101",
+      "control": "C0849",
+      "destination": "item.href"
+    },
+    {
+      "screen": "P101",
+      "control": "C0851",
+      "destination": "#flow"
+    },
+    {
+      "screen": "P101",
+      "control": "C0854",
+      "destination": "item.href"
+    },
+    {
+      "screen": "P101",
+      "control": "C0856",
+      "destination": "#flow"
+    },
+    {
+      "screen": "P101",
+      "control": "C0858",
+      "destination": "item.href"
+    },
+    {
+      "screen": "P101",
+      "control": "C0862",
+      "destination": "#flow"
+    },
+    {
+      "screen": "P101",
+      "control": "C0864",
+      "destination": "#flow"
+    },
+    {
+      "screen": "V002",
+      "control": "C0195",
+      "destination": "isImage ? imagePreviewHref(url, alt) : url"
+    },
+    {
+      "screen": "V002",
+      "control": "C0199",
+      "destination": "inventoryHref(group, searchDraft)"
+    },
+    {
+      "screen": "V002",
+      "control": "C0200",
+      "destination": "inventoryHref(group, \"\")"
+    },
+    {
+      "screen": "V002",
+      "control": "C0201",
+      "destination": "inventoryHref(group, searchDraft)"
+    },
+    {
+      "screen": "V003",
+      "control": "C0195",
+      "destination": "isImage ? imagePreviewHref(url, alt) : url"
+    },
+    {
+      "screen": "V003",
+      "control": "C0199",
+      "destination": "inventoryHref(group, searchDraft)"
+    },
+    {
+      "screen": "V003",
+      "control": "C0200",
+      "destination": "inventoryHref(group, \"\")"
+    },
+    {
+      "screen": "V003",
+      "control": "C0201",
+      "destination": "inventoryHref(group, searchDraft)"
+    },
+    {
+      "screen": "V004",
+      "control": "C0221",
+      "destination": "isImage ? imagePreviewHref(url, alt) : url"
+    },
+    {
+      "screen": "V005",
+      "control": "C0221",
+      "destination": "isImage ? imagePreviewHref(url, alt) : url"
+    }
+  ],
+  "errors": [],
+  "limitation": "Static AST and generated graph checks only; Figma runtime and live role coverage require actual execution."
+}

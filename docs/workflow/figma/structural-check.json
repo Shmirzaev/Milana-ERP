@@ -1,0 +1,8 @@
+{
+  "nodes": 20863,
+  "frames": 6355,
+  "reactions": 4416,
+  "message": "Created 147 editable screen frames, 465 direct control links and 1779 explanatory overlays. Review source conditions before using as a runtime specification.",
+  "issues": [],
+  "limitation": "Mock validates graph, dimensions and selected read-only API properties. It does not validate actual Figma rendering, fonts, import or prototype playback."
+}
