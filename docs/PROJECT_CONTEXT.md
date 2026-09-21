@@ -4,7 +4,7 @@ Last updated: 2026-09-21
 
 ## Stabilization fixes prepared — not deployed (2026-09-18)
 
-- Latest reviewed batches: **72/127 findings fixed;21 open;34 partial**. Reserved stock can no longer race into damaged state. Usluga cutting reads are chunked; first-attempt429 receipt retries can be corrected. Prior branch CI `b01ae83` passed backend/PostgreSQL/frontend. No deployment/production access; main conflicts, historical audit damage, runtime lifecycle and load validation remain open.
+- Latest reviewed batches: **72 fixed,34 partial,21 open;55 of127 remain**. Partial findings are not counted as resolved. Reserved stock can no longer race into damaged state. Usluga cutting reads are chunked; first-attempt429 receipt retries can be corrected. Validation-only run `35589397268`: frontend and PostgreSQL passed; backend still running. No deployment/production access; develop conflicts, historical audit damage, runtime lifecycle and load validation remain open.
 
 - Repository workflow cleanup: created `develop` from current `main`, retargeted PR175 to it, and deleted155 reverified merged remote branches;41 remain (main, develop,18 open-PR,21 owner-review). CI `b61a616` removes duplicate topic-push runs, cancels obsolete CI, limits releases to main and scopes package-write to release. Protection and automatic deletion remain blocked because the authenticated user has write but not admin; owner `Shmirzaev` must apply them. PostgreSQL payroll race fixture date corrected in `5c43e85`;7 local real-PG cases pass. No production deployment.
 

@@ -2,7 +2,17 @@
 
 21 September 2026 · `feat/ismoiljon` → `develop` · Base `80f4831e`
 
-**72 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
+## Current bug status
+
+| Status | Count | Meaning |
+| --- | ---: | --- |
+| **Fixed and tested** | **72** | Resolved with regression evidence |
+| **Partially fixed** | **34** | Improved, but remaining risk is documented |
+| **Open** | **21** | Not resolved |
+| **Total remaining** | **55** | Partial + open; not production-ready |
+| **Total audited** | **127** | 56.7% fully resolved |
+
+[Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`; final combined validation is incomplete. Latest validation-only run: frontend and PostgreSQL passed, backend still running.
 
 ## Repository workflow cleanup
 
