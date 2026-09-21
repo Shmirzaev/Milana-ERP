@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, HTTPException, Depends, File, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import aliased, joinedload
 
 from app.core.config import settings
@@ -5337,26 +5337,25 @@ def packaging_receive_options(
         .subquery()
     )
     target_candidate = aliased(WorkOrder)
-    target_id = (
+    target_candidates = (
         db.query(target_candidate.id)
         .filter(
             target_candidate.production_order_id == sewing_totals.c.production_order_id,
             target_candidate.operation == "packaging",
         )
-        .order_by(
-            case(
-                (
-                    target_candidate.production_batch_id == sewing_totals.c.production_batch_id,
-                    0,
-                ),
-                (target_candidate.production_batch_id.is_(None), 1),
-                else_=2,
-            ),
-            target_candidate.id.asc(),
-        )
-        .limit(1)
+        .order_by(target_candidate.id.asc())
         .correlate(sewing_totals)
-        .scalar_subquery()
+    )
+    # Outer references in a subquery ORDER BY fail on older SQLite versions.
+    # Separate indexed candidates preserve exact-batch -> legacy -> oldest.
+    target_id = func.coalesce(
+        target_candidates.filter(
+            target_candidate.production_batch_id == sewing_totals.c.production_batch_id,
+        ).limit(1).scalar_subquery(),
+        target_candidates.filter(
+            target_candidate.production_batch_id.is_(None),
+        ).limit(1).scalar_subquery(),
+        target_candidates.limit(1).scalar_subquery(),
     )
     target = aliased(WorkOrder)
     received_quantity = func.coalesce(receipt_totals.c.received_quantity, 0)
