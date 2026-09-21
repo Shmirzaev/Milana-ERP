@@ -1,5 +1,6 @@
 import os
 import logging
+from threading import Event, Lock, Thread
 from time import perf_counter
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,6 +15,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.deps import CurrentUser, DbSession
@@ -109,7 +111,44 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
 
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-_RATE_LIMIT_EXEMPT_PATHS = {"/health"}
+_RATE_LIMIT_EXEMPT_PATHS = {"/health", "/ready"}
+_READINESS_TIMEOUT_SECONDS = 2.0
+_READINESS_CHECK_SLOT = Lock()
+
+
+def _probe_postgresql() -> None:
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1")).scalar_one()
+
+
+def _postgresql_ready_within(timeout_seconds: float) -> bool:
+    """Bound readiness latency and allow at most one stuck database probe."""
+    slot = _READINESS_CHECK_SLOT
+    if not slot.acquire(blocking=False):
+        return False
+
+    completed = Event()
+    ready = False
+
+    def run_probe() -> None:
+        nonlocal ready
+        try:
+            _probe_postgresql()
+        except Exception:
+            pass
+        else:
+            ready = True
+        finally:
+            slot.release()
+            completed.set()
+
+    try:
+        Thread(target=run_probe, name="postgres-readiness", daemon=True).start()
+    except Exception:
+        slot.release()
+        return False
+
+    return completed.wait(timeout=max(timeout_seconds, 0.001)) and ready
 
 
 def _rate_limit_client_key(request: Request) -> str:
@@ -443,3 +482,13 @@ def serve_sales_order_file(name: str, exp: str | None = None, sig: str | None = 
 @app.get("/health")
 def health():
     return {"status": "ok", "app": settings.APP_NAME}
+
+
+@app.get("/ready", response_model=None)
+def readiness() -> dict[str, object] | JSONResponse:
+    if _postgresql_ready_within(_READINESS_TIMEOUT_SECONDS):
+        return {"status": "ready", "checks": {"postgresql": "ok"}}
+    return JSONResponse(
+        status_code=503,
+        content={"status": "not_ready", "checks": {"postgresql": "unavailable"}},
+    )
