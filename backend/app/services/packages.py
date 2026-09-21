@@ -1277,6 +1277,10 @@ def place_on_storage_map(
 
 
 def reserve_package(db: Session, pkg: Package, user_id: int | None):
+    pkg = (
+        db.query(Package).filter(Package.id == pkg.id)
+        .with_for_update(of=Package).populate_existing().one()
+    )
     _require_warehouse_package(db, pkg)
     if pkg.status not in ("received_in_storage", "packed"):
         raise HTTPException(400, f"Package cannot be reserved from status '{pkg.status}'")
@@ -1311,6 +1315,18 @@ def mark_delivered(db: Session, pkg: Package, user_id: int | None):
 
 
 def mark_damaged(db: Session, pkg: Package, user_id: int | None):
+    # Match reservation lock order so neither transition can use stale state.
+    pkg = (
+        db.query(Package).filter(Package.id == pkg.id)
+        .with_for_update(of=Package).populate_existing().one()
+    )
+    stocks = (
+        db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == pkg.id)
+        .order_by(FinishedGoodsStock.id)
+        .with_for_update(of=FinishedGoodsStock).populate_existing().all()
+    )
+    if pkg.status == "reserved" or any(int(stock.reserved_qty or 0) > 0 for stock in stocks):
+        raise HTTPException(409, "Release package reservations before marking it damaged")
     pkg.status = "damaged"
     pkg.storage_cell = None
     pkg.storage_shelf = None

@@ -81,3 +81,27 @@ def test_damaged_package_stock_cannot_be_reserved(client, auth_headers):
             10, 10, 0, 0, "available",
         )
         assert reservations == []
+
+
+def test_reserved_package_cannot_be_marked_damaged(client, auth_headers):
+    package_id, stock_id, order_id = _damaged_stock_fixture()
+
+    reserved = client.post(
+        "/api/finished-goods/reserve",
+        headers=auth_headers,
+        params={"stock_id": stock_id, "quantity": 4, "sales_order_id": order_id},
+    )
+    assert reserved.status_code == 200, reserved.text
+
+    damaged = client.post(f"/api/packages/{package_id}/mark-damaged", headers=auth_headers)
+
+    assert damaged.status_code == 409, damaged.text
+    with SessionLocal() as db:
+        package = db.get(Package, package_id)
+        stock = db.get(FinishedGoodsStock, stock_id)
+        reservations = db.query(StockReservation).filter_by(
+            finished_goods_stock_id=stock_id,
+        ).all()
+        assert package.status == "received_in_storage"
+        assert (stock.available_qty, stock.reserved_qty, stock.status) == (6, 4, "available")
+        assert len(reservations) == 1

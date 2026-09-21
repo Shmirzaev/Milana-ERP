@@ -30,7 +30,7 @@ from app.models import (
     StockReservation,
     User,
 )
-from app.services.packages import ship_package
+from app.services.packages import mark_damaged, reserve_package, ship_package
 
 
 def _legacy_stock():
@@ -378,3 +378,75 @@ def test_postgres_reserve_and_dispatch_never_recreate_stock(reserve_postgres_ses
             finished_goods_stock_id=stock.id,
         ).all()
         assert sum(row.quantity for row in reservations) == (4 if reserve_status == 200 else 0)
+
+
+def test_postgres_reserve_and_damage_keep_one_valid_state(reserve_postgres_sessions):
+    sessions = reserve_postgres_sessions
+    fixture = _postgres_stock(sessions)
+
+    def damage_worker(db):
+        try:
+            mark_damaged(db, db.get(Package, fixture["package_id"]), fixture["user_id"])
+            db.commit()
+            return 200
+        except HTTPException as rejected:
+            db.rollback()
+            return rejected.status_code
+
+    reserve_status, damage_status = _race_under_package_lock(
+        sessions,
+        fixture["package_id"],
+        [_reserve_worker(fixture, 0, 4), damage_worker],
+    )
+
+    assert sorted((reserve_status, damage_status)) == [200, 409]
+    with sessions() as db:
+        package = db.get(Package, fixture["package_id"])
+        stock = db.get(FinishedGoodsStock, fixture["stock_id"])
+        reservations = db.query(StockReservation).filter_by(
+            finished_goods_stock_id=stock.id,
+        ).all()
+        if reserve_status == 200:
+            assert package.status == "received_in_storage"
+            assert (stock.available_qty, stock.reserved_qty) == (6, 4)
+            assert sum(row.quantity for row in reservations) == 4
+        else:
+            assert package.status == "damaged"
+            assert (stock.available_qty, stock.reserved_qty) == (10, 0)
+            assert reservations == []
+
+
+def test_postgres_package_reserve_and_damage_keep_one_valid_state(reserve_postgres_sessions):
+    sessions = reserve_postgres_sessions
+    fixture = _postgres_stock(sessions)
+
+    def reserve_worker(db):
+        try:
+            reserve_package(db, db.get(Package, fixture["package_id"]), fixture["user_id"])
+            db.commit()
+            return 200
+        except HTTPException as rejected:
+            db.rollback()
+            return rejected.status_code
+
+    def damage_worker(db):
+        try:
+            mark_damaged(db, db.get(Package, fixture["package_id"]), fixture["user_id"])
+            db.commit()
+            return 200
+        except HTTPException as rejected:
+            db.rollback()
+            return rejected.status_code
+
+    reserve_status, damage_status = _race_under_package_lock(
+        sessions,
+        fixture["package_id"],
+        [reserve_worker, damage_worker],
+    )
+
+    assert sorted((reserve_status, damage_status)) == [200, 409]
+    with sessions() as db:
+        package = db.get(Package, fixture["package_id"])
+        stock = db.get(FinishedGoodsStock, fixture["stock_id"])
+        assert package.status == ("reserved" if reserve_status == 200 else "damaged")
+        assert (stock.available_qty, stock.reserved_qty) == (10, 0)
