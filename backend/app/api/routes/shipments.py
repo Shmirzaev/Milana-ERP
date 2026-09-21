@@ -774,13 +774,20 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
             f"Scan all shipment packages before shipping. Missing scan for: {suffix}",
         )
 
-    db.query(Package).filter(Package.id.in_(attached_ids)).order_by(Package.id).with_for_update().populate_existing().all()
+    locked_packages = (
+        db.query(Package)
+        .filter(Package.id.in_(attached_ids))
+        .order_by(Package.id)
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    locked_packages_by_id = {int(package.id): package for package in locked_packages}
     packages: list[Package] = []
     for shipment_package in sorted(shipment.packages, key=lambda row: row.package_id):
-        package = db.get(Package, shipment_package.package_id)
+        package = locked_packages_by_id.get(int(shipment_package.package_id))
         if not package:
             raise HTTPException(409, f"Shipment package #{shipment_package.package_id} no longer exists")
-        package = _lock_package(db, package)
         if package.status not in _READY_FOR_SHIPMENT_STATUSES:
             raise HTTPException(409, f"Package {package.package_no} is no longer ready to ship")
         stocks = _finished_goods_rows_for_package(db, package.id)
