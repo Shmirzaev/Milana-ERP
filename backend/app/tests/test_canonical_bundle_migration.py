@@ -5,7 +5,6 @@ import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import BusinessOrderAlias
@@ -92,21 +91,15 @@ def test_migration_canonicalizes_935_legacy_bundles_preserving_identity_and_link
         assert next_bundle_no(db) == "BND-0938"
 
 
-def test_generator_issues_9999_then_uses_only_unreserved_gaps_and_rejects_exhaustion(bundle_db):
+def test_generator_expands_after_9999_and_never_reuses_historical_aliases(bundle_db):
     engine, _ = bundle_db
     with Session(engine) as db:
         db.add(BusinessOrderAlias(namespace="BND", entity_id=2, reference="BND-9998", canonical_reference="BND-9998"))
         db.flush()
         assert next_bundle_no(db) == "BND-9999"
-        assert next_bundle_no(db) == "BND-0001"
-        db.execute(BusinessOrderAlias.__table__.insert(), [dict(namespace="BND", entity_id=0,
-                                                               reference=f"BND-{number:04d}", canonical_reference=f"BND-{number:04d}")
-                                                         for number in range(2, 9998)])
-        with pytest.raises(HTTPException) as error:
-            next_bundle_no(db)
-        assert error.value.status_code == 409
-        assert db.query(BusinessOrderAlias).count() == 9999
-        assert db.query(BusinessOrderAlias).filter_by(reference="BND-10000").first() is None
+        assert next_bundle_no(db) == "BND-10000"
+        assert next_bundle_no(db) == "BND-10001"
+        assert db.query(BusinessOrderAlias).filter_by(reference="BND-10000").one()
 
 
 def test_failed_transaction_does_not_consume_bundle_number(bundle_db):
@@ -117,12 +110,12 @@ def test_failed_transaction_does_not_consume_bundle_number(bundle_db):
         assert next_bundle_no(db) == "BND-0001"
 
 
-def test_generator_never_reissues_old_canonical_shaped_alias(bundle_db):
+def test_generator_advances_past_old_canonical_shaped_alias(bundle_db):
     engine, _ = bundle_db
     with Session(engine) as db:
         db.add(BusinessOrderAlias(namespace="BND", entity_id=9, reference="BND-9999", canonical_reference="BND-0001"))
         db.flush()
-        assert next_bundle_no(db) == "BND-0002"
+        assert next_bundle_no(db) == "BND-10000"
 
 
 def test_migration_alias_conflict_fails_before_any_bundle_changes(bundle_db):

@@ -65,7 +65,7 @@ def _public_order(db, reference, production_order_id=None, *, lookup=None):
     if alias:
         return lookup.by_id("PO", alias.entity_id) if lookup is not None else db.get(ProductionOrder, alias.entity_id)
     # Historical sales_order_no fields can now contain the real standalone PO.
-    if re.fullmatch(r"(?:PO|USL)-[0-9]{4}", str(reference or "")):
+    if re.fullmatch(r"(?:PO|USL)-[0-9]{4,}", str(reference or "")):
         if lookup is not None:
             row = lookup.by_reference("PO", reference)
             return row if row is not None and row.sales_order_id is None else None
