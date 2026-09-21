@@ -162,8 +162,8 @@ export default function RecruitmentPage() {
   const hrT = useHrT();
   const { data, error, isLoading, mutate } = useSWR<Candidate[]>("/api/hr/recruitment", fetcher);
   const { data: positions } = useSWR<Position[]>("/api/hr/positions", fetcher);
-  const { data: departments } = useSWR<Department[]>("/api/departments", fetcher);
   const [editing, setEditing] = useState<Candidate | "new" | null>(null);
+  const { data: departments } = useSWR<Department[]>(editing !== null ? "/api/departments" : null, fetcher);
   const [form, setForm] = useState<CandidateForm>(emptyCandidateForm);
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState("");
