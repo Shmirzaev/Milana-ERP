@@ -582,13 +582,7 @@ def _find_period(
         )
         .order_by(PayrollPeriod.id.desc())
     )
-    if period:
-        return period
-    return first(
-        db.query(PayrollPeriod)
-        .filter(PayrollPeriod.factory_code == factory_code, PayrollPeriod.status == "open")
-        .order_by(PayrollPeriod.id.desc())
-    )
+    return period
 
 
 def _attach_period(
@@ -3555,7 +3549,7 @@ def _prelock_bulk_record_resources(
                 period for period in open_periods
                 if as_utc(period.start_date) <= as_utc(data["scanned_at"]) <= as_utc(period.end_date)
             ),
-            open_periods[0] if open_periods else None,
+            None,
         )
         candidate_ids.append(int(requested_id) if requested_id is not None else int(candidate.id) if candidate else None)
 
