@@ -637,10 +637,10 @@
       "risk": "Pay recorded in wrong period.",
       "proposed_fix": "Reject or approve explicit overrides.",
       "baseline_source": "backend/app/api/routes/payroll.py:545",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "adc79f7",
+      "evidence": "Single and bulk record paths auto-attach only periods containing scanned_at; unmatched records remain periodless. Explicit manual periods outside the scan date remain supported. Two focused cases independently pass; broader agent run52 passed with6 PostgreSQL skips."
     },
     {
       "number": 54,
@@ -903,8 +903,8 @@
       "baseline_source": "backend/app/services/packages.py:258",
       "status": "partial",
       "owner": null,
-      "commit": "0066d32, a51eb6f",
-      "evidence": "Package costing batches highest-ID stock costs by BOM item. Duplicate allocation IDs reuse existence results without changing validation order. Twelve focused cases pass: cost1/50/401 rows use2 SELECTs; repeated allocation1/50/401 also stays at2. Other workflow writes remain open; constant trips are not constant total DB work."
+      "commit": "0066d32, a51eb6f, a3f8948",
+      "evidence": "Package costing batches highest-ID stock costs. Allocation validation reads distinct IDs in400-row chunks while replaying input order. Distinct1/50/401 uses2/2/3 batch SELECTs including the initial batch check; duplicate merging and both error-precedence directions pass. Other workflow writes remain open."
     },
     {
       "number": 76,
@@ -1263,8 +1263,8 @@
       "baseline_source": "frontend/src/components/AuthGate.tsx:183",
       "status": "partial",
       "owner": null,
-      "commit": "ada4aaf, 5a85dcd, 0094748",
-      "evidence": "HR documents, recruitment and inventory Accessories defer hidden option directories until their UI opens. Actual component tests and stabilization suite pass; visible data, authorization and endpoints stay unchanged; strict types/lint pass. Other dependent requests/duplicate keys remain open; no browser visual proof."
+      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e",
+      "evidence": "HR documents/recruitment, inventory Accessories and Purchasing request items defer hidden option directories until opened. Actual component tests and stabilization pass; visible requests, auth and endpoints stay unchanged; strict types/lint pass. Other requests remain open; no browser visual proof."
     },
     {
       "number": 106,
