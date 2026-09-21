@@ -321,14 +321,24 @@ class CuttingRecordIn(BaseModel):
 class PrintingRecordIn(BaseModel):
     work_order_id: int
     production_batch_id: Optional[int] = None
-    input_qty: int
-    printed_qty: int
-    passed_qty: int
-    rejected_qty: int = 0
+    input_qty: int = Field(ge=0, le=2_147_483_647)
+    printed_qty: int = Field(ge=0, le=2_147_483_647)
+    passed_qty: int = Field(ge=0, le=2_147_483_647)
+    rejected_qty: int = Field(default=0, ge=0, le=2_147_483_647)
     defect_reason: Optional[str] = None
     print_type: Optional[str] = None
     operator_id: Optional[int] = None
     notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_output_quantity(self):
+        if self.printed_qty > self.input_qty:
+            raise ValueError("Printed quantity cannot exceed input quantity")
+        if self.passed_qty > self.printed_qty:
+            raise ValueError("Passed quantity cannot exceed printed quantity")
+        if self.passed_qty + self.rejected_qty > self.input_qty:
+            raise ValueError("Passed and rejected quantities cannot exceed input quantity")
+        return self
 
 
 class SewingSizeQuantityIn(BaseModel):
