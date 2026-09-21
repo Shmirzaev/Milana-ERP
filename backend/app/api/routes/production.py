@@ -3029,9 +3029,11 @@ def _sync_usluga_material_usage(db: DbSession, po: ProductionOrder) -> None:
     po.service_material_usage_kg = approved_total
 
 
-def _usluga_cutting_record_payload(db: DbSession, record: CuttingRecord) -> dict:
-    batch = db.get(ProductionBatch, record.production_batch_id) if record.production_batch_id else None
-    bundle_rows = db.query(Bundle).filter(Bundle.cutting_record_id == record.id).order_by(Bundle.id).all()
+def _usluga_cutting_record_payload_from_rows(
+    record: CuttingRecord,
+    batch: ProductionBatch | None,
+    bundle_rows: list[Bundle],
+) -> dict:
     size_counts: dict[tuple[str, str], dict] = {}
     for bundle in bundle_rows:
         key = (str(bundle.color or ""), str(bundle.size or ""))
@@ -3077,6 +3079,50 @@ def _usluga_cutting_record_payload(db: DbSession, record: CuttingRecord) -> dict
     }
 
 
+def _usluga_cutting_record_payload(db: DbSession, record: CuttingRecord) -> dict:
+    batch = db.get(ProductionBatch, record.production_batch_id) if record.production_batch_id else None
+    bundle_rows = db.query(Bundle).filter(Bundle.cutting_record_id == record.id).order_by(Bundle.id).all()
+    return _usluga_cutting_record_payload_from_rows(record, batch, bundle_rows)
+
+
+def _usluga_cutting_record_payloads(db: DbSession, records: list[CuttingRecord]) -> list[dict]:
+    if not records:
+        return []
+    chunk_size = 400
+    batch_ids = list(dict.fromkeys(
+        int(record.production_batch_id)
+        for record in records
+        if record.production_batch_id is not None
+    ))
+    batches_by_id: dict[int, ProductionBatch] = {}
+    for offset in range(0, len(batch_ids), chunk_size):
+        rows = db.query(ProductionBatch).filter(
+            ProductionBatch.id.in_(batch_ids[offset:offset + chunk_size])
+        ).all()
+        batches_by_id.update((int(row.id), row) for row in rows)
+
+    record_ids = [int(record.id) for record in records]
+    bundles_by_record_id: dict[int, list[Bundle]] = {}
+    for offset in range(0, len(record_ids), chunk_size):
+        rows = (
+            db.query(Bundle)
+            .filter(Bundle.cutting_record_id.in_(record_ids[offset:offset + chunk_size]))
+            .order_by(Bundle.id)
+            .all()
+        )
+        for row in rows:
+            bundles_by_record_id.setdefault(int(row.cutting_record_id), []).append(row)
+
+    return [
+        _usluga_cutting_record_payload_from_rows(
+            record,
+            batches_by_id.get(int(record.production_batch_id)) if record.production_batch_id else None,
+            bundles_by_record_id.get(int(record.id), []),
+        )
+        for record in records
+    ]
+
+
 @router.get("/work-orders/{wid}/usluga-cutting-batches")
 def list_usluga_cutting_batches(
     wid: int,
@@ -3092,7 +3138,7 @@ def list_usluga_cutting_batches(
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(_, db, wo)
     records = db.query(CuttingRecord).filter(CuttingRecord.work_order_id == wo.id).order_by(CuttingRecord.id).all()
-    return {"work_order_id": wo.id, "items": [_usluga_cutting_record_payload(db, row) for row in records]}
+    return {"work_order_id": wo.id, "items": _usluga_cutting_record_payloads(db, records)}
 
 
 class RejectUslugaCuttingBatchIn(BaseModel):
