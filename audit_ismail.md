@@ -1,21 +1,21 @@
 # Ismail audit — stabilization fixes
 
-21 September 2026 · `feat/ismoiljon` → `main` · Base `80f4831e`
+21 September 2026 · `feat/ismoiljon` → `develop` · Base `80f4831e`
 
 **72 of 127 findings fixed and regression-tested. No deployment, production access or database redesign.** [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial fixes are not counted as fixed. Latest `main` has advanced; PR conflicts and final combined-revision testing remain unresolved.
 
-## Repository workflow audit — read only
+## Repository workflow cleanup
 
 | Finding | Risk | Shortest fix |
 | --- | --- | --- |
-| **194 remote branches:**154 verified merged,18 open-PR,21 unmerged/no PR | Noise and wrong-branch mistakes; not ERP runtime slowness | Delete only the154 verified merged heads; owner-review the other39. Enable auto-delete after merge. |
-| `main` has no protection/ruleset; auto-delete is off; no `develop` exists | Direct unsafe changes can reach production source | Protect `main`; add protected `develop` only if it represents shared staging. Require PR, one approval, green CI and resolved conversations. |
+| **195 audited remote branches** | Noise and wrong-branch mistakes; not ERP runtime slowness |155 reverified merged heads deleted.41 remain: `main`, new `develop`,18 open-PR and21 unmerged/no-PR branches. |
+| `main`/`develop` remain unprotected; auto-delete remains off | Direct unsafe changes can reach production source | Blocked: current GitHub identity has write, not admin. Owner `Shmirzaev` must require PR, one approval, green CI and resolved conversations, then enable auto-delete. |
 | Permanent person branches encourage large/conflicting PRs | Slow review and integration | Use short-lived `feat/<person>/<ticket>` or `fix/<person>/<ticket>`; PR→`develop`; release PR `develop`→`main`; hotfix from `main`, then sync back. Keep `main`; do not add duplicate `master`. |
-| Last100 CI runs cover63 unique commits:37 duplicate same-SHA runs | Queue delay and redundant artifacts | Validate PRs once; push CI only on `main`/`develop`; cancel superseded runs. |
-| [ci.yml:3](.github/workflows/ci.yml#L3) runs full backend/PostgreSQL/frontend on PR, topic push and manual dispatch | One commit can run two or three full suites | Add workflow concurrency; separate validation from release; restrict release to `main`/tag. |
-| [ci.yml:22](.github/workflows/ci.yml#L22) grants `packages:write` workflow-wide | Validation jobs have excess token permission | Default to `contents:read`; grant package write only to release. |
+| Last100 CI runs covered63 unique commits:37 duplicate same-SHA runs | Queue delay and redundant artifacts | `b61a616`: PR validation plus `main`/`develop` pushes only; superseded CI cancels. |
+| Manual release previously allowed feature refs | Wrong source could publish artifacts | `b61a616`: release only on `main`; bounded job timeouts; manual releases never cancel. |
+| Workflow-wide `packages:write` | Validation jobs had excess token permission | `b61a616`: default `contents:read`; package write only on release. |
 
-The repository is public, so standard GitHub-hosted runner time is currently free. The duplicated runs are still poor CI practice because they waste review time, queue capacity and storage. No branch, setting or workflow cleanup was performed.
+The repository is public, so standard GitHub-hosted runner time is currently free. PR #175 now targets `develop`. The earlier PostgreSQL failure was a stale synthetic date; `5c43e85` aligns the fixture and all7 payroll race cases pass locally. Production was untouched.
 
 ## Fixed and regression-tested
 
