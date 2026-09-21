@@ -1,3 +1,4 @@
+from math import ceil
 from uuid import uuid4
 
 import pytest
@@ -9,7 +10,7 @@ from app.models import Model, Package, PackageBatchAllocation, ProductionBatch, 
 from app.services import packages as package_service
 
 
-def _batched_order(quantity: int) -> tuple[int, int, int]:
+def _batched_order(batch_count: int) -> tuple[int, int, list[int]]:
     marker = uuid4().hex[:8]
     with SessionLocal() as db:
         model = Model(code=f"PERF09-A-{marker}", name=f"PERF09 allocations {marker}", product_type="shirt")
@@ -17,17 +18,22 @@ def _batched_order(quantity: int) -> tuple[int, int, int]:
         db.flush()
         order = ProductionOrder(
             production_no=f"PERF09-A-PO-{marker}", production_type="branded_stock",
-            model_id=model.id, status="packaging", planned_quantity=quantity,
+            model_id=model.id, status="packaging", planned_quantity=batch_count,
         )
         db.add(order)
         db.flush()
-        batch = ProductionBatch(
-            production_order_id=order.id, batch_no=f"PERF09-A-B-{marker}",
-            batch_index=1, planned_quantity=quantity,
-        )
-        db.add(batch)
+        batches = [
+            ProductionBatch(
+                production_order_id=order.id,
+                batch_no=f"PERF09-A-B-{marker}-{index}",
+                batch_index=index,
+                planned_quantity=1,
+            )
+            for index in range(1, batch_count + 1)
+        ]
+        db.add_all(batches)
         db.commit()
-        return int(order.id), int(model.id), int(batch.id)
+        return int(order.id), int(model.id), [int(batch.id) for batch in batches]
 
 
 def _production_batch_selects(bind, callback):
@@ -47,8 +53,8 @@ def _production_batch_selects(bind, callback):
 
 
 @pytest.mark.parametrize("allocation_count", [1, 50, 401])
-def test_create_package_reuses_duplicate_batch_existence_read(monkeypatch, allocation_count):
-    order_id, model_id, batch_id = _batched_order(allocation_count)
+def test_create_package_batch_reads_distinct_allocations(monkeypatch, allocation_count):
+    order_id, model_id, batch_ids = _batched_order(allocation_count)
     monkeypatch.setattr(package_service, "_enforce_packaged_quantity_available", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(package_service, "_compute_cost", lambda *_args, **_kwargs: 0.0)
     monkeypatch.setattr(package_service, "save_qr_image", lambda *_args, **_kwargs: "/test/qr.png")
@@ -67,7 +73,7 @@ def test_create_package_reuses_duplicate_batch_existence_read(monkeypatch, alloc
                 items=[{"model_id": model_id, "color": "navy", "size": "M", "quantity": allocation_count}],
                 batch_allocations=[
                     {"production_batch_id": batch_id, "quantity": 1}
-                    for _ in range(allocation_count)
+                    for batch_id in batch_ids
                 ],
                 capacity=allocation_count,
                 packaging_department_code="PKG",
@@ -75,14 +81,42 @@ def test_create_package_reuses_duplicate_batch_existence_read(monkeypatch, alloc
         )
         allocations = db.query(PackageBatchAllocation).filter_by(package_id=package.id).all()
 
-    assert len(statements) == 2
-    assert len(allocations) == 1
-    assert allocations[0].production_batch_id == batch_id
-    assert allocations[0].quantity == allocation_count
+    assert len(statements) == 1 + ceil(allocation_count / 400)
+    assert [allocation.production_batch_id for allocation in allocations] == batch_ids
+    assert all(allocation.quantity == 1 for allocation in allocations)
+
+
+def test_create_package_merges_duplicate_batch_allocations(monkeypatch):
+    order_id, model_id, batch_ids = _batched_order(1)
+    batch_id = batch_ids[0]
+    monkeypatch.setattr(package_service, "_enforce_packaged_quantity_available", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(package_service, "_compute_cost", lambda *_args, **_kwargs: 0.0)
+    monkeypatch.setattr(package_service, "save_qr_image", lambda *_args, **_kwargs: "/test/qr.png")
+    monkeypatch.setattr(package_service, "save_barcode_image", lambda *_args, **_kwargs: "/test/barcode.png")
+    monkeypatch.setattr(package_service, "sync_production_order_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(package_service, "notify_department", lambda *_args, **_kwargs: None)
+
+    with SessionLocal() as db:
+        package = package_service.create_package(
+            db,
+            production_order_id=order_id,
+            model_id=model_id,
+            color="navy",
+            items=[{"model_id": model_id, "color": "navy", "size": "M", "quantity": 2}],
+            batch_allocations=[
+                {"production_batch_id": batch_id, "quantity": 1},
+                {"production_batch_id": batch_id, "quantity": 1},
+            ],
+            capacity=2,
+            packaging_department_code="PKG",
+        )
+        allocations = db.query(PackageBatchAllocation).filter_by(package_id=package.id).all()
+
+    assert [(allocation.production_batch_id, allocation.quantity) for allocation in allocations] == [(batch_id, 2)]
 
 
 def test_missing_first_batch_keeps_error_precedence_and_rolls_back(monkeypatch):
-    order_id, model_id, _ = _batched_order(2)
+    order_id, model_id, _ = _batched_order(1)
     monkeypatch.setattr(package_service, "_enforce_packaged_quantity_available", lambda *_args, **_kwargs: None)
 
     with SessionLocal() as db:
@@ -105,3 +139,27 @@ def test_missing_first_batch_keeps_error_precedence_and_rolls_back(monkeypatch):
 
     with SessionLocal() as db:
         assert db.query(Package).filter_by(production_order_id=order_id).count() == 0
+
+
+def test_invalid_first_allocation_keeps_error_precedence(monkeypatch):
+    order_id, model_id, _ = _batched_order(1)
+    monkeypatch.setattr(package_service, "_enforce_packaged_quantity_available", lambda *_args, **_kwargs: None)
+
+    with SessionLocal() as db:
+        with pytest.raises(HTTPException) as exc_info:
+            package_service.create_package(
+                db,
+                production_order_id=order_id,
+                model_id=model_id,
+                color="navy",
+                items=[{"model_id": model_id, "color": "navy", "size": "M", "quantity": 2}],
+                batch_allocations=[
+                    {"production_batch_id": "invalid", "quantity": 1},
+                    {"production_batch_id": 2_147_483_647, "quantity": 1},
+                ],
+                capacity=2,
+                packaging_department_code="PKG",
+            )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Invalid batch allocation"

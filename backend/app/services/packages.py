@@ -46,6 +46,7 @@ VALID_STORAGE_SHELVES = {"S1", "S2"}
 PACKAGE_CHANGE_ALLOWED_STATUSES = {"packed", "received_in_storage"}
 PACKAGE_CHANGE_PENDING_STATUS = "pending"
 _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE = 400
+_PACKAGE_BATCH_VALIDATION_CHUNK_SIZE = 400
 
 
 def _active_package_receive_transaction(db: Session):
@@ -448,26 +449,39 @@ def create_package(
     if batch_allocations:
         if not has_batches:
             raise HTTPException(400, "Batch allocations require a batched production order")
-        batch_totals: dict[int, int] = {}
-        batch_exists_by_id: dict[int, bool] = {}
+        parsed_allocations: list[tuple[int, int]] = []
+        validation_error: HTTPException | None = None
         for raw in batch_allocations:
             try:
                 alloc_batch_id = int(raw.get("production_batch_id") or 0)
                 qty = int(raw.get("quantity") or 0)
             except (TypeError, ValueError):
-                raise HTTPException(400, "Invalid batch allocation")
+                validation_error = HTTPException(400, "Invalid batch allocation")
+                break
             if alloc_batch_id <= 0 or qty <= 0:
-                raise HTTPException(400, "Batch allocation quantities must be > 0")
-            batch_exists = batch_exists_by_id.get(alloc_batch_id)
-            if batch_exists is None:
-                batch_exists = db.query(ProductionBatch.id).filter(
-                    ProductionBatch.id == alloc_batch_id,
+                validation_error = HTTPException(400, "Batch allocation quantities must be > 0")
+                break
+            parsed_allocations.append((alloc_batch_id, qty))
+
+        requested_batch_ids = sorted({batch_id for batch_id, _qty in parsed_allocations})
+        existing_batch_ids: set[int] = set()
+        for offset in range(0, len(requested_batch_ids), _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE):
+            chunk = requested_batch_ids[offset:offset + _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE]
+            existing_batch_ids.update(
+                batch_id
+                for (batch_id,) in db.query(ProductionBatch.id).filter(
+                    ProductionBatch.id.in_(chunk),
                     ProductionBatch.production_order_id == po.id,
-                ).first() is not None
-                batch_exists_by_id[alloc_batch_id] = batch_exists
-            if not batch_exists:
+                ).all()
+            )
+
+        batch_totals: dict[int, int] = {}
+        for alloc_batch_id, qty in parsed_allocations:
+            if alloc_batch_id not in existing_batch_ids:
                 raise HTTPException(404, "Production batch not found for this production order")
             batch_totals[alloc_batch_id] = batch_totals.get(alloc_batch_id, 0) + qty
+        if validation_error is not None:
+            raise validation_error
         if sum(batch_totals.values()) != total:
             raise HTTPException(400, "Batch allocation quantity must equal package total quantity")
         normalized_allocations = [
