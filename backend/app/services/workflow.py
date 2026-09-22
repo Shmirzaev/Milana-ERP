@@ -297,11 +297,21 @@ def propagate_cutting_plan_from_output(db: Session, wo: WorkOrder) -> None:
             row.planned_output_qty = output_qty
 
 
-def sync_production_order_status(db: Session, production_order_id: int) -> None:
-    po = db.get(ProductionOrder, production_order_id)
+def sync_production_order_status(
+    db: Session,
+    production_order_id: int,
+    *,
+    production_order: ProductionOrder | None = None,
+    work_orders: list[WorkOrder] | None = None,
+) -> None:
+    po = production_order or db.get(ProductionOrder, production_order_id)
     if not po:
         return
-    all_wos = db.query(WorkOrder).filter(WorkOrder.production_order_id == production_order_id).all()
+    all_wos = (
+        work_orders
+        if work_orders is not None
+        else db.query(WorkOrder).filter(WorkOrder.production_order_id == production_order_id).all()
+    )
     if not all_wos:
         po.status = "planning"
         return

@@ -590,7 +590,16 @@ def receive_at_sewing(
         wo.actual_input_qty = max(int(wo.actual_input_qty or 0), received_qty)
         if wo.status in ("new", "planning", "waiting"):
             wo.status = "in_progress"
-    sync_production_order_status(db, bundle.production_order_id)
+    if receipt_context is None:
+        sync_production_order_status(db, bundle.production_order_id)
+    else:
+        order_id = int(bundle.production_order_id)
+        sync_production_order_status(
+            db,
+            order_id,
+            production_order=receipt_context.production_orders.get(order_id),
+            work_orders=receipt_context.work_orders.get(order_id, []),
+        )
 
 
 def _sewing_receipt_context(

@@ -42,13 +42,12 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
     ]
     assert len(department_reads) <= 2
     assert len(received_sum_reads) <= 1
-    # Receipt status synchronization stays live per bundle, but the common
-    # production-order reference must remain resident for the whole batch.
+    # Receipt status synchronization stays live per bundle, but its already
+    # loaded order and work-order references are reused for the whole batch.
     assert len(production_order_reads) <= 3
-    # The existing workflow status synchronization remains deliberately per bundle.
-    assert len(work_order_reads) <= bundle_count + 5
+    assert len(work_order_reads) <= 4
     print(f"{mode} {bundle_count}: {len(statements)} SELECTs")
-    assert len(statements) <= (2 * bundle_count) + 35
+    assert len(statements) == (20 if mode == "manual" else 30)
     with TestSessionLocal() as db:
         bundles = db.query(Bundle).filter(Bundle.id.in_(case["bundle_ids"])).all()
         assert {bundle.status for bundle in bundles} == {"received_sewing"}
@@ -138,6 +137,29 @@ def test_batched_sewing_receipt_matches_scalar_transition_state():
 
     assert received == batched_case["bundle_ids"]
     assert _transition_snapshot(batched_case) == _transition_snapshot(scalar_case)
+
+
+def test_batched_receipt_synchronizes_order_before_each_callback():
+    case = _bundle_batch(3)
+    observed_statuses = []
+
+    with TestSessionLocal() as db:
+        current = _current_user(db)
+        gate = bundle_services.verify_sewing_accessory_gate(db, case["order_id"])
+        bundles = [db.get(Bundle, bundle_id) for bundle_id in case["bundle_ids"]]
+
+        def capture_status(_bundle):
+            observed_statuses.append(db.get(ProductionOrder, case["order_id"]).status)
+
+        bundle_services.receive_many_at_sewing(
+            db,
+            bundles,
+            current,
+            gate,
+            after_receive=capture_status,
+        )
+
+    assert observed_statuses == ["sewing", "sewing", "sewing"]
 
 
 @pytest.mark.parametrize("topology", ["multiple_batches", "legacy_unbatched", "mixed_route"])
