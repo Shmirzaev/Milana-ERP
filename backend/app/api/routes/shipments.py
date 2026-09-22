@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import and_, func, exists
 from sqlalchemy.orm import selectinload, aliased
 
@@ -70,6 +70,24 @@ _SHIPMENT_ORDER_STATUSES = {
     "ready",
     "reserved",
 }
+
+
+class EligibleOrderOut(BaseModel):
+    id: int
+    order_no: str
+    customer_id: int | None = None
+    customer_name: str | None = None
+    status: str
+    total_amount: float
+    ready_qty: int
+
+
+class EligibleOrderPageOut(BaseModel):
+    rows: list[EligibleOrderOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 def _shipment_payload(
@@ -989,30 +1007,55 @@ def create_manual_shipment_customer(payload: PartyIn, db: DbSession,
     return {"id": customer.id, "name": customer.name}
 
 
-@router.get("/eligible-orders")
-def eligible_orders(db: DbSession, _: CurrentUser):
-    shipment_so_ids = _sales_order_ids_with_shipments(db)
-    package_rows = (
-        db.query(Package.sales_order_id, func.coalesce(func.sum(Package.total_quantity), 0))
+@router.get("/eligible-orders", response_model=list[EligibleOrderOut] | EligibleOrderPageOut)
+def eligible_orders(
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    package_totals = (
+        db.query(
+            Package.sales_order_id.label("sales_order_id"),
+            func.coalesce(func.sum(Package.total_quantity), 0).label("ready_qty"),
+        )
         .filter(Package.sales_order_id.isnot(None), Package.status.in_(_READY_FOR_SHIPMENT_STATUSES))
         .group_by(Package.sales_order_id)
-        .all()
+        .subquery()
     )
-    package_qty_by_so = {
-        int(sid): int(qty or 0)
-        for sid, qty in package_rows
-        if sid is not None and int(sid) not in shipment_so_ids
-    }
-    so_ids = set(package_qty_by_so.keys())
-    qry = db.query(SalesOrder, Customer).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
-    if shipment_so_ids:
-        qry = qry.filter(SalesOrder.id.notin_(list(shipment_so_ids)))
-    if so_ids:
-        qry = qry.filter((SalesOrder.status.in_(_SHIPMENT_ORDER_STATUSES)) | (SalesOrder.id.in_(so_ids)))
+    active_shipment = exists().where(
+        Shipment.sales_order_id == SalesOrder.id,
+        Shipment.status != "cancelled",
+    )
+    qry = (
+        db.query(
+            SalesOrder,
+            Customer,
+            func.coalesce(package_totals.c.ready_qty, 0).label("ready_qty"),
+        )
+        .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+        .outerjoin(package_totals, package_totals.c.sales_order_id == SalesOrder.id)
+        .filter(
+            ~active_shipment,
+            (SalesOrder.status.in_(_SHIPMENT_ORDER_STATUSES))
+            | (package_totals.c.sales_order_id.isnot(None)),
+        )
+    )
+    ordered_query = qry.order_by(SalesOrder.id.desc())
+    paginated = page is not None or page_size is not None
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    total = qry.order_by(None).count() if paginated else None
+    if paginated:
+        rows = (
+            ordered_query
+            .offset((effective_page - 1) * effective_page_size)
+            .limit(effective_page_size)
+            .all()
+        )
     else:
-        qry = qry.filter(SalesOrder.status.in_(_SHIPMENT_ORDER_STATUSES))
-    rows = qry.order_by(SalesOrder.id.desc()).all()
-    return [
+        rows = ordered_query.all()
+    payloads = [
         {
             "id": so.id,
             "order_no": so.order_no,
@@ -1020,10 +1063,19 @@ def eligible_orders(db: DbSession, _: CurrentUser):
             "customer_name": customer.name if customer else None,
             "status": so.status,
             "total_amount": float(so.total_amount or 0),
-            "ready_qty": package_qty_by_so.get(int(so.id), 0),
+            "ready_qty": int(ready_qty or 0),
         }
-        for so, customer in rows
+        for so, customer, ready_qty in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/ready-packages")
