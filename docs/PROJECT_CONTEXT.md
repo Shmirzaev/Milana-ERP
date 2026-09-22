@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-20
+Last updated: 2026-09-22
+
+## Cutting passport stock validation prepared (2026-09-22)
+
+- User requested that fabric shortage errors appear at passport entry and never stop creation of a cutting sheet from a saved passport, with fast deployment and no extra monitoring. Passport create/update now validates the saved usage formula against fabric stock; editing an already-used passport credits its own recorded stock debits. English, Russian and Uzbek errors identify the fabric batch and available/required kilograms.
+- A valid saved-passport cutting submission still consumes stock normally when possible. A material stock/reservation shortage rolls back that material's entire debit in a savepoint, preserves the cutting sheet/bundles/handoff, and records the full undeducted amount and reason in `CuttingMaterialUsage.details.inventory_consumption` and the cutting audit entry. Other errors and non-passport submissions remain strict. Duplicate passport use is still blocked. Pending usage requires explicit stock reconciliation later; this release does not invent stock, silently mark pending consumption paid, or automatically debit future receipts.
+- Verified origin/main and both live source manifests/slots against baseline green `20260920_030043`, manifest `6e0fe7e13abf717b544995c5e06a7628636ecd8919236cc89f08117660b391e2`, database `0132_first_grade_singles`. Only durable documentation/base records differ between main and the active application commit. No migration or existing business-data change is included.
+- Five focused passport/cutting tests and scoped Ruff passed. Standard immutable CI, backup, candidate warm-up/runtime and four immediate health checks are retained; extra browser/performance exercises and extended observation are omitted at the user's explicit request. Deployment outcome will be recorded after cutover.
+- Worktree `C:/ERP/.codex-work/cutting-passport-stock-20260922`, branch `codex/cutting-passport-stock-20260922`; legacy checkout preserved.
 
 ## First Grade singles and warehouse package details deployed (2026-09-20)
 
