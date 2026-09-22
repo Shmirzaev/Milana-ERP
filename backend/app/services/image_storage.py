@@ -196,11 +196,13 @@ def prebuild_webp_thumbnails(
 ) -> list[Path]:
     image, icc_profile, source_format = _normalized_image(content, recover_legacy_jpeg=recover_legacy_jpeg)
     created: list[Path] = []
+    previous_content: dict[Path, bytes | None] = {}
     try:
         root = Path(thumbnail_root)
         for raw_size in sizes:
             size = max(96, min(int(raw_size), 1280))
             destination = root / f"{size}_{source_file_name}.webp"
+            previous_content[destination] = destination.read_bytes() if destination.exists() else None
             _atomic_write(
                 destination,
                 _thumbnail_data(
@@ -211,6 +213,14 @@ def prebuild_webp_thumbnails(
                 ),
             )
             created.append(destination)
+    except BaseException:
+        for path in reversed(created):
+            previous = previous_content[path]
+            if previous is None:
+                path.unlink(missing_ok=True)
+            else:
+                _atomic_write(path, previous)
+        raise
     finally:
         image.close()
     return created
