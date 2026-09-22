@@ -502,6 +502,27 @@ def test_planning_user_can_create_brand_and_duplicate_is_rejected(client):
     assert duplicate.json()["detail"] == "Brand already exists"
 
 
+def test_brand_names_fit_varchar_storage_without_changing_auth_or_resource_precedence(client, auth_headers):
+    overlong_name = "B" * 129
+
+    unauthenticated = client.post("/api/brands", json={"name": overlong_name})
+    assert unauthenticated.status_code == 401
+
+    too_long = client.post("/api/brands", json={"name": overlong_name}, headers=auth_headers)
+    assert too_long.status_code == 422
+
+    maximum = client.post("/api/brands", json={"name": "B" * 128}, headers=auth_headers)
+    assert maximum.status_code == 201, maximum.text
+    assert len(maximum.json()["name"]) == 128
+
+    missing_brand = client.patch(
+        "/api/brands/2147483647",
+        json={"name": overlong_name},
+        headers=auth_headers,
+    )
+    assert missing_brand.status_code == 404
+
+
 def test_create_model_and_approve(client, auth_headers):
     r = client.post("/api/models", json={
         "code": "HOODIE-001", "name": "Pullover Hoodie", "category": "hoodie", "status": "draft",

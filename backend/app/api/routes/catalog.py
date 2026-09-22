@@ -57,6 +57,12 @@ from app.services.paid_operations import (
 
 router = APIRouter(tags=["catalog"])
 
+
+def _validate_brand_name_storage_length(name: str) -> None:
+    if len(name) > 128:
+        raise HTTPException(422, "Brand name cannot exceed 128 characters")
+
+
 _MODEL_BOM_NUMERIC_FIELDS = {
     "quantity_per_piece": (Decimal("99999999.9999"), Decimal("0.0001")),
     "waste_percent": (Decimal("9999.99"), Decimal("0.01")),
@@ -1206,6 +1212,7 @@ def create_brand(
     existing = db.query(Brand).filter(func.lower(Brand.name) == name.lower()).first()
     if existing:
         raise HTTPException(409, "Brand already exists")
+    _validate_brand_name_storage_length(name)
     values = payload.model_dump()
     values["name"] = name
     b = Brand(**values)
@@ -1226,6 +1233,7 @@ def get_brand(bid: int, db: DbSession, _: CurrentUser):
 def update_brand(bid: int, payload: BrandIn, db: DbSession, current: User = Depends(require_permissions("modeling.brands", "*"))):
     b = db.get(Brand, bid)
     if not b: raise HTTPException(404, "Brand not found")
+    _validate_brand_name_storage_length(payload.name)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(b, k, v)
     log_action(db, current, "update", "Brand", b.id)
