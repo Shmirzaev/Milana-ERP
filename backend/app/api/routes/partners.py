@@ -26,7 +26,7 @@ from app.models import (
     User,
 )
 from app.schemas.catalog import PartyIn, PartyOut
-from app.schemas.partners import CustomerOrderHistoryOut, CustomerOrderHistoryPageOut
+from app.schemas.partners import CustomerOrderHistoryOut, CustomerOrderHistoryPageOut, SupplierPageOut
 from app.services.audit import log_action
 from app.services.numbering import next_invoice_no
 from app.services.payments import create_customer_advance_payment, create_invoice_payment, invoice_paid_total
@@ -435,9 +435,29 @@ def delete_customer(cid: int, db: DbSession, current: User = Depends(require_per
 
 
 # ===== Suppliers =====
-@router.get("/suppliers", response_model=list[PartyOut])
-def list_suppliers(db: DbSession, _: User = Depends(require_permissions(*SUPPLIER_READ_PERMISSIONS))):
-    return db.query(Supplier).filter(Supplier.is_active.is_(True)).order_by(Supplier.id.desc()).all()
+@router.get("/suppliers", response_model=list[PartyOut] | SupplierPageOut)
+def list_suppliers(
+    db: DbSession,
+    _: User = Depends(require_permissions(*SUPPLIER_READ_PERMISSIONS)),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    query = db.query(Supplier).filter(Supplier.is_active.is_(True))
+    ordered_query = query.order_by(Supplier.id.desc())
+    if page is None and page_size is None:
+        return ordered_query.all()
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/suppliers", response_model=PartyOut, status_code=201)

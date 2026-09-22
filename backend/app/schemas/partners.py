@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from app.schemas.catalog import PartyOut
 from app.schemas.common import SchemaModel
 
 
@@ -41,6 +42,14 @@ class CustomerOrderHistoryOut(SchemaModel):
 
 class CustomerOrderHistoryPageOut(SchemaModel):
     rows: list[CustomerOrderHistoryOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class SupplierPageOut(SchemaModel):
+    rows: list[PartyOut]
     total: int
     page: int
     page_size: int
