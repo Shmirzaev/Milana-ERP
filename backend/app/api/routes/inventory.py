@@ -41,7 +41,8 @@ from app.schemas.inventory import (
     AccessoryReturnIn, StockBatchIn, StockBatchOut, StockBatchRestoreIn, StockBatchRollWeightsIn, StockBatchUpdate, StockMovementIn, StockMovementOut, StockLine,
     AccessoryIssueIn, AccessoryIssueOut, AccessoryIssuePlanOut, AccessoryIssueRequestRow, AccessoryIssueSummaryRow,
     MaterialReservationAutoIn, MaterialReservationConsumeIn, MaterialReservationIn,
-    MaterialReservationOut, MaterialReservationPlanOut, StockQuantityAdjustmentIn, StockQuantityAdjustmentOut,
+    MaterialReservationOut, MaterialReservationPageOut, MaterialReservationPlanOut,
+    StockQuantityAdjustmentIn, StockQuantityAdjustmentOut,
 )
 from app.services import inventory_access
 from app.services.audit import log_action
@@ -1097,7 +1098,7 @@ def _reservation_status_payload(db: DbSession, production_order_id: int) -> dict
     }
 
 
-@router.get("/reservations", response_model=list[MaterialReservationOut])
+@router.get("/reservations", response_model=list[MaterialReservationOut] | MaterialReservationPageOut)
 def list_material_reservations(
     db: DbSession,
     _: User = Depends(require_permissions("inventory.reservations.view", "*")),
@@ -1105,6 +1106,8 @@ def list_material_reservations(
     sales_order_id: int | None = None,
     item_id: int | None = None,
     status: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = db.query(MaterialReservation)
     if inventory_access.materials_only(_):
@@ -1117,8 +1120,24 @@ def list_material_reservations(
         qry = qry.filter(MaterialReservation.item_id == item_id)
     if status:
         qry = qry.filter(MaterialReservation.status == status)
-    rows = qry.order_by(MaterialReservation.created_at.desc(), MaterialReservation.id.desc()).all()
-    return [_reservation_payload(row) for row in rows]
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    ordered_qry = qry.order_by(MaterialReservation.created_at.desc(), MaterialReservation.id.desc())
+    if total is not None:
+        ordered_qry = ordered_qry.offset((page - 1) * page_size).limit(page_size)
+    rows = [_reservation_payload(row) for row in ordered_qry.all()]
+    if total is None:
+        return rows
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/reservations/plan", response_model=MaterialReservationPlanOut)

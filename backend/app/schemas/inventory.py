@@ -241,6 +241,14 @@ class MaterialReservationOut(ORMModel):
     updated_at: datetime
 
 
+class MaterialReservationPageOut(BaseModel):
+    rows: list[MaterialReservationOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class MaterialReservationIn(BaseModel):
     production_order_id: int
     item_id: int
