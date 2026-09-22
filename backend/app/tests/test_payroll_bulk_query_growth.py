@@ -92,8 +92,10 @@ def test_bulk_record_reads_are_bounded_except_for_audit_chain(client, auth_heade
         non_audit_reads = len(selects) - len(audit_reads)
         measurements.append((len(selects), len(audit_reads), non_audit_reads))
 
-        # One chained audit lookup per record plus the bulk summary is required.
-        assert len(audit_reads) == size + 1
+        # The chain head is read once for the whole transaction.  Individual
+        # entries extend the in-memory head and the summary is queued onto the
+        # same chain, so bulk size must not add audit SELECTs.
+        assert len(audit_reads) == 1
         # Authentication, batched validation/locking, duplicate checks and
         # response serialization must not add one SELECT per record.
     print(f"Payroll bulk SELECTs (total/audit/other) for 1/50/401 rows: {measurements}")

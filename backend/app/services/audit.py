@@ -18,6 +18,7 @@ _AUDIT_COMMITTED = "audit.chain.committed"
 _AUDIT_ROLLED_BACK = "audit.chain.rolled_back"
 _AUDIT_FINALIZED = "audit.chain.finalized"
 _AUDIT_HOOKS = "audit.chain.hooks"
+_AUDIT_HEADS = "audit.chain.heads"
 
 
 def _json_safe(value: Any) -> Any:
@@ -97,6 +98,7 @@ def _mark_audit_transaction_rolled_back(db: Session) -> None:
 def _finish_audit_transaction(db: Session, transaction) -> None:
     queues = db.info.get(_AUDIT_QUEUES, {})
     entries = queues.pop(transaction, [])
+    heads = db.info.get(_AUDIT_HEADS, {})
     committed = db.info.get(_AUDIT_COMMITTED, set())
     rolled_back = db.info.get(_AUDIT_ROLLED_BACK, set())
     was_committed = transaction in committed
@@ -107,6 +109,10 @@ def _finish_audit_transaction(db: Session, transaction) -> None:
 
     if transaction.nested and was_committed and not was_rolled_back and entries:
         queues.setdefault(transaction.parent, []).extend(entries)
+    if transaction.nested and was_committed and not was_rolled_back:
+        if transaction in heads:
+            heads[transaction.parent] = heads[transaction]
+    heads.pop(transaction, None)
 
     # Non-nested children are SQLAlchemy's internal flush transactions.  Only
     # the root ending makes every remaining queue unreachable and safe to drop.
@@ -115,6 +121,7 @@ def _finish_audit_transaction(db: Session, transaction) -> None:
         committed.clear()
         rolled_back.clear()
         db.info.get(_AUDIT_FINALIZED, set()).clear()
+        heads.clear()
 
 
 def _finalize_postgres_audits(db: Session) -> None:
@@ -176,6 +183,18 @@ def _install_postgres_audit_hooks(db: Session) -> None:
     db.info[_AUDIT_HOOKS] = True
 
 
+def _install_sqlite_audit_hooks(db: Session) -> None:
+    if db.info.get(_AUDIT_HOOKS):
+        return
+    # SQLite allocates and flushes audit rows immediately.  Keep the cached
+    # chain head scoped to the SQLAlchemy transaction so rollback/savepoints
+    # cannot make a later entry point at a discarded hash.
+    event.listen(db, "after_commit", _mark_audit_transaction_committed)
+    event.listen(db, "after_rollback", _mark_audit_transaction_rolled_back)
+    event.listen(db, "after_transaction_end", _finish_audit_transaction)
+    db.info[_AUDIT_HOOKS] = True
+
+
 def log_action(
     db: Session,
     user: User | None,
@@ -216,7 +235,15 @@ def log_action(
             db.commit()
         return entry
 
-    prev_hash = _latest_entry_hash(db)
+    transaction = _current_session_transaction(db)
+    _install_sqlite_audit_hooks(db)
+    heads = db.info.setdefault(_AUDIT_HEADS, {})
+    prev_hash = heads.get(transaction)
+    if transaction not in heads:
+        parent = transaction.parent
+        while parent is not None and parent not in heads:
+            parent = parent.parent
+        prev_hash = heads[parent] if parent is not None else _latest_entry_hash(db)
     entry_hash = _audit_entry_hash(
         prev_hash=prev_hash,
         user_id=user.id if user else None,
@@ -241,6 +268,7 @@ def log_action(
         db.commit()
     else:
         db.flush()
+        heads[transaction] = entry.entry_hash
     return entry
 
 

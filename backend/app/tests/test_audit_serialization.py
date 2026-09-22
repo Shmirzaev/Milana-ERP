@@ -46,6 +46,75 @@ def test_audit_log_hash_chain_links_entries():
         db.close()
 
 
+def test_sqlite_audit_head_is_reused_within_transaction(monkeypatch):
+    from app.services import audit
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        assert user is not None
+        calls = 0
+        original = audit._latest_entry_hash
+
+        def counted(session):
+            nonlocal calls
+            calls += 1
+            return original(session)
+
+        monkeypatch.setattr(audit, "_latest_entry_hash", counted)
+        first = log_action(db, user, "update", "AuditHeadReuse", 1, new_value={"step": 1})
+        second = log_action(db, user, "update", "AuditHeadReuse", 2, new_value={"step": 2})
+        db.commit()
+
+        assert calls == 1
+        assert second.prev_hash == first.entry_hash
+    finally:
+        db.close()
+
+
+def test_sqlite_audit_head_discards_rolled_back_savepoint(monkeypatch):
+    from app.services import audit
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        assert user is not None
+        first = log_action(db, user, "update", "AuditHeadSavepoint", 1, new_value={"step": 1})
+        savepoint = db.begin_nested()
+        discarded = log_action(db, user, "update", "AuditHeadSavepoint", 2, new_value={"step": 2})
+        savepoint.rollback()
+        retained = log_action(db, user, "update", "AuditHeadSavepoint", 3, new_value={"step": 3})
+        db.commit()
+
+        assert retained.prev_hash == first.entry_hash
+        assert db.query(AuditLog).filter_by(entity_type="AuditHeadSavepoint", entity_id=2).first() is None
+        assert verify_audit_hash_chain(db)["ok"] is True
+    finally:
+        db.close()
+
+
+def test_sqlite_commit_flag_resets_cached_head_for_session_reuse():
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        assert user is not None
+        committed = log_action(
+            db, user, "update", "AuditHeadCommitFlag", 1,
+            new_value={"step": 1}, commit=True,
+        )
+        following = log_action(
+            db, user, "update", "AuditHeadCommitFlag", 2,
+            new_value={"step": 2},
+        )
+        db.commit()
+
+        assert committed.prev_hash is None or committed.prev_hash != following.entry_hash
+        assert following.prev_hash == committed.entry_hash
+        assert verify_audit_hash_chain(db)["ok"] is True
+    finally:
+        db.close()
+
+
 def test_audit_hash_chain_export_and_verify_endpoint(client, auth_headers):
     db = SessionLocal()
     try:
