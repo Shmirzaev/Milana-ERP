@@ -436,7 +436,7 @@
       "status": "fixed",
       "owner": null,
       "commit": "983932f, 5b302dd, d87166b, 2e4dbb1, 65586e0",
-      "evidence": "PackagingRecordIn rejects negative/int4-overflow values and packed+damaged above input. Printing requires printed<=input, passed<=printed, and passed+rejected<=input. Cutting rejects unsafe numeric bounds and impossible output while preserving bundle-derived output. Sewing rejects unsafe numeric bounds, sewn above input, passed above sewn, and passed+failed+rejected above explicit input while preserving input losses beside good sewn output and the input_qty=0 inference path. Invalid Sewing POSTs preserve SewingRecord, SewingReplacementRequest, WasteRecord, Notification and AuditLog rows. The corrected combined slice passes33; four full-suite compatibility cases pass within a24-test selection."
+      "evidence": "PackagingRecordIn rejects negative/int4-overflow values and packed+damaged above input. Printing requires printed<=input, passed<=printed, and passed+rejected<=input. Cutting rejects unsafe numeric bounds and impossible output while preserving bundle-derived output. Sewing rejects unsafe numeric bounds, sewn above input, passed above sewn, and passed+failed+rejected above explicit input while preserving input losses beside good sewn output and the input_qty=0 inference path. Invalid Sewing POSTs preserve SewingRecord, SewingReplacementRequest, WasteRecord, Notification and AuditLog rows. The corrected combined slice passes33; four full-suite compatibility cases pass within a24-test selection; full validation passes in run35675969462."
     },
     {
       "number": 37,
@@ -880,7 +880,7 @@
       "status": "partial",
       "owner": null,
       "commit": "f42637c, 8240fc9",
-      "evidence": "Bulk1/50/401 SELECTs12/355/2812->11/60/415, including audit2/51/402. Requests are capped at 500 records; 500 is accepted and an API request with 501 returns422 without PayrollRecord or AuditLog writes. Seven prior focused cases and10 payroll PostgreSQL races pass on the batching diff; the latest combined slice passes33. Audit reads, legacy no-scan queries and O(rows*open periods) matching remain."
+      "evidence": "Bulk1/50/401 SELECTs12/355/2812->11/60/415, including audit2/51/402. Requests are capped at 500 records; 500 is accepted and an API request with 501 returns422 without PayrollRecord or AuditLog writes. Seven prior focused cases and10 payroll PostgreSQL races pass on the batching diff; the latest combined slice passes33 and full validation passes in run35675969462. Audit reads, legacy no-scan queries and O(rows*open periods) matching remain."
     },
     {
       "number": 74,
@@ -1156,7 +1156,7 @@
       "status": "partial",
       "owner": null,
       "commit": "bb93fbc, 4a4d0e6",
-      "evidence": "PARTIAL: catalog family rename reads the non-legacy source family with the indexed PostgreSQL group identity (or an exact/escaped SQLite fallback) and limits collision reads to planned codes. Approval checks Usluga main-fabric counts for all pending family members in one grouped query instead of one query per model; a three-model regression asserts exactly one grouped aggregate. Clone remains open; real PostgreSQL plan/load validation remains required."
+      "evidence": "PARTIAL: catalog family rename reads the non-legacy source family with the indexed PostgreSQL group identity (or an exact/escaped SQLite fallback) and limits collision reads to planned codes. Approval checks Usluga main-fabric counts for all pending family members in one grouped query instead of one query per model; a three-model regression asserts exactly one grouped aggregate. Full validation passes in run35675969462. Clone remains open; real PostgreSQL plan/load validation remains required."
     },
     {
       "number": 97,
@@ -1264,7 +1264,7 @@
       "status": "partial",
       "owner": null,
       "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160, 8589ba4, be696e1",
-      "evidence": "HR documents/recruitment, inventory Accessories, Purchasing request items, model-detail seasons and model BOM metadata defer hidden directories until their UI is visible or required. BOM metadata loads on the visible Materials tab in both read and edit modes, preserving read-only names and cost metadata while skipping hidden tabs. Both model-detail source/behavior contracts pass; earlier frontend CI passed in run35672476252 and the newest BOM change awaits CI. Other requests and browser visual proof remain open."
+      "evidence": "HR documents/recruitment, inventory Accessories, Purchasing request items, model-detail seasons and model BOM metadata defer hidden directories until their UI is visible or required. BOM metadata loads on the visible Materials tab in both read and edit modes, preserving read-only names and cost metadata while skipping hidden tabs. Both model-detail source/behavior contracts plus frontend lint, strict types and optimized build pass in run35675969462. Other requests and browser visual proof remain open."
     },
     {
       "number": 106,
