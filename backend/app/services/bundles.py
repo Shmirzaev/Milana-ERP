@@ -28,6 +28,8 @@ class SewingReceiptContext:
     transaction: object
     departments: dict[str, Department]
     work_orders: dict[int, list[WorkOrder]]
+    factory_codes_by_scope: dict[tuple[int, int | None], set[str]]
+    received_quantities_by_scope: dict[tuple[int, int | None], int]
 
 
 def verify_sewing_accessory_gate(db: Session, production_order_id: int) -> SewingAccessoryGate:
@@ -129,23 +131,31 @@ def _factory_codes_for_scope(
     db: Session,
     production_order_id: int,
     production_batch_id: int | None = None,
+    receipt_context: SewingReceiptContext | None = None,
 ) -> set[str]:
+    scope = (int(production_order_id), int(production_batch_id) if production_batch_id is not None else None)
+    if receipt_context is not None and scope in receipt_context.factory_codes_by_scope:
+        return receipt_context.factory_codes_by_scope[scope]
     qry = db.query(Bundle.sewing_factory_code).filter(Bundle.production_order_id == production_order_id)
     if production_batch_id is not None:
         qry = qry.filter(Bundle.production_batch_id == production_batch_id)
-    return {
+    codes = {
         resolve_sewing_factory_code(code)
         for (code,) in qry.all()
         if code is not None
     }
+    if receipt_context is not None:
+        receipt_context.factory_codes_by_scope[scope] = codes
+    return codes
 
 
 def sewing_department_code_for_bundle_route(
     db: Session,
     production_order_id: int,
     production_batch_id: int | None = None,
+    receipt_context: SewingReceiptContext | None = None,
 ) -> str:
-    codes = _factory_codes_for_scope(db, production_order_id, production_batch_id)
+    codes = _factory_codes_for_scope(db, production_order_id, production_batch_id, receipt_context)
     if codes == {DEPT_MILANA}:
         return DEPT_MILANA
     if codes == {DEPT_BESTTEX}:
@@ -159,8 +169,9 @@ def packaging_department_code_for_bundle_route(
     db: Session,
     production_order_id: int,
     production_batch_id: int | None = None,
+    receipt_context: SewingReceiptContext | None = None,
 ) -> str:
-    codes = _factory_codes_for_scope(db, production_order_id, production_batch_id)
+    codes = _factory_codes_for_scope(db, production_order_id, production_batch_id, receipt_context)
     if codes == {DEPT_BESTTEX}:
         return DEPT_BESTTEX_PACKAGING
     if codes == {DEPT_ECO_COTTON}:
@@ -229,7 +240,7 @@ def sync_sewing_department_for_bundle_route(
         production_order_id,
         production_batch_id,
         "sewing",
-        sewing_department_code_for_bundle_route(db, production_order_id, production_batch_id),
+        sewing_department_code_for_bundle_route(db, production_order_id, production_batch_id, receipt_context),
         DEPT_SEW,
         receipt_context,
     )
@@ -246,7 +257,7 @@ def sync_packaging_department_for_bundle_route(
         production_order_id,
         production_batch_id,
         "packaging",
-        packaging_department_code_for_bundle_route(db, production_order_id, production_batch_id),
+        packaging_department_code_for_bundle_route(db, production_order_id, production_batch_id, receipt_context),
         DEPT_PKG,
         receipt_context,
     )
@@ -553,18 +564,28 @@ def receive_at_sewing(
     )
     wo = _work_order_for_bundle(db, bundle, "sewing", receipt_context)
     if wo:
-        qty_filters = [
-            Bundle.production_order_id == bundle.production_order_id,
-            Bundle.status == "received_sewing",
-        ]
-        if wo.production_batch_id is not None:
-            qty_filters.append(Bundle.production_batch_id == wo.production_batch_id)
-        received_qty = int(
-            db.query(func.coalesce(func.sum(Bundle.quantity), 0))
-            .filter(*qty_filters)
-            .scalar()
-            or 0
+        quantity_scope = (
+            int(bundle.production_order_id),
+            int(wo.production_batch_id) if wo.production_batch_id is not None else None,
         )
+        if receipt_context is not None:
+            received_qty = receipt_context.received_quantities_by_scope.get(quantity_scope, 0)
+            if quantity_scope[1] is None or bundle.production_batch_id == quantity_scope[1]:
+                received_qty += int(bundle.quantity or 0)
+                receipt_context.received_quantities_by_scope[quantity_scope] = received_qty
+        else:
+            qty_filters = [
+                Bundle.production_order_id == bundle.production_order_id,
+                Bundle.status == "received_sewing",
+            ]
+            if wo.production_batch_id is not None:
+                qty_filters.append(Bundle.production_batch_id == wo.production_batch_id)
+            received_qty = int(
+                db.query(func.coalesce(func.sum(Bundle.quantity), 0))
+                .filter(*qty_filters)
+                .scalar()
+                or 0
+            )
         wo.actual_input_qty = max(int(wo.actual_input_qty or 0), received_qty)
         if wo.status in ("new", "planning", "waiting"):
             wo.status = "in_progress"
@@ -603,11 +624,37 @@ def _sewing_receipt_context(
     ):
         work_orders[int(row.production_order_id)].append(row)
 
+    received_quantities_by_scope: dict[tuple[int, int | None], int] = {}
+    for order_id, batch_id, quantity in (
+        db.query(
+            Bundle.production_order_id,
+            Bundle.production_batch_id,
+            func.coalesce(func.sum(Bundle.quantity), 0),
+        )
+        .filter(
+            Bundle.production_order_id.in_(order_ids),
+            Bundle.status == "received_sewing",
+        )
+        .group_by(Bundle.production_order_id, Bundle.production_batch_id)
+        .all()
+    ):
+        key = (int(order_id), int(batch_id) if batch_id is not None else None)
+        received_quantities_by_scope[key] = int(quantity or 0)
+        if batch_id is not None:
+            order_key = (int(order_id), None)
+            received_quantities_by_scope[order_key] = (
+                received_quantities_by_scope.get(order_key, 0) + int(quantity or 0)
+            )
+    for order_id in order_ids:
+        received_quantities_by_scope.setdefault((order_id, None), 0)
+
     return SewingReceiptContext(
         accessory_gate=accessory_gate,
         transaction=transaction,
         departments=departments,
         work_orders=work_orders,
+        factory_codes_by_scope={},
+        received_quantities_by_scope=received_quantities_by_scope,
     )
 
 

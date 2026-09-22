@@ -38,7 +38,7 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
     ]
     work_order_reads = [statement for statement in normalized if "from work_orders" in statement]
     assert len(department_reads) <= 2
-    assert len(received_sum_reads) == bundle_count
+    assert len(received_sum_reads) <= 1
     # The existing workflow status synchronization remains deliberately per bundle.
     assert len(work_order_reads) <= bundle_count + 5
     print(f"{mode} {bundle_count}: {len(statements)} SELECTs")
