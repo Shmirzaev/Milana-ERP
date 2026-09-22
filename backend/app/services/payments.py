@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -75,7 +76,7 @@ def create_customer_advance_payment(
     db: Session,
     *,
     customer_id: int,
-    amount: float,
+    amount: Decimal | float,
     payment_method: str | None = None,
     paid_at: datetime | None = None,
     notes: str | None = None,

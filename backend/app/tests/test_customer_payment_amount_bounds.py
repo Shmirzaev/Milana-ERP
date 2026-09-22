@@ -31,10 +31,15 @@ def _write_counts() -> tuple[int, int, int]:
 def test_customer_payment_schema_preserves_maximum_representable_amount():
     parsed = CustomerPaymentIn(amount=str(MAX_PAYMENT))
 
-    assert Decimal(str(parsed.amount)) == MAX_PAYMENT
+    assert parsed.amount == MAX_PAYMENT
 
 
-@pytest.mark.parametrize("amount", ["1000000000000.00", "9999999999999.99"])
+@pytest.mark.parametrize("amount", [
+    "1000000000000.00",
+    "9999999999999.99",
+    "1.00000000000000001",
+    "1.001",
+])
 def test_customer_payment_schema_rejects_unrepresentable_amount(amount):
     with pytest.raises(ValidationError):
         CustomerPaymentIn(amount=amount)
@@ -48,6 +53,20 @@ def test_customer_payment_overflow_rejects_without_writes(client, auth_headers):
         f"/api/customers/{customer_id}/payments",
         headers=auth_headers,
         json={"amount": "1000000000000.00"},
+    )
+
+    assert response.status_code == 422, response.text
+    assert _write_counts() == before
+
+
+def test_customer_payment_subcent_precision_rejects_without_writes(client, auth_headers):
+    customer_id = _customer_id()
+    before = _write_counts()
+
+    response = client.post(
+        f"/api/customers/{customer_id}/payments",
+        headers=auth_headers,
+        json={"amount": "1.00000000000000001"},
     )
 
     assert response.status_code == 422, response.text

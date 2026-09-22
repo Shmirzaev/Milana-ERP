@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
@@ -44,10 +45,10 @@ router = APIRouter(tags=["partners"])
 
 class CustomerPaymentIn(BaseModel):
     sales_order_id: int | None = None
-    amount: float = Field(
+    amount: Decimal = Field(
         ge=0.01,
-        le=999_999_999_999.99,
-        multiple_of=0.01,
+        le=Decimal("999999999999.99"),
+        multiple_of=Decimal("0.01"),
         allow_inf_nan=False,
     )
     paid_at: datetime | None = None
@@ -254,9 +255,10 @@ def create_customer_payment(
 
     payment = None
     invoice = None
-    amount_remaining = float(payload.amount)
+    amount_remaining = payload.amount
 
     if sales_order:
+        amount_remaining = float(amount_remaining)
         invoice = _find_payable_invoice(db, sales_order)
         if not invoice and not _order_has_invoices(db, sales_order):
             invoice = Invoice(
