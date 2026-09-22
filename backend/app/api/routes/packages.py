@@ -9,6 +9,8 @@ from html import escape
 import os
 from typing import Annotated
 
+from pydantic import BaseModel
+
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions, is_admin
 from app.core.config import settings
 from app.core.dt import date_filter_bounds
@@ -86,6 +88,14 @@ _RECEIVING_QUEUE_EVENTS = (
     "removed_storage_queue",
     "received_storage",
 )
+
+
+class PackageChangeRequestPageOut(BaseModel):
+    rows: list[PackageChangeRequestOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 def _package_context(db: DbSession, pkg: Package) -> dict:
@@ -1235,13 +1245,18 @@ def find_on_storage_map(
     ]
 
 
-@router.get("/change-requests", response_model=list[PackageChangeRequestOut])
+@router.get(
+    "/change-requests",
+    response_model=list[PackageChangeRequestOut] | PackageChangeRequestPageOut,
+)
 def list_package_change_requests(
     db: DbSession,
     current: CurrentUser,
     status: str | None = "pending",
     package_id: int | None = None,
     packaging_department_code: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     department_code = packaging_department_scope(current, packaging_department_code)
     qry = db.query(PackageChangeRequest).join(Package, Package.id == PackageChangeRequest.package_id).filter(
@@ -1251,7 +1266,26 @@ def list_package_change_requests(
         qry = qry.filter(PackageChangeRequest.status == status)
     if package_id is not None:
         qry = qry.filter(PackageChangeRequest.package_id == package_id)
-    return qry.order_by(PackageChangeRequest.id.desc()).limit(500).all()
+    ordered_query = qry.order_by(PackageChangeRequest.id.desc())
+    if page is None and page_size is None:
+        return ordered_query.limit(500).all()
+
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    total = qry.order_by(None).count()
+    rows = (
+        ordered_query
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.post("/{pid}/change-requests", response_model=PackageChangeRequestOut, status_code=201)
