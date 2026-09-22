@@ -36,7 +36,12 @@ from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.numbering import next_shipment_no
 from app.services.model_images import model_preview_image_url, model_variant_picture_url
-from app.services.packages import format_storage_location, ship_package, mark_delivered
+from app.services.packages import (
+    format_storage_location,
+    mark_delivered,
+    ship_package,
+    sync_package_production_orders,
+)
 from app.services.workflow import notify_department
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
@@ -855,7 +860,8 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     freeze_dispatch_document(db, shipment)
     shipment.dispatch_snapshot = {**shipment.dispatch_snapshot, "document": {**shipment.dispatch_snapshot["document"], "warehouse_person": current.name}}
     for package in packages:
-        ship_package(db, package, current.id)
+        ship_package(db, package, current.id, sync_production=False)
+    sync_package_production_orders(db, (package.production_order_id for package in packages))
     if (shipment.dispatch_snapshot or {}).get("manual"):
         from app.services.shipment_review import post_manual_shipment_invoice
         post_manual_shipment_invoice(db, shipment, current)

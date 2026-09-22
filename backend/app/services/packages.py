@@ -1366,7 +1366,13 @@ def reserve_package(db: Session, pkg: Package, user_id: int | None):
     db.flush()
 
 
-def ship_package(db: Session, pkg: Package, user_id: int | None):
+def ship_package(
+    db: Session,
+    pkg: Package,
+    user_id: int | None,
+    *,
+    sync_production: bool = True,
+):
     _require_warehouse_package(db, pkg)
     if pkg.status not in ("received_in_storage", "reserved"):
         raise HTTPException(400, f"Package cannot be shipped from status '{pkg.status}'")
@@ -1377,7 +1383,8 @@ def ship_package(db: Session, pkg: Package, user_id: int | None):
     pkg.storage_placed_at = None
     decrement_finished_goods_for_package(db, pkg)
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="shipped"))
-    _sync_package_production(db, pkg.production_order_id)
+    if sync_production:
+        _sync_package_production(db, pkg.production_order_id)
     db.flush()
 
 
