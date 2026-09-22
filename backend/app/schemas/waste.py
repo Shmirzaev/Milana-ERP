@@ -36,6 +36,14 @@ class WasteOut(ORMModel):
     created_at: datetime
 
 
+class WastePageOut(BaseModel):
+    rows: list[WasteOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class WasteSaleIn(BaseModel):
     buyer_name: str
     quantity: float

@@ -1,12 +1,14 @@
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from math import isfinite
-from fastapi import APIRouter, HTTPException, Depends, Header
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Depends, Header, Query
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import WasteRecord, WasteSale, WasteDisposalRequest, User, StockBatch, Item
 from app.schemas.waste import (
-    WasteIn, WasteOut, WasteSaleIn, WasteSaleOut, WasteDisposalIn, WasteDisposalOut,
+    WasteIn, WasteOut, WastePageOut, WasteSaleIn, WasteSaleOut, WasteDisposalIn, WasteDisposalOut,
 )
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
@@ -39,20 +41,44 @@ def _estimated_value_for_waste(db: DbSession, w: WasteRecord) -> float:
     return round(float(w.quantity or 0) * unit_cost, 2)
 
 
-@router.get("", response_model=list[WasteOut])
-def list_waste(db: DbSession, _: CurrentUser, status: str | None = None, sellable: bool | None = None):
+@router.get("", response_model=list[WasteOut] | WastePageOut)
+def list_waste(
+    db: DbSession,
+    _: CurrentUser,
+    status: str | None = None,
+    sellable: bool | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     qry = db.query(WasteRecord)
     if status: qry = qry.filter(WasteRecord.status == status)
     if sellable is not None: qry = qry.filter(WasteRecord.sellable.is_(sellable))
-    rows = qry.order_by(WasteRecord.id.desc()).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    qry = qry.order_by(WasteRecord.id.desc())
+    if total is not None:
+        qry = qry.offset((page - 1) * page_size).limit(page_size)
+    rows = qry.all()
     # Preserve the existing live-estimate response without rewriting the
     # valuation snapshot stored with the historical waste record.
-    return [
+    payloads = [
         WasteOut.model_validate(row).model_copy(
             update={"estimated_value": _estimated_value_for_waste(db, row)},
         )
         for row in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("", response_model=WasteOut, status_code=201)
