@@ -26,6 +26,7 @@ from app.models import (
     SystemSetting,
     User,
 )
+from app.schemas.hr_workspace import HrPositionOut, HrPositionPageOut
 from app.services.audit import log_action
 from app.services.attendance_event_policy import accepted_attendance_result
 from app.services.attendance_reports import TASHKENT
@@ -342,22 +343,50 @@ def delete_org_unit(unit_id: int, db: DbSession, current: User = HrUser):
     db.delete(row); log_action(db, current, "delete", "HrOrgUnit", unit_id); db.commit()
 
 
-@router.get("/positions")
-def list_positions(db: DbSession, current: User = HrUser):
+@router.get("/positions", response_model=list[HrPositionOut] | HrPositionPageOut)
+def list_positions(
+    db: DbSession,
+    current: User = HrUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     factory = _factory(current)
-    occupied = dict(db.query(Employee.hr_position_id, func.count(Employee.id)).filter(
-        Employee.factory_code == factory, Employee.status == "active", Employee.hr_position_id.isnot(None),
-    ).group_by(Employee.hr_position_id).all())
-    rows = db.query(HrPosition).filter(HrPosition.factory_code == factory).order_by(HrPosition.name).all()
+    query = db.query(HrPosition).filter(HrPosition.factory_code == factory)
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.count()
+    query = query.order_by(HrPosition.name)
+    if total is not None:
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    rows = query.all()
+    position_ids = {int(row.id) for row in rows}
+    occupied = dict(
+        db.query(Employee.hr_position_id, func.count(Employee.id)).filter(
+            Employee.factory_code == factory,
+            Employee.status == "active",
+            Employee.hr_position_id.in_(position_ids),
+        ).group_by(Employee.hr_position_id).all()
+    ) if position_ids else {}
     department_ids = {int(row.department_id) for row in rows if row.department_id is not None}
     department_names = {
         int(department.id): department.name
         for department in db.query(Department).filter(Department.id.in_(department_ids)).all()
     } if department_ids else {}
-    return [
+    payloads = [
         _position_dict(row, occupied.get(row.id, 0), department_names.get(int(row.department_id)) if row.department_id else None)
         for row in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/positions", status_code=201)
