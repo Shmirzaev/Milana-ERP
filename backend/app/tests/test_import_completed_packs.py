@@ -17,7 +17,28 @@ SPEC.loader.exec_module(importer)
 
 
 def test_production_migration_guard_matches_current_baseline():
-    assert importer.EXPECTED_ALEMBIC_HEAD == "0114_warehouse_stocktake"
+    assert importer.EXPECTED_ALEMBIC_HEAD == "0132_first_grade_singles"
+
+
+def test_reviewed_catalog_selection_requires_original_variant_identity():
+    def model(model_id, original):
+        return SimpleNamespace(id=model_id, status="approved", details_json={
+            "general": {"model_no": "PJ1118", "variant_no": "V-2922"},
+            "old_erp_migration": {"identity": original},
+        })
+    correct = model(3669, "PJ1118|2922")
+    duplicate = model(7062, "PJ1118|3881")
+    db = SimpleNamespace(query=lambda _: SimpleNamespace(all=lambda: [correct, duplicate]))
+    row = dict(qr_code="uzerp_ii_21278_1", target_kind="catalog", model_number="PJ1118",
+               article="V-2922", reviewed_catalog_model_id=3669)
+    resolved, created = importer.resolve_all(db, [row], 1)
+    assert resolved[row["qr_code"]] is correct and created == 0
+    row["reviewed_catalog_model_id"] = 7062
+    with pytest.raises(ValueError, match="expected one approved catalog model"):
+        importer.resolve_all(db, [row], 1)
+    del row["reviewed_catalog_model_id"]
+    with pytest.raises(ValueError, match="expected one approved catalog model"):
+        importer.resolve_all(db, [row], 1)
 
 
 def _row(photo_hash: str) -> dict:
