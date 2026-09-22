@@ -33,6 +33,11 @@ def _require_storable_capacity(value: int) -> None:
         raise HTTPException(422, "capacity_per_day must fit a 32-bit database integer")
 
 
+def _require_storable_text(value: str, field: str, maximum: int) -> None:
+    if len(value) > maximum:
+        raise HTTPException(422, f"{field} must be at most {maximum} characters")
+
+
 def _work_order_model_context(db, production_order_ids: list[int]) -> dict[int, dict[str, str | None]]:
     po_ids = sorted({int(po_id) for po_id in production_order_ids if po_id})
     if not po_ids:
@@ -248,6 +253,8 @@ def create_flow(payload: SewingFlowIn, db: DbSession, current: User = Depends(re
         raise HTTPException(400, "Flow code already exists")
     if db.query(SewingFlow).filter(SewingFlow.factory_code == factory, SewingFlow.name == payload.name).first():
         raise HTTPException(400, "Flow name already exists")
+    _require_storable_text(payload.name, "name", 64)
+    _require_storable_text(payload.code, "code", 32)
     _require_storable_capacity(payload.capacity_per_day)
     values = payload.model_dump()
     values["factory_code"] = factory
@@ -445,6 +452,10 @@ def update_flow(fid: int, payload: SewingFlowUpdate, db: DbSession, current: Use
     ).first()
     if duplicate:
         raise HTTPException(400, "Flow code or name already exists in this factory")
+    if changes.get("name") is not None:
+        _require_storable_text(changes["name"], "name", 64)
+    if changes.get("code") is not None:
+        _require_storable_text(changes["code"], "code", 32)
     if "capacity_per_day" in changes:
         _require_storable_capacity(int(changes["capacity_per_day"]))
     for k, v in changes.items():
