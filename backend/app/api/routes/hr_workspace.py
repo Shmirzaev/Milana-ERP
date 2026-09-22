@@ -10,7 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
@@ -387,17 +387,69 @@ def list_candidates(
     db: DbSession,
     current: User = HrUser,
     limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    stage: str | None = None,
+    position_id: Annotated[int | None, Query(gt=0)] = None,
 ):
-    rows = db.query(HrRecruitmentCandidate).filter(
-        HrRecruitmentCandidate.factory_code == _factory(current),
-    ).order_by(HrRecruitmentCandidate.id.desc()).limit(limit).all()
+    factory = _factory(current)
+    base = db.query(HrRecruitmentCandidate).filter(
+        HrRecruitmentCandidate.factory_code == factory,
+    )
+    query = base
+    needle = str(q or "").strip()
+    if needle:
+        escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        search = f"%{escaped}%"
+        query = query.filter(or_(
+            HrRecruitmentCandidate.full_name.ilike(search, escape="\\"),
+            HrRecruitmentCandidate.phone.ilike(search, escape="\\"),
+            HrRecruitmentCandidate.pinfl.ilike(search, escape="\\"),
+            HrRecruitmentCandidate.passport_number.ilike(search, escape="\\"),
+        ))
+    if stage:
+        query = query.filter(HrRecruitmentCandidate.stage == stage)
+    if position_id is not None:
+        query = query.filter(HrRecruitmentCandidate.position_id == position_id)
+
+    paginated = page is not None or page_size is not None
+    safe_page = page or 1
+    safe_page_size = page_size or 100
+    if paginated:
+        total = query.count()
+        rows = (
+            query.order_by(HrRecruitmentCandidate.id.desc())
+            .offset((safe_page - 1) * safe_page_size)
+            .limit(safe_page_size)
+            .all()
+        )
+    else:
+        rows = query.order_by(HrRecruitmentCandidate.id.desc()).limit(limit).all()
     fields = (
         "id", "position_id", "department_id", "full_name", "first_name", "last_name", "middle_name",
         "date_of_birth", "gender", "nationality", "country", "region", "district", "address",
         "passport_number", "passport_issued_by", "passport_issue_date", "passport_expiry_date", "pinfl",
         "phone", "email", "source", "stage", "applied_on", "interview_at", "notes",
     )
-    return [{key: getattr(row, key) for key in fields} for row in rows]
+    payload = [{key: getattr(row, key) for key in fields} for row in rows]
+    if not paginated:
+        return payload
+    stage_counts = {
+        str(candidate_stage): int(count or 0)
+        for candidate_stage, count in base.with_entities(
+            HrRecruitmentCandidate.stage,
+            func.count(HrRecruitmentCandidate.id),
+        ).group_by(HrRecruitmentCandidate.stage).all()
+    }
+    return {
+        "rows": payload,
+        "total": int(total),
+        "page": safe_page,
+        "page_size": safe_page_size,
+        "has_more": safe_page * safe_page_size < int(total),
+        "stage_counts": stage_counts,
+    }
 
 
 def _validate_candidate_links(payload: CandidateIn, db: DbSession, factory: str, candidate_id: int | None = None) -> None:

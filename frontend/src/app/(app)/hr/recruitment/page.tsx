@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import Modal from "@/components/Modal";
 import { HrHeader, LoadState, MetricGrid, useHrT } from "@/components/hr/HrUi";
 import { api, fetcher } from "@/lib/api";
@@ -36,6 +37,15 @@ type Candidate = {
   applied_on: string | null;
   interview_at: string | null;
   notes: string | null;
+};
+
+type CandidatePage = {
+  rows: Candidate[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+  stage_counts: Record<string, number>;
 };
 
 type CandidateForm = {
@@ -160,24 +170,41 @@ function candidatePayload(form: CandidateForm, stage = form.stage) {
 
 export default function RecruitmentPage() {
   const hrT = useHrT();
-  const { data, error, isLoading, mutate } = useSWR<Candidate[]>("/api/hr/recruitment", fetcher);
-  const { data: positions } = useSWR<Position[]>("/api/hr/positions", fetcher);
   const [editing, setEditing] = useState<Candidate | "new" | null>(null);
-  const { data: departments } = useSWR<Department[]>(editing !== null ? "/api/departments" : null, fetcher);
   const [form, setForm] = useState<CandidateForm>(emptyCandidateForm);
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [positionFilter, setPositionFilter] = useState("");
   const [message, setMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-
-  const filteredCandidates = useMemo(() => (data || []).filter((candidate) => (
-    `${candidate.full_name} ${candidate.phone || ""} ${candidate.pinfl || ""} ${candidate.passport_number || ""}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
-    && (!stageFilter || candidate.stage === stageFilter)
-    && (!positionFilter || String(candidate.position_id || "") === positionFilter)
-  )), [data, positionFilter, search, stageFilter]);
+  const deferredSearch = useDeferredValue(search.trim());
+  const candidateFilter = useMemo(() => {
+    const params = new URLSearchParams();
+    if (deferredSearch) params.set("q", deferredSearch);
+    if (stageFilter) params.set("stage", stageFilter);
+    if (positionFilter) params.set("position_id", positionFilter);
+    return params.toString();
+  }, [deferredSearch, positionFilter, stageFilter]);
+  const {
+    data: candidatePages,
+    error,
+    isLoading,
+    isValidating,
+    mutate,
+    setSize,
+  } = useSWRInfinite<CandidatePage>((index, previousPage) => {
+    if (previousPage && !previousPage.has_more) return null;
+    const suffix = candidateFilter ? `&${candidateFilter}` : "";
+    return `/api/hr/recruitment?page=${index + 1}&page_size=100${suffix}`;
+  }, fetcher);
+  const candidates = useMemo(
+    () => candidatePages?.flatMap((candidatePage) => candidatePage.rows) || [],
+    [candidatePages],
+  );
+  const stageCounts = candidatePages?.[0]?.stage_counts;
+  const lastCandidatePage = candidatePages?.[candidatePages.length - 1];
+  const { data: positions } = useSWR<Position[]>("/api/hr/positions", fetcher);
+  const { data: departments } = useSWR<Department[]>(editing !== null ? "/api/departments" : null, fetcher);
 
   function openCandidate(candidate?: Candidate) {
     setEditing(candidate || "new");
@@ -217,10 +244,10 @@ export default function RecruitmentPage() {
         actions={<button type="button" className="btn btn-primary" onClick={() => openCandidate()}>{hrT("Add candidate")}</button>}
       />
       <MetricGrid items={[
-        { label: hrT("Open candidates"), value: data?.filter((row) => !["hired", "rejected"].includes(row.stage)).length ?? "—" },
-        { label: hrT("Interviews"), value: data?.filter((row) => row.stage === "interview").length ?? "—" },
-        { label: hrT("Offers"), value: data?.filter((row) => row.stage === "offer").length ?? "—" },
-        { label: hrT("Hired"), value: data?.filter((row) => row.stage === "hired").length ?? "—" },
+        { label: hrT("Open candidates"), value: stageCounts ? Object.entries(stageCounts).reduce((total, [stage, count]) => total + (!["hired", "rejected"].includes(stage) ? count : 0), 0) : "—" },
+        { label: hrT("Interviews"), value: stageCounts?.interview ?? "—" },
+        { label: hrT("Offers"), value: stageCounts?.offer ?? "—" },
+        { label: hrT("Hired"), value: stageCounts?.hired ?? "—" },
       ]} />
 
       <div className="card mb-4 grid gap-3 p-4 lg:grid-cols-[1fr_220px_260px]">
@@ -235,15 +262,15 @@ export default function RecruitmentPage() {
         </select>
       </div>
 
-      <LoadState loading={isLoading} error={error} empty={!isLoading && !filteredCandidates.length}>
+      <LoadState loading={isLoading} error={error} empty={!isLoading && !candidates.length}>
         <div className="grid gap-4 xl:grid-cols-3">
           {STAGES.map((stage) => (
             <div className="card p-4" key={stage}>
               <h2 className="mb-3 text-sm font-semibold">
-                {hrT(stage)} <span className="text-[#8a8472]">({filteredCandidates.filter((row) => row.stage === stage).length})</span>
+                {hrT(stage)} <span className="text-[#8a8472]">({candidates.filter((row) => row.stage === stage).length})</span>
               </h2>
               <div className="space-y-3">
-                {filteredCandidates.filter((row) => row.stage === stage).map((candidate) => (
+                {candidates.filter((row) => row.stage === stage).map((candidate) => (
                   <div className="rounded-lg border border-[#dedbd0] p-3" key={candidate.id}>
                     <div className="font-medium">{candidate.full_name}</div>
                     <div className="mt-1 text-xs text-[#8a8472]">
@@ -266,6 +293,19 @@ export default function RecruitmentPage() {
             </div>
           ))}
         </div>
+        {lastCandidatePage?.has_more && (
+          <div className="mt-4 flex items-center justify-center gap-3">
+            <button
+              type="button"
+              className="btn"
+              disabled={isValidating}
+              onClick={() => void setSize((candidatePages?.length || 0) + 1)}
+            >
+              {hrT("Load more")}
+            </button>
+            <span className="text-xs text-[#8a8472]">{candidates.length} / {lastCandidatePage.total}</span>
+          </div>
+        )}
       </LoadState>
 
       <Modal
