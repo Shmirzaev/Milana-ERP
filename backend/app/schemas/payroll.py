@@ -74,7 +74,7 @@ class PayrollRecordIn(BaseModel):
 
 class PayrollRecordBulkIn(BaseModel):
     payroll_period_id: int | None = None
-    records: list[PayrollRecordIn] = Field(default_factory=list)
+    records: list[PayrollRecordIn] = Field(default_factory=list, max_length=500)
 
 
 class PayrollNumericWorkScanIn(BaseModel):

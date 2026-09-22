@@ -5,7 +5,8 @@ from uuid import uuid4
 
 from sqlalchemy import event
 
-from app.models import PayrollRecord
+from app.models import AuditLog, PayrollRecord
+from app.schemas.payroll import PayrollRecordBulkIn
 from app.tests.conftest import TestSessionLocal, test_engine
 from app.tests.test_payroll import (
     _create_employee,
@@ -45,6 +46,26 @@ def _bulk_with_statements(client, headers, records):
     finally:
         event.remove(test_engine, "before_cursor_execute", capture)
     return response, statements
+
+
+def test_bulk_record_input_is_capped_before_business_writes(client, auth_headers):
+    boundary = PayrollRecordBulkIn(records=[{} for _ in range(500)])
+    assert len(boundary.records) == 500
+
+    with TestSessionLocal() as db:
+        records_before = db.query(PayrollRecord).count()
+        audits_before = db.query(AuditLog).count()
+
+    response = client.post(
+        "/api/payroll/records/bulk",
+        headers=auth_headers,
+        json={"records": [{} for _ in range(501)]},
+    )
+
+    assert response.status_code == 422, response.text
+    with TestSessionLocal() as db:
+        assert db.query(PayrollRecord).count() == records_before
+        assert db.query(AuditLog).count() == audits_before
 
 
 def test_bulk_record_reads_are_bounded_except_for_audit_chain(client, auth_headers):
