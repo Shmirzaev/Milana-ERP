@@ -1566,7 +1566,7 @@ def issue_accessories_to_production_order(
     issued = []
     for raw in lines:
         item_id = int(raw.get("item_id") or 0)
-        quantity = float(raw.get("quantity") or 0)
+        quantity = Decimal(str(raw.get("quantity") or 0))
         if quantity <= 0:
             continue
 
@@ -1594,10 +1594,12 @@ def issue_accessories_to_production_order(
                 "item_sku": item_sku or item_name,
                 "item_name": item_name,
                 "item_image_url": item.image_url if item else None,
-                "quantity": quantity,
+                "quantity": float(quantity),
                 "unit": unit,
             })
             continue
+
+        quantity = float(quantity)
 
         item = db.get(Item, item_id)
         if not item or item.category not in ACCESSORY_CATEGORIES:
