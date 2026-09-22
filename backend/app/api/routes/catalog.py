@@ -33,7 +33,7 @@ from app.models import (
 from app.schemas.catalog import (
     BrandIn, BrandOut, BrandPageOut, CollectionIn, CollectionOut, CollectionSeasonPageOut,
     ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelSizeMeasurements,
-    ModelColorIn, ModelBOMIn,
+    ModelColorIn, ModelBOMIn, ModelBomItemPageOut,
     ModelBOMUpdate, ModelOptionPage, ModelPaidOperationsIn, ModelSellingPriceOut, ModelSummaryOut,
     ModelVariantCreateIn, ModelVariantUpdateIn,
 )
@@ -1614,21 +1614,36 @@ def list_model_variant_groups(
     return rows
 
 
-@router.get("/models/bom-items", response_model=list[ItemOut])
+@router.get("/models/bom-items", response_model=list[ItemOut] | ModelBomItemPageOut)
 def list_model_bom_items(
     db: DbSession,
     _: User = Depends(require_permissions("modeling.bom", "modeling.models", "*")),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     """Return only the active item master data needed by the model BOM editor."""
-    return (
+    query = (
         db.query(Item)
         .filter(
             Item.is_active.is_(True),
             Item.category.in_(("fabric", "semi_finished", "accessory", "packaging")),
         )
-        .order_by(func.lower(Item.name), Item.name, Item.id)
-        .all()
     )
+    ordered_query = query.order_by(func.lower(Item.name), Item.name, Item.id)
+    if page is None and page_size is None:
+        return ordered_query.all()
+
+    page = page or 1
+    page_size = page_size or 100
+    total = query.count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/models", response_model=ModelOut, status_code=201)

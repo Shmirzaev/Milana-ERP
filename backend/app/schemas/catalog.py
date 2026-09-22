@@ -138,6 +138,14 @@ class CollectionSeasonPageOut(BaseModel):
     has_more: bool
 
 
+class ModelBomItemPageOut(BaseModel):
+    rows: list[ItemOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class ModelImageIn(BaseModel):
     file_url: str
     file_name: Optional[str] = None
