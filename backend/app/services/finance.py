@@ -146,8 +146,7 @@ def list_recent_invoices(db: Session, limit: int = 50, offset: int = 0) -> list[
     return out
 
 
-def revenue_by_period(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict]:
-    """Aggregate invoice revenue by month for charting."""
+def _revenue_period_query(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None):
     from_dt, to_dt = as_utc(from_dt), as_utc(to_dt)
     timestamp = func.coalesce(Invoice.issued_at, Invoice.created_at)
     if db.bind is not None and db.bind.dialect.name == "postgresql":
@@ -159,7 +158,26 @@ def revenue_by_period(db: Session, *, from_dt: datetime | None = None, to_dt: da
         qry = qry.filter(timestamp >= from_dt)
     if to_dt:
         qry = qry.filter(timestamp <= to_dt)
-    rows = qry.filter(timestamp.isnot(None)).group_by(period).order_by(period).all()
+    return qry.filter(timestamp.isnot(None)).group_by(period).order_by(period)
+
+
+def count_revenue_periods(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None) -> int:
+    return int(_revenue_period_query(db, from_dt=from_dt, to_dt=to_dt).order_by(None).count())
+
+
+def revenue_by_period(
+    db: Session,
+    *,
+    from_dt: datetime | None = None,
+    to_dt: datetime | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[dict]:
+    """Aggregate invoice revenue by month for charting."""
+    qry = _revenue_period_query(db, from_dt=from_dt, to_dt=to_dt)
+    if limit is not None:
+        qry = qry.offset(max(0, int(offset or 0))).limit(max(1, int(limit)))
+    rows = qry.all()
     return [{"period": key, "amount": round(float(amount or 0), 2)} for key, amount in rows if key]
 
 

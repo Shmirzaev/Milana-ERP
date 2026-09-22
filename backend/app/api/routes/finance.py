@@ -2,6 +2,7 @@ import hmac
 from datetime import datetime, timezone
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
@@ -16,10 +17,23 @@ from app.services.payments import create_invoice_payment
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.finance import (
     dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
-    count_invoices, list_recent_invoices, revenue_by_period, cost_breakdown,
+    count_invoices, count_revenue_periods, list_recent_invoices, revenue_by_period, cost_breakdown,
 )
 
 router = APIRouter(prefix="/finance", tags=["finance"])
+
+
+class RevenuePeriodOut(BaseModel):
+    period: str
+    amount: float
+
+
+class RevenuePeriodPageOut(BaseModel):
+    rows: list[RevenuePeriodOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 @router.get("/dashboard")
@@ -69,14 +83,34 @@ def list_invoices(
     }
 
 
-@router.get("/revenue-by-period")
+@router.get("/revenue-by-period", response_model=list[RevenuePeriodOut] | RevenuePeriodPageOut)
 def get_revenue_by_period(
     db: DbSession,
     _: User = Depends(require_permissions("finance.view", "*")),
     from_dt: datetime | None = Query(default=None, alias="from"),
     to_dt: datetime | None = Query(default=None, alias="to"),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    return revenue_by_period(db, from_dt=from_dt, to_dt=to_dt)
+    if page is None and page_size is None:
+        return revenue_by_period(db, from_dt=from_dt, to_dt=to_dt)
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    total = count_revenue_periods(db, from_dt=from_dt, to_dt=to_dt)
+    rows = revenue_by_period(
+        db,
+        from_dt=from_dt,
+        to_dt=to_dt,
+        limit=effective_page_size,
+        offset=(effective_page - 1) * effective_page_size,
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/cost-breakdown")
