@@ -22,6 +22,7 @@ from app.models import (
     User,
     Model,
     ModelBOM,
+    ModelImage,
     Customer,
     Invoice,
 )
@@ -224,7 +225,15 @@ def _preparation_payload(
     models = (
         db.query(Model)
         .options(
-            selectinload(Model.images),
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
             selectinload(Model.bom).joinedload(ModelBOM.item),
         )
         .filter(Model.id.in_(model_ids))
