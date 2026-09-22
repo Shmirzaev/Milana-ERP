@@ -1,9 +1,22 @@
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import Invoice, Payment, SalesOrder
+
+
+MANUAL_PAYMENT_METHODS = ("bank_transfer", "cash", "card")
+
+
+def normalize_manual_payment_method(payment_method: str | None) -> str | None:
+    if payment_method is None:
+        return None
+    normalized = payment_method.strip().lower()
+    if normalized not in MANUAL_PAYMENT_METHODS:
+        raise HTTPException(400, "Invalid payment_method; expected bank_transfer, cash, or card")
+    return normalized
 
 
 def invoice_paid_total(db: Session, invoice_id: int) -> float:
@@ -41,6 +54,7 @@ def create_invoice_payment(
         .with_for_update(of=Invoice)
         .one()
     )
+    payment_method = normalize_manual_payment_method(payment_method)
     if customer_id is None and invoice.sales_order_id:
         customer_id = db.query(SalesOrder.customer_id).filter(SalesOrder.id == invoice.sales_order_id).scalar()
     payment = Payment(
@@ -66,6 +80,7 @@ def create_customer_advance_payment(
     paid_at: datetime | None = None,
     notes: str | None = None,
 ) -> Payment:
+    payment_method = normalize_manual_payment_method(payment_method)
     payment = Payment(
         invoice_id=None,
         customer_id=customer_id,
