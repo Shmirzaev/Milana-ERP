@@ -31,7 +31,7 @@ from app.models import (
     StockBatch, CuttingRecord,
 )
 from app.schemas.catalog import (
-    BrandIn, BrandOut, BrandPageOut, CollectionIn, CollectionOut,
+    BrandIn, BrandOut, BrandPageOut, CollectionIn, CollectionOut, CollectionSeasonPageOut,
     ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelSizeMeasurements,
     ModelColorIn, ModelBOMIn,
     ModelBOMUpdate, ModelOptionPage, ModelPaidOperationsIn, ModelSellingPriceOut, ModelSummaryOut,
@@ -1226,16 +1226,35 @@ def create_collection(payload: CollectionIn, db: DbSession, current: User = Depe
     return c
 
 
-@router.get("/collections/seasons")
-def list_collection_seasons(db: DbSession, _: CurrentUser):
-    rows = (
+@router.get("/collections/seasons", response_model=list[str] | CollectionSeasonPageOut)
+def list_collection_seasons(
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    query = (
         db.query(Collection.season)
         .filter(Collection.season.isnot(None), Collection.season != "")
         .group_by(Collection.season)
         .order_by(Collection.season.asc())
-        .all()
     )
-    return [season for (season,) in rows if season]
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.order_by(None).count()
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    rows = [season for (season,) in query.all() if season]
+    if total is None:
+        return rows
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/collections/{cid}", response_model=CollectionOut)
