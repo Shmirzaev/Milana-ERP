@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import uuid4
+from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models import (
@@ -16,13 +17,61 @@ from app.models import (
     SalesOrder,
     SalesOrderItem,
     StockMovement,
+    Model,
+    StockBatch,
+    Warehouse,
 )
+from app.services.forecasting import _planned_bom_demand
+from app.tests.conftest import TestSessionLocal
 
 
 def _token_headers(client, email: str, password: str = "demo12345") -> dict[str, str]:
     r = client.post("/api/auth/token", data={"username": email, "password": password})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def test_planned_bom_demand_eager_loads_stock_batches_once():
+    marker = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        model = Model(code=f"FORECAST-BOM-{marker}", name="Forecast BOM", status="approved")
+        item = Item(sku=f"FORECAST-ITEM-{marker}", name="Fabric", category="fabric", unit="kg")
+        warehouse = db.query(Warehouse).first()
+        db.add_all([model, item])
+        db.flush()
+        batch = StockBatch(item_id=item.id, warehouse_id=warehouse.id, batch_no=f"FORECAST-{marker}", quantity=10, unit="kg", qc_status="passed")
+        order = ProductionOrder(
+            production_no=f"FORECAST-PO-{marker}",
+            production_type="client_order",
+            model_id=model.id,
+            planned_quantity=4,
+            status="planning",
+        )
+        db.add_all([batch, order])
+        db.flush()
+        db.add(ModelBOM(model_id=model.id, item_id=None, stock_batch_id=batch.id, quantity_per_piece=2, unit="kg"))
+        db.flush()
+        statements = []
+
+        def capture(_conn, _cursor, statement, _params, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            demand = _planned_bom_demand(db)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        assert demand[(item.id, "kg")] == 8
+        bom_queries = [statement.lower() for statement in statements if "model_bom" in statement.lower()]
+        standalone_batch_queries = [
+            statement.lower()
+            for statement in statements
+            if " from stock_batches " in f" {statement.lower().replace(chr(10), ' ')} "
+        ]
+        assert len(bom_queries) == 1
+        assert "join stock_batches" in bom_queries[0]
+        assert standalone_batch_queries == []
 
 
 def _warehouse(client, headers, warehouse_type: str) -> dict:

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
     Brand,
@@ -296,7 +296,7 @@ def _planned_bom_demand(db: Session) -> dict[tuple[int, str], float]:
     for lines in items_by_po.values():
         model_ids.update(int(line.model_id) for line in lines if line.model_id)
     bom_by_model: dict[int, list[ModelBOM]] = defaultdict(list)
-    for bom in db.query(ModelBOM).filter(ModelBOM.model_id.in_(model_ids)).all():
+    for bom in db.query(ModelBOM).options(joinedload(ModelBOM.stock_batch)).filter(ModelBOM.model_id.in_(model_ids)).all():
         bom_by_model[int(bom.model_id)].append(bom)
 
     demand: dict[tuple[int, str], float] = defaultdict(float)
