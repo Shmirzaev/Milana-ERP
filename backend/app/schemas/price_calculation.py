@@ -10,9 +10,15 @@ class PriceCalculationCreateIn(BaseModel):
 
 class PriceCalculationFinanceIn(BaseModel):
     cost_price_uzs: float | None = Field(default=None, ge=0)
-    selling_price: float | None = Field(default=None, ge=0)
-    profit_percentage: float | None = Field(default=None, ge=0)
-    exchange_rate: float | None = Field(default=None, ge=0)
+    selling_price: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+    profit_percentage: float | None = Field(
+        default=None, ge=0, le=999_999.99, allow_inf_nan=False,
+    )
+    exchange_rate: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
 
 
 class PriceCalculationPurchasingIn(BaseModel):
