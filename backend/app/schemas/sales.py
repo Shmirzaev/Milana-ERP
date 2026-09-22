@@ -8,11 +8,11 @@ from app.schemas.shipment_review import ShipmentTransportDetails
 
 
 class SalesOrderItemIn(SchemaModel):
-    model_id: int
-    brand_id: Optional[int] = None
-    collection_id: Optional[int] = None
-    color: str
-    size: str
+    model_id: int = Field(gt=0, le=2_147_483_647)
+    brand_id: Optional[int] = Field(default=None, gt=0, le=2_147_483_647)
+    collection_id: Optional[int] = Field(default=None, gt=0, le=2_147_483_647)
+    color: str = Field(max_length=64)
+    size: str = Field(max_length=32)
     quantity: Optional[int] = Field(default=None, ge=0, le=2_147_483_647)
     requested_pack_count: Optional[int] = Field(default=None, gt=0, le=2_147_483_647, strict=True)
     # When omitted, the backend uses the selected variant's current selling price.
