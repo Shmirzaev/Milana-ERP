@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import hashlib
+import heapq
 import json
 import re
 from types import SimpleNamespace
@@ -3541,17 +3542,28 @@ def _prelock_bulk_record_resources(
         .all()
         if any(data.get("payroll_period_id") is None for data in prepared) else []
     )
-    candidate_ids: list[int | None] = []
-    for data in prepared:
-        requested_id = data.get("payroll_period_id")
-        candidate = next(
-            (
-                period for period in open_periods
-                if as_utc(period.start_date) <= as_utc(data["scanned_at"]) <= as_utc(period.end_date)
-            ),
-            None,
-        )
-        candidate_ids.append(int(requested_id) if requested_id is not None else int(candidate.id) if candidate else None)
+    candidate_ids: list[int | None] = [
+        int(data["payroll_period_id"]) if data.get("payroll_period_id") is not None else None
+        for data in prepared
+    ]
+    pending = sorted(
+        ((as_utc(data["scanned_at"]), index) for index, data in enumerate(prepared) if candidate_ids[index] is None),
+        key=lambda row: row[0],
+    )
+    periods = sorted(
+        ((as_utc(period.start_date), as_utc(period.end_date), int(period.id), period) for period in open_periods),
+        key=lambda row: row[0],
+    )
+    active: list[tuple[int, datetime, Any]] = []
+    period_index = 0
+    for scanned_at, row_index in pending:
+        while period_index < len(periods) and periods[period_index][0] <= scanned_at:
+            start, end, period_id, period = periods[period_index]
+            heapq.heappush(active, (-period_id, end, period))
+            period_index += 1
+        while active and active[0][1] < scanned_at:
+            heapq.heappop(active)
+        candidate_ids[row_index] = int(active[0][2].id) if active else None
 
     unique_period_ids = sorted({period_id for period_id in candidate_ids if period_id is not None})
     locked_period_rows = []

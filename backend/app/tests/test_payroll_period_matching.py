@@ -91,3 +91,27 @@ def test_bulk_period_assignment_leaves_only_unmatched_record_unassigned(client, 
 
     assert response.status_code == 200, response.text
     assert [row["payroll_period_id"] for row in response.json()["records"]] == [period["id"], None]
+
+
+def test_bulk_period_matching_prefers_highest_overlap_and_includes_boundaries(client, auth_headers):
+    employee = _create_employee(client, auth_headers)
+    first = _create_period(
+        client, auth_headers,
+        start=datetime(2025, 5, 1, tzinfo=timezone.utc),
+        end=datetime(2025, 5, 10, 23, 59, tzinfo=timezone.utc),
+    )
+    second = _create_period(
+        client, auth_headers,
+        start=datetime(2025, 5, 5, tzinfo=timezone.utc),
+        end=datetime(2025, 5, 15, 23, 59, tzinfo=timezone.utc),
+    )
+    records = [
+        _record_payload(employee["id"], scan_uid=f"bulk-overlap-start-{uuid4().hex}", scanned_at=datetime(2025, 5, 5, tzinfo=timezone.utc)),
+        _record_payload(employee["id"], scan_uid=f"bulk-overlap-end-{uuid4().hex}", scanned_at=datetime(2025, 5, 15, 23, 59, tzinfo=timezone.utc)),
+        _record_payload(employee["id"], scan_uid=f"bulk-overlap-before-{uuid4().hex}", scanned_at=datetime(2025, 4, 30, 23, 59, tzinfo=timezone.utc)),
+    ]
+
+    response = client.post("/api/payroll/records/bulk", headers=auth_headers, json={"records": records})
+
+    assert response.status_code == 200, response.text
+    assert [row["payroll_period_id"] for row in response.json()["records"]] == [second["id"], second["id"], None]
