@@ -6,8 +6,9 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
@@ -27,6 +28,7 @@ from app.services.stocktake import (
 
 router = APIRouter(prefix="/warehouse-stocktakes", tags=["warehouse_stocktakes"])
 access = require_permissions("storage.packages", "storage.shipment")
+_STOCKTAKE_EXPORT_CHUNK_SIZE = 400
 
 
 class CreateCount(BaseModel):
@@ -271,11 +273,74 @@ def complete(count_id: int, db: DbSession, current: User = Depends(access)):
     return count_info(count)
 
 
+def _csv_line(values) -> str:
+    stream = io.StringIO()
+    writer = csv.writer(stream)
+    writer.writerow([
+        "'" + value
+        if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@", "\t", "\r", "\n"))
+        else value
+        for value in values
+    ])
+    return stream.getvalue()
+
+
+def _stocktake_export_rows(db, count):
+    last_row_id = 0
+    while True:
+        rows = (
+            db.query(WarehouseStocktakeRow)
+            .filter(
+                WarehouseStocktakeRow.stocktake_id == count.id,
+                WarehouseStocktakeRow.id > last_row_id,
+            )
+            .order_by(WarehouseStocktakeRow.id.asc())
+            .limit(_STOCKTAKE_EXPORT_CHUNK_SIZE)
+            .all()
+        )
+        if not rows:
+            return
+        package_ids = sorted({int(row.package_id) for row in rows if row.package_id})
+        if count.completed_at and package_ids:
+            latest_completed = (
+                db.query(
+                    WarehouseStocktakeRow.package_id.label("package_id"),
+                    func.max(WarehouseStocktakeRow.id).label("row_id"),
+                )
+                .filter(
+                    WarehouseStocktakeRow.stocktake_id == count.id,
+                    WarehouseStocktakeRow.package_id.in_(package_ids),
+                )
+                .group_by(WarehouseStocktakeRow.package_id)
+                .subquery()
+            )
+            completed_rows = (
+                db.query(
+                    WarehouseStocktakeRow.package_id,
+                    WarehouseStocktakeRow.final_snapshot,
+                )
+                .join(
+                    latest_completed,
+                    latest_completed.c.row_id == WarehouseStocktakeRow.id,
+                )
+                .all()
+            )
+            current = {
+                int(package_id): final_snapshot
+                for package_id, final_snapshot in completed_rows
+            }
+        else:
+            current = package_snapshots(db, package_ids) if package_ids else {}
+        for row in rows:
+            yield row_payload(row, current)
+        last_row_id = int(rows[-1].id)
+        if len(rows) < _STOCKTAKE_EXPORT_CHUNK_SIZE:
+            return
+
+
 @router.get("/{count_id}/export.csv")
 def export(count_id: int, db: DbSession, _: User = Depends(access)):
     count = get_count(db, count_id)
-    stream = io.StringIO()
-    writer = csv.writer(stream)
     headers = [
             "Count",
             "Completed",
@@ -307,61 +372,73 @@ def export(count_id: int, db: DbSession, _: User = Depends(access)):
             "Ambiguous labels total",
             "Row type",
     ]
-    writer.writerow(headers)
+    def csv_lines():
+        yield "\ufeff" + _csv_line(headers)
+        seen_packages: set[int] = set()
+        scanned_pieces = 0
+        estimated_packages = 0
+        unquantified_packages = 0
+        unknown = 0
+        ambiguous = 0
+        for row in _stocktake_export_rows(db, count):
+            s = row["snapshot"]
+            now = row["current"] or {}
+            observed = row["scan_snapshot"] or (s if row["scanned_at"] and row["package_id"] else {})
+            items = observed.get("items") or ([observed] if observed else [])
+            breakdown = "; ".join(
+                " / ".join(str(item.get(key) or "") for key in ("model_code", "model_name", "color", "size"))
+                + f" : {item.get('quantity', '')}"
+                for item in items
+            )
+            yield _csv_line([
+                count.title,
+                count.completed_at or "",
+                row["result"],
+                row["changed"],
+                s.get("package_no"),
+                s.get("barcode"),
+                s.get("model_code"),
+                s.get("color"),
+                s.get("quantity"),
+                s.get("available"),
+                s.get("reserved"),
+                s.get("location"),
+                row["scan_code"],
+                row["scanned_at"],
+                now.get("status"),
+                now.get("quantity"),
+                now.get("available"),
+                now.get("reserved"),
+                now.get("location"),
+                row["scanned_pieces"],
+                row["scan_evidence_source"] if row["scanned_at"] else "",
+                breakdown,
+                "", "", "", "", "", "", "package",
+            ])
+            package_id = int(row["package_id"]) if row["package_id"] is not None else None
+            if row["scanned_at"] is not None and package_id is not None and package_id not in seen_packages:
+                seen_packages.add(package_id)
+                scanned_pieces += row["scanned_pieces"] or 0
+                estimated_packages += row["scan_evidence_source"] == "count_start"
+                unquantified_packages += row["scanned_pieces"] is None
+            unknown += row["result"] == "unknown"
+            ambiguous += row["result"] == "ambiguous"
+        footer = {
+            "Count": count.title,
+            "Completed": count.completed_at or "",
+            "Result": "TOTAL",
+            "Row type": "totals",
+            "Scanned packages total": len(seen_packages),
+            "Scanned pieces total": scanned_pieces,
+            "Count-start fallback packages": estimated_packages,
+            "Scanned packages without quantity evidence": unquantified_packages,
+            "Unknown labels total": unknown,
+            "Ambiguous labels total": ambiguous,
+        }
+        yield _csv_line([footer.get(header, "") for header in headers])
 
-    def write_safe(values):
-        writer.writerow([
-            "'" + v if isinstance(v, str) and v.lstrip().startswith(("=", "+", "-", "@", "\t", "\r", "\n")) else v
-            for v in values
-        ])
-
-    rows = results(db, count)
-    for row in rows:
-        s = row["snapshot"]
-        now = row["current"] or {}
-        observed = row["scan_snapshot"] or (s if row["scanned_at"] and row["package_id"] else {})
-        items = observed.get("items") or ([observed] if observed else [])
-        breakdown = "; ".join(
-            " / ".join(str(item.get(key) or "") for key in ("model_code", "model_name", "color", "size"))
-            + f" : {item.get('quantity', '')}"
-            for item in items
-        )
-        values = [
-            count.title,
-            count.completed_at or "",
-            row["result"],
-            row["changed"],
-            s.get("package_no"),
-            s.get("barcode"),
-            s.get("model_code"),
-            s.get("color"),
-            s.get("quantity"),
-            s.get("available"),
-            s.get("reserved"),
-            s.get("location"),
-            row["scan_code"],
-            row["scanned_at"],
-            now.get("status"),
-            now.get("quantity"),
-            now.get("available"),
-            now.get("reserved"),
-            now.get("location"),
-            row["scanned_pieces"],
-            row["scan_evidence_source"] if row["scanned_at"] else "",
-            breakdown,
-            "", "", "", "", "", "", "package",
-        ]
-        write_safe(values)
-    totals = scan_summary(rows)
-    footer = {"Count": count.title, "Completed": count.completed_at or "", "Result": "TOTAL", "Row type": "totals",
-              "Scanned packages total": totals["scanned_packages"], "Scanned pieces total": totals["scanned_pieces"],
-              "Count-start fallback packages": totals["estimated_packages"],
-              "Scanned packages without quantity evidence": totals["unquantified_packages"],
-              "Unknown labels total": sum(row["result"] == "unknown" for row in rows),
-              "Ambiguous labels total": sum(row["result"] == "ambiguous" for row in rows)}
-    write_safe([footer.get(header, "") for header in headers])
-    return Response(
-        "\ufeff" + stream.getvalue(),
+    return StreamingResponse(
+        csv_lines(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="inventory-count-{count_id}.csv"'},
     )

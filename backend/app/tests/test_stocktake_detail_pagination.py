@@ -1,7 +1,10 @@
+import csv
+import io
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
+from fastapi.responses import StreamingResponse
 from sqlalchemy import event
 
 from app.api.routes import stocktake as stocktake_routes
@@ -84,6 +87,114 @@ def test_common_stocktake_page_serializes_only_requested_rows(monkeypatch, row_c
     assert result["total"] == row_count
     assert len(result["rows"]) == min(row_count, 10)
     assert calls == min(row_count, 10)
+
+
+@pytest.mark.parametrize(("row_count", "expected_row_pages"), [(1, 1), (50, 1), (401, 2)])
+def test_stocktake_export_streams_complete_keyset_pages(
+    client,
+    auth_headers,
+    monkeypatch,
+    row_count,
+    expected_row_pages,
+):
+    count_id = _stocktake_rows(row_count)
+    serialized = 0
+    original = stocktake_routes.row_payload
+
+    def counted_payload(row, current):
+        nonlocal serialized
+        serialized += 1
+        return original(row, current)
+
+    monkeypatch.setattr(stocktake_routes, "row_payload", counted_payload)
+    statements: list[str] = []
+    with TestSessionLocal() as db:
+        bind = db.bind
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        response = client.get(
+            f"/api/warehouse-stocktakes/{count_id}/export.csv",
+            headers=auth_headers,
+        )
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig"))))
+    assert len(rows) == row_count + 1  # Data rows plus totals footer.
+    assert rows[-1]["Row type"] == "totals"
+    assert serialized == row_count
+    row_pages = [
+        statement
+        for statement in statements
+        if " from warehouse_stocktake_rows " in statement
+        and "order by warehouse_stocktake_rows.id asc" in statement
+        and " limit " in statement
+    ]
+    assert len(row_pages) == expected_row_pages, statements
+    assert all("warehouse_stocktake_rows.id >" in statement for statement in row_pages)
+
+    with TestSessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        streamed = stocktake_routes.export(count_id, db, current)
+    assert isinstance(streamed, StreamingResponse)
+
+
+def test_completed_export_uses_global_latest_snapshot_for_cross_chunk_duplicate_package():
+    with TestSessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        package_id = db.query(Package.id).order_by(Package.id.asc()).scalar() or 987654
+        stocktake = WarehouseStocktake(
+            request_key=str(uuid4()),
+            title="PERF33 completed duplicate",
+            created_by=current.id,
+            completed_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        )
+        db.add(stocktake)
+        db.flush()
+        db.add_all([
+            WarehouseStocktakeRow(
+                stocktake_id=stocktake.id,
+                identity=f"legacy-duplicate:{number}",
+                package_id=package_id,
+                expected=True,
+                category="expected",
+                snapshot={"package_no": f"START-{number}"},
+                final_snapshot={"package_no": f"FINAL-{number}"},
+            )
+            for number in range(401)
+        ])
+        db.commit()
+        count_id = int(stocktake.id)
+
+    statements: list[str] = []
+    with TestSessionLocal() as db:
+        count = stocktake_routes.get_count(db, count_id)
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rows = list(stocktake_routes._stocktake_export_rows(db, count))
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert len(rows) == 401
+    assert all(row["current"] == {"package_no": "FINAL-400"} for row in rows)
+    latest_snapshot_queries = [
+        statement
+        for statement in statements
+        if "max(warehouse_stocktake_rows.id)" in statement
+        and "group by warehouse_stocktake_rows.package_id" in statement
+    ]
+    assert len(latest_snapshot_queries) == 2, statements
 
 
 def _scalar_detail(rows, result, offset, limit):
