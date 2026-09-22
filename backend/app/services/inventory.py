@@ -5,7 +5,7 @@ from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import Session, lazyload
 
 from app.core.pagination import clamp_pagination
-from app.core.model_search import model_code_contains
+from app.core.model_search import model_code_contains, normalized_model_code_column, normalized_model_code_key
 from app.models import (
     CuttingRecord,
     Item,
@@ -1995,6 +1995,23 @@ def _accessory_request_rows(
     search = (q or "").strip()
     if search:
         pattern = f"%{search}%"
+        normalized_search = normalized_model_code_key(search)
+        search_clauses = [
+            ProductionOrder.production_no.ilike(pattern),
+            SalesOrder.order_no.ilike(pattern),
+            Model.code.ilike(pattern),
+            Model.name.ilike(pattern),
+            Item.sku.ilike(pattern),
+            Item.name.ilike(pattern),
+            ModelBOM.unit.ilike(pattern),
+            Item.unit.ilike(pattern),
+        ]
+        if normalized_search:
+            escaped = normalized_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            search_clauses.insert(
+                3,
+                normalized_model_code_column(Model.code).ilike(f"%{escaped}%", escape="\\"),
+            )
         candidate_query = (
             db.query(ProductionOrder.id)
             .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
@@ -2002,16 +2019,7 @@ def _accessory_request_rows(
             .outerjoin(ModelBOM, ModelBOM.model_id == ProductionOrder.model_id)
             .outerjoin(Item, Item.id == ModelBOM.item_id)
             .filter(
-                or_(
-                    ProductionOrder.production_no.ilike(pattern),
-                    SalesOrder.order_no.ilike(pattern),
-                    Model.code.ilike(pattern),
-                    Model.name.ilike(pattern),
-                    Item.sku.ilike(pattern),
-                    Item.name.ilike(pattern),
-                    ModelBOM.unit.ilike(pattern),
-                    Item.unit.ilike(pattern),
-                )
+                or_(*search_clauses)
             )
         )
         if production_order_id is not None:
@@ -2197,10 +2205,11 @@ def accessory_issue_requests(
     search = (q or "").strip().lower()
     if search:
         def matches(row: dict) -> bool:
+            if model_code_contains(row.get("model_code"), search):
+                return True
             fields = [
                 row.get("order_no"),
                 row.get("production_no"),
-                row.get("model_code"),
                 row.get("model_name"),
                 row.get("item_sku"),
                 row.get("item_name"),

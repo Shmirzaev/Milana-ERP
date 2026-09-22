@@ -81,6 +81,19 @@ def test_accessory_request_page_has_bounded_query_growth(order_count):
     assert len(statements) <= 30, f"{order_count} orders issued {len(statements)} SELECTs"
 
 
+def test_accessory_request_search_keeps_hyphen_compacted_model_code():
+    model_id = _accessory_request_orders(1)
+    with TestSessionLocal() as db:
+        model = db.get(Model, model_id)
+        rows = accessory_issue_requests(
+            db,
+            q=model.code.replace("-", ""),
+            page=1,
+            page_size=10,
+        )
+    assert rows and rows[0]["model_id"] == model_id
+
+
 def _mixed_accessory_request_case() -> tuple[int, int, str]:
     marker = uuid4().hex[:8]
     with TestSessionLocal() as db:
