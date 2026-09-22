@@ -4,7 +4,7 @@ from app.services.print_response import warehouse_print_response
 from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
 import base64
-from datetime import date
+from datetime import date, datetime
 from html import escape
 import os
 from typing import Annotated
@@ -92,6 +92,22 @@ _RECEIVING_QUEUE_EVENTS = (
 
 class PackageChangeRequestPageOut(BaseModel):
     rows: list[PackageChangeRequestOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class PackageHistoryOut(BaseModel):
+    id: int
+    scan_type: str
+    scanned_by: int | None = None
+    scanned_at: datetime
+    location: str | None = None
+
+
+class PackageHistoryPageOut(BaseModel):
+    rows: list[PackageHistoryOut]
     total: int
     page: int
     page_size: int
@@ -1890,15 +1906,47 @@ def api_damaged(
     return response
 
 
-@router.get("/{pid}/history")
-def history(pid: int, db: DbSession, current: CurrentUser):
+def _package_history_payload(scan: PackageScanLog) -> dict:
+    return {
+        "id": scan.id,
+        "scan_type": scan.scan_type,
+        "scanned_by": scan.scanned_by,
+        "scanned_at": scan.scanned_at,
+        "location": scan.location,
+    }
+
+
+@router.get("/{pid}/history", response_model=list[PackageHistoryOut] | PackageHistoryPageOut)
+def history(
+    pid: int,
+    db: DbSession,
+    current: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     p = db.get(Package, pid)
     if not p: raise HTTPException(404, "Package not found")
     require_package_access(current, p)
-    return [
-        {"id": s.id, "scan_type": s.scan_type, "scanned_by": s.scanned_by, "scanned_at": s.scanned_at, "location": s.location}
-        for s in p.scan_logs
-    ]
+    if page is None and page_size is None:
+        return [_package_history_payload(scan) for scan in p.scan_logs]
+
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    query = db.query(PackageScanLog).filter(PackageScanLog.package_id == pid)
+    total = int(query.count())
+    scans = (
+        query.order_by(PackageScanLog.scanned_at.asc(), PackageScanLog.id.asc())
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    return {
+        "rows": [_package_history_payload(scan) for scan in scans],
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/{pid}/label", response_class=HTMLResponse)
