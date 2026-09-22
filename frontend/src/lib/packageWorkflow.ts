@@ -111,9 +111,15 @@ export async function postPackageWorkflow<T>(path: string, body: unknown, userId
     }
     return result;
   } catch (error: any) {
-    // A definite first rejection can be corrected. Once an earlier outcome is
-    // uncertain, even a later permission/rate-limit error cannot prove it failed.
-    if (!wasPending && /^(400|401|403|404|409|422|429):/.test(String(error?.message))) {
+    const message = String(error?.message);
+    // Package workflow routes serialize a request key and check its committed
+    // replay before their 400/409 business rules. A retry reaching either rule
+    // therefore proves that the saved request did not commit, so corrected
+    // values may safely use a new key. Permission, throttling, not-found, gone,
+    // and schema-validation responses can happen before replay and stay pending.
+    const definitelyRejectedRetry = wasPending && /^(400|409):/.test(message);
+    const definitelyRejectedFirstAttempt = !wasPending && /^(400|401|403|404|409|422|429):/.test(message);
+    if (definitelyRejectedRetry || definitelyRejectedFirstAttempt) {
       clearPendingPackageWorkflow(storageKey, pending.requestKey);
     }
     throw error;

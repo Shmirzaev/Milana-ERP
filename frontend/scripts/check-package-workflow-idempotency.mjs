@@ -47,11 +47,19 @@ const { postPackageWorkflow, pendingPackageWorkflow, reconcilePendingPackageWork
   failure = null;
   await postPackageWorkflow(url, body, 8);
   assert.ok(pendingPackageWorkflow(url, 7), "another user's request must not clear the first");
-  failure = "422: invalid sizes";
-  const retainedEventCount = events.length;
+  failure = "400: invalid sizes";
+  const rejectedRetryKey = pendingPackageWorkflow(url, 7).requestKey;
+  const rejectedEventCount = events.length;
   await assert.rejects(postPackageWorkflow(url, body, 7));
-  assert.ok(pendingPackageWorkflow(url, 7), "a later rejection cannot clear an earlier uncertain result");
-  assert.equal(events.length, retainedEventCount, "retained uncertain evidence must not emit a false UI update");
+  assert.equal(pendingPackageWorkflow(url, 7), null, "a serialized business rejection must release the saved request");
+  assert.equal(events.length, rejectedEventCount + 1, "rejected retry cleanup must notify pending-request listeners");
+  failure = null;
+  const correctedRetryBody = { ...body, count: 5 };
+  await postPackageWorkflow(url, correctedRetryBody, 7);
+  assert.equal(calls.at(-1).body.count, 5);
+  assert.notEqual(calls.at(-1).body.request_key, rejectedRetryKey, "corrected values must use a new request key");
+
+  failure = "422: invalid sizes";
   await assert.rejects(postPackageWorkflow(url, body, 9));
   assert.equal(pendingPackageWorkflow(url, 9), null, "a definite first rejection can be corrected");
 
@@ -65,6 +73,25 @@ const { postPackageWorkflow, pendingPackageWorkflow, reconcilePendingPackageWork
   assert.equal(calls.at(-1).body.count, 4);
   assert.notEqual(calls.at(-1).body.request_key, rateLimitedKey);
   assert.equal(pendingPackageWorkflow(url, 14), null);
+
+  for (const [userId, retryFailure] of [
+    [15, "403: permission revoked"],
+    [16, "429: Too Many Requests"],
+    [17, "410: Some labels in this manual receipt were deleted"],
+    [18, "422: request no longer matches the deployed schema"],
+  ]) {
+    failure = "Network timeout";
+    await assert.rejects(postPackageWorkflow(url, body, userId));
+    const uncertainKey = pendingPackageWorkflow(url, userId).requestKey;
+    failure = retryFailure;
+    const ambiguousEventCount = events.length;
+    await assert.rejects(postPackageWorkflow(url, body, userId));
+    assert.equal(pendingPackageWorkflow(url, userId).requestKey, uncertainKey, `${retryFailure} must retain uncertain evidence`);
+    assert.equal(events.length, ambiguousEventCount, `${retryFailure} must not emit a false clear event`);
+    failure = null;
+    response = { status: "cancelled" };
+    assert.equal((await reconcilePendingPackageWorkflow(url, userId)).status, "cancelled");
+  }
 
   failure = "Network timeout";
   await assert.rejects(postPackageWorkflow(url, body, 10));
