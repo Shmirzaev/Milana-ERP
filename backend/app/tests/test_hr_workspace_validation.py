@@ -314,6 +314,11 @@ def test_valid_scoped_hr_workflow_remains_supported(client, auth_headers):
     )
     assert position.status_code == 201, position.text
 
+    listed = client.get("/api/hr/positions", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    listed_position = next(row for row in listed.json() if row["id"] == position.json()["id"])
+    assert listed_position["department_name"] == "Milana Sewing Factory"
+
     cleared = client.patch(
         f"/api/hr/positions/{position.json()['id']}",
         headers=auth_headers,

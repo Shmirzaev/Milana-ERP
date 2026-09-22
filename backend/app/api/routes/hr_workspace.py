@@ -256,11 +256,12 @@ def _validate_position_links(payload: PositionIn, db: DbSession, factory: str) -
         _department(db, factory, payload.department_id)
 
 
-def _position_dict(row: HrPosition, occupied: int = 0) -> dict:
+def _position_dict(row: HrPosition, occupied: int = 0, department_name: str | None = None) -> dict:
     return {
         "id": row.id,
         "org_unit_id": row.org_unit_id,
         "department_id": row.department_id,
+        "department_name": department_name,
         "name": row.name,
         "job_description": row.job_description,
         "required_skills": row.required_skills_json or [],
@@ -348,7 +349,15 @@ def list_positions(db: DbSession, current: User = HrUser):
         Employee.factory_code == factory, Employee.status == "active", Employee.hr_position_id.isnot(None),
     ).group_by(Employee.hr_position_id).all())
     rows = db.query(HrPosition).filter(HrPosition.factory_code == factory).order_by(HrPosition.name).all()
-    return [_position_dict(row, occupied.get(row.id, 0)) for row in rows]
+    department_ids = {int(row.department_id) for row in rows if row.department_id is not None}
+    department_names = {
+        int(department.id): department.name
+        for department in db.query(Department).filter(Department.id.in_(department_ids)).all()
+    } if department_ids else {}
+    return [
+        _position_dict(row, occupied.get(row.id, 0), department_names.get(int(row.department_id)) if row.department_id else None)
+        for row in rows
+    ]
 
 
 @router.post("/positions", status_code=201)
