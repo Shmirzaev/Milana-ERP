@@ -120,7 +120,6 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const searchParams = useSearchParams();
   const requestedFactory = (searchParams.get("factory") || me?.factory_code || "MIL").toUpperCase();
   const factoryCode = requestedFactory === "BST" || requestedFactory === "ECO" ? requestedFactory : "MIL";
-  const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const initialBatchHandled = useRef(false);
   const [code, setCode] = useState("");
@@ -139,6 +138,10 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const [manualSearch, setManualSearch] = useState("");
   const [manualBusyKey, setManualBusyKey] = useState("");
   const [manualMsg, setManualMsg] = useState("");
+  const departmentDirectoryKey = bundle && (
+    bundle.current_department_id != null || bundle.next_department_id != null
+  ) ? "/api/departments" : null;
+  const { data: departments = [] } = useSWR<Department[]>(departmentDirectoryKey, fetcher);
   const canCuttingScan = can(me, "*", "cutting.bundles");
   const canPrintingScan = can(me, "*", "printing.bundles");
   const canSewingScan = can(me, "*", "sewing.bundles");
