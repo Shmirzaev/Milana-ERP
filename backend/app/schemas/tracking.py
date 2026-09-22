@@ -66,6 +66,23 @@ class BundleScanLogOut(ORMModel):
     scanned_at: datetime
 
 
+class BundleHistoryOut(SchemaModel):
+    id: int
+    scan_type: str
+    scanned_by: Optional[int] = None
+    from_department_id: Optional[int] = None
+    to_department_id: Optional[int] = None
+    scanned_at: datetime
+
+
+class BundleHistoryPageOut(SchemaModel):
+    rows: list[BundleHistoryOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class BundleDetail(BundleOut):
     scan_logs: list[BundleScanLogOut] = []
 

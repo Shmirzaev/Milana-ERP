@@ -1,7 +1,8 @@
 from app.core.order_reference import order_reference_contains
 from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_, text
@@ -31,7 +32,7 @@ from app.models import (
     WorkOrder,
     public_production_order_no,
 )
-from app.schemas.tracking import BundleIn, BundleOut, BundleDetail
+from app.schemas.tracking import BundleDetail, BundleHistoryOut, BundleHistoryPageOut, BundleIn, BundleOut
 from app.services.bundles import (
     find_bundle_by_scanned_code,
     create_bundle,
@@ -1141,18 +1142,47 @@ def api_receive_sewing(bid: int, db: DbSession, current: User = Depends(require_
     return _bundle_detail_payload(db, b)
 
 
-@router.get("/{bid}/history")
-def get_history(bid: int, db: DbSession, _: CurrentUser):
+def _bundle_history_payload(scan: BundleScanLog) -> dict:
+    return {
+        "id": scan.id,
+        "scan_type": scan.scan_type,
+        "scanned_by": scan.scanned_by,
+        "from_department_id": scan.from_department_id,
+        "to_department_id": scan.to_department_id,
+        "scanned_at": scan.scanned_at,
+    }
+
+
+@router.get("/{bid}/history", response_model=list[BundleHistoryOut] | BundleHistoryPageOut)
+def get_history(
+    bid: int,
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     b = db.get(Bundle, bid)
     if not b: raise HTTPException(404, "Bundle not found")
-    return [
-        {
-            "id": s.id, "scan_type": s.scan_type, "scanned_by": s.scanned_by,
-            "from_department_id": s.from_department_id, "to_department_id": s.to_department_id,
-            "scanned_at": s.scanned_at,
-        }
-        for s in b.scan_logs
-    ]
+    if page is None and page_size is None:
+        return [_bundle_history_payload(scan) for scan in b.scan_logs]
+
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    query = db.query(BundleScanLog).filter(BundleScanLog.bundle_id == bid)
+    total = int(query.count())
+    scans = (
+        query.order_by(BundleScanLog.scanned_at.asc())
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    return {
+        "rows": [_bundle_history_payload(scan) for scan in scans],
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/{bid}/label", response_class=HTMLResponse)
