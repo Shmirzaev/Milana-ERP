@@ -199,7 +199,9 @@ class StockMovementOut(ORMModel):
 
 
 class StockQuantityAdjustmentIn(BaseModel):
-    quantity: float = Field(ge=0)
+    quantity: float = Field(
+        ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     unit: Optional[str] = None
 
 

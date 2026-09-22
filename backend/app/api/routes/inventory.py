@@ -82,6 +82,7 @@ from app.core.config import settings
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 EPSILON = 1e-9
+MAX_STORED_STOCK_QUANTITY = Decimal("9999999999.9999")
 
 
 @router.get("/cutting-fabric-usage")
@@ -696,6 +697,8 @@ def set_stock_quantity(
             delta=0,
             unit=item.unit,
         )
+    if Decimal(str(abs(delta))) > MAX_STORED_STOCK_QUANTITY:
+        raise HTTPException(422, "Stock adjustment delta exceeds the supported maximum")
 
     movement_type = "adjustment" if delta > 0 else "issue"
     if item.track_batch:
