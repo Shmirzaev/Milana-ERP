@@ -1143,8 +1143,8 @@
       "baseline_source": "backend/app/api/routes/partners.py:243",
       "status": "partial",
       "owner": null,
-      "commit": "91f2f73",
-      "evidence": "Customer payment candidate lookup1/50/401 invoices:2/51/402 ->2/2/3SELECTs, invoice locks/order retained.14 SQLite tests +6 real PostgreSQL payment races pass.1C per-row processing remains open. docs/stabilization_qa.md"
+      "commit": "91f2f73, 8235602",
+      "evidence": "Customer payment candidate lookup1/50/401 invoices remains2/2/3 SELECTs. Commit 8235602 collects affected 1C invoice IDs across row-isolated payment processing, then uses grouped totals and one invoice load to apply final statuses while preserving the PostgreSQL synchronization hook, reassignment and rollback. Query growth is bounded at1/50 payments;20 combined cases pass with6 PostgreSQL-only skips. Other 1C row resolution remains."
     },
     {
       "number": 96,
@@ -1215,8 +1215,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "29d9aed, ac27943, 9e50847, 35182b8, 2978048, a66321b, a8307d8, 7b45c23",
-      "evidence": "In addition to notification bounds, reviewed SQL bounds now cover admin users, HR recruitment/employees, dashboard active production, finance invoices and brands. Finished Goods adds offset pagination plus executable dual-list load-more coverage so older stock stays reachable. Focused suites pass for every route, strict types/lint pass, and defaults remain compatible. Other business lists/reports/exports remain open."
+      "commit": "29d9aed, ac27943, 9e50847, 35182b8, 2978048, a66321b, a8307d8, 7b45c23, 58b9317",
+      "evidence": "Reviewed SQL bounds cover notifications, admin users, HR recruitment/employees, dashboard active production, finance invoices, brands and Finished Goods. Commit 58b9317 adds opt-in HR Documents pagination with legacy-array compatibility, archive-wide metrics, page-scoped employee lookup and frontend load-more aggregation. Backend legacy/page/metrics/empty cases plus the real component harness, stabilization, strict types and lint pass. Other business lists/reports/exports remain open."
     },
     {
       "number": 102,
