@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import os
 from pathlib import Path
 import re
@@ -55,6 +56,11 @@ from app.services.paid_operations import (
 )
 
 router = APIRouter(tags=["catalog"])
+
+_MODEL_BOM_NUMERIC_FIELDS = {
+    "quantity_per_piece": (Decimal("99999999.9999"), Decimal("0.0001")),
+    "waste_percent": (Decimal("9999.99"), Decimal("0.01")),
+}
 
 
 def _standard_catalog_scope() -> str:
@@ -983,6 +989,23 @@ def _normalize_bom_fields(db: DbSession, data: dict, catalog_scope: str) -> dict
         if category not in {"accessory", "packaging"}:
             raise HTTPException(400, "Usluga inventory links are allowed only for accessories and packaging")
     return normalized
+
+
+def _validate_bom_numeric_fields(data: dict) -> dict:
+    for field, (maximum, quantum) in _MODEL_BOM_NUMERIC_FIELDS.items():
+        if field not in data or data[field] is None:
+            continue
+        try:
+            value = Decimal(str(data[field]))
+            stored_value = value.quantize(quantum, rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError):
+            raise HTTPException(422, f"{field} exceeds supported precision") from None
+        if not value.is_finite():
+            raise HTTPException(422, f"{field} must be finite")
+        if abs(stored_value) > maximum:
+            raise HTTPException(422, f"{field} exceeds supported precision")
+        data[field] = stored_value
+    return data
 
 
 def _ensure_unique_usluga_main_material(
@@ -2610,6 +2633,7 @@ def add_bom(
     _ensure_unique_usluga_main_material(db, mid, data)
     if data.get("photo_url"):
         data["photo_url"] = _validate_file_url(data["photo_url"])
+    _validate_bom_numeric_fields(data)
     b = ModelBOM(model_id=mid, **data)
     db.add(b); db.flush()
     log_action(db, current, "create", "ModelBOM", b.id, new_value={"model_id": mid})
@@ -2695,6 +2719,7 @@ def update_bom(
     _ensure_unique_usluga_main_material(db, mid, data, exclude_bom_id=b.id)
     if "photo_url" in data and data["photo_url"]:
         data["photo_url"] = _validate_file_url(data["photo_url"])
+    _validate_bom_numeric_fields(data)
     for key, value in data.items():
         setattr(b, key, value)
     log_action(db, current, "update", "ModelBOM", b.id, new_value={"model_id": mid, **data})

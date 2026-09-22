@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -211,9 +212,9 @@ class ModelBOMIn(BaseModel):
     size: Optional[str] = None
     color: Optional[str] = None
     photo_url: Optional[str] = None
-    quantity_per_piece: float
+    quantity_per_piece: Decimal | float | int | str
     unit: str
-    waste_percent: float = 0
+    waste_percent: Decimal | float | int | str = 0
 
 
 class ModelBOMUpdate(BaseModel):
@@ -224,9 +225,9 @@ class ModelBOMUpdate(BaseModel):
     size: Optional[str] = None
     color: Optional[str] = None
     photo_url: Optional[str] = None
-    quantity_per_piece: Optional[float] = None
+    quantity_per_piece: Decimal | float | int | str | None = None
     unit: Optional[str] = None
-    waste_percent: Optional[float] = None
+    waste_percent: Decimal | float | int | str | None = None
 
 
 class ModelBOMOut(ORMModel):
