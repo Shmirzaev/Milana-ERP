@@ -416,6 +416,7 @@ def create_package(
     user_id: int | None = None,
     notes: str | None = None,
     packaging_department_code: str | None = None,
+    _cost_cache: dict[int, float] | None = None,
 ) -> Package:
     if not items:
         raise HTTPException(400, "Package must contain at least one size line")
@@ -600,7 +601,12 @@ def create_package(
     # Milana finished-goods stock. Standard production retains its existing
     # stock behavior unchanged.
     if po.source_type != "usluga":
-        cost = _compute_cost(db, model_id)
+        if _cost_cache is not None and model_id in _cost_cache:
+            cost = _cost_cache[model_id]
+        else:
+            cost = _compute_cost(db, model_id)
+            if _cost_cache is not None:
+                _cost_cache[model_id] = cost
         for it in items:
             db.add(FinishedGoodsStock(
                 production_order_id=production_order_id,
@@ -677,6 +683,7 @@ def create_packages_bulk(
                 raise HTTPException(400, "Package weight must be >= 0")
             normalized_weights.append(value)
     created: list[Package] = []
+    cost_cache: dict[int, float] = {}
     for index in range(count):
         package_weight = normalized_weights[index] if normalized_weights else weight_kg
         created.append(
@@ -700,6 +707,7 @@ def create_packages_bulk(
                 user_id=user_id,
                 notes=notes,
                 packaging_department_code=packaging_department_code,
+                _cost_cache=cost_cache,
             )
         )
     return created
