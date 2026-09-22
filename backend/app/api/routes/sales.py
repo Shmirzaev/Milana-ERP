@@ -46,6 +46,7 @@ _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
 _STOCK_VARIANT_QUERY_CHUNK_SIZE = 200
 _MAX_SALES_ORDER_TOTAL = Decimal("999999999999.99")
 _SALES_ORDER_TOTAL_OVERFLOW_THRESHOLD = Decimal("999999999999.995")
+_SALES_ORDER_ITEM_SOURCE_TYPES = frozenset({"produce_new", "from_stock"})
 
 
 def _attachments_for_storage(attachments) -> list[dict]:
@@ -57,6 +58,12 @@ def _attachments_for_storage(attachments) -> list[dict]:
             d["file_url"] = strip_signature(d["file_url"])
         out.append(d)
     return out
+
+
+def _validate_sales_order_item_source_type(value: str) -> str:
+    if value not in _SALES_ORDER_ITEM_SOURCE_TYPES:
+        raise HTTPException(400, "Invalid sales order item source_type")
+    return value
 
 
 def _sign_attachment_urls(payload: dict) -> dict:
@@ -1925,7 +1932,11 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
             quantity=0 if pack_order else item.quantity,
             color="mixed" if pack_order else item.color,
             size="any" if pack_order else item.size,
-            source_type="from_stock" if pack_order else item.source_type,
+            source_type=(
+                "from_stock"
+                if pack_order
+                else _validate_sales_order_item_source_type(item.source_type)
+            ),
         )
         db.add(line)
         created_lines.append(line)
