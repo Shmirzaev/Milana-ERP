@@ -5324,11 +5324,21 @@ def _packaging_sewing_totals(
     return int(sewing_query.scalar() or 0), int(receipt_query.scalar() or 0)
 
 
-def _packaging_receipt_payload(db: DbSession, receipt: PackagingReceipt) -> dict:
-    po = db.get(ProductionOrder, receipt.production_order_id)
-    batch = db.get(ProductionBatch, receipt.production_batch_id) if receipt.production_batch_id else None
-    bundle = db.get(Bundle, receipt.bundle_id) if receipt.bundle_id else None
-    model = db.get(Model, po.model_id) if po else None
+def _packaging_receipt_payload_from_refs(
+    receipt: PackagingReceipt,
+    po: ProductionOrder | None,
+    batch: ProductionBatch | None,
+    bundle: Bundle | None,
+    model: Model | None,
+    sales_order: SalesOrder | None,
+) -> dict:
+    order_no = None
+    if po:
+        order_no = (
+            (sales_order.order_no if sales_order else None)
+            or public_production_order_no(po.production_no)
+            or po.production_no
+        )
     return {
         "id": receipt.id,
         "work_order_id": receipt.work_order_id,
@@ -5337,7 +5347,7 @@ def _packaging_receipt_payload(db: DbSession, receipt: PackagingReceipt) -> dict
         "production_order_id": receipt.production_order_id,
         "production_batch_id": receipt.production_batch_id,
         "production_no": po.production_no if po else None,
-        "order_no": po.order_no if po else None,
+        "order_no": order_no,
         "model_id": po.model_id if po else None,
         "model_code": model.code if model else None,
         "model_name": model.name if model else None,
@@ -5353,6 +5363,22 @@ def _packaging_receipt_payload(db: DbSession, receipt: PackagingReceipt) -> dict
         "notes": receipt.notes,
         "created_at": receipt.created_at,
     }
+
+
+def _packaging_receipt_payload(db: DbSession, receipt: PackagingReceipt) -> dict:
+    po = db.get(ProductionOrder, receipt.production_order_id)
+    batch = db.get(ProductionBatch, receipt.production_batch_id) if receipt.production_batch_id else None
+    bundle = db.get(Bundle, receipt.bundle_id) if receipt.bundle_id else None
+    model = db.get(Model, po.model_id) if po else None
+    sales_order = db.get(SalesOrder, po.sales_order_id) if po and po.sales_order_id else None
+    return _packaging_receipt_payload_from_refs(
+        receipt,
+        po,
+        batch,
+        bundle,
+        model,
+        sales_order,
+    )
 
 
 @router.get("/packaging/receive-options")
@@ -5558,13 +5584,28 @@ def packaging_receipts(
 ):
     department_code = packaging_department_scope(current, packaging_department_code)
     rows = (
-        db.query(PackagingReceipt)
+        db.query(
+            PackagingReceipt,
+            ProductionOrder,
+            ProductionBatch,
+            Bundle,
+            Model,
+            SalesOrder,
+        )
+        .outerjoin(ProductionOrder, ProductionOrder.id == PackagingReceipt.production_order_id)
+        .outerjoin(ProductionBatch, ProductionBatch.id == PackagingReceipt.production_batch_id)
+        .outerjoin(Bundle, Bundle.id == PackagingReceipt.bundle_id)
+        .outerjoin(Model, Model.id == ProductionOrder.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
         .filter(PackagingReceipt.packaging_department_code == department_code)
         .order_by(PackagingReceipt.id.desc())
         .limit(max(1, min(int(limit or 50), 200)))
         .all()
     )
-    return [_packaging_receipt_payload(db, row) for row in rows]
+    return [
+        _packaging_receipt_payload_from_refs(receipt, po, batch, bundle, model, sales_order)
+        for receipt, po, batch, bundle, model, sales_order in rows
+    ]
 
 
 @router.get("/packaging/received-orders")
