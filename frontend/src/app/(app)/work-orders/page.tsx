@@ -26,7 +26,8 @@ export default function WorkOrdersPage() {
 
   const url = dept ? `/api/work-orders?department_id=${dept}` : "/api/work-orders";
   const { data } = useSWR<any[]>(url, fetcher);
-  const { data: sewingFlows } = useSWR<any[]>("/api/sewing-flows", fetcher);
+  const sewingFlowKey = data?.some((workOrder) => workOrder.sewing_flow_id) ? "/api/sewing-flows" : null;
+  const { data: sewingFlows } = useSWR<any[]>(sewingFlowKey, fetcher);
   const { data: processes } = useSWR<any[]>("/api/process-tracking", fetcher);
   const processByPo = new Map((processes || []).map((p) => [p.production_order_id, p]));
   const sewingFlowById = new Map((sewingFlows || []).map((flow) => [flow.id, flow]));

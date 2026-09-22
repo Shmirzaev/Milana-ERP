@@ -68,7 +68,6 @@ export default function SalesOrdersPage() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
@@ -94,6 +93,8 @@ export default function SalesOrdersPage() {
   }, [createdFrom, createdTo, page, pageSize, query, statusFilter, typeFilter]);
   const { data: pageData, isLoading, mutate } = useSWR<any>(salesUrl, fetcher);
   const data = useMemo<SO[]>(() => pageData?.rows || [], [pageData?.rows]);
+  const customerDirectoryKey = data.some((order) => order.customer_id != null) ? "/api/customers" : null;
+  const { data: customers = [] } = useSWR<any[]>(customerDirectoryKey, fetcher);
 
   useEffect(() => {
     setQuery(initialQ);

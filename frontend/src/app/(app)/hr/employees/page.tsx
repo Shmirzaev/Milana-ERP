@@ -58,9 +58,12 @@ export default function EmployeesPage() {
   const { t } = useT();
   const { data, error, isLoading, mutate } = useSWR<Employee[]>("/api/employees", fetcher);
   const { data: departments } = useSWR<Dept[]>("/api/departments", fetcher);
-  const { data: positions } = useSWR<Position[]>("/api/hr/positions", fetcher);
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Employee | "new" | null>(null);
+  const positionDirectoryKey = editing !== null || (data || []).some((employee) => employee.hr_position_id != null)
+    ? "/api/hr/positions"
+    : null;
+  const { data: positions } = useSWR<Position[]>(positionDirectoryKey, fetcher);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [section, setSection] = useState<keyof typeof PROFILE_FIELDS>("Personal");
   const [message, setMessage] = useState("");

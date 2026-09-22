@@ -718,7 +718,8 @@ export default function ProcessQrPage() {
     "/api/employees",
     fetcher,
   );
-  const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
+  const departmentDirectoryKey = employees.some((employee) => employee.department_id != null) ? "/api/departments" : null;
+  const { data: departments = [] } = useSWR<Department[]>(departmentDirectoryKey, fetcher);
   const { data: sewingFlows = [] } = useSWR<SewingFlow[]>("/api/sewing-flows", fetcher);
   const [sourceMode, setSourceMode] = useState<"erp" | "manual">("erp");
   const [selectedProcessId, setSelectedProcessId] = useState<number | null>(null);
