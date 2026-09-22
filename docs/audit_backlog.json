@@ -711,8 +711,8 @@
       "baseline_source": "backend/app/schemas/sales.py",
       "status": "partial",
       "owner": null,
-      "commit": "5a68d12,41ae782, 5c08c2c, a66321b, 26a4e73, 77205c9",
-      "evidence": "Existing numeric bounds remain. Commit 5c08c2c adds deterministic SQL-bounded customer payment history; a66321b validates invoice-list limits1..500; 26a4e73 uses Decimal intermediates for order revenue, material/waste cost and gross profit; 77205c9 does the same for branded stock value while preserving float response fields. Focused precision and finance suites pass. Derived prices and other state/list bounds remain open."
+      "commit": "5a68d12,41ae782, 5c08c2c, a66321b, 26a4e73, 77205c9, 652f754",
+      "evidence": "Existing numeric bounds remain. Commit 5c08c2c adds deterministic SQL-bounded customer payment history; a66321b validates invoice-list limits1..500; 26a4e73 uses Decimal intermediates for order revenue, material/waste cost and gross profit; 77205c9 does the same for branded stock value; 652f754 uses exact intermediates for cost-breakdown BOM/waste/category totals and skips descriptive unlinked BOM notes while preserving float response fields. Focused and broad finance suites pass. Other derived prices, states and list bounds remain open."
     },
     {
       "number": 60,
@@ -1059,8 +1059,8 @@
       "baseline_source": "backend/app/api/routes/usluga.py:588",
       "status": "partial",
       "owner": null,
-      "commit": "d1c4117, c8ac9f3",
-      "evidence": "Usluga child reads remain batched. Commit c8ac9f3 adds backward-compatible server pagination/status filtering, a legacy 500-row cap, frontend SWR page aggregation and executable load-more coverage; eight backend cases, strict types and the real component harness pass. Other history/output scopes remain."
+      "commit": "d1c4117, c8ac9f3, 0005ff3",
+      "evidence": "Usluga child reads remain batched. Commit c8ac9f3 adds opt-in server pagination/status filtering and frontend SWR page aggregation with executable load-more coverage. Commit 0005ff3 restores the historical all-row array for callers that do not opt into pagination instead of silently truncating at500; the UI continues to use bounded pages. Eight focused backend cases, full frontend stabilization, strict types and targeted lint pass. Other history/output scopes remain."
     },
     {
       "number": 89,
@@ -1143,8 +1143,8 @@
       "baseline_source": "backend/app/api/routes/partners.py:243",
       "status": "partial",
       "owner": null,
-      "commit": "91f2f73, 8235602",
-      "evidence": "Customer payment candidate lookup1/50/401 invoices remains2/2/3 SELECTs. Commit 8235602 collects affected 1C invoice IDs across row-isolated payment processing, then uses grouped totals and one invoice load to apply final statuses while preserving the PostgreSQL synchronization hook, reassignment and rollback. Query growth is bounded at1/50 payments;20 combined cases pass with6 PostgreSQL-only skips. Other 1C row resolution remains."
+      "commit": "91f2f73, 8235602, 138420b",
+      "evidence": "Customer payment candidate lookup1/50/401 invoices remains2/2/3 SELECTs. Commit 8235602 collects affected 1C invoice IDs across row-isolated payment processing, then uses grouped totals and one invoice load to apply final statuses. Commit 138420b reuses those loaded invoice rows for the synchronization hook instead of a redundant lookup; the bounded assertion allows at most two invoice reads. Reassignment, rollback and PostgreSQL hook behavior remain covered. Other 1C row resolution remains."
     },
     {
       "number": 96,
@@ -1179,8 +1179,8 @@
       "baseline_source": "backend/app/api/routes/inbox.py:689",
       "status": "partial",
       "owner": null,
-      "commit": "f79d195",
-      "evidence": "Inbox production context preloads model images/BOM without binary image data. Two focused tests independently pass:1/50/401/501 models6/6/6/8 SELECTs; none/model/material/BOM/stock/item fallback precedence preserved. Trips grow with selectin chunks of500; output/memory still linear. Other inbox/forecast paths remain unmeasured."
+      "commit": "f79d195, 6c2c5ac, b40cace",
+      "evidence": "Inbox production context preloads model images/BOM without binary image data. Commit 6c2c5ac also defers ModelImage.file_data in material-context reads while preserving the selected URL. Commit b40cace eager-loads BOM stock batches used by planned demand, eliminating lazy per-BOM lookups while preserving fallback demand. Focused 1/50/401/501 asset/fallback coverage and broad compatibility suites pass. Output/memory remains linear and other helpers remain unmeasured."
     },
     {
       "number": 99,
@@ -1249,10 +1249,10 @@
       "risk": "Legitimate users may receive 429; complaint-time events unmeasured.",
       "proposed_fix": "Test authenticated/NAT budgets",
       "baseline_source": null,
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "bf36441",
+      "evidence": "Employee create/update now restrict status commands to the four codes already exposed by the HR UI: active, inactive, on_leave and terminated. Unknown status returns422 without a write; all supported codes remain accepted. HR/Usluga compatibility passes42 focused cases and the broader dirty-module slice passes156 with11 environment/PostgreSQL skips. Other loose commands and extensible JSON inputs remain, so DB02 is partial."
     },
     {
       "number": 105,
