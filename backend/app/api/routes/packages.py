@@ -132,14 +132,15 @@ def _package_detail_payload(db: DbSession, pkg: Package, *, context: dict | None
     if context is None:
         data.update(_package_context(db, pkg))
         member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
+        print_run_id = member.run_id if member else None
     else:
         po = context["production_orders"].get(int(pkg.production_order_id)) if pkg.production_order_id else None
         so = context["sales_orders"].get(int(pkg.sales_order_id)) if pkg.sales_order_id else None
         customer = context["customers"].get(int(so.customer_id)) if so and so.customer_id else None
         model = context["models"].get(int(pkg.model_id)) if pkg.model_id else None
         data.update(_package_context_values(po, so, customer, model))
-        member = context["print_members"].get(int(pkg.id))
-    data["print_run_id"] = member.run_id if member else None
+        print_run_id = context["print_run_ids"].get(int(pkg.id))
+    data["print_run_id"] = print_run_id
     if pkg.manual_receipt_id:
         manual = (
             context["manual_receipts"].get(int(pkg.manual_receipt_id))
@@ -206,7 +207,12 @@ def _load_reference_map(db: DbSession, model_type, ids, *, options=()) -> dict:
     return loaded
 
 
-def _package_detail_reference_context(db: DbSession, packages: list[Package]) -> dict:
+def _package_detail_reference_context(
+    db: DbSession,
+    packages: list[Package],
+    *,
+    print_run_ids: dict[int, int] | None = None,
+) -> dict:
     production_orders = _load_reference_map(
         db,
         ProductionOrder,
@@ -234,28 +240,42 @@ def _package_detail_reference_context(db: DbSession, packages: list[Package]) ->
         ManualPackageReceipt,
         (pkg.manual_receipt_id for pkg in packages),
     )
-    package_ids = sorted({int(pkg.id) for pkg in packages})
-    print_members = {}
-    for offset in range(0, len(package_ids), _LABEL_CONTEXT_CHUNK_SIZE):
-        chunk = package_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
-        print_members.update({
-            int(member.package_id): member
-            for member in db.query(PackagePrintRunMember)
-            .filter(PackagePrintRunMember.package_id.in_(chunk))
-            .all()
-        })
+    if print_run_ids is None:
+        package_ids = sorted({int(pkg.id) for pkg in packages})
+        resolved_print_run_ids = {}
+        for offset in range(0, len(package_ids), _LABEL_CONTEXT_CHUNK_SIZE):
+            chunk = package_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
+            resolved_print_run_ids.update({
+                int(package_id): int(run_id)
+                for package_id, run_id in db.query(
+                    PackagePrintRunMember.package_id,
+                    PackagePrintRunMember.run_id,
+                )
+                .filter(PackagePrintRunMember.package_id.in_(chunk))
+                .all()
+            })
+    else:
+        resolved_print_run_ids = {
+            int(package_id): int(run_id)
+            for package_id, run_id in print_run_ids.items()
+        }
     return {
         "production_orders": production_orders,
         "sales_orders": sales_orders,
         "customers": customers,
         "models": models,
         "manual_receipts": manual_receipts,
-        "print_members": print_members,
+        "print_run_ids": resolved_print_run_ids,
     }
 
 
-def _package_detail_payloads(db: DbSession, packages: list[Package]) -> list[dict]:
-    context = _package_detail_reference_context(db, packages)
+def _package_detail_payloads(
+    db: DbSession,
+    packages: list[Package],
+    *,
+    print_run_ids: dict[int, int] | None = None,
+) -> list[dict]:
+    context = _package_detail_reference_context(db, packages, print_run_ids=print_run_ids)
     return [_package_detail_payload(db, pkg, context=context) for pkg in packages]
 
 
@@ -1501,7 +1521,11 @@ def api_batch_receive_storage(
             new_value={"storage_cell": pkg.storage_cell, "storage_shelf": pkg.storage_shelf, "mode": "batch"},
         )
     sync_package_production_orders(db, (packages_by_id[package_id].production_order_id for package_id in package_ids))
-    updated = _package_detail_payloads(db, _package_details_by_ids(db, package_ids))
+    updated = _package_detail_payloads(
+        db,
+        _package_details_by_ids(db, package_ids),
+        print_run_ids=receive_gate.member_run_ids,
+    )
     db.commit()
     return {
         "count": len(updated),

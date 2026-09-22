@@ -136,14 +136,15 @@ def test_batch_receive_batches_locked_guards_and_response_context(monkeypatch, p
     assert result["count"] == package_count
     assert [row["id"] for row in result["packages"]] == request_ids
     assert all(row["status"] == "received_in_storage" for row in result["packages"])
+    assert all(row["print_run_id"] is None for row in result["packages"])
     assert all(len(row["items"]) == 1 and len(row["scan_logs"]) == 1 for row in result["packages"])
     expected_chunks = ceil(package_count / 400)
-    assert _table_selects(statements, "package_print_run_members") == 2 * expected_chunks
+    assert _table_selects(statements, "package_print_run_members") == expected_chunks
     assert _table_selects(statements, "models") == expected_chunks
     assert _table_selects(statements, "package_items") == expected_chunks
     assert _table_selects(statements, "package_scan_logs") == expected_chunks
     assert _table_selects(statements, "production_orders") == 2 * expected_chunks
-    assert len(statements) <= 12 * expected_chunks + 1
+    assert len(statements) == 11 * expected_chunks + 1
 
 
 @pytest.mark.parametrize("package_count", [1, 50, 401])
