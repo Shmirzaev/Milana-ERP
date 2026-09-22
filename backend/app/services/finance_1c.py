@@ -12,6 +12,14 @@ from app.services.numbering import next_invoice_no
 from app.core.order_reference import BusinessOrderReferenceLookup, resolve_order_id
 
 SOURCE_1C = "1c"
+INVOICE_STATUSES = frozenset({"unpaid", "partially_paid", "paid", "void", "cancelled"})
+
+
+def _validate_invoice_status(status: str) -> str:
+    if status not in INVOICE_STATUSES:
+        expected = ", ".join(sorted(INVOICE_STATUSES))
+        raise ValueError(f"invalid invoice status; expected one of: {expected}")
+    return status
 
 
 def _as_utc(dt: datetime | None) -> datetime | None:
@@ -191,6 +199,7 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                 )
                 if not sales_order:
                     raise ValueError("sales order not found (provide sales_order_id or sales_order_no)")
+                status = _validate_invoice_status(row.status)
                 invoice = invoices_by_external_id.get(row.external_id)
                 is_new = invoice is None
                 previous_invoice_no = invoice.invoice_no if invoice is not None else None
@@ -212,7 +221,7 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                     invoice.due_date = _as_utc(row.due_date)
 
                 invoice.amount = row.amount
-                invoice.status = row.status
+                invoice.status = status
                 db.flush()
 
             if previous_invoice_no and invoices_by_no.get(str(previous_invoice_no)) is invoice:
