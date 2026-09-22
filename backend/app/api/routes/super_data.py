@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 import json
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -43,6 +43,14 @@ class SuperDataTableOut(BaseModel):
     label: str
     row_count: int
     columns: list[SuperDataColumnOut]
+
+
+class SuperDataTablePageOut(BaseModel):
+    rows: list[SuperDataTableOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 class SuperDataRowsOut(BaseModel):
@@ -237,24 +245,57 @@ def _table_row_counts(db: Session, tables: list[Table]) -> dict[str, int]:
     return {str(table_name): int(row_count or 0) for table_name, row_count in rows}
 
 
-@router.get("/tables", response_model=list[SuperDataTableOut])
+def _table_directory(
+    db: Session,
+    tables: list[Table],
+    *,
+    page: int | None = None,
+    page_size: int | None = None,
+) -> list[SuperDataTableOut] | SuperDataTablePageOut:
+    ordered_tables = sorted(tables, key=lambda item: item.name)
+    paginated = page is not None or page_size is not None
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    if paginated:
+        start = (effective_page - 1) * effective_page_size
+        selected_tables = ordered_tables[start:start + effective_page_size]
+    else:
+        selected_tables = ordered_tables
+    row_counts = _table_row_counts(db, selected_tables)
+    rows = [
+        SuperDataTableOut(
+            name=table.name,
+            label=_table_name_label(table.name),
+            row_count=row_counts.get(table.name, 0),
+            columns=_table_columns(table),
+        )
+        for table in selected_tables
+    ]
+    if not paginated:
+        return rows
+    total = len(ordered_tables)
+    return SuperDataTablePageOut(
+        rows=rows,
+        total=total,
+        page=effective_page,
+        page_size=effective_page_size,
+        has_more=effective_page * effective_page_size < total,
+    )
+
+
+@router.get("/tables", response_model=list[SuperDataTableOut] | SuperDataTablePageOut)
 def list_super_data_tables(
     db: DbSession,
     _: User = Depends(require_super_admin),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=200)] = None,
 ):
-    tables = sorted(Base.metadata.sorted_tables, key=lambda item: item.name)
-    row_counts = _table_row_counts(db, tables)
-    out: list[SuperDataTableOut] = []
-    for table in tables:
-        out.append(
-            SuperDataTableOut(
-                name=table.name,
-                label=_table_name_label(table.name),
-                row_count=row_counts.get(table.name, 0),
-                columns=_table_columns(table),
-            )
-        )
-    return out
+    return _table_directory(
+        db,
+        list(Base.metadata.sorted_tables),
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/tables/{table_name}", response_model=SuperDataRowsOut)
