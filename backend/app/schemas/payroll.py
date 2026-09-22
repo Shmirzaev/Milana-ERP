@@ -1,10 +1,16 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel
+
+
+PayrollQrStoredAmount = Annotated[
+    Decimal,
+    Field(ge=0, le=Decimal("9999999999.9999"), allow_inf_nan=False),
+]
 
 
 class PayrollPeriodIn(BaseModel):
@@ -183,8 +189,8 @@ class PayrollQrLabelIssueIn(BaseModel):
     cutting_passport_no: str | None = None
     size: str | None = None
     copy_index: int = 1
-    quantity: Decimal = Decimal("0")
-    rate_per_piece: Decimal = Decimal("0")
+    quantity: PayrollQrStoredAmount = Decimal("0")
+    rate_per_piece: PayrollQrStoredAmount = Decimal("0")
     currency: str = "UZS"
 
 
@@ -216,7 +222,7 @@ class PayrollQrLabelBatchDeleteOut(BaseModel):
 
 class PayrollQrLabelEditIn(BaseModel):
     operation_name: str = Field(min_length=1, max_length=255)
-    rate_per_piece: Decimal = Field(ge=0)
+    rate_per_piece: PayrollQrStoredAmount
 
 
 class PayrollQrLabelSplitIn(PayrollQrLabelEditIn):
