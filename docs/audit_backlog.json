@@ -1215,8 +1215,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "29d9aed, ac27943, 9e50847, 35182b8, 2978048, a66321b, a8307d8, 7b45c23, 58b9317, 64f97e9, 0c51202, ee43ff3, 39aded7, 0760289, 9993e26, 1974b3d, 3188ee4, e9c37b4, 37d6bc6",
-      "evidence": "Reviewed SQL bounds cover notifications, admin users, HR recruitment/employees, dashboard, finance invoices, brands, Finished Goods, HR Documents and Calendar. New opt-in SQL pages preserve exact legacy arrays for recruitment, shipments, branded planning, waste, sewing flows, customer order history, work orders and package print runs; filters apply before count and dependent reads are scoped to returned rows. Boundary/parity suites at1/50/401, frontend stabilization, strict types and lint pass. Other lists/reports/exports remain open."
+      "commit": "29d9aed, ac27943, 9e50847, 35182b8, 2978048, a66321b, a8307d8, 7b45c23, 58b9317, 64f97e9, 0c51202, ee43ff3, 39aded7, 0760289, 9993e26, 1974b3d, 3188ee4, e9c37b4, 37d6bc6, edf17ac, a1ceb96, 851e015, 972ed0b, a65b621, 754bbab, b7c6453, ba8b25f, 321c4d0, f05bfdd",
+      "evidence": "Reviewed SQL bounds cover notifications, admin users, departments, warehouses, HR recruitment/employees and positions, dashboard, finance invoices, payroll records, suppliers, purchase orders, forecast recommendations, sewing daily reports, brands, Finished Goods, HR Documents and Calendar. New opt-in SQL pages preserve exact legacy responses while applying filters before count and scoping dependent reads to returned rows. Boundary/parity suites at1/50/401 cover recruitment, shipments, planning, waste, sewing, customer history, work/print/purchase orders, payroll, cutting passports, HR positions, Finished Goods, suppliers, departments, warehouses and forecasting. Other lists/reports/exports remain open."
     },
     {
       "number": 102,
@@ -1263,8 +1263,8 @@
       "baseline_source": "frontend/src/components/AuthGate.tsx:183",
       "status": "partial",
       "owner": null,
-      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160, 8589ba4, be696e1, 55468e1, 7d841b1, ea3acaa, 7445ad4, b3f3d9f",
-      "evidence": "Prior hidden-directory gating remains. Commits 7445ad4 and b3f3d9f defer inactive customer, warehouse, ready-stock, sales-order and forecast directories across packaging, sales, inventory, cutting, sewing, production-order, planning and Usluga edit pages while preserving active and unauthorized render/key parity. Executable real-component regressions, full stabilization, strict types and targeted lint pass. Other waterfalls and browser-level visual proof remain open."
+      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160, 8589ba4, be696e1, 55468e1, 7d841b1, ea3acaa, 7445ad4, b3f3d9f, 7f947c5, d025ee8, cb2ba52, e101d30, 1da4f66, 044e121",
+      "evidence": "Prior hidden-directory gating remains. Later commits defer inactive customer, warehouse, ready-stock, sales-order, forecast, sewing-flow, department, staffing-position, payment-history, draft process-tracking, pre-scan bundle, collapsed pending-change and unreferenced cutting-inventory requests across packaging, sales, inventory, cutting, sewing, production-order, planning, Usluga, Work Orders, Process QR, HR Employees, bundle scanning, Packages and customer/order detail pages while preserving active and unauthorized render/key parity. Executable actual-component regressions, full stabilization, strict types and targeted lint pass. Other waterfalls and browser-level visual proof remain open."
     },
     {
       "number": 106,
@@ -1323,8 +1323,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "8d386cf",
-      "evidence": "Generic model PATCH now requires paid_operations and legacy paidOperations, when present, to be list[object] while preserving empty lists, arbitrary/versioned row keys and unrelated top-level detail sections. Six focused cases pass independently and three existing factory-scope cases pass. Other editable JSON structures remain, so DB03 is partial."
+      "commit": "8d386cf, ada93f8, 30119aa",
+      "evidence": "Incoming writes now shape-check model paid-operation envelopes, the established 21-field HR employee profile object and finite numeric model-size measurements. Sparse supported objects remain unchanged; invalid writes preserve authorization/resource/conflict precedence and create no business or audit side effects. Legacy JSON rows remain readable and unrelated edits preserve them. Other editable JSON structures remain, so DB03 is partial."
     },
     {
       "number": 111,
