@@ -44,7 +44,12 @@ router = APIRouter(tags=["partners"])
 
 class CustomerPaymentIn(BaseModel):
     sales_order_id: int | None = None
-    amount: float = Field(ge=0.01, multiple_of=0.01, allow_inf_nan=False)
+    amount: float = Field(
+        ge=0.01,
+        le=999_999_999_999.99,
+        multiple_of=0.01,
+        allow_inf_nan=False,
+    )
     paid_at: datetime | None = None
     payment_method: str | None = None
     notes: str | None = None
