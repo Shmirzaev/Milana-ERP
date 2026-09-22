@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from io import BytesIO
 
+import pytest
 from PIL import Image, ImageChops, ImageStat
 
+from app.services import image_storage
 from app.services.image_storage import convert_image_to_webp, prebuild_webp_thumbnails
 
 
@@ -50,3 +52,30 @@ def test_prebuilt_thumbnails_are_webp_with_expected_bounds(tmp_path):
         with Image.open(path) as image:
             assert image.format == "WEBP"
             assert max(image.size) == expected_size
+
+
+def test_prebuilt_thumbnails_roll_back_when_a_later_size_fails(tmp_path, monkeypatch):
+    source_data = _image_bytes("JPEG")
+    original = image_storage._thumbnail_data
+    pre_existing = tmp_path / "160_sample.webp.webp"
+    pre_existing.write_bytes(b"keep the previous thumbnail")
+    unrelated = tmp_path / "160_other.webp"
+    unrelated.write_bytes(b"keep this unrelated thumbnail")
+
+    def fail_on_second_size(image, size, *, source_format, icc_profile):
+        if size == 320:
+            raise RuntimeError("thumbnail conversion failed")
+        return original(image, size, source_format=source_format, icc_profile=icc_profile)
+
+    monkeypatch.setattr(image_storage, "_thumbnail_data", fail_on_second_size)
+
+    with pytest.raises(RuntimeError, match="thumbnail conversion failed"):
+        prebuild_webp_thumbnails(
+            source_data,
+            thumbnail_root=tmp_path,
+            source_file_name="sample.webp",
+        )
+
+    assert pre_existing.read_bytes() == b"keep the previous thumbnail"
+    assert unrelated.read_bytes() == b"keep this unrelated thumbnail"
+    assert not (tmp_path / "320_sample.webp.webp").exists()
