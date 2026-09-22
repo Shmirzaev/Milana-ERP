@@ -32,7 +32,15 @@ from app.models import (
     WorkOrder,
     public_production_order_no,
 )
-from app.schemas.tracking import BundleDetail, BundleHistoryOut, BundleHistoryPageOut, BundleIn, BundleOut
+from app.schemas.tracking import (
+    BundleDetail,
+    BundleHistoryOut,
+    BundleHistoryPageOut,
+    BundleIn,
+    BundleOut,
+    SewingReceiveOptionOut,
+    SewingReceiveOptionPageOut,
+)
 from app.services.bundles import (
     find_bundle_by_scanned_code,
     create_bundle,
@@ -594,13 +602,18 @@ def cutting_inventory(
     }
 
 
-@router.get("/sewing-receive-options")
+@router.get(
+    "/sewing-receive-options",
+    response_model=list[SewingReceiveOptionOut] | SewingReceiveOptionPageOut,
+)
 def sewing_receive_options(
     db: DbSession,
     current: User = Depends(require_permissions("sewing.bundles", "*")),
     q: str | None = None,
     limit: int = 25,
     factory_code: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     factory = sewing_line_factory_scope(current, factory_code)
     qry = db.query(
@@ -639,20 +652,25 @@ def sewing_receive_options(
             )
         )
 
-    rows = (
-        qry.group_by(
-            Bundle.production_order_id,
-            Bundle.production_batch_id,
-            Bundle.model_id,
-            ProductionOrder.production_no,
-            SalesOrder.order_no,
-            Model.code,
-            Model.name,
-        )
-        .order_by(func.max(Bundle.created_at).desc())
-        .limit(max(1, min(int(limit or 25), 100)))
-        .all()
+    grouped_query = qry.group_by(
+        Bundle.production_order_id,
+        Bundle.production_batch_id,
+        Bundle.model_id,
+        ProductionOrder.production_no,
+        SalesOrder.order_no,
+        Model.code,
+        Model.name,
     )
+    ordered_query = grouped_query.order_by(func.max(Bundle.created_at).desc())
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 25
+        total = grouped_query.order_by(None).count()
+        ordered_query = ordered_query.offset((page - 1) * page_size).limit(page_size)
+    else:
+        ordered_query = ordered_query.limit(max(1, min(int(limit or 25), 100)))
+    rows = ordered_query.all()
     material_images = _material_images_by_model_id(db, (row.model_id for row in rows))
     batch_ids = {row.production_batch_id for row in rows if row.production_batch_id is not None}
     batches = db.query(ProductionBatch).filter(ProductionBatch.id.in_(batch_ids)).all() if batch_ids else []
@@ -660,7 +678,7 @@ def sewing_receive_options(
         batch.id: " - ".join(filter(None, (format_batch_passport(batch, batch.production_order_id), batch.name)))
         for batch in batches
     }
-    return [
+    payloads = [
         {
             "production_order_id": production_order_id,
             "production_batch_id": production_batch_id,
@@ -687,6 +705,15 @@ def sewing_receive_options(
             _latest_created_at,
         ) in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/manual-receive-sewing")

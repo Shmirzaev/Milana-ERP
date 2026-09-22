@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal, Optional
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.schemas.common import ORMModel, SchemaModel
 
@@ -77,6 +77,30 @@ class BundleHistoryOut(SchemaModel):
 
 class BundleHistoryPageOut(SchemaModel):
     rows: list[BundleHistoryOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class SewingReceiveOptionOut(SchemaModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    production_order_id: int
+    production_batch_id: int | None = None
+    batch_label: str | None = None
+    model_id: int
+    production_no: str
+    order_no: str
+    model_code: str | None = None
+    model_name: str | None = None
+    material_image_url: str | None = None
+    bundle_count: int
+    quantity: int
+
+
+class SewingReceiveOptionPageOut(SchemaModel):
+    rows: list[SewingReceiveOptionOut]
     total: int
     page: int
     page_size: int
