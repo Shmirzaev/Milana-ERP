@@ -831,8 +831,8 @@
       "baseline_source": "backend/app/services/inventory.py:1425",
       "status": "partial",
       "owner": null,
-      "commit": "2c30d5d, 704abef",
-      "evidence": "401 orders3611->14 SELECTs; 1/50/401 now10/10/14. Commit 704abef adds SQL candidate-ID filtering before expensive accessory requirements/stock calculations; five focused parity/query-growth cases pass with search/status/manual labels/order/page/total preserved. Derived filtering and final pagination remain in Python, so the finding stays partial."
+      "commit": "2c30d5d, 704abef, 3a74e5a",
+      "evidence": "401 orders3611->14 SELECTs; 1/50/401 now10/10/14. Commit 704abef adds SQL candidate-ID filtering before expensive accessory requirements/stock calculations; 3a74e5a keeps its SQL prefilter aligned with normalized model-code matching, including compacted hyphens and guarded literal wildcard handling. Six focused search/query-growth cases pass. Derived filtering and final pagination remain in Python, so the finding stays partial."
     },
     {
       "number": 70,
@@ -963,8 +963,8 @@
       "baseline_source": "backend/app/api/routes/cutting_passports.py:317",
       "status": "partial",
       "owner": null,
-      "commit": "a3f8127, 2279d2d, 8bf780a",
-      "evidence": "Defaults/list reads remain batched. Commit 8bf780a batches reservation assignment, StockBatch locks, items, warehouses, movement aggregates and active reservation totals while preserving availability/lock order. Twenty-seven focused cases pass with ten PostgreSQL-only skips and a 50-line query-growth check. Remaining write/numbering work and PostgreSQL load validation keep this partial."
+      "commit": "a3f8127, 2279d2d, 8bf780a, 9cac5fb",
+      "evidence": "Defaults/list reads remain batched. Commit 8bf780a batches reservation assignment, StockBatch locks, items, warehouses, movement aggregates and active reservation totals; 9cac5fb replaces per-material passport Item reads with one validation preload while preserving order and missing-item rejection. The combined focused slice passes14 with ten PostgreSQL-only skips. Remaining write/numbering work and PostgreSQL load validation keep this partial."
     },
     {
       "number": 81,
