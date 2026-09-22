@@ -1,4 +1,5 @@
 """Package service: build packages of finished goods with QR/barcode."""
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fastapi import HTTPException
@@ -141,6 +142,15 @@ def _sync_package_production(db: Session, production_order_id: int | None) -> No
         return
     sync_storage_transfer_work_order(db, production_order_id)
     sync_production_order_status(db, production_order_id)
+
+
+def sync_package_production_orders(
+    db: Session,
+    production_order_ids: Iterable[int | None],
+) -> None:
+    """Sync each affected production order once after a batch package write."""
+    for production_order_id in sorted({int(value) for value in production_order_ids if value}):
+        _sync_package_production(db, production_order_id)
 
 
 def _require_warehouse_package(db: Session, pkg: Package) -> None:
@@ -1218,6 +1228,7 @@ def receive_at_storage(
     storage_shelf: str | None = None,
     print_run_id: int | None = None,
     receive_gate: LockedPackageReceiveGate | None = None,
+    sync_production: bool = True,
 ):
     if receive_gate is None:
         pkg = db.query(Package).filter(Package.id == pkg.id).with_for_update().populate_existing().one()
@@ -1258,7 +1269,8 @@ def receive_at_storage(
             location=format_storage_location(cell, shelf),
         )
     )
-    _sync_package_production(db, pkg.production_order_id)
+    if sync_production:
+        _sync_package_production(db, pkg.production_order_id)
     db.flush()
 
 

@@ -98,6 +98,19 @@ def _batch_packages(package_count: int, *, status: str) -> list[int]:
         return [int(package.id) for package in packages]
 
 
+def test_batch_production_sync_deduplicates_in_deterministic_order(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        package_service,
+        "_sync_package_production",
+        lambda _db, production_order_id: calls.append(production_order_id),
+    )
+
+    package_service.sync_package_production_orders(None, [3, 2, None, 3, 1, 2])
+
+    assert calls == [1, 2, 3]
+
+
 @pytest.mark.parametrize("package_count", [1, 50, 401])
 def test_batch_receive_batches_locked_guards_and_response_context(monkeypatch, package_count):
     package_ids = _batch_packages(package_count, status="packed")

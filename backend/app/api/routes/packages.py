@@ -62,6 +62,7 @@ from app.services.packages import (
     place_on_storage_map,
     place_packages_on_storage_map,
     prepare_locked_package_receive,
+    sync_package_production_orders,
     format_storage_location,
     create_package_change_request,
     approve_package_change_request,
@@ -1489,6 +1490,7 @@ def api_batch_receive_storage(
             storage_cell=payload.storage_cell,
             storage_shelf=payload.storage_shelf,
             receive_gate=receive_gate,
+            sync_production=False,
         )
         log_action(
             db,
@@ -1498,6 +1500,7 @@ def api_batch_receive_storage(
             pkg.id,
             new_value={"storage_cell": pkg.storage_cell, "storage_shelf": pkg.storage_shelf, "mode": "batch"},
         )
+    sync_package_production_orders(db, (packages_by_id[package_id].production_order_id for package_id in package_ids))
     updated = _package_detail_payloads(db, _package_details_by_ids(db, package_ids))
     db.commit()
     return {
