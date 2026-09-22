@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -9,7 +10,12 @@ class PriceCalculationCreateIn(BaseModel):
 
 
 class PriceCalculationFinanceIn(BaseModel):
-    cost_price_uzs: float | None = Field(default=None, ge=0)
+    cost_price_uzs: Decimal | None = Field(
+        default=None,
+        ge=Decimal("0"),
+        le=Decimal("9999999999999999.99"),
+        allow_inf_nan=False,
+    )
     selling_price: float | None = Field(
         default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
