@@ -25,6 +25,7 @@ from app.services.audit import log_action
 from app.services.material_rolls import normalize_material_roll_weights
 from app.services.numbering import next_purchase_order_no, next_purchase_request_no
 from app.services.planning import material_requirements_for_sales_order
+from app.services.stock_batch_policy import normalize_stock_batch_qc_status
 from app.services.workflow import notify_department
 
 REQUEST_CREATE_STATUSES = {"draft", "pending_approval"}
@@ -514,6 +515,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             roll_weights_kg=raw.get("roll_weights_kg"),
             piece_count=raw.get("piece_count"),
         )
+        qc_status = normalize_stock_batch_qc_status(raw.get("qc_status") or "passed")
 
         batch = StockBatch(
             item_id=item.id,
@@ -535,7 +537,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             cost_per_unit=cost_per_unit,
             image_url=str(line.photo_url or item.image_url or "").strip() or None,
             warehouse_id=warehouse_id,
-            qc_status=raw.get("qc_status") or "passed",
+            qc_status=qc_status,
         )
         db.add(batch)
         db.flush()
