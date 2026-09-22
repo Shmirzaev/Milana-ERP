@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.sql import sqltypes
 from sqlalchemy.sql.schema import Column, Table
@@ -212,19 +212,37 @@ def _rollback_and_raise(db: Session, exc: SQLAlchemyError, message: str) -> None
     raise HTTPException(400, f"{message}: {exc}") from exc
 
 
+def _table_row_counts(db: Session, tables: list[Table]) -> dict[str, int]:
+    """Read all mapped-table row counts with one round trip.
+
+    Each branch only selects a literal table name and its count, so this is
+    portable across the supported PostgreSQL and SQLite test engines while
+    avoiding one database round trip per table.
+    """
+    if not tables:
+        return {}
+    count_queries = [
+        select(literal(table.name).label("table_name"), func.count().label("row_count")).select_from(table)
+        for table in tables
+    ]
+    rows = db.execute(union_all(*count_queries)).all()
+    return {str(table_name): int(row_count or 0) for table_name, row_count in rows}
+
+
 @router.get("/tables", response_model=list[SuperDataTableOut])
 def list_super_data_tables(
     db: DbSession,
     _: User = Depends(require_super_admin),
 ):
+    tables = sorted(Base.metadata.sorted_tables, key=lambda item: item.name)
+    row_counts = _table_row_counts(db, tables)
     out: list[SuperDataTableOut] = []
-    for table in sorted(Base.metadata.sorted_tables, key=lambda item: item.name):
-        row_count = db.execute(select(func.count()).select_from(table)).scalar_one()
+    for table in tables:
         out.append(
             SuperDataTableOut(
                 name=table.name,
                 label=_table_name_label(table.name),
-                row_count=int(row_count or 0),
+                row_count=row_counts.get(table.name, 0),
                 columns=_table_columns(table),
             )
         )
