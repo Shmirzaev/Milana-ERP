@@ -1,5 +1,8 @@
+import pytest
+from sqlalchemy import event
+
 from app.db.session import SessionLocal
-from app.models import Item, Model, ModelBOM
+from app.models import AuditLog, Item, Model, ModelBOM
 
 
 def family():
@@ -97,6 +100,37 @@ def test_approval_permission_and_family_scope(client, auth_headers):
     assert variant(client, headers, base, "V-3")["status"] == "approved"
 
 
+def test_approval_audit_failure_rolls_back_the_whole_family(client, auth_headers, monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api.routes import catalog
+
+    model_ids = family()
+    original_log_action = catalog.log_action
+    calls = 0
+
+    def fail_second_audit(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise HTTPException(503, "Synthetic approval audit failure")
+        return original_log_action(*args, **kwargs)
+
+    monkeypatch.setattr(catalog, "log_action", fail_second_audit)
+    response = client.post(f"/api/models/{model_ids[0]}/approve", headers=auth_headers)
+    assert response.status_code == 503, response.text
+
+    with SessionLocal() as db:
+        rows = db.query(Model).filter(Model.id.in_(model_ids)).order_by(Model.id).all()
+        assert [row.status for row in rows] == ["draft", "draft", "draft"]
+        assert all(row.approved_by is None and row.approved_at is None for row in rows)
+        assert db.query(AuditLog).filter(
+            AuditLog.action == "approve",
+            AuditLog.entity_type == "Model",
+            AuditLog.entity_id.in_(model_ids),
+        ).count() == 0
+
+
 def test_usluga_family_validates_all_main_fabrics_before_approval(client, auth_headers):
     import pytest
     from fastapi import HTTPException
@@ -157,3 +191,69 @@ def test_usluga_approval_batches_main_fabric_counts():
         finally:
             event.remove(engine, "before_cursor_execute", capture)
         assert len(statements) == 1
+
+
+@pytest.mark.parametrize("unrelated_count", [1, 50, 401])
+def test_approval_family_does_not_hydrate_unrelated_catalog_rows(unrelated_count):
+    from uuid import uuid4
+
+    from app.api.routes.catalog import _approval_family
+
+    marker = uuid4().hex[:8]
+    model_no = f"APPROVAL%_{marker}"
+    with SessionLocal() as db:
+        source = Model(
+            code=f"APPROVAL-SOURCE-{marker}",
+            name="Approval source",
+            catalog_scope="standard",
+            details_json={"general": {"model_no": model_no}},
+        )
+        sibling = Model(
+            code=f"APPROVAL-SIBLING-{marker}",
+            name="Approval sibling",
+            catalog_scope="standard",
+            details_json={"general": {"model_no": model_no, "variant_no": "V-2"}},
+        )
+        legacy = Model(
+            code=f"APPROVAL-LEGACY-{marker}",
+            name="Approval legacy import",
+            catalog_scope="standard",
+            details_json={"legacy_import": True, "general": {"model_no": model_no}},
+        )
+        other_scope = Model(
+            code=f"APPROVAL-USLUGA-{marker}",
+            name="Approval other scope",
+            catalog_scope="usluga",
+            factory_code="ECO",
+            details_json={"general": {"model_no": model_no}},
+        )
+        unrelated = [
+            Model(
+                code=f"APPROVAL-OTHER-{marker}-{index}",
+                name="Unrelated approval model",
+                catalog_scope="standard",
+                details_json={"general": {"model_no": f"OTHER-{marker}-{index}"}},
+            )
+            for index in range(unrelated_count)
+        ]
+        db.add_all([source, sibling, legacy, other_scope, *unrelated])
+        db.commit()
+        source_id = int(source.id)
+        sibling_id = int(sibling.id)
+        tracked_ids = {sibling_id, *(int(row.id) for row in unrelated)}
+        db.expunge_all()
+        source = db.get(Model, source_id)
+        loaded_ids: list[int] = []
+
+        def capture_load(target, _context):
+            if int(target.id) in tracked_ids:
+                loaded_ids.append(int(target.id))
+
+        event.listen(Model, "load", capture_load)
+        try:
+            family_rows = _approval_family(db, source)
+        finally:
+            event.remove(Model, "load", capture_load)
+
+    assert [int(row.id) for row in family_rows] == [source_id, sibling_id]
+    assert loaded_ids == [sibling_id]

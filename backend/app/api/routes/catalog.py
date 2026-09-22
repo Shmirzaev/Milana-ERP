@@ -622,8 +622,14 @@ def _approval_family(db: DbSession, model: Model) -> list[Model]:
             literal_column("models.is_legacy_import").is_(False),
             literal_column("models.model_group_key") == key,
         ).order_by(Model.id).populate_existing().all()
-    return [row for row in query.order_by(Model.id).all()
-            if (row.details_json or {}).get("legacy_import") is not True and _model_group_key(row) == key]
+    model_no, _ = _model_code_parts(model)
+    candidates = query.filter(
+        _model_family_predicate(db, group_key=key, model_no=model_no)
+    ).order_by(Model.id).all()
+    # Keep the canonical Python identity check as the compatibility boundary;
+    # the portable SQL predicate only narrows candidates and must not let code
+    # prefixes, wildcard characters, or legacy imports expand the family.
+    return [row for row in candidates if _model_group_key(row) == key]
 
 
 def _model_payload(m: Model, factory_scope: str | None = None) -> dict:
