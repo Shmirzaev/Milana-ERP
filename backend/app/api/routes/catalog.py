@@ -45,6 +45,7 @@ from app.services.paid_operations import (
     normalize_paid_operation_factory,
     paid_operations_from_details,
     sewing_master_factory_scope,
+    validate_paid_operations_details_structure,
 )
 
 router = APIRouter(tags=["catalog"])
@@ -2204,6 +2205,7 @@ def update_model(
     m = _catalog_model(db, mid, catalog_scope)
     if not m: raise HTTPException(404, "Model not found")
     update_data = payload.model_dump(exclude_unset=True)
+    validate_paid_operations_details_structure(update_data.get("details_json"))
     factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
     if factory_scope and "details_json" in update_data:
         update_data["details_json"] = merge_scoped_paid_operations(

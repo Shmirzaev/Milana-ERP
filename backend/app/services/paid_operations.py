@@ -82,6 +82,25 @@ def paid_operations_from_details(details: object) -> list[dict[str, Any]]:
     return rows if isinstance(rows, list) else []
 
 
+def validate_paid_operations_details_structure(details: object) -> None:
+    """Validate the JSON containers shared by catalog and payroll readers.
+
+    Operation row keys remain extensible for imported and versioned clients;
+    only the established list-of-objects envelope is enforced here.
+    """
+    if not isinstance(details, dict):
+        return
+    for key in ("paid_operations", "paidOperations"):
+        if key not in details:
+            continue
+        rows = details[key]
+        if not isinstance(rows, list):
+            raise HTTPException(422, f"details_json.{key} must be a list")
+        invalid_index = next((index for index, row in enumerate(rows) if not isinstance(row, dict)), None)
+        if invalid_index is not None:
+            raise HTTPException(422, f"details_json.{key}[{invalid_index}] must be an object")
+
+
 def sewing_master_factory_scope(user: User) -> str | None:
     role_name = str(user.role.name if user.role else "").strip().lower()
     department_code = str(user.department.code if user.department else "").strip().upper()
