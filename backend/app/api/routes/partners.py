@@ -1,7 +1,8 @@
 from collections import defaultdict
 from datetime import date, datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 
@@ -129,7 +130,12 @@ def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permi
 
 
 @router.get("/customers/{cid}/payments")
-def get_customer_payments(cid: int, db: DbSession, _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS))):
+def get_customer_payments(
+    cid: int,
+    db: DbSession,
+    _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS)),
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+):
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
     rows = (
@@ -138,6 +144,7 @@ def get_customer_payments(cid: int, db: DbSession, _: User = Depends(require_per
         .outerjoin(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
         .filter(or_(SalesOrder.customer_id == cid, Payment.customer_id == cid))
         .order_by(Payment.id.desc())
+        .limit(limit)
         .all()
     )
     return [

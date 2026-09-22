@@ -192,6 +192,22 @@ def test_sales_order_history_endpoint_returns_order_ledger(client, auth_headers)
     assert any(event["type"] == "payment" for event in payload["timeline"])
 
 
+def test_customer_payment_history_has_bounded_limit(client, auth_headers):
+    customer_id = _create_customer(client, auth_headers)
+
+    response = client.get(
+        f"/api/customers/{customer_id}/payments?limit=0",
+        headers=auth_headers,
+    )
+    assert response.status_code == 422, response.text
+
+    response = client.get(
+        f"/api/customers/{customer_id}/payments?limit=501",
+        headers=auth_headers,
+    )
+    assert response.status_code == 422, response.text
+
+
 def test_order_history_includes_planning_created_stock_orders(client, auth_headers):
     model_id = _find_model_id(client, auth_headers)
     created = client.post(
