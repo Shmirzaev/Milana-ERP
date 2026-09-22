@@ -56,6 +56,7 @@ _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 _REPORT_READ_PERMS = ("sewing.workspace", "sewing.daily_reports.view")
 _READ_CHUNK_SIZE = 400
+_DB_INTEGER_MAX = 2_147_483_647
 
 
 def _uses_dynamic_sections(flow: SewingFlow) -> bool:
@@ -63,6 +64,13 @@ def _uses_dynamic_sections(flow: SewingFlow) -> bool:
     factory_code = str(flow.factory_code or "").strip().upper()
     line_code = str(flow.code or "").strip().upper()
     return factory_code in {"BST", "ECO"} or line_code in SECTIONED_LINE_CODES
+
+
+def _validate_report_integer_bounds(payload: SewingDailyReportCreate | SewingDailyReportUpdate) -> None:
+    # The other persisted quantities are non-negative and constrained by the
+    # request schema to be no greater than (or sum to) sewn_qty.
+    if payload.sewn_qty > _DB_INTEGER_MAX:
+        raise HTTPException(422, "Sewn quantity must fit a 32-bit database integer")
 
 
 def _model_code_parts(model: Model | None) -> tuple[str | None, str | None]:
@@ -596,6 +604,7 @@ def create_report(
     uses_sections = _uses_dynamic_sections(flow)
     if work_order:
         _validate_report_capacity(db, work_order, assignment, payload if uses_sections else payload.model_copy(update={"top_qty": None, "bottom_qty": None}))
+    _validate_report_integer_bounds(payload)
     report = SewingDailyReport(
         report_date=payload.report_date,
         sewing_flow_id=flow.id,
@@ -678,6 +687,7 @@ def update_report(
         work_order = locked_work_order
         assignment = db.get(SewingAssignment, report.sewing_assignment_id) if report.sewing_assignment_id else None
         _validate_report_capacity(db, work_order, assignment, payload if _uses_dynamic_sections(flow) else payload.model_copy(update={"top_qty": None, "bottom_qty": None}), report.id)
+    _validate_report_integer_bounds(payload)
     uses_sections = _uses_dynamic_sections(flow)
     report.report_date = payload.report_date
     report.manual_model_no = payload.manual_model_no
