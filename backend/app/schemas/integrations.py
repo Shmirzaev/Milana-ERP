@@ -27,6 +27,6 @@ class OneCPaymentIn(BaseModel):
 
 
 class OneCSyncIn(BaseModel):
-    invoices: list[OneCInvoiceIn] = []
-    payments: list[OneCPaymentIn] = []
+    invoices: list[OneCInvoiceIn] = Field(default_factory=list, max_length=500)
+    payments: list[OneCPaymentIn] = Field(default_factory=list, max_length=500)
 
