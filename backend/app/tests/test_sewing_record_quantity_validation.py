@@ -25,6 +25,7 @@ def _payload(**changes):
         {"input_qty": -1},
         {"sewn_qty": 101},
         {"passed_qty": 96, "failed_qty": 3, "rejected_qty": 2},
+        {"sewn_qty": 100, "passed_qty": 99, "failed_qty": 2, "rejected_qty": 0},
         {"passed_qty": -1},
         {"failed_qty": -1},
         {"rework_qty": -1},
@@ -48,6 +49,12 @@ def test_valid_partial_output_with_rejections_is_conserved():
 
     assert record.sewn_qty == 60
     assert record.passed_qty + record.failed_qty + record.rejected_qty == 60
+
+
+def test_failed_input_is_not_required_to_be_part_of_sewn_output():
+    record = SewingRecordIn(**_payload(input_qty=100, sewn_qty=99, passed_qty=99, failed_qty=1, rejected_qty=0))
+
+    assert record.sewn_qty + record.failed_qty == record.input_qty
 
 
 def test_zero_input_keeps_upstream_inference_compatibility():
