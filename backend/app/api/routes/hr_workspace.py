@@ -5,8 +5,9 @@ import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from math import isfinite
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import func
@@ -373,8 +374,14 @@ def update_position(position_id: int, payload: PositionIn, db: DbSession, curren
 
 
 @router.get("/recruitment")
-def list_candidates(db: DbSession, current: User = HrUser):
-    rows = db.query(HrRecruitmentCandidate).filter(HrRecruitmentCandidate.factory_code == _factory(current)).order_by(HrRecruitmentCandidate.id.desc()).all()
+def list_candidates(
+    db: DbSession,
+    current: User = HrUser,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+):
+    rows = db.query(HrRecruitmentCandidate).filter(
+        HrRecruitmentCandidate.factory_code == _factory(current),
+    ).order_by(HrRecruitmentCandidate.id.desc()).limit(limit).all()
     fields = (
         "id", "position_id", "department_id", "full_name", "first_name", "last_name", "middle_name",
         "date_of_birth", "gender", "nationality", "country", "region", "district", "address",

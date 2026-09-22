@@ -71,6 +71,11 @@ def test_hr_calendar_recruitment_and_settings(client, auth_headers):
     assert saved_candidate["passport_number"] == "AA1234567"
     assert saved_candidate["first_name"] == "Aziz"
 
+    limited = client.get("/api/hr/recruitment?limit=1", headers=auth_headers)
+    assert limited.status_code == 200, limited.text
+    assert len(limited.json()) == 1
+    assert client.get("/api/hr/recruitment?limit=501", headers=auth_headers).status_code == 422
+
     event = client.post(
         "/api/hr/calendar",
         headers=auth_headers,
