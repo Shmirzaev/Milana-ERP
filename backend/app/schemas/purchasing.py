@@ -15,6 +15,14 @@ PurchaseReceiptQuantity = Annotated[
     float,
     Field(gt=0, le=9_999_999_999.9999, allow_inf_nan=False),
 ]
+PurchaseOrderUnitCost = Annotated[
+    float,
+    Field(ge=-99_999_999.9999, le=99_999_999.9999, allow_inf_nan=False),
+]
+PurchaseReceiptUnitCost = Annotated[
+    float,
+    Field(ge=0, le=99_999_999.9999, allow_inf_nan=False),
+]
 
 
 class PurchaseRequestLineIn(BaseModel):
@@ -85,7 +93,7 @@ class PurchaseOrderLineIn(BaseModel):
     item_id: int
     ordered_quantity: PurchaseOrderQuantity
     unit: Optional[str] = None
-    unit_cost: float = 0
+    unit_cost: PurchaseOrderUnitCost = 0
     warehouse_id: Optional[int] = None
     supplier_id: Optional[int] = None
     material_name: Optional[str] = None
@@ -151,7 +159,7 @@ class PurchaseOrderReceiveLineIn(BaseModel):
     batch_no: str
     warehouse_id: Optional[int] = None
     supplier_id: Optional[int] = None
-    cost_per_unit: Optional[float] = None
+    cost_per_unit: Optional[PurchaseReceiptUnitCost] = None
     color: Optional[str] = None
     old_code: Optional[str] = None
     color_code: Optional[str] = None
