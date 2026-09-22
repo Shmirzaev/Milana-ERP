@@ -2,7 +2,7 @@
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.db.session import SessionLocal
 from app.models import (
@@ -12,6 +12,59 @@ from app.models import (
 )
 
 BASE = "/api/packages"
+
+
+def test_packaging_bom_item_preload_preserves_order_and_skips_missing_items(monkeypatch):
+    from app.models import Item, ModelBOM
+    from app.services import workflow
+
+    marker = uuid4().hex[:8]
+    with SessionLocal() as db:
+        model = Model(code=f"BOM-PERF20-{marker}", name="BOM query test", category="T-shirt")
+        packaging_a = Item(sku=f"BOM-A-{marker}", name="Bag", category="packaging", unit="pcs")
+        fabric = Item(sku=f"BOM-F-{marker}", name="Fabric", category="fabric", unit="kg")
+        packaging_b = Item(sku=f"BOM-B-{marker}", name="Box", category="packaging", unit="pcs")
+        db.add_all([model, packaging_a, fabric, packaging_b])
+        db.flush()
+        db.add_all([
+            ModelBOM(model_id=model.id, item_id=packaging_a.id, quantity_per_piece=2, unit="pcs"),
+            ModelBOM(model_id=model.id, item_id=fabric.id, quantity_per_piece=99, unit="kg"),
+            ModelBOM(model_id=model.id, item_id=packaging_b.id, quantity_per_piece=3, unit="pcs"),
+            ModelBOM(model_id=model.id, item_id=2_147_483_647, quantity_per_piece=7, unit="pcs"),
+        ])
+        db.flush()
+        order = ProductionOrder(
+            production_no=f"BOM-PO-{marker}",
+            production_type="branded_stock",
+            model_id=model.id,
+            planned_quantity=10,
+        )
+        db.add(order)
+        db.flush()
+        statements = []
+        consumed = []
+
+        monkeypatch.setattr(
+            workflow,
+            "consume_item_from_batches",
+            lambda _db, **kwargs: consumed.append(kwargs),
+        )
+
+        def capture(_conn, _cursor, statement, _params, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT") and "from items" in statement.lower():
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            workflow.consume_packaging_materials_from_bom(
+                db, production_order_id=order.id, packed_qty=2,
+                reference_type="PackagingRecord", reference_id=7, user_id=None,
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        assert [row["item_id"] for row in consumed] == [packaging_a.id, packaging_b.id]
+        assert [row["quantity"] for row in consumed] == [4.0, 6.0]
+        assert len(statements) == 1
 
 
 @pytest.fixture

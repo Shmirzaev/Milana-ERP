@@ -573,8 +573,12 @@ def consume_packaging_materials_from_bom(
     bom_rows = db.query(ModelBOM).filter(ModelBOM.model_id == po.model_id).all()
     if not bom_rows:
         return
+    items = {
+        item.id: item
+        for item in db.query(Item).filter(Item.id.in_(sorted({row.item_id for row in bom_rows}))).all()
+    }
     for row in bom_rows:
-        item = db.get(Item, row.item_id)
+        item = items.get(row.item_id)
         if not item or item.category != "packaging":
             continue
         qty = float(row.quantity_per_piece) * packed_qty * (1.0 + float(row.waste_percent or 0) / 100.0)
