@@ -745,10 +745,10 @@
       "risk": "Authorized repair can corrupt business data.",
       "proposed_fix": "Use explicit repair operations.",
       "baseline_source": "backend/app/api/routes/super_data.py:269",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": "OPEN POLICY BLOCK: a disposable local API reproduction used the generic Data Console PATCH to replace an administrator password_hash with plain text and set is_active=false; the request returned 200 and both values persisted. Generic PATCH covers every mapped non-key/non-binary column and DELETE covers single-key rows. No change made until the owner chooses read-only mode (recommended) or provides an exact table/field/delete allowlist."
+      "commit": "e7782ec",
+      "evidence": "Exact allowlist advertises and accepts only departments.name; every other PATCH returns 403. DELETE returns 409 without mutation or delete audit, successful rename is audited, and audit failure rolls back. Three focused backend cases plus executable frontend component/handler coverage, stabilization, strict TypeScript and targeted ESLint pass. Requested department soft delete remains blocked because the model has no inactive/deleted field and migrations require explicit approval, so SEC08 stays partial."
     },
     {
       "number": 63,
