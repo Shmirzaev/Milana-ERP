@@ -103,3 +103,39 @@ def test_hr_calendar_recruitment_and_settings(client, auth_headers):
     loaded = client.get("/api/hr/settings", headers=auth_headers)
     assert loaded.status_code == 200
     assert loaded.json()["default_monthly_hours"] == 176
+
+
+def test_hr_documents_pagination_preserves_legacy_rows_and_metrics(client, auth_headers, tmp_path, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "HR_DOCUMENTS_DIR", str(tmp_path))
+    employee_ids = []
+    for index in range(3):
+        response = client.post(
+            "/api/employees",
+            headers=auth_headers,
+            json={"employee_no": f"990000{index}", "full_name": f"Document Employee {index}"},
+        )
+        assert response.status_code == 201, response.text
+        employee_ids.append(response.json()["id"])
+        uploaded = client.post(
+            "/api/hr/documents",
+            headers=auth_headers,
+            data={"employee_id": employee_ids[-1], "category": "other", "title": f"Doc {index}"},
+            files={"file": (f"doc-{index}.txt", b"abc", "text/plain")},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+
+    legacy = client.get("/api/hr/documents", headers=auth_headers)
+    assert legacy.status_code == 200 and isinstance(legacy.json(), list)
+    page = client.get("/api/hr/documents?page=1&page_size=2", headers=auth_headers)
+    assert page.status_code == 200, page.text
+    body = page.json()
+    assert [row["title"] for row in body["rows"]] == ["Doc 2", "Doc 1"]
+    assert body["total"] == 3 and body["has_more"] is True
+    assert body["metrics"]["employee_folders"] == 3
+    assert body["metrics"]["archive_size_bytes"] == 9
+    assert body["metrics"]["expiring_in_30_days"] == 0
+    empty = client.get("/api/hr/documents?page=3&page_size=2", headers=auth_headers)
+    assert empty.status_code == 200 and empty.json()["rows"] == []
+    assert empty.json()["total"] == 3 and empty.json()["has_more"] is False

@@ -449,11 +449,53 @@ def _document_dict(row: HrEmployeeDocument, employee_name: str | None = None) ->
 
 
 @router.get("/documents")
-def list_documents(db: DbSession, current: User = HrUser):
+def list_documents(
+    db: DbSession,
+    current: User = HrUser,
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
+):
     factory = _factory(current)
-    names = {row.id: row.full_name for row in db.query(Employee).filter(Employee.factory_code == factory).all()}
-    rows = db.query(HrEmployeeDocument).filter(HrEmployeeDocument.factory_code == factory).order_by(HrEmployeeDocument.id.desc()).all()
-    return [_document_dict(row, names.get(row.employee_id)) for row in rows]
+    query = db.query(HrEmployeeDocument).filter(HrEmployeeDocument.factory_code == factory)
+    paginated = page is not None or page_size is not None
+    safe_page = page or 1
+    safe_page_size = page_size or 100
+    total = query.count() if paginated else None
+    if paginated:
+        rows = query.order_by(HrEmployeeDocument.id.desc()).offset((safe_page - 1) * safe_page_size).limit(safe_page_size).all()
+    else:
+        rows = query.order_by(HrEmployeeDocument.id.desc()).all()
+    employee_ids = {int(row.employee_id) for row in rows if row.employee_id}
+    names = {
+        int(row.id): row.full_name
+        for row in db.query(Employee.id, Employee.full_name).filter(
+            Employee.factory_code == factory, Employee.id.in_(employee_ids)
+        ).all()
+    } if employee_ids else {}
+    payload = [_document_dict(row, names.get(int(row.employee_id))) for row in rows]
+    if not paginated:
+        return payload
+    aggregate = db.query(
+        func.coalesce(func.sum(HrEmployeeDocument.size_bytes), 0),
+        func.count(func.distinct(HrEmployeeDocument.employee_id)),
+    ).filter(HrEmployeeDocument.factory_code == factory).one()
+    expiry_cutoff = datetime.now(timezone.utc) + timedelta(days=30)
+    expiring = query.filter(
+        HrEmployeeDocument.expires_on.isnot(None),
+        HrEmployeeDocument.expires_on < expiry_cutoff.date(),
+    ).count()
+    return {
+        "rows": payload,
+        "total": int(total or 0),
+        "page": safe_page,
+        "page_size": safe_page_size,
+        "has_more": safe_page * safe_page_size < int(total or 0),
+        "metrics": {
+            "employee_folders": int(aggregate[1] or 0),
+            "archive_size_bytes": int(aggregate[0] or 0),
+            "expiring_in_30_days": int(expiring),
+        },
+    }
 
 
 @router.post("/documents", status_code=201)
