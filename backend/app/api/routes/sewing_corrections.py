@@ -1,6 +1,8 @@
 """Correct unused sewing output, preserving cumulative and assignment accounting."""
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_
 from app.core.deps import DbSession, require_permissions
@@ -25,6 +27,34 @@ class Correction(BaseModel):
 
 class DeleteInput(BaseModel):
     expected_version: int = Field(ge=0)
+
+
+class SewingRecordHistoryOut(BaseModel):
+    id: int
+    work_order_id: int
+    production_batch_id: int | None = None
+    input_qty: int
+    sewn_qty: int
+    passed_qty: int
+    failed_qty: int
+    rejected_qty: int
+    rework_qty: int
+    line_name: str | None = None
+    notes: str | None = None
+    size_quantities: list[dict] | None = None
+    created_at: datetime
+    correction_version: int
+    sewing_assignment_id: int | None = None
+    assignment_applied_qty: int | None = None
+    locked_reason: str | None = None
+
+
+class SewingRecordHistoryPageOut(BaseModel):
+    rows: list[SewingRecordHistoryOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 def snapshot(row):
@@ -85,14 +115,38 @@ def assignment_for(db, wo, row):
     return assignment, applied
 
 
-@router.get("/work-orders/{wid}/sewing-records")
-def list_records(wid: int, db: DbSession, user: User = Depends(require_permissions("sewing.records"))):
+@router.get(
+    "/work-orders/{wid}/sewing-records",
+    response_model=list[SewingRecordHistoryOut] | SewingRecordHistoryPageOut,
+)
+def list_records(
+    wid: int,
+    db: DbSession,
+    user: User = Depends(require_permissions("sewing.records")),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     wo = db.get(WorkOrder, wid)
     if not wo or wo.operation != "sewing":
         raise HTTPException(404, "Not found")
     require_work_order_factory_access(user, db, wo)
-    return [{**snapshot(row), "locked_reason": reason(db, wo, row)} for row in db.query(SewingRecord).filter_by(
-            work_order_id=wid).order_by(SewingRecord.id.desc()).all()]
+    query = db.query(SewingRecord).filter_by(work_order_id=wid)
+    ordered_query = query.order_by(SewingRecord.id.desc())
+    if page is None and page_size is None:
+        rows = ordered_query.all()
+        return [{**snapshot(row), "locked_reason": reason(db, wo, row)} for row in rows]
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": [{**snapshot(row), "locked_reason": reason(db, wo, row)} for row in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 def locked_record(db, rid, user, version):
