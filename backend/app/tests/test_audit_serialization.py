@@ -201,3 +201,35 @@ def test_audit_log_endpoint_returns_manager_summary_and_filters(client, auth_hea
     assert row["entry_hash"] and len(row["entry_hash"]) == 64
     assert {"field": "status", "from": "waiting", "to": "blocked"} in row["changed_fields"]
     assert "Changed fields" in row["root_cause_hint"]
+
+
+def test_audit_log_endpoint_computes_changed_fields_once_per_row(client, auth_headers, monkeypatch):
+    from app.api.routes import admin
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        assert user is not None
+        log_action(
+            db, user, "update", "AuditSerialization", 991,
+            old_value={"status": "waiting"}, new_value={"status": "done"},
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    calls = 0
+    original = admin._changed_fields
+
+    def counted(old_value, new_value):
+        nonlocal calls
+        calls += 1
+        return original(old_value, new_value)
+
+    monkeypatch.setattr(admin, "_changed_fields", counted)
+    response = client.get(
+        "/api/audit-logs?entity_type=AuditSerialization&entity_id=991",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert calls == 1

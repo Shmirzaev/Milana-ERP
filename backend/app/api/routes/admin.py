@@ -212,7 +212,12 @@ def _changed_fields(old_value: dict | None, new_value: dict | None) -> list[dict
     return changes
 
 
-def _audit_summary(audit: AuditLog, user: User | None) -> tuple[str, str]:
+def _audit_summary(
+    audit: AuditLog,
+    user: User | None,
+    *,
+    changes: list[dict] | None = None,
+) -> tuple[str, str]:
     actor = user.name if user else "System"
     action = _label_action(audit.action)
     entity = _label_entity(audit.entity_type)
@@ -222,7 +227,8 @@ def _audit_summary(audit: AuditLog, user: User | None) -> tuple[str, str]:
         target = f"{target} ({identifier})"
     summary = _sentence(f"{actor} {action} {target}.")
     reason = "Check this event and nearby earlier events when investigating the root cause."
-    changes = _changed_fields(audit.old_value_json, audit.new_value_json)
+    if changes is None:
+        changes = _changed_fields(audit.old_value_json, audit.new_value_json)
     if changes:
         names = ", ".join(c["field"].replace("_", " ") for c in changes[:4])
         if len(changes) > 4:
@@ -775,7 +781,8 @@ def list_audit_logs(
     rows = qry.all()
     out = []
     for audit, user in rows:
-        summary, root_cause_hint = _audit_summary(audit, user)
+        changed_fields = _changed_fields(audit.old_value_json, audit.new_value_json)
+        summary, root_cause_hint = _audit_summary(audit, user, changes=changed_fields)
         out.append(
             {
             "id": audit.id,
@@ -789,7 +796,7 @@ def list_audit_logs(
             "entity_id": audit.entity_id,
             "new_value": audit.new_value_json,
             "old_value": audit.old_value_json,
-            "changed_fields": _changed_fields(audit.old_value_json, audit.new_value_json),
+            "changed_fields": changed_fields,
             "prev_hash": audit.prev_hash,
             "entry_hash": audit.entry_hash,
             "summary": summary,
