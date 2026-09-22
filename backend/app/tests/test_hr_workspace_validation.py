@@ -369,3 +369,25 @@ def test_valid_scoped_hr_workflow_remains_supported(client, auth_headers):
         },
     )
     assert event.status_code == 201, event.text
+
+
+def test_employee_rejects_unknown_status_without_write(client, auth_headers):
+    before = client.get("/api/employees", headers=auth_headers)
+    assert before.status_code == 200, before.text
+    response = client.post("/api/employees", headers=auth_headers, json={"full_name": "Invalid status", "status": "suspended"})
+    assert response.status_code == 422, response.text
+    after = client.get("/api/employees", headers=auth_headers)
+    assert after.status_code == 200, after.text
+    assert after.json() == before.json()
+
+
+@pytest.mark.parametrize("status", ["active", "inactive", "on_leave", "terminated"])
+def test_employee_accepts_supported_statuses(client, auth_headers, status):
+    response = client.post(
+        "/api/employees",
+        headers=auth_headers,
+        json={"full_name": f"Supported {status} {uuid4().hex}", "status": status},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == status

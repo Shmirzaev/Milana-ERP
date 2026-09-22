@@ -10,7 +10,7 @@ from app.services.factory_scope import factory_for_department, selected_factory_
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 
 class EmployeeIn(BaseModel):
@@ -21,7 +21,7 @@ class EmployeeIn(BaseModel):
     position: Optional[str] = None
     phone: Optional[str] = None
     salary: Optional[float] = None
-    status: str = "active"
+    status: Literal["active", "inactive", "on_leave", "terminated"] = "active"
     joined_at: Optional[datetime] = None
     manager_employee_id: Optional[int] = None
     hr_position_id: Optional[int] = None
@@ -42,7 +42,7 @@ class EmployeeUpdate(BaseModel):
     position: Optional[str] = None
     phone: Optional[str] = None
     salary: Optional[float] = None
-    status: Optional[str] = None
+    status: Literal["active", "inactive", "on_leave", "terminated"] | None = None
     joined_at: Optional[datetime] = None
     manager_employee_id: Optional[int] = None
     hr_position_id: Optional[int] = None
