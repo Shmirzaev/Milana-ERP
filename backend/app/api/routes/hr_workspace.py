@@ -589,9 +589,64 @@ def analytics(db: DbSession, current: User = HrUser):
 
 
 @router.get("/calendar")
-def list_calendar(db: DbSession, current: User = HrUser):
-    rows = db.query(HrCalendarEvent).filter(HrCalendarEvent.factory_code == _factory(current)).order_by(HrCalendarEvent.starts_at).all()
-    return [{key: getattr(row, key) for key in ("id", "employee_id", "event_type", "title", "starts_at", "ends_at", "notes", "status")} for row in rows]
+def list_calendar(
+    db: DbSession,
+    current: User = HrUser,
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
+):
+    query = db.query(HrCalendarEvent).filter(
+        HrCalendarEvent.factory_code == _factory(current)
+    )
+
+    def serialize(row: HrCalendarEvent) -> dict:
+        return {
+            key: getattr(row, key)
+            for key in (
+                "id", "employee_id", "event_type", "title", "starts_at",
+                "ends_at", "notes", "status",
+            )
+        }
+
+    if page is None and page_size is None:
+        rows = query.order_by(HrCalendarEvent.starts_at, HrCalendarEvent.id).all()
+        return [serialize(row) for row in rows]
+    size = page_size or 100
+    current_page = page or 1
+    offset = (current_page - 1) * size
+    total = query.count()
+    rows = (
+        query.order_by(HrCalendarEvent.starts_at, HrCalendarEvent.id)
+        .offset(offset)
+        .limit(size)
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    metric_rows = (
+        db.query(HrCalendarEvent.event_type, func.count(HrCalendarEvent.id))
+        .filter(
+            HrCalendarEvent.factory_code == _factory(current),
+            HrCalendarEvent.status == "scheduled",
+            HrCalendarEvent.starts_at >= now,
+        )
+        .group_by(HrCalendarEvent.event_type)
+        .all()
+    )
+    by_type = {event_type: int(count) for event_type, count in metric_rows}
+    upcoming = sum(by_type.values())
+    return {
+        "rows": [serialize(row) for row in rows],
+        "total": total,
+        "page": current_page,
+        "page_size": size,
+        "has_more": offset + size < total,
+        "metrics": {
+            "upcoming": upcoming,
+            "contracts_expiring": by_type.get("contract_expiry", 0),
+            "probation_ending": by_type.get("probation_end", 0),
+            "training": by_type.get("training", 0),
+        },
+    }
 
 
 @router.post("/calendar", status_code=201)

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 def test_hr_workspace_is_additive_and_factory_scoped(client, auth_headers):
@@ -139,3 +139,45 @@ def test_hr_documents_pagination_preserves_legacy_rows_and_metrics(client, auth_
     empty = client.get("/api/hr/documents?page=3&page_size=2", headers=auth_headers)
     assert empty.status_code == 200 and empty.json()["rows"] == []
     assert empty.json()["total"] == 3 and empty.json()["has_more"] is False
+
+
+def test_hr_calendar_pagination_preserves_legacy_rows_and_global_metrics(client, auth_headers):
+    now = datetime.now(timezone.utc)
+    events = [
+        ("Past probation", "probation_end", now - timedelta(days=2), "scheduled"),
+        ("Future training", "training", now + timedelta(days=1), "scheduled"),
+        ("Future contract", "contract_expiry", now + timedelta(days=2), "scheduled"),
+        ("Completed training", "training", now + timedelta(days=3), "completed"),
+    ]
+    for title, event_type, starts_at, status in events:
+        response = client.post(
+            "/api/hr/calendar",
+            headers=auth_headers,
+            json={
+                "title": title,
+                "event_type": event_type,
+                "starts_at": starts_at.isoformat(),
+                "status": status,
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    legacy = client.get("/api/hr/calendar", headers=auth_headers)
+    assert legacy.status_code == 200 and isinstance(legacy.json(), list)
+    assert [row["title"] for row in legacy.json()] == [title for title, *_rest in events]
+
+    first = client.get("/api/hr/calendar?page=1&page_size=2", headers=auth_headers)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert [row["title"] for row in body["rows"]] == ["Past probation", "Future training"]
+    assert body["total"] == 4 and body["has_more"] is True
+    assert body["metrics"] == {
+        "upcoming": 2,
+        "contracts_expiring": 1,
+        "probation_ending": 0,
+        "training": 1,
+    }
+
+    empty = client.get("/api/hr/calendar?page=3&page_size=2", headers=auth_headers)
+    assert empty.status_code == 200 and empty.json()["rows"] == []
+    assert empty.json()["total"] == 4 and empty.json()["has_more"] is False
