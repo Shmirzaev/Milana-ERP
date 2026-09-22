@@ -45,3 +45,40 @@ def test_production_startup_rejects_schema_sync(monkeypatch):
 
     with pytest.raises(RuntimeError, match="STARTUP_SCHEMA_SYNC"):
         main._run_startup()
+
+
+def test_jwt_algorithm_rejects_unconfigured_or_none_algorithms():
+    import pytest
+
+    from pydantic import ValidationError
+    from app.core.config import Settings
+
+    with pytest.raises(ValidationError, match="JWT_ALGORITHM"):
+        Settings(JWT_ALGORITHM="none")
+
+    assert Settings(JWT_ALGORITHM=" hs384 ").JWT_ALGORITHM == "HS384"
+
+
+def test_jwt_algorithm_allows_only_supported_hmac_algorithms():
+    import pytest
+
+    from pydantic import ValidationError
+    from app.core.config import Settings
+
+    for algorithm in ("HS256", "HS384", "HS512"):
+        assert Settings(JWT_ALGORITHM=f"  {algorithm.lower()}  ").JWT_ALGORITHM == algorithm
+
+    for algorithm in ("none", "RS256", "ES256", "", "HS1024", "not-an-algorithm"):
+        with pytest.raises(ValidationError, match="JWT_ALGORITHM"):
+            Settings(JWT_ALGORITHM=algorithm)
+
+
+def test_jwt_algorithm_settings_round_trip_with_python_jose():
+    from jose import jwt
+    from app.core.config import Settings
+
+    for algorithm in ("HS256", "HS384", "HS512"):
+        configured = Settings(JWT_ALGORITHM=algorithm.lower())
+        token = jwt.encode({"sub": "algorithm-test"}, "test-secret", algorithm=configured.JWT_ALGORITHM)
+        claims = jwt.decode(token, "test-secret", algorithms=[configured.JWT_ALGORITHM])
+        assert claims["sub"] == "algorithm-test"

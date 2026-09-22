@@ -78,6 +78,21 @@ class Settings(BaseSettings):
                 return False
         return value
 
+    @field_validator("JWT_ALGORITHM")
+    @classmethod
+    def validate_jwt_algorithm(cls, value: str) -> str:
+        """Keep JWT verification on the configured HMAC family only.
+
+        The application uses one shared secret for signing and verification;
+        accepting an arbitrary algorithm here would make an unsafe deployment
+        setting (for example ``none``) possible.  Preserve the existing
+        HS256 default while allowing the other jose-supported HMAC strengths.
+        """
+        normalized = str(value).strip().upper()
+        if normalized not in {"HS256", "HS384", "HS512"}:
+            raise ValueError("JWT_ALGORITHM must be HS256, HS384, or HS512")
+        return normalized
+
     @field_validator("DB_POOL_SIZE")
     @classmethod
     def validate_db_pool_size(cls, value):
