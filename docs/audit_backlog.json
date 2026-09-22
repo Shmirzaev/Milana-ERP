@@ -1249,10 +1249,10 @@
       "risk": "Legitimate users may receive 429; complaint-time events unmeasured.",
       "proposed_fix": "Test authenticated/NAT budgets",
       "baseline_source": null,
-      "status": "partial",
+      "status": "open",
       "owner": null,
-      "commit": "bf36441",
-      "evidence": "Employee create/update now restrict status commands to the four codes already exposed by the HR UI: active, inactive, on_leave and terminated. Unknown status returns422 without a write; all supported codes remain accepted. HR/Usluga compatibility passes42 focused cases and the broader dirty-module slice passes156 with11 environment/PostgreSQL skips. Other loose commands and extensible JSON inputs remain, so DB02 is partial."
+      "commit": null,
+      "evidence": null
     },
     {
       "number": 105,
@@ -1309,10 +1309,10 @@
       "risk": "Invalid states or fields reach business logic.",
       "proposed_fix": "Strict schemas and stable codes",
       "baseline_source": null,
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "bf36441",
+      "evidence": "Employee create/update now restrict status commands to the four codes already exposed by the HR UI: active, inactive, on_leave and terminated. Unknown status returns422 without a write; all supported codes remain accepted. HR/Usluga compatibility passes42 focused cases and the broader dirty-module slice passes156 with11 environment/PostgreSQL skips. Other loose commands and extensible JSON inputs remain, so DB02 is partial."
     },
     {
       "number": 110,
