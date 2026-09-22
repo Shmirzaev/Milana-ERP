@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone, timedelta, time
 from zoneinfo import ZoneInfo
-from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated, Literal
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 
 from app.core.deps import (
@@ -53,12 +53,17 @@ _ACTIVE_ORDER_STATUSES = (
 
 
 @router.get("/active-production")
-def active_production(db: DbSession, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
+def active_production(
+    db: DbSession,
+    _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+):
     """Return active sales orders with production progress for the dashboard table."""
     orders = (
         db.query(SalesOrder)
         .filter(SalesOrder.status.in_(("planning", "confirmed", "in_production")))
         .order_by(SalesOrder.deadline.asc(), SalesOrder.id.asc())
+        .limit(limit)
         .all()
     )
     order_ids = {int(order.id) for order in orders}
