@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import func, case, or_
 from sqlalchemy.orm import joinedload, noload, selectinload
@@ -33,6 +34,7 @@ from app.schemas.sewing_daily_report import (
     SewingDailyReportCreate,
     SewingDailyReportListOut,
     SewingDailyReportOut,
+    SewingDailyReportPageOut,
     SewingDailyReportSummaryLine,
     SewingDailyReportUpdate,
 )
@@ -764,7 +766,9 @@ def _report_list(
     to_date: date,
     factory_code: str,
     sewing_flow_id: int | None = None,
-) -> SewingDailyReportListOut:
+    page: int | None = None,
+    page_size: int | None = None,
+) -> SewingDailyReportListOut | SewingDailyReportPageOut:
     qry = db.query(SewingDailyReport).join(
         SewingFlow,
         SewingFlow.id == SewingDailyReport.sewing_flow_id,
@@ -775,7 +779,19 @@ def _report_list(
     )
     if sewing_flow_id:
         qry = qry.filter(SewingDailyReport.sewing_flow_id == sewing_flow_id)
-    rows = qry.order_by(SewingDailyReport.report_date.desc(), SewingDailyReport.line_code.asc(), SewingDailyReport.created_at.desc()).all()
+    paginated = page is not None or page_size is not None
+    safe_page = max(int(page or 1), 1)
+    safe_page_size = max(1, min(int(page_size or 50), 500))
+    total = int(qry.count()) if paginated else None
+    ordered_qry = qry.order_by(
+        SewingDailyReport.report_date.desc(),
+        SewingDailyReport.line_code.asc(),
+        SewingDailyReport.created_at.desc(),
+    )
+    if paginated:
+        rows = ordered_qry.offset((safe_page - 1) * safe_page_size).limit(safe_page_size).all()
+    else:
+        rows = ordered_qry.all()
 
     production_ids = sorted({int(row.production_order_id) for row in rows if row.production_order_id})
     production_orders = []
@@ -847,14 +863,22 @@ def _report_list(
         )
         for bucket in sorted(summary_map.values(), key=lambda item: item["line_code"])
     ]
-    return SewingDailyReportListOut(
-        from_date=from_date,
-        to_date=to_date,
-        rows=row_payloads,
-        summary=summary,
-        total_sewn_qty=sum(int(row.sewn_qty or 0) for row in rows),
-        total_defective_qty=sum(int(row.defective_qty or 0) for row in rows),
-    )
+    result = {
+        "from_date": from_date,
+        "to_date": to_date,
+        "rows": row_payloads,
+        "summary": summary,
+        "total_sewn_qty": sum(int(row.sewn_qty or 0) for row in rows),
+        "total_defective_qty": sum(int(row.defective_qty or 0) for row in rows),
+    }
+    if paginated:
+        return SewingDailyReportPageOut(
+            **result,
+            total=total or 0,
+            page=safe_page,
+            page_size=safe_page_size,
+        )
+    return SewingDailyReportListOut(**result)
 
 
 def _report_generated_labels() -> tuple[str, str]:
@@ -928,7 +952,7 @@ def download_report_pdf(
     )
 
 
-@router.get("", response_model=SewingDailyReportListOut)
+@router.get("", response_model=SewingDailyReportPageOut | SewingDailyReportListOut)
 def list_reports(
     db: DbSession,
     current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
@@ -937,6 +961,8 @@ def list_reports(
     to_date: date | None = None,
     sewing_flow_id: int | None = None,
     factory_code: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     factory = sewing_line_factory_scope(current, factory_code)
     resolved_from, resolved_to = _report_date_range(report_date, from_date, to_date)
@@ -946,4 +972,6 @@ def list_reports(
         to_date=resolved_to,
         factory_code=factory,
         sewing_flow_id=sewing_flow_id,
+        page=page,
+        page_size=page_size,
     )

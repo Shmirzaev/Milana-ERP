@@ -163,6 +163,14 @@ class SewingDailyReportListOut(SchemaModel):
     total_defective_qty: int = 0
 
 
+class SewingDailyReportPageOut(SewingDailyReportListOut):
+    """Bounded report page; summary and quantities describe returned rows."""
+
+    total: int
+    page: int
+    page_size: int
+
+
 class SewingDailyLineWorkOrder(SewingDailyModelInfo):
     report_remaining_top_qty: int = 0
     report_remaining_bottom_qty: int = 0

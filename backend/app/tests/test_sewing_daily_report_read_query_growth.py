@@ -175,11 +175,25 @@ def test_daily_report_list_and_line_context_batch_read_metadata(row_count):
             ),
         )
     with SessionLocal() as db:
+        page, page_statements = _select_trace(
+            db,
+            lambda: _report_list(
+                db,
+                from_date=case["report_date"],
+                to_date=case["report_date"],
+                factory_code="MIL",
+                sewing_flow_id=case["flow_id"],
+                page=1,
+                page_size=50,
+            ),
+        )
+    with SessionLocal() as db:
         flow = db.get(SewingFlow, case["flow_id"])
         context, context_statements = _select_trace(db, lambda: _line_context(db, flow))
 
     expected_chunks = ceil(row_count / 400)
     list_counts = _target_select_counts(list_statements)
+    page_counts = _target_select_counts(page_statements)
     context_counts = _target_select_counts(context_statements)
     assert list_counts["models"] == expected_chunks, list_counts
     assert list_counts["images"] == expected_chunks, list_counts
@@ -190,9 +204,29 @@ def test_daily_report_list_and_line_context_batch_read_metadata(row_count):
     assert context_counts["bom"] == expected_chunks, context_counts
     assert context_counts["passports"] == expected_chunks, context_counts
     assert list_counts["total"] == (9 if row_count == 401 else 5), list_counts
+    assert page_counts == {
+        "models": 1,
+        "images": 1,
+        "bom": 1,
+        "passports": 0,
+        "total": 6,
+    }
     assert context_counts["total"] == (14 if row_count == 401 else 10), context_counts
-    assert all("file_data" not in statement for statement in [*list_statements, *context_statements])
+    assert all(
+        "file_data" not in statement
+        for statement in [*list_statements, *page_statements, *context_statements]
+    )
+    assert max(statement.count("?") for statement in page_statements) <= 50
     assert [row.id for row in listed.rows] == list(reversed(case["report_ids"]))
+    assert page.total == row_count
+    assert page.page == 1
+    assert page.page_size == 50
+    assert len(page.rows) == min(row_count, 50)
+    assert [row.model_dump() for row in page.rows] == [
+        row.model_dump() for row in listed.rows[:50]
+    ]
+    assert page.total_sewn_qty == sum(row.sewn_qty for row in page.rows)
+    assert page.total_defective_qty == sum(row.defective_qty for row in page.rows)
     assert [row.work_order_id for row in context.active_work_orders] == case["work_order_ids"]
 
 
@@ -416,3 +450,44 @@ def test_daily_report_batched_reads_match_scalar_fallbacks_and_filters():
 def test_daily_report_list_requires_authentication(client):
     response = client.get("/api/sewing-daily-reports?report_date=2098-08-17")
     assert response.status_code == 401
+
+
+def test_daily_report_pagination_http_contract_and_legacy_shape(client, auth_headers):
+    with SessionLocal() as db:
+        case = _read_case(db, 1)
+
+    params = {
+        "report_date": case["report_date"].isoformat(),
+        "factory_code": "MIL",
+        "sewing_flow_id": case["flow_id"],
+    }
+    legacy = client.get("/api/sewing-daily-reports", params=params, headers=auth_headers)
+    assert legacy.status_code == 200
+    assert set(legacy.json()) == {
+        "from_date",
+        "to_date",
+        "rows",
+        "summary",
+        "total_sewn_qty",
+        "total_defective_qty",
+    }
+
+    paged = client.get(
+        "/api/sewing-daily-reports",
+        params={**params, "page": 1, "page_size": 50},
+        headers=auth_headers,
+    )
+    assert paged.status_code == 200
+    body = paged.json()
+    assert body["rows"] == legacy.json()["rows"]
+    assert body["summary"] == legacy.json()["summary"]
+    assert body["total"] == 1
+    assert body["page"] == 1
+    assert body["page_size"] == 50
+
+    invalid = client.get(
+        "/api/sewing-daily-reports",
+        params={**params, "page_size": 501},
+        headers=auth_headers,
+    )
+    assert invalid.status_code == 422
