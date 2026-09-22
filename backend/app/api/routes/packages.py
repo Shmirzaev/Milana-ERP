@@ -9,7 +9,7 @@ from html import escape
 import os
 from typing import Annotated
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions, is_admin
 from app.core.config import settings
@@ -92,6 +92,31 @@ _RECEIVING_QUEUE_EVENTS = (
 
 class PackageChangeRequestPageOut(BaseModel):
     rows: list[PackageChangeRequestOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class StorageMapMatchOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    package_no: str
+    barcode: str
+    model_id: int
+    model_code: str | None = None
+    model_name: str | None = None
+    color: str
+    total_quantity: int
+    status: str
+    storage_cell: str | None = None
+    storage_shelf: str | None = None
+    location: str
+
+
+class StorageMapMatchPageOut(BaseModel):
+    rows: list[StorageMapMatchOut]
     total: int
     page: int
     page_size: int
@@ -1199,18 +1224,23 @@ def storage_map(
     }
 
 
-@router.get("/storage-map/find")
+@router.get(
+    "/storage-map/find",
+    response_model=list[StorageMapMatchOut] | StorageMapMatchPageOut,
+)
 def find_on_storage_map(
     db: DbSession,
     _: CurrentUser,
     q: str,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     needle = q.strip()
     if not needle:
         raise HTTPException(400, "q is required")
     like = f"%{needle}%"
     model_code_like = normalized_model_code_pattern(needle)
-    rows = (
+    query = (
         db.query(Package, Model)
         .join(Model, Model.id == Package.model_id)
         .filter(
@@ -1224,9 +1254,21 @@ def find_on_storage_map(
             ),
         )
         .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
-        .all()
     )
-    return [
+    paginated = page is not None or page_size is not None
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    total = query.order_by(None).count() if paginated else None
+    if paginated:
+        rows = (
+            query
+            .offset((effective_page - 1) * effective_page_size)
+            .limit(effective_page_size)
+            .all()
+        )
+    else:
+        rows = query.all()
+    payloads = [
         {
             "id": pkg.id,
             "package_no": pkg.package_no,
@@ -1243,6 +1285,15 @@ def find_on_storage_map(
         }
         for pkg, model in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get(
