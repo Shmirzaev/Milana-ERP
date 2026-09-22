@@ -24,6 +24,13 @@ _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress"
 _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 _UTILIZATION_QUERY_CHUNK_SIZE = 400
+_DB_INTEGER_MIN = -2_147_483_648
+_DB_INTEGER_MAX = 2_147_483_647
+
+
+def _require_storable_capacity(value: int) -> None:
+    if value < _DB_INTEGER_MIN or value > _DB_INTEGER_MAX:
+        raise HTTPException(422, "capacity_per_day must fit a 32-bit database integer")
 
 
 def _work_order_model_context(db, production_order_ids: list[int]) -> dict[int, dict[str, str | None]]:
@@ -241,6 +248,7 @@ def create_flow(payload: SewingFlowIn, db: DbSession, current: User = Depends(re
         raise HTTPException(400, "Flow code already exists")
     if db.query(SewingFlow).filter(SewingFlow.factory_code == factory, SewingFlow.name == payload.name).first():
         raise HTTPException(400, "Flow name already exists")
+    _require_storable_capacity(payload.capacity_per_day)
     values = payload.model_dump()
     values["factory_code"] = factory
     f = SewingFlow(**values)
@@ -437,6 +445,8 @@ def update_flow(fid: int, payload: SewingFlowUpdate, db: DbSession, current: Use
     ).first()
     if duplicate:
         raise HTTPException(400, "Flow code or name already exists in this factory")
+    if "capacity_per_day" in changes:
+        _require_storable_capacity(int(changes["capacity_per_day"]))
     for k, v in changes.items():
         setattr(f, k, v)
     log_action(db, current, "update", "SewingFlow", f.id, new_value=changes)
