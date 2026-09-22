@@ -2,13 +2,17 @@
 
 from datetime import timezone
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import String, and_, case, cast, func, or_
 
 from app.models import FinishedGoodsStock, Model, Package, PackageBarcodeAlias, PackageItem
 from app.models.stocktake import WarehouseStocktakeRow
 
 
 _STOCKTAKE_PAGE_CHUNK_SIZE = 400
+_STOCKTAKE_SNAPSHOT_KEYS = (
+    "package_no", "barcode", "model_code", "model_name", "color", "quantity",
+    "available", "reserved", "status", "warehouse_id", "location", "items",
+)
 
 STORAGE_STATUSES = ("received_in_storage", "reserved", "damaged")
 
@@ -249,8 +253,30 @@ def stocktake_summary(db, count):
     }
 
 
-def stocktake_detail_page(db, count, *, result: str, offset: int, limit: int) -> tuple[int, list[dict]]:
+def _stocktake_search_pattern(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def stocktake_detail_page(
+    db,
+    count,
+    *,
+    result: str,
+    offset: int,
+    limit: int,
+    search: str = "",
+) -> tuple[int, list[dict]]:
     query = db.query(WarehouseStocktakeRow).filter(WarehouseStocktakeRow.stocktake_id == count.id)
+    if search:
+        pattern = _stocktake_search_pattern(search)
+        value_matches = [WarehouseStocktakeRow.scan_code.ilike(pattern, escape="\\")]
+        for key in _STOCKTAKE_SNAPSHOT_KEYS:
+            value_matches.extend((
+                cast(WarehouseStocktakeRow.snapshot[key], String).ilike(pattern, escape="\\"),
+                cast(WarehouseStocktakeRow.scan_snapshot[key], String).ilike(pattern, escape="\\"),
+            ))
+        query = query.filter(or_(*value_matches))
     if result == "scanned":
         query = query.filter(WarehouseStocktakeRow.scanned_at.is_not(None))
     elif result == "found":

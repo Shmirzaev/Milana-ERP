@@ -181,6 +181,7 @@ def test_search_and_changed_filters_keep_scalar_fallback(monkeypatch):
         return original(row, current)
 
     monkeypatch.setattr(stocktake_routes, "row_payload", counted_payload)
+    monkeypatch.setattr(stocktake_service, "row_payload", counted_payload)
     with TestSessionLocal() as db:
         current = db.query(User).filter(User.email == "admin@example.com").one()
         searched = stocktake_routes.detail(
@@ -205,7 +206,84 @@ def test_search_and_changed_filters_keep_scalar_fallback(monkeypatch):
     assert searched["total"] == 1
     assert searched["rows"][0]["scan_code"] == "SCAN-0001"
     assert changed["total"] == 0
-    assert calls == 62
+    # Search is filtered in SQL now; only the matching row is serialized.
+    assert calls == 1 + 31  # one search match, then all rows for changed fallback
+
+
+def test_search_serializes_only_matching_rows_for_large_count(monkeypatch):
+    count_id = _stocktake_rows(401)
+    calls = 0
+    original = stocktake_routes.row_payload
+
+    def counted_payload(row, current):
+        nonlocal calls
+        calls += 1
+        return original(row, current)
+
+    monkeypatch.setattr(stocktake_routes, "row_payload", counted_payload)
+    monkeypatch.setattr(stocktake_service, "row_payload", counted_payload)
+    with TestSessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        searched = stocktake_routes.detail(
+            count_id,
+            db,
+            current,
+            result="all",
+            q="SCAN-0400",
+            offset=0,
+            limit=10,
+        )
+
+    assert searched["total"] == 1
+    assert len(searched["rows"]) == 1
+    assert searched["rows"][0]["scan_code"] == "SCAN-0400"
+    assert calls == 1
+
+
+def test_search_matches_snapshot_values_not_json_keys():
+    count_id = _stocktake_rows(5)
+    with TestSessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        key_match = stocktake_routes.detail(
+            count_id, db, current, result="all", q="package_no", offset=0, limit=10
+        )
+        value_match = stocktake_routes.detail(
+            count_id, db, current, result="all", q="PERF33-0001", offset=0, limit=10
+        )
+
+    assert key_match["total"] == 0
+    assert value_match["total"] == 1
+    assert value_match["rows"][0]["scan_code"] == "SCAN-0001"
+
+
+def test_broad_search_counts_all_matches_but_serializes_only_requested_page(monkeypatch):
+    count_id = _stocktake_rows(401)
+    calls = 0
+    original = stocktake_routes.row_payload
+
+    def counted_payload(row, current):
+        nonlocal calls
+        calls += 1
+        return original(row, current)
+
+    monkeypatch.setattr(stocktake_routes, "row_payload", counted_payload)
+    monkeypatch.setattr(stocktake_service, "row_payload", counted_payload)
+    with TestSessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        searched = stocktake_routes.detail(
+            count_id,
+            db,
+            current,
+            result="all",
+            q="SCAN-",
+            offset=100,
+            limit=10,
+        )
+
+    matching_codes = [f"SCAN-{index:04d}" for index in range(401) if index % 3 != 0]
+    assert searched["total"] == len(matching_codes)
+    assert [row["scan_code"] for row in searched["rows"]] == matching_codes[100:110]
+    assert calls == 10
 
 
 def test_requested_package_snapshot_scopes_finished_goods_balance_subquery():

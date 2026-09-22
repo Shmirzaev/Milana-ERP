@@ -145,7 +145,7 @@ def detail(
 ):
     count = get_count(db, count_id)
     needle = q.strip().casefold()
-    if not needle and result != "changed":
+    if result != "changed":
         summary = stocktake_summary(db, count)
         total, page_rows = stocktake_detail_page(
             db,
@@ -153,6 +153,7 @@ def detail(
             result=result,
             offset=offset,
             limit=limit,
+            search=needle,
         )
         return {**count_info(count), "summary": summary, "total": total, "rows": page_rows}
 
@@ -167,14 +168,13 @@ def detail(
     filtered = [
         r
         for r in rows
-        if (result == "all" or (r["scanned_at"] is not None if result == "scanned"
-                               else r["changed"] if result == "changed" else r["result"] == result))
+        if r["changed"]
         and (
             not needle
             or needle
             in " ".join(
-                str(v or "")
-                for v in [
+                str(value or "")
+                for value in [
                     r["scan_code"],
                     *r["snapshot"].values(),
                     *(r["scan_snapshot"] or {}).values(),
@@ -182,8 +182,6 @@ def detail(
             ).casefold()
         )
     ]
-    if result == "scanned":
-        filtered.sort(key=lambda row: (row["scanned_at"], row["id"]), reverse=True)
     return {**count_info(count), "summary": summary, "total": len(filtered), "rows": filtered[offset : offset + limit]}
 
 
