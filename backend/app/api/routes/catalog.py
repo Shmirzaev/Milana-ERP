@@ -2514,7 +2514,7 @@ async def upload_bom_photo(
 ):
     if not _catalog_model(db, mid, catalog_scope):
         raise HTTPException(404, "Model not found")
-    from app.services.image_storage import store_uploaded_image
+    from app.services.image_storage import discard_stored_image, store_uploaded_image
 
     stored = await store_uploaded_image(
         file,
@@ -2525,8 +2525,15 @@ async def upload_bom_photo(
         prebuild_thumbnails=True,
     )
     file_url = stored.file_url
-    log_action(db, current, "upload", "ModelBOM", mid, new_value={"model_id": mid, "file_url": file_url})
-    db.commit()
+    try:
+        log_action(db, current, "upload", "ModelBOM", mid, new_value={"model_id": mid, "file_url": file_url})
+        db.commit()
+    except BaseException:
+        try:
+            db.rollback()
+        finally:
+            await discard_stored_image(stored)
+        raise
     return {"file_url": file_url}
 
 
