@@ -14,7 +14,7 @@ const en = {
   review: "This records physical stock already in the warehouse. Check the model and quantity in each pack before saving.",
   createRun: "Create receiving print run from selected", select: "Select", size: "Size", quantity: "Quantity",
   pendingRequest: "The previous request has not been confirmed. Retry the saved request before recording another receipt.",
-  cancelPending: "Cancel or recover the pending receipt", pendingCancelled: "The pending request was safely cancelled. Correct the values and submit again.",
+  cancelPending: "Cancel or recover the pending receipt", pendingCancelled: "The pending request was safely cancelled. Correct the values and submit again.", labelUnavailable: "The receipt was saved, but its label is unavailable. Refresh or ask a manager to restore access before retrying the label.",
 };
 type Copy = Record<keyof typeof en, string>;
 const ru: Copy = {
@@ -30,7 +30,7 @@ const ru: Copy = {
   review: "Это приход фактически находящегося на складе товара. Перед сохранением проверьте модель, размеры, количество изделий и упаковок.",
   createRun: "Создать группу приёмки из выбранных", select: "Выбрать", size: "Размер", quantity: "Количество",
   pendingRequest: "Предыдущий запрос не подтверждён. Повторите сохранённый запрос перед новым приходом.",
-  cancelPending: "Отменить или восстановить ожидающий приход", pendingCancelled: "Ожидающий запрос безопасно отменён. Исправьте данные и отправьте снова.",
+  cancelPending: "Отменить или восстановить ожидающий приход", pendingCancelled: "Ожидающий запрос безопасно отменён. Исправьте данные и отправьте снова.", labelUnavailable: "Приход сохранён, но этикетка недоступна. Обновите страницу или попросите менеджера восстановить доступ перед повторной печатью.",
 };
 const uz: Copy = {
   packQuantity: "Qadoqdagi miqdor", deletePacks: "Xato qadoqlarni o‘chirish", deleteConfirm: "Tanlangan qadoqlar o‘chirilsinmi? Mavjud qoldiq o‘chiriladi. Jo‘natilgan yorliqlar yashiriladi; jo‘natma va mijoz hisob-kitob tarixi saqlanadi.",
@@ -45,7 +45,7 @@ const uz: Copy = {
   review: "Bu omborda mavjud haqiqiy mahsulot kirimidir. Saqlashdan oldin model, o‘lchamlar, dona va qadoqlar sonini tekshiring.",
   createRun: "Tanlanganlardan qabul guruhini yaratish", select: "Tanlash", size: "O‘lcham", quantity: "Miqdor",
   pendingRequest: "Oldingi so‘rov tasdiqlanmagan. Yangi kirimdan oldin saqlangan so‘rovni qayta yuboring.",
-  cancelPending: "Kutilayotgan kirimni bekor qilish yoki tiklash", pendingCancelled: "Kutilayotgan so‘rov xavfsiz bekor qilindi. Ma’lumotlarni tuzatib, qayta yuboring.",
+  cancelPending: "Kutilayotgan kirimni bekor qilish yoki tiklash", pendingCancelled: "Kutilayotgan so‘rov xavfsiz bekor qilindi. Ma’lumotlarni tuzatib, qayta yuboring.", labelUnavailable: "Kirim saqlandi, ammo yorliq mavjud emas. Sahifani yangilang yoki qayta chop etishdan oldin menejerdan ruxsatni tiklashni so‘rang.",
 };
 export const packageWorkflowCopy: Record<Lang, Copy> = { en, ru, uz };
 
@@ -59,6 +59,18 @@ export type PackagePrintRun = {
 type PendingPackageRequest = { requestKey: string; body: Record<string, any> };
 function notifyPackageWorkflowChanged(): void {
   if (typeof window !== "undefined") window.dispatchEvent(new Event("package-request-changed"));
+}
+
+export function restorePendingPackageWorkflow(path: string, userId: number, request: PendingPackageRequest): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(`package-request:${userId}:${path}`, JSON.stringify(request));
+  notifyPackageWorkflowChanged();
+}
+
+export function isPackagePrintRun(value: unknown): value is PackagePrintRun {
+  if (!value || typeof value !== "object") return false;
+  const run = value as Partial<PackagePrintRun>;
+  return Number.isInteger(run.id) && Number(run.id) > 0 && typeof run.run_no === "string";
 }
 
 function clearPendingPackageWorkflow(storageKey: string, requestKey: string): boolean {
