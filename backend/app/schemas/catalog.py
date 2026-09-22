@@ -103,6 +103,14 @@ class BrandOut(ORMModel):
     is_active: bool
 
 
+class BrandPageOut(BaseModel):
+    rows: list[BrandOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class CollectionIn(BaseModel):
     brand_id: int
     name: str

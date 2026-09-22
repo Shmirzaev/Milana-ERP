@@ -31,7 +31,7 @@ from app.models import (
     StockBatch, CuttingRecord,
 )
 from app.schemas.catalog import (
-    BrandIn, BrandOut, CollectionIn, CollectionOut,
+    BrandIn, BrandOut, BrandPageOut, CollectionIn, CollectionOut,
     ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelSizeMeasurements,
     ModelColorIn, ModelBOMIn,
     ModelBOMUpdate, ModelOptionPage, ModelPaidOperationsIn, ModelSellingPriceOut, ModelSummaryOut,
@@ -1126,14 +1126,29 @@ def _clone_details_for_code(details: dict | None, new_code: str) -> dict:
 
 
 # ===== Brands =====
-@router.get("/brands", response_model=list[BrandOut])
+@router.get("/brands", response_model=list[BrandOut] | BrandPageOut)
 def list_brands(
     db: DbSession,
     _: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     """Return the reference-brand list with a bounded payload."""
-    return db.query(Brand).order_by(Brand.name, Brand.id).limit(limit).all()
+    ordered_query = db.query(Brand).order_by(Brand.name, Brand.id)
+    if page is None and page_size is None:
+        return ordered_query.limit(limit).all()
+    page = page or 1
+    page_size = page_size or 100
+    total = ordered_query.order_by(None).count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/brands", response_model=BrandOut, status_code=201)
