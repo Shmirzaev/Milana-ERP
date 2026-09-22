@@ -1,8 +1,14 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.schemas.common import ORMModel, SchemaModel
+
+
+PackageWeight = Annotated[
+    float,
+    Field(le=9_999_999_999.9999, allow_inf_nan=False),
+]
 
 
 class BundleIn(SchemaModel):
@@ -149,7 +155,7 @@ class PackageIn(SchemaModel):
     color: str
     package_type: str = "bag"
     capacity: int = 60
-    weight_kg: Optional[float] = None
+    weight_kg: Optional[PackageWeight] = None
     warehouse_id: Optional[int] = None
     items: list[PackageItemIn]
     batch_allocations: list[PackageBatchAllocationIn] = []
@@ -159,7 +165,7 @@ class PackageIn(SchemaModel):
 
 class PackageBulkIn(PackageIn):
     count: int = 1
-    weight_kg_values: list[Optional[float]] = Field(default_factory=list)
+    weight_kg_values: list[Optional[PackageWeight]] = Field(default_factory=list)
 
 
 class PackageReceiveStorageIn(BaseModel):
@@ -200,7 +206,7 @@ class PackageEditPayload(BaseModel):
     color: Optional[str] = None
     package_type: Optional[str] = None
     capacity: Optional[int] = None
-    weight_kg: Optional[float] = None
+    weight_kg: Optional[PackageWeight] = None
     warehouse_id: Optional[int] = None
     storage_cell: Optional[str] = None
     storage_shelf: Optional[str] = None
