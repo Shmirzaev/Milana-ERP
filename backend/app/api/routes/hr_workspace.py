@@ -661,22 +661,40 @@ def hr_attendance(db: DbSession, current: User = HrUser, day: date | None = None
     start, end = _attendance_day_bounds(selected)
     default_hours = _load_hr_settings(db, factory).default_workday_hours
     employees = db.query(Employee).filter(Employee.factory_code == factory, Employee.status == "active").all()
-    events = db.query(AttendanceEvent).filter(
-        AttendanceEvent.factory_code == factory,
-        AttendanceEvent.occurred_at >= start,
-        AttendanceEvent.occurred_at < end,
-        accepted_attendance_result(AttendanceEvent.result),
-    ).order_by(AttendanceEvent.occurred_at).all()
-    grouped: dict[str, list[AttendanceEvent]] = {}
-    for event in events:
-        if event.external_person_id: grouped.setdefault(event.external_person_id, []).append(event)
+    employee_numbers = {
+        str(employee.employee_no)
+        for employee in employees
+        if employee.employee_no
+    }
+    scans_by_employee: dict[str, tuple[datetime, datetime | None]] = {}
+    if employee_numbers:
+        scan_summaries = (
+            db.query(
+                AttendanceEvent.external_person_id,
+                func.min(AttendanceEvent.occurred_at),
+                func.max(AttendanceEvent.occurred_at),
+                func.count(AttendanceEvent.id),
+            )
+            .filter(
+                AttendanceEvent.factory_code == factory,
+                AttendanceEvent.occurred_at >= start,
+                AttendanceEvent.occurred_at < end,
+                AttendanceEvent.external_person_id.in_(employee_numbers),
+                accepted_attendance_result(AttendanceEvent.result),
+            )
+            .group_by(AttendanceEvent.external_person_id)
+            .all()
+        )
+        scans_by_employee = {
+            external_person_id: (first, last if count > 1 else None)
+            for external_person_id, first, last, count in scan_summaries
+        }
     rows = []
     for employee in employees:
-        scans = grouped.get(str(employee.employee_no or ""), [])
-        first = scans[0].occurred_at if scans else None; last = scans[-1].occurred_at if len(scans) > 1 else None
+        first, last = scans_by_employee.get(str(employee.employee_no or ""), (None, None))
         worked = max(0, int((last - first).total_seconds() // 60)) if first and last else 0
         scheduled = _scheduled_minutes(employee.hr_profile_json, default_hours)
-        rows.append({"employee_id": employee.id, "employee_no": employee.employee_no, "full_name": employee.full_name, "arrival_at": first, "departure_at": last, "worked_minutes": worked, "scheduled_minutes": scheduled, "variance_minutes": worked - scheduled, "status": "present" if scans else "absent"})
+        rows.append({"employee_id": employee.id, "employee_no": employee.employee_no, "full_name": employee.full_name, "arrival_at": first, "departure_at": last, "worked_minutes": worked, "scheduled_minutes": scheduled, "variance_minutes": worked - scheduled, "status": "present" if first else "absent"})
     return {"day": selected, "summary": {"employees": len(rows), "present": sum(1 for row in rows if row["status"] == "present"), "absent": sum(1 for row in rows if row["status"] == "absent"), "overtime_minutes": sum(max(0, row["variance_minutes"]) for row in rows)}, "rows": rows}
 
 
