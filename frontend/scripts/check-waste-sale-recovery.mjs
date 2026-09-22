@@ -108,7 +108,7 @@ function pageHarness({ confirmPromise, refreshFailure = false, storageFailure = 
     react: reactHooks,
     "react/jsx-runtime": jsxRuntime,
     swr: { default: key => key === "/api/waste"
-      ? { data: [{ id: 11, waste_type: "offcuts", quantity: 10, unit: "kg", sellable: true, status: "sold", estimated_value: 1 }], mutate: async () => { if (refreshFailure) throw new Error("refresh failed"); } }
+      ? { data: [{ id: 11, waste_type: "offcuts", quantity: 10, remaining_quantity: 6, unit: "kg", sellable: true, status: "sold", estimated_value: 1 }], mutate: async () => { if (refreshFailure) throw new Error("refresh failed"); } }
       : { data: undefined } },
     "@/lib/api": { api: { post: async () => ({}) }, fetcher() {} },
     "@/components/PageHeader": { default: () => null },
@@ -131,9 +131,13 @@ function pageHarness({ confirmPromise, refreshFailure = false, storageFailure = 
 
 const confirmation = deferred();
 const overlap = pageHarness({ confirmPromise: confirmation, refreshFailure: true });
+assert.ok(walk(overlap.tree, node => node.type === "div" && node.props.children?.join?.("") === "field.remaining: 6.00 kg").length,
+  "the actual page must render the server-computed remaining balance");
 assert.ok(walk(overlap.tree, node => node.type === "button" && node.props.children === "page.waste.retrySale").length,
   "a sold row with pending evidence must expose exact replay");
 const saleForm = walk(overlap.tree, node => node.type === "form" && String(node.props.className).includes("min-w-64"))[0];
+assert.ok(walk(saleForm, node => node.type === "input" && node.props.type === "number" && node.props.max === 6).length,
+  "the sale quantity input must expose the server-computed balance while server validation remains authoritative");
 const firstSubmit = saleForm.props.onSubmit({ preventDefault() {} });
 const overlappingSubmit = saleForm.props.onSubmit({ preventDefault() {} });
 assert.equal(overlap.asks.length, 1, "synchronous ref guard must block overlapping confirmations");

@@ -174,7 +174,11 @@ export default function WastePage() {
               const hasPendingSale = pendingSaleIds.has(w.id);
               return <tr key={w.id}>
                 <td>{w.waste_type}</td>
-                <td><span>{Number(w.quantity).toFixed(2)} {w.unit}</span><div className="text-xs text-slate-500">{t("page.waste.originalQuantity")}</div></td>
+                <td>
+                  <span>{Number(w.quantity).toFixed(2)} {w.unit}</span>
+                  <div className="text-xs text-slate-500">{t("page.waste.originalQuantity")}</div>
+                  <div className="text-xs font-medium text-slate-700">{t("field.remaining")}: {Number(w.remaining_quantity ?? w.quantity).toFixed(2)} {w.unit}</div>
+                </td>
                 <td>{w.sellable ? t("field.yes") : t("field.no")}</td>
                 <td><span className="badge">{statusLabel(w.status, t)}</span></td>
                 <td>${Number(w.estimated_value).toFixed(2)}</td>
@@ -185,7 +189,7 @@ export default function WastePage() {
                   {sale?.wasteId === w.id && <form onSubmit={submitSale} className="w-full min-w-64 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <label className="block text-xs font-medium text-slate-600">{t("page.waste.buyer")}<input className="input mt-1 w-full" maxLength={255} required value={sale.buyer} onChange={(e) => setSale({ ...sale, buyer: e.target.value })} /></label>
                     <div className="grid grid-cols-2 gap-2">
-                      <label className="block text-xs font-medium text-slate-600">{t("field.quantity")}<input className="input mt-1 w-full" type="number" min="0.0001" step="0.0001" required value={sale.quantity} onChange={(e) => setSale({ ...sale, quantity: e.target.value })} /></label>
+                      <label className="block text-xs font-medium text-slate-600">{t("field.quantity")}<input className="input mt-1 w-full" type="number" min="0.0001" max={w.remaining_quantity ?? w.quantity} step="0.0001" required value={sale.quantity} onChange={(e) => setSale({ ...sale, quantity: e.target.value })} /></label>
                       <label className="block text-xs font-medium text-slate-600">{t("page.waste.unitPrice")}<input className="input mt-1 w-full" type="number" min="0" step="0.01" required value={sale.unitPrice} onChange={(e) => setSale({ ...sale, unitPrice: e.target.value })} /></label>
                     </div>
                     <p className="text-xs text-slate-500">{t("page.waste.remainingChecked")}</p>

@@ -4,6 +4,7 @@ from math import isfinite
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
+from sqlalchemy import func
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import WasteRecord, WasteSale, WasteDisposalRequest, User, StockBatch, Item
@@ -62,11 +63,24 @@ def list_waste(
     if total is not None:
         qry = qry.offset((page - 1) * page_size).limit(page_size)
     rows = qry.all()
+    row_ids = [int(row.id) for row in rows]
+    sold_by_waste_id = dict(
+        db.query(WasteSale.waste_record_id, func.coalesce(func.sum(WasteSale.quantity), 0))
+        .filter(WasteSale.waste_record_id.in_(row_ids))
+        .group_by(WasteSale.waste_record_id)
+        .all()
+    ) if row_ids else {}
     # Preserve the existing live-estimate response without rewriting the
     # valuation snapshot stored with the historical waste record.
     payloads = [
         WasteOut.model_validate(row).model_copy(
-            update={"estimated_value": _estimated_value_for_waste(db, row)},
+            update={
+                "estimated_value": _estimated_value_for_waste(db, row),
+                "remaining_quantity": float(max(
+                    Decimal("0"),
+                    Decimal(str(row.quantity or 0)) - Decimal(sold_by_waste_id.get(row.id, 0) or 0),
+                )),
+            },
         )
         for row in rows
     ]

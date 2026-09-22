@@ -28,6 +28,7 @@ class WasteOut(ORMModel):
     batch_id: Optional[int] = None
     waste_type: str
     quantity: float
+    remaining_quantity: float | None = None
     unit: str
     reason: Optional[str] = None
     sellable: bool

@@ -62,7 +62,8 @@ def test_waste_pages_bound_rows_preserve_legacy_payload_and_query_growth(count):
     assert [row.id for row in page["rows"]] == list(reversed(created_ids))
     assert page["rows"] == legacy[:count]
     assert all(float(row.estimated_value) == 0 for row in page["rows"])
-    assert len(statements) == 2, statements
+    assert all(float(row.remaining_quantity) == float(row.quantity) for row in page["rows"])
+    assert len(statements) == 3, statements
 
 
 def test_waste_page_applies_status_and_sellable_before_count(client, auth_headers):
