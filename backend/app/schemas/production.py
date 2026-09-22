@@ -251,6 +251,28 @@ class BrandedPlanningOrderPageOut(SchemaModel):
     has_more: bool
 
 
+class BrandedOrderCompanyOut(SchemaModel):
+    type: str
+    name: str
+
+
+class BrandedOrderCustomerOut(SchemaModel):
+    id: int
+    name: str
+
+
+class BrandedOrderPartiesOut(SchemaModel):
+    companies: list[BrandedOrderCompanyOut]
+    customers: list[BrandedOrderCustomerOut]
+
+
+class BrandedOrderPartiesPageOut(BrandedOrderPartiesOut):
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class WorkOrderOut(ORMModel):
     id: int
     sewing_assignment_id: Optional[int] = None

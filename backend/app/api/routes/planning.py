@@ -6,6 +6,8 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.core.deps import DbSession, require_permissions
 from app.models import BrandedPlanningOrder, Customer, Department, Model, User, SalesOrder, WorkOrder
 from app.schemas.production import (
+    BrandedOrderPartiesOut,
+    BrandedOrderPartiesPageOut,
     BrandedPlanningOrderIn,
     BrandedPlanningOrderListOut,
     BrandedPlanningOrderPageOut,
@@ -106,15 +108,37 @@ def _branded_order_payload(
     }
 
 
-@router.get("/branded-order-parties")
+@router.get(
+    "/branded-order-parties",
+    response_model=BrandedOrderPartiesPageOut | BrandedOrderPartiesOut,
+)
 def branded_order_parties(
     db: DbSession,
     _: User = Depends(require_permissions("planning.production", "*")),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    customers = db.query(Customer).order_by(Customer.name.asc()).all()
-    return {
+    ordered_query = db.query(Customer).order_by(Customer.name.asc())
+    payload = {
         "companies": [{"type": key, "name": name} for key, name in BRANDED_ORDER_PARTIES.items()],
+    }
+    if page is None and page_size is None:
+        customers = ordered_query.all()
+        return {
+            **payload,
+            "customers": [{"id": row.id, "name": row.name} for row in customers],
+        }
+    page = page or 1
+    page_size = page_size or 100
+    total = ordered_query.order_by(None).count()
+    customers = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        **payload,
         "customers": [{"id": row.id, "name": row.name} for row in customers],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
     }
 
 
