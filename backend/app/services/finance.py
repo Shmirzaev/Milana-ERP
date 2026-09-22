@@ -34,14 +34,15 @@ def waste_income(db: Session) -> float:
 
 
 def branded_stock_value(db: Session) -> float:
-    rows = db.query(FinishedGoodsStock).filter(
+    total = db.query(
+        func.coalesce(
+            func.sum(FinishedGoodsStock.available_qty * FinishedGoodsStock.cost_per_piece),
+            0,
+        )
+    ).filter(
         FinishedGoodsStock.brand_id.isnot(None),
         FinishedGoodsStock.status == "available",
-    ).all()
-    total = sum(
-        (Decimal(str(r.available_qty or 0)) * Decimal(str(r.cost_per_piece or 0)) for r in rows),
-        Decimal("0"),
-    )
+    ).scalar()
     return float(total)
 
 
