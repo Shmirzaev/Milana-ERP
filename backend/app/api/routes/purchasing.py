@@ -1,3 +1,4 @@
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from sqlalchemy.orm import joinedload, lazyload, selectinload
@@ -11,6 +12,7 @@ from app.services.idempotency import replay_idempotent_response, store_idempoten
 from app.schemas.purchasing import (
     PurchaseOrderIn,
     PurchaseOrderOut,
+    PurchaseOrderPageOut,
     PurchaseOrderReceiveIn,
     PurchaseRequestApprovalIn,
     PurchaseRequestIn,
@@ -156,20 +158,34 @@ async def upload_request_photo(
     return {"file_url": stored.file_url}
 
 
-@router.get("/orders", response_model=list[PurchaseOrderOut])
+@router.get("/orders", response_model=list[PurchaseOrderOut] | PurchaseOrderPageOut)
 def list_purchase_orders(
     db: DbSession,
     _: User = Depends(require_permissions("purchasing.view", "*")),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    return (
+    query = (
         db.query(PurchaseOrder)
         .filter(~PurchaseOrder.lines.any(PurchaseOrderLine.item_id.in_(
             db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
         )) if inventory_access.materials_only(_) else True)
         .options(joinedload(PurchaseOrder.lines))
         .order_by(PurchaseOrder.id.desc())
-        .all()
     )
+    if page is None and page_size is None:
+        return query.all()
+    current_page = page or 1
+    safe_page_size = page_size or 100
+    total = query.order_by(None).count()
+    rows = query.offset((current_page - 1) * safe_page_size).limit(safe_page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": current_page,
+        "page_size": safe_page_size,
+        "has_more": current_page * safe_page_size < total,
+    }
 
 
 @router.post("/orders", response_model=PurchaseOrderOut, status_code=201)
