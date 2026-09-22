@@ -13,6 +13,9 @@ class _SalesOrderMetadata:
     collection_id: int | None
 
 
+_ReferenceMetadataCache = dict[tuple[str, int, int], _SalesOrderMetadata]
+
+
 def _unique_or_none(values: set[int]) -> int | None:
     if len(values) == 1:
         return next(iter(values))
@@ -69,6 +72,7 @@ def infer_brand_and_collection(
     package_id: int | None,
     brand_id: int | None,
     collection_id: int | None,
+    reference_cache: _ReferenceMetadataCache | None = None,
 ) -> tuple[int | None, int | None]:
     resolved_brand_id = int(brand_id) if brand_id is not None else None
     resolved_collection_id = int(collection_id) if collection_id is not None else None
@@ -99,11 +103,16 @@ def infer_brand_and_collection(
             resolved_brand_id = int(col.brand_id)
 
     if resolved_sales_order_id is not None and (resolved_brand_id is None or resolved_collection_id is None):
-        so_meta = _sales_order_metadata_for_model(
-            db,
-            sales_order_id=resolved_sales_order_id,
-            model_id=model_id,
-        )
+        cache_key = ("sales_order", resolved_sales_order_id, int(model_id))
+        so_meta = reference_cache.get(cache_key) if reference_cache is not None else None
+        if so_meta is None:
+            so_meta = _sales_order_metadata_for_model(
+                db,
+                sales_order_id=resolved_sales_order_id,
+                model_id=model_id,
+            )
+            if reference_cache is not None:
+                reference_cache[cache_key] = so_meta
         if resolved_collection_id is None and so_meta.collection_id is not None:
             resolved_collection_id = so_meta.collection_id
         if resolved_brand_id is None and so_meta.brand_id is not None:
@@ -115,7 +124,12 @@ def infer_brand_and_collection(
             resolved_brand_id = int(col.brand_id)
 
     if resolved_brand_id is None or resolved_collection_id is None:
-        model_meta = _model_collection_metadata(db, model_id=model_id)
+        cache_key = ("model", int(model_id), 0)
+        model_meta = reference_cache.get(cache_key) if reference_cache is not None else None
+        if model_meta is None:
+            model_meta = _model_collection_metadata(db, model_id=model_id)
+            if reference_cache is not None:
+                reference_cache[cache_key] = model_meta
         if resolved_collection_id is None and model_meta.collection_id is not None:
             resolved_collection_id = model_meta.collection_id
         if resolved_brand_id is None and model_meta.brand_id is not None:
@@ -134,6 +148,7 @@ def repair_missing_brand_metadata(db: Session, *, model_ids: set[int] | None = N
             return 0
         query = query.filter(FinishedGoodsStock.model_id.in_(normalized_model_ids))
     rows = query.all()
+    reference_cache: _ReferenceMetadataCache = {}
     updated = 0
     for row in rows:
         next_brand_id, next_collection_id = infer_brand_and_collection(
@@ -144,6 +159,7 @@ def repair_missing_brand_metadata(db: Session, *, model_ids: set[int] | None = N
             package_id=row.package_id,
             brand_id=row.brand_id,
             collection_id=row.collection_id,
+            reference_cache=reference_cache,
         )
         changed = False
         if row.brand_id is None and next_brand_id is not None:
