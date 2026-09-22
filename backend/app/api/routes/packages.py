@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
 from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 import base64
 from datetime import date, datetime
 from html import escape
@@ -71,7 +72,11 @@ from app.services.packages import (
     reject_package_change_request,
 )
 from app.services.barcode import save_qr_image
-from app.services.label_images import material_label_image_src, variant_label_image_src
+from app.services.label_images import (
+    is_preview_model_image,
+    material_label_image_src,
+    variant_label_image_src,
+)
 from app.services.model_images import model_display_image_url, warehouse_stock_image_url
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
@@ -235,12 +240,57 @@ def _model_display_load_options():
 
 def _model_label_load_options():
     return (
-        selectinload(Model.images),
+        selectinload(Model.images).load_only(
+            ModelImage.id,
+            ModelImage.model_id,
+            ModelImage.file_url,
+            ModelImage.file_name,
+            ModelImage.content_type,
+            ModelImage.image_type,
+            ModelImage.is_primary,
+        ),
         selectinload(Model.bom).options(
             joinedload(ModelBOM.item),
             joinedload(ModelBOM.stock_batch),
         ),
     )
+
+
+def _load_selected_label_image_data(db: DbSession, models: dict[int, Model]) -> None:
+    selected_images = {}
+    for model in models.values():
+        images = [image for image in (model.images or []) if is_preview_model_image(image)]
+        typed_model = next(
+            (image for image in images if str(image.image_type or "").lower() == "model"),
+            None,
+        )
+        primary = next((image for image in images if image.is_primary), None)
+        selected = typed_model or primary or (images[0] if images else None)
+        if selected is not None:
+            selected_images[int(selected.id)] = selected
+        typed_material = next(
+            (
+                image
+                for image in sorted(images, key=lambda candidate: int(candidate.id or 0), reverse=True)
+                if str(image.image_type or "").lower() == "material"
+            ),
+            None,
+        )
+        if typed_material is not None:
+            selected_images[int(typed_material.id)] = typed_material
+
+    if not selected_images:
+        return
+    image_data = (
+        db.query(ModelImage.id, ModelImage.file_data)
+        .filter(
+            ModelImage.id.in_(selected_images),
+            ModelImage.file_data.isnot(None),
+        )
+        .all()
+    )
+    for image_id, file_data in image_data:
+        set_committed_value(selected_images[int(image_id)], "file_data", file_data)
 
 
 def _load_reference_map(db: DbSession, model_type, ids, *, options=()) -> dict:
@@ -490,6 +540,7 @@ def _package_label_reference_context(db: DbSession, packages: list[Package]) -> 
         (pkg.model_id for pkg in packages),
         options=_model_label_load_options(),
     )
+    _load_selected_label_image_data(db, models)
     production_orders = _load_reference_map(
         db,
         ProductionOrder,

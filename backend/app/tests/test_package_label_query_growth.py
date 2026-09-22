@@ -57,6 +57,28 @@ def _package_case(db, package_count):
     )
     db.add(model)
     db.flush()
+    db.add(ModelImage(
+        model_id=model.id,
+        file_url=f"/storage/model-files/PERF12-{suffix}.png",
+        file_name=f"PERF12-{suffix}.png",
+        content_type="image/png",
+        image_type="model",
+        is_primary=True,
+        file_data=b"PERF12 package label image bytes",
+    ))
+    db.add_all([
+        ModelImage(
+            model_id=model.id,
+            file_url=f"/storage/model-files/PERF12-material-{suffix}-{number}.png",
+            file_name=f"PERF12-material-{suffix}-{number}.png",
+            content_type="image/png",
+            image_type="material",
+            is_primary=False,
+            file_data=f"PERF12 material image {number}".encode(),
+        )
+        for number in range(3)
+    ])
+    db.flush()
     order = ProductionOrder(
         production_no=f"PERF12-PO-{suffix}",
         production_type="branded_stock",
@@ -324,13 +346,18 @@ def test_package_label_sheet_batches_reference_context(client, auth_headers, mon
     assert counts == {
         "members": expected_chunks,
         "models": 1,
-        "images": 1,
+        "images": 2,
         "bom": 1,
         "orders": 1,
         "allocations": expected_chunks,
         "batches": 1,
     }
-    assert len(statements) == 9 + (2 * expected_chunks), statements
+    image_reads = [statement for statement in statements if " from model_images " in statement]
+    assert any("file_data" not in statement for statement in image_reads), image_reads
+    blob_reads = [statement for statement in image_reads if "file_data" in statement]
+    assert len(blob_reads) == 1, blob_reads
+    assert "model_images.id in (?, ?)" in blob_reads[0], blob_reads
+    assert len(statements) == 10 + (2 * expected_chunks), statements
     positions = [response.text.index(package_no) for package_no in package_nos]
     assert positions == sorted(positions)
 
