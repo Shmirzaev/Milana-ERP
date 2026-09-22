@@ -758,17 +758,29 @@ def download_daily_attendance_report(
     query: str = Query(default="", max_length=120),
     usage: str = Query(default="all", pattern="^(all|used|not_used)$"),
     lang: ReportLanguage = Query(default="uz"),
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
 ):
     factory_code = selected_factory_code(current)
     start, end = _day_bounds(day)
-    records = _attendance_people_query(
+    records_query = _attendance_people_query(
         db,
         factory_code=factory_code,
         start=start,
         end=end,
         query=query,
         usage=usage,
-    ).order_by(AttendancePerson.full_name.asc(), AttendancePerson.external_person_id.asc()).all()
+    ).order_by(
+        AttendancePerson.full_name.asc(),
+        AttendancePerson.external_person_id.asc(),
+    )
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = records_query.order_by(None).count()
+        records_query = records_query.offset((page - 1) * page_size).limit(page_size)
+    records = records_query.all()
     rows = [
         _attendance_row_payload(person, event_count, first_seen_at, last_seen_at)
         for person, event_count, first_seen_at, last_seen_at in records
@@ -779,10 +791,18 @@ def download_daily_attendance_report(
         generated_at=utcnow(),
         lang=lang,
     )
+    headers = {"Content-Disposition": f'attachment; filename="attendance_daily_{day.isoformat()}.xlsx"'}
+    if total is not None:
+        headers.update({
+            "X-Total-Count": str(total),
+            "X-Page": str(page),
+            "X-Page-Size": str(page_size),
+            "X-Has-More": "true" if page * page_size < total else "false",
+        })
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="attendance_daily_{day.isoformat()}.xlsx"'},
+        headers=headers,
     )
 
 
