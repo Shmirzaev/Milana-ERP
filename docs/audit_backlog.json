@@ -1263,8 +1263,8 @@
       "baseline_source": "frontend/src/components/AuthGate.tsx:183",
       "status": "partial",
       "owner": null,
-      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160",
-      "evidence": "HR documents/recruitment, inventory Accessories, Purchasing request items and model-detail seasons defer hidden option directories until opened/editable. The model detail retains its saved season in read-only mode and fetches the directory for new/edit forms. Actual component/contract tests and stabilization pass for the earlier paths; the new model-season contract passes locally. Visible requests, auth and endpoints stay unchanged. Other requests and browser visual proof remain open."
+      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160, 8589ba4",
+      "evidence": "HR documents/recruitment, inventory Accessories, Purchasing request items and model-detail seasons defer hidden option directories until opened/editable. The model detail retains its saved season in read-only mode and fetches the directory for new/edit forms. Actual component/contract tests and stabilization pass; CI lint, strict types and optimized build pass in run 35672476252. Visible requests, auth and endpoints stay unchanged. Other requests and browser visual proof remain open."
     },
     {
       "number": 106,
