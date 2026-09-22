@@ -299,13 +299,13 @@ class CuttingRecordIn(BaseModel):
     production_batch_id: Optional[int] = None
     fabric_batch_id: Optional[int] = None
     model_bom_id: Optional[int] = None
-    input_quantity: float
+    input_quantity: float = Field(ge=0, allow_inf_nan=False)
     input_unit: str = "kg"
-    cut_pieces: int
-    report_piece_count: int = Field(default=0, ge=0)
-    passed_pieces: int
-    defective_pieces: int = 0
-    waste_quantity: float = 0
+    cut_pieces: int = Field(ge=0, le=2_147_483_647)
+    report_piece_count: int = Field(default=0, ge=0, le=2_147_483_647)
+    passed_pieces: int = Field(ge=0, le=2_147_483_647)
+    defective_pieces: int = Field(default=0, ge=0, le=2_147_483_647)
+    waste_quantity: float = Field(default=0, ge=0, allow_inf_nan=False)
     waste_unit: str = "kg"
     layer_material_kg: float = Field(default=0, ge=0)
     beika_kg: float = Field(default=0, ge=0)
@@ -315,7 +315,21 @@ class CuttingRecordIn(BaseModel):
     notes: Optional[str] = None
     materials: list[CuttingMaterialUsageIn] = Field(default_factory=list)
     # Bundle plan: list of {color, size, quantity, count}
-    bundles: list[dict] = []
+    bundles: list[dict] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_output_quantity(self):
+        # Positive-count bundle plans derive effective passed/cut quantities in the route.
+        has_effective_bundle_plan = False
+        for bundle in self.bundles:
+            try:
+                has_effective_bundle_plan = has_effective_bundle_plan or int(bundle.get("count", 1)) > 0
+            except (TypeError, ValueError):
+                # The route returns the established row-specific validation error.
+                has_effective_bundle_plan = True
+        if not has_effective_bundle_plan and self.passed_pieces + self.defective_pieces > self.cut_pieces:
+            raise ValueError("Passed and defective pieces cannot exceed cut pieces")
+        return self
 
 
 class PrintingRecordIn(BaseModel):
