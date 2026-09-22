@@ -3,9 +3,9 @@ capacity utilization, PDF/HTML export of the process-tracking view.
 """
 from datetime import datetime, timezone
 from html import escape
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, or_
@@ -17,7 +17,7 @@ from app.models import (
     Customer, SalesOrder, Bundle, ProductionBatch, SewingDailyReport, SewingRecord,
 )
 from app.schemas.sewing_assignment import (
-    SewingAssignmentIn, SewingAssignmentUpdate, SewingAssignmentOut,
+    SewingAssignmentIn, SewingAssignmentUpdate, SewingAssignmentOut, SewingAssignmentPageOut,
 )
 from app.core.dt import as_utc
 from app.services.audit import log_action
@@ -159,11 +159,35 @@ def unblock_wo(wid: int, db: DbSession, current: User = Depends(require_permissi
 
 
 # ===== Sewing Assignments (parallel-line splitting) =====
-@router.get("/work-orders/{wid}/assignments", response_model=list[SewingAssignmentOut])
-def list_assignments(wid: int, db: DbSession, _: CurrentUser):
+@router.get(
+    "/work-orders/{wid}/assignments",
+    response_model=list[SewingAssignmentOut] | SewingAssignmentPageOut,
+)
+def list_assignments(
+    wid: int,
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     if not db.get(WorkOrder, wid):
         raise HTTPException(404, "Work order not found")
-    return db.query(SewingAssignment).filter(SewingAssignment.work_order_id == wid).order_by(SewingAssignment.id).all()
+    query = db.query(SewingAssignment).filter(SewingAssignment.work_order_id == wid)
+    ordered_query = query.order_by(SewingAssignment.id)
+    if page is None and page_size is None:
+        return ordered_query.all()
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/work-orders/{wid}/assignments", response_model=SewingAssignmentOut, status_code=201)

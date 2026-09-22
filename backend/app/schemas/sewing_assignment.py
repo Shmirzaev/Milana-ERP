@@ -42,3 +42,11 @@ class SewingAssignmentOut(ORMModel):
     status: str
     notes: Optional[str] = None
     created_by: Optional[int] = None
+
+
+class SewingAssignmentPageOut(BaseModel):
+    rows: list[SewingAssignmentOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
