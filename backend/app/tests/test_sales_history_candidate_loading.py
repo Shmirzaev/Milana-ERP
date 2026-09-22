@@ -47,11 +47,19 @@ def test_history_hydrates_only_page_candidates(monkeypatch, count):
     def record_loaded(session, instance):
         if isinstance(instance, (SalesOrder, ProductionOrder, ProductionBatch)):
             loaded.append(instance)
+    statements = []
     with TestSessionLocal() as db:
+        def record_statement(_conn, _cursor, statement, _parameters, _context, _executemany):
+            statements.append(statement)
+
         event.listen(db, "loaded_as_persistent", record_loaded)
-        result = sales_routes.list_sales_order_history(
-            db, None, page=1, page_size=10, include_total=True, created_from=date(2088, 1, 1),
-        )
+        event.listen(db.bind, "before_cursor_execute", record_statement)
+        try:
+            result = sales_routes.list_sales_order_history(
+                db, None, page=1, page_size=10, include_total=True, created_from=date(2088, 1, 1),
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", record_statement)
     selected = expected[:10]
     assert result == {"rows": [{"kind": kind, "id": row_id} for _, kind, row_id in selected],
                       "total": count * 2, "page": 1, "page_size": 10}
@@ -59,6 +67,9 @@ def test_history_hydrates_only_page_candidates(monkeypatch, count):
     children = [row for row in loaded if isinstance(row, ProductionBatch)]
     assert len(entities) == len(selected)
     assert len(children) == sum(kind == "production" for _, kind, _ in selected)
+    union_statements = [statement.upper() for statement in statements if "UNION ALL" in statement.upper()]
+    assert len(union_statements) == 2  # bounded count plus bounded page selection
+    assert sum(" LIMIT " in statement for statement in union_statements) == 1
 
 
 def test_history_candidate_paging_filters_and_empty_pages(monkeypatch):

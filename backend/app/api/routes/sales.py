@@ -1,13 +1,12 @@
 from app.core.order_reference import order_reference_contains
 import os
-import heapq
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, literal, or_
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -1779,23 +1778,42 @@ def list_sales_order_history(
             )
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 200))
-    # Sort lightweight keys first; eagerly loading every production child before
-    # slicing a page multiplies memory even when the caller requests ten rows.
-    candidates = (
-        [(created_at, "sales", row_id) for row_id, created_at in
-         qry.enable_eagerloads(False).with_entities(SalesOrder.id, SalesOrder.created_at).all()]
-        + [(created_at, "production", row_id) for row_id, created_at in
-           stock_qry.enable_eagerloads(False).with_entities(ProductionOrder.id, ProductionOrder.created_at).all()]
+    # Page lightweight keys in SQL. The explicit kind rank preserves the legacy
+    # stable ordering: a sales row precedes a production row when timestamp and
+    # numeric id are identical.
+    sales_candidates = qry.enable_eagerloads(False).with_entities(
+        SalesOrder.created_at.label("created_at"),
+        literal("sales").label("kind"),
+        literal(0).label("kind_order"),
+        SalesOrder.id.label("row_id"),
     )
-    total = len(candidates)
+    production_candidates = stock_qry.enable_eagerloads(False).with_entities(
+        ProductionOrder.created_at.label("created_at"),
+        literal("production").label("kind"),
+        literal(1).label("kind_order"),
+        ProductionOrder.id.label("row_id"),
+    )
+    candidate_union = sales_candidates.union_all(production_candidates).subquery()
+    total = (
+        int(db.query(func.count()).select_from(candidate_union).scalar() or 0)
+        if include_total else 0
+    )
     start_index = (safe_page - 1) * safe_size
-    page_end = min(total, start_index + safe_size)
-    ranked = heapq.nlargest(
-        page_end,
-        candidates,
-        key=lambda entry: ((entry[0].isoformat() if entry[0] else ""), int(entry[2])),
+    selected = (
+        db.query(
+            candidate_union.c.created_at,
+            candidate_union.c.kind,
+            candidate_union.c.row_id,
+        )
+        .order_by(
+            candidate_union.c.created_at.desc().nullslast(),
+            candidate_union.c.row_id.desc(),
+            candidate_union.c.kind_order.asc(),
+        )
+        .offset(start_index)
+        .limit(safe_size)
+        .all()
     )
-    selected = ranked[start_index:page_end]
     sales_ids = [row_id for _, kind, row_id in selected if kind == "sales"]
     production_ids = [row_id for _, kind, row_id in selected if kind == "production"]
     selected_sales = {
