@@ -213,15 +213,17 @@ def _upsert_device(
         )
         db.add(device)
         db.flush()
-    device.name = payload.name
-    device.vendor = payload.vendor
-    device.model = payload.model
-    device.serial_no = payload.serial_no
-    device.source_host = payload.source_host
-    device.reported_person_count = payload.reported_person_count
-    device.read_only = True
     previous_seen = as_utc(device.last_seen_at)
     if previous_seen is None or sync_started_at > previous_seen:
+        # Event batches remain append-only even when they arrive out of order,
+        # but an older batch must not regress the latest device observation.
+        device.name = payload.name
+        device.vendor = payload.vendor
+        device.model = payload.model
+        device.serial_no = payload.serial_no
+        device.source_host = payload.source_host
+        device.reported_person_count = payload.reported_person_count
+        device.read_only = True
         device.last_seen_at = sync_started_at
     if people_sync:
         device.last_people_sync_at = sync_started_at

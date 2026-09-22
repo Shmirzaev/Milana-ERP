@@ -6,7 +6,9 @@ from io import BytesIO
 from openpyxl import load_workbook
 from PIL import Image
 
-from app.models import AttendanceDevice, AttendancePerson, Employee
+from app.api.routes import attendance as attendance_routes
+from app.core.dt import as_utc
+from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, Employee
 from app.tests.conftest import TestSessionLocal
 
 
@@ -102,6 +104,73 @@ def test_events_are_idempotent_and_drive_daily_usage(client, auth_headers):
     assert overview["people"][0]["departure_at"] is None
     assert overview["people"][0]["worked_minutes"] is None
     assert overview["people"][0]["attendance_status"] == "single_scan"
+
+
+def test_older_event_batch_keeps_events_without_regressing_device_checkpoint(client, monkeypatch):
+    newer = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
+    older = datetime(2026, 8, 17, 11, tzinfo=timezone.utc)
+    device_key = "out-of-order-events"
+
+    current_device = snapshot(device_key=device_key, source_host="10.100.50.90")["device"]
+    current_device.update({
+        "name": "Current turnstile",
+        "model": "DS-current",
+        "serial_no": "current-serial",
+        "reported_person_count": 17,
+    })
+    monkeypatch.setattr(attendance_routes, "utcnow", lambda: newer)
+    current = client.post(
+        "/api/attendance/integration/events",
+        headers=INTEGRATION_HEADERS,
+        json={
+            "device": current_device,
+            "events": [{
+                "event_uid": "newer-batch-event",
+                "occurred_at": "2026-08-17T12:00:00Z",
+            }],
+        },
+    )
+    assert current.status_code == 200, current.text
+    assert current.json()["inserted"] == 1
+
+    stale_device = {
+        **current_device,
+        "name": "Stale turnstile",
+        "model": "DS-stale",
+        "serial_no": "stale-serial",
+        "source_host": "10.100.50.12",
+        "reported_person_count": 3,
+    }
+    monkeypatch.setattr(attendance_routes, "utcnow", lambda: older)
+    stale = client.post(
+        "/api/attendance/integration/events",
+        headers=INTEGRATION_HEADERS,
+        json={
+            "device": stale_device,
+            "events": [{
+                "event_uid": "older-batch-event",
+                "occurred_at": "2026-08-17T11:00:00Z",
+            }],
+        },
+    )
+    assert stale.status_code == 200, stale.text
+    assert stale.json()["inserted"] == 1
+
+    with TestSessionLocal() as db:
+        device = db.query(AttendanceDevice).filter_by(device_key=device_key).one()
+        assert (device.name, device.model, device.serial_no, device.source_host) == (
+            "Current turnstile",
+            "DS-current",
+            "current-serial",
+            "10.100.50.90",
+        )
+        assert device.reported_person_count == 17
+        assert as_utc(device.last_seen_at) == newer
+        assert as_utc(device.last_event_sync_at) == newer
+        assert {
+            event_uid
+            for (event_uid,) in db.query(AttendanceEvent.event_uid).filter_by(device_id=device.id)
+        } == {"newer-batch-event", "older-batch-event"}
 
 
 def test_daily_attendance_uses_first_arrival_and_last_departure_and_exports_report(client, auth_headers):

@@ -262,6 +262,64 @@ def test_postgres_older_blocked_roster_is_ignored_after_newer_commit(
         ]
 
 
+def test_postgres_older_blocked_events_keep_newer_device_metadata(
+    attendance_postgres_sessions,
+    monkeypatch,
+):
+    sessions, _engine = attendance_postgres_sessions
+    device_key = f"overtaken-events-{uuid4().hex}"
+    newer = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
+    older = datetime(2026, 8, 17, 11, tzinfo=timezone.utc)
+    older_waiting = Event()
+    release_older = Event()
+    original_lock = attendance._lock_attendance_import
+
+    monkeypatch.setattr(
+        attendance,
+        "utcnow",
+        lambda: older if current_thread().name.startswith("older-events") else newer,
+    )
+
+    def pause_older_before_lock(db, factory_code, key):
+        if current_thread().name.startswith("older-events"):
+            older_waiting.set()
+            assert release_older.wait(10), "Older event batch was not released"
+        return original_lock(db, factory_code, key)
+
+    monkeypatch.setattr(attendance, "_lock_attendance_import", pause_older_before_lock)
+    older_payload = _event_payload(device_key, "older-event", "880008")
+    older_payload.device.name = "Stale turnstile"
+    older_payload.device.model = "DS-stale"
+    older_payload.device.source_host = "10.100.50.11"
+    newer_payload = _event_payload(device_key, "newer-event", "880008")
+    newer_payload.device.name = "Current turnstile"
+    newer_payload.device.model = "DS-current"
+    newer_payload.device.source_host = "10.100.50.12"
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="older-events") as worker:
+        older_future = worker.submit(_call, sessions, attendance.import_events, older_payload)
+        assert older_waiting.wait(10), "Older event batch did not reach the pre-lock pause"
+        winning = _call(sessions, attendance.import_events, newer_payload)
+        release_older.set()
+        overtaken = older_future.result(timeout=10)
+
+    assert winning["inserted"] == 1
+    assert overtaken["inserted"] == 1
+    with sessions() as db:
+        device = db.query(AttendanceDevice).filter_by(device_key=device_key).one()
+        assert (device.name, device.model, device.source_host) == (
+            "Current turnstile",
+            "DS-current",
+            "10.100.50.12",
+        )
+        assert device.last_seen_at == newer
+        assert device.last_event_sync_at == newer
+        assert {
+            event_uid
+            for (event_uid,) in db.query(AttendanceEvent.event_uid).filter_by(device_id=device.id)
+        } == {"newer-event", "older-event"}
+
+
 def test_postgres_concurrent_roster_and_events_create_one_device(attendance_postgres_sessions):
     sessions, engine = attendance_postgres_sessions
     device_key = f"new-device-{uuid4().hex}"
