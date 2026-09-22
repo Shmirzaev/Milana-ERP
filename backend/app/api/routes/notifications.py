@@ -1,14 +1,15 @@
 from datetime import datetime, timezone
 import os
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.pagination import clamp_pagination
 from app.models import Department, Notification, Role, User
+from app.schemas.notifications import NotificationPageOut
 from app.schemas.tasks import NotificationOut
 from app.services.audit import log_action
 from app.services.notifications import notify_many
@@ -91,13 +92,36 @@ def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User
     raise HTTPException(400, "Unsupported recipient target")
 
 
-@router.get("", response_model=list[NotificationOut])
-def list_my_notifications(db: DbSession, current: CurrentUser, only_unread: bool = False, limit: int = 50):
-    safe_limit = 0 if limit == 0 else clamp_pagination(page_size=limit)[1]
+@router.get("", response_model=list[NotificationOut] | NotificationPageOut)
+def list_my_notifications(
+    db: DbSession,
+    current: CurrentUser,
+    only_unread: bool = False,
+    limit: int = 50,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     qry = db.query(Notification).filter(Notification.user_id == current.id)
     if only_unread:
         qry = qry.filter(Notification.is_read.is_(False))
-    return qry.order_by(Notification.id.desc()).limit(safe_limit).all()
+    ordered_qry = qry.order_by(Notification.id.desc())
+    if page is None and page_size is None:
+        safe_limit = 0 if limit == 0 else clamp_pagination(page_size=limit)[1]
+        return ordered_qry.limit(safe_limit).all()
+
+    effective_page, effective_page_size, offset = clamp_pagination(
+        page=page or 1,
+        page_size=page_size if page_size is not None else limit,
+    )
+    total = int(qry.count())
+    rows = ordered_qry.offset(offset).limit(effective_page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/unread-count")
