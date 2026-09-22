@@ -72,6 +72,40 @@ def test_production_context_model_assets_have_bounded_queries_without_blobs():
         assert "file_data" not in "\n".join(statements).lower()
 
 
+def test_material_context_defers_material_image_blobs_and_preserves_url():
+    suffix = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        model = Model(code=f"PERF32-MAT-{suffix}", name="Material model", status="approved")
+        item = Item(sku=f"PERF32-ITEM-{suffix}", name="Fabric", category="fabric", unit="m")
+        db.add_all([model, item])
+        db.flush()
+        order = ProductionOrder(
+            production_no=f"PERF32-MAT-PO-{suffix}",
+            production_type="client_order",
+            model_id=model.id,
+            planned_quantity=1,
+        )
+        db.add_all([
+            order,
+            ModelBOM(model_id=model.id, item_id=item.id, quantity_per_piece=1, unit="m"),
+            ModelImage(model_id=model.id, file_url=f"/material/{suffix}.webp", file_name="material.webp", content_type="image/webp", image_type="material", file_data=b"do-not-select"),
+        ])
+        db.flush()
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            payload = inbox._material_payload_by_production_order(db, [order.id])
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        assert payload[order.id]["material_image_url"] == f"/material/{suffix}.webp"
+        assert "file_data" not in "\n".join(statements).lower()
+
+
 def test_production_context_preserves_model_image_fallback_precedence():
     suffix = uuid4().hex[:8]
     with TestSessionLocal() as db:

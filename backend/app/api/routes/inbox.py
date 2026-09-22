@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 from app.core.deps import CurrentUser, DbSession, user_permissions
 from app.core.dt import as_utc
@@ -523,7 +523,7 @@ def _material_payload_by_production_order(db: DbSession, production_order_ids: l
             by_model[int(bom.model_id)] = payload
 
     material_images = (
-        db.query(ModelImage)
+        db.query(ModelImage).options(defer(ModelImage.file_data))
         .filter(ModelImage.model_id.in_(model_ids))
         .order_by(ModelImage.id.desc())
         .all()
