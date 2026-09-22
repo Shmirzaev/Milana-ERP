@@ -1,6 +1,7 @@
 from collections import defaultdict
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import func, or_
 from sqlalchemy.orm import aliased
 
@@ -9,7 +10,7 @@ from app.models import (
     Brand, FinishedGoodsStock, Model, Package, PackageItem, ProductionOrder,
     SalesOrder, Shipment, ShipmentPackage, StockReservation, User,
 )
-from app.schemas.tracking import FinishedGoodsStockOut
+from app.schemas.tracking import FinishedGoodsStockOut, FinishedGoodsStockPageOut
 from app.services.audit import log_action
 router = APIRouter(prefix="/finished-goods", tags=["finished_goods"])
 PackageBrand = aliased(Brand)
@@ -46,10 +47,12 @@ def _stock_payload(
     }
 
 
-@router.get("", response_model=list[FinishedGoodsStockOut])
+@router.get("", response_model=list[FinishedGoodsStockOut] | FinishedGoodsStockPageOut)
 def list_stock(db: DbSession, _: CurrentUser,
                model_id: int | None = None, status: str | None = None, brand_id: int | None = None,
-               limit: int = 500, offset: int = 0):
+               limit: int = 500, offset: int = 0,
+               page: Annotated[int | None, Query(ge=1)] = None,
+               page_size: Annotated[int | None, Query(ge=1, le=500)] = None):
     limit = max(0, min(limit, 500))
     offset = max(0, offset)
     qry = (
@@ -65,7 +68,14 @@ def list_stock(db: DbSession, _: CurrentUser,
     if model_id: qry = qry.filter(FinishedGoodsStock.model_id == model_id)
     if status: qry = qry.filter(FinishedGoodsStock.status == status)
     if brand_id: qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
-    return [
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+        offset = (page - 1) * page_size
+        limit = page_size
+    rows = [
         _stock_payload(
             stock,
             model_code=model_code,
@@ -74,6 +84,15 @@ def list_stock(db: DbSession, _: CurrentUser,
         )
         for stock, model_code, model_name, brand_name in qry.order_by(FinishedGoodsStock.id.desc()).offset(offset).limit(limit).all()
     ]
+    if total is None:
+        return rows
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/branded-stock", response_model=list[FinishedGoodsStockOut])

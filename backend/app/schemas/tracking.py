@@ -272,3 +272,11 @@ class FinishedGoodsStockOut(ORMModel):
     selling_price: float
     warehouse_id: Optional[int] = None
     status: str
+
+
+class FinishedGoodsStockPageOut(ORMModel):
+    rows: list[FinishedGoodsStockOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
