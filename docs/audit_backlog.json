@@ -711,8 +711,8 @@
       "baseline_source": "backend/app/schemas/sales.py",
       "status": "partial",
       "owner": null,
-      "commit": "5a68d12,41ae782, 5c08c2c, a66321b",
-      "evidence": "Existing numeric bounds remain. Commit 5c08c2c adds deterministic SQL-bounded customer payment history; a66321b validates invoice-list limits1..500 and aligns the service clamp. Ten payment-history and24 finance-input cases pass. Aggregate totals, Decimal precision, derived prices and other state/list bounds remain open."
+      "commit": "5a68d12,41ae782, 5c08c2c, a66321b, 26a4e73",
+      "evidence": "Existing numeric bounds remain. Commit 5c08c2c adds deterministic SQL-bounded customer payment history; a66321b validates invoice-list limits1..500; 26a4e73 uses Decimal intermediates for order revenue, material/waste cost and gross profit while preserving float response fields. Focused precision and finance suites pass. Derived prices and other state/list bounds remain open."
     },
     {
       "number": 60,
@@ -1071,8 +1071,8 @@
       "baseline_source": "backend/app/api/routes/price_calculation.py:53",
       "status": "partial",
       "owner": null,
-      "commit": "b6b5aab, 7823723",
-      "evidence": "Pricing asset reads remain batched. Commit 7823723 adds paginated metadata with a legacy 500 cap, migrates all five pricing consumers to shared load-more paging, and changes polling to15s with hidden/offline suspension. Eight backend cases, strict types, lint and executable hook coverage pass. Other pricing workflow work remains."
+      "commit": "b6b5aab, 7823723, c280884",
+      "evidence": "Pricing asset reads remain batched. Commit 7823723 adds paginated metadata with a legacy 500 cap, migrates all five pricing consumers to shared load-more paging, and changes polling to15s with hidden/offline suspension. Commit c280884 reuses the same bounded asset preload for mutation lookups so repeated serialization performs no lazy SELECTs. Focused price suites, strict types, lint and executable hook coverage pass. Other pricing workflow work remains."
     },
     {
       "number": 90,
@@ -1119,8 +1119,8 @@
       "baseline_source": "backend/app/api/routes/shipments.py:978",
       "status": "partial",
       "owner": null,
-      "commit": "9d1755e, c0ff783",
-      "evidence": "Package locks remain reused. Commit c0ff783 batches FinishedGoodsStock locks and foreign-reservation checks for all verified packages with deterministic lock order; five focused1/50/401 and rollback cases pass. Package synchronization/writes remain per package and require PostgreSQL load validation."
+      "commit": "9d1755e, c0ff783, 8de1073",
+      "evidence": "Package locks remain reused. Commit c0ff783 batches FinishedGoodsStock locks and foreign-reservation checks; 8de1073 suppresses per-package order synchronization during batch receive, then deterministically synchronizes each distinct affected order once. A broader shipment/storage slice passes118 with one PostgreSQL-only skip. Package writes remain per package and require PostgreSQL load validation."
     },
     {
       "number": 94,
