@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import and_, func, exists
+from sqlalchemy import and_, func, exists, or_
 from sqlalchemy.orm import selectinload, aliased
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -28,6 +28,8 @@ from app.models import (
 from app.schemas.sales import (
     ShipmentCustomerOut,
     ShipmentCustomerPageOut,
+    ReadyPackageOut,
+    ReadyPackagePageOut,
     ShipmentIn,
     ShipmentOut,
     ShipmentPageOut,
@@ -1078,11 +1080,67 @@ def eligible_orders(
     }
 
 
-@router.get("/ready-packages")
-def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = None):
-    if sales_order_id:
+def _ready_package_payload(package: Package, model: Model | None) -> dict:
+    return {
+        "id": package.id,
+        "package_no": package.package_no,
+        "sales_order_id": package.sales_order_id,
+        "model_id": package.model_id,
+        "model_code": model.code if model else None,
+        "color": package.color,
+        "total_quantity": package.total_quantity,
+        "status": package.status,
+        "storage_cell": package.storage_cell,
+        "storage_shelf": package.storage_shelf,
+    }
+
+
+def _paged_ready_package_query(db: DbSession, sales_order_id: int | None):
+    query = db.query(Package, Model).join(Model, Model.id == Package.model_id)
+    if sales_order_id is not None:
+        reserved_package_ids = db.query(StockReservation.package_id).filter(
+            StockReservation.sales_order_id == sales_order_id,
+            StockReservation.package_id.isnot(None),
+        )
+        return query.filter(
+            Package.status.in_(_READY_FOR_SHIPMENT_STATUSES),
+            or_(
+                Package.sales_order_id == sales_order_id,
+                Package.id.in_(reserved_package_ids),
+            ),
+        )
+
+    reserved_package_ids = db.query(StockReservation.package_id).filter(
+        StockReservation.package_id.isnot(None),
+        StockReservation.quantity > 0,
+    )
+    attached_package_ids = (
+        db.query(ShipmentPackage.package_id)
+        .join(Shipment, Shipment.id == ShipmentPackage.shipment_id)
+        .filter(Shipment.status.in_(_OPEN_SHIPMENT_STATUSES))
+    )
+    return query.filter(
+        Package.status == "received_in_storage",
+        Package.sales_order_id.is_(None),
+        Package.id.notin_(reserved_package_ids),
+        Package.id.notin_(attached_package_ids),
+    )
+
+
+@router.get(
+    "/ready-packages",
+    response_model=list[ReadyPackageOut] | ReadyPackagePageOut,
+)
+def ready_packages(
+    db: DbSession,
+    _: CurrentUser,
+    sales_order_id: int | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    if page is None and page_size is None and sales_order_id:
         rows = _ready_packages_for_sales_order(db, int(sales_order_id))
-    else:
+    elif page is None and page_size is None:
         reserved_package_ids = db.query(StockReservation.package_id).filter(
             StockReservation.package_id.isnot(None),
             StockReservation.quantity > 0,
@@ -1104,21 +1162,23 @@ def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
             .order_by(Package.id.asc())
             .all()
         )
-    return [
-        {
-            "id": p.id,
-            "package_no": p.package_no,
-            "sales_order_id": p.sales_order_id,
-            "model_id": p.model_id,
-            "model_code": model.code if model else None,
-            "color": p.color,
-            "total_quantity": p.total_quantity,
-            "status": p.status,
-            "storage_cell": p.storage_cell,
-            "storage_shelf": p.storage_shelf,
+    else:
+        page = page or 1
+        page_size = page_size or 100
+        # Preserve the legacy truthy check: sales_order_id=0 means the general
+        # ready-package pool, just as it did before paging was available.
+        scoped_sales_order_id = int(sales_order_id) if sales_order_id else None
+        query = _paged_ready_package_query(db, scoped_sales_order_id)
+        total = query.order_by(None).count()
+        rows = query.order_by(Package.id.asc()).offset((page - 1) * page_size).limit(page_size).all()
+        return {
+            "rows": [_ready_package_payload(package, model) for package, model in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "has_more": page * page_size < total,
         }
-        for p, model in rows
-    ]
+    return [_ready_package_payload(package, model) for package, model in rows]
 
 
 @router.post("", response_model=ShipmentOut, status_code=201)

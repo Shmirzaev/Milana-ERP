@@ -1,7 +1,7 @@
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel, SchemaModel
 from app.schemas.shipment_review import ShipmentTransportDetails
@@ -156,6 +156,29 @@ class ShipmentCustomerOut(BaseModel):
 
 class ShipmentCustomerPageOut(BaseModel):
     rows: list[ShipmentCustomerOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class ReadyPackageOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    package_no: str
+    sales_order_id: int | None = None
+    model_id: int
+    model_code: str | None = None
+    color: str
+    total_quantity: int
+    status: str
+    storage_cell: str | None = None
+    storage_shelf: str | None = None
+
+
+class ReadyPackagePageOut(BaseModel):
+    rows: list[ReadyPackageOut]
     total: int
     page: int
     page_size: int
