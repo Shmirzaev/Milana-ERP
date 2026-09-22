@@ -57,6 +57,23 @@ def test_shipment_list_batches_distinct_order_and_customer_references(count, exp
     assert len(statements) == expected
 
 
+@pytest.mark.parametrize("count", [1, 50, 401])
+def test_shipment_list_opt_in_pages_bound_rows_and_query_growth(count):
+    with SessionLocal() as db:
+        baseline = db.query(Shipment).count()
+    seeded = _seed(count)
+
+    page, statements = _read(page=1, page_size=count)
+
+    assert page["total"] == baseline + count
+    assert page["page"] == 1
+    assert page["page_size"] == count
+    assert len(page["rows"]) == count
+    assert [row["id"] for row in page["rows"]] == [row[0] for row in reversed(seeded)]
+    assert page["has_more"] is (baseline > 0)
+    assert len(statements) == 4, statements
+
+
 def test_shipment_list_customer_override_nulls_and_order_filter():
     seeded = _seed(2)
     with SessionLocal() as db:
@@ -93,6 +110,30 @@ def test_shipment_list_http_response_keeps_customer_and_order(client, auth_heade
     assert len(response.json()) == 1
     row = response.json()[0]
     assert (row["id"], row["sales_order_no"], row["customer_name"]) == (shipment_id, order_no, buyer_name)
+
+    paged = client.get(
+        "/api/shipments",
+        params={"sales_order_id": order_id, "page": 1, "page_size": 1},
+        headers=auth_headers,
+    )
+    assert paged.status_code == 200, paged.text
+    page = paged.json()
+    assert page == {
+        "rows": [row],
+        "total": 1,
+        "page": 1,
+        "page_size": 1,
+        "has_more": False,
+    }
+
+
+def test_shipment_list_page_size_is_bounded(client, auth_headers):
+    response = client.get(
+        "/api/shipments",
+        params={"page": 1, "page_size": 501},
+        headers=auth_headers,
+    )
+    assert response.status_code == 422, response.text
 
 
 def test_shipment_list_preserves_package_totals_and_valid_scan_counts():

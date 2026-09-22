@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends, Header
+from typing import Annotated
+from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
 from pydantic import ValidationError
@@ -24,7 +25,7 @@ from app.models import (
     Customer,
     Invoice,
 )
-from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut
+from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentPageOut, ShipmentScanIn, ShipmentScanOut
 from app.schemas.catalog import PartyIn
 from app.schemas.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails
 from app.services.shipment_review import (
@@ -868,8 +869,14 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     return required_count, scanned_count
 
 
-@router.get("", response_model=list[ShipmentOut])
-def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = None):
+@router.get("", response_model=list[ShipmentOut] | ShipmentPageOut)
+def list_shipments(
+    db: DbSession,
+    _: CurrentUser,
+    sales_order_id: int | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     qry = (
         db.query(Shipment, SalesOrder, Customer)
         .outerjoin(SalesOrder, SalesOrder.id == Shipment.sales_order_id)
@@ -878,7 +885,15 @@ def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
     )
     if sales_order_id:
         qry = qry.filter(Shipment.sales_order_id == sales_order_id)
-    joined_rows = qry.order_by(Shipment.id.desc()).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    qry = qry.order_by(Shipment.id.desc())
+    if total is not None:
+        qry = qry.offset((page - 1) * page_size).limit(page_size)
+    joined_rows = qry.all()
     rows = [shipment for shipment, _, _ in joined_rows]
     sales_orders = {order.id: order for _, order, _ in joined_rows if order is not None}
     customers = {customer.id: customer for _, _, customer in joined_rows if customer is not None}
@@ -909,7 +924,7 @@ def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
         if shipment_ids
         else {}
     )
-    return [
+    payloads = [
         _shipment_payload(
             db, sh,
             scanned_count=scanned_by_shipment.get(int(sh.id), 0),
@@ -918,6 +933,15 @@ def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
         )
         for sh in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/customers")

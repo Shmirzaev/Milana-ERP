@@ -141,6 +141,14 @@ class ShipmentOut(ORMModel):
     created_at: datetime
 
 
+class ShipmentPageOut(BaseModel):
+    rows: list[ShipmentOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class ShipmentScanIn(BaseModel):
     code: str
 
