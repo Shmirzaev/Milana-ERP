@@ -4,7 +4,8 @@ import pytest
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, Role, Task, User
+from app.models import AuditLog, Role, SalesOrder, Task, User
+from app.schemas.tasks import TaskIn
 
 
 def _actor():
@@ -98,7 +99,7 @@ def test_legacy_orphan_reference_allows_unrelated_patch_but_reference_change_req
     response = client.patch(f"/api/tasks/{task_id}", headers=headers, json={"status": "in_progress", "title": "Updated orphan"})
     assert response.status_code == 200, response.text
     response = client.patch(f"/api/tasks/{task_id}", headers=headers, json={"entity_type": "WorkOrder"})
-    assert response.status_code == 200, response.text
+    assert response.status_code == 404, response.text
     clean_id = _create(client, headers)
     response = client.patch(f"/api/tasks/{clean_id}", headers=headers, json={"entity_type": "WorkOrder"})
     assert response.status_code == 422, response.text
@@ -116,14 +117,33 @@ def test_create_and_patch_reference_pair_requires_positive_id(client):
     for payload in ({"entity_id": 123}, {"entity_type": "WorkOrder"}):
         response = client.post("/api/tasks", headers=headers, json={"title": "Reference", **payload})
         assert response.status_code == 422, response.text
-    task_id = _create(client, headers, entity_type="WorkOrder", entity_id=123)
-    response = client.patch(f"/api/tasks/{task_id}", headers=headers, json={"entity_id": 456})
+    with SessionLocal() as db:
+        order = SalesOrder(order_no=f"TASK-{uuid4().hex}")
+        db.add(order)
+        db.commit()
+        order_id = order.id
+    task_id = _create(client, headers, entity_type="Sales_Order", entity_id=order_id)
+    response = client.patch(f"/api/tasks/{task_id}", headers=headers, json={"entity_id": order_id})
     assert response.status_code == 200, response.text
 
 
-def test_postgres_int4_upper_entity_id_is_accepted_structurally(client):
+def test_reference_target_must_exist_on_create_and_patch(client):
     _, headers = _actor()
-    response = client.post("/api/tasks", headers=headers, json={
-        "title": "Upper bound reference", "entity_type": "WorkOrder", "entity_id": 2_147_483_647,
+    missing = client.post("/api/tasks", headers=headers, json={
+        "title": "Missing target", "entity_type": "WorkOrder", "entity_id": 123,
     })
-    assert response.status_code == 201, response.text
+    assert missing.status_code == 404, missing.text
+    task_id = _create(client, headers)
+    missing_patch = client.patch(f"/api/tasks/{task_id}", headers=headers, json={
+        "entity_type": "Invoice", "entity_id": 123,
+    })
+    assert missing_patch.status_code == 404, missing_patch.text
+
+
+def test_postgres_int4_upper_entity_id_is_accepted_structurally():
+    payload = TaskIn(
+        title="Upper bound reference",
+        entity_type="WorkOrder",
+        entity_id=2_147_483_647,
+    )
+    assert payload.entity_id == 2_147_483_647

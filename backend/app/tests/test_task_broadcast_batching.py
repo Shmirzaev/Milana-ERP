@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import tasks
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import AuditLog, Notification, Task, User
+from app.models import AuditLog, Notification, SalesOrder, Task, User
 from app.schemas.tasks import TaskIn
 
 
@@ -53,7 +53,8 @@ def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(broa
         db.query(User).update({"is_active": False}, synchronize_session=False)
         users = [User(name=f"Recipient{i}", email=f"{marker}-{i}@example.com",
                       password_hash="test-only", is_active=True) for i in range(recipients)]
-        db.add_all(users)
+        sales_order = SalesOrder(order_no=f"BROADCAST-{marker}")
+        db.add_all([*users, sales_order])
         db.commit()
         user_ids = [user.id for user in users]
         title = f"Broadcast {marker}"
@@ -70,7 +71,7 @@ def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(broa
         event.listen(db.bind, "before_cursor_execute", before_execute)
         try:
             first = tasks.create_task(TaskIn(title=title, assigned_to=-1,
-                description="x" * 300, entity_type="shipment", entity_id=12), db, admin)
+                description="x" * 300, entity_type="salesorder", entity_id=sales_order.id), db, admin)
         finally:
             event.remove(db, "before_flush", before_flush)
             event.remove(db.bind, "before_cursor_execute", before_execute)
@@ -79,7 +80,10 @@ def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(broa
         notices = db.query(Notification).filter(Notification.title == f"New task: {title}").all()
         assert [row.assigned_to for row in rows] == user_ids
         assert {row.user_id for row in notices} == set(user_ids)
-        assert all(row.message == "x" * 280 and row.link == "/shipments" for row in notices)
+        assert all(
+            row.message == "x" * 280 and row.link == f"/sales-orders/{sales_order.id}"
+            for row in notices
+        )
         assert first.id == rows[0].id
         audit = db.query(AuditLog).filter(AuditLog.entity_type == "Task", AuditLog.entity_id == first.id).one()
         assert audit.new_value_json["created_count"] == recipients

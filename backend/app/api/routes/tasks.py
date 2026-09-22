@@ -3,13 +3,46 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
 
 from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
-from app.models import Notification, Task, User
+from app.models import (
+    Bundle, Invoice, Notification, Package, ProductionOrder, SalesOrder, Shipment, Task, User, WorkOrder,
+)
 from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut
 from app.services.audit import log_action
 from app.services.notifications import notify
 from app.services.user_access import access_configured, permission_denied
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+_TASK_REFERENCE_MODELS = {
+    "salesorder": SalesOrder,
+    "productionorder": ProductionOrder,
+    "workorder": WorkOrder,
+    "bundle": Bundle,
+    "package": Package,
+    "shipment": Shipment,
+    "invoice": Invoice,
+}
+
+
+def _normalize_task_entity_type(entity_type: str) -> str:
+    return entity_type.strip().replace("_", "").casefold()
+
+
+def _validate_task_reference(entity_type: str | None, entity_id: int | None, db: DbSession) -> None:
+    """Reject new references that cannot resolve to a supported task target.
+
+    Existing orphan rows are intentionally not checked when unrelated fields are
+    edited; this is only called when a complete reference is created/changed.
+    """
+    if entity_type is None or entity_id is None:
+        return
+    key = _normalize_task_entity_type(entity_type)
+    model = _TASK_REFERENCE_MODELS.get(key)
+    if model is None:
+        raise HTTPException(422, f"Unsupported task reference type: {entity_type}")
+    if db.get(model, entity_id) is None:
+        raise HTTPException(404, "Task reference target not found")
 
 
 def _can_manage(user: User) -> bool:
@@ -34,17 +67,14 @@ def _require_single_assignee(assigned: int | None, db: DbSession, current: User,
 def _task_link(t: Task) -> str | None:
     """Build a frontend URL for a task notification when the task references
     a concrete entity. Returns None when no mapping exists."""
-    et = (t.entity_type or "").lower()
+    et = _normalize_task_entity_type(t.entity_type) if t.entity_type else ""
     eid = t.entity_id
     if not eid:
         return None
     mapping = {
         "salesorder": f"/sales-orders/{eid}",
-        "sales_order": f"/sales-orders/{eid}",
         "productionorder": f"/production-orders/{eid}",
-        "production_order": f"/production-orders/{eid}",
         "workorder": f"/work-orders/{eid}",
-        "work_order": f"/work-orders/{eid}",
         "bundle": f"/bundles/{eid}",
         "package": f"/packages/{eid}",
         "shipment": "/shipments",
@@ -88,6 +118,7 @@ def open_task_count(db: DbSession, current: CurrentUser):
 
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
+    _validate_task_reference(payload.entity_type, payload.entity_id, db)
     is_manager = _can_manage(current)
     requested_assignee = payload.assigned_to
 
@@ -209,6 +240,7 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
         next_entity_id = changes.get("entity_id", t.entity_id)
         if (next_entity_type is None) != (next_entity_id is None):
             raise HTTPException(422, "entity_id and entity_type must be provided together")
+        _validate_task_reference(next_entity_type, next_entity_id, db)
     for k, v in changes.items():
         setattr(t, k, v)
 
