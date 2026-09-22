@@ -3021,6 +3021,46 @@ def _usluga_cutting_material(db: DbSession, po: ProductionOrder, model_bom_id: i
     return material
 
 
+def _validate_cutting_materials(db: DbSession, raw_materials: list[dict]) -> list[dict]:
+    requested_batch_ids = sorted({
+        int(raw.get("stock_batch_id") or 0)
+        for raw in raw_materials
+        if int(raw.get("stock_batch_id") or 0) > 0
+    })
+    stock_batches = {
+        int(batch.id): batch
+        for batch in (
+            db.query(StockBatch).filter(StockBatch.id.in_(requested_batch_ids)).all()
+            if requested_batch_ids
+            else []
+        )
+    }
+    cutting_materials: list[dict] = []
+    seen_material_batches: set[int] = set()
+    for index, raw in enumerate(raw_materials, start=1):
+        batch_id_value = int(raw.get("stock_batch_id") or 0)
+        quantity_value = float(raw.get("quantity") or 0)
+        unit_value = str(raw.get("unit") or "").strip()
+        if batch_id_value <= 0 or quantity_value <= 0 or not unit_value:
+            raise HTTPException(400, f"Cutting material #{index} requires a batch, positive amount, and unit")
+        if batch_id_value in seen_material_batches:
+            raise HTTPException(400, "The same fabric batch cannot be consumed more than once")
+        stock_batch = stock_batches.get(batch_id_value)
+        item = stock_batch.item if stock_batch else None
+        if not stock_batch:
+            raise HTTPException(404, f"Cutting material #{index} inventory batch not found")
+        if not item or str(item.category or "").lower() not in {"fabric", "semi_finished"}:
+            raise HTTPException(400, f"Cutting material #{index} is not fabric")
+        seen_material_batches.add(batch_id_value)
+        cutting_materials.append({
+            "stock_batch_id": batch_id_value,
+            "quantity": quantity_value,
+            "unit": unit_value,
+            "details": raw.get("details"),
+        })
+    return cutting_materials
+
+
 def _sync_usluga_material_usage(db: DbSession, po: ProductionOrder) -> None:
     approved_total = (
         db.query(func.coalesce(func.sum(CuttingRecord.input_quantity), 0))
@@ -3347,29 +3387,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             "unit": payload.input_unit,
         }]
 
-    cutting_materials: list[dict] = []
-    seen_material_batches: set[int] = set()
-    for index, raw in enumerate(raw_materials, start=1):
-        batch_id_value = int(raw.get("stock_batch_id") or 0)
-        quantity_value = float(raw.get("quantity") or 0)
-        unit_value = str(raw.get("unit") or "").strip()
-        if batch_id_value <= 0 or quantity_value <= 0 or not unit_value:
-            raise HTTPException(400, f"Cutting material #{index} requires a batch, positive amount, and unit")
-        if batch_id_value in seen_material_batches:
-            raise HTTPException(400, "The same fabric batch cannot be consumed more than once")
-        stock_batch = db.get(StockBatch, batch_id_value)
-        item = db.get(Item, stock_batch.item_id) if stock_batch else None
-        if not stock_batch:
-            raise HTTPException(404, f"Cutting material #{index} inventory batch not found")
-        if not item or str(item.category or "").lower() not in {"fabric", "semi_finished"}:
-            raise HTTPException(400, f"Cutting material #{index} is not fabric")
-        seen_material_batches.add(batch_id_value)
-        cutting_materials.append({
-            "stock_batch_id": batch_id_value,
-            "quantity": quantity_value,
-            "unit": unit_value,
-            "details": raw.get("details"),
-        })
+    cutting_materials = _validate_cutting_materials(db, raw_materials)
 
     planned_materials = (
         db.query(ProductionOrderMaterial)
