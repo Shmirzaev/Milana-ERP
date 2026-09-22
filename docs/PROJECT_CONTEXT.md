@@ -2,6 +2,17 @@
 
 Last updated: 2026-09-22
 
+## September sticker warehouse import completed with eight held packs (2026-09-22)
+
+- At the user's request, imported 986 packs / 61,692 pieces / 25,175.63 kg into production Finished Goods warehouse `8`, across 149 existing catalog models. Each pack has its immutable PDF-backed receipt, package, package item, available stock row, QR alias and import scan. All 61,692 pieces are available with zero reserved/sold quantities. No model, sales order, shipment, schema or application release was created or changed.
+- Source `C:/Users/User/Downloads/sticker.zip`: 263 PDFs / 438 pages, SHA-256 `db2d57286a53112c97a16308be567f5e1d5e33b408b48a3160fff3d7043545dc`. Extracted 1,003 label occurrences and removed nine identical duplicate printouts, yielding 994 unique packs / 62,186 pieces. Every QR symbol decoded and matched its printed text; eight numeric-QR labels with a different layout were visually reviewed.
+- Eight packs / 494 pieces remain held pending user instructions: six XJ3062 / V-5709 packs and one PJ1239 / V-6184 pack lack catalog variants; PM7007 / V-3858, QR `uzerp_ii_21492_1`, contains 48 pieces but no printed weight. No missing value or model was invented. Questions about leaving weight blank and creating warehouse-only legacy models remain unanswered.
+- Duplicate display catalog identities were resolved using original `old_erp_migration.identity`: PJ1000/3415 -> 78, PJ1000/4771 -> 511, PJ1118/2922 -> 3669, BJ5007/2235 -> 1597. Hidden placeholders and duplicate records retaining different original variants were excluded; existing models were unchanged.
+- Manifest SHA-256 `ed886790d8dd1d903366ad572aeee0423eb4a219dfb94501283dc46ec03e8593`. Read-only preflight found zero collisions for all 994 source QR codes; dry-run approved exactly 986 rows. Atomic import and independent readback each reconciled 986 receipts/packages/items/stock rows/aliases/scans and exact quantities/weights. Audit `22589` has valid entry hash and predecessor continuation. Six focused importer tests and compilation/diff checks passed. All 986 barcode/alias mappings, 21 internal authenticated QR samples, six public authenticated samples and all four health/login checks passed.
+- Verified pre-import backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260922_100000.dump`: 54658839 bytes, mode 0600, 1203 restore objects, SHA-256 `a8098f4d70eeb77c5c514ec3f37a169c1959af8a0ca2f4a9f30488399aecad63`; restore-list SHA-256 `cbf51456fe0565281f5ee966bd2ba621441027b78733d0e5ce1c46845ba0c65a`.
+- Application remains blue release `20260922_043845`; green rollback `20260920_030043`; DB `0132_first_grade_singles`. Both source manifests and slot states match the recorded baseline. Data-only import; no deployment, migration, restart, merge or traffic change.
+- Worktree `C:/ERP/.codex-work/sticker-warehouse-20260922`, branch `codex/sticker-warehouse-20260922`. Import code commit `3e9d528c` pushed; completion record pushed separately. Evidence and `held-packs.csv` are under ignored `outputs/sticker-20260922/`. Legacy checkout preserved.
+
 ## Cutting passport stock check and nonblocking sheet deployed (2026-09-22)
 
 - LIVE: backend/frontend blue release `20260922_043845`, exact application commit `f59a8c135f63b1ab4c9065dc3ab72aa23a79b887`, merged through PR #188. Both source manifests, immutable image identities, current symlinks and slot states agree. Green `20260920_030043` is retained for rollback. Frontend activated `2026-09-22T05:14:43.916990+00:00`.
