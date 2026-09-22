@@ -1,9 +1,10 @@
-import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
+from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Body, HTTPException, Depends, File, Query, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
@@ -1080,6 +1081,24 @@ def _production_order_detail_payload(db: DbSession, pid: int) -> dict:
     return _sign_printing_attachment_urls(out)
 
 
+def _write_new_production_attachment(target: Path, content: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    created = False
+    try:
+        with target.open("xb") as stream:
+            created = True
+            stream.write(content)
+    except BaseException:
+        if created:
+            target.unlink(missing_ok=True)
+        raise
+
+
+async def _discard_production_attachment(target: Path) -> None:
+    with CancelScope(shield=True):
+        await to_thread.run_sync(target.unlink, True)
+
+
 @router.post("/production-orders/printing-attachments/upload", status_code=201)
 async def upload_production_printing_attachment(
     file: UploadFile = File(...),
@@ -1087,32 +1106,43 @@ async def upload_production_printing_attachment(
 ):
     _ = current
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
-    if ext in SAFE_IMAGE_EXTENSIONS:
-        from app.services.image_storage import store_uploaded_image
+    stored_image = None
+    document_target = None
+    document_created = False
+    try:
+        if ext in SAFE_IMAGE_EXTENSIONS:
+            from app.services.image_storage import store_uploaded_image
 
-        stored = await store_uploaded_image(
-            file,
-            target_dir=settings.SALES_ORDER_FILES_DIR,
-            file_url_base="/storage/sales-order-files",
-            name_prefix="po_print",
-            max_bytes=20 * 1024 * 1024,
-        )
-        safe_name = stored.file_name
-        content_type = stored.content_type
-    else:
-        os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
-        safe_name = f"po_print_{uuid4().hex}{ext}"
-        abs_path = os.path.join(settings.SALES_ORDER_FILES_DIR, safe_name)
-        content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-        with open(abs_path, "wb") as f:
-            f.write(content)
-        content_type = safe_content_type(ext)
-    file_url = f"/storage/sales-order-files/{safe_name}"
-    return {
-        "file_url": sign_path(file_url),
-        "file_name": file.filename or safe_name,
-        "content_type": content_type,
-    }
+            stored_image = await store_uploaded_image(
+                file,
+                target_dir=settings.SALES_ORDER_FILES_DIR,
+                file_url_base="/storage/sales-order-files",
+                name_prefix="po_print",
+                max_bytes=20 * 1024 * 1024,
+            )
+            safe_name = stored_image.file_name
+            content_type = stored_image.content_type
+        else:
+            safe_name = f"po_print_{uuid4().hex}{ext}"
+            document_target = Path(settings.SALES_ORDER_FILES_DIR) / safe_name
+            content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+            await to_thread.run_sync(_write_new_production_attachment, document_target, content)
+            document_created = True
+            content_type = safe_content_type(ext)
+        file_url = f"/storage/sales-order-files/{safe_name}"
+        return {
+            "file_url": sign_path(file_url),
+            "file_name": file.filename or safe_name,
+            "content_type": content_type,
+        }
+    except BaseException:
+        if stored_image is not None:
+            from app.services.image_storage import discard_stored_image
+
+            await discard_stored_image(stored_image)
+        elif document_created and document_target is not None:
+            await _discard_production_attachment(document_target)
+        raise
 
 
 @router.get("/production-orders/{pid}", response_model=ProductionOrderDetail)
