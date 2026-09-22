@@ -409,10 +409,10 @@
       "risk": "Unauthorized or premature completion.",
       "proposed_fix": "Share transition authorization.",
       "baseline_source": "backend/app/api/routes/production.py:1685",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "84c322a, 62a3544",
-      "evidence": "Generic command scoping remains. Commit 62a3544 applies the shared factory-access guard to work-order block/unblock before mutation, audit, notification or commit;26 focused cases pass, including wrong-factory no-mutation and ECO access. Manual counters/completion-evidence policy remains open."
+      "commit": "84c322a, 62a3544, d8cd060",
+      "evidence": "Generic PATCH/start/complete/block/unblock commands enforce stage and selected-factory authorization, including ECO and legacy Usluga records, before mutation or audit. The owner explicitly retained authorized generic completion without stage evidence; d8cd060 codifies that product policy and verifies a completion audit is written. All27 focused cases pass. Manual counters and specialized evidence workflows remain intentionally separate, not an unresolved WF02 requirement."
     },
     {
       "number": 35,
