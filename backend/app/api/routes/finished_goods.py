@@ -95,11 +95,18 @@ def list_stock(db: DbSession, _: CurrentUser,
     }
 
 
-@router.get("/branded-stock", response_model=list[FinishedGoodsStockOut])
-def list_branded(db: DbSession, _: CurrentUser, limit: int = 500, offset: int = 0):
+@router.get("/branded-stock", response_model=list[FinishedGoodsStockOut] | FinishedGoodsStockPageOut)
+def list_branded(
+    db: DbSession,
+    _: CurrentUser,
+    limit: int = 500,
+    offset: int = 0,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     limit = max(0, min(limit, 500))
     offset = max(0, offset)
-    rows = (
+    qry = (
         db.query(
             FinishedGoodsStock,
             Model.code.label("model_code"),
@@ -122,18 +129,33 @@ def list_branded(db: DbSession, _: CurrentUser, limit: int = 500, offset: int = 
                 | (Package.manual_receipt_id.isnot(None))
             ),
         )
-        .order_by(FinishedGoodsStock.id.desc())
-        .offset(offset).limit(limit).all()
     )
-    return [
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+        offset = (page - 1) * page_size
+        limit = page_size
+    joined_rows = qry.order_by(FinishedGoodsStock.id.desc()).offset(offset).limit(limit).all()
+    rows = [
         _stock_payload(
             stock,
             model_code=model_code,
             model_name=model_name,
             brand_name=brand_name,
         )
-        for stock, model_code, model_name, brand_name in rows
+        for stock, model_code, model_name, brand_name in joined_rows
     ]
+    if total is None:
+        return rows
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 def _reserve_manual_package(db, current, stock, quantity, sales_order_id):
