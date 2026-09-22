@@ -1,9 +1,20 @@
 from datetime import datetime
-from typing import Optional
+from decimal import Decimal
+from typing import Annotated, Optional
 
 from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
+
+
+PurchaseOrderQuantity = Annotated[
+    Decimal,
+    Field(gt=0, le=Decimal("9999999999.9999"), allow_inf_nan=False),
+]
+PurchaseReceiptQuantity = Annotated[
+    float,
+    Field(gt=0, le=9_999_999_999.9999, allow_inf_nan=False),
+]
 
 
 class PurchaseRequestLineIn(BaseModel):
@@ -64,7 +75,7 @@ class PurchaseRequestOut(ORMModel):
 
 class PurchaseOrderLineIn(BaseModel):
     item_id: int
-    ordered_quantity: float
+    ordered_quantity: PurchaseOrderQuantity
     unit: Optional[str] = None
     unit_cost: float = 0
     warehouse_id: Optional[int] = None
@@ -120,7 +131,7 @@ class PurchaseOrderOut(ORMModel):
 
 class PurchaseOrderReceiveLineIn(BaseModel):
     purchase_order_line_id: int
-    received_quantity: float
+    received_quantity: PurchaseReceiptQuantity
     batch_no: str
     warehouse_id: Optional[int] = None
     supplier_id: Optional[int] = None
@@ -157,7 +168,7 @@ class PurchaseRequestApprovalIn(BaseModel):
 
 class PurchaseRequestOrderLineIn(BaseModel):
     purchase_request_line_id: int
-    ordered_quantity: float
+    ordered_quantity: PurchaseOrderQuantity
 
 
 class PurchaseRequestOrderIn(BaseModel):
