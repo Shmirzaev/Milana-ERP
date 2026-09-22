@@ -133,3 +133,39 @@ def test_branded_analysis_preserves_optional_reference_shape():
     assert row["brand_name"] is None
     assert row["collection_id"] is None
     assert row["collection_name"] is None
+
+
+@pytest.mark.parametrize("group_count", [1, 50, 401])
+def test_forecasting_dashboard_reuses_branded_demand_rows(group_count):
+    marker, expected_codes = _branded_reference_case(group_count)
+    with TestSessionLocal() as db:
+        statements: list[str] = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            dashboard = forecasting.forecasting_dashboard(db)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    selected = [
+        row for row in dashboard["branded_stock_suggestions"]
+        if str(row.get("model_code") or "").startswith(f"PERF32-FC-{marker}")
+    ]
+    sales_demand_reads = [
+        statement for statement in statements
+        if "sales_orders.order_type =" in statement
+    ]
+    production_demand_reads = [
+        statement for statement in statements
+        if "production_orders.production_type =" in statement
+        and " from production_order_items " in statement
+    ]
+    print(f"forecast dashboard groups {group_count}: {len(statements)} SELECTs")
+    assert [row["model_code"] for row in selected] == expected_codes
+    assert len(sales_demand_reads) == 1
+    assert len(production_demand_reads) == 2
+    assert len(statements) == (18 if group_count == 401 else 15)

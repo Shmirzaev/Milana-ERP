@@ -199,8 +199,14 @@ def _branded_demand_groups(db: Session) -> dict[BrandedKey, dict[str, Any]]:
     return groups
 
 
-def _branded_stock_analysis(db: Session, *, horizon_weeks: int = 4) -> list[dict]:
-    groups = _branded_demand_groups(db)
+def _branded_stock_analysis(
+    db: Session,
+    *,
+    horizon_weeks: int = 4,
+    groups: dict[BrandedKey, dict[str, Any]] | None = None,
+) -> list[dict]:
+    if groups is None:
+        groups = _branded_demand_groups(db)
     if not groups:
         return []
     model_labels, brand_names, collection_names = _branded_reference_maps(db, list(groups))
@@ -432,13 +438,20 @@ def item_reorder_suggestions(db: Session) -> list[dict]:
     return sorted(suggestions, key=lambda r: (-(r["suggested_quantity"]), r["item_sku"]))
 
 
-def demand_trend(db: Session, *, weeks: int = 8) -> list[dict]:
+def demand_trend(
+    db: Session,
+    *,
+    weeks: int = 8,
+    groups: dict[BrandedKey, dict[str, Any]] | None = None,
+) -> list[dict]:
     now = datetime.now(timezone.utc)
     weeks = max(1, weeks)
     current_week = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     start = current_week - timedelta(weeks=weeks - 1)
     buckets = {i: 0 for i in range(weeks)}
-    for row in _branded_demand_groups(db).values():
+    if groups is None:
+        groups = _branded_demand_groups(db)
+    for row in groups.values():
         for created_at, qty in row["events"]:
             created_utc = _aware(created_at)
             if not created_utc or created_utc < start or created_utc > now:
@@ -453,11 +466,12 @@ def demand_trend(db: Session, *, weeks: int = 8) -> list[dict]:
 
 
 def forecasting_dashboard(db: Session) -> dict:
-    branded_analysis = _branded_stock_analysis(db)
+    branded_groups = _branded_demand_groups(db)
+    branded_analysis = _branded_stock_analysis(db, groups=branded_groups)
     branded = [row for row in branded_analysis if row["suggested_quantity"] > 0]
     reorder = item_reorder_suggestions(db)
     low_stock_fg = sum(1 for row in branded_analysis if row["is_low_stock"])
-    trend = demand_trend(db)
+    trend = demand_trend(db, groups=branded_groups)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "unlinked_bom_count": db.query(ModelBOM.id).filter(
