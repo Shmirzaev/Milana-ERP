@@ -57,6 +57,14 @@ class UserPageOut(BaseModel):
     has_more: bool
 
 
+class RolePageOut(BaseModel):
+    rows: list[RoleOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 MCP_READ_TOOLS = [
     {"name": "erp_me", "description": "Current authenticated ERP user and permissions."},
     {"name": "erp_gm_summary", "description": "GM management dashboard summary."},
@@ -677,9 +685,29 @@ def delete_user(user_id: int, db: DbSession, current: User = Depends(require_per
 
 
 # ===== Roles =====
-@router.get("/roles", response_model=list[RoleOut])
-def list_roles(db: DbSession, _: CurrentUser):
-    return db.query(Role).all()
+@router.get("/roles", response_model=list[RoleOut] | RolePageOut)
+def list_roles(
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    query = db.query(Role)
+    if page is None and page_size is None:
+        return query.all()
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    ordered_query = query.order_by(Role.id)
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/roles", response_model=RoleOut, status_code=201)
