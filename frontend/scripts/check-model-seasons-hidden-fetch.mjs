@@ -9,9 +9,9 @@ assert.match(source, /const isEditable = isNewModel \|\| searchParams\.get\("mod
 assert.match(source, /useSWR<string\[\]>\(isEditable \? "\/api\/collections\/seasons" : null, fetcher\)/);
 
 const requests = [];
-const useSWR = key => { requests.push(key); return { data: key ? ["Winter"] : undefined }; };
+const requestSeasons = key => { requests.push(key); return { data: key ? ["Winter"] : undefined }; };
 const renderModel = (isEditable, currentSeason = "") => {
-  const seasons = useSWR(isEditable ? "/api/collections/seasons" : null).data || [];
+  const seasons = requestSeasons(isEditable ? "/api/collections/seasons" : null).data || [];
   const options = [currentSeason, ...seasons.filter(season => season !== currentSeason)].filter(Boolean);
   return options.map(season => `<option>${season}</option>`).join("");
 };
