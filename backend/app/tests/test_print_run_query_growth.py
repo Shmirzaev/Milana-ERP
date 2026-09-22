@@ -62,6 +62,43 @@ def test_print_run_member_queries_are_bounded(client, auth_headers, count):
     assert len(member_reads) == 1
 
 
+@pytest.mark.parametrize("count", [1, 50, 401])
+def test_print_run_pages_preserve_legacy_order_and_bound_member_reads(client, auth_headers, count):
+    ids = _seed_runs(count)
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get("/api/packages/print-runs?page=1&page_size=50", headers=auth_headers)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+    legacy = client.get("/api/packages/print-runs", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    assert legacy.status_code == 200, legacy.text
+    page = response.json()
+    returned_count = min(count, 50)
+    assert page["total"] == count
+    assert page["page"] == 1
+    assert page["page_size"] == 50
+    assert page["has_more"] is (count > 50)
+    assert [row["id"] for row in page["rows"]] == list(reversed(ids))[:returned_count]
+    assert page["rows"] == legacy.json()[:returned_count]
+    assert len(statements) == 4, statements
+    member_reads = [statement for statement in statements if " from package_print_run_members " in statement]
+    assert len(member_reads) == 1
+    assert member_reads[0].count("?") == returned_count
+
+
+def test_print_run_page_size_is_bounded(client, auth_headers):
+    response = client.get("/api/packages/print-runs?page_size=101", headers=auth_headers)
+    assert response.status_code == 422, response.text
+
+
 def test_print_run_list_rejects_corrupt_manifest(client, auth_headers):
     [run_id] = _seed_runs(1)
     with TestSessionLocal() as db:
@@ -110,3 +147,15 @@ def test_print_run_list_preserves_factory_filter_and_single_payload(client):
     filtered = client.get("/api/packages/print-runs?production_order_id=2147483647", headers=headers)
     assert filtered.status_code == 200
     assert filtered.json() == []
+    filtered_page = client.get(
+        "/api/packages/print-runs?production_order_id=2147483647&page=1&page_size=50",
+        headers=headers,
+    )
+    assert filtered_page.status_code == 200
+    assert filtered_page.json() == {
+        "rows": [],
+        "total": 0,
+        "page": 1,
+        "page_size": 50,
+        "has_more": False,
+    }

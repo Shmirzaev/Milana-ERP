@@ -54,3 +54,24 @@ class PrintRunCreatePackagesIn(BaseModel):
 class PrintRunReceiveIn(PackageReceiveStorageIn):
     model_config = ConfigDict(extra="forbid")
     code: str = Field(min_length=1, max_length=128)
+
+
+class PrintRunOut(BaseModel):
+    id: int
+    run_no: str
+    code: str
+    created_at: str
+    received_at: str | None = None
+    manual_receipt: bool
+    count: int
+    quantity: int
+    package_ids: list[int]
+    packages: list[dict[str, object]]
+
+
+class PrintRunPageOut(BaseModel):
+    rows: list[PrintRunOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool

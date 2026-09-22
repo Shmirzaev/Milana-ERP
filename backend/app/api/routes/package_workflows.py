@@ -5,7 +5,14 @@ from app.services.print_response import warehouse_print_response
 
 from app.core.deps import DbSession, require_permissions, user_permissions
 from app.models import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
-from app.schemas.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn
+from app.schemas.package_workflows import (
+    ManualPackageReceiptIn,
+    PrintRunCreatePackagesIn,
+    PrintRunIn,
+    PrintRunOut,
+    PrintRunPageOut,
+    PrintRunReceiveIn,
+)
 from app.services import package_workflows as service
 from app.services.audit import log_action
 from app.services.barcode import qr_png_data_uri
@@ -144,8 +151,10 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
     return _write(db, current, "create-packages-run", payload, action)
 
 
-@router.get("/print-runs")
+@router.get("/print-runs", response_model=list[PrintRunOut] | PrintRunPageOut)
 def list_print_runs(db: DbSession, production_order_id: int | None = None,
+                    page: int | None = Query(default=None, ge=1),
+                    page_size: int | None = Query(default=None, ge=1, le=100),
                     current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
     query = db.query(PackagePrintRun).filter(PackagePrintRun.deleted_at.is_(None))
     if production_order_id:
@@ -154,8 +163,26 @@ def list_print_runs(db: DbSession, production_order_id: int | None = None,
     permissions = set(user_permissions(current))
     if not permissions.intersection({"storage.packages", "storage.shipment", "*"}):
         query = query.filter(PackagePrintRun.packaging_department_code == packaging_department_scope(current))
-    runs = query.order_by(PackagePrintRun.id.desc()).limit(100).all()
-    return service.run_list_payload(db, runs)
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.count()
+    query = query.order_by(PackagePrintRun.id.desc())
+    if total is None:
+        runs = query.limit(100).all()
+    else:
+        runs = query.offset((page - 1) * page_size).limit(page_size).all()
+    rows = service.run_list_payload(db, runs)
+    if total is None:
+        return rows
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/print-runs/resolve")
