@@ -3,7 +3,7 @@ import secrets
 from types import SimpleNamespace
 
 from pydantic import BaseModel
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 
@@ -466,8 +466,15 @@ def _detach_user_references(db: DbSession, user_id: int) -> None:
 
 
 @router.get("/users", response_model=list[UserOut])
-def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
-    return db.query(User).order_by(User.id).all()
+def list_users(
+    db: DbSession,
+    _: User = Depends(require_permissions("admin.users", "*")),
+    limit: int = Query(default=500, ge=1, le=500),
+):
+    # Keep direct callers safe as well as HTTP callers: FastAPI replaces the
+    # Query marker with an int, but a plain Python call receives the marker.
+    effective_limit = limit if isinstance(limit, int) and not isinstance(limit, bool) else 500
+    return db.query(User).order_by(User.id).limit(effective_limit).all()
 
 
 @router.post("/users", response_model=UserOut, status_code=201)

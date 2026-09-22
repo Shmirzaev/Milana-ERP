@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
+from app.models import User
+from app.tests.conftest import TestSessionLocal
+
 
 def _login(client, email, password):
     r = client.post("/api/auth/token", data={"username": email, "password": password})
@@ -17,6 +20,38 @@ def _dept_id(client, auth_headers, code):
     r = client.get("/api/departments", headers=auth_headers)
     assert r.status_code == 200, r.text
     return next(dept["id"] for dept in r.json() if dept["code"] == code)
+
+
+def test_admin_user_list_is_bounded_and_preserves_order(client, auth_headers):
+    db = TestSessionLocal()
+    try:
+        db.add_all([
+            User(
+                name=f"Bounded User {index}",
+                email=f"bounded-user-{index}@example.com",
+                # Authentication is not exercised here; avoid doing 501
+                # expensive password hashes just to seed the boundary.
+                password_hash="test-boundary-hash",
+                factory_code="MIL",
+                extra_permissions=[],
+                is_active=True,
+            )
+            for index in range(501)
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    first = client.get("/api/users?limit=1", headers=auth_headers)
+    assert first.status_code == 200, first.text
+    assert len(first.json()) == 1
+
+    bounded = client.get("/api/users?limit=501", headers=auth_headers)
+    assert bounded.status_code == 422, bounded.text
+    capped = client.get("/api/users?limit=500", headers=auth_headers)
+    assert capped.status_code == 200, capped.text
+    assert len(capped.json()) == 500
+    assert capped.json()[0]["id"] < capped.json()[-1]["id"]
 
 
 def test_user_extra_permissions_are_effective(client, auth_headers):
