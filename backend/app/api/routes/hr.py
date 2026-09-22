@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Depends, Query
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
@@ -137,11 +139,21 @@ def _backfill_employees_from_users(db: DbSession) -> int:
 
 
 @router.get("/employees")
-def list_employees(db: DbSession, current: CurrentUser):
+def list_employees(
+    db: DbSession,
+    current: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+):
     if settings.BACKFILL_EMPLOYEES_FROM_USERS:
         _backfill_employees_from_users(db)
     factory_code = selected_factory_code(current)
-    rows = db.query(Employee).filter(Employee.factory_code == factory_code).order_by(Employee.id.desc()).all()
+    rows = (
+        db.query(Employee)
+        .filter(Employee.factory_code == factory_code)
+        .order_by(Employee.id.desc())
+        .limit(limit)
+        .all()
+    )
     include_private = _can_view_private_employee_fields(current)
     return [_serialize(r, include_private=include_private) for r in rows]
 
