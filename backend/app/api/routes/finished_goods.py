@@ -48,7 +48,10 @@ def _stock_payload(
 
 @router.get("", response_model=list[FinishedGoodsStockOut])
 def list_stock(db: DbSession, _: CurrentUser,
-               model_id: int | None = None, status: str | None = None, brand_id: int | None = None):
+               model_id: int | None = None, status: str | None = None, brand_id: int | None = None,
+               limit: int = 500, offset: int = 0):
+    limit = max(0, min(limit, 500))
+    offset = max(0, offset)
     qry = (
         db.query(
             FinishedGoodsStock,
@@ -69,12 +72,14 @@ def list_stock(db: DbSession, _: CurrentUser,
             model_name=model_name,
             brand_name=brand_name,
         )
-        for stock, model_code, model_name, brand_name in qry.order_by(FinishedGoodsStock.id.desc()).all()
+        for stock, model_code, model_name, brand_name in qry.order_by(FinishedGoodsStock.id.desc()).offset(offset).limit(limit).all()
     ]
 
 
 @router.get("/branded-stock", response_model=list[FinishedGoodsStockOut])
-def list_branded(db: DbSession, _: CurrentUser):
+def list_branded(db: DbSession, _: CurrentUser, limit: int = 500, offset: int = 0):
+    limit = max(0, min(limit, 500))
+    offset = max(0, offset)
     rows = (
         db.query(
             FinishedGoodsStock,
@@ -99,7 +104,7 @@ def list_branded(db: DbSession, _: CurrentUser):
             ),
         )
         .order_by(FinishedGoodsStock.id.desc())
-        .all()
+        .offset(offset).limit(limit).all()
     )
     return [
         _stock_payload(

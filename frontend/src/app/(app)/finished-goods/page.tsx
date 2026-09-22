@@ -1,7 +1,7 @@
 "use client";
 import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
-import useSWR from "swr";
+import useSWR, { useSWRInfinite } from "swr";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
@@ -17,8 +17,18 @@ const warehouseExitLabel = {
 
 export default function FinishedGoodsPage() {
   const { lang, t } = useT();
-  const { data } = useSWR<any[]>("/api/finished-goods", fetcher);
-  const { data: branded } = useSWR<any[]>("/api/finished-goods/branded-stock", fetcher);
+  const { data: stockPages, size: stockSize, setSize: setStockSize } = useSWRInfinite<any[]>(
+    (index) => `/api/finished-goods?limit=500&offset=${index * 500}`,
+    fetcher,
+  );
+  const { data: brandedPages, size: brandedSize, setSize: setBrandedSize } = useSWRInfinite<any[]>(
+    (index) => `/api/finished-goods/branded-stock?limit=500&offset=${index * 500}`,
+    fetcher,
+  );
+  const data = stockPages?.flat() ?? [];
+  const branded = brandedPages?.flat() ?? [];
+  const hasMoreStock = stockPages?.at(-1)?.length === 500;
+  const hasMoreBranded = brandedPages?.at(-1)?.length === 500;
   const { data: inbox } = useSWR<any>("/api/inbox?dept=FGS", fetcher);
   const readyToShip = Array.isArray(inbox?.ready_to_ship) ? inbox.ready_to_ship : [];
   return (
@@ -46,6 +56,7 @@ export default function FinishedGoodsPage() {
           <tbody>{branded?.map((s) => <tr key={s.id}><td>{s.brand_name || s.brand_id || "-"}</td><td>{s.model_code || s.model_id}</td><td>{s.color}</td><td>{s.size}</td><td>{s.available_qty}</td><td>{s.reserved_qty}</td><td>${Number(s.cost_per_piece).toFixed(2)}</td></tr>)}</tbody>
         </table>
       </div>
+      {hasMoreBranded && <button className="btn btn-secondary mb-6" onClick={() => setBrandedSize(brandedSize + 1)}>Load more</button>}
       <h2 className="text-lg font-medium mt-2 mb-2">{t("page.finishedGoods.all")}</h2>
       <div className="card overflow-x-auto">
         <table className="table">
@@ -59,6 +70,7 @@ export default function FinishedGoodsPage() {
           <tbody>{data?.map((s) => <tr key={s.id}><td>{s.model_code || s.model_id}</td><td>{s.color}</td><td>{s.size}</td><td>{s.quantity}</td><td>{s.available_qty}</td><td>{s.reserved_qty}</td><td>{s.sold_qty}</td><td>{statusLabel(s.status, t)}</td></tr>)}</tbody>
         </table>
       </div>
+      {hasMoreStock && <button className="btn btn-secondary mt-3" onClick={() => setStockSize(stockSize + 1)}>Load more</button>}
       <h2 className="text-lg font-medium mt-6 mb-2">{t("page.finishedGoods.readyToShip")}</h2>
       <div className="card overflow-x-auto">
         <table className="table">
