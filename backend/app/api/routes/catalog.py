@@ -829,6 +829,38 @@ def _variant_group_predicate(db: DbSession, *, group_key: str, model_no: str):
     )
 
 
+def _model_family_predicate(db: DbSession, *, group_key: str, model_no: str):
+    """Select one complete family without treating model text as a LIKE pattern."""
+    if db.get_bind().dialect.name == "postgresql":
+        return and_(
+            literal_column("models.is_legacy_import").is_(False),
+            literal_column("models.model_group_key") == group_key,
+        )
+
+    general_model_no = func.coalesce(
+        Model.details_json["general"]["model_no"].as_string(),
+        Model.details_json["general"]["modelNo"].as_string(),
+    )
+    legacy_flag = Model.details_json["legacy_import"].as_boolean()
+    normalized_general = func.lower(func.trim(func.coalesce(general_model_no, "")))
+    normalized_model_no = _normalized_key(model_no)
+    escaped_prefix = str(model_no).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    normalized_code = func.lower(func.trim(Model.code))
+    return and_(
+        func.coalesce(legacy_flag, False).is_(False),
+        or_(
+            normalized_general == normalized_model_no,
+            and_(
+                normalized_general == "",
+                or_(
+                    normalized_code == str(model_no).strip().lower(),
+                    normalized_code.like(f"{escaped_prefix.lower()}-%", escape="\\"),
+                ),
+            ),
+        ),
+    )
+
+
 def _model_group_members(qry) -> list[list]:
     grouped: dict[str, list] = {}
     for row in qry.order_by(Model.id.desc()).all():
@@ -1004,12 +1036,12 @@ def _rename_model_group(
     if _normalized_key(old_model_no) == _normalized_key(clean_new_model_no):
         return []
 
-    old_group_key = _normalized_key(old_model_no)
-    group = [
-        model
-        for model in db.query(Model).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope)).all()
-        if _normalized_key(_model_code_parts(model)[0]) == old_group_key
-    ]
+    group_key = _model_group_key(source)
+    group_candidates = db.query(Model).filter(
+        Model.catalog_scope == _normalize_catalog_scope(catalog_scope),
+        _model_family_predicate(db, group_key=group_key, model_no=old_model_no),
+    ).all()
+    group = [model for model in group_candidates if _model_group_key(model) == group_key]
     if not group:
         group = [source]
 
@@ -1025,7 +1057,11 @@ def _rename_model_group(
         planned.append((model, variant_no, next_code))
 
     group_ids = [int(model.id) for model in group]
-    external_models = db.query(Model).filter(~Model.id.in_(group_ids)).all()
+    normalized_planned_codes = {_normalized_key(next_code) for _, _, next_code in planned}
+    external_models = db.query(Model).filter(
+        ~Model.id.in_(group_ids),
+        func.lower(func.trim(Model.code)).in_(normalized_planned_codes),
+    ).all()
     external_by_code = {_normalized_key(model.code): model for model in external_models}
     for _, variant_no, next_code in planned:
         if _normalized_key(next_code) in external_by_code:

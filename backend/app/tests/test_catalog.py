@@ -1432,3 +1432,54 @@ def test_brands_collections(client, auth_headers):
     assert len(r.json()) >= 1
     r2 = client.get("/api/collections", headers=auth_headers)
     assert r2.status_code == 200
+
+
+def test_rename_model_group_uses_bounded_family_queries_without_code_prefix_assumptions():
+    from uuid import uuid4
+
+    from sqlalchemy import event
+
+    from app.api.routes.catalog import _rename_model_group
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:8]
+    model_no = f"PERF%_{marker}"
+    with TestSessionLocal() as db:
+        source = Model(
+            code=f"SOURCE-{marker}",
+            name="source",
+            details_json={"general": {"model_no": model_no}},
+        )
+        variant = Model(
+            code=f"LEGACY-{marker}-V-2",
+            name="variant",
+            details_json={"general": {"model_no": model_no, "variant_no": "V-2"}},
+        )
+        legacy_import = Model(
+            code=f"IMPORT-{marker}",
+            name="legacy import",
+            details_json={"legacy_import": True, "general": {"model_no": model_no}},
+        )
+        unrelated = [Model(code=f"UNRELATED-{marker}-{n}", name="unrelated") for n in range(50)]
+        db.add_all([source, variant, legacy_import, *unrelated])
+        db.flush()
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT") and "model" in statement.lower():
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            renamed = _rename_model_group(db, source, f"RENAMED-{marker}")
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert {row.code for row, _ in renamed} == {f"RENAMED-{marker}", f"RENAMED-{marker}-V-2"}
+    assert legacy_import.code == f"IMPORT-{marker}"
+    assert len(statements) == 2
+    normalized_statements = [" ".join(sql.lower().split()) for sql in statements]
+    assert all(" where " in f" {sql} " for sql in normalized_statements)
+    assert "json_extract" in statements[0].lower()
+    assert " in " in f" {normalized_statements[1]} "
