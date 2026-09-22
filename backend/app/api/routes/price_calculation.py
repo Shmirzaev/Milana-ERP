@@ -72,10 +72,7 @@ def _list_request_load_options():
 def _request_or_404(db: DbSession, request_id: int) -> PriceCalculationRequest:
     request = (
         db.query(PriceCalculationRequest)
-        .options(
-            joinedload(PriceCalculationRequest.model),
-            joinedload(PriceCalculationRequest.cutting_passport),
-        )
+        .options(*_list_request_load_options())
         .filter(PriceCalculationRequest.id == request_id)
         .first()
     )

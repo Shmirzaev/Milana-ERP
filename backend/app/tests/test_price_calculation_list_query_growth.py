@@ -103,6 +103,57 @@ def test_price_request_list_assets_are_selectin_chunked_without_blobs(
     assert "file_data" not in "\n".join(statements).lower()
 
 
+def test_price_request_mutation_lookup_prefetches_serializer_assets():
+    suffix = uuid4().hex[:8]
+    with SessionLocal() as db:
+        admin = db.query(User).filter_by(email="admin@example.com").one()
+        model = Model(
+            code=f"PERF23-MUT-{suffix}",
+            name="Mutation model",
+            category="T-shirt",
+            status="approved",
+        )
+        db.add(model)
+        db.flush()
+        db.add_all(
+            [
+                ModelSize(model_id=model.id, size="S"),
+                ModelSize(model_id=model.id, size="M"),
+                ModelImage(
+                    model_id=model.id,
+                    file_url=f"/model/{suffix}.webp",
+                    file_name="model.webp",
+                    content_type="image/webp",
+                    image_type="model",
+                    is_primary=True,
+                ),
+            ]
+        )
+        request = PriceCalculationRequest(model_id=model.id, created_by_id=admin.id)
+        db.add(request)
+        db.commit()
+        request_id = request.id
+
+    with SessionLocal() as db:
+        request, load_statements = _select_trace(
+            db, lambda: price_calculation._request_or_404(db, request_id),
+        )
+        (payload, again), serialization_statements = _select_trace(
+            db,
+            lambda: (
+                price_calculation.serialize_price_request(request),
+                price_calculation.serialize_price_request(request),
+            ),
+        )
+
+    assert len(load_statements) == 4
+    assert serialization_statements == []
+    assert "file_data" not in "\n".join(load_statements).lower()
+    assert payload["model_sizes"] == ["S", "M"]
+    assert again["model_sizes"] == payload["model_sizes"]
+    assert payload["model_image_url"] == f"/model/{suffix}.webp"
+
+
 def test_price_request_list_preserves_asset_fallbacks_and_calculated_payload():
     suffix = uuid4().hex[:8]
     with SessionLocal() as db:
