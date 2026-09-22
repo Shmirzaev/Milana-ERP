@@ -46,12 +46,19 @@ VALID_STORAGE_CELLS = {
 VALID_STORAGE_SHELVES = {"S1", "S2"}
 PACKAGE_CHANGE_ALLOWED_STATUSES = {"packed", "received_in_storage"}
 PACKAGE_CHANGE_PENDING_STATUS = "pending"
+PACKAGE_TYPES = frozenset({"bag", "box", "legacy_stock"})
 _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE = 400
 _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE = 400
 
 
 def _active_package_receive_transaction(db: Session):
     return db.get_nested_transaction() or db.get_transaction()
+
+
+def _validate_package_type(value: str) -> str:
+    if value not in PACKAGE_TYPES:
+        raise HTTPException(400, "Invalid package_type")
+    return value
 
 
 @dataclass(frozen=True)
@@ -547,6 +554,7 @@ def create_package(
         brand_id=brand_id,
         collection_id=collection_id if collection_id is not None else po.collection_id,
     )
+    package_type = _validate_package_type(package_type)
 
     pkg_no = next_package_no(db)
     barcode_value = generate_barcode_value("PKG")
@@ -912,6 +920,7 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
             total=total,
             exclude_package_id=int(pkg.id),
         )
+    package_type = _validate_package_type(package_type)
 
     notes = payload.get("notes", pkg.notes)
     return {
