@@ -127,20 +127,18 @@ def list_recent_invoices(db: Session, limit: int = 50) -> list[dict]:
 def revenue_by_period(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict]:
     """Aggregate invoice revenue by month for charting."""
     from_dt, to_dt = as_utc(from_dt), as_utc(to_dt)
-    invoices = db.query(Invoice).order_by(Invoice.id.asc()).all()
-    buckets: dict[str, float] = {}
-    for invoice in invoices:
-        dt = invoice.issued_at or invoice.created_at
-        if not dt:
-            continue
-        comparison_dt = as_utc(dt)
-        if from_dt and comparison_dt < from_dt:
-            continue
-        if to_dt and comparison_dt > to_dt:
-            continue
-        key = dt.strftime("%Y-%m")
-        buckets[key] = buckets.get(key, 0.0) + float(invoice.amount or 0)
-    return [{"period": k, "amount": round(v, 2)} for k, v in sorted(buckets.items(), key=lambda x: x[0])]
+    timestamp = func.coalesce(Invoice.issued_at, Invoice.created_at)
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        period = func.to_char(timestamp, "YYYY-MM")
+    else:
+        period = func.strftime("%Y-%m", timestamp)
+    qry = db.query(period.label("period"), func.coalesce(func.sum(Invoice.amount), 0).label("amount"))
+    if from_dt:
+        qry = qry.filter(timestamp >= from_dt)
+    if to_dt:
+        qry = qry.filter(timestamp <= to_dt)
+    rows = qry.filter(timestamp.isnot(None)).group_by(period).order_by(period).all()
+    return [{"period": key, "amount": round(float(amount or 0), 2)} for key, amount in rows if key]
 
 
 def cost_breakdown(db: Session) -> dict:
