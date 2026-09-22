@@ -8,7 +8,7 @@ from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import Model, ModelBOM, SewingFlow, StockBatch, WorkOrder, User, SewingAssignment, ProductionOrder, ProductionBatch
 from app.schemas.sewing_flow import (
     SewingFlowIn, SewingFlowUpdate, SewingFlowOut, SewingFlowWithLoad, SewingFlowPageOut,
-    SewingFlowWorkOrderOut,
+    SewingFlowUtilizationOut, SewingFlowUtilizationPageOut, SewingFlowWorkOrderOut,
 )
 from app.schemas.production import WorkOrderOut
 from app.services.audit import log_action
@@ -355,13 +355,31 @@ def _committed_today_by_flow(db, flow_ids, *, now: datetime | None = None) -> di
     return committed_by_flow
 
 
-@router.get("/utilization-snapshot")
-def utilization_snapshot(db: DbSession, current: CurrentUser, factory_code: str | None = None):
+@router.get(
+    "/utilization-snapshot",
+    response_model=list[SewingFlowUtilizationOut] | SewingFlowUtilizationPageOut,
+)
+def utilization_snapshot(
+    db: DbSession,
+    current: CurrentUser,
+    factory_code: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     factory = sewing_line_factory_scope(current, factory_code)
-    flows = db.query(SewingFlow).filter(
+    query = db.query(SewingFlow).filter(
         SewingFlow.factory_code == factory,
         SewingFlow.is_active.is_(True),
-    ).order_by(SewingFlow.code).all()
+    )
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.count()
+    query = query.order_by(SewingFlow.code)
+    if total is not None:
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    flows = query.all()
     committed_by_flow = _committed_today_by_flow(db, (flow.id for flow in flows))
     out = []
     for flow in flows:
@@ -378,7 +396,15 @@ def utilization_snapshot(db: DbSession, current: CurrentUser, factory_code: str 
                 "is_full": pct >= 100,
             }
         )
-    return out
+    if total is None:
+        return out
+    return {
+        "rows": out,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/{fid}", response_model=SewingFlowWithLoad)

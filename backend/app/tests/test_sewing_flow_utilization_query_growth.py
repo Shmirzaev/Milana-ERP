@@ -77,6 +77,38 @@ def _flow_set(db, count):
     return [flow.id for flow in flows]
 
 
+def _active_flow_set(db, count, *, factory="MIL"):
+    suffix = uuid4().hex[:8].upper()
+    rows = [
+        SewingFlow(
+            factory_code=factory,
+            code=f"PERF35-UTIL-{suffix}-{number:04d}",
+            name=f"Paged utilization {suffix} {number}",
+            capacity_per_day=number + 1,
+            is_active=True,
+        )
+        for number in range(count)
+    ]
+    db.add_all(rows)
+    db.commit()
+    return [int(row.id) for row in rows]
+
+
+def _read_utilization(**kwargs):
+    with SessionLocal() as db:
+        statements = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            payload = sewing_flows.utilization_snapshot(db, _factory_user(), **kwargs)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        return payload, statements
+
+
 @pytest.mark.parametrize(("flow_count", "expected_selects"), [(1, 3), (50, 3), (401, 5)])
 def test_utilization_snapshot_queries_are_chunk_bounded(flow_count, expected_selects):
     with SessionLocal() as db:
@@ -89,6 +121,34 @@ def test_utilization_snapshot_queries_are_chunk_bounded(flow_count, expected_sel
     assert select_count == expected_selects
     by_id = {row["flow_id"]: row for row in payload}
     assert [by_id[flow_id]["committed_today"] for flow_id in flow_ids] == [8] * flow_count
+
+
+@pytest.mark.parametrize("flow_count", [1, 50, 401])
+def test_utilization_snapshot_page_bounds_rows_and_preserves_legacy_payload(flow_count):
+    with SessionLocal() as db:
+        baseline = db.query(SewingFlow).filter(
+            SewingFlow.factory_code == "MIL",
+            SewingFlow.is_active.is_(True),
+        ).count()
+        _active_flow_set(db, flow_count)
+
+    page, statements = _read_utilization(page=1, page_size=50)
+    legacy, _ = _read_utilization()
+
+    selects = [statement for statement in statements if statement.startswith("select")]
+    writes = [
+        statement for statement in statements
+        if statement.startswith(("insert", "update", "delete"))
+    ]
+    assert page["total"] == baseline + flow_count
+    assert page["page"] == 1
+    assert page["page_size"] == 50
+    assert page["has_more"] is (page["total"] > 50)
+    assert page["rows"] == legacy[:50]
+    assert len(page["rows"]) == min(page["total"], 50)
+    assert len(selects) == 4, selects
+    assert all(" in (" in statement for statement in selects[2:]), selects
+    assert writes == []
 
 
 def _work_order(db, *, model_id, department_id, suffix, number, flow_id=None,
@@ -244,5 +304,28 @@ def test_batched_utilization_matches_scalar_status_time_and_rounding_semantics()
 
 
 def test_utilization_snapshot_requires_authentication(client):
-    response = client.get("/api/sewing-flows/utilization-snapshot")
+    response = client.get(
+        "/api/sewing-flows/utilization-snapshot",
+        params={"page": 1, "page_size": 50},
+    )
     assert response.status_code == 401
+
+
+def test_utilization_snapshot_page_preserves_factory_scope(client, auth_headers):
+    response = client.get(
+        "/api/sewing-flows/utilization-snapshot",
+        params={"factory_code": "BST", "page": 1, "page_size": 50},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 403, response.text
+
+
+def test_utilization_snapshot_page_size_is_bounded(client, auth_headers):
+    response = client.get(
+        "/api/sewing-flows/utilization-snapshot",
+        params={"page": 1, "page_size": 501},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422, response.text

@@ -50,6 +50,23 @@ class SewingFlowPageOut(BaseModel):
     has_more: bool
 
 
+class SewingFlowUtilizationOut(BaseModel):
+    flow_id: int
+    code: str
+    capacity_per_day: int
+    committed_today: int
+    utilization_pct: float
+    is_full: bool
+
+
+class SewingFlowUtilizationPageOut(BaseModel):
+    rows: list[SewingFlowUtilizationOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class SewingFlowWorkOrderOut(WorkOrderOut):
     """A sewing-flow work order with the model shown on the line."""
 
