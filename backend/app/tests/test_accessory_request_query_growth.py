@@ -19,7 +19,8 @@ from app.models import (
     WorkOrder,
 )
 from app.services.inventory import accessory_issue_plan, accessory_issue_requests
-from app.tests.conftest import TestSessionLocal
+from app.services import inventory as inventory_service
+from app.tests.conftest import TestSessionLocal, test_engine
 
 
 def _accessory_request_orders(count: int) -> int:
@@ -79,6 +80,61 @@ def test_accessory_request_page_has_bounded_query_growth(order_count):
 
     assert len(rows) == min(order_count, 10)
     assert len(statements) <= 30, f"{order_count} orders issued {len(statements)} SELECTs"
+
+
+@pytest.mark.parametrize("order_count", [1, 50, 401])
+def test_accessory_request_endpoint_pages_candidates_with_bounded_queries(
+    client,
+    auth_headers,
+    monkeypatch,
+    order_count,
+):
+    model_id = _accessory_request_orders(order_count)
+    statements: list[str] = []
+    candidate_counts: list[int] = []
+    original_rows = inventory_service._accessory_request_rows
+
+    def observe_candidate_pages(*args, **kwargs):
+        result = original_rows(*args, **kwargs)
+        if kwargs.get("include_candidate_count"):
+            candidate_counts.append(int(result[1]))
+        return result
+
+    monkeypatch.setattr(
+        inventory_service,
+        "_accessory_request_rows",
+        observe_candidate_pages,
+    )
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(
+            "/api/inventory/accessory-issue-requests",
+            params={
+                "model_id": model_id,
+                "page": 1,
+                "page_size": 10,
+                "include_total": "true",
+            },
+            headers=auth_headers,
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert len(response.json()["rows"]) == min(order_count, 10)
+    assert response.json()["total"] == order_count
+    print(f"Accessory request endpoint {order_count}: {len(statements)} SELECTs")
+    assert len(statements) <= 30
+    assert candidate_counts == (
+        [order_count]
+        if order_count <= inventory_service._BULK_STOCK_CHUNK_SIZE
+        else [inventory_service._BULK_STOCK_CHUNK_SIZE, order_count - inventory_service._BULK_STOCK_CHUNK_SIZE]
+    )
 
 
 def test_accessory_request_search_keeps_hyphen_compacted_model_code():
@@ -354,3 +410,190 @@ def test_accessory_request_api_preserves_total_and_empty_page(client, auth_heade
     assert missing.status_code == 200, missing.text
     assert missing.json()["rows"] == []
     assert missing.json()["total"] == 0
+
+
+def test_accessory_request_candidate_chunk_boundary_preserves_legacy_pages(
+    client,
+    auth_headers,
+    monkeypatch,
+):
+    model_id = _accessory_request_orders(51)
+    monkeypatch.setattr(inventory_service, "_BULK_STOCK_CHUNK_SIZE", 20)
+    with TestSessionLocal() as db:
+        expected = accessory_issue_requests(
+            db,
+            model_id=model_id,
+        )
+
+    second = client.get(
+        "/api/inventory/accessory-issue-requests",
+        params={
+            "model_id": model_id,
+            "page": 2,
+            "page_size": 20,
+            "include_total": "true",
+        },
+        headers=auth_headers,
+    )
+    final_legacy = client.get(
+        "/api/inventory/accessory-issue-requests",
+        params={"model_id": model_id, "page": 3, "page_size": 20},
+        headers=auth_headers,
+    )
+    beyond = client.get(
+        "/api/inventory/accessory-issue-requests",
+        params={
+            "model_id": model_id,
+            "page": 4,
+            "page_size": 20,
+            "include_total": "true",
+        },
+        headers=auth_headers,
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json() == {
+        "rows": expected[20:40],
+        "total": 51,
+        "page": 2,
+        "page_size": 20,
+    }
+    assert final_legacy.status_code == 200, final_legacy.text
+    assert final_legacy.json() == expected[40:]
+    assert beyond.status_code == 200, beyond.text
+    assert beyond.json() == {
+        "rows": [],
+        "total": 51,
+        "page": 4,
+        "page_size": 20,
+    }
+
+
+def test_accessory_request_status_order_is_global_across_candidate_chunks(
+    client,
+    auth_headers,
+    monkeypatch,
+):
+    model_id = _accessory_request_orders(2)
+    monkeypatch.setattr(inventory_service, "_BULK_STOCK_CHUNK_SIZE", 1)
+    with TestSessionLocal() as db:
+        orders = (
+            db.query(ProductionOrder)
+            .filter(ProductionOrder.model_id == model_id)
+            .order_by(ProductionOrder.id)
+            .all()
+        )
+        item = (
+            db.query(Item)
+            .join(ModelBOM, ModelBOM.item_id == Item.id)
+            .filter(ModelBOM.model_id == model_id)
+            .one()
+        )
+        db.add(ManualAccessoryIssue(
+            production_order_id=orders[0].id,
+            item_id=item.id,
+            item_sku=item.sku,
+            item_name=item.name,
+            quantity=10,
+            unit="pcs",
+        ))
+        db.commit()
+        ready_order_id = int(orders[0].id)
+        shortage_order_id = int(orders[1].id)
+
+    first = client.get(
+        "/api/inventory/accessory-issue-requests",
+        params={
+            "model_id": model_id,
+            "include_complete": "true",
+            "include_total": "true",
+            "page": 1,
+            "page_size": 1,
+        },
+        headers=auth_headers,
+    )
+    second = client.get(
+        "/api/inventory/accessory-issue-requests",
+        params={
+            "model_id": model_id,
+            "include_complete": "true",
+            "include_total": "true",
+            "page": 2,
+            "page_size": 1,
+        },
+        headers=auth_headers,
+    )
+
+    assert first.status_code == 200, first.text
+    assert first.json()["total"] == 2
+    assert first.json()["rows"][0]["status"] == "shortage"
+    assert first.json()["rows"][0]["production_order_id"] == shortage_order_id
+    assert second.status_code == 200, second.text
+    assert second.json()["rows"][0]["status"] == "ready"
+    assert second.json()["rows"][0]["production_order_id"] == ready_order_id
+
+
+def test_accessory_request_endpoint_matches_scalar_alias_and_completion_filters(
+    client,
+    auth_headers,
+):
+    model_id, order_id, _sales_order_no = _mixed_accessory_request_case()
+    with TestSessionLocal() as db:
+        model = db.get(Model, model_id)
+        expected_all = accessory_issue_requests(
+            db,
+            production_order_id=order_id,
+            include_complete=True,
+        )
+        expected_incomplete = accessory_issue_requests(
+            db,
+            production_order_id=order_id,
+        )
+
+    compact_code = model.code.replace("-", "")
+    all_rows = client.get(
+        "/api/inventory/accessory-issue-requests",
+        params={
+            "production_order_id": order_id,
+            "q": compact_code,
+            "include_complete": "true",
+            "include_total": "true",
+            "page_size": 10,
+        },
+        headers=auth_headers,
+    )
+    incomplete = client.get(
+        "/api/inventory/accessory-issue-requests",
+        params={
+            "production_order_id": order_id,
+            "include_total": "true",
+            "page_size": 10,
+        },
+        headers=auth_headers,
+    )
+
+    assert all_rows.status_code == 200, all_rows.text
+    assert all_rows.json()["rows"] == expected_all
+    assert all_rows.json()["total"] == len(expected_all)
+    assert incomplete.status_code == 200, incomplete.text
+    assert incomplete.json()["rows"] == expected_incomplete
+    assert incomplete.json()["total"] == len(expected_incomplete)
+
+
+def test_accessory_request_endpoint_denies_missing_and_unrelated_permissions(client):
+    model_id = _accessory_request_orders(1)
+    path = f"/api/inventory/accessory-issue-requests?model_id={model_id}"
+
+    assert client.get(path).status_code == 401
+    login = client.post(
+        "/api/auth/token",
+        data={"username": "hr@example.com", "password": "demo12345"},
+    )
+    assert login.status_code == 200, login.text
+    denied = client.get(
+        path,
+        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+    )
+    assert denied.status_code == 403
+    with TestSessionLocal() as db:
+        assert db.query(ProductionOrder).filter(ProductionOrder.model_id == model_id).count() == 1

@@ -1972,7 +1972,10 @@ def _accessory_request_rows(
     production_order_id: int | None,
     model_id: int | None,
     q: str | None = None,
-) -> list[dict]:
+    candidate_offset: int | None = None,
+    candidate_limit: int | None = None,
+    include_candidate_count: bool = False,
+) -> list[dict] | tuple[list[dict], int]:
     order_query = db.query(
         ProductionOrder.id,
         ProductionOrder.production_no,
@@ -2032,7 +2035,6 @@ def _accessory_request_rows(
             )
         if model_id is not None:
             candidate_query = candidate_query.filter(ProductionOrder.model_id == model_id)
-        candidate_ids = {int(row[0]) for row in candidate_query.distinct().all()}
         # Manual issues may be the only matching evidence (legacy labels do
         # not necessarily have a BOM/item row), so retain those candidates.
         manual_query = db.query(ManualAccessoryIssue.production_order_id).filter(
@@ -2046,15 +2048,28 @@ def _accessory_request_rows(
             manual_query = manual_query.filter(
                 ManualAccessoryIssue.production_order_id == production_order_id
             )
-        candidate_ids.update(int(row[0]) for row in manual_query.distinct().all())
-        if candidate_ids:
-            order_query = order_query.filter(ProductionOrder.id.in_(candidate_ids))
-        else:
-            return []
-    orders = order_query.order_by(ProductionOrder.created_at.desc(), ProductionOrder.id.desc()).all()
+        order_query = order_query.filter(
+            or_(
+                ProductionOrder.id.in_(candidate_query.distinct()),
+                ProductionOrder.id.in_(manual_query.distinct()),
+            )
+        )
+    if candidate_limit is not None:
+        order_query = (
+            order_query.order_by(ProductionOrder.id.asc())
+            .offset(max(0, int(candidate_offset or 0)))
+            .limit(max(1, int(candidate_limit)))
+        )
+    else:
+        order_query = order_query.order_by(
+            ProductionOrder.created_at.desc(),
+            ProductionOrder.id.desc(),
+        )
+    orders = order_query.all()
+    candidate_count = len(orders)
     order_ids = [int(order.id) for order in orders]
     if not order_ids:
-        return []
+        return ([], 0) if include_candidate_count else []
 
     items_by_order: dict[int, list] = {}
     model_ids = {int(order.model_id) for order in orders}
@@ -2179,7 +2194,45 @@ def _accessory_request_rows(
                 "shortage": shortage,
                 "status": status,
             })
-    return rows
+    return (rows, candidate_count) if include_candidate_count else rows
+
+
+def _accessory_request_row_matches(row: dict, search: str) -> bool:
+    if not search:
+        return True
+    if model_code_contains(row.get("model_code"), search):
+        return True
+    fields = [
+        row.get("order_no"),
+        row.get("production_no"),
+        row.get("model_name"),
+        row.get("item_sku"),
+        row.get("item_name"),
+        row.get("unit"),
+    ]
+    return any(search in str(value or "").lower() for value in fields)
+
+
+def _accessory_request_sort_key(row: dict) -> tuple[int, int, str]:
+    return (
+        0 if row["status"] == "shortage" else 1 if row["status"] == "partial" else 2,
+        int(row["production_order_id"]),
+        str(row["item_sku"]),
+    )
+
+
+def _filter_accessory_request_rows(
+    rows: list[dict],
+    *,
+    include_complete: bool,
+    search: str,
+) -> list[dict]:
+    return [
+        row
+        for row in rows
+        if (include_complete or float(row.get("remaining_quantity") or 0) > EPSILON)
+        and _accessory_request_row_matches(row, search)
+    ]
 
 
 def accessory_issue_requests(
@@ -2193,45 +2246,58 @@ def accessory_issue_requests(
     page_size: int | None = None,
     include_total: bool = False,
 ) -> list[dict] | tuple[list[dict], int]:
-    rows = _accessory_request_rows(
-        db,
-        production_order_id=production_order_id,
-        model_id=model_id,
-        q=q,
-    )
-    if not include_complete:
-        rows = [row for row in rows if float(row.get("remaining_quantity") or 0) > EPSILON]
-
     search = (q or "").strip().lower()
-    if search:
-        def matches(row: dict) -> bool:
-            if model_code_contains(row.get("model_code"), search):
-                return True
-            fields = [
-                row.get("order_no"),
-                row.get("production_no"),
-                row.get("model_name"),
-                row.get("item_sku"),
-                row.get("item_name"),
-                row.get("unit"),
-            ]
-            return any(search in str(value or "").lower() for value in fields)
-
-        rows = [row for row in rows if matches(row)]
-
-    rows.sort(
-        key=lambda row: (
-            0 if row["status"] == "shortage" else 1 if row["status"] == "partial" else 2,
-            row["production_order_id"],
-            row["item_sku"],
+    if page is None and page_size is None:
+        rows = _accessory_request_rows(
+            db,
+            production_order_id=production_order_id,
+            model_id=model_id,
+            q=q,
         )
-    )
-    if page is not None or page_size is not None:
-        safe_page, safe_size, offset = clamp_pagination(page or 1, page_size or 50)
-        page_rows = rows[offset: offset + safe_size]
-    else:
-        page_rows = rows
-    return (page_rows, len(rows)) if include_total else page_rows
+        filtered_rows = _filter_accessory_request_rows(
+            rows,
+            include_complete=include_complete,
+            search=search,
+        )
+        filtered_rows.sort(key=_accessory_request_sort_key)
+        return (filtered_rows, len(filtered_rows)) if include_total else filtered_rows
+
+    safe_page, safe_size, offset = clamp_pagination(page or 1, page_size or 50)
+    retained_limit = offset + safe_size
+    candidate_offset = 0
+    total = 0
+    retained: list[dict] = []
+    # Exact totals and derived status ordering require inspecting every
+    # candidate. Page candidates in SQL and retain only the requested prefix
+    # so queue memory stays bounded without changing the public row contract.
+    while True:
+        chunk_rows, candidate_count = _accessory_request_rows(
+            db,
+            production_order_id=production_order_id,
+            model_id=model_id,
+            q=q,
+            candidate_offset=candidate_offset,
+            candidate_limit=_BULK_STOCK_CHUNK_SIZE,
+            include_candidate_count=True,
+        )
+        if candidate_count == 0:
+            break
+        filtered_chunk = _filter_accessory_request_rows(
+            chunk_rows,
+            include_complete=include_complete,
+            search=search,
+        )
+        total += len(filtered_chunk)
+        retained.extend(filtered_chunk)
+        retained.sort(key=_accessory_request_sort_key)
+        if len(retained) > retained_limit:
+            del retained[retained_limit:]
+        candidate_offset += candidate_count
+        if candidate_count < _BULK_STOCK_CHUNK_SIZE:
+            break
+
+    page_rows = retained[offset: offset + safe_size]
+    return (page_rows, total) if include_total else page_rows
 
 
 def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
