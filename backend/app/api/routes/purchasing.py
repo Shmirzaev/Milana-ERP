@@ -209,6 +209,8 @@ def receive_order(
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, user=current, scope=scope, key=idempotency_key, payload=fingerprint_payload)
     if replay is not None:
+        if replay.get("_purchase_receipt_request") == "cancelled":
+            raise HTTPException(409, "This receipt request was cancelled; submit corrected values with a new key")
         return replay
     order = receive_purchase_order(db, order_id=order_id, data=payload.model_dump(), current=current)
     response = PurchaseOrderOut.model_validate(order).model_dump(mode="json")
@@ -218,3 +220,49 @@ def receive_order(
     )
     db.commit()
     return response
+
+
+@router.post("/orders/{order_id}/receive/reconcile")
+def reconcile_order_receipt(
+    order_id: int,
+    payload: PurchaseOrderReceiveIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("purchasing.receive", "*")),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    if not idempotency_key:
+        raise HTTPException(400, "Idempotency-Key is required for receipt reconciliation")
+    order = (
+        db.query(PurchaseOrder).options(lazyload("*"), selectinload(PurchaseOrder.lines))
+        .filter(PurchaseOrder.id == order_id).with_for_update(of=PurchaseOrder)
+        .populate_existing().first()
+    )
+    if not order:
+        raise HTTPException(404, "Purchase order not found")
+    for line in order.lines:
+        inventory_access.require_item(db, current, line.item_id)
+    scope = f"purchasing.receive:{selected_factory_code(current)}:{current.id}:{order_id}"
+    fingerprint_payload = payload.model_dump(mode="json")
+    replay = replay_idempotent_response(
+        db,
+        user=current,
+        scope=scope,
+        key=idempotency_key,
+        payload=fingerprint_payload,
+    )
+    if replay is not None:
+        db.commit()
+        if replay.get("_purchase_receipt_request") == "cancelled":
+            return {"status": "cancelled"}
+        return {"status": "completed", "result": replay}
+    store_idempotent_response(
+        db,
+        scope=scope,
+        key=idempotency_key,
+        payload=fingerprint_payload,
+        response={"_purchase_receipt_request": "cancelled"},
+        user=current,
+        status_code=409,
+    )
+    db.commit()
+    return {"status": "cancelled"}

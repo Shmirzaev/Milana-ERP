@@ -82,6 +82,56 @@ for (const status of [401, 403, 408, 429, 500, 503]) {
   assert.equal(read(kept, scope).key, uncertain.pending.key);
 }
 
+const rejectedPendingStorage = storage();
+const rejectedFirst = await prepare(rejectedPendingStorage, scope, 20, payload);
+await assert.rejects(send(
+  rejectedPendingStorage,
+  scope,
+  rejectedFirst,
+  async () => { throw new Error("Network timeout"); },
+));
+const rejectedRetry = await prepare(rejectedPendingStorage, scope, 20, payload);
+let reconciledKey = null;
+await assert.rejects(send(
+  rejectedPendingStorage,
+  scope,
+  rejectedRetry,
+  async () => { throw new Error("422: rejected receipt"); },
+  async (pending) => {
+    reconciledKey = pending.key;
+    return { status: "cancelled" };
+  },
+), /422/);
+assert.equal(reconciledKey, rejectedFirst.pending.key, "reconciliation must tombstone the exact pending key");
+assert.equal(read(rejectedPendingStorage, scope), null, "confirmed rejected pending receipt releases corrected input");
+const corrected = await prepare(
+  rejectedPendingStorage,
+  scope,
+  20,
+  { ...payload, lines: [{ ...payload.lines[0], received_quantity: 4 }] },
+);
+assert.notEqual(corrected.pending.key, rejectedFirst.pending.key);
+assert.equal(await send(rejectedPendingStorage, scope, corrected, async () => "corrected"), "corrected");
+
+const completedPendingStorage = storage();
+const completedFirst = await prepare(completedPendingStorage, scope, 20, payload);
+await assert.rejects(send(
+  completedPendingStorage,
+  scope,
+  completedFirst,
+  async () => { throw new Error("Network timeout"); },
+));
+const completedRetry = await prepare(completedPendingStorage, scope, 20, payload);
+const recovered = await send(
+  completedPendingStorage,
+  scope,
+  completedRetry,
+  async () => { throw new Error("409: order is already received"); },
+  async () => ({ status: "completed", result: { received: 5 } }),
+);
+assert.deepEqual(recovered, { received: 5 });
+assert.equal(read(completedPendingStorage, scope), null, "committed reconciliation clears pending input without reposting");
+
 const isolated = storage();
 const originalPayload = structuredClone(payload);
 const immutable = await prepare(isolated, scope, 20, originalPayload);

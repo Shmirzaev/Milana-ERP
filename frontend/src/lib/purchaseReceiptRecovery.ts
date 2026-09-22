@@ -104,6 +104,9 @@ export async function sendPreparedPurchaseReceipt<T>(
   scope: PurchaseReceiptScope,
   prepared: { pending: PendingPurchaseReceipt; isNew: boolean },
   send: (pending: PendingPurchaseReceipt) => Promise<T>,
+  reconcile?: (pending: PendingPurchaseReceipt) => Promise<
+    { status: "completed"; result: T } | { status: "cancelled" }
+  >,
 ): Promise<T> {
   let response: T;
   try {
@@ -113,6 +116,18 @@ export async function sendPreparedPurchaseReceipt<T>(
     // After any uncertain attempt/reload, even a later 4xx cannot undo a commit.
     if (prepared.isNew && error instanceof Error && /^(400|404|409|422):/.test(error.message)) {
       await clearPendingReceipt(storage, scope, prepared.pending.key);
+    } else if (!prepared.isNew && reconcile && error instanceof Error
+      && /^(400|404|409|422):/.test(error.message)) {
+      // The server serializes reconciliation with the original receipt. It
+      // either replays the committed result or tombstones the unused key so a
+      // delayed original cannot apply after corrected values are submitted.
+      const resolution = await reconcile(prepared.pending);
+      if (!resolution || (resolution.status !== "completed" && resolution.status !== "cancelled")
+        || (resolution.status === "completed" && resolution.result == null)) {
+        throw new Error("Receipt reconciliation returned an invalid status");
+      }
+      await clearPendingReceipt(storage, scope, prepared.pending.key);
+      if (resolution.status === "completed") return resolution.result;
     }
     throw error;
   }

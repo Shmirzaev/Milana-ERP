@@ -87,6 +87,84 @@ def test_receipt_key_reuse_with_changed_payload_is_conflict(client, auth_headers
     assert receipt_state(receipt_order) == before_retry
 
 
+def test_reconcile_committed_receipt_replays_without_duplicate_stock(client, auth_headers, receipt_order):
+    key = f"receipt-reconcile-{uuid4()}"
+    created = receive(client, auth_headers, receipt_order, key=key)
+    assert created.status_code == 200, created.text
+    before = receipt_state(receipt_order)
+
+    reconciled = client.post(
+        f"/api/purchasing/orders/{receipt_order['order_id']}/receive/reconcile",
+        headers={**auth_headers, "Idempotency-Key": key},
+        json=receipt_order["payload"],
+    )
+
+    assert reconciled.status_code == 200, reconciled.text
+    assert reconciled.json() == {"status": "completed", "result": created.json()}
+    assert receipt_state(receipt_order) == before
+
+
+def test_reconcile_rejected_pending_receipt_releases_corrected_submission(client, auth_headers, receipt_order):
+    rejected_key = f"receipt-rejected-{uuid4()}"
+    before = receipt_state(receipt_order)
+    reconciled = client.post(
+        f"/api/purchasing/orders/{receipt_order['order_id']}/receive/reconcile",
+        headers={**auth_headers, "Idempotency-Key": rejected_key},
+        json=receipt_order["payload"],
+    )
+    assert reconciled.status_code == 200, reconciled.text
+    assert reconciled.json() == {"status": "cancelled"}
+
+    delayed = receive(client, auth_headers, receipt_order, key=rejected_key)
+    assert delayed.status_code == 409, delayed.text
+    after_cancel = receipt_state(receipt_order)
+    assert after_cancel[:5] == before[:5]
+    assert after_cancel[5] == before[5] + 1
+
+    corrected = {
+        "lines": [{**receipt_order["payload"]["lines"][0], "received_quantity": 6}],
+    }
+    accepted = receive(
+        client,
+        auth_headers,
+        receipt_order,
+        key=f"receipt-corrected-{uuid4()}",
+        payload=corrected,
+    )
+    assert accepted.status_code == 200, accepted.text
+    final = receipt_state(receipt_order)
+    assert final[0] == 6
+    assert final[2:4] == (1, 1)
+    assert final[5] == before[5] + 2
+
+
+def test_receipt_reconciliation_failure_rolls_back_tombstone(client, auth_headers, receipt_order, monkeypatch):
+    key = f"receipt-reconcile-rollback-{uuid4()}"
+    original_store = purchasing.store_idempotent_response
+
+    def fail_after_storing(*args, **kwargs):
+        original_store(*args, **kwargs)
+        raise HTTPException(503, "Synthetic reconciliation failure")
+
+    before = receipt_state(receipt_order)
+    monkeypatch.setattr(purchasing, "store_idempotent_response", fail_after_storing)
+    failed = client.post(
+        f"/api/purchasing/orders/{receipt_order['order_id']}/receive/reconcile",
+        headers={**auth_headers, "Idempotency-Key": key},
+        json=receipt_order["payload"],
+    )
+    assert failed.status_code == 503, failed.text
+    assert receipt_state(receipt_order) == before
+
+    monkeypatch.setattr(purchasing, "store_idempotent_response", original_store)
+    accepted = receive(client, auth_headers, receipt_order, key=key)
+    assert accepted.status_code == 200, accepted.text
+    final = receipt_state(receipt_order)
+    assert final[0] == 5
+    assert final[2:4] == (1, 1)
+    assert final[5] == before[5] + 1
+
+
 def test_receipt_key_is_scoped_to_order(client, auth_headers, receipt_order):
     other = create_receipt_order(session_module.SessionLocal)
     first = receive(client, auth_headers, receipt_order)
@@ -292,3 +370,85 @@ def test_postgres_concurrent_receipts_serialize_before_replay(receipt_postgres_e
         assert db.query(StockBatch).filter_by(internal_batch_no=order["po_no"]).count() == expected_receipts
         assert db.query(StockMovement).filter_by(reference_type="PurchaseOrderLine", reference_id=order["line_id"]).count() == expected_receipts
         assert db.query(IdempotencyRecord).filter_by(user_id=user_id).count() == expected_receipts
+
+
+def test_postgres_reconciliation_waits_for_original_receipt_commit(
+    receipt_postgres_engine,
+    monkeypatch,
+):
+    session_factory = sessionmaker(bind=receipt_postgres_engine, autoflush=False, expire_on_commit=False)
+    order = create_receipt_order(session_factory)
+    with session_factory() as db:
+        current = User(
+            name="Receipt reconciler",
+            email=f"receipt-reconcile-{uuid4().hex}@example.invalid",
+            password_hash="unused",
+            factory_code="MIL",
+        )
+        db.add(current)
+        db.commit()
+        user_id = current.id
+
+    original_started = Event()
+    release_original = Event()
+    reconcile_pid = Queue()
+    original_receive = purchasing.receive_purchase_order
+    key = f"reconcile-race-{uuid4()}"
+    payload = PurchaseOrderReceiveIn(**order["payload"])
+
+    def delayed_receive(*args, **kwargs):
+        original_started.set()
+        assert release_original.wait(10), "Original receipt was not released"
+        return original_receive(*args, **kwargs)
+
+    monkeypatch.setattr(purchasing, "receive_purchase_order", delayed_receive)
+
+    def write_original():
+        with session_factory() as db:
+            return purchasing.receive_order(
+                order["order_id"],
+                payload,
+                db,
+                current=db.get(User, user_id),
+                idempotency_key=key,
+            )
+
+    def reconcile():
+        with session_factory() as db:
+            reconcile_pid.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            return purchasing.reconcile_order_receipt(
+                order["order_id"],
+                payload,
+                db,
+                current=db.get(User, user_id),
+                idempotency_key=key,
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        original = workers.submit(write_original)
+        assert original_started.wait(10), "Original receipt did not reach its locked write"
+        reconciled = workers.submit(reconcile)
+        waiting_pid = reconcile_pid.get(timeout=10)
+        try:
+            with session_factory() as observer:
+                deadline = monotonic() + 10
+                while monotonic() < deadline:
+                    if observer.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": waiting_pid}).scalar_one():
+                        break
+                    sleep(0.02)
+                else:
+                    pytest.fail("Reconciliation must wait on the original receipt order lock")
+        finally:
+            release_original.set()
+        created = original.result(timeout=10)
+        recovered = reconciled.result(timeout=10)
+
+    assert recovered == {"status": "completed", "result": created}
+    with session_factory() as db:
+        assert db.get(PurchaseOrderLine, order["line_id"]).received_quantity == 5
+        assert db.query(StockBatch).filter_by(internal_batch_no=order["po_no"]).count() == 1
+        assert db.query(StockMovement).filter_by(
+            reference_type="PurchaseOrderLine",
+            reference_id=order["line_id"],
+        ).count() == 1
+        assert db.query(IdempotencyRecord).filter_by(user_id=user_id).count() == 1

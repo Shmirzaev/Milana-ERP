@@ -306,8 +306,17 @@ export default function PurchaseReceivingPage() {
       }
       const prepared = await preparePurchaseReceipt(localStorage, scope, receiveState.order.id, payload);
       setPendingReceipt(prepared.pending);
-      await sendPreparedPurchaseReceipt(localStorage, scope, prepared, (pending) =>
-        api.postWithIdempotency(`/api/purchasing/orders/${pending.orderId}/receive`, pending.payload, pending.key));
+      await sendPreparedPurchaseReceipt(
+        localStorage,
+        scope,
+        prepared,
+        (pending) => api.postWithIdempotency(
+          `/api/purchasing/orders/${pending.orderId}/receive`, pending.payload, pending.key,
+        ),
+        (pending) => api.postWithIdempotency(
+          `/api/purchasing/orders/${pending.orderId}/receive/reconcile`, pending.payload, pending.key,
+        ),
+      );
       setPendingReceipt(null);
       refreshOrders();
       setReceiveState(null);
