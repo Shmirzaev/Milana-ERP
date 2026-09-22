@@ -2,7 +2,7 @@ import csv
 import hashlib
 import io
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -38,6 +38,34 @@ class CreateCount(BaseModel):
 
 class ScanCount(BaseModel):
     code: str = Field(min_length=1, max_length=512)
+
+
+class StocktakeScanSummaryOut(BaseModel):
+    scanned: int
+    scanned_packages: int
+    scanned_pieces: int
+    estimated_packages: int
+    unquantified_packages: int
+
+
+class StocktakeListItemOut(BaseModel):
+    id: int
+    title: str
+    created_at: datetime
+    completed_at: datetime | None
+    created_by: int
+    summary: StocktakeScanSummaryOut
+
+
+class StocktakeListOut(BaseModel):
+    total: int
+    items: list[StocktakeListItemOut]
+
+
+class StocktakePageOut(StocktakeListOut):
+    page: int
+    page_size: int
+    has_more: bool
 
 
 def get_count(db, count_id, *, lock=False):
@@ -82,10 +110,25 @@ def results(db, count):
     return [row_payload(row, current) for row in rows]
 
 
-@router.get("")
-def list_counts(db: DbSession, _: User = Depends(access), offset: int = Query(0, ge=0)):
+@router.get("", response_model=StocktakePageOut | StocktakeListOut)
+def list_counts(
+    db: DbSession,
+    _: User = Depends(access),
+    offset: Annotated[int, Query(ge=0)] = 0,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     query = db.query(WarehouseStocktake)
-    counts = query.order_by(WarehouseStocktake.id.desc()).offset(offset).limit(50).all()
+    paginated = page is not None or page_size is not None
+    current_page = page or 1
+    current_page_size = page_size or 50
+    current_offset = (current_page - 1) * current_page_size if paginated else offset
+    counts = (
+        query.order_by(WarehouseStocktake.id.desc())
+        .offset(current_offset)
+        .limit(current_page_size if paginated else 50)
+        .all()
+    )
     scans = {count.id: [] for count in counts}
     if scans:
         recorded = db.query(WarehouseStocktakeRow).options(load_only(
@@ -94,10 +137,17 @@ def list_counts(db: DbSession, _: User = Depends(access), offset: int = Query(0,
         )).filter(WarehouseStocktakeRow.stocktake_id.in_(scans), WarehouseStocktakeRow.scanned_at.is_not(None)).all()
         for row in recorded:
             scans[row.stocktake_id].append(scan_fields(row))
-    return {
+    result = {
         "total": query.count(),
         "items": [{**count_info(c), "summary": scan_summary(scans[c.id])} for c in counts],
     }
+    if paginated:
+        result.update({
+            "page": current_page,
+            "page_size": current_page_size,
+            "has_more": current_page * current_page_size < result["total"],
+        })
+    return result
 
 
 @router.post("")
