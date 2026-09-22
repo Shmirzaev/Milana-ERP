@@ -1,9 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
-import { Database, Pencil, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { Database, Pencil, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
-import ConfirmDialog from "@/components/ConfirmDialog";
 import Modal from "@/components/Modal";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
@@ -114,8 +113,6 @@ export default function SuperDataPage() {
   const [editing, setEditing] = useState<Record<string, any> | null>(null);
   const [draft, setDraft] = useState<Record<string, any>>({});
   const [editMsg, setEditMsg] = useState("");
-  const [deleting, setDeleting] = useState<Record<string, any> | null>(null);
-  const [deleteMsg, setDeleteMsg] = useState("");
 
   useEffect(() => {
     if (!selectedTable && tables?.length) setSelectedTable(tables[0].name);
@@ -180,19 +177,6 @@ export default function SuperDataPage() {
       mutateTables();
     } catch (err: any) {
       setEditMsg(err?.message || t("page.superData.updateFailed"));
-    }
-  }
-
-  async function confirmDelete() {
-    if (!deleting || !selectedTable) return;
-    setDeleteMsg("");
-    try {
-      await api.del(`/api/admin/super-data/tables/${selectedTable}/rows/${deleting.id}`);
-      setDeleting(null);
-      mutateRows();
-      mutateTables();
-    } catch (err: any) {
-      setDeleteMsg(err?.message || t("page.superData.deleteFailed"));
     }
   }
 
@@ -309,12 +293,11 @@ export default function SuperDataPage() {
                     <tr key={row.id}>
                       <td>
                         <div className="flex items-center gap-2">
-                          <button type="button" className="icon-btn" title={t("common.edit")} onClick={() => openEdit(row)}>
-                            <Pencil />
-                          </button>
-                          <button type="button" className="icon-btn text-red-600" title={t("common.delete")} onClick={() => setDeleting(row)}>
-                            <Trash2 />
-                          </button>
+                          {editableColumns.length ? (
+                            <button type="button" className="icon-btn" title={t("common.edit")} onClick={() => openEdit(row)}>
+                              <Pencil />
+                            </button>
+                          ) : <span className="text-[#8a8472]">—</span>}
                         </div>
                       </td>
                       {columns.map((column) => (
@@ -405,18 +388,6 @@ export default function SuperDataPage() {
         </form>
       </Modal>
 
-      <ConfirmDialog
-        isOpen={!!deleting}
-        title={t("confirm.deleteTitle")}
-        message={deleting ? t("page.superData.deleteConfirm", { row: rowTitle(deleting, selectedTable) }) : ""}
-        confirmText={t("common.delete")}
-        onConfirm={confirmDelete}
-        onCancel={() => {
-          setDeleting(null);
-          setDeleteMsg("");
-        }}
-      />
-      {deleteMsg ? <div className="fixed bottom-16 left-3 right-3 z-50 max-w-[calc(100vw-1.5rem)] rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-sm sm:bottom-24 sm:left-auto sm:right-6 sm:max-w-md">{deleteMsg}</div> : null}
     </div>
   );
 }

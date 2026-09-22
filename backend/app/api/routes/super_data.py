@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, literal, or_, select, union_all, update
+from sqlalchemy import func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.sql import sqltypes
 from sqlalchemy.sql.schema import Column, Table
@@ -19,6 +19,14 @@ from app.models import User
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/admin/super-data", tags=["super-admin-data"])
+
+
+# Mutations in the data console are deliberately narrower than its read-only
+# inspection surface.  Expanding this map requires a separate review of the
+# target's business rules, factory scope, and audit semantics.
+_EDITABLE_COLUMNS: dict[str, frozenset[str]] = {
+    "departments": frozenset({"name"}),
+}
 
 
 class SuperDataColumnOut(BaseModel):
@@ -84,7 +92,7 @@ def _column_out(column: Column) -> SuperDataColumnOut:
         nullable=bool(column.nullable),
         primary_key=bool(column.primary_key),
         foreign_key=foreign_key,
-        editable=not column.primary_key and not _is_binary(column),
+        editable=column.name in _EDITABLE_COLUMNS.get(column.table.name, frozenset()),
     )
 
 
@@ -292,6 +300,16 @@ def update_super_data_row(
     current: User = Depends(require_super_admin),
 ):
     table = _table_for(table_name)
+    allowed_columns = _EDITABLE_COLUMNS.get(table.name)
+    if allowed_columns is None:
+        raise HTTPException(403, "Data Console editing is not allowed for this table")
+
+    disallowed = sorted(set(payload.values) - allowed_columns)
+    if disallowed:
+        raise HTTPException(403, f"Data Console editing is not allowed for: {', '.join(disallowed)}")
+    if not payload.values:
+        raise HTTPException(422, "At least one approved field is required")
+
     pk = _pk_column(table)
     before = _row_for(db, table, row_id)
     values: dict[str, Any] = {}
@@ -299,11 +317,12 @@ def update_super_data_row(
         column = table.columns.get(key)
         if column is None:
             raise HTTPException(400, f"Unknown column: {key}")
-        if column.primary_key:
-            raise HTTPException(400, f"{key} is a primary key and cannot be edited here")
-        if _is_binary(column):
-            raise HTTPException(400, f"{key} is binary data and cannot be edited here")
-        values[key] = _coerce_value(column, raw_value)
+        value = _coerce_value(column, raw_value)
+        if table.name == "departments" and key == "name":
+            if not isinstance(raw_value, str) or not value.strip():
+                raise HTTPException(422, "Department name must be a non-empty string")
+            value = value.strip()
+        values[key] = value
 
     if values:
         try:
@@ -331,19 +350,8 @@ def delete_super_data_row(
     db: DbSession,
     current: User = Depends(require_super_admin),
 ):
-    table = _table_for(table_name)
-    pk = _pk_column(table)
-    before = _row_for(db, table, row_id)
-    try:
-        db.execute(delete(table).where(pk == row_id))
-        log_action(
-            db,
-            current,
-            "delete",
-            f"SuperData:{table.name}",
-            row_id,
-            old_value=_serialize_row(before),
-        )
-    except SQLAlchemyError as exc:
-        _rollback_and_raise(db, exc, "Could not delete row")
-    _commit_or_409(db, "Could not delete row")
+    _table_for(table_name)
+    raise HTTPException(
+        409,
+        "Data Console delete is unavailable because no approved soft-delete field is configured",
+    )

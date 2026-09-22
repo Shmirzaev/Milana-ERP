@@ -8,8 +8,11 @@ import base64
 import os
 import time
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import PackagingRecord, WorkOrder
+from app.models import AuditLog, Department, PackagingRecord, User, WorkOrder
 
 STRONG_PW = "Str0ngManager!2026"
 ESC_PW = "Esc4lation!Test2026"
@@ -261,8 +264,21 @@ def test_super_data_console_requires_true_super_admin(client, auth_headers):
     r = client.get("/api/admin/super-data/tables", headers=regular_admin_headers)
     assert r.status_code == 403, r.text
 
+    r = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{hr_dept}",
+        json={"values": {"name": "Forbidden regular-admin edit"}},
+        headers=regular_admin_headers,
+    )
+    assert r.status_code == 403, r.text
 
-def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, auth_headers):
+    r = client.delete(
+        f"/api/admin/super-data/tables/departments/rows/{hr_dept}",
+        headers=regular_admin_headers,
+    )
+    assert r.status_code == 403, r.text
+
+
+def test_super_data_mutations_are_allowlisted_audited_and_delete_fails_closed(client, auth_headers):
     r = client.post(
         "/api/departments",
         json={"name": "Super Data Temporary", "code": "SDC"},
@@ -270,6 +286,41 @@ def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, au
     )
     assert r.status_code == 201, r.text
     department_id = r.json()["id"]
+
+    r = client.get("/api/admin/super-data/tables", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    editable = {
+        (table["name"], column["name"])
+        for table in r.json()
+        for column in table["columns"]
+        if column["editable"]
+    }
+    assert editable == {("departments", "name")}
+
+    r = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{department_id}",
+        json={"values": {"code": "BAD"}},
+        headers=auth_headers,
+    )
+    assert r.status_code == 403, r.text
+
+    with SessionLocal() as db:
+        admin = db.query(User).filter(User.email == "admin@example.com").one()
+        admin_id = admin.id
+        original_factory = admin.factory_code
+        alternate_factory_headers = {
+            "Authorization": f"Bearer {create_access_token(admin.id, extra={'factory_code': 'BST'})}"
+        }
+
+    r = client.patch(
+        f"/api/admin/super-data/tables/users/rows/{admin_id}",
+        json={"values": {"factory_code": "ECO"}},
+        headers=alternate_factory_headers,
+    )
+    assert r.status_code == 403, r.text
+
+    with SessionLocal() as db:
+        assert db.get(User, admin_id).factory_code == original_factory
 
     r = client.patch(
         f"/api/admin/super-data/tables/departments/rows/{department_id}",
@@ -279,16 +330,67 @@ def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, au
     assert r.status_code == 200, r.text
     assert r.json()["name"] == "Super Data Edited"
 
+    with SessionLocal() as db:
+        audit = (
+            db.query(AuditLog)
+            .filter_by(action="update", entity_type="SuperData:departments", entity_id=department_id)
+            .one()
+        )
+        assert audit.old_value_json["name"] == "Super Data Temporary"
+        assert audit.new_value_json["name"] == "Super Data Edited"
+
     r = client.get("/api/admin/super-data/tables/departments?q=Super%20Data%20Edited", headers=auth_headers)
     assert r.status_code == 200, r.text
     assert any(row["id"] == department_id for row in r.json()["rows"])
 
     r = client.delete(f"/api/admin/super-data/tables/departments/rows/{department_id}", headers=auth_headers)
-    assert r.status_code == 204, r.text
+    assert r.status_code == 409, r.text
+    assert "soft-delete" in r.json()["detail"]
 
     r = client.get("/api/admin/super-data/tables/departments?q=Super%20Data%20Edited", headers=auth_headers)
     assert r.status_code == 200, r.text
-    assert not any(row["id"] == department_id for row in r.json()["rows"])
+    assert any(row["id"] == department_id for row in r.json()["rows"])
+
+    with SessionLocal() as db:
+        assert db.get(Department, department_id) is not None
+        assert (
+            db.query(AuditLog)
+            .filter_by(action="delete", entity_type="SuperData:departments", entity_id=department_id)
+            .count()
+            == 0
+        )
+
+
+def test_super_data_update_rolls_back_when_audit_fails(client, auth_headers, monkeypatch):
+    from app.api.routes import super_data
+
+    r = client.post(
+        "/api/departments",
+        json={"name": "Super Data Rollback", "code": "SDR"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    department_id = r.json()["id"]
+
+    def fail_audit(*args, **kwargs):
+        raise SQLAlchemyError("synthetic audit failure")
+
+    monkeypatch.setattr(super_data, "log_action", fail_audit)
+    r = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{department_id}",
+        json={"values": {"name": "Must Roll Back"}},
+        headers=auth_headers,
+    )
+    assert r.status_code == 400, r.text
+
+    with SessionLocal() as db:
+        assert db.get(Department, department_id).name == "Super Data Rollback"
+        assert (
+            db.query(AuditLog)
+            .filter_by(action="update", entity_type="SuperData:departments", entity_id=department_id)
+            .count()
+            == 0
+        )
 
 
 # ---------- H2: permission gating on state changes ----------
