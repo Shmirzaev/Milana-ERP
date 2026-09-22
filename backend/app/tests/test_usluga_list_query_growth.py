@@ -332,11 +332,11 @@ def test_usluga_order_list_pagination_has_total_and_preserves_order():
     assert parent and all(" limit " in statement for statement in parent if "count" not in statement)
 
 
-def test_usluga_order_list_legacy_response_is_capped():
+def test_usluga_order_list_legacy_response_remains_unpaged():
     with SessionLocal() as db:
         status, _ = _order_set(db, 501)
     with SessionLocal() as db:
         payload = usluga.list_usluga_orders(db, _eco_user(), status=status)
 
     assert isinstance(payload, list)
-    assert len(payload) == 500
+    assert len(payload) == 501

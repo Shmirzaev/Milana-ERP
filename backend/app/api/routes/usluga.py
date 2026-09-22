@@ -639,9 +639,7 @@ def list_usluga_orders(
     if status:
         query = query.filter(ProductionOrder.status == status)
     # Keep the historical list response for callers that do not opt into
-    # pagination, but impose a bounded legacy cap so this endpoint cannot
-    # materialize an unbounded order history.  New callers can request a
-    # page and receive total/page metadata without changing row payloads.
+    # pagination. New callers can request a bounded page with metadata.
     paginated = page is not None or page_size is not None
     safe_page = page or 1
     safe_page_size = page_size or 500
@@ -650,7 +648,7 @@ def list_usluga_orders(
     if paginated:
         orders = ordered_query.offset((safe_page - 1) * safe_page_size).limit(safe_page_size).all()
     else:
-        orders = ordered_query.limit(500).all()
+        orders = ordered_query.all()
     if not orders:
         if paginated:
             return {"rows": [], "total": total or 0, "page": safe_page, "page_size": safe_page_size}
