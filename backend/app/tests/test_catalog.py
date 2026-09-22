@@ -1483,3 +1483,44 @@ def test_rename_model_group_uses_bounded_family_queries_without_code_prefix_assu
     assert all(" where " in f" {sql} " for sql in normalized_statements)
     assert "json_extract" in statements[0].lower()
     assert " in " in f" {normalized_statements[1]} "
+
+
+def test_clone_code_allocation_uses_one_bounded_prefix_query():
+    from uuid import uuid4
+
+    from sqlalchemy import event
+
+    from app.api.routes.catalog import _unique_model_copy_code
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex
+    source_code = f"CLONE-{marker}-{'X' * 40}"[:64]
+
+    def expected_code(index: int) -> str:
+        suffix = "-COPY" if index == 1 else f"-COPY-{index}"
+        return f"{source_code[: max(1, 64 - len(suffix))]}{suffix}"
+
+    with TestSessionLocal() as db:
+        db.add_all(
+            [
+                Model(code=source_code, name="source"),
+                *[Model(code=expected_code(n), name="copy") for n in range(1, 25)],
+            ]
+        )
+        db.flush()
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT") and "model" in statement.lower():
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            candidate = _unique_model_copy_code(db, source_code)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert candidate == expected_code(25)
+    assert len(statements) == 1
+    assert "like" in statements[0].lower()

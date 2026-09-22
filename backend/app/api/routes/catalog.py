@@ -1079,11 +1079,25 @@ def _rename_model_group(
 
 
 def _unique_model_copy_code(db: DbSession, source_code: str) -> str:
+    # Probe the bounded candidate namespace in one query. Candidate bases are
+    # truncated differently as the numeric suffix grows, so include one prefix
+    # for every suffix-width group instead of assuming a single common base.
+    suffix_samples = ("-COPY", "-COPY-2", "-COPY-10", "-COPY-100", "-COPY-1000")
+    copy_prefixes = {
+        f"{source_code[: max(1, 64 - len(suffix))]}{'-COPY' if suffix == '-COPY' else '-COPY-'}"
+        for suffix in suffix_samples
+    }
+    existing_codes = {
+        code
+        for (code,) in db.query(Model.code)
+        .filter(or_(*(Model.code.startswith(prefix, autoescape=True) for prefix in copy_prefixes)))
+        .all()
+    }
     for index in range(1, 10_000):
         suffix = "-COPY" if index == 1 else f"-COPY-{index}"
         base = source_code[: max(1, 64 - len(suffix))]
         candidate = f"{base}{suffix}"
-        if not db.query(Model.id).filter(Model.code == candidate).first():
+        if candidate not in existing_codes:
             return candidate
     raise HTTPException(409, "Could not create a unique cloned model code")
 
