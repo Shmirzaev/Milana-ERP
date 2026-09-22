@@ -11,8 +11,9 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from anyio import CancelScope
 from PIL import Image
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
@@ -144,6 +145,87 @@ def test_real_logo_upload_and_partial_patch_preserve_company_fields(client, auth
     patched = client.patch("/api/settings/company_info", headers=auth_headers, json={"phone": "456"})
     assert patched.status_code == 200
     assert patched.json() == {"name": "Synthetic", "address": "Keep address", "phone": "456", "email": None, "logo_url": logo}
+
+
+def test_logo_transaction_failure_removes_new_files_and_preserves_existing_logo(tmp_path, monkeypatch):
+    previous_url = "/storage/model-files/existing-company-logo.webp"
+    _seed("company_info", {
+        "name": "Synthetic",
+        "address": "Keep address",
+        "phone": "123",
+        "email": None,
+        "logo_url": previous_url,
+    })
+    previous_file = tmp_path / "existing-company-logo.webp"
+    previous_file.write_bytes(b"keep the configured logo")
+    unrelated = tmp_path / "unrelated.webp"
+    unrelated.write_bytes(b"keep unrelated content")
+    monkeypatch.setattr(settings_routes.app_settings, "MODEL_FILES_DIR", str(tmp_path))
+
+    data = BytesIO()
+    Image.new("RGB", (12, 12), "white").save(data, format="PNG")
+    upload = UploadFile(file=BytesIO(data.getvalue()), filename="replacement.png")
+    before_state = _state()
+    try:
+        with TestSessionLocal() as db:
+            current = db.query(User).filter(User.email == "admin@example.com").one()
+
+            def fail_commit():
+                raise RuntimeError("Synthetic logo commit failure")
+
+            monkeypatch.setattr(db, "commit", fail_commit)
+            with pytest.raises(RuntimeError, match="Synthetic logo commit failure"):
+                asyncio.run(settings_routes.upload_company_logo(db, file=upload, current=current))
+    finally:
+        asyncio.run(upload.close())
+
+    assert _state() == before_state
+    assert previous_file.read_bytes() == b"keep the configured logo"
+    assert unrelated.read_bytes() == b"keep unrelated content"
+    assert list(tmp_path.glob("company_logo_*.webp")) == []
+    assert list((tmp_path / "_thumbs").glob("*")) == []
+
+
+def test_logo_cancellation_shields_new_file_cleanup(tmp_path, monkeypatch):
+    previous_url = "/storage/model-files/existing-company-logo.webp"
+    _seed("company_info", {
+        "name": "Synthetic",
+        "address": None,
+        "phone": None,
+        "email": None,
+        "logo_url": previous_url,
+    })
+    previous_file = tmp_path / "existing-company-logo.webp"
+    previous_file.write_bytes(b"keep the configured logo")
+    monkeypatch.setattr(settings_routes.app_settings, "MODEL_FILES_DIR", str(tmp_path))
+
+    data = BytesIO()
+    Image.new("RGB", (12, 12), "white").save(data, format="PNG")
+    upload = UploadFile(file=BytesIO(data.getvalue()), filename="cancelled.png")
+    before_state = _state()
+
+    async def run():
+        with TestSessionLocal() as db:
+            current = db.query(User).filter(User.email == "admin@example.com").one()
+            with CancelScope() as scope:
+                def cancel_after_file_write(_db, _section):
+                    scope.cancel()
+                    raise asyncio.CancelledError
+
+                monkeypatch.setattr(settings_routes, "_setting_for_update", cancel_after_file_write)
+                with pytest.raises(asyncio.CancelledError):
+                    await settings_routes.upload_company_logo(db, file=upload, current=current)
+                assert scope.cancel_called
+
+    try:
+        asyncio.run(run())
+    finally:
+        asyncio.run(upload.close())
+
+    assert _state() == before_state
+    assert previous_file.read_bytes() == b"keep the configured logo"
+    assert list(tmp_path.glob("company_logo_*.webp")) == []
+    assert list((tmp_path / "_thumbs").glob("*")) == []
 
 
 @pytest.fixture(scope="module")

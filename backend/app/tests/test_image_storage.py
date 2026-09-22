@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from io import BytesIO
+from itertools import count
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image, ImageChops, ImageStat
@@ -79,3 +83,40 @@ def test_prebuilt_thumbnails_roll_back_when_a_later_size_fails(tmp_path, monkeyp
     assert pre_existing.read_bytes() == b"keep the previous thumbnail"
     assert unrelated.read_bytes() == b"keep this unrelated thumbnail"
     assert not (tmp_path / "320_sample.webp.webp").exists()
+
+
+def test_upload_name_collision_preserves_existing_original_and_thumbnails(tmp_path, monkeypatch):
+    collision_name = "synthetic_collision.webp"
+    previous_original = tmp_path / collision_name
+    previous_original.write_bytes(b"keep previous original")
+    previous_thumbnails = [
+        tmp_path / "_thumbs" / f"{size}_{collision_name}.webp"
+        for size in image_storage.PREBUILT_THUMBNAIL_SIZES
+    ]
+    for path in previous_thumbnails:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"keep previous {path.name}".encode())
+
+    sequence = count()
+
+    def predictable_uuid():
+        number = next(sequence)
+        return SimpleNamespace(hex="collision" if number == 0 else f"fresh{number}")
+
+    monkeypatch.setattr(image_storage, "uuid4", predictable_uuid)
+    stored = image_storage._store_image_content(
+        _image_bytes("PNG"),
+        target_dir=str(tmp_path),
+        file_url_base="/storage/test",
+        name_prefix="synthetic",
+        prebuild_thumbnails=True,
+    )
+
+    assert stored.file_name != collision_name
+    assert previous_original.read_bytes() == b"keep previous original"
+    assert all(path.read_bytes() == f"keep previous {path.name}".encode() for path in previous_thumbnails)
+
+    asyncio.run(image_storage.discard_stored_image(stored))
+    assert not Path(stored.absolute_path).exists()
+    assert previous_original.read_bytes() == b"keep previous original"
+    assert all(path.read_bytes() == f"keep previous {path.name}".encode() for path in previous_thumbnails)

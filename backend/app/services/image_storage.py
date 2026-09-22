@@ -12,7 +12,7 @@ from pathlib import Path
 from threading import BoundedSemaphore
 from uuid import uuid4
 
-from anyio import CapacityLimiter, to_thread
+from anyio import CancelScope, CapacityLimiter, to_thread
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -247,6 +247,35 @@ async def store_uploaded_image(
         ))
 
 
+async def discard_stored_image(stored: StoredImage) -> None:
+    with CancelScope(shield=True):
+        await to_thread.run_sync(partial(_discard_stored_image_files, stored))
+
+
+def _discard_stored_image_files(stored: StoredImage) -> None:
+    original = Path(stored.absolute_path)
+    thumbnail_root = original.parent / "_thumbs"
+    for size in PREBUILT_THUMBNAIL_SIZES:
+        (thumbnail_root / f"{size}_{stored.file_name}.webp").unlink(missing_ok=True)
+    original.unlink(missing_ok=True)
+
+
+def _new_stored_image_path(target_dir: str, name_prefix: str) -> tuple[str, Path]:
+    root = Path(target_dir)
+    thumbnail_root = root / "_thumbs"
+    prefix = _safe_prefix(name_prefix)
+    for _ in range(16):
+        file_name = f"{prefix}_{uuid4().hex}.webp"
+        absolute_path = root / file_name
+        thumbnails = [
+            thumbnail_root / f"{size}_{file_name}.webp"
+            for size in PREBUILT_THUMBNAIL_SIZES
+        ]
+        if not absolute_path.exists() and not any(path.exists() for path in thumbnails):
+            return file_name, absolute_path
+    raise HTTPException(500, "Could not allocate image storage name")
+
+
 def _store_image_content(
     content: bytes,
     *,
@@ -256,8 +285,7 @@ def _store_image_content(
     prebuild_thumbnails: bool,
 ) -> StoredImage:
     converted = convert_image_to_webp(content)
-    file_name = f"{_safe_prefix(name_prefix)}_{uuid4().hex}.webp"
-    absolute_path = Path(target_dir) / file_name
+    file_name, absolute_path = _new_stored_image_path(target_dir, name_prefix)
     _atomic_write(absolute_path, converted.data)
     if prebuild_thumbnails:
         try:

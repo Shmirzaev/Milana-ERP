@@ -111,7 +111,7 @@ async def upload_company_logo(
     file: UploadFile = File(...),
     current: User = Depends(require_permissions("*")),
 ):
-    from app.services.image_storage import store_uploaded_image
+    from app.services.image_storage import discard_stored_image, store_uploaded_image
 
     stored = await store_uploaded_image(
         file,
@@ -123,15 +123,22 @@ async def upload_company_logo(
     )
     logo_url = stored.file_url
 
-    row = _setting_for_update(db, "company_info")
-    company = CompanyInfo(**(row.value_json if row and isinstance(row.value_json, dict) else {})).model_dump()
-    company["logo_url"] = logo_url
-    if row:
-        row.value_json = CompanyInfo(**company).model_dump()
-    else:
-        row = SystemSetting(key="company_info", value_json=CompanyInfo(**company).model_dump())
-        db.add(row)
-        db.flush()
-    log_action(db, current, "upload_logo", "SystemSetting", row.id, new_value={"logo_url": logo_url})
-    db.commit()
+    try:
+        row = _setting_for_update(db, "company_info")
+        company = CompanyInfo(**(row.value_json if row and isinstance(row.value_json, dict) else {})).model_dump()
+        company["logo_url"] = logo_url
+        if row:
+            row.value_json = CompanyInfo(**company).model_dump()
+        else:
+            row = SystemSetting(key="company_info", value_json=CompanyInfo(**company).model_dump())
+            db.add(row)
+            db.flush()
+        log_action(db, current, "upload_logo", "SystemSetting", row.id, new_value={"logo_url": logo_url})
+        db.commit()
+    except BaseException:
+        try:
+            db.rollback()
+        finally:
+            await discard_stored_image(stored)
+        raise
     return {"logo_url": logo_url}
