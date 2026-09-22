@@ -1035,8 +1035,8 @@
       "baseline_source": "backend/app/api/routes/production.py:3012",
       "status": "partial",
       "owner": null,
-      "commit": "57a0b35, b4e91e5, 82824ef",
-      "evidence": "Existing cutting-batch and Usluga scan-log preloads remain. Commit 82824ef replaces per-BOM-row Item gets during packaging material consumption with one batched read while preserving BOM order, packaging-only filtering, missing-item skips and calculated quantities. The combined HR/packaging slice passes23 and the focused test asserts one Item query. Other cutting/packaging write and serialization paths remain."
+      "commit": "57a0b35, b4e91e5, 82824ef, 4a0ee8e",
+      "evidence": "Existing cutting-batch/Usluga scan-log and packaging BOM/Item preloads remain. Packaging receipt listing now joins receipt/order/batch/bundle/model/sales references once: at1/50/401 seeded receipts, reference SELECTs fall5/201/801 to1/1/1 and total endpoint SELECTs stay3/3/3 with the200-row cap. Seven tests preserve scalar payloads, order, null optional refs, read-only failure, authentication and factory denial. Other cutting/packaging paths remain."
     },
     {
       "number": 87,
@@ -1215,8 +1215,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "29d9aed, ac27943, 9e50847, 35182b8, 2978048, a66321b, a8307d8, 7b45c23, 58b9317, 64f97e9",
-      "evidence": "Reviewed SQL bounds cover notifications, admin users, HR recruitment/employees, dashboard active production, finance invoices, brands, Finished Goods and HR Documents. Commit 64f97e9 adds opt-in SQL pagination and global scheduled-event metrics for HR Calendar while preserving the legacy array, then migrates the sole UI consumer to page aggregation/load-more. Backend legacy/page/metrics/empty cases, real component harness, stabilization, strict types and lint pass. Other business lists/reports/exports remain open."
+      "commit": "29d9aed, ac27943, 9e50847, 35182b8, 2978048, a66321b, a8307d8, 7b45c23, 58b9317, 64f97e9, 0c51202",
+      "evidence": "Reviewed SQL bounds cover notifications, admin users, HR recruitment/employees, dashboard active production, finance invoices, brands, Finished Goods, HR Documents and Calendar. Purchasing requests now retain the legacy array when unpaged and offer opt-in1..500 SQL pages; the sole frontend GET consumer aggregates100-row pages with a real Load more handler. Nine backend cases plus the component harness, stabilization, strict types and lint preserve ordering, totals, lines, permissions, materials filtering and deferred item directories. Other lists/reports/exports remain open."
     },
     {
       "number": 102,
@@ -1275,8 +1275,8 @@
       "baseline_source": "backend/app/services/image_storage.py:180",
       "status": "partial",
       "owner": null,
-      "commit": "170200f, 503d068",
-      "evidence": "Partial: upload conversion/original write/thumbnails run off event loop, one upload slot per process acquired before buffering. Thumbnail batches now roll back earlier generated files after a later size fails and atomically restore a pre-existing same-name target; the focused regression passes within a 42-test combined slice. Async route SQL, cross-process capacity and broader upload/source-file lifecycle remain open."
+      "commit": "170200f, 503d068, 940acd5",
+      "evidence": "Upload conversion/original writes/thumbnails run off the event loop with one upload slot per process. Thumbnail batches restore earlier/pre-existing files on failure. Failed or cancelled company-logo transactions now roll back and cancellation-shielded cleanup removes only their new exact original/thumbnails; name allocation rejects collisions with originals or derived thumbnails. Twenty-five focused cases pass with4 PostgreSQL-only skips. Other upload routes, async SQL, cross-process capacity and broader lifecycle remain open."
     },
     {
       "number": 107,
