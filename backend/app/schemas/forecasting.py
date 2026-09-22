@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,7 +23,11 @@ class ForecastRecommendationIn(BaseModel):
     collection_id: int | None = None
     color: str | None = None
     size: str | None = None
-    suggested_quantity: float = Field(gt=0)
+    suggested_quantity: Decimal = Field(
+        gt=0,
+        le=Decimal("9999999999.9999"),
+        allow_inf_nan=False,
+    )
     unit: str | None = None
     confidence: str | None = None
     reason: str | None = None
