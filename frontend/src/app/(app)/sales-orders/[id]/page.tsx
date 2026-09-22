@@ -19,7 +19,8 @@ export default function SalesOrderDetail() {
   const isNumericId = /^\d+$/.test(String(id || ""));
   const { data: so, error: orderError, isLoading: orderLoading, mutate } = useSWR<any>(isNumericId ? `/api/sales-orders/${id}` : null, fetcher);
   const { data: mr } = useSWR<any[]>(so ? `/api/planning/material-requirements/${id}` : null, fetcher);
-  const { data: processes } = useSWR<any[]>(so ? "/api/process-tracking" : null, fetcher);
+  const processesKey = so && so.status !== "draft" ? "/api/process-tracking" : null;
+  const { data: processes } = useSWR<any[]>(processesKey, fetcher);
   const [msg, setMsg] = useState("");
   const linkedProcesses = (processes || []).filter((p) => String(p.sales_order_id) === String(id));
   const activeProcess = linkedProcesses.find((p) => p.current_stage !== "completed") || linkedProcesses[0];
