@@ -11,7 +11,7 @@ from app.core.pagination import clamp_pagination
 from app.models import Department, Notification, Role, User
 from app.schemas.tasks import NotificationOut
 from app.services.audit import log_action
-from app.services.notifications import notify
+from app.services.notifications import notify_many
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -147,10 +147,14 @@ def send_notification(
     title = payload.title.strip()
     message = payload.message.strip() if payload.message else None
     link = _safe_link(payload.link)
-    created_ids: list[int] = []
-    for recipient in recipients:
-        created = notify(db, user_id=recipient.id, title=title, message=message, link=link)
-        created_ids.append(int(created.id))
+    created = notify_many(
+        db,
+        [int(recipient.id) for recipient in recipients],
+        title=title,
+        message=message,
+        link=link,
+    )
+    created_ids = [int(row.id) for row in created]
 
     linked_entity = None
     if payload.entity_type or payload.entity_id:
