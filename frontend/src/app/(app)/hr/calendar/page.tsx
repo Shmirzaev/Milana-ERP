@@ -2,12 +2,13 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { useHrCalendarEmployees } from "@/lib/useHrCalendarEmployees";
 import Modal from "@/components/Modal";
 import { HrHeader, LoadState, MetricGrid } from "@/components/hr/HrUi";
 type Employee = { id: number; full_name: string };
 type Event = { id: number; employee_id: number | null; event_type: string; title: string; starts_at: string; ends_at: string | null; notes: string | null; status: string };
 const TYPES = ["birthday", "contract_expiry", "probation_end", "leave", "training", "interview", "medical_check", "certification", "performance_review", "other"];
-export default function HrCalendarPage() { const { data, error, isLoading, mutate } = useSWR<Event[]>("/api/hr/calendar", fetcher); const { data: employees } = useSWR<Employee[]>("/api/employees", fetcher); const [open, setOpen] = useState(false); const [message, setMessage] = useState(""); const [form, setForm] = useState({ employee_id: "", event_type: "leave", title: "", starts_at: "", ends_at: "", notes: "", status: "scheduled" });
+export default function HrCalendarPage() { const { data, error, isLoading, mutate } = useSWR<Event[]>("/api/hr/calendar", fetcher); const [open, setOpen] = useState(false); const { data: employees } = useHrCalendarEmployees(open); const [message, setMessage] = useState(""); const [form, setForm] = useState({ employee_id: "", event_type: "leave", title: "", starts_at: "", ends_at: "", notes: "", status: "scheduled" });
   const [renderedAt] = useState(() => Date.now());
   async function create(e: React.FormEvent) { e.preventDefault(); setMessage(""); try { await api.post("/api/hr/calendar", { ...form, employee_id: form.employee_id ? Number(form.employee_id) : null, starts_at: new Date(form.starts_at).toISOString(), ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null }); await mutate(); setOpen(false); } catch (err: unknown) { setMessage(String((err as Error)?.message || err)); } }
   const upcoming = data?.filter((r) => new Date(r.starts_at).getTime() >= renderedAt && r.status === "scheduled") || [];
