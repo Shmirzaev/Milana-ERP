@@ -39,10 +39,13 @@ export default function PackagesPage() {
   const canTraceability = can(me, "traceability.view");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: pageData, mutate } = useSWR<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}&packaging_department_code=${packagingDepartment}`, fetcher);
-  const { data: pendingRequests, mutate: mutatePendingRequests } = useSWR<any[]>(`/api/packages/change-requests?status=pending&packaging_department_code=${packagingDepartment}`, fetcher);
-  const data = useMemo<any[]>(() => pageData?.rows || [], [pageData?.rows]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const { data: pageData, mutate } = useSWR<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}&packaging_department_code=${packagingDepartment}`, fetcher);
+  const pendingRequestsKey = Object.values(expandedGroups).some(Boolean)
+    ? `/api/packages/change-requests?status=pending&packaging_department_code=${packagingDepartment}`
+    : null;
+  const { data: pendingRequests, mutate: mutatePendingRequests } = useSWR<any[]>(pendingRequestsKey, fetcher);
+  const data = useMemo<any[]>(() => pageData?.rows || [], [pageData?.rows]);
   const [editing, setEditing] = useState<any | null>(null);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [deleting, setDeleting] = useState<any | null>(null);
