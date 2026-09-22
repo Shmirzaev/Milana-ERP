@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.deps import DbSession, require_permissions
 from app.models import Brand, Collection, ForecastRecommendation, Item, Model, User
 from app.schemas.forecasting import (
     ForecastRecommendationIn,
     ForecastRecommendationOut,
+    ForecastRecommendationPageOut,
     ForecastRecommendationPatch,
 )
 from app.services.audit import log_action
@@ -127,17 +129,36 @@ def create_forecast_recommendation(
     return _recommendation_payload(row)
 
 
-@router.get("/recommendations", response_model=list[ForecastRecommendationOut])
+@router.get(
+    "/recommendations",
+    response_model=list[ForecastRecommendationOut] | ForecastRecommendationPageOut,
+)
 def list_forecast_recommendations(
     db: DbSession,
     _: object = Depends(require_permissions("forecasting.view", "*")),
     status: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = db.query(ForecastRecommendation)
     if status:
         qry = qry.filter(ForecastRecommendation.status == status)
-    rows = qry.order_by(ForecastRecommendation.id.desc()).limit(500).all()
-    return [_recommendation_payload(row) for row in rows]
+    ordered_qry = qry.order_by(ForecastRecommendation.id.desc())
+    if page is None and page_size is None:
+        rows = ordered_qry.limit(500).all()
+        return [_recommendation_payload(row) for row in rows]
+
+    page = page or 1
+    page_size = page_size or 50
+    total = qry.order_by(None).count()
+    rows = ordered_qry.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": [_recommendation_payload(row) for row in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.patch("/recommendations/{recommendation_id}", response_model=ForecastRecommendationOut)

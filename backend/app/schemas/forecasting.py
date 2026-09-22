@@ -55,3 +55,11 @@ class ForecastRecommendationOut(ORMModel):
     reviewed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ForecastRecommendationPageOut(BaseModel):
+    rows: list[ForecastRecommendationOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
