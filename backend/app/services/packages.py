@@ -417,6 +417,7 @@ def create_package(
     notes: str | None = None,
     packaging_department_code: str | None = None,
     _cost_cache: dict[int, float] | None = None,
+    _sync_production: bool = True,
 ) -> Package:
     if not items:
         raise HTTPException(400, "Package must contain at least one size line")
@@ -626,7 +627,8 @@ def create_package(
 
     db.flush()
     # Storage transfer stage becomes actionable as soon as a package exists.
-    sync_production_order_status(db, production_order_id)
+    if _sync_production:
+        sync_production_order_status(db, production_order_id)
     if po.source_type != "usluga":
         notify_department(
             db,
@@ -708,6 +710,7 @@ def create_packages_bulk(
                 notes=notes,
                 packaging_department_code=packaging_department_code,
                 _cost_cache=cost_cache,
+                _sync_production=index in {0, count - 1},
             )
         )
     return created

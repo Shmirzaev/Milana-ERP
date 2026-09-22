@@ -74,7 +74,7 @@ def _bulk_order() -> tuple[int, int, float]:
         return int(order.id), int(model.id), 30.0
 
 
-def _stub_unrelated_bulk_work(monkeypatch) -> None:
+def _stub_unrelated_bulk_work(monkeypatch, *, stub_sync: bool = True) -> None:
     monkeypatch.setattr(
         package_service,
         "_enforce_packaged_quantity_available",
@@ -86,8 +86,51 @@ def _stub_unrelated_bulk_work(monkeypatch) -> None:
         lambda _payload, package_no: f"/test/{package_no}.png",
     )
     monkeypatch.setattr(package_service, "save_barcode_image", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(package_service, "sync_production_order_status", lambda *_args, **_kwargs: None)
+    if stub_sync:
+        monkeypatch.setattr(package_service, "sync_production_order_status", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(package_service, "notify_department", lambda *_args, **_kwargs: None)
+
+
+@pytest.mark.parametrize("package_count", [1, 50, 401])
+def test_bulk_package_workflow_status_reads_are_constant(monkeypatch, package_count):
+    order_id, model_id, _expected_cost = _bulk_order()
+    _stub_unrelated_bulk_work(monkeypatch, stub_sync=False)
+    work_order_selects: list[str] = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from work_orders " in normalized:
+            work_order_selects.append(normalized)
+
+    with SessionLocal() as db:
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            packages = package_service.create_packages_bulk(
+                db,
+                count=package_count,
+                production_order_id=order_id,
+                model_id=model_id,
+                color="navy",
+                items=[
+                    {
+                        "model_id": model_id,
+                        "color": "navy",
+                        "size": "M",
+                        "quantity": 1,
+                    }
+                ],
+                capacity=1,
+                packaging_department_code="PKG",
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+        assert len(packages) == package_count
+        assert [int(package.id) for package in packages] == sorted(int(package.id) for package in packages)
+        assert {package.status for package in packages} == {"packed"}
+        assert db.get(ProductionOrder, order_id).status == "planning"
+
+    assert len(work_order_selects) == (1 if package_count == 1 else 2)
 
 
 @pytest.mark.parametrize("package_count", [1, 50, 401])
@@ -189,7 +232,7 @@ def test_bulk_cost_reuse_preserves_order_weights_and_item_rows(monkeypatch):
 
 def test_bulk_creation_failure_rolls_back_cached_cost_work(monkeypatch):
     order_id, model_id, _expected_cost = _bulk_order()
-    _stub_unrelated_bulk_work(monkeypatch)
+    _stub_unrelated_bulk_work(monkeypatch, stub_sync=False)
     calls = 0
 
     def fail_second_qr(_payload, package_no):
@@ -223,6 +266,7 @@ def test_bulk_creation_failure_rolls_back_cached_cost_work(monkeypatch):
         db.rollback()
 
     with SessionLocal() as db:
+        assert db.get(ProductionOrder, order_id).status == "packaging"
         assert db.query(Package).filter(Package.production_order_id == order_id).count() == 0
         assert (
             db.query(FinishedGoodsStock)
