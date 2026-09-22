@@ -1,10 +1,14 @@
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import DbSession, require_permissions
 from app.models import BrandedPlanningOrder, Customer, Department, Model, User, SalesOrder, WorkOrder
 from app.schemas.production import (
     BrandedPlanningOrderIn,
+    BrandedPlanningOrderListOut,
+    BrandedPlanningOrderPageOut,
     MaterialRequirement,
     ProductionOrderIn,
     ProductionOrderOut,
@@ -114,16 +118,29 @@ def branded_order_parties(
     }
 
 
-@router.get("/branded-orders")
+@router.get(
+    "/branded-orders",
+    response_model=list[BrandedPlanningOrderListOut] | BrandedPlanningOrderPageOut,
+)
 def list_branded_orders(
     db: DbSession,
     _: User = Depends(require_permissions("planning.production", "*")),
     status: str | None = "open",
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     query = db.query(BrandedPlanningOrder).options(joinedload(BrandedPlanningOrder.production_orders))
     if status:
         query = query.filter(BrandedPlanningOrder.status == status)
-    rows = query.order_by(BrandedPlanningOrder.id.desc()).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.order_by(None).count()
+    query = query.order_by(BrandedPlanningOrder.id.desc())
+    if total is not None:
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    rows = query.all()
     model_ids = {
         int(production.model_id)
         for order in rows
@@ -170,7 +187,16 @@ def list_branded_orders(
         }
         for production_id, works in cutting_by_production.items()
     }
-    return [_branded_order_payload(row, model_by_id, cutting_by_id, cutting_details_by_id) for row in rows]
+    payloads = [_branded_order_payload(row, model_by_id, cutting_by_id, cutting_details_by_id) for row in rows]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/branded-orders", status_code=201)

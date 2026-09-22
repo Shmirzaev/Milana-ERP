@@ -209,6 +209,48 @@ class BrandedPlanningOrderOut(ORMModel):
     updated_at: datetime
 
 
+class BrandedPlanningModelOut(SchemaModel):
+    id: int
+    code: Optional[str] = None
+    name: Optional[str] = None
+    primary_image_url: Optional[str] = None
+    variant_fabric: Optional[str] = None
+    fabric_image_url: Optional[str] = None
+
+
+class BrandedPlanningCuttingDepartmentOut(SchemaModel):
+    code: str
+    name: str
+
+
+class BrandedPlanningProductionOut(SchemaModel):
+    id: int
+    order_no: Optional[str] = None
+    production_no: str
+    model_id: int
+    model: Optional[BrandedPlanningModelOut] = None
+    planned_quantity: int
+    status: str
+    cutting_status: str
+    cutting_quantity: int
+    cutting_departments: list[BrandedPlanningCuttingDepartmentOut]
+
+
+class BrandedPlanningOrderListOut(BrandedPlanningOrderOut):
+    production_count: int
+    total_quantity: int
+    cutting_status: str
+    productions: list[BrandedPlanningProductionOut]
+
+
+class BrandedPlanningOrderPageOut(SchemaModel):
+    rows: list[BrandedPlanningOrderListOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class WorkOrderOut(ORMModel):
     id: int
     sewing_assignment_id: Optional[int] = None
