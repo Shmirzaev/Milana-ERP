@@ -12,7 +12,7 @@ from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionOrde
 from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
-from app.services.factory_scope import require_work_order_factory_access
+from app.services.factory_scope import require_operational_department_access
 from app.schemas.cutting_passport import (
     CuttingOperatorOut,
     CuttingPassportIn,
@@ -557,6 +557,20 @@ def get_passport(pid: int, db: DbSession, current: CurrentUser):
     return _serialize(p, db)
 
 
+def _cutting_work_order_with_department(db, order_id, *, lock=False):
+    query = (
+        db.query(WorkOrder, Department.code)
+        .join(Department, Department.id == WorkOrder.department_id)
+        .filter(
+            WorkOrder.production_order_id == order_id,
+            WorkOrder.operation == "cutting",
+        )
+    )
+    if lock:
+        query = query.with_for_update(of=WorkOrder)
+    return query.first()
+
+
 def _passport_order(db, order_id, current, *, lock=False):
     order = db.query(ProductionOrder).filter(ProductionOrder.id == order_id)
     if lock:
@@ -564,15 +578,11 @@ def _passport_order(db, order_id, current, *, lock=False):
     order = order.first()
     if order is None:
         raise HTTPException(404, "Production order not found")
-    work_order = db.query(WorkOrder).filter(
-        WorkOrder.production_order_id == order.id, WorkOrder.operation == "cutting",
-    )
-    if lock:
-        work_order = work_order.with_for_update(of=WorkOrder)
-    work_order = work_order.first()
-    if work_order is None:
+    work_order_row = _cutting_work_order_with_department(db, order.id, lock=lock)
+    if work_order_row is None:
         raise HTTPException(400, "The order has no cutting work order")
-    require_work_order_factory_access(current, db, work_order)
+    work_order, department_code = work_order_row
+    require_operational_department_access(current, department_code)
     return order, work_order
 
 
@@ -706,13 +716,10 @@ def create_passport(
     current: User = Depends(require_permissions("cutting.records", "*")),
 ):
     if payload.production_order_id:
-        from app.services.factory_scope import require_work_order_factory_access
-        work_order = db.query(WorkOrder).filter(
-            WorkOrder.production_order_id == payload.production_order_id,
-            WorkOrder.operation == "cutting",
-        ).first()
-        if work_order:
-            require_work_order_factory_access(current, db, work_order)
+        work_order_row = _cutting_work_order_with_department(db, payload.production_order_id)
+        if work_order_row:
+            _, department_code = work_order_row
+            require_operational_department_access(current, department_code)
     p = CuttingPassport(**_passport_values(db, payload, current))
     db.add(p)
     db.flush()
