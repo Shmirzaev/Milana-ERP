@@ -1,9 +1,10 @@
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, HTTPException, Depends, File, UploadFile
+from fastapi import APIRouter, Body, HTTPException, Depends, File, Query, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import String, and_, case, cast, func, or_
@@ -46,6 +47,7 @@ from app.schemas.production import (
     QualityCheckIn, QualityCheckOut,
     ProductionOrderSizesIn,
 )
+from app.schemas.work_order import WorkOrderPageOut
 from app.core.dt import as_utc
 from app.services.audit import log_action
 from app.services.packaging_scope import (
@@ -1658,7 +1660,7 @@ def admin_repair_totals(pid: int, db: DbSession, current: User = Depends(require
 
 
 # ===== Work Orders =====
-@router.get("/work-orders", response_model=list[WorkOrderOut])
+@router.get("/work-orders", response_model=list[WorkOrderOut] | WorkOrderPageOut)
 def list_wos(
     db: DbSession,
     current: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
@@ -1670,6 +1672,8 @@ def list_wos(
     unassigned_flow: bool = False,
     only_received_sewing: bool = False,
     sewing_factory_code: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = db.query(WorkOrder).options(joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order))
     if selected_factory_code(current) != "ECO":
@@ -1695,13 +1699,34 @@ def list_wos(
             .distinct()
         )
         qry = qry.filter(WorkOrder.production_order_id.in_(received_po_ids))
-    rows = qry.order_by(WorkOrder.id.desc()).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    qry = qry.order_by(WorkOrder.id.desc())
+    if total is not None:
+        qry = qry.offset((page - 1) * page_size).limit(page_size)
+    rows = qry.all()
     po_ids = [int(w.production_order_id) for w in rows]
     images_by_po = _work_order_images_by_po(db, po_ids)
     if only_received_sewing:
-        return _received_sewing_work_order_payloads(db, rows, images_by_po)
-    received_by_po = _received_bundle_totals_by_po(db, [int(w.production_order_id) for w in rows if w.operation == "sewing"])
-    return [_work_order_payload(w, received_by_po, images_by_po) for w in rows]
+        payloads = _received_sewing_work_order_payloads(db, rows, images_by_po)
+    else:
+        received_by_po = _received_bundle_totals_by_po(
+            db,
+            [int(w.production_order_id) for w in rows if w.operation == "sewing"],
+        )
+        payloads = [_work_order_payload(w, received_by_po, images_by_po) for w in rows]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/work-orders/{wid}", response_model=WorkOrderOut)
