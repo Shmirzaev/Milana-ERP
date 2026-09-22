@@ -31,6 +31,7 @@ from app.services.sewing_scope import require_sewing_flow_access
 router = APIRouter(tags=["production_extra"])
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
+_ASSIGNMENT_STATUSES = frozenset((*_ASSIGNMENT_MANAGED_STATUSES, "cancelled", "transferred"))
 # Blocking/unblocking a work order is a planning/management action.
 _WO_BLOCK_PERMS = (
     "planning.production",
@@ -290,6 +291,11 @@ def update_assignment(
         )
 
     capacity_warning = None
+    if "status" in changes:
+        next_status = str(changes["status"] or "").strip().lower()
+        if next_status not in _ASSIGNMENT_STATUSES:
+            raise HTTPException(400, "Invalid sewing assignment status")
+        changes["status"] = next_status
 
     previous_flow_id = int(a.sewing_flow_id)
     for k, v in changes.items():
