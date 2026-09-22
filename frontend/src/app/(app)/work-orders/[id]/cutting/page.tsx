@@ -335,7 +335,10 @@ export default function CuttingPage() {
     fetcher,
   );
   const canReadCustomers = can(me, "*", "sales.customers", "sales.orders", "finance.view");
-  const { data: customers = [] } = useSWR<any[]>(canReadCustomers ? "/api/customers" : null, fetcher);
+  const { data: customers = [] } = useSWR<any[]>(
+    canReadCustomers && so?.customer_id ? "/api/customers" : null,
+    fetcher,
+  );
   const { data: departments = [] } = useSWR<any[]>("/api/departments", fetcher);
   const { data: bundlePage, mutate: mutateBundles } = useSWR<any>(
     po?.id ? `/api/bundles?production_order_id=${po.id}&include_total=true&page=1&page_size=2000` : null,

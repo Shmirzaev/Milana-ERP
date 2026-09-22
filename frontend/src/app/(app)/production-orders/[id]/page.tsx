@@ -219,10 +219,8 @@ export default function ProductionOrderDetail() {
   const { data: flowUtil } = useSWR<FlowUtil[]>("/api/sewing-flows/utilization-snapshot", fetcher, { refreshInterval: 60_000 });
   const { data: users } = useSWR<any[]>(canPlan ? "/api/users" : null, fetcher);
   const { data: selectedModelDetail } = useSWR<ModelSummary>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
-  const { data: salesOrders } = useSWR<SalesOrderSummary[]>("/api/sales-orders?page_size=500", fetcher);
   const utilByFlow = new Map((flowUtil || []).map((u) => [u.flow_id, u]));
   const batchById = new Map<number, BatchMeta>(((po?.batches || []) as BatchMeta[]).map((b) => [b.id, b]));
-  const salesOrderById = new Map((salesOrders || []).map((so) => [so.id, so]));
   const selectedModel = selectedModelDetail || (
     po?.model_id && (po?.model_code || po?.model_name)
       ? { id: Number(po.model_id), code: po.model_code, name: po.model_name }
@@ -237,6 +235,11 @@ export default function ProductionOrderDetail() {
   const [edit, setEdit] = useState({ deadline: "", sewing_flow_id: 0, assigned_to: 0 });
   const [editMsg, setEditMsg] = useState("");
   const [summaryEditing, setSummaryEditing] = useState(false);
+  const { data: salesOrders } = useSWR<SalesOrderSummary[]>(
+    canEditSummary && summaryEditing ? "/api/sales-orders?page_size=500" : null,
+    fetcher,
+  );
+  const salesOrderById = new Map((salesOrders || []).map((so) => [so.id, so]));
   const [summaryDraft, setSummaryDraft] = useState({
     model_id: "",
     sales_order_id: "",

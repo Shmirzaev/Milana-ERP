@@ -431,7 +431,10 @@ export default function InventoryPage() {
     editingBatch && canEditItems ? `/api/inventory/items?group=${group}&page_size=500` : null,
     fetcher,
   );
-  const { data: warehouses } = useSWR<any[]>(canEditItems ? "/api/inventory/warehouses" : null, fetcher);
+  const { data: warehouses } = useSWR<any[]>(
+    canEditItems && editingBatch ? "/api/inventory/warehouses" : null,
+    fetcher,
+  );
   const { data: suppliers } = useSWR<any[]>(group === "materials" || canEditItems ? "/api/suppliers" : null, fetcher);
   const { data: productionOrders } = useSWR<any[]>(group === "accessories" ? "/api/production-orders?page_size=500" : null, fetcher);
   const inventoryModelOptionsKey = group === "accessories"

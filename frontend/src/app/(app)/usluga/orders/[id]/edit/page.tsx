@@ -67,11 +67,13 @@ export default function EditUslugaOrderPage() {
   const { t } = useT();
   const { me } = useMe();
   const canManage = can(me, "usluga.manage", "*");
-  const { data: order, error, isLoading } = useSWR<Order>(id ? `/api/usluga/orders/${id}` : null, fetcher);
+  const orderKey = id && canManage ? `/api/usluga/orders/${id}` : null;
+  const { data: order, error, isLoading } = useSWR<Order>(orderKey, fetcher);
   const initializedOrderId = useRef(0);
 
   const [modelId, setModelId] = useState(0);
-  const { data: selectedModel } = useSWR<UslugaModel>(modelId ? `/api/usluga/models/${modelId}` : null, fetcher);
+  const selectedModelKey = canManage && modelId ? `/api/usluga/models/${modelId}` : null;
+  const { data: selectedModel } = useSWR<UslugaModel>(selectedModelKey, fetcher);
   const [form, setForm] = useState({
     customer_name: "",
     customer_reference: "",
@@ -170,9 +172,10 @@ export default function EditUslugaOrderPage() {
     }
   }
 
-  if (isLoading || !me) return <div className="p-6 text-sm text-[#8a8472]">{t("common.loading")}</div>;
-  if (error || !order) return <div className="p-6 text-sm text-red-700">{t("usluga.loadFailed")}</div>;
+  if (!me) return <div className="p-6 text-sm text-[#8a8472]">{t("common.loading")}</div>;
   if (!canManage) return <div className="p-6 text-sm text-red-700">{t("usluga.accessDenied")}</div>;
+  if (isLoading) return <div className="p-6 text-sm text-[#8a8472]">{t("common.loading")}</div>;
+  if (error || !order) return <div className="p-6 text-sm text-red-700">{t("usluga.loadFailed")}</div>;
   if (order.handed_over_at) return <div className="p-6 text-sm text-red-700">{t("usluga.handedOverReadOnly")}</div>;
 
   return <div>

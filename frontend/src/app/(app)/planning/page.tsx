@@ -342,7 +342,7 @@ export default function PlanningDashboard() {
   const { data: brandedOrders, mutate: mutateBrandedOrders } = useSWR<BrandedPlanningOrder[]>("/api/planning/branded-orders", fetcher, { refreshInterval: 10_000 });
   const canViewForecasting = can(me, "forecasting.view");
   const { data: forecastSuggestions } = useSWR<any[]>(
-    canViewForecasting ? "/api/forecasting/branded-stock-suggestions" : null,
+    !brandedOnly && canViewForecasting ? "/api/forecasting/branded-stock-suggestions" : null,
     fetcher,
   );
   const [brandedForm, setBrandedForm] = useState<BrandedFormState>({

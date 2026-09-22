@@ -55,7 +55,7 @@ export default function SewingPage() {
     wo ? `/api/work-orders/${id}/replacement-status` : null,
     fetcher,
   );
-  const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
+  const { data: customers = [] } = useSWR<any[]>(so?.customer_id ? "/api/customers" : null, fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
   const batchById = useMemo(() => new Map((po?.batches || []).map((b: any) => [Number(b.id), b])), [po?.batches]);
   const lineOptions = useMemo<LineOption[]>(() => {
