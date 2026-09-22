@@ -83,6 +83,16 @@ def _state(work_order_id: int) -> tuple[str, str | None, int]:
         return work_order.status, work_order.notes, audit_count
 
 
+def _block_state(work_order_id: int) -> tuple[bool, str | None, int]:
+    with TestSessionLocal() as db:
+        work_order = db.get(WorkOrder, work_order_id)
+        audit_count = db.query(AuditLog).filter(
+            AuditLog.entity_type == "WorkOrder",
+            AuditLog.entity_id == work_order_id,
+        ).count()
+        return bool(work_order.is_blocked), work_order.block_reason, audit_count
+
+
 @pytest.mark.parametrize("command", ["update", "start", "complete"])
 def test_wrong_stage_cannot_run_generic_work_order_commands(client, command):
     work_order_id = _work_order("printing", "PRT")
@@ -224,3 +234,40 @@ def test_unknown_work_order_operation_fails_closed(client, auth_headers):
 
     assert response.status_code == 403, response.text
     assert _state(work_order_id) == before
+
+
+def test_block_commands_require_work_order_factory_scope_without_mutation(client):
+    work_order_id = _work_order("cutting", "ECT")
+    before = _block_state(work_order_id)
+
+    denied_block = client.post(
+        f"/api/work-orders/{work_order_id}/block",
+        json={"reason": "wrong factory"},
+        headers=_headers("cutting@example.com"),
+    )
+    assert denied_block.status_code == 403, denied_block.text
+    assert _block_state(work_order_id) == before
+
+    eco_user = _scoped_user(factory_code="ECO", permissions=["cutting.records"])
+    eco_headers = _token_headers(eco_user, "ECO")
+    allowed_block = client.post(
+        f"/api/work-orders/{work_order_id}/block",
+        json={"reason": "quality hold"},
+        headers=eco_headers,
+    )
+    assert allowed_block.status_code == 200, allowed_block.text
+    assert _block_state(work_order_id)[:2] == (True, "quality hold")
+
+    denied_unblock = client.post(
+        f"/api/work-orders/{work_order_id}/unblock",
+        headers=_headers("cutting@example.com"),
+    )
+    assert denied_unblock.status_code == 403, denied_unblock.text
+    assert _block_state(work_order_id)[:2] == (True, "quality hold")
+
+    allowed_unblock = client.post(
+        f"/api/work-orders/{work_order_id}/unblock",
+        headers=eco_headers,
+    )
+    assert allowed_unblock.status_code == 200, allowed_unblock.text
+    assert _block_state(work_order_id)[:2] == (False, None)
