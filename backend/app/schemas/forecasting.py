@@ -21,15 +21,15 @@ class ForecastRecommendationIn(BaseModel):
     item_id: int | None = None
     brand_id: int | None = None
     collection_id: int | None = None
-    color: str | None = None
-    size: str | None = None
+    color: str | None = Field(default=None, max_length=64)
+    size: str | None = Field(default=None, max_length=32)
     suggested_quantity: Decimal = Field(
         gt=0,
         le=Decimal("9999999999.9999"),
         allow_inf_nan=False,
     )
-    unit: str | None = None
-    confidence: str | None = None
+    unit: str | None = Field(default=None, max_length=32)
+    confidence: str | None = Field(default=None, max_length=16)
     reason: str | None = None
     source_json: dict[str, Any] | None = None
 
