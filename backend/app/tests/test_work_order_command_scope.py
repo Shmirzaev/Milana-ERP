@@ -145,6 +145,22 @@ def test_own_stage_can_keep_using_explicit_commands(client, command):
     assert response.status_code == 200, response.text
 
 
+def test_authorized_generic_completion_intentionally_allows_no_stage_evidence(client):
+    work_order_id = _work_order("printing", "PRT")
+    before = _state(work_order_id)
+
+    response = client.post(
+        f"/api/work-orders/{work_order_id}/complete",
+        headers=_headers("printing@example.com"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "completed"
+    after = _state(work_order_id)
+    assert after[0] == "completed"
+    assert after[2] == before[2] + 1
+
+
 def test_generic_manual_status_and_counter_update_remains_supported(client):
     work_order_id = _work_order("printing", "PRT")
 
