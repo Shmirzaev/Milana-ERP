@@ -1187,6 +1187,10 @@ def bundle_label_sheet(ids: str, db: DbSession, _: User = Depends(require_permis
     if not bundles:
         raise HTTPException(404, "No bundles found")
 
+    return _bundle_label_sheet_response(db, bundles)
+
+
+def _bundle_label_sheet_response(db: DbSession, bundles: list[Bundle]) -> HTMLResponse:
     reference_context = _bundle_label_reference_context(db, bundles)
     cards = []
     for b in bundles:
@@ -1229,8 +1233,7 @@ def bundle_label_sheet_by_production_order(
     if len(bundles) > _BUNDLE_LABEL_LIMIT:
         raise HTTPException(413, f"A label sheet may contain at most {_BUNDLE_LABEL_LIMIT} bundles")
 
-    ids = ",".join(str(int(b.id)) for b in bundles)
-    return bundle_label_sheet(ids=ids, db=db, _=_)
+    return _bundle_label_sheet_response(db, bundles)
 
 
 @router.get("/label-sheet/by-batch/{production_batch_id}", response_class=HTMLResponse)
@@ -1251,5 +1254,4 @@ def bundle_label_sheet_by_batch(
     if len(bundles) > _BUNDLE_LABEL_LIMIT:
         raise HTTPException(413, f"A label sheet may contain at most {_BUNDLE_LABEL_LIMIT} bundles")
 
-    ids = ",".join(str(int(b.id)) for b in bundles)
-    return bundle_label_sheet(ids=ids, db=db, _=_)
+    return _bundle_label_sheet_response(db, bundles)

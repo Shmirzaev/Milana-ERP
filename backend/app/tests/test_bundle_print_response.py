@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.orm import selectinload
 from app.db.session import SessionLocal
-from app.models import Bundle, Model, ModelImage, ProductionBatch
+from app.models import Bundle, Model, ModelImage, ProductionBatch, ProductionOrder
 from app.api.routes import bundles as bundle_routes
 from app.services.label_images import material_label_image_src
 from app.tests.test_production_flow import _create_bundle_for_scan
@@ -109,6 +109,93 @@ def test_bundle_label_context_has_constant_reference_reads_and_scalar_parity(cli
     assert batched == scalar
     assert len(statements) <= 8, statements
     assert all("file_data" not in statement.lower() for statement in statements)
+
+
+@pytest.mark.parametrize("bundle_count", [1, 50, 200])
+@pytest.mark.parametrize("sheet_scope", ["production-order", "batch"])
+def test_scoped_bundle_label_sheets_reuse_their_bounded_bundle_query(
+    client,
+    auth_headers,
+    monkeypatch,
+    bundle_count,
+    sheet_scope,
+):
+    suffix = uuid4().hex[:12].upper()
+    with SessionLocal() as db:
+        order = ProductionOrder(
+            production_no=f"PERF12-SHEET-{suffix}",
+            production_type="branded_stock",
+            model_id=1,
+            status="packaging",
+            planned_quantity=bundle_count,
+        )
+        db.add(order)
+        db.flush()
+        batch = ProductionBatch(
+            production_order_id=order.id,
+            batch_no=f"BT-{suffix}",
+            batch_index=1,
+            planned_quantity=bundle_count,
+        )
+        db.add(batch)
+        db.flush()
+        bundles = [
+            Bundle(
+                bundle_no=f"PERF12-SCOPE-{suffix}-{index:04d}",
+                barcode=f"PERF12-SCOPE-BC-{suffix}-{index:04d}",
+                production_order_id=order.id,
+                production_batch_id=batch.id,
+                model_id=1,
+                color="white",
+                size="M",
+                quantity=1,
+                status="created",
+            )
+            for index in range(bundle_count)
+        ]
+        db.add_all(bundles)
+        db.commit()
+        order_id = int(order.id)
+        batch_id = int(batch.id)
+        expected_ids = [int(bundle.id) for bundle in bundles]
+        expected_numbers = [bundle.bundle_no for bundle in bundles]
+
+    monkeypatch.setattr(
+        bundle_routes,
+        "_qr_data_uri_for_bundle",
+        lambda _db, _bundle: "data:image/png;base64,AA==",
+    )
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    route = (
+        f"/api/bundles/label-sheet/by-production-order/{order_id}"
+        if sheet_scope == "production-order"
+        else f"/api/bundles/label-sheet/by-batch/{batch_id}"
+    )
+    bind = SessionLocal.kw["bind"]
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        response = client.get(route, headers=auth_headers)
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.text.count("class='label'") == bundle_count
+    assert expected_numbers[0] in response.text
+    assert expected_numbers[-1] in response.text
+    bundle_selects = [statement for statement in statements if " from bundles " in statement]
+    assert len(bundle_selects) == 1, bundle_selects
+
+    by_ids = client.get(
+        "/api/bundles/label-sheet/by-ids?ids=" + ",".join(str(bundle_id) for bundle_id in expected_ids),
+        headers=auth_headers,
+    )
+    assert by_ids.status_code == 200, by_ids.text
+    assert response.text == by_ids.text
 
 
 def test_bundle_label_sheet_enforces_output_cap_before_loading(client, auth_headers):
