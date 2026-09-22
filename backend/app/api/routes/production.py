@@ -2721,6 +2721,7 @@ _MAX_BUNDLES_PER_CUTTING_RECORD = 1000
 def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
     parsed: list[dict] = []
     total = 0
+    total_quantity = 0
     for i, spec in enumerate(specs or [], start=1):
         try:
             count = int(spec.get("count", 1))
@@ -2729,6 +2730,8 @@ def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
             raise HTTPException(400, f"Bundle plan row {i}: 'count' and 'quantity' must be whole numbers")
         if count < 0 or qty < 0:
             raise HTTPException(400, f"Bundle plan row {i}: 'count' and 'quantity' cannot be negative")
+        if qty > 2_147_483_647:
+            raise HTTPException(400, f"Bundle plan row {i}: 'quantity' is too large")
         if count == 0:
             continue
         color = str(spec.get("color") or "").strip()
@@ -2738,6 +2741,9 @@ def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
         total += count
         if total > _MAX_BUNDLES_PER_CUTTING_RECORD:
             raise HTTPException(400, f"Bundle plan would create more than {_MAX_BUNDLES_PER_CUTTING_RECORD} bundles")
+        total_quantity += count * qty
+        if total_quantity > 2_147_483_647:
+            raise HTTPException(400, "Bundle plan total quantity is too large")
         raw_next = str(spec.get("next") or "").strip().lower()
         raw_factory = spec.get("sewing_factory") or spec.get("sewingFactory") or spec.get("factory")
         if not raw_factory and is_sewing_department_code(raw_next):
