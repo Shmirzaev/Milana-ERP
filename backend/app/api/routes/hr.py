@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.models import Employee, User
+from app.schemas.hr import EmployeeOut, EmployeePageOut
 from app.services.audit import log_action
 from app.services.factory_scope import factory_for_department, selected_factory_code
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -180,24 +181,47 @@ def _backfill_employees_from_users(db: DbSession) -> int:
     return created
 
 
-@router.get("/employees")
+@router.get(
+    "/employees",
+    response_model=list[EmployeeOut] | EmployeePageOut,
+    response_model_exclude_unset=True,
+)
 def list_employees(
     db: DbSession,
     current: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     if settings.BACKFILL_EMPLOYEES_FROM_USERS:
         _backfill_employees_from_users(db)
     factory_code = selected_factory_code(current)
-    rows = (
-        db.query(Employee)
-        .filter(Employee.factory_code == factory_code)
-        .order_by(Employee.id.desc())
-        .limit(limit)
-        .all()
-    )
+    query = db.query(Employee).filter(Employee.factory_code == factory_code)
+    ordered_query = query.order_by(Employee.id.desc())
+    paginated = page is not None or page_size is not None
+    effective_page = page or 1
+    effective_page_size = page_size or limit
+    total = int(query.count()) if paginated else None
+    if paginated:
+        rows = (
+            ordered_query
+            .offset((effective_page - 1) * effective_page_size)
+            .limit(effective_page_size)
+            .all()
+        )
+    else:
+        rows = ordered_query.limit(limit).all()
     include_private = _can_view_private_employee_fields(current)
-    return [_serialize(r, include_private=include_private) for r in rows]
+    serialized = [_serialize(r, include_private=include_private) for r in rows]
+    if not paginated:
+        return serialized
+    return {
+        "rows": serialized,
+        "total": total or 0,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < (total or 0),
+    }
 
 
 @router.get("/employees/{eid}")
