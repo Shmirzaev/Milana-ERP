@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -43,6 +43,7 @@ from app.services.model_images import material_preview_image_url, model_display_
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
+_STOCK_VARIANT_QUERY_CHUNK_SIZE = 200
 
 
 def _attachments_for_storage(attachments) -> list[dict]:
@@ -1121,43 +1122,65 @@ def _stock_variant_key(model_id: int, color: str, size: str, brand_id: int | Non
     return (int(model_id), str(color or "").strip(), str(size or "").strip(), brand_id)
 
 
-def _stock_rows_for_variant(
+def _stock_rows_by_variant(
     db: DbSession,
-    *,
-    model_id: int,
-    color: str,
-    size: str,
-    brand_id: int | None,
-) -> list[FinishedGoodsStock]:
-    qry = (
-        db.query(FinishedGoodsStock)
-        .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
-        .filter(
-            FinishedGoodsStock.model_id == model_id,
-            FinishedGoodsStock.status == "available",
-            FinishedGoodsStock.available_qty > 0,
-            or_(
-                FinishedGoodsStock.package_id.is_(None),
-                Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
-            ),
-            ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
-                ShipmentPackage.package_id == FinishedGoodsStock.package_id,
-                Shipment.status != "cancelled",
-            ).exists(),
-        )
+    variant_keys: list[tuple[int, str, str, int | None]],
+) -> dict[tuple[int, str, str, int | None], list[FinishedGoodsStock]]:
+    """Load eligible stock for requested variants in bounded, ordered lock batches."""
+    unique_keys = sorted(
+        set(variant_keys),
+        key=lambda key: (key[0], key[1], key[2], -1 if key[3] is None else key[3]),
     )
-    if not _is_any_stock_token(color):
-        qry = qry.filter(FinishedGoodsStock.color == color)
-    if not _is_any_stock_token(size):
-        qry = qry.filter(FinishedGoodsStock.size == size)
-    if brand_id is not None:
-        qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
-    if db.bind and db.bind.dialect.name == "postgresql":
-        # Keep the same package -> stock lock order as warehouse dispatch.
-        package_ids = qry.with_entities(FinishedGoodsStock.package_id).filter(FinishedGoodsStock.package_id.isnot(None))
-        db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update(of=Package).all()
-        qry = qry.with_for_update(of=FinishedGoodsStock)
-    return qry.order_by(FinishedGoodsStock.id.asc()).all()
+    rows_by_variant = {key: [] for key in unique_keys}
+    for offset in range(0, len(unique_keys), _STOCK_VARIANT_QUERY_CHUNK_SIZE):
+        chunk = unique_keys[offset:offset + _STOCK_VARIANT_QUERY_CHUNK_SIZE]
+        predicates = []
+        keys_by_model: dict[int, list[tuple[int, str, str, int | None]]] = defaultdict(list)
+        for key in chunk:
+            model_id, color, size, brand_id = key
+            keys_by_model[model_id].append(key)
+            parts = [FinishedGoodsStock.model_id == model_id]
+            if not _is_any_stock_token(color):
+                parts.append(FinishedGoodsStock.color == color)
+            if not _is_any_stock_token(size):
+                parts.append(FinishedGoodsStock.size == size)
+            if brand_id is not None:
+                parts.append(FinishedGoodsStock.brand_id == brand_id)
+            predicates.append(and_(*parts))
+
+        qry = (
+            db.query(FinishedGoodsStock)
+            .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
+            .filter(
+                FinishedGoodsStock.status == "available",
+                FinishedGoodsStock.available_qty > 0,
+                or_(
+                    FinishedGoodsStock.package_id.is_(None),
+                    Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
+                ),
+                ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
+                    ShipmentPackage.package_id == FinishedGoodsStock.package_id,
+                    Shipment.status != "cancelled",
+                ).exists(),
+                or_(*predicates),
+            )
+        )
+        if db.bind and db.bind.dialect.name == "postgresql":
+            # _reserve_branded_stock locks every eligible package first. Lock
+            # each deterministic variant batch by stock ID so callers with
+            # opposite sales-line order agree.
+            qry = qry.with_for_update(of=FinishedGoodsStock)
+        for row in qry.order_by(FinishedGoodsStock.id.asc()).all():
+            for key in keys_by_model[int(row.model_id)]:
+                _model_id, color, size, brand_id = key
+                if not _is_any_stock_token(color) and str(row.color or "").strip() != color:
+                    continue
+                if not _is_any_stock_token(size) and str(row.size or "").strip() != size:
+                    continue
+                if brand_id is not None and int(row.brand_id or 0) != int(brand_id):
+                    continue
+                rows_by_variant[key].append(row)
+    return rows_by_variant
 
 
 def _package_allocation_candidates(
@@ -1419,19 +1442,15 @@ def _reserve_branded_stock(
         raise HTTPException(409, "Stock has already been fully reserved for this sales order")
 
     shortages_precheck: list[dict] = []
-    stock_rows_by_variant: dict[tuple[int, str, str, int | None], list[FinishedGoodsStock]] = {}
+    stock_rows_by_variant = _stock_rows_by_variant(
+        db,
+        [key for key, requested_qty in outstanding_by_variant.items() if requested_qty > 0],
+    )
     for key, requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
         model_id, color, size, brand_id = key
-        stock_rows = _stock_rows_for_variant(
-            db,
-            model_id=model_id,
-            color=color,
-            size=size,
-            brand_id=brand_id,
-        )
-        stock_rows_by_variant[key] = stock_rows
+        stock_rows = stock_rows_by_variant[key]
         package_groups, partial_stocks = _package_allocation_candidates(
             db,
             stock_rows,
