@@ -895,6 +895,8 @@ def download_report_excel(
     sewing_flow_id: int | None = None,
     factory_code: str | None = None,
     lang: ReportLanguage = "uz",
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
     current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
 ):
     factory = sewing_line_factory_scope(current, factory_code)
@@ -905,17 +907,27 @@ def download_report_excel(
         to_date=resolved_to,
         factory_code=factory,
         sewing_flow_id=sewing_flow_id,
+        page=page,
+        page_size=page_size,
     )
     generated_label, filename_timestamp = _report_generated_labels()
     content = build_sewing_daily_report_xlsx(report, generated_label, lang)
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="daily_sewing_report_{resolved_from}_{resolved_to}_{filename_timestamp}.xlsx"'
+        ),
+    }
+    if isinstance(report, SewingDailyReportPageOut):
+        headers.update({
+            "X-Total-Count": str(report.total),
+            "X-Page": str(report.page),
+            "X-Page-Size": str(report.page_size),
+            "X-Has-More": "true" if report.page * report.page_size < report.total else "false",
+        })
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="daily_sewing_report_{resolved_from}_{resolved_to}_{filename_timestamp}.xlsx"'
-            ),
-        },
+        headers=headers,
     )
 
 
