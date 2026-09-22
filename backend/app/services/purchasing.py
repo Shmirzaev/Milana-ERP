@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -33,10 +34,15 @@ REQUEST_APPROVABLE_STATUSES = {"draft", "pending_approval"}
 REQUEST_REJECTABLE_STATUSES = {"draft", "pending_approval", "approved"}
 ORDER_CREATE_STATUSES = {"draft", "sent"}
 ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
+MAX_PURCHASE_QUANTITY = Decimal("9999999999.9999")
 
 
 def _num(value) -> float:
     return float(value or 0)
+
+
+def _purchase_quantity(value) -> Decimal:
+    return Decimal(str(value or 0))
 
 
 def _require_item(db: Session, item_id: int) -> Item:
@@ -319,7 +325,7 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
 
     for raw in line_inputs:
         item = _require_item(db, int(raw.get("item_id") or 0))
-        ordered_quantity = _num(raw.get("ordered_quantity"))
+        ordered_quantity = _purchase_quantity(raw.get("ordered_quantity"))
         if ordered_quantity <= 0:
             raise HTTPException(400, "Ordered quantity must be greater than zero")
         warehouse_id = raw.get("warehouse_id")
@@ -380,12 +386,12 @@ def convert_purchase_request_to_order(db: Session, *, request_id: int, data: dic
     request_lines_by_id = {int(line.id): line for line in request.lines}
     if len(quantity_inputs) != len(request_lines_by_id):
         raise HTTPException(400, "Order quantity is required for every request line")
-    ordered_by_line_id: dict[int, float] = {}
+    ordered_by_line_id: dict[int, Decimal] = {}
     for raw in quantity_inputs:
         line_id = int(raw.get("purchase_request_line_id") or 0)
         if line_id not in request_lines_by_id or line_id in ordered_by_line_id:
             raise HTTPException(400, "Order lines must match the approved purchase request")
-        quantity = _num(raw.get("ordered_quantity"))
+        quantity = _purchase_quantity(raw.get("ordered_quantity"))
         if quantity <= 0:
             raise HTTPException(400, "Ordered quantity must be greater than zero")
         ordered_by_line_id[line_id] = quantity
@@ -486,9 +492,12 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
         if not line:
             raise HTTPException(404, f"Purchase order line {line_id} not found")
 
-        quantity = _num(raw.get("received_quantity"))
+        quantity = _purchase_quantity(raw.get("received_quantity"))
         if quantity <= 0:
             raise HTTPException(400, "Received quantity must be greater than zero")
+        total_received = _purchase_quantity(line.received_quantity) + quantity
+        if total_received > MAX_PURCHASE_QUANTITY:
+            raise HTTPException(400, "Total received quantity exceeds the supported maximum")
 
         batch_no = str(raw.get("batch_no") or "").strip()
         if not batch_no:
@@ -554,7 +563,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             created_by=current.id,
         )
         db.add(movement)
-        line.received_quantity = _num(line.received_quantity) + quantity
+        line.received_quantity = total_received
         if raw.get("cost_per_unit") is not None:
             line.unit_cost = cost_per_unit
         if not line.warehouse_id:
@@ -570,7 +579,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
                 "batch_no": batch.batch_no,
                 "internal_batch_no": batch.internal_batch_no,
                 "po_no": order.po_no,
-                "qty": quantity,
+                "qty": float(quantity),
             },
         )
         log_action(
@@ -584,7 +593,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
                 "batch_no": batch.batch_no,
                 "internal_batch_no": batch.internal_batch_no,
                 "item_id": item.id,
-                "received_quantity": quantity,
+                "received_quantity": float(quantity),
                 "total_received": float(line.received_quantity or 0),
             },
         )
