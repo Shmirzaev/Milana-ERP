@@ -903,8 +903,8 @@
       "baseline_source": "backend/app/services/packages.py:258",
       "status": "partial",
       "owner": null,
-      "commit": "0066d32, a51eb6f, a3f8948",
-      "evidence": "Package costing batches highest-ID stock costs. Allocation validation reads distinct IDs in400-row chunks while replaying input order. Distinct1/50/401 uses2/2/3 batch SELECTs including the initial batch check; duplicate merging and both error-precedence directions pass. Other workflow writes remain open."
+      "commit": "0066d32, a51eb6f, a3f8948, cd6ec8b",
+      "evidence": "Package costing batches highest-ID stock costs. Allocation validation reads distinct IDs in400-row chunks while replaying input order. Distinct1/50/401 uses2/2/3 batch SELECTs including the initial batch check. Bulk package valuation reuses one transaction-local model cost, reducing cost SELECTs at1/50/401 packages from2/100/802 to2/2/2 while preserving order, weights, item rows and rollback;17 focused cost/model cases pass. Other per-package workflow writes remain open."
     },
     {
       "number": 76,
@@ -1107,8 +1107,8 @@
       "baseline_source": "backend/app/api/routes/sales.py:1328",
       "status": "partial",
       "owner": null,
-      "commit": "5a89e27",
-      "evidence": "Reuse locked Package identities between allocation checks; recompute mutable stock completeness each call, do not cache candidate eligibility. Five focused database-backed cases independently pass plus four real branded-stock compatibility cases. At1/50/401 packages two helper calls issue one Package SELECT; depleted candidates disappear. Missing IDs/legacy partials/metadata repair preserved. Variant/stock/repair paths and total API complexity remain open."
+      "commit": "5a89e27, 2cc66e0",
+      "evidence": "Reuse locked Package identities between allocation checks and recompute mutable stock completeness each call. Bounded200-key variant batches reduce full reservation SELECTs at1/50/401 variants from3/52/403 to3/3/5 and stock reads from2/51/402 to2/2/4. Twenty-two local query/compatibility cases pass; package-first locks, wildcard/brand filters, shortage behavior, metadata repair, legacy receipt and exact/whole-pack workflows remain compatible. Other repair/write work remains open."
     },
     {
       "number": 93,
@@ -1191,8 +1191,8 @@
       "baseline_source": "backend/app/api/routes/stocktake.py:139",
       "status": "partial",
       "owner": null,
-      "commit": "7fe32ef, 1610476",
-      "evidence": "Commit 1610476 moves common stocktake search/page work into SQL, preserves literal wildcard/value-only JSON matching, stable totals/order and scanned filters, and bounds serialization at10 for a401-row case;19 focused cases pass. changed filtering, summaries, CSV and snapshot-isolation proof remain."
+      "commit": "7fe32ef, 1610476, a47de56",
+      "evidence": "Common detail search/page work uses SQL and bounds serialization at10 for a401-row case. CSV export is complete and streamed in400-row keyset pages:1/50/401 rows use1/1/2 page SELECTs while preserving ascending order, formula neutralization, totals and globally latest frozen snapshots across a401-row duplicate boundary. All43 stocktake cases pass. Summary/search/changed work and scanned-package uniqueness memory remain O(rows); live reads are not atomic."
     },
     {
       "number": 100,
