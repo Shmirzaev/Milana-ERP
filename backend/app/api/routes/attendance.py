@@ -29,6 +29,13 @@ from app.services.audit import log_action
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
 ATTENDANCE_IMPORT_LOCK_NAMESPACE = 1096043342
+ATTENDANCE_DEVICE_VENDORS = frozenset({"Hikvision", "Dahua"})
+
+
+def _validate_device_vendor(value: str) -> str:
+    if value not in ATTENDANCE_DEVICE_VENDORS:
+        raise HTTPException(400, "Invalid attendance device vendor")
+    return value
 
 
 class DeviceIn(BaseModel):
@@ -203,12 +210,13 @@ def _upsert_device(
         previous_people_sync = as_utc(device.last_people_sync_at)
         if previous_people_sync is not None and previous_people_sync >= sync_started_at:
             return device, True
+    vendor = _validate_device_vendor(payload.vendor)
     if device is None:
         device = AttendanceDevice(
             factory_code=factory_code,
             device_key=payload.device_key,
             name=payload.name,
-            vendor=payload.vendor,
+            vendor=vendor,
             read_only=True,
         )
         db.add(device)
@@ -218,7 +226,7 @@ def _upsert_device(
         # Event batches remain append-only even when they arrive out of order,
         # but an older batch must not regress the latest device observation.
         device.name = payload.name
-        device.vendor = payload.vendor
+        device.vendor = vendor
         device.model = payload.model
         device.serial_no = payload.serial_no
         device.source_host = payload.source_host
