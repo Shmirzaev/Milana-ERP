@@ -642,6 +642,7 @@ def build_traceability(
     bundle: Bundle | None = None,
     shipment: Shipment | None = None,
     production_batch_id: int | None = None,
+    preloaded_work_orders: list[WorkOrder] | None = None,
 ) -> dict:
     gaps: list[str] = []
     po = production_order
@@ -674,7 +675,11 @@ def build_traceability(
         collection_id=collection_id,
     )
 
-    work_orders = _work_orders_for_po(db, int(po.id)) if po else []
+    work_orders = (
+        list(preloaded_work_orders)
+        if preloaded_work_orders is not None
+        else _work_orders_for_po(db, int(po.id)) if po else []
+    )
     wo_ids = [int(wo.id) for wo in work_orders]
     batch_ids = _package_batch_ids(package)
     strict_batch_scope = production_batch_id is not None
@@ -929,6 +934,7 @@ def _batch_packages(db: Session, batch_id: int, production_order_id: int) -> tup
     allocation_rows = (
         db.query(PackageBatchAllocation, Package)
         .join(Package, Package.id == PackageBatchAllocation.package_id)
+        .options(selectinload(Package.scan_logs))
         .filter(
             PackageBatchAllocation.production_batch_id == batch_id,
             Package.production_order_id == production_order_id,
@@ -943,6 +949,7 @@ def _batch_packages(db: Session, batch_id: int, production_order_id: int) -> tup
 
     direct_packages = (
         db.query(Package)
+        .options(selectinload(Package.scan_logs))
         .filter(
             Package.production_order_id == production_order_id,
             Package.production_batch_id == batch_id,
@@ -1062,11 +1069,13 @@ def production_batch_traceability(db: Session, batch: ProductionBatch) -> dict:
     po = db.get(ProductionOrder, batch.production_order_id)
     if not po:
         raise ValueError("Production order not found for batch")
+    work_orders = _work_orders_for_po(db, int(po.id))
     data = build_traceability(
         db,
         subject_type="production_batch",
         production_order=po,
         production_batch_id=int(batch.id),
+        preloaded_work_orders=work_orders,
     )
     packages, batch_quantity_by_package = _batch_packages(db, int(batch.id), int(po.id))
     package_payloads = []
@@ -1120,7 +1129,6 @@ def production_batch_traceability(db: Session, batch: ProductionBatch) -> dict:
         ),
     }
 
-    work_orders = _work_orders_for_po(db, int(po.id))
     available_operations = {str(row.operation) for row in work_orders}
     route = ["cutting"]
     if "printing" in available_operations:
