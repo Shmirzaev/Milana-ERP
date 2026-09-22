@@ -71,6 +71,13 @@ class CustomerPaymentHistoryPageOut(SchemaModel):
     has_more: bool
 
 
+class CustomerPageOut(SchemaModel):
+    rows: list[PartyOut]
+    total: int
+    page: int
+    page_size: int
+
+
 class SupplierPageOut(SchemaModel):
     rows: list[PartyOut]
     total: int
