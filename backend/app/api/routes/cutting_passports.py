@@ -26,6 +26,18 @@ from app.services.model_images import model_display_image_url
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
 _MATERIAL_CATEGORIES = ("fabric", "semi_finished")
 _DEFAULTS_QUERY_CHUNK_SIZE = 400
+_PASSPORT_TEXT_LIMITS = {
+    "passport_no": 32,
+    "model_code": 128,
+    "variant": 64,
+    "mold_no": 64,
+    "image_ref": 512,
+    "operator_name_manual": 128,
+    "fabric_type": 128,
+    "order_no": 128,
+    "lot_no": 64,
+    "size_range": 32,
+}
 
 
 def _query_chunks(values):
@@ -706,6 +718,10 @@ def _passport_values(db, payload: CuttingPassportIn, current) -> dict:
         if payload.materials or payload.additional_materials:
             raise HTTPException(400, "Select a production order for passport materials")
         values["order_no"] = canonical_business_order_reference(db, payload.order_no)
+    for field, maximum in _PASSPORT_TEXT_LIMITS.items():
+        value = values.get(field)
+        if value is not None and len(value) > maximum:
+            raise HTTPException(422, f"{field} must be at most {maximum} characters")
     return values
 
 
