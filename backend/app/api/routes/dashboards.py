@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone, timedelta, time
 from zoneinfo import ZoneInfo
 from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func
 
 from app.core.deps import (
@@ -52,20 +53,51 @@ _ACTIVE_ORDER_STATUSES = (
 )
 
 
-@router.get("/active-production")
+class ActiveProductionOut(BaseModel):
+    id: int
+    order_no: str
+    customer_id: int | None = None
+    customer: str
+    qty: int
+    progress: int
+    status: str
+    deadline: str | None = None
+    deadline_label: str
+    value: float
+    type: str
+    order_type: str
+
+
+class ActiveProductionPageOut(BaseModel):
+    rows: list[ActiveProductionOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+@router.get(
+    "/active-production",
+    response_model=list[ActiveProductionOut] | ActiveProductionPageOut,
+)
 def active_production(
     db: DbSession,
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     """Return active sales orders with production progress for the dashboard table."""
-    orders = (
-        db.query(SalesOrder)
-        .filter(SalesOrder.status.in_(("planning", "confirmed", "in_production")))
-        .order_by(SalesOrder.deadline.asc(), SalesOrder.id.asc())
-        .limit(limit)
-        .all()
-    )
+    query = db.query(SalesOrder).filter(SalesOrder.status.in_(("planning", "confirmed", "in_production")))
+    ordered_query = query.order_by(SalesOrder.deadline.asc(), SalesOrder.id.asc())
+    paginated = page is not None or page_size is not None
+    if paginated:
+        page = page or 1
+        page_size = page_size or limit
+        total = query.count()
+        orders = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    else:
+        orders = ordered_query.limit(limit).all()
     order_ids = {int(order.id) for order in orders}
     production_orders = (
         db.query(ProductionOrder)
@@ -141,7 +173,15 @@ def active_production(
                 "order_type": order.order_type,
             }
         )
-    return result
+    if not paginated:
+        return result
+    return {
+        "rows": result,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/management")
