@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -2330,11 +2331,25 @@ def _update_standard_cutting_batch(
         "deadline": batch.deadline,
         "notes": batch.notes,
     }
+    reconciliation_work_orders: list[WorkOrder] | None = None
+    reconciliation_context: _CuttingReconciliationContext | None = None
     fields = payload.model_fields_set
     if "planned_quantity" in fields:
         requested = int(payload.planned_quantity or 0)
         if requested <= 0:
             raise HTTPException(400, "Batch quantity must be greater than zero")
+        reconciliation_work_orders = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.production_order_id == po.id)
+            .all()
+        )
+        reconciliation_context = _cutting_reconciliation_context(
+            db,
+            po,
+            reconciliation_work_orders,
+            wo,
+            extra_scopes={int(batch.id)},
+        )
         other_batch_total = int(
             db.query(func.coalesce(func.sum(ProductionBatch.planned_quantity), 0))
             .filter(
@@ -2345,11 +2360,7 @@ def _update_standard_cutting_batch(
             or 0
         )
         planning_floor = max(0, int(po.planned_quantity or 0) - other_batch_total)
-        physical_floor = max(
-            _bundle_total_for_scope(db, int(po.id), int(batch.id)),
-            _cutting_output_for_scope(db, wo, int(batch.id)),
-            _downstream_committed_quantity(db, int(po.id), int(batch.id)),
-        )
+        physical_floor = reconciliation_context.physical_floor(int(batch.id), int(wo.id))
         minimum = max(planning_floor, physical_floor)
         if requested < minimum:
             raise HTTPException(
@@ -2357,6 +2368,9 @@ def _update_standard_cutting_batch(
                 f"Batch quantity cannot be lower than the current workflow evidence ({minimum})",
             )
         batch.planned_quantity = requested
+        reconciliation_context.planned_by_scope[int(batch.id)] = requested
+        if None in reconciliation_context.scopes:
+            reconciliation_context.planned_by_scope[None] = other_batch_total + requested
     if "name" in fields:
         batch.name = str(payload.name or "").strip() or None
     if "start_date" in fields:
@@ -2378,7 +2392,12 @@ def _update_standard_cutting_batch(
     if "notes" in fields:
         batch.notes = str(payload.notes or "").strip() or None
 
-    _reconcile_cutting_workflow_plans(db, wo)
+    _reconcile_cutting_workflow_plans(
+        db,
+        wo,
+        work_orders=reconciliation_work_orders,
+        context=reconciliation_context,
+    )
     new_value = {
         "name": batch.name,
         "planned_quantity": int(batch.planned_quantity or 0),
@@ -4364,30 +4383,59 @@ def _planned_quantity_for_scope(
     return batch_total if batch_total > 0 else int(po.planned_quantity or 0)
 
 
-def _cutting_reconciliation_targets(
+@dataclass
+class _CuttingReconciliationContext:
+    scopes: set[int | None]
+    planned_by_scope: dict[int | None, int]
+    bundle_by_scope: dict[int | None, int]
+    cutting_output_by_scope: dict[int | None, int]
+    cutting_output_by_work_order_scope: dict[tuple[int, int | None], int]
+    downstream_by_scope: dict[int | None, int]
+
+    def physical_floor(self, scope_id: int | None, cutting_work_order_id: int) -> int:
+        return max(
+            self.bundle_by_scope.get(scope_id, 0),
+            self.cutting_output_by_work_order_scope.get((cutting_work_order_id, scope_id), 0),
+            self.downstream_by_scope.get(scope_id, 0),
+        )
+
+    def targets(self) -> dict[int | None, int]:
+        return {
+            scope_id: max(
+                self.planned_by_scope.get(scope_id, 0),
+                self.bundle_by_scope.get(scope_id, 0),
+                self.cutting_output_by_scope.get(scope_id, 0),
+                self.downstream_by_scope.get(scope_id, 0),
+            )
+            for scope_id in self.scopes
+        }
+
+
+def _cutting_reconciliation_context(
     db: DbSession,
     po: ProductionOrder,
     work_orders: list[WorkOrder],
     cutting_wo: WorkOrder,
-) -> dict[int | None, int]:
+    extra_scopes: set[int | None] | None = None,
+) -> _CuttingReconciliationContext:
     """Bulk-load the scalar workflow evidence used by cutting reconciliation."""
     scopes = {
         int(row.production_batch_id) if row.production_batch_id is not None else None
         for row in work_orders
     }
+    scopes.update(extra_scopes or ())
     planned_by_scope: dict[int | None, int] = {}
-    if any(scope_id is not None for scope_id in scopes):
+    batch_scope_ids = [scope_id for scope_id in scopes if scope_id is not None]
+    if batch_scope_ids:
         planned_by_scope.update({
             int(batch_id): int(planned_quantity or 0)
             for batch_id, planned_quantity in db.query(
                 ProductionBatch.id,
                 ProductionBatch.planned_quantity,
-            ).join(
-                WorkOrder,
-                WorkOrder.production_batch_id == ProductionBatch.id,
             ).filter(
-                WorkOrder.production_order_id == po.id,
-            ).distinct()
+                ProductionBatch.production_order_id == po.id,
+                ProductionBatch.id.in_(batch_scope_ids),
+            )
         })
     if None in scopes:
         batch_total = int(
@@ -4453,14 +4501,15 @@ def _cutting_reconciliation_targets(
             SewingReplacementRequest.production_batch_id,
         )
     }
+    cutting_output_by_work_order_scope = {
+        key: max(0, passed - replacement_rows.get(key, 0))
+        for key, passed in cutting_rows.items()
+    }
     cutting_output_by_scope: dict[int | None, int] = {}
     for scope_id in scopes:
         scoped_cutting = cutting_by_scope.get(scope_id) or fallback_cutting
         key = (int(scoped_cutting.id), scope_id)
-        cutting_output_by_scope[scope_id] = max(
-            0,
-            cutting_rows.get(key, 0) - replacement_rows.get(key, 0),
-        )
+        cutting_output_by_scope[scope_id] = cutting_output_by_work_order_scope.get(key, 0)
 
     downstream_by_scope = {scope_id: 0 for scope_id in scopes}
 
@@ -4558,24 +4607,41 @@ def _cutting_reconciliation_targets(
         package_quantity = allocated_by_scope.get(scope_id, 0) + direct_by_scope.get(scope_id, 0)
         downstream_by_scope[scope_id] = max(downstream_by_scope[scope_id], package_quantity)
 
-    return {
-        scope_id: max(
-            planned_by_scope.get(scope_id, 0),
-            bundle_by_scope.get(scope_id, 0),
-            cutting_output_by_scope.get(scope_id, 0),
-            downstream_by_scope.get(scope_id, 0),
-        )
-        for scope_id in scopes
-    }
+    return _CuttingReconciliationContext(
+        scopes=scopes,
+        planned_by_scope=planned_by_scope,
+        bundle_by_scope=bundle_by_scope,
+        cutting_output_by_scope=cutting_output_by_scope,
+        cutting_output_by_work_order_scope=cutting_output_by_work_order_scope,
+        downstream_by_scope=downstream_by_scope,
+    )
 
 
-def _reconcile_cutting_workflow_plans(db: DbSession, cutting_wo: WorkOrder) -> None:
+def _cutting_reconciliation_targets(
+    db: DbSession,
+    po: ProductionOrder,
+    work_orders: list[WorkOrder],
+    cutting_wo: WorkOrder,
+) -> dict[int | None, int]:
+    return _cutting_reconciliation_context(db, po, work_orders, cutting_wo).targets()
+
+
+def _reconcile_cutting_workflow_plans(
+    db: DbSession,
+    cutting_wo: WorkOrder,
+    *,
+    work_orders: list[WorkOrder] | None = None,
+    context: _CuttingReconciliationContext | None = None,
+) -> None:
     po = db.get(ProductionOrder, cutting_wo.production_order_id)
     if not po:
         return
     db.flush()
-    work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()
-    target_by_scope = _cutting_reconciliation_targets(db, po, work_orders, cutting_wo)
+    if work_orders is None:
+        work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()
+    if context is None:
+        context = _cutting_reconciliation_context(db, po, work_orders, cutting_wo)
+    target_by_scope = context.targets()
 
     for row in work_orders:
         scope_id = int(row.production_batch_id) if row.production_batch_id is not None else None

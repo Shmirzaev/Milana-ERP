@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import event
 
 from app.api.routes import production as production_routes
@@ -22,6 +23,7 @@ from app.models import (
     SewingFlow,
     SewingRecord,
     SewingReplacementRequest,
+    User,
     WorkOrder,
 )
 from app.tests.conftest import TestSessionLocal
@@ -103,6 +105,87 @@ def test_cutting_reconciliation_has_bounded_query_growth(scope_count):
     assert len(rows) == scope_count * 2
     assert all(int(row.planned_input_qty) >= 10 for row in rows)
     assert all(int(row.planned_input_qty) == int(row.planned_output_qty) for row in rows)
+
+
+@pytest.mark.parametrize("scope_count", [1, 50, 401])
+def test_cutting_batch_quantity_validation_reuses_reconciliation_context(scope_count):
+    order_id, cutting_id = _base_order(scope_count)
+    with TestSessionLocal() as db:
+        cutting = db.get(WorkOrder, cutting_id)
+        batch_id = int(cutting.production_batch_id)
+        current = db.query(User).order_by(User.id.asc()).first()
+        statements: list[str] = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement)
+                assert len(statements) <= 22, (
+                    f"{scope_count} cutting scopes exceeded the 22-SELECT batch-update budget"
+                )
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            result = production_routes._update_standard_cutting_batch(
+                db,
+                current,
+                cutting,
+                batch_id,
+                production_routes.CuttingBatchUpdateIn(planned_quantity=scope_count + 1000),
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+        rows = db.query(WorkOrder).filter(WorkOrder.production_order_id == order_id).all()
+
+    assert int(result["planned_quantity"]) == scope_count + 1000
+    assert len(statements) == 20
+    assert all(int(row.planned_input_qty) == int(row.planned_output_qty) for row in rows)
+
+
+def test_cutting_batch_quantity_validation_keeps_floor_and_rolls_back():
+    order_id, cutting_id = _base_order(1)
+    with TestSessionLocal() as db:
+        cutting = db.get(WorkOrder, cutting_id)
+        batch_id = int(cutting.production_batch_id)
+        order = db.get(ProductionOrder, order_id)
+        db.add(Bundle(
+            bundle_no=f"P19-VALIDATE-{uuid4().hex[:8]}",
+            barcode=f"P19-VALIDATE-QR-{uuid4().hex[:8]}",
+            production_order_id=order_id,
+            production_batch_id=batch_id,
+            model_id=order.model_id,
+            color="blue",
+            size="M",
+            quantity=37,
+            status="created",
+        ))
+        db.commit()
+
+        cutting = db.get(WorkOrder, cutting_id)
+        current = db.query(User).order_by(User.id.asc()).first()
+        original_plans = {
+            int(row.id): (int(row.planned_input_qty), int(row.planned_output_qty))
+            for row in db.query(WorkOrder).filter(WorkOrder.production_order_id == order_id)
+        }
+        with pytest.raises(HTTPException) as exc_info:
+            production_routes._update_standard_cutting_batch(
+                db,
+                current,
+                cutting,
+                batch_id,
+                production_routes.CuttingBatchUpdateIn(planned_quantity=36),
+            )
+        assert exc_info.value.status_code == 409
+        assert "workflow evidence (37)" in str(exc_info.value.detail)
+        db.rollback()
+
+        assert int(db.get(ProductionBatch, batch_id).planned_quantity) == 10
+        refreshed_plans = {
+            int(row.id): (int(row.planned_input_qty), int(row.planned_output_qty))
+            for row in db.query(WorkOrder).filter(WorkOrder.production_order_id == order_id)
+        }
+
+    assert refreshed_plans == original_plans
 
 
 def _mixed_reconciliation_order() -> tuple[int, int]:
