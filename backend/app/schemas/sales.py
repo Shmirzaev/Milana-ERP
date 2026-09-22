@@ -149,6 +149,19 @@ class ShipmentPageOut(BaseModel):
     has_more: bool
 
 
+class ShipmentCustomerOut(BaseModel):
+    id: int
+    name: str
+
+
+class ShipmentCustomerPageOut(BaseModel):
+    rows: list[ShipmentCustomerOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class ShipmentScanIn(BaseModel):
     code: str
 

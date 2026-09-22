@@ -25,7 +25,15 @@ from app.models import (
     Customer,
     Invoice,
 )
-from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentPageOut, ShipmentScanIn, ShipmentScanOut
+from app.schemas.sales import (
+    ShipmentCustomerOut,
+    ShipmentCustomerPageOut,
+    ShipmentIn,
+    ShipmentOut,
+    ShipmentPageOut,
+    ShipmentScanIn,
+    ShipmentScanOut,
+)
 from app.schemas.catalog import PartyIn
 from app.schemas.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails
 from app.services.shipment_review import (
@@ -944,9 +952,27 @@ def list_shipments(
     }
 
 
-@router.get("/customers")
-def manual_shipment_customers(db: DbSession, _: User = Depends(require_permissions("storage.shipment", "*"))):
-    return [{"id": cid, "name": name} for cid, name in db.query(Customer.id, Customer.name).order_by(Customer.name).all()]
+@router.get("/customers", response_model=list[ShipmentCustomerOut] | ShipmentCustomerPageOut)
+def manual_shipment_customers(
+    db: DbSession,
+    _: User = Depends(require_permissions("storage.shipment", "*")),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    ordered_query = db.query(Customer.id, Customer.name).order_by(Customer.name)
+    if page is None and page_size is None:
+        return [{"id": cid, "name": name} for cid, name in ordered_query.all()]
+    page = page or 1
+    page_size = page_size or 100
+    total = ordered_query.order_by(None).count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": [{"id": cid, "name": name} for cid, name in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/customers", status_code=201)
