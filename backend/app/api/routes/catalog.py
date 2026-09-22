@@ -2597,6 +2597,8 @@ def add_size(
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
     if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
+    if len(payload.size) > 32:
+        raise HTTPException(422, "size must be at most 32 characters")
     values = payload.model_dump()
     measurements = values.get("measurement_json")
     if measurements is not None:
