@@ -31,7 +31,8 @@ from app.models import (
     StockBatch, CuttingRecord,
 )
 from app.schemas.catalog import (
-    BrandIn, BrandOut, BrandPageOut, CollectionIn, CollectionOut, CollectionSeasonPageOut,
+    BrandIn, BrandOut, BrandPageOut, CollectionIn, CollectionOut, CollectionPageOut,
+    CollectionSeasonPageOut,
     ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelSizeMeasurements,
     ModelColorIn, ModelBOMIn, ModelBomItemPageOut,
     ModelBOMUpdate, ModelOptionPage, ModelPaidOperationsIn, ModelSellingPriceOut, ModelSummaryOut,
@@ -1191,27 +1192,41 @@ def update_brand(bid: int, payload: BrandIn, db: DbSession, current: User = Depe
 
 
 # ===== Collections =====
-@router.get("/collections")
+@router.get("/collections", response_model=list[CollectionOut] | CollectionPageOut)
 def list_collections(
     db: DbSession,
     _: CurrentUser,
     brand_id: int | None = None,
-    page: int = 1,
-    page_size: int = 50,
+    page: int | None = None,
+    page_size: int | None = None,
     include_total: bool = False,
 ):
     qry = db.query(Collection)
     if brand_id:
         qry = qry.filter(Collection.brand_id == brand_id)
-    total = qry.count() if include_total else 0
+    paginated = include_total or page is not None or page_size is not None
+    if include_total:
+        # Preserve the historical include_total contract, which clamps page
+        # values rather than rejecting them.
+        effective_page = max(1, page or 1)
+        effective_page_size = max(1, min(page_size or 50, 500))
+    else:
+        effective_page = page or 1
+        effective_page_size = page_size or 50
+        if effective_page < 1 or effective_page_size < 1 or effective_page_size > 500:
+            raise HTTPException(422, "page must be >= 1 and page_size must be between 1 and 500")
+    total = qry.count() if paginated else 0
     qry = qry.order_by(Collection.id.desc())
-    if include_total:
-        safe_page = max(1, page)
-        safe_size = max(1, min(page_size, 500))
-        qry = qry.offset((safe_page - 1) * safe_size).limit(safe_size)
+    if paginated:
+        qry = qry.offset((effective_page - 1) * effective_page_size).limit(effective_page_size)
     rows = [_collection_payload(c) for c in qry.all()]
-    if include_total:
-        return _pagination_payload(rows, total=total, page=page, page_size=page_size)
+    if paginated:
+        return _pagination_payload(
+            rows,
+            total=total,
+            page=effective_page,
+            page_size=effective_page_size,
+        )
     return rows
 
 

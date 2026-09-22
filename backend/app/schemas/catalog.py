@@ -130,6 +130,13 @@ class CollectionOut(ORMModel):
     status: str
 
 
+class CollectionPageOut(BaseModel):
+    rows: list[CollectionOut]
+    total: int
+    page: int
+    page_size: int
+
+
 class CollectionSeasonPageOut(BaseModel):
     rows: list[str]
     total: int
