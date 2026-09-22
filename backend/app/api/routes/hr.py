@@ -1,13 +1,14 @@
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi.exceptions import RequestValidationError
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.models import Employee, User
 from app.services.audit import log_action
 from app.services.factory_scope import factory_for_department, selected_factory_code
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from typing import Literal, Optional
@@ -54,6 +55,34 @@ class EmployeeUpdate(BaseModel):
         return _normalize_employee_no(value)
 
 
+class EmployeeProfileJson(BaseModel):
+    """Persisted fields supported by the employee profile editor and reports."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    photo_url: str | None = None
+    date_of_birth: str | None = None
+    gender: str | None = None
+    email: str | None = None
+    address: str | None = None
+    emergency_contact: str | None = None
+    nationality: str | None = None
+    company: str | None = None
+    branch: str | None = None
+    section: str | None = None
+    grade_level: str | None = None
+    employment_type: str | None = None
+    probation_end: str | None = None
+    work_schedule: str | None = None
+    shift: str | None = None
+    workplace: str | None = None
+    scheduled_daily_hours: str | int | float | None = None
+    rate_type: str | None = None
+    bonus_scheme: str | None = None
+    bank_details: str | None = None
+    payroll_id: str | None = None
+
+
 router = APIRouter(tags=["hr"])
 
 
@@ -62,6 +91,19 @@ def _normalize_employee_no(value) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _validate_hr_profile_json(value: dict) -> dict:
+    try:
+        EmployeeProfileJson.model_validate(value)
+    except ValidationError as exc:
+        raise RequestValidationError([
+            {**error, "loc": ("body", "hr_profile_json", *error["loc"])}
+            for error in exc.errors()
+        ]) from exc
+    # Validation is intentionally write-only. Keep the caller's scalar types
+    # and sparse keys unchanged so existing API responses remain compatible.
+    return value
 
 
 def _ensure_employee_no_available(
@@ -177,6 +219,7 @@ def create_employee(payload: EmployeeIn, db: DbSession, current: User = Depends(
     )
     values = payload.model_dump()
     _ensure_employee_no_available(db, factory_code, values.get("employee_no"))
+    values["hr_profile_json"] = _validate_hr_profile_json(values["hr_profile_json"])
     e = Employee(factory_code=factory_code, **values)
     db.add(e)
     try:
@@ -214,6 +257,8 @@ def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: U
     )
     if "employee_no" in changes:
         _ensure_employee_no_available(db, factory_code, changes["employee_no"], exclude_id=e.id)
+    if "hr_profile_json" in changes:
+        changes["hr_profile_json"] = _validate_hr_profile_json(changes["hr_profile_json"])
     for k, v in changes.items():
         setattr(e, k, v)
     try:
