@@ -42,6 +42,12 @@ _SCHEMAS = {
     "preferences": SystemPreferences,
 }
 _SETTING_LOCK_KEYS = {"company_info": 1, "financial": 2, "preferences": 3}
+SYSTEM_LANGUAGES = frozenset({"en", "ru", "uz"})
+
+
+def _validate_settings_types(section: str, payload: dict) -> None:
+    if section == "preferences" and payload.get("default_language") not in SYSTEM_LANGUAGES:
+        raise HTTPException(400, "Invalid default_language")
 
 
 def _setting_for_update(db: DbSession, section: str) -> SystemSetting | None:
@@ -94,6 +100,7 @@ def save_settings_section(
         raise RequestValidationError([
             {**error, "loc": ("body", *error["loc"])} for error in exc.errors()
         ]) from exc
+    _validate_settings_types(section, validated)
     if row:
         row.value_json = validated
     else:
