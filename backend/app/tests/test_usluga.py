@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from sqlalchemy import event
+
 from app.models import (
     AuditLog,
     Department,
@@ -284,10 +286,24 @@ def test_reject_usluga_cutting_batch_permanently_deletes_unused_record_and_bundl
     bundle_ids = [int(row["id"]) for row in created.json()["bundles"]]
     assert len(bundle_ids) == 2
 
-    rejected = client.post(
-        f"/api/cutting/records/{record_id}/reject-usluga-batch",
-        json={"reason": "Wrong Cutting attempt"},
-    )
+    # Rejection inspects every bundle's scan history. The relationship must
+    # be loaded once for the batch rather than issuing one SELECT per bundle.
+    with TestSessionLocal() as db:
+        statements = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().lower().startswith("select") and "bundle_scan_logs" in statement.lower():
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rejected = client.post(
+                f"/api/cutting/records/{record_id}/reject-usluga-batch",
+                json={"reason": "Wrong Cutting attempt"},
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+    assert len(statements) == 1
     assert rejected.status_code == 200, rejected.text
     assert rejected.json() == {
         "id": record_id,

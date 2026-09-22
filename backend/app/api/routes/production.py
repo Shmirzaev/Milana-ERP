@@ -6,7 +6,7 @@ from fastapi import APIRouter, Body, HTTPException, Depends, File, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy.orm import aliased, joinedload, selectinload
 
 from app.core.config import settings
 from app.core.deps import (
@@ -3813,6 +3813,7 @@ def reject_usluga_cutting_batch(
     was_already_rejected = rec.approval_status == "rejected"
     bundles = (
         db.query(Bundle)
+        .options(selectinload(Bundle.scan_logs))
         .filter(Bundle.cutting_record_id == rec.id)
         .with_for_update()
         .order_by(Bundle.id.asc())
