@@ -226,6 +226,8 @@ def login_json(request: Request, response: Response, payload: LoginIn, db: DbSes
 @session_router.post("/switch-factory", response_model=LoginOk)
 @router.post("/switch-factory", response_model=LoginOk)
 def switch_factory(request: Request, response: Response, payload: FactorySwitchIn, user: CurrentUser):
+    if not 1 <= len(payload.factory_code) <= 3:
+        raise HTTPException(422, "Factory code must be 1 to 3 characters")
     factory_code = authorize_login_factory(user, payload.factory_code)
     token = create_access_token(user.id, extra={"factory_code": factory_code})
     _set_auth_cookie(request, response, token)
@@ -348,6 +350,8 @@ def me(user: CurrentUser, db: DbSession):
 @session_router.patch("/me", response_model=UserMe)
 @router.patch("/me", response_model=UserMe)
 def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
+    if len(payload.name) > 128:
+        raise HTTPException(422, "Name must be at most 128 characters")
     email = normalize_email(str(payload.email))
     if db.query(User).filter(User.email == email, User.id != user.id).first():
         raise HTTPException(400, "Email already exists")
