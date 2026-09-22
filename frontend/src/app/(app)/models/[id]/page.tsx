@@ -206,7 +206,7 @@ export default function ModelDetail() {
   );
   const { data: items } = useSWR<any[]>(`${modelApiBase}/bom-items`, fetcher);
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
-  const { data: seasons } = useSWR<string[]>("/api/collections/seasons", fetcher);
+  const { data: seasons } = useSWR<string[]>(isEditable ? "/api/collections/seasons" : null, fetcher);
   const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
   const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const tabs = TAB_KEYS.map((k) => t(k));
@@ -444,8 +444,11 @@ export default function ModelDetail() {
   ], [brands, t]);
   const seasonOptions = useMemo(() => [
     { value: "", label: "-" },
-    ...(seasons || []).map((season) => ({ value: season, label: season })),
-  ], [seasons]);
+    ...(modelForm.season ? [{ value: modelForm.season, label: modelForm.season }] : []),
+    ...(seasons || [])
+      .filter((season) => season !== modelForm.season)
+      .map((season) => ({ value: season, label: season })),
+  ], [modelForm.season, seasons]);
   const modelingEmployeeOptions = useMemo(() => [
     { value: 0, label: "-" },
     ...modelingEmployees.map((employee: any) => ({
