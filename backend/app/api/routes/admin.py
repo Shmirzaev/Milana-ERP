@@ -1,7 +1,7 @@
 from datetime import datetime, time, timezone
 import secrets
 from types import SimpleNamespace
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -63,6 +63,33 @@ class RolePageOut(BaseModel):
     page: int
     page_size: int
     has_more: bool
+
+
+class AuditLogOut(BaseModel):
+    id: int
+    user_id: int | None
+    user_name: str | None
+    user: dict[str, Any] | None
+    action: str
+    action_label: str
+    entity_type: str
+    entity_label: str
+    entity_id: int | None
+    new_value: dict[str, Any] | None
+    old_value: dict[str, Any] | None
+    changed_fields: list[dict[str, Any]]
+    prev_hash: str | None
+    entry_hash: str | None
+    summary: str
+    root_cause_hint: str
+    created_at: datetime
+
+
+class AuditLogPageOut(BaseModel):
+    rows: list[AuditLogOut]
+    total: int
+    page: int
+    page_size: int
 
 
 MCP_READ_TOOLS = [
@@ -817,13 +844,13 @@ def delete_department(
 
 
 # ===== Audit log =====
-@router.get("/audit-logs")
+@router.get("/audit-logs", response_model=list[AuditLogOut] | AuditLogPageOut)
 def list_audit_logs(
     db: DbSession,
     _: User = Depends(require_permissions("admin.audit", "*")),
     limit: int = 200,
-    page: int = 1,
-    page_size: int = 50,
+    page: int | None = None,
+    page_size: int | None = None,
     include_total: bool = False,
     user_id: int | None = None,
     entity_type: str | None = None,
@@ -857,10 +884,18 @@ def list_audit_logs(
             | (User.name.ilike(like))
             | (User.email.ilike(like))
         )
-    total = qry.count() if include_total else 0
+    paginated = include_total or page is not None or page_size is not None
     if include_total:
-        safe_page = max(1, page)
-        safe_size = max(1, min(page_size, 500))
+        # Preserve the historical include_total contract, which clamps values.
+        safe_page = max(1, page or 1)
+        safe_size = max(1, min(page_size or 50, 500))
+    else:
+        safe_page = page or 1
+        safe_size = page_size or 50
+        if safe_page < 1 or safe_size < 1 or safe_size > 500:
+            raise HTTPException(422, "page must be >= 1 and page_size must be between 1 and 500")
+    total = qry.count() if paginated else 0
+    if paginated:
         qry = qry.order_by(AuditLog.id.desc()).offset((safe_page - 1) * safe_size).limit(safe_size)
     else:
         qry = qry.order_by(AuditLog.id.desc()).limit(limit)
@@ -890,8 +925,8 @@ def list_audit_logs(
             "created_at": audit.created_at,
         }
         )
-    if include_total:
-        return {"rows": out, "total": total, "page": max(1, page), "page_size": max(1, min(page_size, 500))}
+    if paginated:
+        return {"rows": out, "total": total, "page": safe_page, "page_size": safe_size}
     return out
 
 
