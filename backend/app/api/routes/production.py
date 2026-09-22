@@ -44,7 +44,7 @@ from app.schemas.production import (
     ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail,
     WorkOrderOut, WorkOrderUpdate,
     CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
-    QualityCheckIn, QualityCheckOut,
+    QualityCheckIn, QualityCheckOut, QualityCheckPageOut,
     ProductionOrderSizesIn,
 )
 from app.schemas.work_order import WorkOrderPageOut
@@ -6056,12 +6056,31 @@ def post_quality(payload: QualityCheckIn, db: DbSession, current: User = Depends
     return q
 
 
-@router.get("/quality/checks", response_model=list[QualityCheckOut])
+@router.get("/quality/checks", response_model=list[QualityCheckOut] | QualityCheckPageOut)
 def list_quality(
     db: DbSession,
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     work_order_id: int | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = db.query(QualityCheck)
     if work_order_id: qry = qry.filter(QualityCheck.work_order_id == work_order_id)
-    return qry.order_by(QualityCheck.id.desc()).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    qry = qry.order_by(QualityCheck.id.desc())
+    if total is not None:
+        qry = qry.offset((page - 1) * page_size).limit(page_size)
+    rows = qry.all()
+    if total is None:
+        return rows
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }

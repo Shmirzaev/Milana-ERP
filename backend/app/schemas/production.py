@@ -471,6 +471,14 @@ class QualityCheckOut(ORMModel):
     checked_at: Optional[datetime] = None
 
 
+class QualityCheckPageOut(BaseModel):
+    rows: list[QualityCheckOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class MaterialRequirement(BaseModel):
     item_id: int
     sku: str
