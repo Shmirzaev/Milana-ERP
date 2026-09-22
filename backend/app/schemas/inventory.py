@@ -384,7 +384,7 @@ class AccessoryIssueLineIn(BaseModel):
     item_id: Optional[int] = None
     item_sku: Optional[str] = None
     item_name: Optional[str] = None
-    quantity: float
+    quantity: Decimal = Field(gt=0, max_digits=14, decimal_places=4, allow_inf_nan=False)
     unit: Optional[str] = None
     manual: bool = False
 
