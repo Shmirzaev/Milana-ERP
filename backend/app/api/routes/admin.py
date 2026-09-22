@@ -1,6 +1,7 @@
 from datetime import datetime, time, timezone
 import secrets
 from types import SimpleNamespace
+from typing import Annotated
 
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -38,6 +39,14 @@ router = APIRouter(tags=["admin"])
 
 class ResetDemoIn(BaseModel):
     confirm: str
+
+
+class DepartmentPageOut(BaseModel):
+    rows: list[DepartmentOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 MCP_READ_TOOLS = [
@@ -660,9 +669,29 @@ def create_role(payload: RoleIn, db: DbSession, current: User = Depends(require_
 
 
 # ===== Departments =====
-@router.get("/departments", response_model=list[DepartmentOut])
-def list_departments(db: DbSession, _: CurrentUser):
-    return db.query(Department).order_by(Department.id).all()
+@router.get("/departments", response_model=list[DepartmentOut] | DepartmentPageOut)
+def list_departments(
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    query = db.query(Department)
+    ordered_query = query.order_by(Department.id)
+    if page is None and page_size is None:
+        return ordered_query.all()
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/departments", response_model=DepartmentOut, status_code=201)
