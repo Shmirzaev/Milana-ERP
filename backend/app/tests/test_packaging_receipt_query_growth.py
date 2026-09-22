@@ -155,6 +155,23 @@ def _captured_receipts(client, auth_headers, receipt_count: int):
     return response, statements
 
 
+def _captured_receipt_page(client, auth_headers, page_size: int):
+    statements: list[str] = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(
+            f"/api/packaging/receipts?page=1&page_size={page_size}",
+            headers=auth_headers,
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+    return response, statements
+
+
 @pytest.mark.parametrize(
     ("receipt_count", "expected_rows"),
     [(1, 1), (50, 50), (401, 200)],
@@ -192,6 +209,65 @@ def test_packaging_receipt_list_batches_reference_reads(
         f"{len(statements)} total SELECTs, {len(receipt_reference_reads)} receipt/reference reads"
     )
     assert len(receipt_reference_reads) == 1
+
+
+@pytest.mark.parametrize(
+    ("receipt_count", "expected_rows"),
+    [(1, 1), (50, 50), (401, 50)],
+)
+def test_packaging_receipt_page_is_bounded_and_matches_legacy_prefix(
+    client,
+    auth_headers,
+    receipt_count,
+    expected_rows,
+):
+    _seed_receipts(receipt_count)
+
+    legacy = client.get(
+        f"/api/packaging/receipts?limit={min(receipt_count, 200)}",
+        headers=auth_headers,
+    )
+    response, statements = _captured_receipt_page(client, auth_headers, 50)
+
+    assert legacy.status_code == 200, legacy.text
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["rows"] == legacy.json()[:expected_rows]
+    assert len(payload["rows"]) == expected_rows
+    assert payload["total"] == receipt_count
+    assert payload["page"] == 1
+    assert payload["page_size"] == 50
+    assert payload["has_more"] is (receipt_count > 50)
+    selects = [statement for statement in statements if statement.lstrip().startswith("select")]
+    assert len(selects) == 3
+    assert all(statement.lstrip().startswith("select") for statement in statements)
+    receipt_reads = [statement for statement in selects if " from packaging_receipts " in statement]
+    assert len(receipt_reads) == 2
+    assert " limit " in receipt_reads[-1]
+    assert " from production_order_materials " not in " ".join(selects)
+
+
+def test_packaging_receipt_page_validates_auth_scope_and_size_without_writes(
+    client,
+    auth_headers,
+):
+    receipt_ids = _seed_receipts(3)
+    with TestSessionLocal() as db:
+        before = db.query(PackagingReceipt).filter(PackagingReceipt.id.in_(receipt_ids)).count()
+
+    assert client.get("/api/packaging/receipts?page=1&page_size=1").status_code == 401
+    assert client.get(
+        "/api/packaging/receipts?page=1&page_size=501",
+        headers=auth_headers,
+    ).status_code == 422
+    assert client.get(
+        "/api/packaging/receipts?page=1&page_size=1&packaging_department_code=BPK",
+        headers=auth_headers,
+    ).status_code == 403
+
+    with TestSessionLocal() as db:
+        after = db.query(PackagingReceipt).filter(PackagingReceipt.id.in_(receipt_ids)).count()
+    assert after == before
 
 
 def test_packaging_receipt_list_matches_scalar_payload_and_is_read_only(client, auth_headers):

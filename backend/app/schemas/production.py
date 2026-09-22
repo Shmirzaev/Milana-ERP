@@ -469,6 +469,41 @@ class PackagingRecordIn(BaseModel):
         return self
 
 
+class PackagingReceiptOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    work_order_id: int
+    packaging_department_code: str
+    source_work_order_id: int
+    production_order_id: int
+    production_batch_id: int | None = None
+    production_no: str | None = None
+    order_no: str | None = None
+    model_id: int | None = None
+    model_code: str | None = None
+    model_name: str | None = None
+    batch_no: str | None = None
+    batch_name: str | None = None
+    bundle_id: int | None = None
+    bundle_no: str | None = None
+    size: str | None = None
+    color: str | None = None
+    quantity: int
+    receive_method: str
+    received_by: int | None = None
+    notes: str | None = None
+    created_at: datetime
+
+
+class PackagingReceiptPageOut(BaseModel):
+    rows: list[PackagingReceiptOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class QualityCheckIn(BaseModel):
     work_order_id: int
     department_id: Optional[int] = None

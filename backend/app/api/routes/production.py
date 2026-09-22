@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, HTTPException, Depends, File, Query, Upload
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import String, and_, case, cast, func, or_
-from sqlalchemy.orm import aliased, joinedload, selectinload
+from sqlalchemy.orm import aliased, joinedload, noload, selectinload
 
 from app.core.config import settings
 from app.core.deps import (
@@ -44,6 +44,7 @@ from app.schemas.production import (
     ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail,
     WorkOrderOut, WorkOrderUpdate,
     CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
+    PackagingReceiptOut, PackagingReceiptPageOut,
     QualityCheckIn, QualityCheckOut, QualityCheckPageOut,
     ProductionOrderSizesIn,
 )
@@ -5703,15 +5704,20 @@ def packaging_receive_options(
     return options[:safe_limit]
 
 
-@router.get("/packaging/receipts")
+@router.get(
+    "/packaging/receipts",
+    response_model=list[PackagingReceiptOut] | PackagingReceiptPageOut,
+)
 def packaging_receipts(
     db: DbSession,
     current: User = Depends(require_permissions("packaging.records", "planning.production", "*")),
     limit: int = 50,
     packaging_department_code: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     department_code = packaging_department_scope(current, packaging_department_code)
-    rows = (
+    query = (
         db.query(
             PackagingReceipt,
             ProductionOrder,
@@ -5720,20 +5726,39 @@ def packaging_receipts(
             Model,
             SalesOrder,
         )
+        .options(noload(ProductionOrder.materials))
         .outerjoin(ProductionOrder, ProductionOrder.id == PackagingReceipt.production_order_id)
         .outerjoin(ProductionBatch, ProductionBatch.id == PackagingReceipt.production_batch_id)
         .outerjoin(Bundle, Bundle.id == PackagingReceipt.bundle_id)
         .outerjoin(Model, Model.id == ProductionOrder.model_id)
         .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
         .filter(PackagingReceipt.packaging_department_code == department_code)
-        .order_by(PackagingReceipt.id.desc())
-        .limit(max(1, min(int(limit or 50), 200)))
-        .all()
     )
-    return [
+    ordered_query = query.order_by(PackagingReceipt.id.desc())
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 50
+        total = db.query(func.count(PackagingReceipt.id)).filter(
+            PackagingReceipt.packaging_department_code == department_code,
+        ).scalar() or 0
+        ordered_query = ordered_query.offset((page - 1) * page_size).limit(page_size)
+    else:
+        ordered_query = ordered_query.limit(max(1, min(int(limit or 50), 200)))
+    rows = ordered_query.all()
+    payloads = [
         _packaging_receipt_payload_from_refs(receipt, po, batch, bundle, model, sales_order)
         for receipt, po, batch, bundle, model, sales_order in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/packaging/received-orders")
