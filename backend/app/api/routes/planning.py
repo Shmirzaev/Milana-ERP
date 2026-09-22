@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import BrandedPlanningOrder, Customer, Department, Model, User, SalesOrder, WorkOrder
+from app.models import BrandedPlanningOrder, Customer, Department, Model, ModelImage, User, SalesOrder, WorkOrder
 from app.schemas.production import (
     BrandedOrderPartiesOut,
     BrandedOrderPartiesPageOut,
@@ -173,7 +173,18 @@ def list_branded_orders(
     }
     models = (
         db.query(Model)
-        .options(selectinload(Model.images), selectinload(Model.bom))
+        .options(
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            selectinload(Model.bom),
+        )
         .filter(Model.id.in_(model_ids))
         .all()
         if model_ids
