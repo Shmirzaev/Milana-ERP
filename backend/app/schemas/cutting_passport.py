@@ -114,3 +114,11 @@ class CuttingPassportOut(ORMModel):
     model_name: Optional[str] = None
     model_image_url: Optional[str] = None
     operator_name: Optional[str] = None
+
+
+class CuttingPassportPageOut(BaseModel):
+    rows: list[CuttingPassportOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool

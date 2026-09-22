@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import Annotated
 from app.core.order_reference import canonical_business_order_reference, order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import or_
@@ -12,7 +13,12 @@ from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
 from app.services.factory_scope import require_work_order_factory_access
-from app.schemas.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
+from app.schemas.cutting_passport import (
+    CuttingOperatorOut,
+    CuttingPassportIn,
+    CuttingPassportOut,
+    CuttingPassportPageOut,
+)
 from app.services.audit import log_action
 from app.services.factory_scope import available_factory_codes, selected_factory_code
 from app.services.model_images import model_display_image_url
@@ -467,7 +473,7 @@ def cutting_operator_options(
     return [user for user in users if factory_code in available_factory_codes(user)]
 
 
-@router.get("", response_model=list[CuttingPassportOut])
+@router.get("", response_model=list[CuttingPassportOut] | CuttingPassportPageOut)
 def list_passports(
     db: DbSession,
     current: CurrentUser,
@@ -475,6 +481,8 @@ def list_passports(
     production_order_id: int | None = None,
     cutting_department_code: str | None = None,
     limit: int = Query(200, ge=1, le=500),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = (
         db.query(CuttingPassport)
@@ -517,9 +525,26 @@ def list_passports(
             | order_reference_contains(CuttingPassport.order_no, like)
             | CuttingPassport.operator_name_manual.ilike(like)
         )
-    rows = qry.limit(limit).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 200
+        total = qry.order_by(None).count()
+        qry = qry.offset((page - 1) * page_size).limit(page_size)
+    else:
+        qry = qry.limit(limit)
+    rows = qry.all()
     model_cache = _passport_model_cache(db, rows)
-    return [_serialize(r, db, model_cache) for r in rows]
+    payloads = [_serialize(r, db, model_cache) for r in rows]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/{pid}", response_model=CuttingPassportOut)

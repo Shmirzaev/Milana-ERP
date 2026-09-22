@@ -115,6 +115,66 @@ def test_passport_list_models_and_sales_references_are_chunk_bounded_without_blo
         assert "file_data" not in "\n".join(statements).lower()
 
 
+def test_passport_pages_preserve_legacy_and_scope_model_reads():
+    cases = []
+    for count in (1, 50, 401):
+        with SessionLocal() as db:
+            suffix, passport_ids = _passport_set(db, count)
+        with SessionLocal() as db:
+            page, statements = _select_trace(
+                db,
+                lambda suffix=suffix: cutting_passports.list_passports(
+                    db,
+                    _factory_user(),
+                    q=suffix,
+                    page=1,
+                    page_size=50,
+                ),
+            )
+        with SessionLocal() as db:
+            legacy = cutting_passports.list_passports(db, _factory_user(), q=suffix, limit=500)
+        cases.append((count, passport_ids, page, legacy, statements))
+
+    for count, passport_ids, page, legacy, statements in cases:
+        returned_count = min(count, 50)
+        assert page["total"] == count
+        assert page["page"] == 1
+        assert page["page_size"] == 50
+        assert page["has_more"] is (count > 50)
+        assert [row["id"] for row in page["rows"]] == list(reversed(passport_ids))[:returned_count]
+        assert page["rows"] == legacy[:returned_count]
+        assert len(statements) == 5, statements
+        scoped_reads = [
+            statement
+            for statement in statements
+            if " in (" in statement.lower() and any(
+                table in statement.lower()
+                for table in ("from models", "from model_images", "from model_bom")
+            )
+        ]
+        assert len(scoped_reads) == 3, statements
+        assert all(statement.count("?") == returned_count for statement in scoped_reads), statements
+
+
+def test_passport_page_response_is_typed_and_bounded(client, auth_headers):
+    response = client.get(
+        "/api/cutting-passports?q=definitely-missing-passport&page=1&page_size=50",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "rows": [],
+        "total": 0,
+        "page": 1,
+        "page_size": 50,
+        "has_more": False,
+    }
+    assert client.get(
+        "/api/cutting-passports?page_size=501",
+        headers=auth_headers,
+    ).status_code == 422
+
+
 def test_passport_list_preserves_image_fallbacks_missing_links_and_factory_scope():
     suffix = uuid4().hex[:8]
     with SessionLocal() as db:
