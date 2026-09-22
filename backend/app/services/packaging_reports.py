@@ -9,6 +9,7 @@ import base64
 
 from fastapi import HTTPException
 from sqlalchemy.orm import lazyload, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 from PIL import Image
 
 from app.core.dt import as_utc
@@ -24,7 +25,7 @@ from app.models import (
     WorkOrder,
 )
 from app.services.model_images import model_preview_image_url
-from app.services.label_images import model_label_image_src
+from app.services.label_images import is_preview_model_image, model_label_image_src
 
 
 REPORT_TZ = timezone(timedelta(hours=5), "Asia/Tashkent")
@@ -58,6 +59,16 @@ def _identity(model):
         parts = model.code.rsplit("-", 1)
         model_no, variant = (parts[0], parts[1]) if len(parts) == 2 else (model.code, "")
     return str(model_no), str(variant or "")
+
+
+def _selected_report_image(model):
+    images = [image for image in (model.images or []) if is_preview_model_image(image)]
+    typed_model = next(
+        (image for image in images if str(image.image_type or "").lower() == "model"),
+        None,
+    )
+    primary = next((image for image in images if image.is_primary), None)
+    return typed_model or primary or (images[0] if images else None)
 
 
 def build_packaging_report(
@@ -115,9 +126,15 @@ def build_packaging_report(
         else {}
     )
     model_ids = {p.model_id for p in packages} | {o.model_id for o in orders.values()}
-    image_loader = selectinload(Model.images)
-    if not include_images:
-        image_loader = image_loader.defer(ModelImage.file_data)
+    image_loader = selectinload(Model.images).load_only(
+        ModelImage.id,
+        ModelImage.model_id,
+        ModelImage.file_url,
+        ModelImage.file_name,
+        ModelImage.content_type,
+        ModelImage.image_type,
+        ModelImage.is_primary,
+    )
     models = (
         {m.id: m for m in db.query(Model).options(lazyload("*"), image_loader).filter(Model.id.in_(model_ids)).all()}
         if model_ids
@@ -125,6 +142,23 @@ def build_packaging_report(
     )
     pictures = {}
     if include_images:
+        selected_images = {
+            int(image.id): image
+            for model in models.values()
+            if (image := _selected_report_image(model)) is not None
+        }
+        selected_image_data = (
+            db.query(ModelImage.id, ModelImage.file_data)
+            .filter(
+                ModelImage.id.in_(selected_images),
+                ModelImage.file_data.isnot(None),
+            )
+            .all()
+            if selected_images
+            else []
+        )
+        for image_id, file_data in selected_image_data:
+            set_committed_value(selected_images[int(image_id)], "file_data", file_data)
         for model_id, model in models.items():
             source = model_label_image_src(model)
             if source and source.startswith("data:image/"):

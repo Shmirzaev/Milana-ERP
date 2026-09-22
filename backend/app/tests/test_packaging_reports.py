@@ -55,6 +55,18 @@ def report_data():
                 ),
             )
         )
+        db.add_all([
+            ModelImage(
+                model_id=model.id,
+                file_url=f"/storage/model-files/report-extra-{number}.png",
+                file_name=f"report-extra-{number}.png",
+                content_type="image/png",
+                image_type="material",
+                is_primary=False,
+                file_data=b"large image blob not used by this workbook",
+            )
+            for number in range(3)
+        ])
         order = ProductionOrder(
             production_no="PO-REPORT",
             production_type="branded_stock",
@@ -200,6 +212,35 @@ def test_excel_matches_report_and_preserves_unknowns_and_literal_text(client, au
     closed = workbook.worksheets[1]
     assert closed["Q4"].value == "=Do not execute" and closed["Q4"].data_type == "s"
     assert daily.freeze_panes == "C4" and daily.auto_filter.ref == "A3:H4"
+
+
+def test_excel_reads_only_selected_model_image_blobs(client, auth_headers, report_data):
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select"):
+            statements.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(
+            "/api/packaging/reports/export.xlsx",
+            params={**PARAMS, "lang": "en"},
+            headers=auth_headers,
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    image_queries = [statement for statement in statements if " from model_images " in statement]
+    metadata_queries = [statement for statement in image_queries if "file_data" not in statement]
+    blob_queries = [statement for statement in image_queries if "file_data" in statement]
+    assert len(metadata_queries) == 1, image_queries
+    assert len(blob_queries) == 1, image_queries
+    assert "model_images.id in (?)" in blob_queries[0], blob_queries
+    workbook = load_workbook(BytesIO(response.content))
+    assert len(workbook.worksheets[0]._images) == 2
 
 
 @pytest.mark.parametrize("endpoint", ["", "/export.xlsx"])
