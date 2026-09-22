@@ -2,6 +2,7 @@ from app.core.order_reference import order_reference_contains
 import os
 from collections import defaultdict
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends, Header
@@ -43,6 +44,8 @@ from app.services.model_images import material_preview_image_url, model_display_
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
 _STOCK_VARIANT_QUERY_CHUNK_SIZE = 200
+_MAX_SALES_ORDER_TOTAL = Decimal("999999999999.99")
+_SALES_ORDER_TOTAL_OVERFLOW_THRESHOLD = Decimal("999999999999.995")
 
 
 def _attachments_for_storage(attachments) -> list[dict]:
@@ -1898,7 +1901,7 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         created_by=current.id,
     )
     db.add(so); db.flush()
-    total = 0.0
+    total = Decimal("0")
     created_lines: list[SalesOrderItem] = []
     selected_model_ids = {int(item.model_id) for item in payload.items}
     selected_models = {
@@ -1926,7 +1929,12 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         )
         db.add(line)
         created_lines.append(line)
-        total += float(unit_price) * line.quantity
+        total += Decimal(str(unit_price)) * line.quantity
+    # NUMERIC(14, 2) accepts positive sub-cent input up to (but not including)
+    # this rounding threshold. Keep that historical behavior while preventing
+    # a value that would round to the unrepresentable 1,000,000,000,000.00.
+    if total >= _SALES_ORDER_TOTAL_OVERFLOW_THRESHOLD:
+        raise HTTPException(422, f"Order total exceeds the supported maximum of {_MAX_SALES_ORDER_TOTAL}")
     so.total_amount = total
     if payload.order_type == "branded_stock_sale":
         reservations, shortages = _reserve_branded_stock(
