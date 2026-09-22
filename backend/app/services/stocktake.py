@@ -163,6 +163,7 @@ def stocktake_summary(db, count):
     expected_found = and_(WarehouseStocktakeRow.expected.is_(True), WarehouseStocktakeRow.scanned_at.is_not(None))
     expected_missing = and_(WarehouseStocktakeRow.expected.is_(True), WarehouseStocktakeRow.scanned_at.is_(None))
     unexpected = WarehouseStocktakeRow.expected.is_(False)
+    scanned_row = WarehouseStocktakeRow.scanned_at.is_not(None)
     aggregate = db.query(
         func.coalesce(func.sum(case((expected_found, 1), else_=0)), 0),
         func.coalesce(func.sum(case((expected_missing, 1), else_=0)), 0),
@@ -170,29 +171,33 @@ def stocktake_summary(db, count):
         func.coalesce(func.sum(case((and_(unexpected, WarehouseStocktakeRow.category == "unexpected"), 1), else_=0)), 0),
         func.coalesce(func.sum(case((and_(unexpected, WarehouseStocktakeRow.category == "ambiguous"), 1), else_=0)), 0),
         func.coalesce(func.sum(case((WarehouseStocktakeRow.expected.is_(True), 1), else_=0)), 0),
+        func.coalesce(func.sum(case((scanned_row, 1), else_=0)), 0),
     ).filter(WarehouseStocktakeRow.stocktake_id == count.id).one()
 
-    scanned = 0
+    scanned = int(aggregate[6] or 0)
     scanned_packages = 0
     scanned_pieces = 0
     estimated_packages = 0
     unquantified_packages = 0
-    seen_packages: set[int] = set()
+    first_scanned_ids = db.query(
+        WarehouseStocktakeRow.package_id.label("package_id"),
+        func.min(WarehouseStocktakeRow.id).label("row_id"),
+    ).filter(
+        WarehouseStocktakeRow.stocktake_id == count.id,
+        scanned_row,
+        WarehouseStocktakeRow.package_id.is_not(None),
+    ).group_by(WarehouseStocktakeRow.package_id).subquery()
     scanned_rows = db.query(
         WarehouseStocktakeRow.package_id,
         WarehouseStocktakeRow.scanned_at,
         WarehouseStocktakeRow.scan_snapshot,
         WarehouseStocktakeRow.snapshot,
         WarehouseStocktakeRow.expected,
-    ).filter(
-        WarehouseStocktakeRow.stocktake_id == count.id,
-        WarehouseStocktakeRow.scanned_at.is_not(None),
+    ).join(
+        first_scanned_ids,
+        first_scanned_ids.c.row_id == WarehouseStocktakeRow.id,
     ).order_by(WarehouseStocktakeRow.id.asc()).yield_per(_STOCKTAKE_PAGE_CHUNK_SIZE)
     for row in scanned_rows:
-        scanned += 1
-        if row.package_id is None or int(row.package_id) in seen_packages:
-            continue
-        seen_packages.add(int(row.package_id))
         fields = scan_fields(row)
         scanned_packages += 1
         scanned_pieces += fields["scanned_pieces"] or 0

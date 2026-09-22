@@ -417,6 +417,77 @@ def test_requested_package_snapshot_scopes_finished_goods_balance_subquery():
     assert all("where finished_goods_stock.package_id in" in statement for statement in statements)
 
 
+@pytest.mark.parametrize("scan_count", [1, 50, 401])
+def test_stocktake_summary_groups_duplicate_package_scan_evidence(monkeypatch, scan_count):
+    with TestSessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        package_id = 987656
+        count = WarehouseStocktake(
+            request_key=str(uuid4()),
+            title="PERF33 grouped scan evidence",
+            created_by=current.id,
+            completed_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        )
+        db.add(count)
+        db.flush()
+        started = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        db.add_all([
+            WarehouseStocktakeRow(
+                stocktake_id=count.id,
+                identity=f"duplicate-scan:{number}",
+                package_id=package_id,
+                expected=True,
+                category="expected",
+                snapshot={"package_no": "DUPLICATE", "quantity": 7},
+                scan_snapshot={"package_no": "DUPLICATE", "quantity": 7 + number},
+                final_snapshot={"package_no": "DUPLICATE", "quantity": 7},
+                scan_code=f"DUPLICATE-{number}",
+                scanned_at=started + timedelta(seconds=number),
+                scanned_by=current.id,
+            )
+            for number in range(scan_count)
+        ])
+        db.commit()
+        count_id = int(count.id)
+
+    calls = 0
+    original_scan_fields = stocktake_service.scan_fields
+
+    def counted_scan_fields(row):
+        nonlocal calls
+        calls += 1
+        return original_scan_fields(row)
+
+    monkeypatch.setattr(stocktake_service, "scan_fields", counted_scan_fields)
+    statements: list[str] = []
+    with TestSessionLocal() as db:
+        count = db.get(WarehouseStocktake, count_id)
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            summary = stocktake_service.stocktake_summary(db, count)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert summary["scanned"] == scan_count
+    assert summary["scanned_packages"] == 1
+    assert summary["scanned_pieces"] == 7
+    assert summary["estimated_packages"] == 0
+    assert summary["unquantified_packages"] == 0
+    assert calls == 1
+    grouped_scans = [
+        statement
+        for statement in statements
+        if "min(warehouse_stocktake_rows.id)" in statement
+        and "group by warehouse_stocktake_rows.package_id" in statement
+    ]
+    assert len(grouped_scans) == 1
+
+
 def test_completed_page_preserves_global_frozen_null_snapshot_semantics():
     with TestSessionLocal() as db:
         current = db.query(User).filter(User.email == "admin@example.com").one()
