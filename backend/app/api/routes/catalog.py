@@ -5,7 +5,9 @@ import re
 from typing import Annotated
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi import UploadFile, File, Form
+from pydantic import ValidationError
 from sqlalchemy import and_, case, func, literal_column, or_, select
 from sqlalchemy.orm import selectinload
 
@@ -30,7 +32,8 @@ from app.models import (
 )
 from app.schemas.catalog import (
     BrandIn, BrandOut, CollectionIn, CollectionOut,
-    ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelColorIn, ModelBOMIn,
+    ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelSizeMeasurements,
+    ModelColorIn, ModelBOMIn,
     ModelBOMUpdate, ModelOptionPage, ModelPaidOperationsIn, ModelSellingPriceOut, ModelSummaryOut,
     ModelVariantCreateIn, ModelVariantUpdateIn,
 )
@@ -2446,7 +2449,17 @@ def add_size(
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
     if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
-    s = ModelSize(model_id=mid, **payload.model_dump())
+    values = payload.model_dump()
+    measurements = values.get("measurement_json")
+    if measurements is not None:
+        try:
+            ModelSizeMeasurements.model_validate(measurements)
+        except ValidationError as exc:
+            raise RequestValidationError([
+                {**error, "loc": ("body", "measurement_json", *error["loc"])}
+                for error in exc.errors()
+            ]) from exc
+    s = ModelSize(model_id=mid, **values)
     db.add(s)
     db.flush()
     log_action(db, current, "create", "ModelSize", s.id, new_value={"model_id": mid, "size": s.size})

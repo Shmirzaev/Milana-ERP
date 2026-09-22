@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel
 from app.schemas.inventory import ItemComposition, ItemOut
@@ -138,6 +138,16 @@ class ModelImageOut(ORMModel):
     image_type: Optional[str] = None
     is_primary: bool
     created_at: datetime
+
+
+class ModelSizeMeasurements(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    chest: float | None = Field(default=None, allow_inf_nan=False)
+    waist: float | None = Field(default=None, allow_inf_nan=False)
+    hip: float | None = Field(default=None, allow_inf_nan=False)
+    length: float | None = Field(default=None, allow_inf_nan=False)
+    sleeve: float | None = Field(default=None, allow_inf_nan=False)
 
 
 class ModelSizeIn(BaseModel):
