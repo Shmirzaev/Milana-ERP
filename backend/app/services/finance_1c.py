@@ -204,10 +204,10 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
         # Preserve the existing private refresh hook as a synchronization
         # point for the PostgreSQL race tests; apply the preloaded totals to
         # every affected invoice below instead of recalculating per payment.
-        first_invoice = db.get(Invoice, min(affected_invoice_ids))
-        if first_invoice:
-            _refresh_invoice_status(db, first_invoice)
-        for invoice in db.query(Invoice).filter(Invoice.id.in_(sorted(affected_invoice_ids))).all():
+        affected_invoices = db.query(Invoice).filter(Invoice.id.in_(sorted(affected_invoice_ids))).all()
+        if affected_invoices:
+            _refresh_invoice_status(db, min(affected_invoices, key=lambda row: int(row.id)))
+        for invoice in affected_invoices:
             total_paid = float(paid_totals.get(invoice.id, 0) or 0)
             amount = float(invoice.amount or 0)
             invoice.status = "paid" if total_paid >= amount else "partially_paid" if total_paid > 0 else "unpaid"

@@ -120,6 +120,8 @@ def test_1c_grouped_status_refresh_reads_are_bounded(count):
         if "sum(payments.amount)" in statement.lower() or "group by payments.invoice_id" in statement.lower()
     ]
     assert len(status_refresh_reads) <= 2
+    invoice_reads = [statement for statement in statements if " from invoices " in statement.lower()]
+    assert len(invoice_reads) <= 2
 
 
 @pytest.mark.parametrize(("amount", "new_status"), [(40, "partially_paid"), (120, "paid")])
