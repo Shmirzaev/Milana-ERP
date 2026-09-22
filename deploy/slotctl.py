@@ -27,7 +27,7 @@ STATE_PATH = RUNTIME / "slots.json"
 PROXY_PATH = RUNTIME / "haproxy.cfg"
 SERVICE_PATH = Path("/etc/systemd/system/milana-router.service")
 ROLES = {
-    "backend": {"stable": 8000, "blue": 18001, "green": 18002, "health": "/health"},
+    "backend": {"stable": 8000, "blue": 18001, "green": 18002, "health": "/ready"},
     "frontend": {"stable": 3000, "blue": 13001, "green": 13002, "health": "/login"},
 }
 
@@ -94,7 +94,7 @@ def wait_for_health(role: str, slot: str, attempts: int = 60) -> None:
 
 def warm(role: str, slot: str) -> None:
     port = slot_port(role, slot)
-    paths = ["/health"] if role == "backend" else ["/login", "/presentation"]
+    paths = ["/ready", "/health"] if role == "backend" else ["/login", "/presentation"]
     for _ in range(3):
         for path in paths:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=15) as response:
