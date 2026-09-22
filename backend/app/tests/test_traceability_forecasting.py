@@ -680,6 +680,22 @@ def test_forecast_recommendation_accept_and_dismiss_state_changes(client, auth_h
     assert r.json()["status"] == "dismissed"
 
 
+def test_forecast_recommendation_rejects_dangling_reference_without_write(client, auth_headers):
+    before = client.get("/api/forecasting/recommendations", headers=auth_headers)
+    assert before.status_code == 200, before.text
+    for field in ("model_id", "item_id", "brand_id", "collection_id"):
+        payload = {
+            "recommendation_type": "item_reorder",
+            field: 2_147_483_647,
+            "suggested_quantity": 1,
+        }
+        response = client.post("/api/forecasting/recommendations", json=payload, headers=auth_headers)
+        assert response.status_code == 400, (field, response.text)
+    after = client.get("/api/forecasting/recommendations", headers=auth_headers)
+    assert after.status_code == 200, after.text
+    assert after.json() == before.json()
+
+
 def test_forecasting_permission_denied_for_manage(client):
     sales_headers = _token_headers(client, "sales@example.com")
     r = client.post(
