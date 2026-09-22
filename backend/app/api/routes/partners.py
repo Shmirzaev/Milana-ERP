@@ -26,7 +26,13 @@ from app.models import (
     User,
 )
 from app.schemas.catalog import PartyIn, PartyOut
-from app.schemas.partners import CustomerOrderHistoryOut, CustomerOrderHistoryPageOut, SupplierPageOut
+from app.schemas.partners import (
+    CustomerOrderHistoryOut,
+    CustomerOrderHistoryPageOut,
+    CustomerPaymentHistoryOut,
+    CustomerPaymentHistoryPageOut,
+    SupplierPageOut,
+)
 from app.services.audit import log_action
 from app.services.numbering import next_invoice_no
 from app.services.payments import create_customer_advance_payment, create_invoice_payment, invoice_paid_total
@@ -160,28 +166,49 @@ def get_customer_orders(
     }
 
 
-@router.get("/customers/{cid}/payments")
+@router.get(
+    "/customers/{cid}/payments",
+    response_model=list[CustomerPaymentHistoryOut] | CustomerPaymentHistoryPageOut,
+)
 def get_customer_payments(
     cid: int,
     db: DbSession,
     _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS)),
     limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
-    rows = (
+    query = (
         db.query(Payment, Invoice, SalesOrder)
         .outerjoin(Invoice, Invoice.id == Payment.invoice_id)
         .outerjoin(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
         .filter(or_(SalesOrder.customer_id == cid, Payment.customer_id == cid))
-        .order_by(Payment.id.desc())
-        .limit(limit)
-        .all()
     )
-    return [
+    ordered_query = query.order_by(Payment.id.desc())
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.order_by(None).count()
+        ordered_query = ordered_query.offset((page - 1) * page_size).limit(page_size)
+    else:
+        ordered_query = ordered_query.limit(limit)
+    rows = ordered_query.all()
+    payloads = [
         _serialize_customer_payment(payment, invoice, so)
         for payment, invoice, so in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/customers/{cid}/payments", status_code=201)

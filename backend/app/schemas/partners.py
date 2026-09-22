@@ -48,6 +48,29 @@ class CustomerOrderHistoryPageOut(SchemaModel):
     has_more: bool
 
 
+class CustomerPaymentHistoryOut(SchemaModel):
+    id: int
+    row_key: str
+    amount: float
+    payment_method: str | None = None
+    paid_at: datetime | None = None
+    notes: str | None = None
+    order_id: int | None = None
+    order_no: str | None = None
+    invoice_id: int | None = None
+    invoice_no: str | None = None
+    invoice_amount: float | None = None
+    is_advance: bool
+
+
+class CustomerPaymentHistoryPageOut(SchemaModel):
+    rows: list[CustomerPaymentHistoryOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class SupplierPageOut(SchemaModel):
     rows: list[PartyOut]
     total: int
