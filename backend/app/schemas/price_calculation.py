@@ -17,8 +17,12 @@ class PriceCalculationFinanceIn(BaseModel):
 
 class PriceCalculationPurchasingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    fabric_price: float | None = Field(default=None, ge=0)
-    sewing_cost: float | None = Field(default=None, ge=0)
+    fabric_price: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+    sewing_cost: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
 
 
 class PriceCalculationCuttingIn(BaseModel):
