@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.models import Invoice, SalesOrder, User
 from app.schemas.integrations import OneCSyncIn
+from app.schemas.finance import FinanceInvoiceOut, FinanceInvoicePageOut
 from app.schemas.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
 from app.services.audit import log_action
 from app.services.finance_1c import sync_from_1c
@@ -15,7 +16,7 @@ from app.services.payments import create_invoice_payment
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.finance import (
     dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
-    list_recent_invoices, revenue_by_period, cost_breakdown,
+    count_invoices, list_recent_invoices, revenue_by_period, cost_breakdown,
 )
 
 router = APIRouter(prefix="/finance", tags=["finance"])
@@ -41,13 +42,31 @@ def get_waste(db: DbSession, _: User = Depends(require_permissions("finance.view
     return {"cost": waste_cost(db), "income": waste_income(db)}
 
 
-@router.get("/invoices")
+@router.get("/invoices", response_model=list[FinanceInvoiceOut] | FinanceInvoicePageOut)
 def list_invoices(
     db: DbSession,
     _: User = Depends(require_permissions("finance.view", "*")),
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    return list_recent_invoices(db, limit=limit)
+    if page is None and page_size is None:
+        return list_recent_invoices(db, limit=limit)
+    effective_page = page or 1
+    effective_page_size = page_size or limit
+    total = count_invoices(db)
+    rows = list_recent_invoices(
+        db,
+        limit=effective_page_size,
+        offset=(effective_page - 1) * effective_page_size,
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/revenue-by-period")

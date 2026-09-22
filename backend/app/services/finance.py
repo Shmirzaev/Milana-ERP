@@ -111,14 +111,20 @@ def dashboard_summary(db: Session) -> dict:
     }
 
 
-def list_recent_invoices(db: Session, limit: int = 50) -> list[dict]:
+def count_invoices(db: Session) -> int:
+    return int(db.query(func.count(Invoice.id)).scalar() or 0)
+
+
+def list_recent_invoices(db: Session, limit: int = 50, offset: int = 0) -> list[dict]:
     """Return recent invoices with sales-order and customer labels for finance UI."""
     safe_limit = max(1, min(int(limit or 50), 500))
+    safe_offset = max(0, int(offset or 0))
     rows = (
         db.query(Invoice, SalesOrder, Customer)
         .join(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
         .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
         .order_by(Invoice.id.desc())
+        .offset(safe_offset)
         .limit(safe_limit)
         .all()
     )
