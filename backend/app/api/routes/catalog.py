@@ -61,6 +61,23 @@ _MODEL_BOM_NUMERIC_FIELDS = {
     "quantity_per_piece": (Decimal("99999999.9999"), Decimal("0.0001")),
     "waste_percent": (Decimal("9999.99"), Decimal("0.01")),
 }
+_MAX_MODEL_SAM_MINUTES = Decimal("999999.99")
+_MODEL_SAM_QUANTUM = Decimal("0.01")
+
+
+def _validate_model_sam_minutes(data: dict) -> None:
+    if "sam_minutes" not in data:
+        return
+    try:
+        value = Decimal(str(data["sam_minutes"]))
+        stored_value = value.quantize(_MODEL_SAM_QUANTUM, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        raise HTTPException(422, "sam_minutes exceeds supported precision") from None
+    if not value.is_finite():
+        raise HTTPException(422, "sam_minutes must be finite")
+    if abs(stored_value) > _MAX_MODEL_SAM_MINUTES:
+        raise HTTPException(422, "sam_minutes exceeds supported precision")
+    data["sam_minutes"] = stored_value
 
 
 def _standard_catalog_scope() -> str:
@@ -1721,6 +1738,7 @@ def create_model(
         general.pop("variantNo", None)
     details["general"] = general
     model_data["details_json"] = details
+    _validate_model_sam_minutes(model_data)
 
     m = Model(
         **model_data,
@@ -2325,6 +2343,7 @@ def update_model(
     if incoming_model_no and _normalized_key(incoming_model_no) != _normalized_key(current_model_no):
         renamed = _rename_model_group(db, m, incoming_model_no, catalog_scope)
 
+    _validate_model_sam_minutes(update_data)
     for k, v in update_data.items():
         setattr(m, k, v)
     for renamed_model, old_code in renamed:

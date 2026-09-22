@@ -261,7 +261,7 @@ class ModelIn(BaseModel):
     designer_employee_id: Optional[int] = None
     details_json: Optional[dict] = None
     status: str = "draft"
-    sam_minutes: float = 0
+    sam_minutes: Decimal | float | int | str = 0
 
 
 class ModelPaidOperationsIn(BaseModel):
