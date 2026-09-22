@@ -753,6 +753,13 @@ def create_role(payload: RoleIn, db: DbSession, current: User = Depends(require_
 
 
 # ===== Departments =====
+def _validate_department_storage(name: str, code: str) -> None:
+    if len(name) > 128:
+        raise HTTPException(422, "Department name must be at most 128 characters")
+    if len(code) > 32:
+        raise HTTPException(422, "Department code must be at most 32 characters")
+
+
 @router.get("/departments", response_model=list[DepartmentOut] | DepartmentPageOut)
 def list_departments(
     db: DbSession,
@@ -780,6 +787,7 @@ def list_departments(
 
 @router.post("/departments", response_model=DepartmentOut, status_code=201)
 def create_department(payload: DepartmentIn, db: DbSession, current: User = Depends(require_permissions("*"))):
+    _validate_department_storage(payload.name, payload.code)
     d = Department(name=payload.name, code=payload.code)
     db.add(d)
     db.flush()
@@ -811,6 +819,7 @@ def update_department(
     code_exists = db.query(Department).filter(Department.code == code, Department.id != department_id).first()
     if code_exists:
         raise HTTPException(400, "Department code already exists")
+    _validate_department_storage(name, code)
 
     old = {"name": d.name, "code": d.code}
     d.name = name
