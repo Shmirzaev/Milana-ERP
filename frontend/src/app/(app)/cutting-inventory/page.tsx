@@ -94,8 +94,6 @@ export default function CuttingInventoryPage() {
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
-  const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
-  const departmentById = useMemo(() => new Map(departments.map((d) => [Number(d.id), d])), [departments]);
 
   const inventoryUrl = useMemo(() => {
     const params = new URLSearchParams({
@@ -109,6 +107,9 @@ export default function CuttingInventoryPage() {
 
   const { data: pageData, mutate, isLoading } = useSWR<InventoryResponse>(inventoryUrl, fetcher);
   const rows = useMemo(() => pageData?.rows || [], [pageData?.rows]);
+  const departmentDirectoryKey = rows.some((row) => row.next_department_id != null) ? "/api/departments" : null;
+  const { data: departments = [] } = useSWR<Department[]>(departmentDirectoryKey, fetcher);
+  const departmentById = useMemo(() => new Map(departments.map((d) => [Number(d.id), d])), [departments]);
 
   const grouped = useMemo<Group[]>(() => {
     const map = new Map<string, Group>();
