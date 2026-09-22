@@ -15,6 +15,24 @@ const output = ts.transpileModule(source, { compilerOptions: {
 const hookState = [];
 let hookIndex = 0;
 const keys = [];
+let requestPageCount = 1;
+const requestRow = (id, lineId) => ({
+  id,
+  request_no: `PR-${id}`,
+  status: "pending_approval",
+  lines: [{
+    id: lineId,
+    item_id: id,
+    item_name: `Page ${id} material`,
+    requested_quantity: 1,
+    shortage_quantity: 1,
+    unit: "kg",
+  }],
+});
+const requestPages = [
+  { rows: [requestRow(1, 11)], total: 101, page: 1, page_size: 100, has_more: true },
+  { rows: [requestRow(2, 12)], total: 101, page: 2, page_size: 100, has_more: false },
+];
 const hooks = {
   ...React,
   useEffect(effect) { effect(); },
@@ -33,9 +51,22 @@ new Function("exports", "require", output)(exports, name => ({
   react: hooks,
   "react/jsx-runtime": jsxRuntime,
   "next/link": { default: ({ children, ...props }) => React.createElement("a", props, children) },
+  "swr/infinite": { default: keyFactory => {
+    const pages = requestPages.slice(0, requestPageCount);
+    for (let index = 0; index < pages.length; index += 1) {
+      keys.push(keyFactory(index, index > 0 ? pages[index - 1] : null));
+    }
+    return {
+      data: pages,
+      mutate: async () => {},
+      setSize(value) {
+        requestPageCount = typeof value === "function" ? value(requestPageCount) : value;
+      },
+      isValidating: false,
+    };
+  } },
   swr: { default: key => {
     keys.push(key);
-    if (key === "/api/purchasing/requests") return { data: [], mutate: async () => {} };
     if (key === "/api/purchasing/orders") return { data: [], mutate: async () => {} };
     if (key === "/api/inventory/items?group=materials&page_size=500") {
       return { data: [{ id: 1, sku: "FAB-1", name: "Deferred Fabric", unit: "kg" }] };
@@ -82,7 +113,7 @@ function find(node, predicate) {
 
 const closed = render();
 assert.deepEqual(keys, [
-  "/api/purchasing/requests",
+  "/api/purchasing/requests?page=1&page_size=100",
   "/api/purchasing/orders",
   null,
   null,
@@ -92,15 +123,36 @@ const closedHtml = renderToStaticMarkup(closed);
 assert.ok(closedHtml.includes("Visible Supplier") === false);
 assert.ok(!closedHtml.includes("Deferred Fabric"));
 assert.ok(!closedHtml.includes("Deferred Button"));
+assert.ok(closedHtml.includes("PR-1"));
+assert.ok(!closedHtml.includes("PR-2"));
 
-const openButton = find(closed, node => node.type === "button" && node.props.children?.[1] === "page.purchasing.createSample");
+const loadMore = find(closed, node => node.type === "button" && node.props.children === "common.loadMore");
+assert.ok(loadMore, "first request page must expose the real load-more control");
+await loadMore.props.onClick();
+
+keys.length = 0;
+const expanded = render();
+assert.deepEqual(keys, [
+  "/api/purchasing/requests?page=1&page_size=100",
+  "/api/purchasing/requests?page=2&page_size=100",
+  "/api/purchasing/orders",
+  null,
+  null,
+  "/api/suppliers",
+], "load more must retain page one and request the next bounded page");
+assert.equal(find(expanded, node => node.type === "button" && node.props.children === "common.loadMore"), null);
+const expandedHtml = renderToStaticMarkup(expanded);
+assert.ok(expandedHtml.includes("PR-1") && expandedHtml.includes("PR-2"), "loaded request pages must aggregate in the actual component");
+
+const openButton = find(expanded, node => node.type === "button" && node.props.children?.[1] === "page.purchasing.createSample");
 assert.ok(openButton, "actual Create request action must render");
 openButton.props.onClick();
 
 keys.length = 0;
 const opened = render();
 assert.deepEqual(keys, [
-  "/api/purchasing/requests",
+  "/api/purchasing/requests?page=1&page_size=100",
+  "/api/purchasing/requests?page=2&page_size=100",
   "/api/purchasing/orders",
   "/api/inventory/items?group=materials&page_size=500",
   "/api/inventory/items?group=accessories&page_size=500",
@@ -111,4 +163,4 @@ assert.ok(openedHtml.includes("Deferred Fabric"));
 assert.ok(openedHtml.includes("Deferred Button"));
 assert.ok(openedHtml.includes("Visible Supplier"));
 
-console.log("Purchasing: item directories fetch only when Create request opens.");
+console.log("Purchasing: request pagination and deferred item directories verified.");

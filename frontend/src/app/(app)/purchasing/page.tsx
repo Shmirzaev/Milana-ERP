@@ -4,6 +4,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { Check, ChevronDown, Folder, ImagePlus, PackageCheck, Plus, ShoppingCart, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
@@ -23,6 +24,13 @@ type PurchaseRequestLine = {
 type PurchaseRequest = {
   id: number; request_no: string; status: string; sales_order_no?: string | null;
   lines: PurchaseRequestLine[];
+};
+type PurchaseRequestPage = {
+  rows: PurchaseRequest[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
 };
 type PurchaseOrder = { id: number; status: string; lines: { id: number; remaining_quantity: number }[] };
 type ApprovalLineDraft = { material_name: string; photo_url: string; preferred_supplier_id: number };
@@ -61,15 +69,29 @@ export default function PurchasingPage() {
   const [approvalDrafts, setApprovalDrafts] = useState<Record<number, ApprovalLineDraft>>({});
   const [orderDrafts, setOrderDrafts] = useState<Record<number, OrderDraft>>({});
 
-  const { data: requests, mutate: refreshRequests } = useSWR<PurchaseRequest[]>(canView ? "/api/purchasing/requests" : null, fetcher);
+  const {
+    data: requestPages,
+    mutate: refreshRequests,
+    setSize: setRequestPageCount,
+    isValidating: requestsValidating,
+  } = useSWRInfinite<PurchaseRequestPage>(
+    (index, previous) => canView && !(previous && !previous.has_more)
+      ? `/api/purchasing/requests?page=${index + 1}&page_size=100`
+      : null,
+    fetcher,
+  );
   const { data: orders, mutate: refreshOrders } = useSWR<PurchaseOrder[]>(canView ? "/api/purchasing/orders" : null, fetcher);
   const { data: materialItems } = useSWR<Item[]>(canRequest && showRequestForm ? "/api/inventory/items?group=materials&page_size=500" : null, fetcher);
   const { data: accessoryItems } = useSWR<Item[]>(canRequest && showRequestForm ? "/api/inventory/items?group=accessories&page_size=500" : null, fetcher);
   const { data: suppliers } = useSWR<Supplier[]>(canRequest || canApprove ? "/api/suppliers" : null, fetcher);
   const items = useMemo(() => [...(materialItems || []), ...(accessoryItems || [])].sort((a, b) => a.name.localeCompare(b.name)), [materialItems, accessoryItems]);
+  const requests = useMemo(() => requestPages?.flatMap((requestPage) => requestPage.rows) || [], [requestPages]);
+  const lastRequestPage = requestPages?.[requestPages.length - 1];
+  const hasMoreRequests = Boolean(lastRequestPage?.has_more);
+  const loadingMoreRequests = requestsValidating && Boolean(requestPages?.length);
 
   useEffect(() => {
-    if (!requests) return;
+    if (!requests.length) return;
     setApprovalDrafts((current) => {
       const next = { ...current };
       for (const request of requests) for (const line of request.lines) {
@@ -159,7 +181,13 @@ export default function PurchasingPage() {
     setBusyId(request.id); setMessage("");
     try {
       await api.post(`/api/purchasing/requests/${request.id}/reject`);
-      await refreshRequests((current) => (current || []).filter((row) => row.id !== request.id), { revalidate: false });
+      await refreshRequests(
+        (current) => current?.map((requestPage) => ({
+          ...requestPage,
+          rows: requestPage.rows.map((row) => row.id === request.id ? { ...row, status: "rejected" } : row),
+        })),
+        { revalidate: false },
+      );
     }
     catch (error: any) { setMessage(error?.message || t("page.purchasing.actionFailed")); }
     finally { setBusyId(null); }
@@ -289,6 +317,16 @@ export default function PurchasingPage() {
             </details>
           ))}
           {requestRows.length === 0 && <div className="py-6 text-sm text-slate-400">{t("page.purchasing.noRequests")}</div>}
+          {hasMoreRequests && (
+            <button
+              type="button"
+              className="btn"
+              disabled={loadingMoreRequests}
+              onClick={() => void setRequestPageCount((requestPages?.length || 0) + 1)}
+            >
+              {loadingMoreRequests ? t("common.loading") : t("common.loadMore")}
+            </button>
+          )}
         </div>
       </section>
     </div>

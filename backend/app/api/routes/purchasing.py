@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from app.core.deps import DbSession, require_permissions
@@ -16,6 +16,7 @@ from app.schemas.purchasing import (
     PurchaseRequestIn,
     PurchaseRequestOrderIn,
     PurchaseRequestOut,
+    PurchaseRequestPageOut,
 )
 from app.services.purchasing import (
     approve_purchase_request,
@@ -30,20 +31,39 @@ from app.services.purchasing import (
 router = APIRouter(prefix="/purchasing", tags=["purchasing"])
 
 
-@router.get("/requests", response_model=list[PurchaseRequestOut])
+@router.get("/requests", response_model=list[PurchaseRequestOut] | PurchaseRequestPageOut)
 def list_purchase_requests(
     db: DbSession,
     _: User = Depends(require_permissions("purchasing.view", "*")),
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
 ):
-    return (
+    query = (
         db.query(PurchaseRequest)
         .filter(~PurchaseRequest.lines.any(PurchaseRequestLine.item_id.in_(
             db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
         )) if inventory_access.materials_only(_) else True)
         .options(joinedload(PurchaseRequest.lines))
         .order_by(PurchaseRequest.id.desc())
+    )
+    if page is None and page_size is None:
+        return query.all()
+
+    current_page = page or 1
+    safe_page_size = page_size or 100
+    total = query.order_by(None).count()
+    rows = (
+        query.offset((current_page - 1) * safe_page_size)
+        .limit(safe_page_size)
         .all()
     )
+    return {
+        "rows": rows,
+        "total": total,
+        "page": current_page,
+        "page_size": safe_page_size,
+        "has_more": current_page * safe_page_size < total,
+    }
 
 
 @router.post("/requests", response_model=PurchaseRequestOut, status_code=201)

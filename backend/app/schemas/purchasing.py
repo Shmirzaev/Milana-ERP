@@ -62,6 +62,14 @@ class PurchaseRequestOut(ORMModel):
     lines: list[PurchaseRequestLineOut] = []
 
 
+class PurchaseRequestPageOut(BaseModel):
+    rows: list[PurchaseRequestOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class PurchaseOrderLineIn(BaseModel):
     item_id: int
     ordered_quantity: float
