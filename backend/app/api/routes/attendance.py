@@ -9,6 +9,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from zoneinfo import ZoneInfo
 
+from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
@@ -400,6 +401,32 @@ def import_events(
     return {"received": len(payload.events), "inserted": inserted, "duplicates": len(payload.events) - inserted}
 
 
+def _write_new_attendance_photo(destination: Path, content: bytes) -> bool:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with NamedTemporaryFile(
+            prefix=".attendance_",
+            suffix=".tmp",
+            dir=destination.parent,
+            delete=False,
+        ) as stream:
+            stream.write(content)
+            temporary_path = Path(stream.name)
+        os.link(temporary_path, destination)
+    except FileExistsError:
+        return False
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+    return True
+
+
+async def _discard_attendance_photo(destination: Path) -> None:
+    with CancelScope(shield=True):
+        await to_thread.run_sync(destination.unlink, True)
+
+
 @router.post("/integration/photos/{device_key}/{external_person_id}")
 async def import_person_photo(
     device_key: str,
@@ -430,25 +457,24 @@ async def import_person_photo(
     ).one_or_none()
     if not person:
         raise HTTPException(404, "Attendance person not found")
-    converted = convert_image_to_webp(content)
+    converted = await to_thread.run_sync(convert_image_to_webp, content)
     digest = hashlib.sha256(converted.data).hexdigest()
     if person.photo_sha256 == digest and person.photo_file_name:
         return {"updated": False, "photo_sha256": digest}
-    root = Path(settings.ATTENDANCE_PHOTOS_DIR)
-    root.mkdir(parents=True, exist_ok=True)
     file_name = f"{device.id}_{person.id}_{digest[:20]}.webp"
-    destination = root / file_name
-    if not destination.exists():
-        with NamedTemporaryFile(prefix=".attendance_", suffix=".tmp", dir=root, delete=False) as temporary:
-            temporary.write(converted.data)
-            temporary_path = Path(temporary.name)
+    destination = Path(settings.ATTENDANCE_PHOTOS_DIR) / file_name
+    created = await to_thread.run_sync(_write_new_attendance_photo, destination, converted.data)
+    try:
+        person.photo_file_name = file_name
+        person.photo_sha256 = digest
+        db.commit()
+    except BaseException:
         try:
-            os.replace(temporary_path, destination)
+            db.rollback()
         finally:
-            temporary_path.unlink(missing_ok=True)
-    person.photo_file_name = file_name
-    person.photo_sha256 = digest
-    db.commit()
+            if created:
+                await _discard_attendance_photo(destination)
+        raise
     return {"updated": True, "photo_sha256": digest}
 
 
