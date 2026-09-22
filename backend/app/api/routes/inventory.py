@@ -2,6 +2,7 @@ from app.models.eco_transfer import EcoFabricRoll
 from app.core.order_reference import canonical_business_order_reference, canonical_order_reference, order_reference_contains
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Depends, Header, UploadFile, File, Response, Query
@@ -36,7 +37,7 @@ from app.models import (
     WasteRecord,
 )
 from app.schemas.inventory import (
-    ItemImageIn, ItemIn, ItemOut, WarehouseIn, WarehouseOut,
+    ItemImageIn, ItemIn, ItemOut, WarehouseIn, WarehouseOut, WarehousePageOut,
     AccessoryReturnIn, StockBatchIn, StockBatchOut, StockBatchRestoreIn, StockBatchRollWeightsIn, StockBatchUpdate, StockMovementIn, StockMovementOut, StockLine,
     AccessoryIssueIn, AccessoryIssueOut, AccessoryIssuePlanOut, AccessoryIssueRequestRow, AccessoryIssueSummaryRow,
     MaterialReservationAutoIn, MaterialReservationConsumeIn, MaterialReservationIn,
@@ -468,12 +469,31 @@ def delete_item(
 
 
 # ===== Warehouses =====
-@router.get("/warehouses", response_model=list[WarehouseOut])
-def list_warehouses(db: DbSession, _: User = Depends(require_permissions(*WAREHOUSE_READ_PERMISSIONS))):
+@router.get("/warehouses", response_model=list[WarehouseOut] | WarehousePageOut)
+def list_warehouses(
+    db: DbSession,
+    _: User = Depends(require_permissions(*WAREHOUSE_READ_PERMISSIONS)),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     qry = db.query(Warehouse)
     if inventory_access.materials_only(_):
         qry = qry.filter(Warehouse.type != "accessory_storage")
-    return qry.order_by(Warehouse.id).all()
+    ordered_qry = qry.order_by(Warehouse.id)
+    if page is None and page_size is None:
+        return ordered_qry.all()
+
+    page = page or 1
+    page_size = page_size or 50
+    total = qry.count()
+    rows = ordered_qry.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/warehouses", response_model=WarehouseOut, status_code=201)
