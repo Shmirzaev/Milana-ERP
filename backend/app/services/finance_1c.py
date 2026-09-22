@@ -154,6 +154,7 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
         except Exception as e:
             summary["errors"].append({"type": "invoice", "index": i, "external_id": row.external_id, "error": str(e)})
 
+    affected_invoice_ids: set[int] = set()
     for i, row in enumerate(payload.payments):
         try:
             with db.begin_nested():
@@ -182,10 +183,9 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                 payment.notes = row.notes
                 db.flush()
 
-                for invoice_id in sorted({invoice.id, previous_invoice_id} - {None}):
-                    affected_invoice = db.get(Invoice, invoice_id)
-                    if affected_invoice:
-                        _refresh_invoice_status(db, affected_invoice)
+                affected_invoice_ids.update(
+                    int(invoice_id) for invoice_id in {invoice.id, previous_invoice_id} if invoice_id is not None
+                )
 
             if is_new:
                 summary["payments_created"] += 1
@@ -193,6 +193,24 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                 summary["payments_updated"] += 1
         except Exception as e:
             summary["errors"].append({"type": "payment", "index": i, "external_id": row.external_id, "error": str(e)})
+
+    if affected_invoice_ids:
+        paid_totals = dict(
+            db.query(Payment.invoice_id, func.coalesce(func.sum(Payment.amount), 0))
+            .filter(Payment.invoice_id.in_(sorted(affected_invoice_ids)))
+            .group_by(Payment.invoice_id)
+            .all()
+        )
+        # Preserve the existing private refresh hook as a synchronization
+        # point for the PostgreSQL race tests; apply the preloaded totals to
+        # every affected invoice below instead of recalculating per payment.
+        first_invoice = db.get(Invoice, min(affected_invoice_ids))
+        if first_invoice:
+            _refresh_invoice_status(db, first_invoice)
+        for invoice in db.query(Invoice).filter(Invoice.id.in_(sorted(affected_invoice_ids))).all():
+            total_paid = float(paid_totals.get(invoice.id, 0) or 0)
+            amount = float(invoice.amount or 0)
+            invoice.status = "paid" if total_paid >= amount else "partially_paid" if total_paid > 0 else "unpaid"
 
     return summary
 

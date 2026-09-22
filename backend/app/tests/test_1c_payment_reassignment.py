@@ -6,7 +6,7 @@ from time import monotonic, sleep
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -75,6 +75,51 @@ def test_1c_payment_move_refreshes_both_invoice_statuses(client, reference):
     _assert_invoices(TestSessionLocal, ids, [0, 100, 0], ["unpaid", "paid", "unpaid"])
     with TestSessionLocal() as db:
         assert db.get(Payment, ids["payment_id"]).invoice_id == ids["invoices"][1]
+
+
+@pytest.mark.parametrize("count", [1, 50])
+def test_1c_grouped_status_refresh_reads_are_bounded(count):
+    marker = uuid4().hex[:12]
+    with TestSessionLocal() as db:
+        customer = Customer(name=f"1C grouped {marker}")
+        db.add(customer)
+        db.flush()
+        order = SalesOrder(order_no=f"GROUPED-{marker}", customer_id=customer.id, total_amount=count * 100)
+        db.add(order)
+        db.flush()
+        invoices = [
+            Invoice(
+                invoice_no=f"GROUPED-{marker}-{index}", sales_order_id=order.id, amount=100,
+                status="unpaid", external_source="1c", external_id=f"grouped-invoice-{marker}-{index}",
+            )
+            for index in range(count)
+        ]
+        db.add_all(invoices)
+        db.flush()
+        payload = OneCSyncIn(payments=[
+            {"external_id": f"grouped-payment-{marker}-{index}", "invoice_id": invoice.id, "amount": 100}
+            for index, invoice in enumerate(invoices)
+        ])
+        statements: list[str] = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            summary = sync_from_1c(db, payload)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        assert summary["errors"] == []
+        db.commit()
+        assert db.query(Invoice).filter(Invoice.id.in_([invoice.id for invoice in invoices]), Invoice.status == "paid").count() == count
+
+    status_refresh_reads = [
+        statement for statement in statements
+        if "sum(payments.amount)" in statement.lower() or "group by payments.invoice_id" in statement.lower()
+    ]
+    assert len(status_refresh_reads) <= 2
 
 
 @pytest.mark.parametrize(("amount", "new_status"), [(40, "partially_paid"), (120, "paid")])
