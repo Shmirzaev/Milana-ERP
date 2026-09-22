@@ -1,7 +1,7 @@
 from uuid import uuid4
 import pytest
 from app.db.session import SessionLocal
-from app.models import Bundle, CuttingRecord, StockBatch, WorkOrder
+from app.models import Bundle, CuttingRecord, CuttingMaterialUsage, MaterialReservation, StockBatch, StockMovement, WorkOrder
 from app.tests.test_material_reservations import _warehouse, _fabric_item, _receive_batch, _cutting_work_order
 
 
@@ -68,3 +68,51 @@ def test_awaiting_packaging_has_business_identity(client, auth_headers, passport
     assert row["order_no"] and row["production_no"]
     assert row["model_no"] and "variant_no" in row and "model_image_url" in row and "material_image_url" in row
     assert row["ready_qty"] == 7
+
+
+def test_saved_passport_shortage_keeps_sheet_and_pending_stock_evidence(client, auth_headers, passport_cutting):
+    batches, order, work, payload = passport_cutting
+    with SessionLocal() as db:
+        db.get(StockBatch, batches[0]["id"]).quantity = 0
+        db.commit()
+    result = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert result.status_code == 201, result.text
+    with SessionLocal() as db:
+        assert db.query(Bundle).filter_by(production_order_id=order["id"]).one().quantity == 10
+        assert db.get(WorkOrder, work["id"]).passed_qty == 10
+        assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [0, 93.5]
+        pending = db.query(CuttingMaterialUsage).filter_by(cutting_record_id=result.json()["id"], stock_batch_id=batches[0]["id"]).one()
+        assert pending.quantity == 6.5
+        assert pending.details["inventory_consumption"]["pending_quantity"] == 6.5
+        assert pending.details["inventory_consumption"]["consumed_quantity"] == 0
+        assert db.query(StockMovement).filter_by(batch_id=batches[0]["id"], movement_type="consume").count() == 0
+        reservation = db.query(MaterialReservation).filter_by(production_order_id=order["id"], stock_batch_id=batches[0]["id"]).first()
+        if reservation:
+            assert float(reservation.consumed_quantity) == 0
+    again = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert again.status_code == 409, again.text
+
+
+def test_passport_save_checks_fabric_stock_and_used_passport_credits_own_debit(client, auth_headers, passport_cutting):
+    batches, order, _, payload = passport_cutting
+    passport_id = payload["cutting_passport_id"]
+    saved = client.get(f"/api/cutting-passports/{passport_id}", headers=auth_headers).json()
+    shortage = {**saved, "passport_no": "SHORT-" + uuid4().hex[:8], "materials": [
+        {"stock_batch_id": row["id"], "layer_weight_kg": 2, "total_layers": 100} for row in batches
+    ]}
+    for response in (
+        client.post("/api/cutting-passports", headers=auth_headers, json=shortage),
+        client.put(f"/api/cutting-passports/{passport_id}", headers=auth_headers, json=shortage),
+    ):
+        assert response.status_code == 409, response.text
+        assert "Insufficient fabric for passport" in response.json()["detail"]
+        assert "required 200" in response.json()["detail"]
+    result = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert result.status_code == 201, result.text
+    with SessionLocal() as db:
+        for row in batches:
+            db.get(StockBatch, row["id"]).quantity = 0
+        db.commit()
+    saved["notes"] = "Corrected note after stock consumption"
+    update = client.put(f"/api/cutting-passports/{passport_id}", headers=auth_headers, json=saved)
+    assert update.status_code == 200, update.text

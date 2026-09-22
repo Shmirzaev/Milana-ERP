@@ -96,6 +96,10 @@ export function localizeError(detail: string, status = 0, lang = systemLanguage(
   const index = lang === "ru" ? 0 : 1;
   const plain = detail.replace(/^\d{3}:\s*/, "").trim();
   if (messages[plain]) return messages[plain][index];
+  const fabric = plain.match(/^Insufficient fabric for passport: batch (.+); available ([\d.]+) kg; required ([\d.]+) kg$/);
+  if (fabric) return lang === "ru"
+    ? `Недостаточно ткани для паспорта: партия ${fabric[1]}. Доступно ${fabric[2]} кг, требуется ${fabric[3]} кг.`
+    : `Pasport uchun mato yetarli emas: ${fabric[1]} partiya. Mavjud ${fabric[2]} kg, kerak ${fabric[3]} kg.`;
   const match = plain.match(/^Package (.+) (belongs to another sales order\.|is already attached to shipment (.+)\.|was already scanned for this shipment\.)$/);
   if (match) {
     if (match[2]!.startsWith("belongs")) return lang === "ru" ? `Упаковка ${match[1]} относится к другому заказу.` : `${match[1]} qadoq boshqa buyurtmaga tegishli.`;

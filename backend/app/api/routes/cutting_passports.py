@@ -13,6 +13,7 @@ from app.services.inventory import create_material_reservations
 from app.services.factory_scope import require_work_order_factory_access
 from app.schemas.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
 from app.services.audit import log_action
+from app.services.cutting_passport_usage import validate_passport_stock
 from app.services.factory_scope import available_factory_codes, selected_factory_code
 from app.services.model_images import model_display_image_url
 
@@ -540,7 +541,7 @@ def _add_passport_materials(db, order, work_order, payload, current):
     db.expire(order, ["materials"])
 
 
-def _passport_values(db, payload: CuttingPassportIn, current) -> dict:
+def _passport_values(db, payload: CuttingPassportIn, current, passport_id=None) -> dict:
     values = payload.model_dump(exclude={"additional_materials"})
     if payload.production_order_id:
         order, work_order = _passport_order(db, payload.production_order_id, current, lock=True)
@@ -553,6 +554,7 @@ def _passport_values(db, payload: CuttingPassportIn, current) -> dict:
             values.update({key: value for key, value in values["materials"][0].items() if key != "stock_batch_id"})
         # A stale form must not overwrite the linked order's live reference.
         values["order_no"] = order.order_no
+        validate_passport_stock(db, order, values, passport_id)
     else:
         if payload.materials or payload.additional_materials:
             raise HTTPException(400, "Select a production order for passport materials")
@@ -598,7 +600,7 @@ def update_passport(
         _passport_order(db, p.production_order_id, current)
     if payload.production_order_id != p.production_order_id and db.query(CuttingRecord.id).filter(CuttingRecord.cutting_passport_id == p.id).first():
         raise HTTPException(409, "A passport used by Cutting cannot be moved to another order")
-    for k, v in _passport_values(db, payload, current).items():
+    for k, v in _passport_values(db, payload, current, p.id).items():
         setattr(p, k, v)
     log_action(db, current, "update", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
     db.commit()
