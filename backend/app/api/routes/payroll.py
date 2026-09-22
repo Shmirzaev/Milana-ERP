@@ -42,6 +42,7 @@ from app.models import (
 from app.schemas.payroll import (
     PayrollAdjustmentIn,
     PayrollAdjustmentOut,
+    PayrollAdjustmentPageOut,
     PayrollBulkOut,
     PayrollControlScanIn,
     PayrollControlConfirmIn,
@@ -4033,7 +4034,7 @@ def payroll_summary(
     )
 
 
-@router.get("/adjustments", response_model=list[PayrollAdjustmentOut])
+@router.get("/adjustments", response_model=list[PayrollAdjustmentOut] | PayrollAdjustmentPageOut)
 def list_adjustments(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.view", "payroll.manage", "*")),
@@ -4042,6 +4043,8 @@ def list_adjustments(
     department_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = _filtered_adjustment_query(
         db,
@@ -4052,7 +4055,22 @@ def list_adjustments(
         date_from=date_from,
         date_to=date_to,
     )
-    return qry.order_by(PayrollAdjustment.id.desc()).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    ordered_qry = qry.order_by(PayrollAdjustment.id.desc())
+    if total is None:
+        return ordered_qry.all()
+    rows = ordered_qry.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/adjustments", response_model=PayrollAdjustmentOut, status_code=201)

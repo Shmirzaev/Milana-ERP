@@ -467,3 +467,11 @@ class PayrollAdjustmentOut(ORMModel):
     reason: str
     created_by: int | None = None
     created_at: datetime
+
+
+class PayrollAdjustmentPageOut(BaseModel):
+    rows: list[PayrollAdjustmentOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
