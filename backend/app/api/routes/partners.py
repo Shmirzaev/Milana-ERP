@@ -26,6 +26,7 @@ from app.models import (
     User,
 )
 from app.schemas.catalog import PartyIn, PartyOut
+from app.schemas.partners import CustomerOrderHistoryOut, CustomerOrderHistoryPageOut
 from app.services.audit import log_action
 from app.services.numbering import next_invoice_no
 from app.services.payments import create_customer_advance_payment, create_invoice_payment, invoice_paid_total
@@ -93,11 +94,32 @@ def get_customer(cid: int, db: DbSession, _: User = Depends(require_permissions(
     return c
 
 
-@router.get("/customers/{cid}/orders")
-def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS))):
+@router.get(
+    "/customers/{cid}/orders",
+    response_model=list[CustomerOrderHistoryOut] | CustomerOrderHistoryPageOut,
+)
+def get_customer_orders(
+    cid: int,
+    db: DbSession,
+    _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS)),
+    status: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
-    rows = db.query(SalesOrder).filter(SalesOrder.customer_id == cid).order_by(SalesOrder.id.desc()).all()
+    query = db.query(SalesOrder).filter(SalesOrder.customer_id == cid)
+    if status:
+        query = query.filter(SalesOrder.status == status)
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.order_by(None).count()
+    query = query.order_by(SalesOrder.id.desc())
+    if total is not None:
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    rows = query.all()
     order_ids = [int(so.id) for so in rows]
     invoices_by_order: dict[int, list[Invoice]] = defaultdict(list)
     payments_by_invoice: dict[int, list[Payment]] = defaultdict(list)
@@ -123,10 +145,19 @@ def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permi
             for payment in payments:
                 payments_by_invoice[int(payment.invoice_id)].append(payment)
 
-    return [
+    payloads = [
         _serialize_customer_order(so, invoices_by_order[int(so.id)], payments_by_invoice)
         for so in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/customers/{cid}/payments")
