@@ -190,6 +190,14 @@ class ProductionOrderOut(ORMModel):
     actual_cut_quantity: Optional[int] = None
 
 
+class ProductionOrderPageOut(SchemaModel):
+    rows: list[ProductionOrderOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class BrandedPlanningOrderIn(SchemaModel):
     ordered_for_type: str = "milana"
     customer_id: Optional[int] = None

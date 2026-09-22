@@ -41,7 +41,8 @@ from app.models import (
 )
 from app.schemas.inventory import MaterialReservationOut, MaterialReservationStatusOut
 from app.schemas.production import (
-    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail,
+    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderPageOut,
+    ProductionOrderDetail,
     WorkOrderOut, WorkOrderUpdate,
     CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
     PackagingReceiptOut, PackagingReceiptPageOut,
@@ -555,21 +556,32 @@ def _flow_committed_today(db: DbSession, flow_id: int, now: datetime) -> int:
 
 
 # ===== Production Orders =====
-@router.get("/production-orders", response_model=list[ProductionOrderOut])
+@router.get("/production-orders", response_model=list[ProductionOrderOut] | ProductionOrderPageOut)
 def list_pos(
     db: DbSession,
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     status: str | None = None,
     production_type: str | None = None,
-    page: int = 1,
-    page_size: int = 50,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=500)] = 50,
+    include_total: bool = False,
 ):
     qry = db.query(ProductionOrder).options(joinedload(ProductionOrder.sales_order)).filter(
         ProductionOrder.source_type == "standard"
     )
     if status: qry = qry.filter(ProductionOrder.status == status)
     if production_type: qry = qry.filter(ProductionOrder.production_type == production_type)
-    return qry.order_by(ProductionOrder.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    total = qry.order_by(None).count() if include_total else 0
+    rows = qry.order_by(ProductionOrder.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    if not include_total:
+        return rows
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/production-orders", response_model=ProductionOrderDetail, status_code=201)
