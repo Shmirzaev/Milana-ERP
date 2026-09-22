@@ -1971,6 +1971,7 @@ def _accessory_request_rows(
     *,
     production_order_id: int | None,
     model_id: int | None,
+    q: str | None = None,
 ) -> list[dict]:
     order_query = db.query(
         ProductionOrder.id,
@@ -1987,6 +1988,61 @@ def _accessory_request_rows(
         )
     if model_id is not None:
         order_query = order_query.filter(ProductionOrder.model_id == model_id)
+    # Search is applied before loading BOMs, issue totals, and stock.  Keep the
+    # Python match below as the final authority (notably for public order
+    # numbers), while this candidate query prevents unrelated orders from
+    # expanding their derived accessory requirements.
+    search = (q or "").strip()
+    if search:
+        pattern = f"%{search}%"
+        candidate_query = (
+            db.query(ProductionOrder.id)
+            .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
+            .outerjoin(Model, Model.id == ProductionOrder.model_id)
+            .outerjoin(ModelBOM, ModelBOM.model_id == ProductionOrder.model_id)
+            .outerjoin(Item, Item.id == ModelBOM.item_id)
+            .filter(
+                or_(
+                    ProductionOrder.production_no.ilike(pattern),
+                    SalesOrder.order_no.ilike(pattern),
+                    Model.code.ilike(pattern),
+                    Model.name.ilike(pattern),
+                    Item.sku.ilike(pattern),
+                    Item.name.ilike(pattern),
+                    ModelBOM.unit.ilike(pattern),
+                    Item.unit.ilike(pattern),
+                )
+            )
+        )
+        if production_order_id is not None:
+            candidate_query = candidate_query.filter(ProductionOrder.id == production_order_id)
+        else:
+            candidate_query = candidate_query.filter(
+                ProductionOrder.status.notin_(
+                    ("finished_storage", "cancelled", "rejected")
+                )
+            )
+        if model_id is not None:
+            candidate_query = candidate_query.filter(ProductionOrder.model_id == model_id)
+        candidate_ids = {int(row[0]) for row in candidate_query.distinct().all()}
+        # Manual issues may be the only matching evidence (legacy labels do
+        # not necessarily have a BOM/item row), so retain those candidates.
+        manual_query = db.query(ManualAccessoryIssue.production_order_id).filter(
+            or_(
+                ManualAccessoryIssue.item_sku.ilike(pattern),
+                ManualAccessoryIssue.item_name.ilike(pattern),
+                ManualAccessoryIssue.unit.ilike(pattern),
+            )
+        )
+        if production_order_id is not None:
+            manual_query = manual_query.filter(
+                ManualAccessoryIssue.production_order_id == production_order_id
+            )
+        candidate_ids.update(int(row[0]) for row in manual_query.distinct().all())
+        if candidate_ids:
+            order_query = order_query.filter(ProductionOrder.id.in_(candidate_ids))
+        else:
+            return []
     orders = order_query.order_by(ProductionOrder.created_at.desc(), ProductionOrder.id.desc()).all()
     order_ids = [int(order.id) for order in orders]
     if not order_ids:
@@ -2133,6 +2189,7 @@ def accessory_issue_requests(
         db,
         production_order_id=production_order_id,
         model_id=model_id,
+        q=q,
     )
     if not include_complete:
         rows = [row for row in rows if float(row.get("remaining_quantity") or 0) > EPSILON]
