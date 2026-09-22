@@ -1,9 +1,15 @@
 import base64
 import hashlib
 from html.parser import HTMLParser
+from uuid import uuid4
 
+import pytest
+from sqlalchemy import event
+from sqlalchemy.orm import selectinload
 from app.db.session import SessionLocal
-from app.models import Bundle, ProductionBatch
+from app.models import Bundle, Model, ModelImage, ProductionBatch
+from app.api.routes import bundles as bundle_routes
+from app.services.label_images import material_label_image_src
 from app.tests.test_production_flow import _create_bundle_for_scan
 
 
@@ -60,6 +66,108 @@ def assert_print_policy(response):
     assert "@media print" in style and "button{display:none}" in style
     assert "data:image/png;base64," in response.text
     return directives
+
+
+@pytest.mark.parametrize("bundle_count", [1, 50, 200])
+def test_bundle_label_context_has_constant_reference_reads_and_scalar_parity(client, auth_headers, bundle_count):
+    source = _create_bundle_for_scan(client, auth_headers)
+    with SessionLocal() as db:
+        original = db.get(Bundle, source["id"])
+        bundles = [original]
+        for index in range(1, bundle_count):
+            bundles.append(
+                Bundle(
+                    bundle_no=f"PERF12-B-{uuid4().hex[:16]}-{index}",
+                    barcode=f"PERF12-BC-{uuid4().hex[:16]}-{index}",
+                    production_order_id=original.production_order_id,
+                    production_batch_id=original.production_batch_id,
+                    sales_order_id=original.sales_order_id,
+                    model_id=original.model_id,
+                    color=original.color,
+                    size=original.size,
+                    quantity=original.quantity,
+                    status=original.status,
+                    created_by=original.created_by,
+                )
+            )
+        db.add_all(bundles[1:])
+        db.flush()
+        scalar = bundle_routes._label_context(db, bundles[0])
+        statements = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            context = bundle_routes._bundle_label_reference_context(db, bundles)
+            batched = bundle_routes._label_context(db, bundles[0], context)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert batched == scalar
+    assert len(statements) <= 8, statements
+    assert all("file_data" not in statement.lower() for statement in statements)
+
+
+def test_bundle_label_sheet_enforces_output_cap_before_loading(client, auth_headers):
+    exact_ids = ",".join(str(900_000 + index) for index in range(200))
+    exact = client.get(
+        f"/api/bundles/label-sheet/by-ids?ids={exact_ids}",
+        headers=auth_headers,
+    )
+    assert exact.status_code == 404, exact.text
+
+    too_many_ids = f"{exact_ids},999999"
+    too_many = client.get(
+        f"/api/bundles/label-sheet/by-ids?ids={too_many_ids}",
+        headers=auth_headers,
+    )
+    assert too_many.status_code == 413, too_many.text
+    assert too_many.json()["detail"] == "A label sheet may contain at most 200 bundles"
+
+
+def test_bundle_label_image_projection_does_not_lazy_load_file_data(client, auth_headers):
+    source = _create_bundle_for_scan(client, auth_headers)
+    with SessionLocal() as db:
+        bundle = db.get(Bundle, source["id"])
+        db.add(ModelImage(
+            model_id=bundle.model_id,
+            file_url="https://cdn.example.test/material.png",
+            content_type="image/png",
+            file_data=b"should-not-be-selected",
+            image_type="material",
+            is_primary=True,
+        ))
+        db.flush()
+        model = (
+            db.query(Model)
+            .options(selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ))
+            .filter(Model.id == bundle.model_id)
+            .one()
+        )
+        statements = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            assert material_label_image_src(model) == "https://cdn.example.test/material.png"
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert all("file_data" not in statement.lower() for statement in statements)
 
 
 def test_all_bundle_label_routes_allow_exact_style_script_and_embedded_fonts(client, auth_headers, monkeypatch):
