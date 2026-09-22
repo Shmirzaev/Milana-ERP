@@ -351,7 +351,11 @@ from app.schemas.cutting_material import CuttingMaterialDetails
 class CuttingMaterialUsageIn(BaseModel):
     details: CuttingMaterialDetails | None = None
     stock_batch_id: int
-    quantity: float = Field(gt=0)
+    quantity: float = Field(
+        gt=0,
+        le=9_999_999_999.9999,
+        allow_inf_nan=False,
+    )
     unit: str = Field(min_length=1, max_length=32)
 
 
