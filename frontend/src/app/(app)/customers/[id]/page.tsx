@@ -95,7 +95,8 @@ export default function CustomerDetailPage() {
   const { t } = useT();
   const { data: customer, mutate } = useSWR<any>(`/api/customers/${id}`, fetcher);
   const { data: orders, mutate: mutateOrders } = useSWR<CustomerOrder[]>(`/api/customers/${id}/orders`, fetcher);
-  const { data: customerPayments, mutate: mutateCustomerPayments } = useSWR<PaymentHistoryRow[]>(`/api/customers/${id}/payments`, fetcher);
+  const customerPaymentsKey = customer ? `/api/customers/${id}/payments` : null;
+  const { data: customerPayments, mutate: mutateCustomerPayments } = useSWR<PaymentHistoryRow[]>(customerPaymentsKey, fetcher);
   const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [msg, setMsg] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
