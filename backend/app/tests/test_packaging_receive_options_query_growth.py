@@ -131,6 +131,43 @@ def test_packaging_receive_options_has_bounded_query_and_result_growth(scope_cou
     )
 
 
+def test_packaging_receive_options_plan_has_no_correlated_target_probe():
+    _receive_option_orders(50)
+    with TestSessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        statements: list[tuple[str, object]] = []
+
+        def capture(_connection, _cursor, statement, parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append((statement, parameters))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rows = production_routes.packaging_receive_options(
+                db,
+                current,
+                q=None,
+                limit=10,
+                packaging_department_code="PKG",
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+        plans = [
+            db.connection().exec_driver_sql(
+                f"EXPLAIN QUERY PLAN {statement}",
+                parameters,
+            ).all()
+            for statement, parameters in statements
+        ]
+
+    assert len(rows) == 10
+    assert len(statements) == 2
+    plan_text = "\n".join(str(column) for plan in plans for row in plan for column in row)
+    assert "CORRELATED" not in plan_text.upper()
+    assert "SCALAR SUBQUERY" not in plan_text.upper()
+
+
 def _scalar_receive_options(db, current, *, q, limit, packaging_department_code):
     department_code = production_routes.packaging_department_scope(
         current,
@@ -563,7 +600,7 @@ def receive_options_postgres_session():
         engine.dispose()
 
 
-def test_postgres_packaging_receive_options_executes_correlated_target_query(
+def test_postgres_packaging_receive_options_executes_grouped_target_query(
     receive_options_postgres_session,
 ):
     sessions = receive_options_postgres_session
@@ -688,4 +725,5 @@ def test_postgres_packaging_receive_options_executes_correlated_target_query(
         "available_quantity": 72,
     }
     assert any(line.lstrip().startswith("Limit") for line in explain)
+    assert not any("SubPlan" in line for line in explain)
     print("PERF18 PostgreSQL EXPLAIN\n" + "\n".join(explain))

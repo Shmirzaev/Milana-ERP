@@ -6,7 +6,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, HTTPException, Depends, File, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import String, and_, cast, func, or_
+from sqlalchemy import String, and_, case, cast, func, or_
 from sqlalchemy.orm import aliased, joinedload, selectinload
 
 from app.core.config import settings
@@ -5499,26 +5499,34 @@ def packaging_receive_options(
         )
         .subquery()
     )
-    target_candidate = aliased(WorkOrder)
-    target_candidates = (
-        db.query(target_candidate.id)
-        .filter(
-            target_candidate.production_order_id == sewing_totals.c.production_order_id,
-            target_candidate.operation == "packaging",
+    exact_targets = (
+        db.query(
+            WorkOrder.production_order_id.label("production_order_id"),
+            WorkOrder.production_batch_id.label("production_batch_id"),
+            func.min(WorkOrder.id).label("work_order_id"),
         )
-        .order_by(target_candidate.id.asc())
-        .correlate(sewing_totals)
+        .filter(WorkOrder.operation == "packaging")
+        .group_by(WorkOrder.production_order_id, WorkOrder.production_batch_id)
+        .subquery()
     )
-    # Outer references in a subquery ORDER BY fail on older SQLite versions.
-    # Separate indexed candidates preserve exact-batch -> legacy -> oldest.
+    fallback_targets = (
+        db.query(
+            WorkOrder.production_order_id.label("production_order_id"),
+            func.min(case(
+                (WorkOrder.production_batch_id.is_(None), WorkOrder.id),
+                else_=None,
+            )).label("legacy_work_order_id"),
+            func.min(WorkOrder.id).label("oldest_work_order_id"),
+        )
+        .filter(WorkOrder.operation == "packaging")
+        .group_by(WorkOrder.production_order_id)
+        .subquery()
+    )
+    # Preserve the scalar resolver's exact-batch -> legacy NULL -> oldest order.
     target_id = func.coalesce(
-        target_candidates.filter(
-            target_candidate.production_batch_id == sewing_totals.c.production_batch_id,
-        ).limit(1).scalar_subquery(),
-        target_candidates.filter(
-            target_candidate.production_batch_id.is_(None),
-        ).limit(1).scalar_subquery(),
-        target_candidates.limit(1).scalar_subquery(),
+        exact_targets.c.work_order_id,
+        fallback_targets.c.legacy_work_order_id,
+        fallback_targets.c.oldest_work_order_id,
     )
     target = aliased(WorkOrder)
     received_quantity = func.coalesce(receipt_totals.c.received_quantity, 0)
@@ -5532,6 +5540,17 @@ def packaging_receive_options(
             sewing_totals.c.sewing_passed,
         )
         .select_from(sewing_totals)
+        .outerjoin(
+            exact_targets,
+            and_(
+                exact_targets.c.production_order_id == sewing_totals.c.production_order_id,
+                exact_targets.c.production_batch_id == sewing_totals.c.production_batch_id,
+            ),
+        )
+        .outerjoin(
+            fallback_targets,
+            fallback_targets.c.production_order_id == sewing_totals.c.production_order_id,
+        )
         .join(target, target.id == target_id)
         .subquery()
     )
