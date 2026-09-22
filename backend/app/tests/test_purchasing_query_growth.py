@@ -7,10 +7,96 @@ from sqlalchemy import event
 from app.db.session import SessionLocal
 from app.models import (
     AuditLog, BusinessOrderAlias, Item, Model, ProductionOrder, PurchaseOrder,
-    PurchaseOrderLine, PurchaseRequest, SalesOrder, StockBatch, Supplier, User, Warehouse,
+    PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, SalesOrder, StockBatch,
+    Supplier, User, Warehouse,
 )
 from app.core.order_reference import BusinessOrderReferenceLookup, canonical_business_order_reference
-from app.services.purchasing import receive_purchase_order
+from app.services.purchasing import create_purchase_request, receive_purchase_order
+
+
+def _request_lines(line_count: int):
+    suffix = uuid4().hex[:8]
+    with SessionLocal() as db:
+        items = [
+            Item(
+                sku=f"PERF28-REQUEST-{suffix}-{number}",
+                name=f"Request item {number}",
+                category="accessory",
+                unit="pcs",
+            )
+            for number in range(line_count)
+        ]
+        suppliers = [Supplier(name=f"PERF28 request supplier {suffix}-{number}") for number in range(line_count)]
+        db.add_all([*items, *suppliers])
+        db.flush()
+        payload = [
+            {
+                "item_id": int(item.id),
+                "preferred_supplier_id": int(supplier.id),
+                "required_quantity": number + 1,
+                "requested_quantity": number + 1,
+                "unit": "pcs",
+                "material_name": f"Material {number}",
+                "notes": f"Line {number}",
+            }
+            for number, (item, supplier) in enumerate(zip(items, suppliers))
+        ]
+        db.commit()
+    return payload
+
+
+def _measure_request_creation(payload):
+    with SessionLocal() as db:
+        current = db.query(User).order_by(User.id).first()
+        reference_selects = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            normalized = " ".join(statement.lower().split())
+            if statement.lstrip().upper().startswith("SELECT") and (
+                " from items " in normalized or " from suppliers " in normalized
+            ):
+                reference_selects.append(normalized)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            request = create_purchase_request(
+                db,
+                data={"status": "pending_approval", "lines": payload},
+                current=current,
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        request_id = int(request.id)
+        db.commit()
+
+    with SessionLocal() as db:
+        request = db.get(PurchaseRequest, request_id)
+        return {
+            "reference": len(reference_selects),
+            "item_ids": [int(line.item_id) for line in request.lines],
+            "supplier_ids": [int(line.preferred_supplier_id) for line in request.lines],
+            "requested": [float(line.requested_quantity) for line in request.lines],
+            "audits": db.query(AuditLog).filter_by(
+                action="create",
+                entity_type="PurchaseRequest",
+                entity_id=request_id,
+            ).count(),
+        }
+
+
+@pytest.mark.parametrize("line_count, expected_reference_reads", [(1, 2), (50, 2), (401, 4)])
+def test_purchase_request_creation_batches_line_references_and_preserves_order(
+    line_count,
+    expected_reference_reads,
+):
+    payload = _request_lines(line_count)
+    measured = _measure_request_creation(payload)
+
+    assert measured["reference"] == expected_reference_reads
+    assert measured["item_ids"] == [row["item_id"] for row in payload]
+    assert measured["supplier_ids"] == [row["preferred_supplier_id"] for row in payload]
+    assert measured["requested"] == [float(row["requested_quantity"]) for row in payload]
+    assert measured["audits"] == 1
 
 
 def _receipt(db, line_count):
@@ -95,7 +181,7 @@ def test_business_reference_lookup_replaces_per_reference_queries_with_chunked_r
     assert _reference_select_count([f"CHUNKED-{number}" for number in range(401)], bulk=True) == 2
 
 
-def test_receipt_catalog_and_order_reference_queries_are_bounded_but_audit_is_not():
+def test_receipt_catalog_order_reference_and_audit_head_queries_are_bounded():
     with SessionLocal() as db:
         one_id, one_payload = _receipt(db, 1)
         ten_id, ten_payload = _receipt(db, 10)
@@ -106,10 +192,42 @@ def test_receipt_catalog_and_order_reference_queries_are_bounded_but_audit_is_no
     many = _measure(many_id, many_payload)
 
     assert one["reference"] == ten["reference"] == many["reference"] == 4
-    assert (one["audit_head"], ten["audit_head"], many["audit_head"]) == (3, 21, 101)
-    assert one["total"] < ten["total"] < many["total"]
+    assert (one["audit_head"], ten["audit_head"], many["audit_head"]) == (1, 1, 1)
+    assert one["total"] == ten["total"] == many["total"]
     with SessionLocal() as db:
         assert db.query(StockBatch).filter(StockBatch.internal_batch_no.like("PUR-PERF28-%")).count() == 61
+
+
+def test_purchase_request_batched_reference_failure_preserves_error_order_and_rolls_back():
+    payload = _request_lines(2)
+    missing_supplier_id = 2_000_000_001
+    missing_item_id = 2_000_000_002
+    payload[0]["preferred_supplier_id"] = missing_supplier_id
+    payload[1]["item_id"] = missing_item_id
+
+    with SessionLocal() as db:
+        before = (
+            db.query(PurchaseRequest).count(),
+            db.query(PurchaseRequestLine).count(),
+            db.query(AuditLog).count(),
+        )
+        current = db.query(User).order_by(User.id).first()
+        with pytest.raises(HTTPException) as error:
+            create_purchase_request(
+                db,
+                data={"status": "pending_approval", "lines": payload},
+                current=current,
+            )
+        assert error.value.status_code == 404
+        assert error.value.detail == f"Supplier {missing_supplier_id} not found"
+        db.rollback()
+
+    with SessionLocal() as db:
+        assert (
+            db.query(PurchaseRequest).count(),
+            db.query(PurchaseRequestLine).count(),
+            db.query(AuditLog).count(),
+        ) == before
 
 
 def test_bulk_reference_lookup_preserves_canonical_alias_and_ambiguous_rollback():

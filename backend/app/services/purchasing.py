@@ -99,10 +99,24 @@ def create_purchase_request(db: Session, *, data: dict, current: User) -> Purcha
     db.add(request)
     db.flush()
 
+    items = _bulk_by_id(db, Item, (int(raw.get("item_id") or 0) for raw in line_inputs))
+    suppliers = _bulk_by_id(
+        db,
+        Supplier,
+        (
+            int(raw["preferred_supplier_id"])
+            for raw in line_inputs
+            if raw.get("preferred_supplier_id")
+        ),
+    )
     for raw in line_inputs:
-        item = _require_item(db, int(raw.get("item_id") or 0))
+        item_id = int(raw.get("item_id") or 0)
+        item = items.get(item_id)
+        if not item:
+            raise HTTPException(404, f"Item {item_id} not found")
         preferred_supplier_id = raw.get("preferred_supplier_id")
-        _require_supplier(db, int(preferred_supplier_id) if preferred_supplier_id else None)
+        if preferred_supplier_id and int(preferred_supplier_id) not in suppliers:
+            raise HTTPException(404, f"Supplier {int(preferred_supplier_id)} not found")
 
         required_quantity = _num(raw.get("required_quantity"))
         available_quantity = _num(raw.get("available_quantity"))
