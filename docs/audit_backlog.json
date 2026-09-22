@@ -817,10 +817,10 @@
       "risk": "Visibility or recommendations may be inappropriate; not a confirmed leak.",
       "proposed_fix": "Agree scope and validate references.",
       "baseline_source": "backend/app/services/forecasting.py",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "289e809",
+      "evidence": "Commit 289e809 validates the existence of optional model, item, brand and collection references before forecasting recommendation insertion; all four dangling-reference cases return400 with no write and19 focused forecasting cases pass. Visibility, cross-entity relationships and global report scope still require explicit business policy, so API05 is partial rather than fixed."
     },
     {
       "number": 69,
@@ -1420,8 +1420,8 @@
       "baseline_source": "backend/app/main.py:443",
       "status": "partial",
       "owner": null,
-      "commit": "4067755",
-      "evidence": "PARTIAL: /ready runs a PostgreSQL SELECT 1 behind a bounded 2-second daemon-thread probe and returns generic ready/not_ready JSON with 503 on failure or timeout. Four focused cases pass; /health deliberately remains liveness and still returns 200 during database failure. The probe uses one global slot so repeated timeouts cannot accumulate workers. HAProxy/candidate/postflight still route on /health, and Redis readiness policy remains unresolved; no infrastructure or deployment change made."
+      "commit": "4067755, 78a580f",
+      "evidence": "The bounded /ready PostgreSQL probe remains. Commit 78a580f switches backend candidate, stable and HAProxy traffic gates to /ready while retaining /health as warm-up liveness coverage; an offline config-contract test verifies backend/frontend paths and generated HAProxy checks. Redis readiness policy and applying the reviewed template to infrastructure remain unresolved; no deployment occurred."
     },
     {
       "number": 119,
