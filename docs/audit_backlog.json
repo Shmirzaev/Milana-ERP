@@ -435,8 +435,8 @@
       "baseline_source": "backend/app/api/routes/production.py:5321",
       "status": "fixed",
       "owner": null,
-      "commit": "983932f, 5b302dd, d87166b, 2e4dbb1",
-      "evidence": "PackagingRecordIn rejects negative/int4-overflow values and packed+damaged above input. Printing requires printed<=input, passed<=printed, and passed+rejected<=input. Cutting rejects unsafe numeric bounds and impossible output while preserving bundle-derived output. Sewing rejects negative/int4-overflow values, sewn above explicit input, and quality totals above sewn output while preserving the legacy input_qty=0 upstream-inference path. Invalid Sewing POSTs preserve SewingRecord, SewingReplacementRequest, WasteRecord, Notification and AuditLog rows. The latest combined Sewing/catalog/payroll slice passes 31 tests."
+      "commit": "983932f, 5b302dd, d87166b, 2e4dbb1, 65586e0",
+      "evidence": "PackagingRecordIn rejects negative/int4-overflow values and packed+damaged above input. Printing requires printed<=input, passed<=printed, and passed+rejected<=input. Cutting rejects unsafe numeric bounds and impossible output while preserving bundle-derived output. Sewing rejects unsafe numeric bounds, sewn above input, passed above sewn, and passed+failed+rejected above explicit input while preserving input losses beside good sewn output and the input_qty=0 inference path. Invalid Sewing POSTs preserve SewingRecord, SewingReplacementRequest, WasteRecord, Notification and AuditLog rows. The corrected combined slice passes33; four full-suite compatibility cases pass within a24-test selection."
     },
     {
       "number": 37,
@@ -880,7 +880,7 @@
       "status": "partial",
       "owner": null,
       "commit": "f42637c, 8240fc9",
-      "evidence": "Bulk1/50/401 SELECTs12/355/2812->11/60/415, including audit2/51/402. Requests are capped at 500 records; 500 is accepted and an API request with 501 returns422 without PayrollRecord or AuditLog writes. Seven prior focused cases and10 payroll PostgreSQL races pass on the batching diff; the latest combined slice passes31. Audit reads, legacy no-scan queries and O(rows*open periods) matching remain."
+      "evidence": "Bulk1/50/401 SELECTs12/355/2812->11/60/415, including audit2/51/402. Requests are capped at 500 records; 500 is accepted and an API request with 501 returns422 without PayrollRecord or AuditLog writes. Seven prior focused cases and10 payroll PostgreSQL races pass on the batching diff; the latest combined slice passes33. Audit reads, legacy no-scan queries and O(rows*open periods) matching remain."
     },
     {
       "number": 74,
