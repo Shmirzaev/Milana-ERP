@@ -38,7 +38,11 @@ def branded_stock_value(db: Session) -> float:
         FinishedGoodsStock.brand_id.isnot(None),
         FinishedGoodsStock.status == "available",
     ).all()
-    return float(sum(float(r.available_qty) * float(r.cost_per_piece) for r in rows))
+    total = sum(
+        (Decimal(str(r.available_qty or 0)) * Decimal(str(r.cost_per_piece or 0)) for r in rows),
+        Decimal("0"),
+    )
+    return float(total)
 
 
 def order_profit(db: Session, sales_order_id: int) -> dict:

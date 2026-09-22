@@ -2,7 +2,9 @@ from uuid import uuid4
 
 from app.db.session import SessionLocal
 from app.models import (
+    Brand,
     Customer,
+    FinishedGoodsStock,
     Item,
     ModelBOM,
     Model,
@@ -13,7 +15,7 @@ from app.models import (
     Warehouse,
     WasteRecord,
 )
-from app.services.finance import order_profit
+from app.services.finance import branded_stock_value, order_profit
 
 
 def test_order_profit_uses_decimal_for_fractional_revenue():
@@ -98,3 +100,20 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
     assert result["material_cost"] == 0.066
     assert result["waste_cost"] == 0.1
     assert result["gross_profit"] == 1.134
+
+
+def test_branded_stock_value_uses_decimal_intermediates():
+    with SessionLocal() as db:
+        model = Model(code=f"STOCK-PRECISION-{uuid4().hex}", name="Stock precision model")
+        brand = Brand(name=f"Stock precision brand {uuid4().hex}")
+        db.add_all([model, brand])
+        db.flush()
+        db.add_all([
+            FinishedGoodsStock(model_id=model.id, brand_id=brand.id, color="black", size="S", quantity=3, available_qty=3, cost_per_piece="0.10", selling_price="1.00", status="available"),
+            FinishedGoodsStock(model_id=model.id, brand_id=brand.id, color="black", size="M", quantity=7, available_qty=7, cost_per_piece="0.20", selling_price="1.00", status="available"),
+        ])
+        db.commit()
+        value = branded_stock_value(db)
+
+    assert isinstance(value, float)
+    assert value == 1.7
