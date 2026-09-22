@@ -125,18 +125,22 @@ def create_purchase_request(db: Session, *, data: dict, current: User) -> Purcha
         if preferred_supplier_id and int(preferred_supplier_id) not in suppliers:
             raise HTTPException(404, f"Supplier {int(preferred_supplier_id)} not found")
 
-        required_quantity = _num(raw.get("required_quantity"))
-        available_quantity = _num(raw.get("available_quantity"))
+        required_quantity = _purchase_quantity(raw.get("required_quantity"))
+        available_quantity = _purchase_quantity(raw.get("available_quantity"))
         shortage_quantity = (
-            _num(raw.get("shortage_quantity"))
+            _purchase_quantity(raw.get("shortage_quantity"))
             if raw.get("shortage_quantity") is not None
-            else max(0.0, required_quantity - available_quantity)
+            else max(Decimal("0"), required_quantity - available_quantity)
         )
         requested_quantity = (
-            _num(raw.get("requested_quantity"))
+            _purchase_quantity(raw.get("requested_quantity"))
             if raw.get("requested_quantity") is not None
             else (shortage_quantity if shortage_quantity > 0 else required_quantity)
         )
+        if abs(shortage_quantity) > MAX_PURCHASE_QUANTITY:
+            raise HTTPException(400, "Shortage quantity exceeds the supported database range")
+        if abs(requested_quantity) > MAX_PURCHASE_QUANTITY:
+            raise HTTPException(400, "Requested quantity exceeds the supported database range")
         if requested_quantity < 0:
             raise HTTPException(400, "Requested quantity cannot be negative")
 

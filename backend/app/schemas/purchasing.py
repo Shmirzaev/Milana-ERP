@@ -23,15 +23,23 @@ PurchaseReceiptUnitCost = Annotated[
     float,
     Field(ge=0, le=99_999_999.9999, allow_inf_nan=False),
 ]
+PurchaseRequestQuantity = Annotated[
+    Decimal,
+    Field(
+        ge=Decimal("-9999999999.9999"),
+        le=Decimal("9999999999.9999"),
+        allow_inf_nan=False,
+    ),
+]
 
 
 class PurchaseRequestLineIn(BaseModel):
     item_id: int
-    required_quantity: float = 0
-    requested_quantity: Optional[float] = None
+    required_quantity: PurchaseRequestQuantity = Decimal("0")
+    requested_quantity: Optional[PurchaseRequestQuantity] = None
     unit: Optional[str] = None
-    available_quantity: float = 0
-    shortage_quantity: Optional[float] = None
+    available_quantity: PurchaseRequestQuantity = Decimal("0")
+    shortage_quantity: Optional[PurchaseRequestQuantity] = None
     preferred_supplier_id: Optional[int] = None
     material_name: Optional[str] = None
     photo_url: Optional[str] = None
