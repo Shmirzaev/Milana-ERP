@@ -4,6 +4,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { ClipboardCheck, ExternalLink, PackageCheck, Pencil, Plus, RefreshCw, Scissors, Shirt, Trash2 } from "lucide-react";
 
 import Modal from "@/components/Modal";
@@ -54,6 +55,13 @@ type UslugaOrder = {
   work_orders: WorkOrder[];
 };
 
+type UslugaOrderPage = {
+  rows: UslugaOrder[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
 type PlanLine = { color: string; size: string; quantity: string };
 
 function formatDate(value: string | null) {
@@ -79,7 +87,24 @@ export default function UslugaPage() {
   const { me } = useMe();
   const canManage = can(me, "usluga.manage", "*");
   const canHandover = can(me, "usluga.handover", "*");
-  const { data: orders = [], error, isLoading, isValidating, mutate: mutateOrders } = useSWR<UslugaOrder[]>("/api/usluga/orders", fetcher);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const {
+    data: orderPages,
+    error,
+    isLoading,
+    isValidating,
+    mutate: mutateOrders,
+    size: orderPageCount,
+    setSize: setOrderPageCount,
+  } = useSWRInfinite<UslugaOrderPage>(
+    (pageIndex) => `/api/usluga/orders?page=${pageIndex + 1}&page_size=100${statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : ""}`,
+    fetcher,
+  );
+  const orders = useMemo(() => orderPages?.flatMap((page) => page.rows) ?? [], [orderPages]);
+  const totalOrders = orderPages?.[0]?.total ?? 0;
+  const hasMoreOrders = orders.length < totalOrders;
+  const lastOrderPage = orderPages?.[orderPages.length - 1];
 
   const [modelId, setModelId] = useState(0);
   const { data: selectedModel } = useSWR<UslugaModel>(modelId ? `/api/usluga/models/${modelId}` : null, fetcher);
@@ -101,8 +126,6 @@ export default function UslugaPage() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [successOrder, setSuccessOrder] = useState<UslugaOrder | null>(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [handoverOrder, setHandoverOrder] = useState<UslugaOrder | null>(null);
   const [handoverForm, setHandoverForm] = useState({ recipient: "", notes: "" });
 
@@ -326,6 +349,17 @@ export default function UslugaPage() {
               </tr>)}
             </tbody>
           </table></div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#ecebe3] px-4 py-3 text-sm text-[#8a8472]">
+            <span>{orders.length.toLocaleString()} / {totalOrders.toLocaleString()}</span>
+            {hasMoreOrders && <button
+              type="button"
+              className="btn"
+              onClick={() => void setOrderPageCount(orderPageCount + 1)}
+              disabled={isValidating || !lastOrderPage}
+            >
+              {isValidating ? t("common.loading") : t("common.loadMore")}
+            </button>}
+          </div>
         </div>
       </section>
 

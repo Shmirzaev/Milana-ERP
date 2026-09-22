@@ -308,3 +308,35 @@ def test_usluga_order_list_matches_scalar_payloads_for_mixed_rows():
             actual = usluga.list_usluga_orders(db, _eco_user(), status=status)
 
         assert actual == expected
+
+
+def test_usluga_order_list_pagination_has_total_and_preserves_order():
+    with SessionLocal() as db:
+        status, order_ids = _order_set(db, 5)
+    with SessionLocal() as db:
+        payload, statements = _select_trace(
+            db,
+            lambda: usluga.list_usluga_orders(
+                db, _eco_user(), status=status, page=2, page_size=2
+            ),
+        )
+
+    assert payload["total"] == 5
+    assert payload["page"] == 2
+    assert payload["page_size"] == 2
+    assert [row["id"] for row in payload["rows"]] == list(reversed(order_ids))[2:4]
+    # One count plus bounded parent/child/model reads; no query may contain
+    # an unbounded parent SELECT.
+    assert any("count" in statement.lower() for statement in statements)
+    parent = [statement.lower() for statement in statements if "production_orders" in statement.lower()]
+    assert parent and all(" limit " in statement for statement in parent if "count" not in statement)
+
+
+def test_usluga_order_list_legacy_response_is_capped():
+    with SessionLocal() as db:
+        status, _ = _order_set(db, 501)
+    with SessionLocal() as db:
+        payload = usluga.list_usluga_orders(db, _eco_user(), status=status)
+
+    assert isinstance(payload, list)
+    assert len(payload) == 500

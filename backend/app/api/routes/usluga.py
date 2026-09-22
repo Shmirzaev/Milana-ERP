@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -629,14 +630,30 @@ def delete_usluga_model(mid: int, db: DbSession, current: User = Depends(require
 def list_usluga_orders(
     db: DbSession,
     current: User = Depends(require_permissions("usluga.view", "usluga.manage", "usluga.handover", "*")),
-    status: str | None = Query(default=None, max_length=32),
+    status: Annotated[str | None, Query(max_length=32)] = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     _require_eco(current)
     query = db.query(ProductionOrder).filter(ProductionOrder.source_type == "usluga")
     if status:
         query = query.filter(ProductionOrder.status == status)
-    orders = query.order_by(ProductionOrder.id.desc()).all()
+    # Keep the historical list response for callers that do not opt into
+    # pagination, but impose a bounded legacy cap so this endpoint cannot
+    # materialize an unbounded order history.  New callers can request a
+    # page and receive total/page metadata without changing row payloads.
+    paginated = page is not None or page_size is not None
+    safe_page = page or 1
+    safe_page_size = page_size or 500
+    total = int(query.count()) if paginated else None
+    ordered_query = query.order_by(ProductionOrder.id.desc())
+    if paginated:
+        orders = ordered_query.offset((safe_page - 1) * safe_page_size).limit(safe_page_size).all()
+    else:
+        orders = ordered_query.limit(500).all()
     if not orders:
+        if paginated:
+            return {"rows": [], "total": total or 0, "page": safe_page, "page_size": safe_page_size}
         return []
 
     order_ids = [int(order.id) for order in orders]
@@ -675,7 +692,7 @@ def list_usluga_orders(
         ):
             packages_by_order.setdefault(int(package.production_order_id), []).append(package)
 
-    return [
+    rows = [
         _order_payload(
             db,
             order,
@@ -686,6 +703,9 @@ def list_usluga_orders(
         )
         for order in orders
     ]
+    if paginated:
+        return {"rows": rows, "total": total or 0, "page": safe_page, "page_size": safe_page_size}
+    return rows
 
 
 @router.get("/orders/{order_id}")
