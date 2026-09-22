@@ -50,6 +50,7 @@ from app.schemas.payroll import (
     PayrollNumericWorkScanOut,
     PayrollPeriodIn,
     PayrollPeriodOut,
+    PayrollPeriodPageOut,
     PayrollPeriodUpdate,
     PayrollQrControlOut,
     PayrollQrLabelBatchDeleteIn,
@@ -1142,16 +1143,33 @@ def _filtered_adjustment_query(
     return qry
 
 
-@router.get("/periods", response_model=list[PayrollPeriodOut])
+@router.get("/periods", response_model=list[PayrollPeriodOut] | PayrollPeriodPageOut)
 def list_periods(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.approve", "payroll.pay", "*")),
     status: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = db.query(PayrollPeriod).filter(PayrollPeriod.factory_code == selected_factory_code(current))
     if status:
         qry = qry.filter(PayrollPeriod.status == status)
-    return qry.order_by(PayrollPeriod.start_date.desc(), PayrollPeriod.id.desc()).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    ordered_qry = qry.order_by(PayrollPeriod.start_date.desc(), PayrollPeriod.id.desc())
+    if total is None:
+        return ordered_qry.all()
+    rows = ordered_qry.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/periods", response_model=PayrollPeriodOut, status_code=201)

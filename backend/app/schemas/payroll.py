@@ -41,6 +41,14 @@ class PayrollPeriodOut(ORMModel):
     updated_at: datetime
 
 
+class PayrollPeriodPageOut(BaseModel):
+    rows: list[PayrollPeriodOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class PayrollRecordIn(BaseModel):
     model_config = ConfigDict(extra="allow", protected_namespaces=())
 
