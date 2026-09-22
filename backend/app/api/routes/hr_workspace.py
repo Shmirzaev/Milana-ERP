@@ -7,6 +7,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Annotated
 
+from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -579,6 +580,24 @@ def list_documents(
     }
 
 
+def _write_new_hr_document(target: Path, content: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    created = False
+    try:
+        with target.open("xb") as stream:
+            created = True
+            stream.write(content)
+    except BaseException:
+        if created:
+            target.unlink(missing_ok=True)
+        raise
+
+
+async def _discard_hr_document(target: Path) -> None:
+    with CancelScope(shield=True):
+        await to_thread.run_sync(target.unlink, True)
+
+
 @router.post("/documents", status_code=201)
 async def upload_document(
     db: DbSession,
@@ -599,11 +618,21 @@ async def upload_document(
     if not content or len(content) > settings.HR_DOCUMENT_MAX_BYTES: raise HTTPException(413, "Document is empty or too large")
     safe_original = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(file.filename or "document").name)[:255]
     stored = f"{factory.lower()}_{employee_id}_{secrets.token_hex(16)}{Path(safe_original).suffix.lower()[:12]}"
-    root = Path(settings.HR_DOCUMENTS_DIR); root.mkdir(parents=True, exist_ok=True)
-    target = root / stored
-    with target.open("xb") as stream: stream.write(content)
-    row = HrEmployeeDocument(factory_code=factory, employee_id=employee_id, category=category, title=title, original_name=safe_original, stored_name=stored, content_type=file.content_type, size_bytes=len(content), expires_on=expires_on, uploaded_by=current.id)
-    db.add(row); db.flush(); log_action(db, current, "create", "HrEmployeeDocument", row.id, new_value={"employee_id": employee_id, "category": category, "title": title}); db.commit(); db.refresh(row)
+    target = Path(settings.HR_DOCUMENTS_DIR) / stored
+    created = False
+    try:
+        await to_thread.run_sync(_write_new_hr_document, target, content)
+        created = True
+        row = HrEmployeeDocument(factory_code=factory, employee_id=employee_id, category=category, title=title, original_name=safe_original, stored_name=stored, content_type=file.content_type, size_bytes=len(content), expires_on=expires_on, uploaded_by=current.id)
+        db.add(row); db.flush(); log_action(db, current, "create", "HrEmployeeDocument", row.id, new_value={"employee_id": employee_id, "category": category, "title": title}); db.commit()
+    except BaseException:
+        try:
+            db.rollback()
+        finally:
+            if created:
+                await _discard_hr_document(target)
+        raise
+    db.refresh(row)
     return _document_dict(row)
 
 
