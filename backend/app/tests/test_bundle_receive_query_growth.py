@@ -37,12 +37,18 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
         if "sum(" in statement and "bundles.quantity" in statement
     ]
     work_order_reads = [statement for statement in normalized if "from work_orders" in statement]
+    production_order_reads = [
+        statement for statement in normalized if "from production_orders" in statement
+    ]
     assert len(department_reads) <= 2
     assert len(received_sum_reads) <= 1
+    # Receipt status synchronization stays live per bundle, but the common
+    # production-order reference must remain resident for the whole batch.
+    assert len(production_order_reads) <= 3
     # The existing workflow status synchronization remains deliberately per bundle.
     assert len(work_order_reads) <= bundle_count + 5
     print(f"{mode} {bundle_count}: {len(statements)} SELECTs")
-    assert len(statements) <= (6 * bundle_count) + 35
+    assert len(statements) <= (2 * bundle_count) + 35
     with TestSessionLocal() as db:
         bundles = db.query(Bundle).filter(Bundle.id.in_(case["bundle_ids"])).all()
         assert {bundle.status for bundle in bundles} == {"received_sewing"}
@@ -273,3 +279,33 @@ def test_batched_sewing_receipt_rejects_stale_or_other_order_gate():
             BundleScanLog.bundle_id.in_(first["bundle_ids"]),
             BundleScanLog.scan_type == "received_sewing",
         ).count() == 0
+
+
+def test_batched_sewing_receipt_preserves_factory_denial_and_rollback():
+    case = _bundle_batch(2)
+    with TestSessionLocal() as db:
+        second = db.get(Bundle, case["bundle_ids"][1])
+        second.sewing_factory_code = "ECO"
+        db.commit()
+
+    with TestSessionLocal() as db:
+        current = _current_user(db)
+        bundles = [db.get(Bundle, bundle_id) for bundle_id in case["bundle_ids"]]
+        gate = bundle_services.verify_sewing_accessory_gate(db, case["order_id"])
+        with pytest.raises(HTTPException) as denied:
+            bundle_services.receive_many_at_sewing(db, bundles, current, gate)
+
+        assert denied.value.status_code == 403
+        db.rollback()
+
+    with TestSessionLocal() as db:
+        assert [db.get(Bundle, bundle_id).status for bundle_id in case["bundle_ids"]] == [
+            "created", "created",
+        ]
+        assert db.query(BundleScanLog).filter(
+            BundleScanLog.bundle_id.in_(case["bundle_ids"]),
+            BundleScanLog.scan_type == "received_sewing",
+        ).count() == 0
+        work_order = db.get(WorkOrder, case["work_order_id"])
+        assert work_order.status == "waiting"
+        assert int(work_order.actual_input_qty or 0) == 0

@@ -27,6 +27,7 @@ class SewingReceiptContext:
     accessory_gate: SewingAccessoryGate
     transaction: object
     departments: dict[str, Department]
+    production_orders: dict[int, ProductionOrder]
     work_orders: dict[int, list[WorkOrder]]
     factory_codes_by_scope: dict[tuple[int, int | None], set[str]]
     received_quantities_by_scope: dict[tuple[int, int | None], int]
@@ -615,6 +616,14 @@ def _sewing_receipt_context(
         row.code: row
         for row in db.query(Department).filter(Department.code.in_(department_codes)).all()
     }
+    # Keep one strong reference per order for the whole receipt. SQLAlchemy's
+    # identity map otherwise releases the object returned inside each status
+    # synchronization, causing the same production-order row to be re-read for
+    # every bundle even though all transitions share this transaction.
+    production_orders = {
+        int(row.id): row
+        for row in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()
+    }
     work_orders = {order_id: [] for order_id in order_ids}
     for row in (
         db.query(WorkOrder)
@@ -652,6 +661,7 @@ def _sewing_receipt_context(
         accessory_gate=accessory_gate,
         transaction=transaction,
         departments=departments,
+        production_orders=production_orders,
         work_orders=work_orders,
         factory_codes_by_scope={},
         received_quantities_by_scope=received_quantities_by_scope,
