@@ -17,6 +17,7 @@ from typing import Literal, Optional
 
 
 MAX_EMPLOYEE_SALARY = Decimal("9999999999.99")
+_EMPLOYEE_TEXT_LIMITS = {"full_name": 255, "position": 128, "phone": 64}
 
 
 class EmployeeIn(BaseModel):
@@ -125,6 +126,13 @@ def _validated_employee_salary(value: float | None) -> Decimal | None:
     if salary > MAX_EMPLOYEE_SALARY:
         raise HTTPException(422, f"Employee salary must be no more than {MAX_EMPLOYEE_SALARY}")
     return salary
+
+
+def _validate_employee_text_storage(values: dict) -> None:
+    for field, maximum in _EMPLOYEE_TEXT_LIMITS.items():
+        value = values.get(field)
+        if value is not None and len(value) > maximum:
+            raise HTTPException(422, f"{field} must be at most {maximum} characters")
 
 
 def _ensure_employee_no_available(
@@ -265,6 +273,7 @@ def create_employee(payload: EmployeeIn, db: DbSession, current: User = Depends(
     _ensure_employee_no_available(db, factory_code, values.get("employee_no"))
     values["hr_profile_json"] = _validate_hr_profile_json(values["hr_profile_json"])
     values["salary"] = _validated_employee_salary(values["salary"])
+    _validate_employee_text_storage(values)
     e = Employee(factory_code=factory_code, **values)
     db.add(e)
     try:
@@ -306,6 +315,7 @@ def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: U
         changes["hr_profile_json"] = _validate_hr_profile_json(changes["hr_profile_json"])
     if "salary" in changes:
         changes["salary"] = _validated_employee_salary(changes["salary"])
+    _validate_employee_text_storage(changes)
     for k, v in changes.items():
         setattr(e, k, v)
     try:
