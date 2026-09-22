@@ -711,8 +711,8 @@
       "baseline_source": "backend/app/schemas/sales.py",
       "status": "partial",
       "owner": null,
-      "commit": "5a68d12,41ae782, 5c08c2c, a66321b, 26a4e73",
-      "evidence": "Existing numeric bounds remain. Commit 5c08c2c adds deterministic SQL-bounded customer payment history; a66321b validates invoice-list limits1..500; 26a4e73 uses Decimal intermediates for order revenue, material/waste cost and gross profit while preserving float response fields. Focused precision and finance suites pass. Derived prices and other state/list bounds remain open."
+      "commit": "5a68d12,41ae782, 5c08c2c, a66321b, 26a4e73, 77205c9",
+      "evidence": "Existing numeric bounds remain. Commit 5c08c2c adds deterministic SQL-bounded customer payment history; a66321b validates invoice-list limits1..500; 26a4e73 uses Decimal intermediates for order revenue, material/waste cost and gross profit; 77205c9 does the same for branded stock value while preserving float response fields. Focused precision and finance suites pass. Derived prices and other state/list bounds remain open."
     },
     {
       "number": 60,
@@ -879,8 +879,8 @@
       "baseline_source": "backend/app/api/routes/payroll.py:2938",
       "status": "partial",
       "owner": null,
-      "commit": "f42637c, 8240fc9, 67f0309",
-      "evidence": "Bulk1/50/401 SELECTs12/355/2812->11/60/415. Commit 67f0309 caches audit-chain heads per transaction, including nested commit/rollback and commit=True session reuse; 15 focused cases pass with 12 PostgreSQL-only skips and serialization coverage passes. Legacy no-scan queries and O(rows*open periods) matching remain."
+      "commit": "f42637c, 8240fc9, 67f0309, c625aad",
+      "evidence": "Bulk1/50/401 SELECTs12/355/2812->11/60/415. Commit 67f0309 caches audit-chain heads per transaction, including nested commit/rollback and commit=True session reuse. Commit c625aad replaces O(rows*open periods) automatic matching with an indexed sweep while preserving explicit IDs, inclusive boundaries and highest-ID overlap precedence. Focused combined coverage passes 27 tests with 8 PostgreSQL-only skips. Legacy no-scan queries and per-record audit writes remain."
     },
     {
       "number": 74,
@@ -1131,8 +1131,8 @@
       "baseline_source": "backend/app/services/purchasing.py:93",
       "status": "partial",
       "owner": null,
-      "commit": "1efce38, 67f0309, 4137431",
-      "evidence": "Reference SELECTs remain1/1/1 at1/10/50 and401 values use two chunks. Commit 67f0309 reuses transaction-scoped audit heads with nested rollback/commit coverage;4137431 computes audit changed_fields once per response row. Nine serialization cases pass. Receipt writes, hashing and other per-line work remain, so PERF28 stays partial."
+      "commit": "1efce38, 67f0309, 4137431, d200161",
+      "evidence": "Reference SELECTs remain1/1/1 at1/10/50 and401 values use two chunks. Commit 67f0309 reuses transaction-scoped audit heads with nested rollback/commit coverage;4137431 computes audit changed_fields once per response row; d200161 removes the redundant post-write inventory authorization loop while preserving pre-write denial and one check per selected line. Focused combined coverage passes 27 tests with 8 PostgreSQL-only skips. Receipt writes, hashing and other per-line work remain, so PERF28 stays partial."
     },
     {
       "number": 95,

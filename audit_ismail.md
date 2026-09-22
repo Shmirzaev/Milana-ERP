@@ -7,8 +7,8 @@
 | Status | Count | Meaning |
 | --- | ---: | --- |
 | **Fixed and tested** | **73** | Resolved with regression evidence |
-| **Partially fixed** | **35** | Improved, but remaining risk is documented |
-| **Open** | **19** | Not resolved |
+| **Partially fixed** | **36** | Improved, but remaining risk is documented |
+| **Open** | **18** | Not resolved |
 | **Total remaining** | **54** | Partial + open; not production-ready |
 | **Total audited** | **127** | 57.5% fully resolved |
 
@@ -16,7 +16,7 @@
 
 ### 22 September continuation batch
 
-The continuation adds independently reviewed fixes across PERF02/06/08/12/13/14/18/20/22/23/25/27/29/30/33/35/36/39, FN07, API02/05, WF02, OPS05/08 and UI03. The work includes bounded/paged queues and histories, batched reservation/shipment/audit reads, task-reference validation, JWT algorithm restrictions, package retry recovery, and executable frontend component/hook regressions. The principal backend slice passed **173 tests / 13 PostgreSQL-only skips**; a later cross-area slice passed **145 / 8 skips**. Frontend stabilization, strict TypeScript and targeted ESLint pass. Follow-ups preserve normalized accessory search, batch cutting-passport Item validation and order synchronization, preload pricing mutation assets, use Decimal profit intermediates, group 1C invoice status refreshes, page HR Documents and Calendar, validate forecasting references, and gate deployment traffic on readiness while preserving liveness warm-up. Packaging BOM material Item reads are now batched; the latest HR/packaging slice passes **23** and the HR Calendar component harness is registered in stabilization. Reviewed commits through `3f909cb` are pushed; `82824ef` and `64f97e9` are queued for the next `feat/ismoiljon` push. The official count remains **73 fixed, 36 partial, 18 open, 54 remaining**.
+The continuation adds independently reviewed fixes across PERF02/06/08/12/13/14/18/20/22/23/25/27/28/29/30/33/35/36/39, FN07, API02/05, WF02, OPS05/08 and UI03. The work includes bounded/paged queues and histories, batched reservation/shipment/audit reads, task-reference validation, JWT algorithm restrictions, package retry recovery, and executable frontend component/hook regressions. The principal backend slice passed **173 tests / 13 PostgreSQL-only skips**; a later cross-area slice passed **145 / 8 skips**. Frontend stabilization, strict TypeScript and targeted ESLint pass. Follow-ups preserve normalized accessory search, batch cutting-passport Item validation and order synchronization, preload pricing mutation assets, use Decimal profit intermediates, group 1C invoice status refreshes, page HR Documents and Calendar, validate forecasting references, and gate deployment traffic on readiness while preserving liveness warm-up. Packaging BOM material Item reads are now batched. Payroll automatic period matching now uses a sweep index, branded stock values use Decimal intermediates, and purchasing no longer repeats post-write inventory authorization. The latest combined backend slice passes **27 / 8 PostgreSQL-only skips**; Ruff, compilation and diff checks pass. Reviewed commits through `e5760f0` are pushed; `c625aad`, `77205c9` and `d200161` are queued for the next `feat/ismoiljon` push. The official count remains **73 fixed, 36 partial, 18 open, 54 remaining**.
 
 ## Repository workflow cleanup
 
