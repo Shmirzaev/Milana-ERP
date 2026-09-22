@@ -363,18 +363,27 @@ class SewingSizeQuantityIn(BaseModel):
 class SewingRecordIn(BaseModel):
     work_order_id: int
     production_batch_id: Optional[int] = None
-    input_qty: int
-    sewn_qty: int
-    passed_qty: int
-    failed_qty: int = 0
-    rework_qty: int = 0
-    rejected_qty: int = 0
+    input_qty: int = Field(ge=0, le=2_147_483_647)
+    sewn_qty: int = Field(ge=0, le=2_147_483_647)
+    passed_qty: int = Field(ge=0, le=2_147_483_647)
+    failed_qty: int = Field(default=0, ge=0, le=2_147_483_647)
+    rework_qty: int = Field(default=0, ge=0, le=2_147_483_647)
+    rejected_qty: int = Field(default=0, ge=0, le=2_147_483_647)
     size_quantities: list[SewingSizeQuantityIn] = Field(default_factory=list)
     defect_reason: Optional[str] = None
     line_name: Optional[str] = None
     sewing_assignment_id: Optional[int] = None
     operator_id: Optional[int] = None
     notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_quantity_conservation(self):
+        output_total = self.passed_qty + self.failed_qty + self.rejected_qty
+        if self.input_qty > 0 and self.sewn_qty > self.input_qty:
+            raise ValueError("Sewn quantity cannot exceed input quantity")
+        if output_total > self.sewn_qty:
+            raise ValueError("Passed, failed, and rejected quantities cannot exceed sewn quantity")
+        return self
 
 
 class PackagingRecordIn(BaseModel):
