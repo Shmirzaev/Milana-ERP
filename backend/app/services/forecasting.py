@@ -39,6 +39,7 @@ BRANDED_SALES_EXCLUDED_STATUSES = ("draft", "cancelled")
 BRANDED_PRODUCTION_HISTORY_STATUSES = ("finished_storage", "closed", "delivered")
 
 BrandedKey = tuple[int, int | None, int | None, str, str]
+_REFERENCE_BATCH_SIZE = 400
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -57,19 +58,53 @@ def _confidence(order_count: int) -> str:
     return "low"
 
 
-def _model_label(db: Session, model_id: int | None) -> tuple[str | None, str | None]:
-    model = db.get(Model, model_id) if model_id else None
-    return (model.code if model else None, model.name if model else None)
+def _reference_id_chunks(values: set[int]):
+    ordered = sorted(values)
+    for start in range(0, len(ordered), _REFERENCE_BATCH_SIZE):
+        yield ordered[start:start + _REFERENCE_BATCH_SIZE]
 
 
-def _brand_name(db: Session, brand_id: int | None) -> str | None:
-    brand = db.get(Brand, brand_id) if brand_id else None
-    return brand.name if brand else None
+def _branded_reference_maps(
+    db: Session,
+    keys: list[BrandedKey],
+) -> tuple[
+    dict[int, tuple[str | None, str | None]],
+    dict[int, str | None],
+    dict[int, str | None],
+]:
+    model_ids = {int(model_id) for model_id, _, _, _, _ in keys}
+    brand_ids = {int(brand_id) for _, brand_id, _, _, _ in keys if brand_id is not None}
+    collection_ids = {
+        int(collection_id)
+        for _, _, collection_id, _, _ in keys
+        if collection_id is not None
+    }
 
+    model_labels: dict[int, tuple[str | None, str | None]] = {}
+    for ids in _reference_id_chunks(model_ids):
+        model_labels.update({
+            int(model_id): (code, name)
+            for model_id, code, name in db.query(Model.id, Model.code, Model.name).filter(
+                Model.id.in_(ids)
+            ).all()
+        })
 
-def _collection_name(db: Session, collection_id: int | None) -> str | None:
-    collection = db.get(Collection, collection_id) if collection_id else None
-    return collection.name if collection else None
+    brand_names: dict[int, str | None] = {}
+    for ids in _reference_id_chunks(brand_ids):
+        brand_names.update({
+            int(brand_id): name
+            for brand_id, name in db.query(Brand.id, Brand.name).filter(Brand.id.in_(ids)).all()
+        })
+
+    collection_names: dict[int, str | None] = {}
+    for ids in _reference_id_chunks(collection_ids):
+        collection_names.update({
+            int(collection_id): name
+            for collection_id, name in db.query(Collection.id, Collection.name).filter(
+                Collection.id.in_(ids)
+            ).all()
+        })
+    return model_labels, brand_names, collection_names
 
 
 def _add_demand_event(
@@ -168,6 +203,7 @@ def _branded_stock_analysis(db: Session, *, horizon_weeks: int = 4) -> list[dict
     groups = _branded_demand_groups(db)
     if not groups:
         return []
+    model_labels, brand_names, collection_names = _branded_reference_maps(db, list(groups))
 
     effective_brand_id = func.coalesce(FinishedGoodsStock.brand_id, ProductionOrder.brand_id)
     effective_collection_id = func.coalesce(FinishedGoodsStock.collection_id, ProductionOrder.collection_id)
@@ -238,7 +274,7 @@ def _branded_stock_analysis(db: Session, *, horizon_weeks: int = 4) -> list[dict
         on_hand = int(available.get((model_id, brand_id, collection_id, color, size), 0))
         pipeline_qty = int(pipeline.get((model_id, brand_id, collection_id, color, size), 0))
         suggested = max(0, projected - on_hand - pipeline_qty)
-        model_code, model_name = _model_label(db, model_id)
+        model_code, model_name = model_labels.get(model_id, (None, None))
         order_count = len(row["order_ids"])
         source_label = "branded-stock sale" if row["source"] == "sales_orders" else "branded production plan"
         analysis.append(
@@ -248,9 +284,9 @@ def _branded_stock_analysis(db: Session, *, horizon_weeks: int = 4) -> list[dict
                 "model_code": model_code,
                 "model_name": model_name,
                 "brand_id": brand_id,
-                "brand_name": _brand_name(db, brand_id),
+                "brand_name": brand_names.get(brand_id) if brand_id is not None else None,
                 "collection_id": collection_id,
-                "collection_name": _collection_name(db, collection_id),
+                "collection_name": collection_names.get(collection_id) if collection_id is not None else None,
                 "color": color,
                 "size": size,
                 "historical_quantity": total_qty,
