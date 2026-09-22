@@ -435,8 +435,8 @@
       "baseline_source": "backend/app/api/routes/production.py:5321",
       "status": "partial",
       "owner": null,
-      "commit": "983932f, 5b302dd",
-      "evidence": "PARTIAL: PackagingRecordIn rejects negative/int4-overflow values and packed+damaged above input. Printing input now requires printed<=input, passed<=printed, and passed+rejected<=input. Packaging has 11 targeted passes; printing has 15 focused passes plus 3 existing flow cases. Invalid printing requests preserve work-order counters/status/timestamps, records, stock, finished goods, payroll, assignments, notifications and audits. Cutting/sewing conservation remains unreviewed."
+      "commit": "983932f, 5b302dd, d87166b",
+      "evidence": "PARTIAL: PackagingRecordIn rejects negative/int4-overflow values and packed+damaged above input. Printing requires printed<=input, passed<=printed, and passed+rejected<=input. Cutting now rejects negative/nonfinite/int4-overflow quantities, enforces passed+defective<=cut when no effective bundle plan exists, and bounds derived bundle totals before writes. Packaging has 11 targeted passes; printing has 15 focused plus 3 flow passes; cutting has 16 focused cases within a 42-test combined regression slice. Invalid cutting submissions preserve records, bundles, waste, work-order state, notifications and audits. Sewing conservation remains unreviewed."
     },
     {
       "number": 37,
@@ -724,7 +724,7 @@
       "status": "open",
       "owner": null,
       "commit": null,
-      "evidence": "OPEN POLICY BLOCK: a disposable local API reproduction used the generic Data Console PATCH to replace an administrator password_hash with plain text and set is_active=false; the request returned 200 and both values persisted. Generic PATCH covers every mapped non-key/non-binary column and DELETE covers single-key rows. No change made until the owner chooses read-only mode (recommended) or provides an exact table/field/delete allowlist."
+      "evidence": null
     },
     {
       "number": 61,
@@ -748,7 +748,7 @@
       "status": "open",
       "owner": null,
       "commit": null,
-      "evidence": null
+      "evidence": "OPEN POLICY BLOCK: a disposable local API reproduction used the generic Data Console PATCH to replace an administrator password_hash with plain text and set is_active=false; the request returned 200 and both values persisted. Generic PATCH covers every mapped non-key/non-binary column and DELETE covers single-key rows. No change made until the owner chooses read-only mode (recommended) or provides an exact table/field/delete allowlist."
     },
     {
       "number": 63,
@@ -1153,10 +1153,10 @@
       "risk": "Large model families scale poorly.",
       "proposed_fix": "Filtered groups and bounded numbering.",
       "baseline_source": "backend/app/api/routes/catalog.py:1045",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "bb93fbc",
+      "evidence": "PARTIAL: catalog family rename now reads the non-legacy source family with the indexed PostgreSQL group identity (or an exact/escaped SQLite fallback) and limits collision reads to planned codes. One regression with 50 unrelated rows and wildcard characters proves both variants rename in two bounded Model SELECTs while a legacy-import row stays unchanged. Clone and approval paths remain open; database plan/load validation remains required."
     },
     {
       "number": 97,
@@ -1263,8 +1263,8 @@
       "baseline_source": "frontend/src/components/AuthGate.tsx:183",
       "status": "partial",
       "owner": null,
-      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e",
-      "evidence": "HR documents/recruitment, inventory Accessories and Purchasing request items defer hidden option directories until opened. Actual component tests and stabilization pass; visible requests, auth and endpoints stay unchanged; strict types/lint pass. Other requests remain open; no browser visual proof."
+      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160",
+      "evidence": "HR documents/recruitment, inventory Accessories, Purchasing request items and model-detail seasons defer hidden option directories until opened/editable. The model detail retains its saved season in read-only mode and fetches the directory for new/edit forms. Actual component/contract tests and stabilization pass for the earlier paths; the new model-season contract passes locally. Visible requests, auth and endpoints stay unchanged. Other requests and browser visual proof remain open."
     },
     {
       "number": 106,
@@ -1275,8 +1275,8 @@
       "baseline_source": "backend/app/services/image_storage.py:180",
       "status": "partial",
       "owner": null,
-      "commit": "170200f",
-      "evidence": "Partial: upload conversion/original write/thumbnails run off event loop, one upload slot per process acquired before buffering. Red thread assertion reproduced blocking; 10 image regressions pass including three concurrent uploads and failure cleanup. Async route SQL, cross-process capacity and partial-file lifecycle remain open."
+      "commit": "170200f, 503d068",
+      "evidence": "Partial: upload conversion/original write/thumbnails run off event loop, one upload slot per process acquired before buffering. Thumbnail batches now roll back earlier generated files after a later size fails and atomically restore a pre-existing same-name target; the focused regression passes within a 42-test combined slice. Async route SQL, cross-process capacity and broader upload/source-file lifecycle remain open."
     },
     {
       "number": 107,
