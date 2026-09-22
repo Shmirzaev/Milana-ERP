@@ -4,7 +4,7 @@ from uuid import uuid4
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, Customer, Model, ProductionOrder, SalesOrder
+from app.models import AuditLog, Customer, Model, ModelImage, ProductionOrder, SalesOrder
 from app.tests.conftest import test_engine
 
 
@@ -26,6 +26,18 @@ def _seed_active_orders(count: int) -> tuple[list[int], list[str]]:
         ]
         db.add_all([*customers, *models])
         db.flush()
+        db.add_all([
+            ModelImage(
+                model_id=models[index].id,
+                file_url=f"/storage/model-files/export-{marker}-{index:04d}.png",
+                file_name=f"export-{marker}-{index:04d}.png",
+                content_type="image/png",
+                file_data=b"not-needed-by-html-export",
+                image_type="model",
+                is_primary=True,
+            )
+            for index in range(count)
+        ])
         sales_orders = [
             SalesOrder(
                 order_no=f"EXPORT-SO-{marker}-{index:04d}",
@@ -92,7 +104,12 @@ def test_process_tracking_export_page_is_sql_bounded_at_1_50_and_401_rows(client
         assert response.headers["X-Page-Size"] == "25"
         assert response.headers["X-Has-More"] == ("true" if count > 25 else "false")
         production_reads = [statement for statement in statements if " from production_orders " in statement]
+        image_reads = [statement for statement in statements if " from model_images " in statement]
         assert any(" limit ? offset ?" in statement for statement in production_reads), production_reads
+        assert image_reads
+        assert all("model_images.file_data" not in statement for statement in image_reads)
+        newest_index = count - 1
+        assert f"/storage/model-files/export-{production_numbers[0].split('-')[-2]}-{newest_index:04d}.png" in response.text
         query_counts.append(len(statements))
 
     print(f"Process tracking export SELECTs at 1/50/401 rows: {query_counts}")

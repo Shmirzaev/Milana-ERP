@@ -13,7 +13,7 @@ from sqlalchemy.orm import noload, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
-    WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, User,
+    WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, ModelImage, User,
     Customer, SalesOrder, Bundle, ProductionBatch, SewingDailyReport, SewingRecord,
 )
 from app.schemas.sewing_assignment import (
@@ -32,6 +32,8 @@ router = APIRouter(tags=["production_extra"])
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
 _ASSIGNMENT_STATUSES = frozenset((*_ASSIGNMENT_MANAGED_STATUSES, "cancelled", "transferred"))
+_DB_INTEGER_MIN = -2_147_483_648
+_DB_INTEGER_MAX = 2_147_483_647
 # Blocking/unblocking a work order is a planning/management action.
 _WO_BLOCK_PERMS = (
     "planning.production",
@@ -43,6 +45,11 @@ _WO_BLOCK_PERMS = (
     "management.approve",
     "*",
 )
+
+
+def _require_storable_assignment_integer(field: str, value: int) -> None:
+    if value < _DB_INTEGER_MIN or value > _DB_INTEGER_MAX:
+        raise HTTPException(422, f"{field} must fit a 32-bit database integer")
 
 
 def _received_sewing_qty(db: DbSession, wo: WorkOrder, production_batch_id: int | None = None) -> int:
@@ -231,6 +238,7 @@ def create_assignment(
 
     # Soft capacity warning — append to response, do not block.
     capacity_warning = None
+    _require_storable_assignment_integer("quantity", payload.quantity)
 
     a = SewingAssignment(
         work_order_id=wid,
@@ -320,6 +328,10 @@ def update_assignment(
         if next_status not in _ASSIGNMENT_STATUSES:
             raise HTTPException(400, "Invalid sewing assignment status")
         changes["status"] = next_status
+
+    _require_storable_assignment_integer("quantity", next_qty)
+    if "completed_qty" in changes:
+        _require_storable_assignment_integer("completed_qty", int(changes["completed_qty"]))
 
     previous_flow_id = int(a.sewing_flow_id)
     for k, v in changes.items():
@@ -589,7 +601,18 @@ def export_process_html(
         model.id: model
         for model in (
             db.query(Model)
-            .options(selectinload(Model.images), selectinload(Model.bom))
+            .options(
+                selectinload(Model.images).load_only(
+                    ModelImage.id,
+                    ModelImage.model_id,
+                    ModelImage.file_url,
+                    ModelImage.file_name,
+                    ModelImage.content_type,
+                    ModelImage.image_type,
+                    ModelImage.is_primary,
+                ),
+                selectinload(Model.bom),
+            )
             .filter(Model.id.in_(model_ids))
             .all()
             if model_ids
