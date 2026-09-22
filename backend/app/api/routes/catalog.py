@@ -1065,13 +1065,13 @@ def _rename_model_group(
 
     group_ids = [int(model.id) for model in group]
     normalized_planned_codes = {_normalized_key(next_code) for _, _, next_code in planned}
-    external_models = db.query(Model).filter(
+    external_code_rows = db.query(Model.code).filter(
         ~Model.id.in_(group_ids),
         func.lower(func.trim(Model.code)).in_(normalized_planned_codes),
     ).all()
-    external_by_code = {_normalized_key(model.code): model for model in external_models}
+    external_codes = {_normalized_key(code) for (code,) in external_code_rows}
     for _, variant_no, next_code in planned:
-        if _normalized_key(next_code) in external_by_code:
+        if _normalized_key(next_code) in external_codes:
             raise HTTPException(
                 409,
                 f"Model number change conflicts with existing variant {variant_no or next_code}",

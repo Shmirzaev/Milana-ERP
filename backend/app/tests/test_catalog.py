@@ -1499,6 +1499,8 @@ def test_rename_model_group_uses_bounded_family_queries_without_code_prefix_assu
     assert all(" where " in f" {sql} " for sql in normalized_statements)
     assert "json_extract" in statements[0].lower()
     assert " in " in f" {normalized_statements[1]} "
+    assert "models.name" not in normalized_statements[1]
+    assert "models.details_json" not in normalized_statements[1]
 
 
 def test_clone_code_allocation_uses_one_bounded_prefix_query():
