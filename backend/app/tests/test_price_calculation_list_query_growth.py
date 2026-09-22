@@ -79,8 +79,13 @@ def _request_set(db, count):
     return admin.id, [request.id for request in requests]
 
 
-@pytest.mark.parametrize(("request_count", "expected_selects"), [(1, 4), (50, 4), (501, 7)])
-def test_price_request_list_assets_are_selectin_chunked_without_blobs(request_count, expected_selects):
+@pytest.mark.parametrize(
+    ("request_count", "expected_rows", "expected_selects"),
+    [(1, 1, 4), (50, 50, 4), (501, 500, 4)],
+)
+def test_price_request_list_assets_are_selectin_chunked_without_blobs(
+    request_count, expected_rows, expected_selects,
+):
     with SessionLocal() as db:
         admin_id, request_ids = _request_set(db, request_count)
     with SessionLocal() as db:
@@ -90,8 +95,8 @@ def test_price_request_list_assets_are_selectin_chunked_without_blobs(request_co
         )
 
     assert len(statements) == expected_selects
-    assert [row["id"] for row in payload] == list(reversed(request_ids))
-    assert len(payload) == request_count
+    assert [row["id"] for row in payload] == list(reversed(request_ids))[:expected_rows]
+    assert len(payload) == expected_rows
     assert all(row["model_sizes"] == ["M"] for row in payload)
     assert all("perf23-model" in row["model_image_url"] for row in payload)
     assert all("perf23-material" in row["variant_image_url"] for row in payload)
@@ -211,3 +216,42 @@ def test_price_request_list_preserves_asset_fallbacks_and_calculated_payload():
 def test_price_request_list_requires_authentication(client):
     response = client.get("/api/price-calculation/requests")
     assert response.status_code == 401
+
+
+def test_price_request_list_enforces_bounded_limit(client, auth_headers):
+    response = client.get(
+        "/api/price-calculation/requests?limit=501",
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+
+
+def test_price_request_list_http_pagination_shape(client, auth_headers):
+    response = client.get(
+        "/api/price-calculation/requests?page=1&page_size=2",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload) == {"items", "total", "page", "page_size", "has_more"}
+    assert payload["page"] == 1
+    assert payload["page_size"] == 2
+    assert len(payload["items"]) <= 2
+
+
+def test_price_request_list_pagination_returns_metadata_and_disjoint_pages():
+    with SessionLocal() as db:
+        admin = db.query(User).filter_by(email="admin@example.com").one()
+        _, request_ids = _request_set(db, 3)
+        first = price_calculation.list_requests(db, admin, page=1, page_size=2)
+        second = price_calculation.list_requests(db, admin, page=2, page_size=2)
+
+    assert first["total"] >= 3
+    assert first["page"] == 1
+    assert first["page_size"] == 2
+    assert first["has_more"] is True
+    assert len(first["items"]) == 2
+    assert second["page"] == 2
+    assert second["has_more"] == (2 * second["page_size"] < second["total"])
+    assert set(row["id"] for row in first["items"]).isdisjoint(row["id"] for row in second["items"])
+    assert [row["id"] for row in first["items"] + second["items"]][:3] == list(reversed(request_ids))

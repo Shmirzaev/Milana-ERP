@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import CurrentUser, DbSession
@@ -12,6 +14,7 @@ from app.schemas.price_calculation import (
     PriceCalculationFinanceIn,
     PriceCalculationPurchasingIn,
     PriceCalculationRequestOut,
+    PriceCalculationRequestPageOut,
 )
 from app.services.audit import log_action
 from app.services.price_calculation import (
@@ -81,17 +84,37 @@ def _request_or_404(db: DbSession, request_id: int) -> PriceCalculationRequest:
     return request
 
 
-@router.get("/requests", response_model=list[PriceCalculationRequestOut])
-def list_requests(db: DbSession, current: CurrentUser):
+@router.get("/requests", response_model=list[PriceCalculationRequestOut] | PriceCalculationRequestPageOut)
+def list_requests(
+    db: DbSession,
+    current: CurrentUser,
+    limit: Annotated[
+        int,
+        Query(ge=1, le=500, description="Maximum newest requests to return"),
+    ] = 500,
+    page: Annotated[int | None, Query(ge=1, description="Page number for paginated pricing queues")] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500, description="Rows per pricing queue page")] = None,
+):
     if not can_view_price_requests(current):
         raise HTTPException(403, "Price calculation access required")
-    requests = (
+    query = (
         db.query(PriceCalculationRequest)
         .options(*_list_request_load_options())
         .order_by(PriceCalculationRequest.id.desc())
-        .all()
     )
-    return [serialize_price_request(request) for request in requests]
+    if page is None and page_size is None:
+        return [serialize_price_request(request) for request in query.limit(limit).all()]
+    effective_page = page or 1
+    effective_page_size = page_size or limit
+    total = db.query(PriceCalculationRequest.id).count()
+    requests = query.offset((effective_page - 1) * effective_page_size).limit(effective_page_size).all()
+    return {
+        "items": [serialize_price_request(request) for request in requests],
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.post("/requests", response_model=PriceCalculationRequestOut, status_code=201)

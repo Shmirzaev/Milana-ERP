@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import PriceRequestCard from "@/components/price-calculation/PriceRequestCard";
-import { api, fetcher } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { numberInputValue, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
+import { usePriceRequests } from "@/lib/usePriceRequests";
 
 type CuttingDraft = {
   kroy_no: string;
@@ -78,7 +78,7 @@ function FormField({ label, value, disabled, text = false, integer = false, onCh
 
 export default function CuttingPriceCalculationPage() {
   const { t } = useT();
-  const { data, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>("/api/price-calculation/requests", fetcher, { refreshInterval: 5_000 });
+  const { requests: data, error, isLoading, mutate, hasMore, loadMore, isLoadingMore } = usePriceRequests();
   const [drafts, setDrafts] = useState<Record<number, CuttingDraft>>({});
   const [editing, setEditing] = useState<Set<number>>(() => new Set());
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -179,7 +179,7 @@ export default function CuttingPriceCalculationPage() {
         {isLoading ? <div className="text-sm text-[var(--erp-text-muted)]">{t("common.loading")}</div> : null}
         {error ? <div className="text-sm text-red-700">{t("page.priceWorkflow.loadError")}</div> : null}
         {!isLoading && !error && data?.length === 0 ? <div className="rounded-lg border border-dashed border-[var(--erp-border-strong)] p-5 text-sm text-[var(--erp-text-muted)]">{t("page.priceWorkflow.empty")}</div> : null}
-        {(data || []).map((request) => {
+        {data.map((request) => {
           const isEditing = editing.has(request.id);
           const draft = drafts[request.id] || requestDraft(request);
           return (
@@ -217,6 +217,7 @@ export default function CuttingPriceCalculationPage() {
             </PriceRequestCard>
           );
         })}
+        {hasMore ? <button type="button" className="btn" disabled={isLoadingMore} onClick={loadMore}>{isLoadingMore ? t("common.loading") : t("common.loadMore")}</button> : null}
       </div>
     </div>
   );

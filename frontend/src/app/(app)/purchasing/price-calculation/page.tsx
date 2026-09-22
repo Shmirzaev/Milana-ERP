@@ -1,16 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import PriceRequestCard from "@/components/price-calculation/PriceRequestCard";
-import { api, fetcher } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import {
   numberInputValue,
   type PriceCalculationRequest,
   type PriceRequestStatus,
 } from "@/lib/priceCalculationRequests";
+import { usePriceRequests } from "@/lib/usePriceRequests";
 
 type PurchasingDraft = { fabric_price: string; sewing_cost: string };
 
@@ -59,11 +59,7 @@ function FormField({ label, value, type = "text", disabled, onChange }: {
 
 export default function PurchasingPriceCalculationPage() {
   const { t } = useT();
-  const { data, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>(
-    "/api/price-calculation/requests",
-    fetcher,
-    { refreshInterval: 5_000 },
-  );
+  const { requests: data, error, isLoading, mutate, hasMore, loadMore, isLoadingMore } = usePriceRequests();
   const [drafts, setDrafts] = useState<Record<number, PurchasingDraft>>({});
   const [editing, setEditing] = useState<Set<number>>(() => new Set());
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -118,7 +114,7 @@ export default function PurchasingPriceCalculationPage() {
             {t("page.priceWorkflow.empty")}
           </div>
         ) : null}
-        {(data || []).map((request) => {
+        {data.map((request) => {
           const isEditing = editing.has(request.id);
           const draft = drafts[request.id] || requestDraft(request);
           return (
@@ -153,6 +149,7 @@ export default function PurchasingPriceCalculationPage() {
             </PriceRequestCard>
           );
         })}
+        {hasMore ? <button type="button" className="btn" disabled={isLoadingMore} onClick={loadMore}>{isLoadingMore ? t("common.loading") : t("common.loadMore")}</button> : null}
       </div>
     </div>
   );

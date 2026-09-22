@@ -47,6 +47,14 @@ export type PriceCalculationRequest = {
   updated_at: string;
 };
 
+export type PriceCalculationRequestPage = {
+  items: PriceCalculationRequest[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
 export function priceRequestSurface(status: PriceRequestStatus): string {
   if (status === "complete") return "border-[#b9d8bd] bg-[#eef8ef]";
   if (status === "in_progress") return "border-[#e4d28f] bg-[#fff8dd]";

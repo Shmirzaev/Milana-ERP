@@ -100,3 +100,11 @@ class PriceCalculationRequestOut(BaseModel):
     overall_status: str
     created_at: datetime
     updated_at: datetime
+
+
+class PriceCalculationRequestPageOut(BaseModel):
+    items: list[PriceCalculationRequestOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
