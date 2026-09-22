@@ -42,6 +42,14 @@ class SewingFlowWithLoad(SewingFlowOut):
     completed_units: int = 0
 
 
+class SewingFlowPageOut(BaseModel):
+    rows: list[SewingFlowWithLoad]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class SewingFlowWorkOrderOut(WorkOrderOut):
     """A sewing-flow work order with the model shown on the line."""
 

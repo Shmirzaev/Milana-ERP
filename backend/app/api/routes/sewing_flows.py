@@ -1,12 +1,14 @@
 from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import Model, ModelBOM, SewingFlow, StockBatch, WorkOrder, User, SewingAssignment, ProductionOrder, ProductionBatch
 from app.schemas.sewing_flow import (
-    SewingFlowIn, SewingFlowUpdate, SewingFlowOut, SewingFlowWithLoad, SewingFlowWorkOrderOut,
+    SewingFlowIn, SewingFlowUpdate, SewingFlowOut, SewingFlowWithLoad, SewingFlowPageOut,
+    SewingFlowWorkOrderOut,
 )
 from app.schemas.production import WorkOrderOut
 from app.services.audit import log_action
@@ -63,9 +65,12 @@ def _work_order_model_context(db, production_order_ids: list[int]) -> dict[int, 
     }
 
 
-def _bulk_load(db) -> dict[int, dict]:
+def _bulk_load(db, flow_ids: list[int]) -> dict[int, dict]:
     """Return {flow_id: {active_work_orders, planned_units, completed_units}}
     in a single grouped query — used by list_flows to avoid N+1."""
+    scoped_flow_ids = sorted({int(flow_id) for flow_id in flow_ids})
+    if not scoped_flow_ids:
+        return {}
     rows = (
         db.query(
             WorkOrder.sewing_flow_id,
@@ -73,12 +78,16 @@ def _bulk_load(db) -> dict[int, dict]:
             WorkOrder.planned_output_qty,
             WorkOrder.passed_qty,
         )
-        .filter(WorkOrder.sewing_flow_id.isnot(None))
+        .filter(WorkOrder.sewing_flow_id.in_(scoped_flow_ids))
         .filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
         .all()
     )
+    scoped_work_order_ids = db.query(WorkOrder.id).filter(
+        WorkOrder.sewing_flow_id.in_(scoped_flow_ids),
+    )
     assignment_managed_wo_ids = {
         wid for (wid,) in db.query(SewingAssignment.work_order_id).filter(
+            SewingAssignment.work_order_id.in_(scoped_work_order_ids),
             SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
         ).distinct().all()
     }
@@ -99,6 +108,7 @@ def _bulk_load(db) -> dict[int, dict]:
             SewingAssignment.completed_qty,
         )
         .join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id)
+        .filter(SewingAssignment.sewing_flow_id.in_(scoped_flow_ids))
         .filter(SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES))
         .filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
         .all()
@@ -178,16 +188,31 @@ def _single_load(db, flow_id: int) -> dict:
     }
 
 
-@router.get("", response_model=list[SewingFlowWithLoad])
-def list_flows(db: DbSession, current: CurrentUser, only_active: bool = True, factory_code: str | None = None):
+@router.get("", response_model=list[SewingFlowWithLoad] | SewingFlowPageOut)
+def list_flows(
+    db: DbSession,
+    current: CurrentUser,
+    only_active: bool = True,
+    factory_code: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     factory = sewing_line_factory_scope(current, factory_code)
     qry = db.query(SewingFlow).filter(SewingFlow.factory_code == factory)
     if only_active:
         qry = qry.filter(SewingFlow.is_active.is_(True))
-    flows = qry.order_by(SewingFlow.code).all()
-    loads = _bulk_load(db)
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    qry = qry.order_by(SewingFlow.code)
+    if total is not None:
+        qry = qry.offset((page - 1) * page_size).limit(page_size)
+    flows = qry.all()
+    loads = _bulk_load(db, [int(flow.id) for flow in flows])
     empty = {"active_work_orders": 0, "planned_units": 0, "completed_units": 0}
-    return [
+    payloads = [
         SewingFlowWithLoad(
             id=f.id, factory_code=f.factory_code, name=f.name, code=f.code, description=f.description,
             capacity_per_day=f.capacity_per_day, supervisor_id=f.supervisor_id,
@@ -196,6 +221,15 @@ def list_flows(db: DbSession, current: CurrentUser, only_active: bool = True, fa
         )
         for f in flows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("", response_model=SewingFlowOut, status_code=201)
