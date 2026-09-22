@@ -167,7 +167,7 @@ def cost_breakdown(db: Session) -> dict:
     item_rows = db.query(Item).filter(Item.id.in_(item_ids)).all() if item_ids else []
     item_map = {int(item.id): item for item in item_rows}
 
-    latest_cost_by_item: dict[int, float] = {}
+    latest_cost_by_item: dict[int, Decimal] = {}
     if item_ids:
         latest_rows = (
             db.query(StockBatch)
@@ -178,26 +178,30 @@ def cost_breakdown(db: Session) -> dict:
         for row in latest_rows:
             item_id = int(row.item_id)
             if item_id not in latest_cost_by_item:
-                latest_cost_by_item[item_id] = float(row.cost_per_unit or 0)
+                latest_cost_by_item[item_id] = Decimal(str(row.cost_per_unit or 0))
 
     boms_by_model: dict[int, list[ModelBOM]] = {}
     for row in bom_rows:
         boms_by_model.setdefault(int(row.model_id), []).append(row)
 
-    fabric_cost = 0.0
-    accessories_cost = 0.0
+    fabric_cost = Decimal("0")
+    accessories_cost = Decimal("0")
     for po in pos:
         for bom in boms_by_model.get(int(po.model_id), []):
+            # Unlinked BOM rows describe manual/material notes and have no
+            # inventory cost to include in the item-based COGS estimate.
+            if bom.item_id is None:
+                continue
             item_id = int(bom.item_id)
             item = item_map.get(item_id)
             category = str(item.category if item else "").lower()
-            fallback_cost = float(item.default_cost or 0) if item else 0.0
+            fallback_cost = Decimal(str(item.default_cost or 0)) if item else Decimal("0")
             unit_cost = latest_cost_by_item.get(item_id, fallback_cost)
             row_cost = (
-                float(bom.quantity_per_piece or 0)
-                * float(po.planned_quantity or 0)
+                Decimal(str(bom.quantity_per_piece or 0))
+                * Decimal(str(po.planned_quantity or 0))
                 * unit_cost
-                * (1.0 + float(bom.waste_percent or 0) / 100.0)
+                * (Decimal("1") + Decimal(str(bom.waste_percent or 0)) / Decimal("100"))
             )
             if category in ("accessory", "packaging"):
                 accessories_cost += row_cost
@@ -205,10 +209,11 @@ def cost_breakdown(db: Session) -> dict:
                 fabric_cost += row_cost
 
     labor_cost = float(db.query(func.coalesce(func.sum(SalesOrder.planning_estimated_labor_cost), 0)).scalar() or 0)
-    total_cogs = fabric_cost + accessories_cost + labor_cost
+    labor_cost_decimal = Decimal(str(labor_cost))
+    total_cogs = fabric_cost + accessories_cost + labor_cost_decimal
     return {
-        "fabric_cost": round(fabric_cost, 2),
-        "labor_cost": round(labor_cost, 2),
-        "accessories_cost": round(accessories_cost, 2),
-        "total_cogs": round(total_cogs, 2),
+        "fabric_cost": round(float(fabric_cost), 2),
+        "labor_cost": round(float(labor_cost_decimal), 2),
+        "accessories_cost": round(float(accessories_cost), 2),
+        "total_cogs": round(float(total_cogs), 2),
     }

@@ -15,7 +15,7 @@ from app.models import (
     Warehouse,
     WasteRecord,
 )
-from app.services.finance import branded_stock_value, order_profit
+from app.services.finance import branded_stock_value, cost_breakdown, order_profit
 
 
 def test_order_profit_uses_decimal_for_fractional_revenue():
@@ -117,3 +117,47 @@ def test_branded_stock_value_uses_decimal_intermediates():
 
     assert isinstance(value, float)
     assert value == 1.7
+
+
+def test_cost_breakdown_uses_decimal_for_fractional_bom_totals():
+    with SessionLocal() as db:
+        model = Model(code=f"COGS-PRECISION-{uuid4().hex}", name="COGS precision model")
+        fabric = Item(sku=f"COGS-F-{uuid4().hex}", name="Fabric", category="fabric", unit="kg", default_cost="1.00", composition_json=[])
+        accessory = Item(sku=f"COGS-A-{uuid4().hex}", name="Accessory", category="accessory", unit="pcs", default_cost="0.10", composition_json=[])
+        db.add_all([model, fabric, accessory])
+        db.flush()
+        db.add(ProductionOrder(production_no=f"COGS-{uuid4().hex}", production_type="client_order", model_id=model.id, planned_quantity=1))
+        db.flush()
+        db.add_all(
+            [
+                ModelBOM(model_id=model.id, item_id=fabric.id, quantity_per_piece="0.001", unit="kg", waste_percent="0.00")
+                for _ in range(175)
+            ]
+            + [
+                ModelBOM(model_id=model.id, item_id=accessory.id, quantity_per_piece="0.30", unit="pcs", waste_percent="0.00"),
+            ]
+        )
+        db.commit()
+        result = cost_breakdown(db)
+
+    assert isinstance(result["fabric_cost"], float)
+    assert isinstance(result["accessories_cost"], float)
+    # Float accumulation produces 0.17500000000000013 and rounds to 0.18;
+    # exact intermediates preserve the existing final float-rounding contract.
+    assert result["fabric_cost"] == 0.17
+    assert result["accessories_cost"] == 0.03
+    assert result["total_cogs"] == 0.2
+
+
+def test_cost_breakdown_ignores_unlinked_bom_notes():
+    with SessionLocal() as db:
+        model = Model(code=f"COGS-NOTE-{uuid4().hex}", name="COGS note model")
+        db.add(model)
+        db.flush()
+        db.add(ProductionOrder(production_no=f"COGS-NOTE-{uuid4().hex}", production_type="client_order", model_id=model.id, planned_quantity=3))
+        db.add(ModelBOM(model_id=model.id, item_id=None, material_name="Manual fabric note", quantity_per_piece="0.10", unit="kg"))
+        db.commit()
+        result = cost_breakdown(db)
+
+    assert result["fabric_cost"] == 0.0
+    assert result["accessories_cost"] == 0.0
