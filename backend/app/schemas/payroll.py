@@ -131,6 +131,14 @@ class PayrollRecordOut(ORMModel):
     duplicate: bool = False
 
 
+class PayrollRecordPageOut(BaseModel):
+    rows: list[PayrollRecordOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class PayrollBulkOut(BaseModel):
     records: list[PayrollRecordOut]
     created_count: int

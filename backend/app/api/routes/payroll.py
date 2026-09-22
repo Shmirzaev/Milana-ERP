@@ -7,7 +7,7 @@ import heapq
 import json
 import re
 from types import SimpleNamespace
-from typing import Any, Callable, Literal
+from typing import Annotated, Any, Callable, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -64,6 +64,7 @@ from app.schemas.payroll import (
     PayrollRecordBulkIn,
     PayrollRecordIn,
     PayrollRecordOut,
+    PayrollRecordPageOut,
     PayrollRecordReversalIn,
     PayrollSummaryEmployeeOut,
     PayrollSummaryOperationOut,
@@ -1307,7 +1308,7 @@ def mark_period_paid(
     return period
 
 
-@router.get("/records", response_model=list[PayrollRecordOut])
+@router.get("/records", response_model=list[PayrollRecordOut] | PayrollRecordPageOut)
 def list_records(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.view", "payroll.manage", "*")),
@@ -1318,6 +1319,8 @@ def list_records(
     date_to: datetime | None = None,
     status: str | None = None,
     limit: int = 200,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = _filtered_record_query(
         db,
@@ -1334,9 +1337,28 @@ def list_records(
         qry = qry.filter(PayrollRecord.status == status)
     elif status:
         raise HTTPException(400, "Invalid payroll record status")
-    rows = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc()).limit(max(1, min(limit, 1000))).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 200
+        total = qry.order_by(None).count()
+    qry = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc())
+    if total is None:
+        qry = qry.limit(max(1, min(limit, 1000)))
+    else:
+        qry = qry.offset((page - 1) * page_size).limit(page_size)
+    rows = qry.all()
     employees, departments = _load_employee_maps(db, {int(r.employee_id) for r in rows})
-    return [_serialize_record(r, employees=employees, departments=departments) for r in rows]
+    payloads = [_serialize_record(r, employees=employees, departments=departments) for r in rows]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 def _serialize_qr_label(
