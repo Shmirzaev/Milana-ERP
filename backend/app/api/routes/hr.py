@@ -1,4 +1,5 @@
 from typing import Annotated
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.exceptions import RequestValidationError
@@ -13,6 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from typing import Literal, Optional
+
+
+MAX_EMPLOYEE_SALARY = Decimal("9999999999.99")
 
 
 class EmployeeIn(BaseModel):
@@ -105,6 +109,22 @@ def _validate_hr_profile_json(value: dict) -> dict:
     # Validation is intentionally write-only. Keep the caller's scalar types
     # and sparse keys unchanged so existing API responses remain compatible.
     return value
+
+
+def _validated_employee_salary(value: float | None) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        salary = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        raise HTTPException(422, "Employee salary must be a finite number") from None
+    if not salary.is_finite():
+        raise HTTPException(422, "Employee salary must be a finite number")
+    if salary < 0:
+        raise HTTPException(422, "Employee salary must be nonnegative")
+    if salary > MAX_EMPLOYEE_SALARY:
+        raise HTTPException(422, f"Employee salary must be no more than {MAX_EMPLOYEE_SALARY}")
+    return salary
 
 
 def _ensure_employee_no_available(
@@ -244,6 +264,7 @@ def create_employee(payload: EmployeeIn, db: DbSession, current: User = Depends(
     values = payload.model_dump()
     _ensure_employee_no_available(db, factory_code, values.get("employee_no"))
     values["hr_profile_json"] = _validate_hr_profile_json(values["hr_profile_json"])
+    values["salary"] = _validated_employee_salary(values["salary"])
     e = Employee(factory_code=factory_code, **values)
     db.add(e)
     try:
@@ -283,6 +304,8 @@ def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: U
         _ensure_employee_no_available(db, factory_code, changes["employee_no"], exclude_id=e.id)
     if "hr_profile_json" in changes:
         changes["hr_profile_json"] = _validate_hr_profile_json(changes["hr_profile_json"])
+    if "salary" in changes:
+        changes["salary"] = _validated_employee_salary(changes["salary"])
     for k, v in changes.items():
         setattr(e, k, v)
     try:
