@@ -2282,13 +2282,18 @@ def approve_model(
     family = _approval_family(db, m)
     pending = [row for row in family if row.status != "approved"]
     if _normalize_catalog_scope(catalog_scope) == "usluga":
-        for row in pending:
-            main_count = db.query(ModelBOM.id).filter(
-                ModelBOM.model_id == row.id,
+        pending_ids = [row.id for row in pending]
+        main_counts = dict(
+            db.query(ModelBOM.model_id, func.count(ModelBOM.id))
+            .filter(
+                ModelBOM.model_id.in_(pending_ids),
                 ModelBOM.material_role == "main",
-            ).count()
-            if main_count != 1:
-                raise HTTPException(409, "Usluga model approval requires exactly one main fabric")
+            )
+            .group_by(ModelBOM.model_id)
+            .all()
+        ) if pending_ids else {}
+        if any(main_counts.get(model_id, 0) != 1 for model_id in pending_ids):
+            raise HTTPException(409, "Usluga model approval requires exactly one main fabric")
     approved_at = datetime.now(timezone.utc)
     for row in pending:
         row.status = "approved"

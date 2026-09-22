@@ -122,3 +122,38 @@ def test_usluga_family_validates_all_main_fabrics_before_approval(client, auth_h
         db.commit()
         approve_model(rows[0].id, db, actor, "usluga")
         assert all(row.status == "approved" for row in rows)
+
+
+def test_usluga_approval_batches_main_fabric_counts():
+    from sqlalchemy import event
+    from app.db.session import engine
+    from app.api.routes.catalog import approve_model
+    from app.models import User
+
+    with SessionLocal() as db:
+        actor = db.query(User).filter(User.email == "admin@example.com").one()
+        rows = [Model(code="USAPP901" + suffix, name="Batch approval family", status="draft",
+                      catalog_scope="usluga", factory_code="ECO",
+                      details_json={"general": {"model_no": "USAPP901", "variant_no": suffix}})
+                for suffix in ("", "V1", "V2")]
+        db.add_all(rows)
+        db.flush()
+        db.add_all([
+            ModelBOM(model_id=row.id, material_name="Main fabric", material_role="main",
+                     quantity_per_piece=1, unit="kg", waste_percent=0)
+            for row in rows
+        ])
+        db.commit()
+        statements = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            normalized = " ".join(statement.lower().split())
+            if "count(model_bom.id)" in normalized and "group by model_bom.model_id" in normalized:
+                statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", capture)
+        try:
+            approve_model(rows[0].id, db, actor, "usluga")
+        finally:
+            event.remove(engine, "before_cursor_execute", capture)
+        assert len(statements) == 1
