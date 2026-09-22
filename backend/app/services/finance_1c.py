@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timezone, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import and_, func, or_
@@ -13,6 +14,25 @@ from app.core.order_reference import BusinessOrderReferenceLookup, resolve_order
 
 SOURCE_1C = "1c"
 INVOICE_STATUSES = frozenset({"unpaid", "partially_paid", "paid", "void", "cancelled"})
+MAX_MONEY = Decimal("999999999999.99")
+
+
+def _bounded_text(value: str | None, field: str, maximum: int) -> str | None:
+    if value is not None and len(value) > maximum:
+        raise ValueError(f"{field} must be at most {maximum} characters")
+    return value
+
+
+def _validated_amount(value: float, kind: str, *, allow_zero: bool) -> Decimal:
+    amount = Decimal(str(value))
+    if not amount.is_finite():
+        raise ValueError(f"{kind} amount must be finite")
+    if amount < 0 or (not allow_zero and amount == 0):
+        qualifier = "nonnegative" if allow_zero else "greater than zero"
+        raise ValueError(f"{kind} amount must be {qualifier}")
+    if amount > MAX_MONEY:
+        raise ValueError(f"{kind} amount must be no more than {MAX_MONEY}")
+    return amount
 
 
 def _validate_invoice_status(status: str) -> str:
@@ -199,28 +219,31 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                 )
                 if not sales_order:
                     raise ValueError("sales order not found (provide sales_order_id or sales_order_no)")
+                external_id = _bounded_text(row.external_id, "external_id", 128)
+                invoice_no = _bounded_text(row.invoice_no, "invoice_no", 64)
                 status = _validate_invoice_status(row.status)
-                invoice = invoices_by_external_id.get(row.external_id)
+                amount = _validated_amount(row.amount, "invoice", allow_zero=True)
+                invoice = invoices_by_external_id.get(external_id)
                 is_new = invoice is None
                 previous_invoice_no = invoice.invoice_no if invoice is not None else None
                 if is_new:
                     invoice = Invoice(
                         sales_order_id=sales_order.id,
-                        invoice_no=row.invoice_no or next_invoice_no(db),
+                        invoice_no=invoice_no or next_invoice_no(db),
                         external_source=SOURCE_1C,
-                        external_id=row.external_id,
+                        external_id=external_id,
                         issued_at=_as_utc(row.issued_at),
                         due_date=_as_utc(row.due_date),
                     )
                     db.add(invoice)
                 else:
                     invoice.sales_order_id = sales_order.id
-                    if row.invoice_no:
-                        invoice.invoice_no = row.invoice_no
+                    if invoice_no:
+                        invoice.invoice_no = invoice_no
                     invoice.issued_at = _as_utc(row.issued_at)
                     invoice.due_date = _as_utc(row.due_date)
 
-                invoice.amount = row.amount
+                invoice.amount = amount
                 invoice.status = status
                 db.flush()
 
@@ -248,21 +271,24 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                 )
                 if not invoice:
                     raise ValueError("invoice not found (provide invoice_id, invoice_no, or invoice_external_id)")
-                payment = payments_by_external_id.get(row.external_id)
+                external_id = _bounded_text(row.external_id, "external_id", 128)
+                payment_method = _bounded_text(row.payment_method, "payment_method", 32)
+                amount = _validated_amount(row.amount, "payment", allow_zero=False)
+                payment = payments_by_external_id.get(external_id)
                 is_new = payment is None
                 previous_invoice_id = payment.invoice_id if payment else None
                 if is_new:
                     payment = Payment(
                         invoice_id=invoice.id,
                         external_source=SOURCE_1C,
-                        external_id=row.external_id,
+                        external_id=external_id,
                     )
                     db.add(payment)
                 else:
                     payment.invoice_id = invoice.id
 
-                payment.amount = row.amount
-                payment.payment_method = row.payment_method
+                payment.amount = amount
+                payment.payment_method = payment_method
                 payment.paid_at = _as_utc(row.paid_at)
                 payment.notes = row.notes
                 db.flush()
