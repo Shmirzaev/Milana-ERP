@@ -1,4 +1,5 @@
 from uuid import uuid4
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, field_validator
@@ -35,21 +36,58 @@ class PaidProcessIn(BaseModel):
         return value
 
 
+class PaidProcessOut(BaseModel):
+    id: int
+    code: str
+    name: str
+    section: str
+
+
+class PaidProcessListOut(BaseModel):
+    items: list[PaidProcessOut]
+    has_more: bool
+
+
+class PaidProcessPageOut(PaidProcessListOut):
+    total: int
+    page: int
+    page_size: int
+
+
 def output(row):
     return {"id": row.id, "code": row.code, "name": row.name, "section": row.section}
 
 
-@router.get("")
-def list_processes(db: DbSession, search: str = Query("", max_length=255),
-                   current: User = Depends(require_permissions("payroll.manage", "modeling.models", "*"))):
+@router.get("", response_model=PaidProcessPageOut | PaidProcessListOut)
+def list_processes(
+    db: DbSession,
+    search: str = Query("", max_length=255),
+    current: User = Depends(require_permissions("payroll.manage", "modeling.models", "*")),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     query = db.query(PaidProcess).filter(PaidProcess.factory_code == selected_factory_code(current))
     needle = normalized_name(search)
     if needle:
         escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         query = query.filter(or_(PaidProcess.normalized_name.contains(escaped, autoescape=False, escape="\\"),
                                  PaidProcess.code.ilike(f"%{escaped}%", escape="\\")))
-    rows = query.order_by(PaidProcess.normalized_name, PaidProcess.section, PaidProcess.id).limit(51).all()
-    return {"items": [output(row) for row in rows[:50]], "has_more": len(rows) > 50}
+    ordered_query = query.order_by(PaidProcess.normalized_name, PaidProcess.section, PaidProcess.id)
+    if page is None and page_size is None:
+        rows = ordered_query.limit(51).all()
+        return {"items": [output(row) for row in rows[:50]], "has_more": len(rows) > 50}
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "items": [output(row) for row in rows],
+        "has_more": page * page_size < total,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.post("")
