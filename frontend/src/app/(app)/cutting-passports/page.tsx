@@ -12,6 +12,7 @@ import { modelCodeParts } from "@/lib/modelCode";
 import { useDialogs } from "@/components/DialogProvider";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import { useT } from "@/lib/i18n";
+import { useCuttingPassportDirectoryKeys } from "@/lib/cuttingPassportDirectories";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -269,11 +270,12 @@ export default function CuttingPassportsPage() {
   const passportUrl = `/api/cutting-passports?formula_version=20260706_ishlangan_kg&limit=500&cutting_department_code=${cuttingDepartment}${
     passportSearch ? `&q=${encodeURIComponent(passportSearch)}` : ""
   }`;
-  const { data: passports = [], mutate } = useSWR<Passport[]>(passportUrl, fetcher, { keepPreviousData: true });
-  const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
-  const { data: users = [] } = useSWR<any[]>("/api/cutting-passports/operators", fetcher);
-
   const [showForm, setShowForm] = useState(false);
+  const { data: passports = [], mutate } = useSWR<Passport[]>(passportUrl, fetcher, { keepPreviousData: true });
+  const directoryKeys = useCuttingPassportDirectoryKeys(showForm);
+  const { data: prodOrders = [] } = useSWR<any[]>(directoryKeys.productionOrders, fetcher);
+  const { data: users = [] } = useSWR<any[]>(directoryKeys.operators, fetcher);
+
   const [editing, setEditing] = useState<Passport | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [materialForms, setMaterialForms] = useState<Array<typeof EMPTY_FORM & { stock_batch_id: number }>>([]);
