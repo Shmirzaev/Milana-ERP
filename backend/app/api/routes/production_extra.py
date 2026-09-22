@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import noload, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
@@ -552,7 +552,13 @@ def flow_utilization(fid: int, db: DbSession, current: CurrentUser):
 
 # ===== Printable HTML export of process tracking =====
 @router.get("/process-tracking/export", response_class=HTMLResponse)
-def export_process_html(db: DbSession, current: CurrentUser, factory: str | None = None):
+def export_process_html(
+    db: DbSession,
+    current: CurrentUser,
+    factory: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     """A printable HTML view (use browser's "Save as PDF" — keeps deps minimal)."""
     qry = db.query(ProductionOrder).filter(
         ProductionOrder.status.not_in(["closed", "cancelled", "delivered"]),
@@ -566,15 +572,54 @@ def export_process_html(db: DbSession, current: CurrentUser, factory: str | None
         )
     else:
         qry = qry.filter(ProductionOrder.source_type == "standard")
+    qry = qry.order_by(ProductionOrder.id.desc())
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+        qry = qry.offset((page - 1) * page_size).limit(page_size)
     pos = qry.options(
+        noload(ProductionOrder.materials),
         selectinload(ProductionOrder.work_orders),
-    ).order_by(ProductionOrder.id.desc()).all()
+    ).all()
+
+    model_ids = {po.model_id for po in pos}
+    models = {
+        model.id: model
+        for model in (
+            db.query(Model)
+            .options(selectinload(Model.images), selectinload(Model.bom))
+            .filter(Model.id.in_(model_ids))
+            .all()
+            if model_ids
+            else []
+        )
+    }
+    sales_order_ids = {po.sales_order_id for po in pos if po.sales_order_id is not None}
+    sales_orders = {
+        order.id: order
+        for order in (
+            db.query(SalesOrder).filter(SalesOrder.id.in_(sales_order_ids)).all()
+            if sales_order_ids
+            else []
+        )
+    }
+    customer_ids = {order.customer_id for order in sales_orders.values() if order.customer_id is not None}
+    customers = {
+        customer.id: customer
+        for customer in (
+            db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
+            if customer_ids
+            else []
+        )
+    }
 
     rows_html = ""
     for po in pos:
-        model = db.get(Model, po.model_id)
-        so = db.get(SalesOrder, po.sales_order_id) if po.sales_order_id else None
-        cust = db.get(Customer, so.customer_id) if so and so.customer_id else None
+        model = models.get(po.model_id)
+        so = sales_orders.get(po.sales_order_id) if po.sales_order_id else None
+        cust = customers.get(so.customer_id) if so and so.customer_id else None
         model_image_url = model_display_image_url(model)
         model_image = (
             f"<img class='model-img' src='{_h(model_image_url)}' alt='{_h(model.name if model else po.model_id)}'>"
@@ -627,4 +672,10 @@ def export_process_html(db: DbSession, current: CurrentUser, factory: str | None
   </table>
   <button onclick="window.print()" style="margin-top:6mm;padding:3mm 8mm;background:#1d4ed8;color:#fff;border:none;border-radius:2mm">Print / Save as PDF</button>
 </body></html>"""
-    return HTMLResponse(content=html)
+    response = HTMLResponse(content=html)
+    if total is not None:
+        response.headers["X-Total-Count"] = str(total)
+        response.headers["X-Page"] = str(page)
+        response.headers["X-Page-Size"] = str(page_size)
+        response.headers["X-Has-More"] = "true" if page * page_size < total else "false"
+    return response
