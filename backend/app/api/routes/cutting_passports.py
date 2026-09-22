@@ -587,6 +587,20 @@ def _add_passport_materials(db, order, work_order, payload, current):
         .filter(StockBatch.id.in_(sorted(set(ids) - set(existing))))
         .order_by(StockBatch.id).with_for_update(of=StockBatch).populate_existing().all()
     }
+    new_batch_ids = set(batches)
+    active_reservations = (
+        db.query(MaterialReservation)
+        .filter(
+            MaterialReservation.production_order_id == order.id,
+            MaterialReservation.stock_batch_id.in_(sorted(new_batch_ids)),
+            MaterialReservation.status.in_(("reserved", "partially_consumed")),
+        )
+        .all()
+        if new_batch_ids else []
+    )
+    reservations_by_batch = {}
+    for reservation in active_reservations:
+        reservations_by_batch.setdefault(reservation.stock_batch_id, []).append(reservation)
     reservation_lines = []
     pending_additions = []
     for addition in payload.additional_materials:
@@ -604,11 +618,7 @@ def _add_passport_materials(db, order, work_order, payload, current):
             raise HTTPException(409, "This fabric batch is archived or empty")
         if addition.unit != batch.unit:
             raise HTTPException(400, "Material unit must match the selected stock batch")
-        reservations = db.query(MaterialReservation).filter(
-            MaterialReservation.production_order_id == order.id,
-            MaterialReservation.stock_batch_id == batch.id,
-            MaterialReservation.status.in_(("reserved", "partially_consumed")),
-        ).all()
+        reservations = reservations_by_batch.get(batch.id, ())
         already_reserved = sum(max(0, float(row.reserved_quantity) - float(row.consumed_quantity or 0) - float(row.released_quantity or 0)) for row in reservations)
         missing = addition.estimated_quantity - already_reserved
         if missing > 0.0001:

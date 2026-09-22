@@ -703,22 +703,16 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
     }
 
 
-def _lock_batch_query(db: Session, stock_batch_id: int):
-    qry = db.query(StockBatch).filter(StockBatch.id == stock_batch_id)
-    if db.bind and db.bind.dialect.name == "postgresql":
-        qry = qry.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
-    return qry
-
-
 def _lock_reservation_resources(db: Session, lines: list[dict]) -> dict[int, StockBatch]:
     # Preserve pending stock changes before refreshing any already-loaded batch.
     db.flush()
     batches: dict[int, StockBatch] = {}
     batch_ids = sorted({int(line["stock_batch_id"]) for line in lines if line.get("stock_batch_id")})
-    for batch_id in batch_ids:
-        batch = _lock_batch_query(db, batch_id).populate_existing().first()
-        if batch:
-            batches[batch_id] = batch
+    if batch_ids:
+        qry = db.query(StockBatch).filter(StockBatch.id.in_(batch_ids)).populate_existing()
+        if db.bind and db.bind.dialect.name == "postgresql":
+            qry = qry.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+        batches = {int(batch.id): batch for batch in qry.order_by(StockBatch.id).all()}
 
     if db.bind and db.bind.dialect.name == "postgresql":
         # Cutting callers may already hold batch locks, so always acquire those
@@ -733,6 +727,133 @@ def _lock_reservation_resources(db: Session, lines: list[dict]) -> dict[int, Sto
                 {"namespace": _RESERVATION_LOCK_NAMESPACE, "item_id": item_id},
             )
     return batches
+
+
+def _reservation_read_context(
+    db: Session,
+    lines: list[dict],
+    locked_batches: dict[int, StockBatch],
+) -> tuple[dict[int, Item], dict[int, Warehouse], dict[int, float], dict[tuple[int, int | None], float]]:
+    """Read reservation references and availability once for the whole request.
+
+    The caller still validates lines in input order, but the immutable item,
+    warehouse, batch-balance and reservation reads are set based.  This keeps
+    the lock order established by ``_lock_reservation_resources`` intact while
+    avoiding a query per cutting-passport material line.
+    """
+    item_ids = sorted({int(line.get("item_id") or 0) for line in lines})
+    items = {
+        int(row.id): row
+        for row in db.query(Item).filter(Item.id.in_(item_ids)).all()
+    }
+    warehouse_ids = sorted({
+        int(line["warehouse_id"])
+        for line in lines
+        if line.get("warehouse_id") and not line.get("stock_batch_id")
+    })
+    warehouses = {
+        int(row.id): row
+        for row in (db.query(Warehouse).filter(Warehouse.id.in_(warehouse_ids)).all() if warehouse_ids else [])
+    }
+
+    # Batch reservations are included separately because a batch-bound line
+    # must not borrow the item's unbatched balance.
+    batch_ids = sorted(locked_batches)
+    batch_reserved: dict[int, float] = {}
+    if batch_ids:
+        batch_reserved = {
+            int(batch_id): max(0.0, float(quantity or 0))
+            for batch_id, quantity in db.query(
+                MaterialReservation.stock_batch_id,
+                _active_reserved_sum_query(db),
+            ).filter(
+                MaterialReservation.stock_batch_id.in_(batch_ids),
+                MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+            ).group_by(MaterialReservation.stock_batch_id).all()
+        }
+
+    # The unbatched stock calculation mirrors current_stock_for_item,
+    # including transfer direction for warehouse-scoped requests.
+    stock_by_key: dict[tuple[int, int | None], float] = {}
+    batch_totals = db.query(
+        StockBatch.item_id, StockBatch.warehouse_id, func.coalesce(func.sum(StockBatch.quantity), 0),
+    ).filter(StockBatch.item_id.in_(item_ids)).group_by(
+        StockBatch.item_id, StockBatch.warehouse_id,
+    ).all()
+    for item_id, warehouse_id, quantity in batch_totals:
+        stock_by_key[(int(item_id), int(warehouse_id))] = float(quantity or 0)
+
+    movement_rows = db.query(
+        StockMovement.item_id,
+        StockMovement.movement_type,
+        func.coalesce(func.sum(StockMovement.quantity), 0),
+        StockMovement.from_warehouse_id,
+        StockMovement.to_warehouse_id,
+    ).filter(
+        StockMovement.item_id.in_(item_ids),
+        StockMovement.batch_id.is_(None),
+    ).group_by(
+        StockMovement.item_id,
+        StockMovement.movement_type,
+        StockMovement.from_warehouse_id,
+        StockMovement.to_warehouse_id,
+    ).all()
+    global_movement: dict[int, float] = {}
+    warehouse_movement: dict[tuple[int, int], float] = {}
+    out_types = {"issue", "consume", "waste", "shipment"}
+    in_types = {"produce", "return", "adjustment"}
+    for item_id, movement_type, quantity, from_warehouse_id, to_warehouse_id in movement_rows:
+        item_id = int(item_id)
+        amount = float(quantity or 0)
+        signed = amount if movement_type in in_types else -amount if movement_type in out_types else 0.0
+        global_movement[item_id] = global_movement.get(item_id, 0.0) + signed
+        if movement_type == "transfer":
+            if from_warehouse_id is not None:
+                key = (item_id, int(from_warehouse_id))
+                warehouse_movement[key] = warehouse_movement.get(key, 0.0) - amount
+            if to_warehouse_id is not None:
+                key = (item_id, int(to_warehouse_id))
+                warehouse_movement[key] = warehouse_movement.get(key, 0.0) + amount
+        elif from_warehouse_id is not None or to_warehouse_id is not None:
+            warehouse_id = to_warehouse_id if movement_type in in_types else from_warehouse_id
+            if warehouse_id is not None:
+                key = (item_id, int(warehouse_id))
+                warehouse_movement[key] = warehouse_movement.get(key, 0.0) + signed
+
+    reservation_rows = db.query(
+        MaterialReservation.item_id,
+        MaterialReservation.warehouse_id,
+        _active_reserved_sum_query(db),
+    ).filter(
+        MaterialReservation.item_id.in_(item_ids),
+        MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+    ).group_by(MaterialReservation.item_id, MaterialReservation.warehouse_id).all()
+    reserved_by_key: dict[tuple[int, int | None], float] = {}
+    for item_id, warehouse_id, quantity in reservation_rows:
+        key = (int(item_id), int(warehouse_id) if warehouse_id is not None else None)
+        reserved_by_key[key] = reserved_by_key.get(key, 0.0) + max(0.0, float(quantity or 0))
+
+    available_by_key: dict[tuple[int, int | None], float] = {}
+    global_stock = {
+        item_id: sum(quantity for (stock_item, _), quantity in stock_by_key.items() if stock_item == item_id)
+        for item_id in item_ids
+    }
+    global_reserved = {
+        item_id: sum(quantity for (reserved_item, _), quantity in reserved_by_key.items() if reserved_item == item_id)
+        for item_id in item_ids
+    }
+    for item_id in item_ids:
+        available_by_key[(item_id, None)] = (
+            global_stock[item_id] + global_movement.get(item_id, 0.0) - global_reserved[item_id]
+        )
+        for warehouse_id in warehouse_ids:
+            key = (item_id, warehouse_id)
+            available_by_key[key] = (
+                stock_by_key.get(key, 0.0)
+                + warehouse_movement.get(key, 0.0)
+                - reserved_by_key.get(key, 0.0)
+            )
+    return items, warehouses, batch_reserved, available_by_key
 
 
 def create_material_reservations(
@@ -752,6 +873,8 @@ def create_material_reservations(
         raise HTTPException(400, "No reservation lines provided")
 
     locked_batches = _lock_reservation_resources(db, lines)
+    items, warehouses, batch_reserved, available_by_key = _reservation_read_context(db, lines, locked_batches)
+    used_by_key: dict[tuple[str, int, int | None], float] = {}
     created: list[MaterialReservation] = []
     for idx, raw in enumerate(lines, start=1):
         item_id = int(raw.get("item_id") or 0)
@@ -762,7 +885,7 @@ def create_material_reservations(
         notes = str(raw.get("notes") or "").strip() or None
         if quantity <= 0:
             raise HTTPException(400, f"Reservation line #{idx} quantity must be greater than zero")
-        item = db.get(Item, item_id)
+        item = items.get(item_id)
         if not item:
             raise HTTPException(404, f"Item #{item_id} not found")
         if item.category not in RESERVABLE_CATEGORIES:
@@ -783,21 +906,26 @@ def create_material_reservations(
             if warehouse_id is not None and int(batch.warehouse_id) != warehouse_id:
                 raise HTTPException(400, f"Batch {batch.batch_no} is not in warehouse #{warehouse_id}")
             warehouse_id = int(batch.warehouse_id)
-            available = available_stock_for_batch(db, int(batch.id))
-            if quantity > available + EPSILON:
+            availability_key = ("batch", int(batch.id), None)
+            available = float(batch.quantity or 0) - batch_reserved.get(int(batch.id), 0.0)
+        else:
+            if warehouse_id is not None and warehouse_id not in warehouses:
+                raise HTTPException(404, f"Warehouse #{warehouse_id} not found")
+            availability_key = ("item", item_id, warehouse_id)
+            available = available_by_key.get((item_id, warehouse_id), 0.0)
+        available -= used_by_key.get(availability_key, 0.0)
+        if quantity > available + EPSILON:
+            if stock_batch_id is not None:
                 raise HTTPException(
                     409,
                     f"Cannot reserve {quantity:g} {unit} from batch {batch.batch_no}; available unreserved quantity is {available:g}",
                 )
-        else:
-            if warehouse_id is not None and not db.get(Warehouse, warehouse_id):
-                raise HTTPException(404, f"Warehouse #{warehouse_id} not found")
-            available = available_stock_for_item(db, item_id, warehouse_id=warehouse_id)
-            if quantity > available + EPSILON:
-                raise HTTPException(
-                    409,
-                    f"Cannot reserve {quantity:g} {unit} for item {item.sku}; available unreserved quantity is {available:g}",
-                )
+            raise HTTPException(
+                409,
+                f"Cannot reserve {quantity:g} {unit} for item {item.sku}; available unreserved quantity is {available:g}",
+            )
+
+        used_by_key[availability_key] = used_by_key.get(availability_key, 0.0) + quantity
 
         reservation = MaterialReservation(
             reservation_no=next_material_reservation_no(db),

@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -104,6 +104,29 @@ def test_cutting_additions_reserve_together_and_retry_keeps_positions(monkeypatc
         assert [row.position for row in materials] == [1, 2]
         assert db.query(MaterialReservation).filter_by(production_order_id=ids["orders"][0]).count() == 2
         assert db.query(AuditLog).filter_by(action="add_cutting_passport_material", entity_id=ids["orders"][0]).count() == 2
+
+
+def test_cutting_additions_prefetch_existing_reservations_once():
+    ids = _stock(TestSessionLocal, item_count=8, warehouse_count=1)
+    payload = _passport_payload(ids, reverse=False)
+    with TestSessionLocal() as db:
+        statements = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if "material_reservations" in statement.lower() and statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            _add_passport_materials(db, ids, payload)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        existing_assignment_reads = [
+            statement for statement in statements
+            if "material_reservations.production_order_id" in statement.lower()
+            and "material_reservations.stock_batch_id in (" in statement.lower()
+        ]
+        assert len(existing_assignment_reads) == 1
 
 
 @pytest.mark.parametrize("batch_first", [False, True])
