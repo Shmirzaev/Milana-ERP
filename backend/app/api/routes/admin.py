@@ -49,6 +49,14 @@ class DepartmentPageOut(BaseModel):
     has_more: bool
 
 
+class UserPageOut(BaseModel):
+    rows: list[UserOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 MCP_READ_TOOLS = [
     {"name": "erp_me", "description": "Current authenticated ERP user and permissions."},
     {"name": "erp_gm_summary", "description": "GM management dashboard summary."},
@@ -480,16 +488,37 @@ def _detach_user_references(db: DbSession, user_id: int) -> None:
                 db.execute(delete(table).where(column == user_id))
 
 
-@router.get("/users", response_model=list[UserOut])
+@router.get("/users", response_model=list[UserOut] | UserPageOut)
 def list_users(
     db: DbSession,
     _: User = Depends(require_permissions("admin.users", "*")),
     limit: int = Query(default=500, ge=1, le=500),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     # Keep direct callers safe as well as HTTP callers: FastAPI replaces the
     # Query marker with an int, but a plain Python call receives the marker.
     effective_limit = limit if isinstance(limit, int) and not isinstance(limit, bool) else 500
-    return db.query(User).order_by(User.id).limit(effective_limit).all()
+    ordered_query = db.query(User).order_by(User.id)
+    if page is None and page_size is None:
+        return ordered_query.limit(effective_limit).all()
+
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    total = ordered_query.order_by(None).count()
+    rows = (
+        ordered_query
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.post("/users", response_model=UserOut, status_code=201)
