@@ -129,8 +129,33 @@ def test_cutting_additions_prefetch_existing_reservations_once():
         ]
         assert len(existing_assignment_reads) == 1
         item_reads = [statement for statement in statements if "from items" in statement.lower()]
-        assert len(item_reads) == 2, "Validation and reservation should each batch their item reads"
+        assert len(item_reads) == 1, "Reservation should reuse Cutting's validated item references"
         assert all("items.id in (" in statement.lower() for statement in item_reads)
+
+
+@pytest.mark.parametrize("material_count", [1, 50, 401])
+def test_cutting_additions_item_reference_reads_stay_batched(material_count):
+    ids = _stock(TestSessionLocal, item_count=material_count, warehouse_count=1)
+    payload = _passport_payload(ids, reverse=False)
+    with TestSessionLocal() as db:
+        item_reads = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            lowered = statement.lower()
+            if "from items" in lowered and statement.lstrip().upper().startswith("SELECT"):
+                item_reads.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            _add_passport_materials(db, ids, payload)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+        assert len(item_reads) == 1
+        assert all("items.id in (" in statement.lower() for statement in item_reads)
+        assert db.query(MaterialReservation).filter_by(
+            production_order_id=ids["orders"][0],
+        ).count() == material_count
 
 
 @pytest.mark.parametrize("batch_first", [False, True])

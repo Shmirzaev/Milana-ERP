@@ -733,6 +733,8 @@ def _reservation_read_context(
     db: Session,
     lines: list[dict],
     locked_batches: dict[int, StockBatch],
+    *,
+    preloaded_items: dict[int, Item] | None = None,
 ) -> tuple[dict[int, Item], dict[int, Warehouse], dict[int, float], dict[tuple[int, int | None], float]]:
     """Read reservation references and availability once for the whole request.
 
@@ -742,10 +744,17 @@ def _reservation_read_context(
     avoiding a query per cutting-passport material line.
     """
     item_ids = sorted({int(line.get("item_id") or 0) for line in lines})
-    items = {
-        int(row.id): row
-        for row in db.query(Item).filter(Item.id.in_(item_ids)).all()
-    }
+    if preloaded_items is None:
+        items = {
+            int(row.id): row
+            for row in db.query(Item).filter(Item.id.in_(item_ids)).all()
+        }
+    else:
+        items = {
+            item_id: preloaded_items[item_id]
+            for item_id in item_ids
+            if item_id in preloaded_items
+        }
     warehouse_ids = sorted({
         int(line["warehouse_id"])
         for line in lines
@@ -863,6 +872,7 @@ def create_material_reservations(
     lines: list[dict],
     user_id: int | None,
     source: str = "manual",
+    preloaded_items: dict[int, Item] | None = None,
 ) -> list[MaterialReservation]:
     po = db.get(ProductionOrder, production_order_id)
     if not po:
@@ -873,7 +883,12 @@ def create_material_reservations(
         raise HTTPException(400, "No reservation lines provided")
 
     locked_batches = _lock_reservation_resources(db, lines)
-    items, warehouses, batch_reserved, available_by_key = _reservation_read_context(db, lines, locked_batches)
+    items, warehouses, batch_reserved, available_by_key = _reservation_read_context(
+        db,
+        lines,
+        locked_batches,
+        preloaded_items=preloaded_items,
+    )
     used_by_key: dict[tuple[str, int, int | None], float] = {}
     created: list[MaterialReservation] = []
     for idx, raw in enumerate(lines, start=1):

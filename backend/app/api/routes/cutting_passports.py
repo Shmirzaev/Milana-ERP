@@ -634,7 +634,11 @@ def _add_passport_materials(db, order, work_order, payload, current):
         pending_additions.append((addition, batch))
     if reservation_lines:
         create_material_reservations(
-            db, production_order_id=order.id, lines=reservation_lines, user_id=current.id,
+            db,
+            production_order_id=order.id,
+            lines=reservation_lines,
+            user_id=current.id,
+            preloaded_items=items,
         )
     for addition, batch in pending_additions:
         position += 1
