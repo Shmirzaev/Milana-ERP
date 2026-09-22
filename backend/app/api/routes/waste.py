@@ -16,12 +16,16 @@ from app.services.idempotency import replay_idempotent_response, store_idempoten
 
 router = APIRouter(prefix="/waste", tags=["waste"])
 
+MAX_WASTE_QUANTITY = Decimal("9999999999.9999")
+MAX_WASTE_ESTIMATED_VALUE = Decimal("9999999999.99")
+WASTE_QUANTITY_QUANTUM = Decimal("0.0001")
 
-def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | None) -> float:
+
+def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | None) -> Decimal:
     if batch_id:
         batch = db.get(StockBatch, batch_id)
         if batch:
-            return float(batch.cost_per_unit or 0)
+            return Decimal(str(batch.cost_per_unit or 0))
     if item_id:
         latest = (
             db.query(StockBatch)
@@ -30,16 +34,32 @@ def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | Non
             .first()
         )
         if latest:
-            return float(latest.cost_per_unit or 0)
+            return Decimal(str(latest.cost_per_unit or 0))
         item = db.get(Item, item_id)
         if item:
-            return float(item.default_cost or 0)
-    return 0.0
+            return Decimal(str(item.default_cost or 0))
+    return Decimal("0")
 
 
 def _estimated_value_for_waste(db: DbSession, w: WasteRecord) -> float:
     unit_cost = _unit_cost_for_waste(db, w.item_id, w.batch_id)
-    return round(float(w.quantity or 0) * unit_cost, 2)
+    return float(round(Decimal(str(w.quantity or 0)) * unit_cost, 2))
+
+
+def _validated_waste_values(quantity_value, unit_cost: Decimal) -> tuple[Decimal, Decimal]:
+    try:
+        quantity = Decimal(str(quantity_value))
+        stored_quantity = quantity.quantize(WASTE_QUANTITY_QUANTUM)
+        estimated_value = round(quantity * unit_cost, 2)
+    except (InvalidOperation, ValueError):
+        raise HTTPException(422, "Waste quantity exceeds supported precision") from None
+    if not quantity.is_finite() or quantity <= 0:
+        raise HTTPException(422, "Waste quantity must be finite and greater than zero")
+    if stored_quantity > MAX_WASTE_QUANTITY:
+        raise HTTPException(422, f"Waste quantity must be no more than {MAX_WASTE_QUANTITY}")
+    if not estimated_value.is_finite() or estimated_value > MAX_WASTE_ESTIMATED_VALUE:
+        raise HTTPException(422, "Waste estimated value exceeds supported precision")
+    return quantity, estimated_value
 
 
 @router.get("", response_model=list[WasteOut] | WastePageOut)
@@ -101,7 +121,8 @@ def create_waste(payload: WasteIn, db: DbSession, current: User = Depends(requir
     "waste.receive", "planning.production", "management.approve", "*",
 ))):
     data = payload.model_dump()
-    data["estimated_value"] = round(float(data.get("quantity") or 0) * _unit_cost_for_waste(db, data.get("item_id"), data.get("batch_id")), 2)
+    unit_cost = _unit_cost_for_waste(db, data.get("item_id"), data.get("batch_id"))
+    data["quantity"], data["estimated_value"] = _validated_waste_values(data.get("quantity"), unit_cost)
     w = WasteRecord(**data, created_by=current.id, status="recorded")
     db.add(w); db.flush()
     log_action(db, current, "create", "WasteRecord", w.id, new_value={"type": w.waste_type, "qty": float(w.quantity)})

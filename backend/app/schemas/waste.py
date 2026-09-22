@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 from pydantic import BaseModel
 
@@ -12,7 +13,7 @@ class WasteIn(BaseModel):
     item_id: Optional[int] = None
     batch_id: Optional[int] = None
     waste_type: str
-    quantity: float
+    quantity: Decimal | float | int | str
     unit: str
     reason: Optional[str] = None
     sellable: bool = False
