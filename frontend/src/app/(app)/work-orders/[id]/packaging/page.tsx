@@ -93,7 +93,7 @@ export default function PackagingPage() {
   );
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
   const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
-  const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
+  const { data: customers = [] } = useSWR<any[]>(so?.customer_id ? "/api/customers" : null, fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
   const [rec, setRec] = useState<PackagingRecordForm>({

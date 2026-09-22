@@ -90,14 +90,18 @@ export default function NewSalesOrderPage() {
   const { me } = useMe();
   const { data: customers, mutate: mutateCustomers } = useSWR<Customer[]>("/api/customers", fetcher);
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
-  const { data: readyStockOptions, error: stockError, isLoading: stockLoading } = useSWR<ReadyStockOption[]>("/api/sales-orders/ready-stock-options", fetcher);
+  const [orderType, setOrderType] = useState("client_order");
+  const isBrandedOrder = orderType === "branded_stock_sale";
+  const { data: readyStockOptions, error: stockError, isLoading: stockLoading } = useSWR<ReadyStockOption[]>(
+    isBrandedOrder ? "/api/sales-orders/ready-stock-options" : null,
+    fetcher,
+  );
   const [customerId, setCustomerId] = useState<number | "">("");
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [customerDraft, setCustomerDraft] = useState<CustomerDraft>(EMPTY_CUSTOMER);
   const [customerSaving, setCustomerSaving] = useState(false);
   const [customerError, setCustomerError] = useState("");
   const [brandId, setBrandId] = useState<number | "">("");
-  const [orderType, setOrderType] = useState("client_order");
   const [deadline, setDeadline] = useState("");
   const [printingInstructions, setPrintingInstructions] = useState("");
   const [printingAttachments, setPrintingAttachments] = useState<PrintingAttachment[]>([]);
@@ -115,7 +119,6 @@ export default function NewSalesOrderPage() {
   ]);
   const { data: models } = useSWR<any[]>(salesModelOptionsKey, modelOptionsByIdsFetcher);
 
-  const isBrandedOrder = orderType === "branded_stock_sale";
   const canCreateCustomer = can(me, "sales.customers");
   const brandedPackSize = BRANDED_PACK_SIZE;
   const modelMap = useMemo(() => new Map((models ?? []).map((m) => [Number(m.id), m])), [models]);
