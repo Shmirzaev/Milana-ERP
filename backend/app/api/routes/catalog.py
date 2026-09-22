@@ -2,6 +2,7 @@ from copy import deepcopy
 from datetime import date, datetime, timezone
 import os
 import re
+from typing import Annotated
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from fastapi import UploadFile, File, Form
@@ -1116,8 +1117,13 @@ def _clone_details_for_code(details: dict | None, new_code: str) -> dict:
 
 # ===== Brands =====
 @router.get("/brands", response_model=list[BrandOut])
-def list_brands(db: DbSession, _: CurrentUser):
-    return db.query(Brand).order_by(Brand.name).all()
+def list_brands(
+    db: DbSession,
+    _: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+):
+    """Return the reference-brand list with a bounded payload."""
+    return db.query(Brand).order_by(Brand.name, Brand.id).limit(limit).all()
 
 
 @router.post("/brands", response_model=BrandOut, status_code=201)

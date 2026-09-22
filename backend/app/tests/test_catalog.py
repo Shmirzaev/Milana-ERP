@@ -1434,6 +1434,22 @@ def test_brands_collections(client, auth_headers):
     assert r2.status_code == 200
 
 
+def test_brands_list_is_bounded(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Brand
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        db.add_all([Brand(name=f"Bounded brand {marker}-{index:03d}") for index in range(501)])
+        db.commit()
+
+    response = client.get("/api/brands?limit=500", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == 500
+
+
 def test_rename_model_group_uses_bounded_family_queries_without_code_prefix_assumptions():
     from uuid import uuid4
 
