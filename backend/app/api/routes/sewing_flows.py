@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Query
+from sqlalchemy import literal
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -9,6 +10,7 @@ from app.models import Model, ModelBOM, SewingFlow, StockBatch, WorkOrder, User,
 from app.schemas.sewing_flow import (
     SewingFlowIn, SewingFlowUpdate, SewingFlowOut, SewingFlowWithLoad, SewingFlowPageOut,
     SewingFlowUtilizationOut, SewingFlowUtilizationPageOut, SewingFlowWorkOrderOut,
+    SewingFlowWorkOrderPageOut,
 )
 from app.schemas.production import WorkOrderOut
 from app.services.audit import log_action
@@ -442,41 +444,7 @@ def update_flow(fid: int, payload: SewingFlowUpdate, db: DbSession, current: Use
     return f
 
 
-@router.get("/{fid}/work-orders", response_model=list[SewingFlowWorkOrderOut])
-def flow_work_orders(fid: int, db: DbSession, current: CurrentUser, only_active: bool = False):
-    flow = db.get(SewingFlow, fid)
-    if not flow:
-        raise HTTPException(404, "Sewing flow not found")
-    require_sewing_flow_access(current, flow)
-
-    assignment_managed_wo_ids = {
-        wid for (wid,) in db.query(SewingAssignment.work_order_id).filter(
-            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
-        ).distinct().all()
-    }
-
-    order_ref_load = joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order)
-    direct_qry = db.query(WorkOrder).options(order_ref_load).filter(WorkOrder.sewing_flow_id == fid)
-    if only_active:
-        direct_qry = direct_qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
-    direct = [w for w in direct_qry.all() if w.id not in assignment_managed_wo_ids]
-
-    split_qry = (
-        db.query(SewingAssignment)
-        .options(
-            joinedload(SewingAssignment.work_order)
-            .joinedload(WorkOrder.production_order)
-            .joinedload(ProductionOrder.sales_order)
-        )
-        .join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id)
-        .filter(SewingAssignment.sewing_flow_id == fid)
-    )
-    if only_active:
-        split_qry = split_qry.filter(SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES))
-        split_qry = split_qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
-        split_qry = split_qry.filter(SewingAssignment.completed_qty < SewingAssignment.quantity)
-    split = split_qry.order_by(SewingAssignment.id.desc()).all()
-
+def _flow_work_order_payloads(db: DbSession, direct: list[WorkOrder], split: list[SewingAssignment]) -> list[dict]:
     batch_ids = sorted({int(a.production_batch_id) for a in split if a.production_batch_id})
     batches = {int(b.id): b for b in db.query(ProductionBatch).filter(ProductionBatch.id.in_(batch_ids)).all()} if batch_ids else {}
     model_context = _work_order_model_context(
@@ -518,3 +486,110 @@ def flow_work_orders(fid: int, db: DbSession, current: CurrentUser, only_active:
         out.append(row)
 
     return sorted(out, key=lambda row: (int(row.get("sewing_assignment_id") or 0), int(row.get("id") or 0)), reverse=True)
+
+
+@router.get(
+    "/{fid}/work-orders",
+    response_model=list[SewingFlowWorkOrderOut] | SewingFlowWorkOrderPageOut,
+)
+def flow_work_orders(
+    fid: int,
+    db: DbSession,
+    current: CurrentUser,
+    only_active: bool = False,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    flow = db.get(SewingFlow, fid)
+    if not flow:
+        raise HTTPException(404, "Sewing flow not found")
+    require_sewing_flow_access(current, flow)
+
+    order_ref_load = joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order)
+    if page is None and page_size is None:
+        assignment_managed_wo_ids = {
+            wid for (wid,) in db.query(SewingAssignment.work_order_id).filter(
+                SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
+            ).distinct().all()
+        }
+        direct_qry = db.query(WorkOrder).options(order_ref_load).filter(WorkOrder.sewing_flow_id == fid)
+        if only_active:
+            direct_qry = direct_qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
+        direct = [w for w in direct_qry.all() if w.id not in assignment_managed_wo_ids]
+
+        split_qry = (
+            db.query(SewingAssignment)
+            .options(
+                joinedload(SewingAssignment.work_order)
+                .joinedload(WorkOrder.production_order)
+                .joinedload(ProductionOrder.sales_order)
+            )
+            .join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id)
+            .filter(SewingAssignment.sewing_flow_id == fid)
+        )
+        if only_active:
+            split_qry = split_qry.filter(SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES))
+            split_qry = split_qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
+            split_qry = split_qry.filter(SewingAssignment.completed_qty < SewingAssignment.quantity)
+        split = split_qry.order_by(SewingAssignment.id.desc()).all()
+        return _flow_work_order_payloads(db, direct, split)
+
+    managed_assignment_exists = db.query(SewingAssignment.id).filter(
+        SewingAssignment.work_order_id == WorkOrder.id,
+        SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
+    ).exists()
+    direct_keys = db.query(
+        literal(0).label("assignment_id"),
+        WorkOrder.id.label("work_order_id"),
+    ).filter(
+        WorkOrder.sewing_flow_id == fid,
+        ~managed_assignment_exists,
+    )
+    split_keys = db.query(
+        SewingAssignment.id.label("assignment_id"),
+        SewingAssignment.work_order_id.label("work_order_id"),
+    ).join(WorkOrder, WorkOrder.id == SewingAssignment.work_order_id).filter(
+        SewingAssignment.sewing_flow_id == fid,
+    )
+    if only_active:
+        direct_keys = direct_keys.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
+        split_keys = split_keys.filter(
+            SewingAssignment.status.in_(_ACTIVE_ASSIGN_STATUSES),
+            WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+            SewingAssignment.completed_qty < SewingAssignment.quantity,
+        )
+
+    candidate_rows = direct_keys.union_all(split_keys).subquery()
+    candidate_query = db.query(candidate_rows.c.assignment_id, candidate_rows.c.work_order_id)
+    total = int(candidate_query.count())
+    effective_page = page or 1
+    effective_page_size = page_size or 100
+    keys = candidate_query.order_by(
+        candidate_rows.c.assignment_id.desc(),
+        candidate_rows.c.work_order_id.desc(),
+    ).offset((effective_page - 1) * effective_page_size).limit(effective_page_size).all()
+
+    direct_ids = [int(row.work_order_id) for row in keys if int(row.assignment_id) == 0]
+    assignment_ids = [int(row.assignment_id) for row in keys if int(row.assignment_id) != 0]
+    direct_by_id = {
+        int(row.id): row
+        for row in db.query(WorkOrder).options(order_ref_load).filter(WorkOrder.id.in_(direct_ids)).all()
+    } if direct_ids else {}
+    assignment_by_id = {
+        int(row.id): row
+        for row in db.query(SewingAssignment).options(
+            joinedload(SewingAssignment.work_order)
+            .joinedload(WorkOrder.production_order)
+            .joinedload(ProductionOrder.sales_order)
+        ).filter(SewingAssignment.id.in_(assignment_ids)).all()
+    } if assignment_ids else {}
+    direct = [direct_by_id[work_order_id] for work_order_id in direct_ids if work_order_id in direct_by_id]
+    split = [assignment_by_id[assignment_id] for assignment_id in assignment_ids if assignment_id in assignment_by_id]
+    rows = _flow_work_order_payloads(db, direct, split)
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }

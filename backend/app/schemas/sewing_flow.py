@@ -71,3 +71,11 @@ class SewingFlowWorkOrderOut(WorkOrderOut):
     """A sewing-flow work order with the model shown on the line."""
 
     model_no: Optional[str] = None
+
+
+class SewingFlowWorkOrderPageOut(BaseModel):
+    rows: list[SewingFlowWorkOrderOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
