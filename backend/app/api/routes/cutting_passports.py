@@ -588,6 +588,10 @@ def _add_passport_materials(db, order, work_order, payload, current):
         .order_by(StockBatch.id).with_for_update(of=StockBatch).populate_existing().all()
     }
     new_batch_ids = set(batches)
+    items = {
+        item.id: item
+        for item in db.query(Item).filter(Item.id.in_(sorted({batch.item_id for batch in batches.values()}))).all()
+    } if batches else {}
     active_reservations = (
         db.query(MaterialReservation)
         .filter(
@@ -611,7 +615,7 @@ def _add_passport_materials(db, order, work_order, payload, current):
                 raise HTTPException(409, "This fabric is already assigned with a different quantity")
             continue
         batch = batches.get(addition.stock_batch_id)
-        item = db.get(Item, batch.item_id) if batch else None
+        item = items.get(batch.item_id) if batch else None
         if not batch or not item or item.category not in _MATERIAL_CATEGORIES:
             raise HTTPException(400, "Select a fabric inventory batch")
         if batch.archived_at is not None or float(batch.quantity or 0) <= 0:

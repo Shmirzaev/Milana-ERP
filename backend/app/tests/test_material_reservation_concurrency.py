@@ -113,7 +113,8 @@ def test_cutting_additions_prefetch_existing_reservations_once():
         statements = []
 
         def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
-            if "material_reservations" in statement.lower() and statement.lstrip().upper().startswith("SELECT"):
+            lowered = statement.lower()
+            if ("material_reservations" in lowered or "from items" in lowered) and statement.lstrip().upper().startswith("SELECT"):
                 statements.append(statement)
 
         event.listen(db.bind, "before_cursor_execute", capture)
@@ -127,6 +128,9 @@ def test_cutting_additions_prefetch_existing_reservations_once():
             and "material_reservations.stock_batch_id in (" in statement.lower()
         ]
         assert len(existing_assignment_reads) == 1
+        item_reads = [statement for statement in statements if "from items" in statement.lower()]
+        assert len(item_reads) == 2, "Validation and reservation should each batch their item reads"
+        assert all("items.id in (" in statement.lower() for statement in item_reads)
 
 
 @pytest.mark.parametrize("batch_first", [False, True])
