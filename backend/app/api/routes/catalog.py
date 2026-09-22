@@ -1,9 +1,11 @@
 from copy import deepcopy
 from datetime import date, datetime, timezone
 import os
+from pathlib import Path
 import re
 from typing import Annotated
 from uuid import uuid4
+from anyio import CancelScope, to_thread
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi import UploadFile, File, Form
@@ -2425,6 +2427,24 @@ def add_image(
     return {"id": img.id}
 
 
+def _write_new_model_document(target: Path, content: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    created = False
+    try:
+        with target.open("xb") as stream:
+            created = True
+            stream.write(content)
+    except BaseException:
+        if created:
+            target.unlink(missing_ok=True)
+        raise
+
+
+async def _discard_model_document(target: Path) -> None:
+    with CancelScope(shield=True):
+        await to_thread.run_sync(target.unlink, True)
+
+
 @router.post("/models/{mid}/images/upload", status_code=201)
 async def upload_image(
     mid: int,
@@ -2438,50 +2458,64 @@ async def upload_image(
         raise HTTPException(404, "Model not found")
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     normalized_image_type = _normalize_image_type(image_type)
-    if ext in SAFE_IMAGE_EXTENSIONS:
-        from app.services.image_storage import store_uploaded_image
+    stored_image = None
+    document_target = None
+    document_created = False
+    try:
+        if ext in SAFE_IMAGE_EXTENSIONS:
+            from app.services.image_storage import store_uploaded_image
 
-        stored = await store_uploaded_image(
-            file,
-            target_dir=settings.MODEL_FILES_DIR,
-            file_url_base="/storage/model-files",
-            name_prefix=f"model_{mid}",
-            max_bytes=20 * 1024 * 1024,
-            prebuild_thumbnails=True,
+            stored_image = await store_uploaded_image(
+                file,
+                target_dir=settings.MODEL_FILES_DIR,
+                file_url_base="/storage/model-files",
+                name_prefix=f"model_{mid}",
+                max_bytes=20 * 1024 * 1024,
+                prebuild_thumbnails=True,
+            )
+            safe_name = stored_image.file_name
+            file_url = stored_image.file_url
+            stored_content_type = stored_image.content_type
+        else:
+            safe_name = f"model_{mid}_{uuid4().hex}{ext}"
+            document_target = Path(settings.MODEL_FILES_DIR) / safe_name
+            content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+            await to_thread.run_sync(_write_new_model_document, document_target, content)
+            document_created = True
+            file_url = f"/storage/model-files/{safe_name}"
+            stored_content_type = safe_content_type(ext)
+        is_primary = normalized_image_type == "model"
+        if is_primary:
+            db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
+                {"is_primary": False},
+                synchronize_session=False,
+            )
+        img = ModelImage(
+            model_id=mid,
+            file_url=file_url,
+            file_name=file.filename or safe_name,
+            content_type=stored_content_type,
+            # The file is already persisted in MODEL_FILES_DIR. Keeping another
+            # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
+            file_data=None,
+            image_type=normalized_image_type,
+            is_primary=is_primary,
         )
-        safe_name = stored.file_name
-        file_url = stored.file_url
-        stored_content_type = stored.content_type
-    else:
-        os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
-        safe_name = f"model_{mid}_{uuid4().hex}{ext}"
-        abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
-        content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-        with open(abs_path, "wb") as f:
-            f.write(content)
-        file_url = f"/storage/model-files/{safe_name}"
-        stored_content_type = safe_content_type(ext)
-    is_primary = normalized_image_type == "model"
-    if is_primary:
-        db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
-            {"is_primary": False},
-            synchronize_session=False,
-        )
-    img = ModelImage(
-        model_id=mid,
-        file_url=file_url,
-        file_name=file.filename or safe_name,
-        content_type=stored_content_type,
-        # The file is already persisted in MODEL_FILES_DIR. Keeping another
-        # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
-        file_data=None,
-        image_type=normalized_image_type,
-        is_primary=is_primary,
-    )
-    db.add(img)
-    db.flush()
-    log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": file_url})
-    db.commit()
+        db.add(img)
+        db.flush()
+        log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": file_url})
+        db.commit()
+    except BaseException:
+        try:
+            db.rollback()
+        finally:
+            if stored_image is not None:
+                from app.services.image_storage import discard_stored_image
+
+                await discard_stored_image(stored_image)
+            elif document_created and document_target is not None:
+                await _discard_model_document(document_target)
+        raise
     return {"id": img.id, "file_url": file_url}
 
 
