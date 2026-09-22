@@ -106,6 +106,7 @@ PAYROLL_QR_TOKEN_LENGTH = 9
 PAYROLL_EMPLOYEE_TOKEN_PREFIX = "1"
 PAYROLL_WORK_TOKEN_PREFIX = "2"
 PAYROLL_QR_TOKEN_ID_WIDTH = PAYROLL_QR_TOKEN_LENGTH - 1
+PAYROLL_ADJUSTMENT_MAX_AMOUNT = Decimal("999999999999.99")
 
 
 def _present(value: Any) -> bool:
@@ -174,6 +175,8 @@ def _to_money_decimal(value: Any) -> Decimal:
 
 def _normalize_adjustment_amount(payload: PayrollAdjustmentIn) -> tuple[Decimal, str]:
     raw_amount = _to_money_decimal(payload.amount)
+    if abs(raw_amount) > PAYROLL_ADJUSTMENT_MAX_AMOUNT:
+        raise HTTPException(400, "Adjustment amount exceeds the supported maximum of 999999999999.99")
     adjustment_type = (payload.adjustment_type or "").strip().lower()
     if adjustment_type and adjustment_type not in ADJUSTMENT_TYPES:
         raise HTTPException(400, "adjustment_type must be bonus or deduction")
@@ -2278,6 +2281,8 @@ def sewing_production_report_excel(
     factory_code: str | None = None,
     status: str = "active",
     report_view: Literal["details", "salary"] = "details",
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
 ):
     scoped_factory = selected_factory_code(current)
     if factory_code:
@@ -2298,10 +2303,22 @@ def sewing_production_report_excel(
         factory_code=scoped_factory,
         status=status,
     )
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
     if report_view == "salary":
         items = _sewing_salary_summary(qry)
+        if page is not None:
+            total = len(items)
+            start = (page - 1) * page_size
+            items = items[start:start + page_size]
     else:
-        rows = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc()).all()
+        ordered_query = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc())
+        if page is not None:
+            total = ordered_query.order_by(None).count()
+            ordered_query = ordered_query.offset((page - 1) * page_size).limit(page_size)
+        rows = ordered_query.all()
         items = _sewing_production_report_items(rows)
     currencies = {str(item["currency"]) for item in items if item.get("currency")}
     report_currency = next(iter(currencies)) if len(currencies) == 1 else ("MIXED" if currencies else "UZS")
@@ -2317,10 +2334,18 @@ def sewing_production_report_excel(
     )
     report_name = "sewing-salary-summary" if report_view == "salary" else "sewing-production-report"
     filename = f"{report_name}-{generated_at.strftime('%Y-%m-%d')}.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if total is not None:
+        headers.update({
+            "X-Total-Count": str(total),
+            "X-Page": str(page),
+            "X-Page-Size": str(page_size),
+            "X-Has-More": "true" if page * page_size < total else "false",
+        })
     return Response(
         content=workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=headers,
     )
 
 

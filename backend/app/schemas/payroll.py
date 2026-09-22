@@ -468,7 +468,7 @@ class PayrollAdjustmentIn(BaseModel):
     adjustment_type: str | None = None
     amount: Decimal | float | int | str
     currency: str = "UZS"
-    reason: str
+    reason: str = Field(max_length=255)
 
 
 class PayrollRecordReversalIn(BaseModel):
