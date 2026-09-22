@@ -224,7 +224,7 @@ def _mixed_receive_options() -> None:
             name=f"Normalized packaging {marker}",
             code=f" pkg {marker}",
         )
-        model = Model(code=f"АВ-{marker}", name=f"Literal %_ {marker}")
+        model = Model(code=f"АВ-{marker}", name=f"Literal %_ \\ {marker}")
         sale = SalesOrder(
             order_no=f"CLIENT-ALIAS-{marker}",
             order_type="client_order",
@@ -436,6 +436,25 @@ def test_packaging_receive_options_match_scalar_fallback_search_and_department(q
         assert db.query(PackagingReceipt).count() == before_receipts
 
     assert actual == expected
+
+
+@pytest.mark.parametrize("needle", ["%_", "_", "\\"])
+def test_packaging_receive_options_escapes_literal_search_before_sql_limit(needle):
+    """Wildcard-looking input must not hide a later literal match behind LIMIT."""
+    _mixed_receive_options()
+    _receive_option_orders(25)
+    with TestSessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        rows = production_routes.packaging_receive_options(
+            db,
+            current,
+            q=needle,
+            limit=1,
+            packaging_department_code="PKG",
+        )
+
+    assert len(rows) == 1
+    assert needle in (rows[0]["model_name"] or "")
 
 
 @pytest.mark.parametrize(("stored_code", "should_raise"), [

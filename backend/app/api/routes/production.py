@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, HTTPException, Depends, File, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_
+from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.orm import aliased, joinedload, selectinload
 
 from app.core.config import settings
@@ -17,7 +17,7 @@ from app.core.deps import (
     require_permissions,
     user_permissions,
 )
-from app.core.model_search import model_code_contains
+from app.core.model_search import model_code_contains, normalized_model_code_column, normalized_model_code_key
 from app.core.signing import sign_path
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
@@ -5494,8 +5494,29 @@ def packaging_receive_options(
         )
     )
     needle = str(q or "").strip().lower()
-    if not needle:
-        rows_query = rows_query.limit(safe_limit)
+    if needle:
+        # Apply the same searchable fields in SQL so a search does not hydrate
+        # every eligible scope before the response limit is enforced.
+        escaped_needle = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        search = f"%{escaped_needle}%"
+        normalized_needle = normalized_model_code_key(needle).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        normalized_search = f"%{normalized_needle}%"
+        rows_query = rows_query.filter(
+            or_(
+                ProductionOrder.production_no.ilike(search, escape="\\"),
+                SalesOrder.order_no.ilike(search, escape="\\"),
+                Model.code.ilike(search, escape="\\"),
+                normalized_model_code_column(Model.code).ilike(normalized_search, escape="\\"),
+                Model.name.ilike(search, escape="\\"),
+                ProductionBatch.batch_no.ilike(search, escape="\\"),
+                ProductionBatch.name.ilike(search, escape="\\"),
+                cast(selected_targets.c.work_order_id, String).ilike(search, escape="\\"),
+                cast(selected_targets.c.source_work_order_id, String).ilike(search, escape="\\"),
+                cast(selected_targets.c.production_order_id, String).ilike(search, escape="\\"),
+                cast(selected_targets.c.production_batch_id, String).ilike(search, escape="\\"),
+            )
+        )
+    rows_query = rows_query.limit(safe_limit)
 
     options: list[dict] = []
     for row in rows_query.all():
@@ -5518,9 +5539,11 @@ def packaging_receive_options(
             "received_quantity": int(row.received_quantity or 0),
             "available_quantity": int(row.available_quantity or 0),
         }
-        if needle:
+        if needle and not model_code_contains(option.get("model_code"), needle):
+            # SQL handles the ordinary substring match. Keep the legacy model
+            # code token matcher for normalized code variants.
             haystack = " ".join(str(value or "") for value in option.values()).lower()
-            if needle not in haystack and not model_code_contains(option.get("model_code"), needle):
+            if needle not in haystack:
                 continue
         options.append(option)
     return options[:safe_limit]
