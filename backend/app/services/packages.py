@@ -424,6 +424,7 @@ def create_package(
     notes: str | None = None,
     packaging_department_code: str | None = None,
     _cost_cache: dict[int, float] | None = None,
+    _batch_presence_cache: dict[int, bool] | None = None,
     _sync_production: bool = True,
 ) -> Package:
     if not items:
@@ -480,7 +481,15 @@ def create_package(
         )
 
     batch_id = int(production_batch_id) if production_batch_id else None
-    has_batches = db.query(ProductionBatch.id).filter(ProductionBatch.production_order_id == po.id).first()
+    has_batches = _batch_presence_cache.get(int(po.id)) if _batch_presence_cache is not None else None
+    if has_batches is None:
+        has_batches = bool(
+            db.query(ProductionBatch.id)
+            .filter(ProductionBatch.production_order_id == po.id)
+            .first()
+        )
+        if _batch_presence_cache is not None:
+            _batch_presence_cache[int(po.id)] = has_batches
     normalized_allocations: list[dict[str, int]] = []
     if batch_allocations:
         if not has_batches:
@@ -694,6 +703,7 @@ def create_packages_bulk(
             normalized_weights.append(value)
     created: list[Package] = []
     cost_cache: dict[int, float] = {}
+    batch_presence_cache: dict[int, bool] = {}
     for index in range(count):
         package_weight = normalized_weights[index] if normalized_weights else weight_kg
         created.append(
@@ -718,6 +728,7 @@ def create_packages_bulk(
                 notes=notes,
                 packaging_department_code=packaging_department_code,
                 _cost_cache=cost_cache,
+                _batch_presence_cache=batch_presence_cache,
                 _sync_production=index in {0, count - 1},
             )
         )

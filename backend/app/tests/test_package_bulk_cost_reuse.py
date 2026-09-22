@@ -11,6 +11,7 @@ from app.models import (
     ModelBOM,
     Package,
     PackageItem,
+    ProductionBatch,
     ProductionOrder,
     StockBatch,
     Warehouse,
@@ -181,6 +182,89 @@ def test_bulk_package_cost_reads_are_bounded(monkeypatch, package_count):
     assert sum(" from model_bom " in statement for statement in cost_selects) == 1
     assert sum(" from stock_batches " in statement for statement in cost_selects) == 1
     assert [float(row.cost_per_piece) for row in stock] == [expected_cost] * package_count
+
+
+@pytest.mark.parametrize("package_count", [1, 50, 401])
+def test_bulk_package_batch_presence_read_is_reused(monkeypatch, package_count):
+    order_id, model_id, _expected_cost = _bulk_order()
+    _stub_unrelated_bulk_work(monkeypatch)
+    batch_presence_selects: list[str] = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from production_batches " in normalized:
+            batch_presence_selects.append(normalized)
+
+    with SessionLocal() as db:
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            packages = package_service.create_packages_bulk(
+                db,
+                count=package_count,
+                production_order_id=order_id,
+                model_id=model_id,
+                color="navy",
+                items=[
+                    {
+                        "model_id": model_id,
+                        "color": "navy",
+                        "size": "M",
+                        "quantity": 1,
+                    }
+                ],
+                capacity=1,
+                packaging_department_code="PKG",
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert len(packages) == package_count
+    assert len(batch_presence_selects) == 1
+
+
+def test_bulk_batch_presence_cache_keeps_each_package_membership_check_live(monkeypatch):
+    order_id, model_id, _expected_cost = _bulk_order()
+    with SessionLocal() as db:
+        batch = ProductionBatch(
+            production_order_id=order_id,
+            batch_no=f"PERF09-BULK-B-{uuid4().hex[:8]}",
+            batch_index=1,
+            planned_quantity=3,
+        )
+        db.add(batch)
+        db.commit()
+        batch_id = int(batch.id)
+
+    _stub_unrelated_bulk_work(monkeypatch)
+    batch_selects: list[str] = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from production_batches " in normalized:
+            batch_selects.append(normalized)
+
+    with SessionLocal() as db:
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            packages = package_service.create_packages_bulk(
+                db,
+                count=3,
+                production_order_id=order_id,
+                production_batch_id=batch_id,
+                model_id=model_id,
+                color="navy",
+                items=[{"model_id": model_id, "color": "navy", "size": "M", "quantity": 1}],
+                capacity=1,
+                packaging_department_code="PKG",
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    presence_reads = [statement for statement in batch_selects if "production_batches.id =" not in statement]
+    membership_reads = [statement for statement in batch_selects if "production_batches.id =" in statement]
+    assert len(packages) == 3
+    assert len(presence_reads) == 1
+    assert len(membership_reads) == 3
 
 
 def test_bulk_cost_reuse_preserves_order_weights_and_item_rows(monkeypatch):
