@@ -11,13 +11,23 @@ class ItemComposition(BaseModel):
     percentage: float = Field(ge=0, le=100)
 
 
+ItemDefaultCost = Annotated[
+    Decimal,
+    Field(ge=0, le=Decimal("99999999.9999"), allow_inf_nan=False),
+]
+ItemReorderLevel = Annotated[
+    Decimal,
+    Field(ge=0, le=Decimal("9999999999.9999"), allow_inf_nan=False),
+]
+
+
 class ItemIn(BaseModel):
     sku: str
     name: str
     category: str
     unit: str
-    default_cost: float = 0
-    reorder_level: float = 0
+    default_cost: ItemDefaultCost = Decimal("0")
+    reorder_level: ItemReorderLevel = Decimal("0")
     track_batch: bool = False
     is_active: bool = True
     image_url: Optional[str] = None
