@@ -106,6 +106,22 @@ def test_events_are_idempotent_and_drive_daily_usage(client, auth_headers):
     assert overview["people"][0]["attendance_status"] == "single_scan"
 
 
+def test_event_serial_number_must_fit_database_integer(client):
+    response = client.post(
+        "/api/attendance/integration/events",
+        headers=INTEGRATION_HEADERS,
+        json={
+            "device": snapshot()["device"],
+            "events": [{
+                "event_uid": "serial-overflow",
+                "occurred_at": "2026-08-17T08:15:00+05:00",
+                "serial_no": 2_147_483_648,
+            }],
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_older_event_batch_keeps_events_without_regressing_device_checkpoint(client, monkeypatch):
     newer = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
     older = datetime(2026, 8, 17, 11, tzinfo=timezone.utc)

@@ -89,7 +89,7 @@ class EventIn(BaseModel):
     result: str | None = Field(default=None, max_length=32)
     door_no: int | None = Field(default=None, ge=0, le=10_000)
     reader_no: int | None = Field(default=None, ge=0, le=10_000)
-    serial_no: int | None = Field(default=None, ge=0)
+    serial_no: int | None = Field(default=None, ge=0, le=2_147_483_647)
 
     @field_validator("event_uid")
     @classmethod
