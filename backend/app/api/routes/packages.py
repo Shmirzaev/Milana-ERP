@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Query, Response
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
 from sqlalchemy import func, or_
@@ -7,6 +7,7 @@ import base64
 from datetime import date
 from html import escape
 import os
+from typing import Annotated
 
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions, is_admin
 from app.core.config import settings
@@ -282,7 +283,7 @@ def _package_details_by_ids(db: DbSession, package_ids: list[int]) -> list[Packa
     return [packages_by_id[package_id] for package_id in ordered_ids if package_id in packages_by_id]
 
 
-def _receiving_queue_packages(db: DbSession) -> list[Package]:
+def _receiving_queue_query(db: DbSession):
     latest_event = (
         db.query(
             PackageScanLog.package_id.label("package_id"),
@@ -302,8 +303,25 @@ def _receiving_queue_packages(db: DbSession) -> list[Package]:
             PackageScanLog.scan_type == "queued_storage",
         )
         .order_by(PackageScanLog.id.desc())
-        .all()
     )
+
+
+def _receiving_queue_packages(
+    db: DbSession,
+    *,
+    offset: int = 0,
+    limit: int | None = None,
+) -> list[Package]:
+    query = _receiving_queue_query(db)
+    if offset:
+        query = query.offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+    return query.all()
+
+
+def _receiving_queue_count(db: DbSession) -> int:
+    return _receiving_queue_query(db).order_by(None).count()
 
 
 def _package_for_receiving_scan(db: DbSession, raw_code: str) -> Package | None:
@@ -1320,9 +1338,17 @@ def reject_package_change(
 @router.get("/receiving-queue", response_model=list[PackageDetail])
 def receiving_queue(
     db: DbSession,
+    response: Response,
     _: User = Depends(require_permissions("storage.packages", "*")),
+    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
 ):
-    return _package_detail_payloads(db, _receiving_queue_packages(db))
+    total = _receiving_queue_count(db)
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
+        response.headers["X-Page-Offset"] = str(offset)
+        response.headers["X-Page-Limit"] = str(limit)
+    return _package_detail_payloads(db, _receiving_queue_packages(db, offset=offset, limit=limit))
 
 
 @router.post("/receiving-queue/scan", response_model=PackageDetail)
@@ -1384,9 +1410,21 @@ def remove_from_receiving_queue(
 ):
     requested_ids = {int(package_id) for package_id in payload.package_ids if int(package_id or 0) > 0}
     if not requested_ids:
-        return {"count": 0, "packages": _package_detail_payloads(db, _receiving_queue_packages(db))}
+        return {
+            "count": 0,
+            "packages": _package_detail_payloads(
+                db,
+                _receiving_queue_packages(db, limit=500),
+            ),
+        }
 
-    active_by_id = {int(pkg.id): pkg for pkg in _receiving_queue_packages(db)}
+    # Resolve only the requested active packages.  Loading the entire queue
+    # here would bypass the response bound and make a small removal scale with
+    # every package waiting in storage.
+    active_by_id = {
+        int(pkg.id): pkg
+        for pkg in _receiving_queue_query(db).filter(Package.id.in_(requested_ids)).all()
+    }
     removed = 0
     for package_id in sorted(requested_ids):
         pkg = active_by_id.get(package_id)
@@ -1412,7 +1450,10 @@ def remove_from_receiving_queue(
     db.commit()
     return {
         "count": removed,
-        "packages": _package_detail_payloads(db, _receiving_queue_packages(db)),
+        "packages": _package_detail_payloads(
+            db,
+            _receiving_queue_packages(db, limit=500),
+        ),
     }
 
 

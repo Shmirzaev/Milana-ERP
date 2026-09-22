@@ -170,7 +170,7 @@ def _receiving_queue_case(package_count: int) -> list[int]:
         return [int(package.id) for package in packages]
 
 
-@pytest.mark.parametrize("package_count,expected_selects", [(1, 13), (50, 13), (401, 21)])
+@pytest.mark.parametrize("package_count,expected_selects", [(1, 14), (50, 14), (401, 22)])
 def test_receiving_queue_batches_full_detail_payload(client, auth_headers, package_count, expected_selects):
     package_ids = _receiving_queue_case(package_count)
     with SessionLocal() as db:
@@ -285,6 +285,21 @@ def test_receiving_queue_preserves_scalar_payload_and_event_membership(client, a
     assert login.status_code == 200, login.text
     planning_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     assert client.get("/api/packages/receiving-queue", headers=planning_headers).status_code == 403
+
+
+def test_receiving_queue_bounds_page_and_reports_total(client, auth_headers):
+    package_ids = _receiving_queue_case(5)
+
+    response = client.get(
+        "/api/packages/receiving-queue?offset=1&limit=2",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert [row["id"] for row in response.json()] == list(reversed(package_ids))[1:3]
+    assert response.headers["x-total-count"] == "5"
+    assert response.headers["x-page-offset"] == "1"
+    assert response.headers["x-page-limit"] == "2"
 
 
 def test_receiving_queue_remove_returns_same_batched_list_contract(client, auth_headers):
