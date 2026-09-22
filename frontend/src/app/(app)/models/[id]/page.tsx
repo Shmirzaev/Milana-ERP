@@ -189,6 +189,7 @@ export default function ModelDetail() {
   const isNewModel = String(id || "") === "new";
   const isEditable = isNewModel || searchParams.get("mode") === "edit";
   const isNumericId = /^\d+$/.test(String(id || ""));
+  const [tab, setTab] = useState(1);
   const { data: loadedModel, error: modelError, isLoading: modelLoading, mutate } = useSWR<any>(isNumericId ? `${modelApiBase}/${id}` : null, fetcher);
   const {
     data: variantPages,
@@ -204,14 +205,13 @@ export default function ModelDetail() {
     },
     fetcher,
   );
-  const { data: items } = useSWR<any[]>(`${modelApiBase}/bom-items`, fetcher);
+  const { data: items } = useSWR<any[]>(tab === 3 ? `${modelApiBase}/bom-items` : null, fetcher);
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
   const { data: seasons } = useSWR<string[]>(isEditable ? "/api/collections/seasons" : null, fetcher);
   const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
   const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const tabs = TAB_KEYS.map((k) => t(k));
 
-  const [tab, setTab] = useState(1);
   const [msg, setMsg] = useState("");
   const [isCloning, setIsCloning] = useState(false);
   const [showVariantForm, setShowVariantForm] = useState(false);
