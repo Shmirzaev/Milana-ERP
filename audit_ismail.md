@@ -14,6 +14,10 @@
 
 [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`. The latest batch completes Sewing conservation, batches catalog-family approval checks, defers model BOM metadata until its visible tab, and caps payroll bulk records at 500. Its corrected combined backend slice passed 33 tests and Ruff; the four full-suite loss-semantics cases pass separately within a 24-test compatibility selection, and both model-detail fetch contracts pass. Validation-only run `35675969462` passed backend, frontend lint/strict types/optimized build/contracts and all PostgreSQL selections on `bae444d`; release was skipped. The preceding run `35674868826` passed frontend/PostgreSQL but exposed the initial Sewing compatibility error in four backend cases, which `65586e0` corrected.
 
+### 22 September continuation batch
+
+The continuation adds independently reviewed fixes across PERF02/06/08/12/13/14/18/20/22/23/25/27/30/33/35/36/39, FN07, API02, WF02, OPS08 and UI03. The work includes bounded/paged queues and histories, batched reservation/shipment/audit reads, task-reference validation, JWT algorithm restrictions, package retry recovery, and executable frontend component/hook regressions. The principal backend slice passed **173 tests / 13 PostgreSQL-only skips**; a later cross-area slice passed **145 / 8 skips**. Frontend stabilization (including the new real handlers/hooks), strict TypeScript and targeted ESLint pass. Commits through `ea3acaa` were pushed to `feat/ismoiljon`; later reviewed commits are recorded in the backlog and queued for the next push. These are improvements to umbrella findings, not closures: the official count remains **73 fixed, 35 partial, 19 open, 54 remaining**.
+
 ## Repository workflow cleanup
 
 | Finding | Risk | Shortest fix |

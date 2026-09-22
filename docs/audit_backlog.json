@@ -267,8 +267,8 @@
       "baseline_source": "frontend/src/lib/packageWorkflow.ts:64",
       "status": "partial",
       "owner": null,
-      "commit": "3ef1c83, 0056773",
-      "evidence": "Partial: manual receipts reconcile committed results or atomically cancel uncommitted keys. First-attempt429, rejected before handler execution, now clears the key; corrected input submits with a new key. Frontend handler/stabilization/types/lint pass. Other package workflows and deleted results/revoked access remain."
+      "commit": "3ef1c83, 0056773, e2a6d8c",
+      "evidence": "Commit e2a6d8c restores saved receipt requests after incomplete success payloads and prevents reposting after committed receipts when label access or refresh fails. The executable handler test covers incomplete,403-label, refresh-failure and normal success paths; stabilization/types/lint pass. Other package workflows and deleted-result/revoked-access recovery remain."
     },
     {
       "number": 23,
@@ -411,8 +411,8 @@
       "baseline_source": "backend/app/api/routes/production.py:1685",
       "status": "partial",
       "owner": null,
-      "commit": "84c322a",
-      "evidence": "Generic PATCH/start/complete enforce shared stage permissions, selected factory and explicit Usluga ECO scope.25 new cases +12 quality +2 prior security +7 command compatibility pass. Manual status/counter and partial-completion policy remains unchanged/open. docs/stabilization_qa.md"
+      "commit": "84c322a, 62a3544",
+      "evidence": "Generic command scoping remains. Commit 62a3544 applies the shared factory-access guard to work-order block/unblock before mutation, audit, notification or commit;26 focused cases pass, including wrong-factory no-mutation and ECO access. Manual counters/completion-evidence policy remains open."
     },
     {
       "number": 35,
@@ -711,8 +711,8 @@
       "baseline_source": "backend/app/schemas/sales.py",
       "status": "partial",
       "owner": null,
-      "commit": "5a68d12,41ae782",
-      "evidence": "Invoice/payment bounds retained. Sales-item nonfinite/oversized prices and int4 quantity/pack bounds added: 8 baseline failures; 13 new and 32 finance/status compatibility cases pass. Invalid API input422/no writes; zero/None preserved. Aggregate totals, model-derived prices, Decimal precision, other states and input-list bounds remain open."
+      "commit": "5a68d12,41ae782, 5c08c2c, a66321b",
+      "evidence": "Existing numeric bounds remain. Commit 5c08c2c adds deterministic SQL-bounded customer payment history; a66321b validates invoice-list limits1..500 and aligns the service clamp. Ten payment-history and24 finance-input cases pass. Aggregate totals, Decimal precision, derived prices and other state/list bounds remain open."
     },
     {
       "number": 60,
@@ -783,8 +783,8 @@
       "baseline_source": "backend/app/schemas/tasks.py:8",
       "status": "partial",
       "owner": null,
-      "commit": "22593e7",
-      "evidence": "Partial fix: command enums, title/type/int4 bounds, null/date validation and paired references; 56 task/authorization tests passed, including follow-up c56a7f1. Legacy orphan references permit unrelated edits. Target existence/access mapping still needs implementation/policy; not closed."
+      "commit": "22593e7, 31350dc",
+      "evidence": "Commit 31350dc adds supported target-type normalization and existence validation on task create/reference changes while preserving unrelated edits to legacy orphan rows and canonical notification links;28 focused cases pass with3 PostgreSQL-only skips. Target authorization/factory-access policy remains an explicit owner decision, so API02 stays partial."
     },
     {
       "number": 66,
@@ -831,8 +831,8 @@
       "baseline_source": "backend/app/services/inventory.py:1425",
       "status": "partial",
       "owner": null,
-      "commit": "2c30d5d",
-      "evidence": "401 orders3611->14 SELECTs; 1/50/401 now10/10/14. Five focused cases independently pass, 21 compatibility cases pass. Scalar payload/returns/manual labels/order aliases/filter/page/total preserved. All candidate lines still evaluated before derived filtering/sort; not full SQL pagination."
+      "commit": "2c30d5d, 704abef",
+      "evidence": "401 orders3611->14 SELECTs; 1/50/401 now10/10/14. Commit 704abef adds SQL candidate-ID filtering before expensive accessory requirements/stock calculations; five focused parity/query-growth cases pass with search/status/manual labels/order/page/total preserved. Derived filtering and final pagination remain in Python, so the finding stays partial."
     },
     {
       "number": 70,
@@ -879,8 +879,8 @@
       "baseline_source": "backend/app/api/routes/payroll.py:2938",
       "status": "partial",
       "owner": null,
-      "commit": "f42637c, 8240fc9",
-      "evidence": "Bulk1/50/401 SELECTs12/355/2812->11/60/415, including audit2/51/402. Requests are capped at 500 records; 500 is accepted and an API request with 501 returns422 without PayrollRecord or AuditLog writes. Seven prior focused cases and10 payroll PostgreSQL races pass on the batching diff; the latest combined slice passes33 and full validation passes in run35675969462. Audit reads, legacy no-scan queries and O(rows*open periods) matching remain."
+      "commit": "f42637c, 8240fc9, 67f0309",
+      "evidence": "Bulk1/50/401 SELECTs12/355/2812->11/60/415. Commit 67f0309 caches audit-chain heads per transaction, including nested commit/rollback and commit=True session reuse; 15 focused cases pass with 12 PostgreSQL-only skips and serialization coverage passes. Legacy no-scan queries and O(rows*open periods) matching remain."
     },
     {
       "number": 74,
@@ -891,8 +891,8 @@
       "baseline_source": "backend/app/api/routes/packages.py:1032",
       "status": "partial",
       "owner": null,
-      "commit": "890177e",
-      "evidence": "Full-detail queue reference batching: 1/50/401 packages use13/13/21 SELECTs, model reads1/1/2 instead of per row. Thirteen queue/shared-label cases independently pass, including permissions, membership, scalar payload parity, remove, BOM images and embedded label images. Queue omits image blobs; labels keep eager blobs. Full response/children remain unbounded; pagination is not implemented."
+      "commit": "890177e, 3da6174",
+      "evidence": "Full-detail queue references remain batched. Commit 3da6174 adds offset/limit <=500 with total/page headers, bounds both POST remove responses, and filters removal validation to requested packages; eight focused cases pass, including 1/50/401 growth and legacy payload parity. Child serialization/write synchronization still scales with returned rows."
     },
     {
       "number": 75,
@@ -939,8 +939,8 @@
       "baseline_source": "backend/app/api/routes/packages.py:1486",
       "status": "partial",
       "owner": null,
-      "commit": "f27e240",
-      "evidence": "Package-sheet shared reference SELECTs1/50/401:11/11/13 total after batching; formerly each tracked reference table read per package. Five cases independently pass; nine focused/related pass before distinct-reference addition. Extra401 distinct models/orders test passes with12 context/render SELECTs. Exact cards and permission/deleted-label preflight preserved. Bundle label paths and unbounded output remain open."
+      "commit": "f27e240, 9fe1c14",
+      "evidence": "Commit 9fe1c14 batches bundle-label references, enforces a 200-label output bound (201 returns413), avoids image BLOB selection and a hidden deferred file_data N+1, and preserves scalar payload/image/batch fallbacks. Seven focused cases pass with constant reference reads at1/50/200. Other label generation/large-output CPU paths remain."
     },
     {
       "number": 79,
@@ -951,8 +951,8 @@
       "baseline_source": "backend/app/api/routes/bundles.py:326",
       "status": "partial",
       "owner": null,
-      "commit": "ef9cb88",
-      "evidence": "Transaction-bound department and WorkOrder identity reuse; dynamic factory/quantity queries and per-bundle synchronization preserved.13 focused plus10 accessory compatibility tests independently pass.1/50/401 manual receipts22/316/2422 SELECTs, batch acceptance32/326/2432; audits excluded. Total reads remain O(N), quantity/factory scans data-dependent. Scalar parity, NULL/multiple batches, mixed routes, rollback and stale gates covered."
+      "commit": "ef9cb88, 952b569",
+      "evidence": "Commit 952b569 adds receipt-scoped factory-code and received-quantity preloads, removing repeated SUM/reference reads while preserving batch filters, transitions, rollback and stale gates. Thirteen focused cases pass across1/50/401 manual/accept flows. Per-bundle synchronization writes and other dynamic work remain O(N)."
     },
     {
       "number": 80,
@@ -963,8 +963,8 @@
       "baseline_source": "backend/app/api/routes/cutting_passports.py:317",
       "status": "partial",
       "owner": null,
-      "commit": "a3f8127,2279d2d",
-      "evidence": "Defaults1/50/401:10/157/1210 ->10/10/11SELECTs. List1/50/401:5/152/1205 ->4/4/7SELECTs, no image BLOB reads. Four defaults +three list tests independently repeated. Write/reservation path remains open. docs/stabilization_qa.md"
+      "commit": "a3f8127, 2279d2d, 8bf780a",
+      "evidence": "Defaults/list reads remain batched. Commit 8bf780a batches reservation assignment, StockBatch locks, items, warehouses, movement aggregates and active reservation totals while preserving availability/lock order. Twenty-seven focused cases pass with ten PostgreSQL-only skips and a 50-line query-growth check. Remaining write/numbering work and PostgreSQL load validation keep this partial."
     },
     {
       "number": 81,
@@ -1011,8 +1011,8 @@
       "baseline_source": "backend/app/api/routes/production.py:5031",
       "status": "partial",
       "owner": null,
-      "commit": "3217856",
-      "evidence": "Grouped receive options:2 SELECTs at1/50/401 scopes, blank-search SQL limit bounds returned rows.14 focused SQLite cases and one50-scope PostgreSQL case independently pass; one production-flow compatibility case passes. Preserve NULL/exact/fallback targets, normalized department validation, public order aliases and search. PG EXPLAIN shows indexed correlated target lookups but100 loops for50 scopes; aggregate/per-scope DB work and searched results remain unbounded."
+      "commit": "3217856, b61e210",
+      "evidence": "Grouped receive options remain at2 SELECTs for1/50/401 scopes. Commit b61e210 applies literal/normalized SQL search before hydration and always enforces the requested limit;17 focused cases pass plus one PostgreSQL-only skip, including %, _, backslash, aliases and Cyrillic/Latin normalization. Correlated aggregate/per-scope database work remains."
     },
     {
       "number": 85,
@@ -1035,8 +1035,8 @@
       "baseline_source": "backend/app/api/routes/production.py:3012",
       "status": "partial",
       "owner": null,
-      "commit": "57a0b35",
-      "evidence": "Usluga cutting-batch list preloads ProductionBatch and Bundle rows in400-ID chunks. Real SQL at1/50/401 records improves8/106/808 to8/8/10 SELECTs; payload/order retained and17 compatibility/query cases pass. Other cutting/packaging paths remain."
+      "commit": "57a0b35, b4e91e5",
+      "evidence": "Existing cutting-batch preload remains. Commit b4e91e5 selectin-loads bundle scan logs for Usluga rejection, reducing that relationship to one SELECT while preserving reject/delete behavior;14 focused cases pass. Other cutting/packaging write and serialization paths remain."
     },
     {
       "number": 87,
@@ -1059,8 +1059,8 @@
       "baseline_source": "backend/app/api/routes/usluga.py:588",
       "status": "partial",
       "owner": null,
-      "commit": "d1c4117",
-      "evidence": "Usluga1/50/401orders sharing models:9/352/2806 ->9/9/12SELECTs;401distinctmodels16SELECTs, no image BLOBs. Six focused tests pass incl scalar payload parity; all six independently repeated. Related19pass3PGskip. Unbounded response remains open. docs/stabilization_qa.md"
+      "commit": "d1c4117, c8ac9f3",
+      "evidence": "Usluga child reads remain batched. Commit c8ac9f3 adds backward-compatible server pagination/status filtering, a legacy 500-row cap, frontend SWR page aggregation and executable load-more coverage; eight backend cases, strict types and the real component harness pass. Other history/output scopes remain."
     },
     {
       "number": 89,
@@ -1071,8 +1071,8 @@
       "baseline_source": "backend/app/api/routes/price_calculation.py:53",
       "status": "partial",
       "owner": null,
-      "commit": "b6b5aab",
-      "evidence": "Pricing list1/50/501:3/101/1003 ->4/4/7SELECTs; metadata excludes image BLOBs. Eight pricing/workflow tests passed, five independently repeated. Payload/order/image fallback unchanged. Unbounded response and polling remain open. docs/stabilization_qa.md"
+      "commit": "b6b5aab, 7823723",
+      "evidence": "Pricing asset reads remain batched. Commit 7823723 adds paginated metadata with a legacy 500 cap, migrates all five pricing consumers to shared load-more paging, and changes polling to15s with hidden/offline suspension. Eight backend cases, strict types, lint and executable hook coverage pass. Other pricing workflow work remains."
     },
     {
       "number": 90,
@@ -1095,8 +1095,8 @@
       "baseline_source": "backend/app/api/routes/sales.py:1735",
       "status": "partial",
       "owner": null,
-      "commit": "565d1cd",
-      "evidence": "Project candidate IDs/dates before sorting; hydrate only selected page and its production children. For802 candidates page10 now loads10 order objects instead of802. Five focused tests pass plus9 real history/payment compatibility cases. Stable timestamp/ID ties preserved. O(N log N) key sorting and per-selected-row summaries remain; concurrent deletion can shorten a page."
+      "commit": "565d1cd, 71a496f",
+      "evidence": "History still hydrates only the selected page. Commit 71a496f replaces a full candidate sort with bounded heap selection while preserving timestamp/ID tie order, totals, empty/large pages and include_total behavior; three focused cases include401-item heap-vs-sort parity. Candidate enumeration and per-selected-row summaries remain."
     },
     {
       "number": 92,
@@ -1119,8 +1119,8 @@
       "baseline_source": "backend/app/api/routes/shipments.py:978",
       "status": "partial",
       "owner": null,
-      "commit": "9d1755e",
-      "evidence": "Reuse existing sorted/refreshed locked Package rows instead of per-row get/relock.1/50/401 packages use one Package SELECT in isolated component tests; stock/sync mocked only there. Five focused plus two actual shipment stock/workflow integrations independently pass. Invalid-middle rollback and stale identity refresh covered. Stock/reservation reads and sync remain per package; no total API O(1) or new PostgreSQL race claim."
+      "commit": "9d1755e, c0ff783",
+      "evidence": "Package locks remain reused. Commit c0ff783 batches FinishedGoodsStock locks and foreign-reservation checks for all verified packages with deterministic lock order; five focused1/50/401 and rollback cases pass. Package synchronization/writes remain per package and require PostgreSQL load validation."
     },
     {
       "number": 94,
@@ -1131,8 +1131,8 @@
       "baseline_source": "backend/app/services/purchasing.py:93",
       "status": "partial",
       "owner": null,
-      "commit": "1efce38",
-      "evidence": "Partial: 26 passed, 2 PostgreSQL skipped; 4 independently repeated. Reference SELECTs 1/10/50 become 1/1/1; 401 values use 2 chunks. Receipt catalog/reference reads stay 4. Audit-head reads remain 3/21/101; audit-chain work remains open."
+      "commit": "1efce38, 67f0309, 4137431",
+      "evidence": "Reference SELECTs remain1/1/1 at1/10/50 and401 values use two chunks. Commit 67f0309 reuses transaction-scoped audit heads with nested rollback/commit coverage;4137431 computes audit changed_fields once per response row. Nine serialization cases pass. Receipt writes, hashing and other per-line work remain, so PERF28 stays partial."
     },
     {
       "number": 95,
@@ -1155,8 +1155,8 @@
       "baseline_source": "backend/app/api/routes/catalog.py:1045",
       "status": "partial",
       "owner": null,
-      "commit": "bb93fbc, 4a4d0e6",
-      "evidence": "PARTIAL: catalog family rename reads the non-legacy source family with the indexed PostgreSQL group identity (or an exact/escaped SQLite fallback) and limits collision reads to planned codes. Approval checks Usluga main-fabric counts for all pending family members in one grouped query instead of one query per model; a three-model regression asserts exactly one grouped aggregate. Full validation passes in run35675969462. Clone remains open; real PostgreSQL plan/load validation remains required."
+      "commit": "bb93fbc, 4a4d0e6, 0775eaf",
+      "evidence": "Catalog rename/approval batching remains. Commit 0775eaf replaces clone suffix probing with one escaped prefix query and in-memory collision selection; wildcard/max-length and 24-collision regressions pass with one SELECT. Real PostgreSQL plan/load validation and other catalog operations remain."
     },
     {
       "number": 97,
@@ -1191,8 +1191,8 @@
       "baseline_source": "backend/app/api/routes/stocktake.py:139",
       "status": "partial",
       "owner": null,
-      "commit": "7fe32ef",
-      "evidence": "Common blank-search detail filters SQL-page rows; limit10 serializes10 rather than401. 16 cases independently pass;12 existing stocktake cases pass. Exact filters/global totals/frozen NULL snapshots/deleted packages preserved. Live balance aggregation scoped to requested IDs. Summary still scans candidates; search/changed/CSV unchanged. READ COMMITTED is not atomic snapshot proof."
+      "commit": "7fe32ef, 1610476",
+      "evidence": "Commit 1610476 moves common stocktake search/page work into SQL, preserves literal wildcard/value-only JSON matching, stable totals/order and scanned filters, and bounds serialization at10 for a401-row case;19 focused cases pass. changed filtering, summaries, CSV and snapshot-isolation proof remain."
     },
     {
       "number": 100,
@@ -1215,8 +1215,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "29d9aed",
-      "evidence": "Notification list limits clamp1..500, explicit zero remains empty. Nine API tests pass for bounds, private reads/counts/acknowledgements and login; one existing MCP test also passes. Other business lists/reports/exports remain open."
+      "commit": "29d9aed, ac27943, 9e50847, 35182b8, 2978048, a66321b, a8307d8, 7b45c23",
+      "evidence": "In addition to notification bounds, reviewed SQL bounds now cover admin users, HR recruitment/employees, dashboard active production, finance invoices and brands. Finished Goods adds offset pagination plus executable dual-list load-more coverage so older stock stays reachable. Focused suites pass for every route, strict types/lint pass, and defaults remain compatible. Other business lists/reports/exports remain open."
     },
     {
       "number": 102,
@@ -1227,8 +1227,8 @@
       "baseline_source": "backend/app/api/routes/tasks.py:94",
       "status": "partial",
       "owner": null,
-      "commit": "c5b2483",
-      "evidence": "Task broadcast flushes1/50 recipients:3/101 ->2/2; PostgreSQL task+notification INSERT statements2/2.35 related SQLite tests and three real PostgreSQL cases pass; recipient/output/audit/rollback preserved. Fan-out remains O(n), admin-count path remains open. docs/stabilization_qa.md"
+      "commit": "c5b2483, b6a8beb",
+      "evidence": "Task broadcast batching remains. Commit b6a8beb replaces per-table admin count round trips with one portable UNION ALL query while preserving sorted tables, labels and columns; focused SQLite/PostgreSQL portability review passes. Full table scans and notification fan-out remain O(N)."
     },
     {
       "number": 103,
@@ -1263,8 +1263,8 @@
       "baseline_source": "frontend/src/components/AuthGate.tsx:183",
       "status": "partial",
       "owner": null,
-      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160, 8589ba4, be696e1",
-      "evidence": "HR documents/recruitment, inventory Accessories, Purchasing request items, model-detail seasons and model BOM metadata defer hidden directories until their UI is visible or required. BOM metadata loads on the visible Materials tab in both read and edit modes, preserving read-only names and cost metadata while skipping hidden tabs. Both model-detail source/behavior contracts plus frontend lint, strict types and optimized build pass in run35675969462. Other requests and browser visual proof remain open."
+      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160, 8589ba4, be696e1, 55468e1, 7d841b1, ea3acaa",
+      "evidence": "Prior hidden-directory gating remains. New commits defer cutting-passport production/operator directories, HR calendar employees and HR position departments until their forms open; positions carry department_name so table labels do not regress. Real hook/component transition tests, stabilization, strict types and targeted lint pass. Other waterfalls and browser-level visual proof remain open."
     },
     {
       "number": 106,
@@ -1456,8 +1456,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "1896408, f288ada",
-      "evidence": "2026-09-21: Pillow12.3 removes13 advisories;27 image/upload/QR tests pass, six independently repeated. Next16.3.5/PostCSS8.5.23 lock patches: full/production npm audits zero vulnerabilities; stabilization, strict types, lint and88-page build pass. Root verifies candidate lock hashes and standalone/manifests. Ecdsa advisory, configurable JWT deployed algorithm, Node20 EOL and container scans remain unresolved. Not a runtime/security sign-off."
+      "commit": "1896408, f288ada, f0a1536",
+      "evidence": "Dependency evidence remains. Commit f0a1536 normalizes JWT_ALGORITHM and permits only HS256/384/512, rejecting none/asymmetric/arbitrary settings; five startup/config cases and real python-jose round trips pass. Ecdsa advisory, Node20 lifecycle, deployment configuration and container scanning remain unresolved."
     },
     {
       "number": 122,
