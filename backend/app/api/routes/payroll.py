@@ -62,6 +62,7 @@ from app.schemas.payroll import (
     PayrollQrLabelsIssueIn,
     PayrollQrLabelsIssueOut,
     OrderQrStatusOrderOption,
+    OrderQrStatusOrderOptionPage,
     OrderQrStatusOut,
     PayrollRecordBulkIn,
     PayrollRecordIn,
@@ -1486,21 +1487,15 @@ def _qr_size_sort_key(value: str) -> tuple[int, int, str]:
     return (2, 0, normalized)
 
 
-@router.get("/reports/order-qr-status/orders", response_model=list[OrderQrStatusOrderOption])
-def order_qr_status_orders(
-    db: DbSession,
-    current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.pay", "*")),
-    search: str | None = None,
-    limit: int = 50,
-):
+def _order_qr_status_option_query(db: DbSession, factory_code: str, search: str | None):
     qry = db.query(
-        PayrollQrLabel.sales_order_no,
-        PayrollQrLabel.production_no,
-        PayrollQrLabel.model_code,
-        func.count(PayrollQrLabel.id),
-        func.max(PayrollQrLabel.issued_at),
+        PayrollQrLabel.sales_order_no.label("sales_order_no"),
+        PayrollQrLabel.production_no.label("production_no"),
+        PayrollQrLabel.model_code.label("model_code"),
+        func.count(PayrollQrLabel.id).label("label_count"),
+        func.max(PayrollQrLabel.issued_at).label("latest_at"),
     ).filter(
-        PayrollQrLabel.factory_code == selected_factory_code(current),
+        PayrollQrLabel.factory_code == factory_code,
         PayrollQrLabel.status != "superseded",
         or_(
             PayrollQrLabel.sales_order_no.isnot(None),
@@ -1514,16 +1509,14 @@ def order_qr_status_orders(
             _payroll_order_reference_match(db, PayrollQrLabel.sales_order_no, "SO", pattern),
             _payroll_order_reference_match(db, PayrollQrLabel.production_no, "PO", pattern),
         ))
-    rows = (
-        qry.group_by(
-            PayrollQrLabel.sales_order_no,
-            PayrollQrLabel.production_no,
-            PayrollQrLabel.model_code,
-        )
-        .order_by(func.max(PayrollQrLabel.issued_at).desc())
-        .limit(500)
-        .all()
-    )
+    return qry.group_by(
+        PayrollQrLabel.sales_order_no,
+        PayrollQrLabel.production_no,
+        PayrollQrLabel.model_code,
+    ).order_by(func.max(PayrollQrLabel.issued_at).desc())
+
+
+def _group_order_qr_status_options(rows) -> dict[str, dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for sales_no, production_no, model_code, label_count, latest_at in rows:
         order_key = str(sales_no or production_no or "").strip()
@@ -1546,22 +1539,85 @@ def order_qr_status_orders(
         current["label_count"] += int(label_count or 0)
         if latest_at and (not current["latest_at"] or latest_at > current["latest_at"]):
             current["latest_at"] = latest_at
-    ordered = sorted(
-        grouped.values(),
-        key=lambda row: row["latest_at"].timestamp() if row["latest_at"] else 0,
-        reverse=True,
-    )
+    return grouped
+
+
+def _order_qr_status_option_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "order_no": row["order_no"],
+        "sales_order_nos": sorted(row["sales_order_nos"]),
+        "production_nos": sorted(row["production_nos"]),
+        "model_codes": sorted(row["model_codes"]),
+        "label_count": row["label_count"],
+    }
+
+
+@router.get(
+    "/reports/order-qr-status/orders",
+    response_model=list[OrderQrStatusOrderOption] | OrderQrStatusOrderOptionPage,
+)
+def order_qr_status_orders(
+    db: DbSession,
+    current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.pay", "*")),
+    search: str | None = None,
+    limit: int = 50,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=100)] = None,
+):
+    grouped_query = _order_qr_status_option_query(db, selected_factory_code(current), search)
     safe_limit = max(1, min(limit, 100))
-    return [
-        {
-            "order_no": row["order_no"],
-            "sales_order_nos": sorted(row["sales_order_nos"]),
-            "production_nos": sorted(row["production_nos"]),
-            "model_codes": sorted(row["model_codes"]),
-            "label_count": row["label_count"],
-        }
-        for row in ordered[:safe_limit]
-    ]
+    if page is None and page_size is None:
+        grouped = _group_order_qr_status_options(grouped_query.limit(500).all())
+        ordered = sorted(
+            grouped.values(),
+            key=lambda row: row["latest_at"].timestamp() if row["latest_at"] else 0,
+            reverse=True,
+        )
+        return [_order_qr_status_option_payload(row) for row in ordered[:safe_limit]]
+
+    effective_page = page or 1
+    effective_page_size = page_size or safe_limit
+    limited_rows = grouped_query.limit(500).subquery()
+    raw_order_key = case(
+        (limited_rows.c.sales_order_no != "", limited_rows.c.sales_order_no),
+        else_=limited_rows.c.production_no,
+    )
+    order_key = func.trim(raw_order_key)
+    latest_at = func.max(limited_rows.c.latest_at)
+    directory = (
+        db.query(order_key.label("order_key"), latest_at.label("latest_at"))
+        .filter(order_key != "")
+        .group_by(order_key)
+    )
+    total = int(directory.count())
+    key_rows = (
+        directory.order_by(latest_at.desc())
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    selected_keys = [str(row.order_key) for row in key_rows]
+    detail_rows = []
+    if selected_keys:
+        detail_rows = db.query(
+            limited_rows.c.sales_order_no,
+            limited_rows.c.production_no,
+            limited_rows.c.model_code,
+            limited_rows.c.label_count,
+            limited_rows.c.latest_at,
+        ).filter(order_key.in_(selected_keys)).all()
+    grouped = _group_order_qr_status_options(detail_rows)
+    return {
+        "rows": [
+            _order_qr_status_option_payload(grouped[key])
+            for key in selected_keys
+            if key in grouped
+        ],
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/reports/order-qr-status", response_model=OrderQrStatusOut)

@@ -295,6 +295,14 @@ class OrderQrStatusOrderOption(BaseModel):
     label_count: int
 
 
+class OrderQrStatusOrderOptionPage(BaseModel):
+    rows: list[OrderQrStatusOrderOption]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class OrderQrStatusCellOut(BaseModel):
     size: str
     issued_labels: int
