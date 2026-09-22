@@ -191,8 +191,6 @@ def receive_order(
     if replay is not None:
         return replay
     order = receive_purchase_order(db, order_id=order_id, data=payload.model_dump(), current=current)
-    for line in order.lines:
-        inventory_access.require_item(db, current, line.item_id)
     response = PurchaseOrderOut.model_validate(order).model_dump(mode="json")
     store_idempotent_response(
         db, scope=scope, key=idempotency_key, payload=fingerprint_payload,

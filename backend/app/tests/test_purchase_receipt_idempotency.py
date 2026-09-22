@@ -32,7 +32,7 @@ def create_receipt_order(session_factory):
         db.add(line)
         db.commit()
         return {
-            "order_id": order.id, "po_no": order.po_no, "line_id": line.id,
+            "order_id": order.id, "po_no": order.po_no, "line_id": line.id, "item_id": item.id,
             "payload": {"lines": [{"purchase_order_line_id": line.id, "received_quantity": 5,
                                     "batch_no": f"RECEIVED-{suffix}", "warehouse_id": warehouse.id}]},
         }
@@ -129,6 +129,35 @@ def test_receipt_key_is_scoped_to_selected_factory(receipt_order):
     assert responses[0]["lines"][0]["received_quantity"] == 5
     assert responses[1]["lines"][0]["received_quantity"] == 10
     assert receipt_state(receipt_order)[5] == 2
+
+
+def test_receipt_authorizes_each_line_once_before_service_write(monkeypatch, client, auth_headers, receipt_order):
+    calls = []
+    original = purchasing.inventory_access.require_item
+
+    def tracked(db, user, item_id):
+        calls.append(item_id)
+        return original(db, user, item_id)
+
+    monkeypatch.setattr(purchasing.inventory_access, "require_item", tracked)
+    response = receive(client, auth_headers, receipt_order)
+    assert response.status_code == 200, response.text
+    assert calls == [receipt_order["item_id"]]
+    state = receipt_state(receipt_order)
+    assert state[0] == 5 and state[2:4] == (1, 1)
+
+
+def test_receipt_access_denial_happens_before_service_writes(monkeypatch, client, auth_headers, receipt_order):
+    before = receipt_state(receipt_order)
+
+    def deny(*_args, **_kwargs):
+        raise HTTPException(403, "Synthetic inventory denial")
+
+    monkeypatch.setattr(purchasing.inventory_access, "require_item", deny)
+    response = receive(client, auth_headers, receipt_order)
+
+    assert response.status_code == 403, response.text
+    assert receipt_state(receipt_order) == before
 
 
 def test_receipt_without_key_keeps_legacy_multiple_receipts(client, auth_headers, receipt_order):
