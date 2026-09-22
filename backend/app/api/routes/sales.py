@@ -1,5 +1,6 @@
 from app.core.order_reference import order_reference_contains
 import os
+import heapq
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from uuid import uuid4
@@ -1767,10 +1768,15 @@ def list_sales_order_history(
         + [(created_at, "production", row_id) for row_id, created_at in
            stock_qry.enable_eagerloads(False).with_entities(ProductionOrder.id, ProductionOrder.created_at).all()]
     )
-    candidates.sort(key=lambda entry: ((entry[0].isoformat() if entry[0] else ""), int(entry[2])), reverse=True)
     total = len(candidates)
     start_index = (safe_page - 1) * safe_size
-    selected = candidates[start_index:start_index + safe_size]
+    page_end = min(total, start_index + safe_size)
+    ranked = heapq.nlargest(
+        page_end,
+        candidates,
+        key=lambda entry: ((entry[0].isoformat() if entry[0] else ""), int(entry[2])),
+    )
+    selected = ranked[start_index:page_end]
     sales_ids = [row_id for _, kind, row_id in selected if kind == "sales"]
     production_ids = [row_id for _, kind, row_id in selected if kind == "production"]
     selected_sales = {
