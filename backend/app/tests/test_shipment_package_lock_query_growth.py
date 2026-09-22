@@ -87,6 +87,14 @@ def test_ship_verified_packages_reuses_one_locked_package_read(monkeypatch, pack
         "_finished_goods_rows_for_package",
         lambda _db, _package_id: [SimpleNamespace(available_qty=1, reserved_qty=0, sold_qty=0, quantity=1)],
     )
+    monkeypatch.setattr(
+        shipment_routes,
+        "_finished_goods_rows_for_packages",
+        lambda _db, package_ids: {
+            int(package_id): [SimpleNamespace(available_qty=1, reserved_qty=0, sold_qty=0, quantity=1)]
+            for package_id in package_ids
+        },
+    )
     monkeypatch.setattr(shipment_routes, "freeze_dispatch_document", lambda _db, shipment: setattr(
         shipment, "dispatch_snapshot", {"document": {}}
     ))
@@ -130,6 +138,14 @@ def test_ship_verified_packages_invalid_middle_preserves_all_packages(monkeypatc
         shipment_routes,
         "_finished_goods_rows_for_package",
         lambda _db, _package_id: [SimpleNamespace(available_qty=1, reserved_qty=0, sold_qty=0, quantity=1)],
+    )
+    monkeypatch.setattr(
+        shipment_routes,
+        "_finished_goods_rows_for_packages",
+        lambda _db, package_ids: {
+            int(package_id): [SimpleNamespace(available_qty=1, reserved_qty=0, sold_qty=0, quantity=1)]
+            for package_id in package_ids
+        },
     )
 
     with SessionLocal() as db:

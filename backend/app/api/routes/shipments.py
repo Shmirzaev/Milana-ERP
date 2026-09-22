@@ -602,6 +602,19 @@ def _finished_goods_rows_for_package(db: DbSession, package_id: int, *, availabl
     return qry.order_by(FinishedGoodsStock.id.asc()).all()
 
 
+def _finished_goods_rows_for_packages(db: DbSession, package_ids: set[int]) -> dict[int, list[FinishedGoodsStock]]:
+    """Lock and load shipment stock rows in one round trip."""
+    if not package_ids:
+        return {}
+    qry = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(sorted(package_ids)))
+    if db.bind and db.bind.dialect.name == "postgresql":
+        qry = qry.with_for_update(of=FinishedGoodsStock)
+    rows_by_package: dict[int, list[FinishedGoodsStock]] = {}
+    for row in qry.order_by(FinishedGoodsStock.package_id.asc(), FinishedGoodsStock.id.asc()).all():
+        rows_by_package.setdefault(int(row.package_id), []).append(row)
+    return rows_by_package
+
+
 def _move_package_reservations(
     db: DbSession,
     *,
@@ -784,22 +797,30 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     )
     locked_packages_by_id = {int(package.id): package for package in locked_packages}
     packages: list[Package] = []
+    package_ids = {int(row.package_id) for row in shipment.packages}
+    stocks_by_package = _finished_goods_rows_for_packages(db, package_ids)
+    foreign_reservation_package_ids = {
+        int(package_id)
+        for package_id, in db.query(StockReservation.package_id).filter(
+            StockReservation.package_id.in_(sorted(package_ids)),
+            (StockReservation.sales_order_id != shipment.sales_order_id)
+            if shipment.sales_order_id
+            else (StockReservation.quantity > 0),
+        ).distinct().all()
+        if package_id is not None
+    }
     for shipment_package in sorted(shipment.packages, key=lambda row: row.package_id):
         package = locked_packages_by_id.get(int(shipment_package.package_id))
         if not package:
             raise HTTPException(409, f"Shipment package #{shipment_package.package_id} no longer exists")
         if package.status not in _READY_FOR_SHIPMENT_STATUSES:
             raise HTTPException(409, f"Package {package.package_no} is no longer ready to ship")
-        stocks = _finished_goods_rows_for_package(db, package.id)
+        stocks = stocks_by_package.get(int(package.id), [])
         if (shipment_package.quantity != package.total_quantity or not stocks or
                 sum(row.available_qty + row.reserved_qty for row in stocks) != package.total_quantity or
                 any(row.sold_qty or row.quantity != row.available_qty + row.reserved_qty for row in stocks)):
             raise HTTPException(409, f"Package {package.package_no} quantities do not match warehouse stock")
-        foreign_reservation = db.query(StockReservation.id).filter(
-            StockReservation.package_id == package.id,
-            StockReservation.sales_order_id != shipment.sales_order_id if shipment.sales_order_id else StockReservation.quantity > 0,
-        ).first()
-        if foreign_reservation:
+        if int(package.id) in foreign_reservation_package_ids:
             raise HTTPException(409, f"Package {package.package_no} is reserved for another order")
         packages.append(package)
 
