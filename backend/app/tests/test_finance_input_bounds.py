@@ -50,3 +50,14 @@ def test_payment_api_rejects_invalid_values_without_database_changes(client, aut
     with SessionLocal() as db:
         assert db.query(Payment).filter_by(invoice_id=invoice_id).count() == 0
         assert db.get(Invoice, invoice_id).status == "unpaid"
+
+
+@pytest.mark.parametrize("limit", [0, 501])
+def test_invoice_list_rejects_unbounded_limits(client, auth_headers, limit):
+    response = client.get(f"/api/finance/invoices?limit={limit}", headers=auth_headers)
+    assert response.status_code == 422, response.text
+
+
+def test_invoice_list_accepts_bounded_limit(client, auth_headers):
+    response = client.get("/api/finance/invoices?limit=1", headers=auth_headers)
+    assert response.status_code == 200, response.text

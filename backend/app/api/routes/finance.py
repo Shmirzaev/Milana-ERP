@@ -1,5 +1,6 @@
 import hmac
 from datetime import datetime, timezone
+from typing import Annotated
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 
 from app.core.config import settings
@@ -44,7 +45,7 @@ def get_waste(db: DbSession, _: User = Depends(require_permissions("finance.view
 def list_invoices(
     db: DbSession,
     _: User = Depends(require_permissions("finance.view", "*")),
-    limit: int = 50,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
 ):
     return list_recent_invoices(db, limit=limit)
 
