@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, require_permissions
 from app.models import Package, User
@@ -393,7 +394,16 @@ def complete(count_id: int, db: DbSession, current: User = Depends(access)):
     if not count:
         raise HTTPException(404, "Inventory count not found")
     if not count.completed_at:
-        rows = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=count_id).all()
+        rows = (
+            db.query(WarehouseStocktakeRow)
+            .options(load_only(
+                WarehouseStocktakeRow.id,
+                WarehouseStocktakeRow.package_id,
+                WarehouseStocktakeRow.final_snapshot,
+            ))
+            .filter_by(stocktake_id=count_id)
+            .all()
+        )
         snapshots = package_snapshots(db, [row.package_id for row in rows if row.package_id])
         for row in rows:
             row.final_snapshot = snapshots.get(row.package_id, {})

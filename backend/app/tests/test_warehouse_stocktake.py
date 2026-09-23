@@ -3,7 +3,7 @@ import io
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.db.session import SessionLocal
 from app.models import AuditLog, FinishedGoodsStock, LegacyStockReceipt, Model, Package, PackageBarcodeAlias
@@ -105,6 +105,33 @@ def test_unrepresentable_stocktake_id_returns_not_found_before_database_lookup(c
     path = f"{BASE}/2147483648"
     assert client.get(path).status_code == 401
     assert client.get(path, headers=auth_headers).status_code == 404
+
+
+def test_stocktake_completion_projects_only_row_ids_package_ids_and_final_snapshot(client, auth_headers, packs):
+    from app.db.session import SessionLocal
+
+    count_id = start(client, auth_headers)
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and "from warehouse_stocktake_rows" in normalized:
+            statements.append(normalized)
+
+    event.listen(SessionLocal.kw["bind"], "before_cursor_execute", capture)
+    try:
+        response = client.post(f"{BASE}/{count_id}/complete", headers=auth_headers)
+    finally:
+        event.remove(SessionLocal.kw["bind"], "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert len(statements) == 1
+    selected = statements[0].split(" from warehouse_stocktake_rows", 1)[0]
+    assert "warehouse_stocktake_rows.id" in selected
+    assert "warehouse_stocktake_rows.package_id" in selected
+    assert "warehouse_stocktake_rows.final_snapshot" in selected
+    assert "warehouse_stocktake_rows.snapshot" not in selected
+    assert "warehouse_stocktake_rows.scan_snapshot" not in selected
 
 
 def test_unrepresentable_scan_row_id_preserves_stocktake_state_precedence(client, auth_headers):
