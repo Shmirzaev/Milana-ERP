@@ -11,9 +11,33 @@ from sqlalchemy import create_engine, event, text
 
 from app.db.session import SessionLocal
 from app.models import Model, Package, PackageItem
+from app.services.stocktake import package_snapshots
 from app.models.stocktake import WarehouseStocktakeRow
 from app.tests.test_warehouse_stocktake import BASE, business_fingerprint, detail, scan, start
 from app.tests.test_warehouse_stocktake import packs as packs
+
+
+def test_stocktake_package_snapshot_projects_only_evidence_fields(packs):
+    statements = []
+    with SessionLocal() as db:
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT") and "from packages " in statement.lower():
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            snapshots = package_snapshots(db, [packs[0]])
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert packs[0] in snapshots
+    assert len(statements) == 1
+    selected = statements[0].split(" from packages", 1)[0]
+    assert "packages.package_no" in selected
+    assert "packages.barcode" in selected
+    assert "packages.storage_cell" in selected
+    assert "packages.notes" not in selected
+    assert "packages.qr_code_url" not in selected
 
 
 def exported(client, headers, cid):

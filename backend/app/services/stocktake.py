@@ -3,6 +3,7 @@
 from datetime import timezone
 
 from sqlalchemy import String, and_, case, cast, func, or_
+from sqlalchemy.orm import load_only
 
 from app.models import FinishedGoodsStock, Model, Package, PackageBarcodeAlias, PackageItem
 from app.models.stocktake import WarehouseStocktakeRow
@@ -35,6 +36,17 @@ def package_snapshots(db, package_ids=None, *, expected_only=False, include_item
     balance = balance_query.group_by(FinishedGoodsStock.package_id).subquery()
     query = (
         db.query(Package, Model.code, Model.name, balance.c.available, balance.c.reserved)
+        .options(load_only(
+            Package.id,
+            Package.package_no,
+            Package.barcode,
+            Package.color,
+            Package.total_quantity,
+            Package.status,
+            Package.warehouse_id,
+            Package.storage_cell,
+            Package.storage_shelf,
+        ))
         .outerjoin(
             Model,
             Model.id == Package.model_id,
