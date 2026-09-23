@@ -6,11 +6,11 @@
 
 | Status | Count | Meaning |
 | --- | ---: | --- |
-| **Fixed and tested** | **82** | Resolved with regression evidence |
-| **Partially fixed** | **30** | Improved, but remaining risk is documented |
+| **Fixed and tested** | **83** | Resolved with regression evidence |
+| **Partially fixed** | **29** | Improved, but remaining risk is documented |
 | **Open** | **15** | Not resolved |
-| **Total remaining** | **45** | Partial + open; not production-ready |
-| **Total audited** | **127** | 64.6% fully resolved |
+| **Total remaining** | **44** | Partial + open; not production-ready |
+| **Total audited** | **127** | 65.4% fully resolved |
 
 [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`. The latest batch completes Sewing conservation, batches catalog-family approval checks, defers model BOM metadata until its visible tab, and caps payroll bulk records at 500. Its corrected combined backend slice passed 33 tests and Ruff; the four full-suite loss-semantics cases pass separately within a 24-test compatibility selection, and both model-detail fetch contracts pass. Validation-only run `35675969462` passed backend, frontend lint/strict types/optimized build/contracts and all PostgreSQL selections on `bae444d`; release was skipped. The preceding run `35674868826` passed frontend/PostgreSQL but exposed the initial Sewing compatibility error in four backend cases, which `65586e0` corrected.
 
@@ -41,9 +41,9 @@ The 23 committed changes in this range continue the existing partial findings; o
 
 Other committed finite-storage and query-projection changes are linked by finding in [the backlog](docs/audit_backlog.json). The current reviewed range ends at `95111b5`; no uncommitted working-tree changes are counted as evidence.
 
-### 23 September closure pass (`95111b5..fbdda65`)
+### 23 September closure pass (`95111b5..b4db4b4`)
 
-This pass reviewed whole findings instead of counting individual optimization slices. The official ledger is now **82 fixed, 30 partial, 15 open, 45 remaining**. The committed history through `f25b064` was pushed to `feat/ismoiljon`; later closure commits remain local until separately approved.
+This pass reviewed whole findings instead of counting individual optimization slices. The official ledger is now **83 fixed, 29 partial, 15 open, 44 remaining**. The committed history through `f25b064` was pushed to `feat/ismoiljon`; later closure commits remain local until separately approved.
 
 - **PERF13 fixed:** `f5977d0` reuses the already-loaded accepted bundle rows for response aggregation. Manual receipt uses 20 SELECTs and sewing acceptance 29 SELECTs at 1/50/401 bundles. Twenty-six focused receiving, gate and aggregate-parity cases pass. Necessary per-bundle transitions/scans/audits remain O(N) writes; repeated lookup/gate reads are resolved.
 - **PERF28 fixed:** `cda1df0` completes chunked supplier validation for approval and adds audit-head/query-growth assertions across request creation, approval, order creation and receipt. At 1/50/401 lines, reference reads are bounded by 400-ID chunks and audit-head reads stay exactly one per operation. The focused purchasing suite passes 140 with five PostgreSQL-only skips. Necessary per-line persistence and chain hashing remain O(N).
@@ -52,6 +52,7 @@ This pass reviewed whole findings instead of counting individual optimization sl
 - **PERF22 partial:** paged Usluga reads are bounded and the frontend uses 100-row load-more pages, but the legacy non-paginated endpoint intentionally returns the complete array. Removing that compatibility behavior requires approval.
 - **PERF33 partial:** `44faa28` streams summary/export work and removes O(unique-package) sets; 63 stocktake cases pass. Cross-batch live-read atomicity remains unproven under default PostgreSQL READ COMMITTED semantics.
 - **PERF26 fixed:** `fbdda65` batches legacy Finished Goods metadata repair across distinct sales-order/model and collection references. At 1/50/401 distinct rows, sales-item reads are 1/1/2, collection reads are 1/1/2 and the stock candidate read stays one; 15 focused and 99 adjacent branded-stock/Finished Goods cases pass. Existing reservation candidate reads remain 3/3/5 total and 2/2/4 stock SELECTs. Necessary per-row metadata updates, reservations and response output remain O(N).
+- **PERF30 fixed:** `b4db4b4` preserves global lowest-gap clone numbering while replacing broad prefix hydration with 400-code exact indexed batches. Occupied clone counts1/50/401 use1/1/2 code-only reads; rename uses2/2/2 filtered reads and approval uses1/1/1. Sixty-six compatibility cases and six disposable-PostgreSQL cases pass. PostgreSQL plans use `models_code_key` and `ix_models_model_group_key_id` without sequential scans, while advisory transaction locks serialize colliding clone namespaces and release on rollback.
 - **Other continuation evidence:** commits through `f25b064` add focused projections, count-query refinements, finite/range checks and audit-chain streaming across FN07, PERF06/08/21/32/35/36/40 and related paths. These improve the documented partial findings but do not close their remaining umbrella scope.
 
 ## Repository workflow cleanup
@@ -230,7 +231,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **Stale/qualified:** S32's SQL typo is absent in this checkout. SEC04 revocation and API06 name grants are fixed, not file-object policy in general. Management dashboard labels already distinguish its counters. Unindexed/nullable foreign keys alone do not prove bugs or explain N+1 query counts. The friend's summary has no runtime reproductions or commit hash; its September 12 date references a September 15 schema.
 
 - **PERF10 partial — Slow batch receiving/placement:** [packages.py:1419](backend/app/api/routes/packages.py#L1419), `ba1fe9a`, `749ea5a`: batch receive locks/preloads source checks and response references; batch placement now flushes pending orders and preloads warehouse source types in existing 400-ID chunks. The placement regression has 18 focused passes plus 3 existing placement-flow passes; isolated placement SELECTs for 1/50/401 packages fell **12/61/422 → 12/12/23**. Receive supporting reads remain **13/13/25**; its real PostgreSQL race still proves one receipt/scan/audit and one rejected competitor. Audit/workflow calls are excluded from the measurements. Per-package synchronization, writes, scans, audits and serialization remain O(N); no total O(1) claim.
-- **PERF30 partial — Catalog family operations:** [catalog.py](backend/app/api/routes/catalog.py), `bb93fbc`, `4a4d0e6`: rename selects the non-legacy family through the indexed PostgreSQL group identity and limits conflict reads to planned codes. Usluga approval now checks every pending family member's main fabric with one grouped count query instead of one query per model; a three-model regression asserts the single grouped query. Clone and database plan/load validation remain open.
+- **PERF30 fixed — Catalog family operations:** [catalog.py](backend/app/api/routes/catalog.py), `bb93fbc`, `4a4d0e6`, `0775eaf`, `acea29d`, `a5631ea`, `b4db4b4`: rename selects the non-legacy family through the indexed PostgreSQL group identity and limits collision reads to planned codes; approval checks the pending family with one grouped BOM query. Clone allocation preserves global lowest-gap numbering with exact400-code index probes and a PostgreSQL transaction advisory lock for truncated namespace collisions. Query reads are1/1/2 for1/50/401 occupied clone codes,2/2/2 for rename families and1/1/1 for approval families. Sixty-six compatibility and six real-PostgreSQL plan/concurrency cases pass; covered plans avoid sequential scans.
 - **Inventory:** batchless reservations are not fully enforced by every batch-specific issue/allocation path. Old stock discrepancies are not repaired. Partial batch transfers reject with 409; splitting batches is a separate workflow.
 - **Duplicates:** receipts need the same saved key. Different operators/keys can still represent the same physical delivery. Finance deduplication does not cover every 1C/workflow entry point.
 - **Recovery:** receipts require browser storage and Web Locks. Uncertain requests that later lose access/conflict retain evidence and need reconciliation; do not clear storage blindly.

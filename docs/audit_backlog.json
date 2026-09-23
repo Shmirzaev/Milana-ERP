@@ -1153,10 +1153,10 @@
       "risk": "Large model families scale poorly.",
       "proposed_fix": "Filtered groups and bounded numbering.",
       "baseline_source": "backend/app/api/routes/catalog.py:1045",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "bb93fbc, 4a4d0e6, 0775eaf, acea29d, a5631ea",
-      "evidence": "Catalog rename/approval batching remains. Commit acea29d narrows portable approval-family scans with a SQL predicate while retaining canonical Python collision checks; commit a5631ea selects only Model.code for rename collisions rather than hydrating full model/details rows. Nine approval and twenty-eight catalog cases pass independently. Functional-index/PostgreSQL plan evidence and other catalog operations remain, so PERF30 stays partial."
+      "commit": "bb93fbc, 4a4d0e6, 0775eaf, acea29d, a5631ea, b4db4b4",
+      "evidence": "Rename selects the non-legacy family through the indexed group identity and limits collision reads to planned codes; approval checks pending-family main fabric with one grouped BOM query. Commit b4db4b4 preserves global lowest-gap clone numbering while replacing broad prefix hydration with exact400-code batches and serializing colliding truncated namespaces with a PostgreSQL transaction advisory lock. At1/50/401, clone allocation uses1/1/2 code-only reads, rename uses2/2/2 filtered reads and approval uses1/1/1. Sixty-six compatibility cases and six disposable-PostgreSQL plan/concurrency cases pass. Covered PostgreSQL plans use models_code_key and ix_models_model_group_key_id without sequential scans; authorization, collisions, factory scope, rollback and number reuse remain covered."
     },
     {
       "number": 97,
