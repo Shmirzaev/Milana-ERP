@@ -425,6 +425,7 @@ def create_package(
     packaging_department_code: str | None = None,
     _cost_cache: dict[int, float] | None = None,
     _batch_presence_cache: dict[int, bool] | None = None,
+    _reference_metadata_cache: dict | None = None,
     _sync_production: bool = True,
 ) -> Package:
     if not items:
@@ -562,6 +563,7 @@ def create_package(
         package_id=None,
         brand_id=brand_id,
         collection_id=collection_id if collection_id is not None else po.collection_id,
+        reference_cache=_reference_metadata_cache,
     )
     package_type = _validate_package_type(package_type)
     if len(str(color)) > 64:
@@ -711,6 +713,7 @@ def create_packages_bulk(
     created: list[Package] = []
     cost_cache: dict[int, float] = {}
     batch_presence_cache: dict[int, bool] = {}
+    reference_metadata_cache: dict = {}
     for index in range(count):
         package_weight = normalized_weights[index] if normalized_weights else weight_kg
         created.append(
@@ -736,6 +739,7 @@ def create_packages_bulk(
                 packaging_department_code=packaging_department_code,
                 _cost_cache=cost_cache,
                 _batch_presence_cache=batch_presence_cache,
+                _reference_metadata_cache=reference_metadata_cache,
                 _sync_production=index in {0, count - 1},
             )
         )

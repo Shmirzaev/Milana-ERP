@@ -4,7 +4,10 @@ import pytest
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
-from app.models import FinishedGoodsStock, Item, Model, ModelBOM, ProductionOrder, StockBatch, Warehouse
+from app.models import (
+    Brand, Collection, CollectionModel, FinishedGoodsStock, Item, Model, ModelBOM,
+    ProductionOrder, StockBatch, Warehouse,
+)
 from app.services import packages as package_service
 
 
@@ -144,3 +147,47 @@ def test_create_package_persists_batched_cost(monkeypatch):
         )
         stock = db.query(FinishedGoodsStock).filter_by(package_id=package.id).one()
         assert float(stock.cost_per_piece) == expected
+
+
+@pytest.mark.parametrize("package_count", [1, 50, 401])
+def test_bulk_package_creation_caches_model_collection_metadata(monkeypatch, package_count):
+    marker = uuid4().hex[:8]
+    monkeypatch.setattr(package_service, "_enforce_packaged_quantity_available", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(package_service, "save_qr_image", lambda *_args, **_kwargs: "/test/qr.png")
+    monkeypatch.setattr(package_service, "save_barcode_image", lambda *_args, **_kwargs: "/test/barcode.png")
+    monkeypatch.setattr(package_service, "sync_production_order_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(package_service, "notify_department", lambda *_args, **_kwargs: None)
+
+    with SessionLocal() as db:
+        brand = Brand(name=f"PERF09 brand {marker}")
+        model = Model(code=f"PERF09-META-{marker}", name=f"PERF09 metadata {marker}", product_type="shirt")
+        db.add_all([brand, model])
+        db.flush()
+        collection = Collection(name=f"PERF09 collection {marker}", brand_id=brand.id, year=2026)
+        db.add(collection)
+        db.flush()
+        db.add(CollectionModel(collection_id=collection.id, model_id=model.id))
+        order = ProductionOrder(
+            production_no=f"PERF09-META-PO-{marker}", production_type="branded_stock",
+            model_id=model.id, status="packaging", planned_quantity=package_count,
+        )
+        db.add(order)
+        db.flush()
+
+        result, statements = _selects(
+            db.bind,
+            lambda: package_service.create_packages_bulk(
+                db,
+                count=package_count,
+                production_order_id=order.id,
+                model_id=model.id,
+                color="navy",
+                items=[{"model_id": model.id, "color": "navy", "size": "M", "quantity": 1}],
+                capacity=1,
+                packaging_department_code="PKG",
+            ),
+        )
+        metadata_reads = [statement for statement in statements if " from collection_models " in statement]
+        assert len(result) == package_count
+        assert len(metadata_reads) == 1, metadata_reads
+        assert all(package.brand_id == brand.id and package.collection_id == collection.id for package in result)
