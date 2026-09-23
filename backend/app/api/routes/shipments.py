@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import and_, func, exists, or_
+from sqlalchemy import and_, func, exists, or_, select
 from sqlalchemy.orm import selectinload, aliased
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -495,42 +495,27 @@ def _package_attachment_error(db: DbSession, shipment: Shipment, package: Packag
 
 
 def _ready_packages_for_sales_order(db: DbSession, sales_order_id: int) -> list[tuple[Package, Model | None]]:
-    statuses = _READY_FOR_SHIPMENT_STATUSES
-    pkg_ids_from_reservations = [
-        int(pid)
-        for (pid,) in (
-            db.query(StockReservation.package_id)
-            .filter(
-                StockReservation.sales_order_id == sales_order_id,
-                StockReservation.package_id.isnot(None),
-            )
-            .group_by(StockReservation.package_id)
-            .all()
+    reserved_package_ids = (
+        select(StockReservation.package_id)
+        .where(
+            StockReservation.sales_order_id == sales_order_id,
+            StockReservation.package_id.isnot(None),
         )
-        if pid is not None
-    ]
-
-    rows: dict[int, tuple[Package, Model | None]] = {}
-    if pkg_ids_from_reservations:
-        for pkg, model in (
-            db.query(Package, Model)
-            .join(Model, Model.id == Package.model_id)
-            .filter(Package.id.in_(pkg_ids_from_reservations), Package.status.in_(statuses))
-            .order_by(Package.id.asc())
-            .all()
-        ):
-            rows[int(pkg.id)] = (pkg, model)
-
-    for pkg, model in (
+        .group_by(StockReservation.package_id)
+    )
+    return (
         db.query(Package, Model)
         .join(Model, Model.id == Package.model_id)
-        .filter(Package.sales_order_id == sales_order_id, Package.status.in_(statuses))
+        .filter(
+            Package.status.in_(_READY_FOR_SHIPMENT_STATUSES),
+            or_(
+                Package.id.in_(reserved_package_ids),
+                Package.sales_order_id == sales_order_id,
+            ),
+        )
         .order_by(Package.id.asc())
         .all()
-    ):
-        rows.setdefault(int(pkg.id), (pkg, model))
-
-    return [rows[k] for k in sorted(rows.keys())]
+    )
 
 
 def _scan_code_candidates(raw_code: str) -> list[str]:
