@@ -1,4 +1,7 @@
 from app.core.security import LEGACY_DEFAULT_ADMIN_PASSWORD
+from sqlalchemy import event
+
+from app.tests.conftest import test_engine
 
 
 def test_health(client):
@@ -13,6 +16,36 @@ def test_admin_login(client):
     body = r.json()
     assert body == {"message": "logged_in"}
     assert "access_token" not in body
+
+
+def test_login_authentication_uses_narrow_user_and_role_projection(client):
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.post(
+            "/api/auth/login-json",
+            json={
+                "email": "admin@example.com",
+                "password": "test-admin-password-123!",
+                "factory_code": "MIL",
+            },
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    user_reads = [statement for statement in statements if " from users " in statement]
+    assert len(user_reads) == 1
+    assert "users.password_hash" in user_reads[0]
+    assert "users.access_policy" in user_reads[0]
+    assert "roles_1.permissions" in user_reads[0]
+    assert "departments" not in user_reads[0]
+    assert "users.tokens_valid_from" not in user_reads[0]
 
 
 def test_browser_session_alias_supports_cookie_auth(client):

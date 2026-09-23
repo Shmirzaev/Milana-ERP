@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import Depends
 from datetime import datetime, timezone
 from pydantic import BaseModel, EmailStr
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, load_only, noload
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, user_permissions
@@ -21,7 +21,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models import (
-    User, Notification, PasswordResetToken,
+    Role, User, Notification, PasswordResetToken,
 )
 from app.schemas.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.services.audit import log_action
@@ -134,7 +134,26 @@ def _authenticate(request: Request, db: Session, email: str, password: str) -> U
     key = _login_key(request, email_norm)
     _enforce_login_rate_limit(key)
 
-    user = db.query(User).filter(User.email == email_norm).first()
+    user = (
+        db.query(User)
+        .options(
+            load_only(
+                User.id,
+                User.email,
+                User.password_hash,
+                User.is_active,
+                User.last_login_at,
+                User.last_seen_at,
+                User.factory_code,
+                User.extra_permissions,
+                User.access_policy,
+            ),
+            joinedload(User.role).load_only(Role.id, Role.name, Role.permissions),
+            noload(User.department),
+        )
+        .filter(User.email == email_norm)
+        .first()
+    )
     password_hash = user.password_hash if user else _DUMMY_PASSWORD_HASH
     try:
         password_ok = verify_password(password, password_hash)
