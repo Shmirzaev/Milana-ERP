@@ -2,6 +2,17 @@
 
 Last updated: 2026-09-23
 
+## Warehouse Excel without pictures deployed (2026-09-23)
+
+- LIVE: backend/frontend blue release `20260923_051930`, exact application commit `e55be05acc7d4346c1a7264076e8c3da7bdff360`, merged through PR #192. Both manifests, images, symlinks and slot states agree. Green `20260923_043113` remains running for rollback. Frontend activated `2026-09-23T05:51:47.164375+00:00`.
+- At the user's explicit request, warehouse Excel now has only row number, model number, variant number, packages and pieces. Removed both image columns and all image/BOM/stock-batch loads. Standard/First Grade sheets, all-stock scope, localized headings, totals, download button and warehouse authorization are preserved.
+- Read-only diagnostic execution of the exact reviewed report code against live stock generated 1,895 rows in 4.191 seconds, 62,038 bytes, with no embedded media. Totals matched 6,228 packages and 449,255 pieces in the same repeatable-read snapshot. First Grade had zero rows at that moment. This is server generation time, not an end-user network timing. No business data or schema changed; database `0132_first_grade_singles`, startup seeding disabled.
+- Scoped Ruff/whitespace checks and standard immutable CI [35821936192](https://github.com/Shmirzaev/Milana-ERP/actions/runs/35821936192) passed. Verified backup, candidate warm-up/runtime and all four immediate health/login checks passed. No extra broad suite, browser/performance exercise or extended monitoring ran; the targeted read-only generation measurement diagnosed and checked the reported download delay.
+- Two workers per backend slot, zero restarts/OOM/error markers; PostgreSQL 24/100 connections and zero invalid indexes. Disk 74% backend / 67% frontend. Historical audit/security risks remain outside this scope.
+- Manifest `d496ac2f46bf83dcb05eca8f34bb5c922c5a57c321d4f5dee15b86870c2d214d`, archive SHA-256 `aad18635173078daefbdc07940b28d3b01505cba3b5a62208774b160cc8b0efe`, 887 source files verified against the exact commit. Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:45dff8f4687bf7813ad1f9f9b75c60d27c4843a543662315bc8e612647e4c200`; frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:47d6aa57e3879372205d78eafe4f63c31013709b220cba37ab0d181f0fdf959f`.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260923_051930.dump`: mode 0600, 55349324 bytes, 1203 restore objects, SHA-256 `23e3584f82bcff89a1d66f738789a25cdbf75c8487dabfe78d484f9e3af099c2`, restore-list SHA-256 `88702dbbe83cbcd1bbf6b7b8030e638baca915750e98fe4c2b6c390ed2a44153`. Rollback retains the previous green application with unchanged database revision.
+- Worktree `C:/ERP/.codex-work/warehouse-excel-speed-20260923`; branch `codex/warehouse-excel-speed-20260923` pushed/merged/deployed. Evidence `outputs/deployment/evidence.json` and `outputs/diagnosis/no-picture-timing.json`. Deployment record committed separately and mirrored to Obsidian; legacy checkout preserved.
+
 ## Warehouse Excel without pictures prepared (2026-09-23)
 
 - User explicitly removed the picture requirement after the image report was slow. The export now contains only row number, model number, variant number, package count and piece count; Standard/First Grade sheets, all-stock scope, permissions, totals and languages remain unchanged. No image files, image relationships, BOM or stock-batch relationships are read by this report.
