@@ -65,22 +65,20 @@ def _require_item(db: Session, item_id: int) -> Item:
     return item
 
 
-def _require_supplier(db: Session, supplier_id: int | None) -> Supplier | None:
+def _require_supplier(db: Session, supplier_id: int | None) -> None:
     if supplier_id is None:
-        return None
-    supplier = db.get(Supplier, supplier_id)
-    if not supplier:
+        return
+    supplier_exists = db.query(Supplier.id).filter(Supplier.id == supplier_id).first()
+    if not supplier_exists:
         raise HTTPException(404, f"Supplier {supplier_id} not found")
-    return supplier
 
 
-def _require_warehouse(db: Session, warehouse_id: int | None) -> Warehouse:
+def _require_warehouse(db: Session, warehouse_id: int | None) -> None:
     if not warehouse_id:
         raise HTTPException(400, "warehouse_id is required")
-    warehouse = db.get(Warehouse, warehouse_id)
-    if not warehouse:
+    warehouse_exists = db.query(Warehouse.id).filter(Warehouse.id == warehouse_id).first()
+    if not warehouse_exists:
         raise HTTPException(404, f"Warehouse {warehouse_id} not found")
-    return warehouse
 
 
 def _bulk_by_id(db: Session, model, ids, *, chunk_size=400):
