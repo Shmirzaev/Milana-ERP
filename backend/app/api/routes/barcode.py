@@ -32,9 +32,12 @@ def bundle_qr_image(bundle_id: int, db: DbSession, _: CurrentUser):
 
 @router.get("/package/{package_no}")
 def package_qr(package_no: str, db: DbSession, _: CurrentUser):
-    p = db.query(Package).filter(Package.package_no == package_no).first()
+    p = db.query(Package.qr_code_url, Package.barcode, Package.package_no).filter(
+        Package.package_no == package_no,
+    ).first()
     if not p: raise HTTPException(404, "Package not found")
-    return {"qr_code_url": p.qr_code_url, "barcode": p.barcode, "package_no": p.package_no}
+    qr_code_url, barcode, resolved_package_no = p
+    return {"qr_code_url": qr_code_url, "barcode": barcode, "package_no": resolved_package_no}
 
 
 @router.post("/generate-bundle-label/{bundle_id}")
