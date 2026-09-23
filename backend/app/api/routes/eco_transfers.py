@@ -166,6 +166,8 @@ def receive(payload: ReturnIn, db: DbSession, user: User = Depends(access)):
         if (previous.batch_id, previous.roll_number, previous.dispatch_id) != (bid, roll, payload.dispatch_id):
             raise HTTPException(409, "ecoTransfers.changedRequest")
         return roll_data(previous)
+    if payload.dispatch_id > 2_147_483_647:
+        raise HTTPException(409, "ecoTransfers.notSent")
     row = db.query(EcoFabricRoll).filter_by(batch_id=bid, roll_number=roll,
                     dispatch_id=payload.dispatch_id).with_for_update().first()
     if not row or row.returned_at is not None:
