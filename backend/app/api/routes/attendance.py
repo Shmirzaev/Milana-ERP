@@ -892,7 +892,9 @@ def attendance_person_photo(
     db: DbSession,
     current: User = Depends(require_permissions("attendance.view", "attendance.manage", "*")),
 ):
-    person = db.query(AttendancePerson).filter(
+    person = db.query(AttendancePerson).options(
+        load_only(AttendancePerson.id, AttendancePerson.photo_file_name),
+    ).filter(
         AttendancePerson.id == person_id,
         AttendancePerson.factory_code == selected_factory_code(current),
         AttendancePerson.present_on_device.is_(True),

@@ -8,11 +8,12 @@ import pytest
 from anyio import CancelScope, CapacityLimiter
 from fastapi import HTTPException
 from PIL import Image
+from sqlalchemy import event
 
 from app.api.routes import attendance
 from app.models import AttendanceDevice, AttendancePerson
 from app.services.image_storage import convert_image_to_webp
-from app.tests.conftest import TestSessionLocal
+from app.tests.conftest import TestSessionLocal, test_engine
 
 
 INTEGRATION_HEADERS = {"X-Attendance-Token": "test-attendance-token"}
@@ -73,6 +74,38 @@ def _photo_state(person_id: int) -> tuple[str | None, str | None]:
 
 def _stored_files(root: Path) -> set[Path]:
     return {path.relative_to(root) for path in root.rglob("*") if path.is_file()}
+
+
+def test_attendance_person_photo_read_projects_only_photo_fields(client, auth_headers, tmp_path, monkeypatch):
+    _device_id, person_id = _seed_person(client)
+    monkeypatch.setattr(attendance.settings, "ATTENDANCE_PHOTOS_DIR", str(tmp_path))
+    filename = "stored-person-photo.webp"
+    photo_bytes = b"photo bytes"
+    (tmp_path / filename).write_bytes(photo_bytes)
+    with TestSessionLocal() as db:
+        person = db.get(AttendancePerson, person_id)
+        person.photo_file_name = filename
+        db.commit()
+
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from attendance_people " in normalized:
+            statements.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(f"/api/attendance/people/{person_id}/photo", headers=auth_headers)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.content == photo_bytes
+    assert len(statements) == 1, statements
+    assert "attendance_people.photo_file_name" in statements[0]
+    assert "attendance_people.full_name" not in statements[0]
+    assert "attendance_people.external_person_id" not in statements[0]
 
 
 def test_attendance_photo_commit_failure_removes_only_new_file(client, tmp_path, monkeypatch):
