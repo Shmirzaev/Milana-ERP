@@ -576,6 +576,10 @@ def create_user(
     if not is_super_admin(current) and factory_code != selected_factory_code(current):
         raise HTTPException(403, "Only Super Admin can assign another factory")
     _assert_policy_change(db, current, {**payload.model_dump(), "factory_code": factory_code})
+    if len(payload.name) > 128:
+        raise HTTPException(422, "User name must be at most 128 characters")
+    if len(email) > 255:
+        raise HTTPException(422, "User email must be at most 255 characters")
     setup_url: str | None = None
     u = User(
         name=payload.name,
@@ -669,12 +673,17 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
         raise HTTPException(400, "Cannot remove the last active administrator")
     if "password" in data and data["password"]:
         _require_strong_password(data["password"])
+    if "email" in data and data["email"]:
+        data["email"] = normalize_email(data["email"])
+    if data.get("name") is not None and len(data["name"]) > 128:
+        raise HTTPException(422, "User name must be at most 128 characters")
+    if data.get("email") is not None and len(data["email"]) > 255:
+        raise HTTPException(422, "User email must be at most 255 characters")
+    if "password" in data and data["password"]:
         u.password_hash = hash_password(data.pop("password"))
         u.tokens_valid_from = datetime.now(timezone.utc)
     elif "password" in data:
         data.pop("password")
-    if "email" in data and data["email"]:
-        data["email"] = normalize_email(data["email"])
     for k, v in data.items():
         setattr(u, k, v)
     log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=data)
