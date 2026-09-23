@@ -397,7 +397,21 @@ def undo_scan(count_id: int, row_id: int, db: DbSession, current: User = Depends
 @router.post("/{count_id}/complete")
 def complete(count_id: int, db: DbSession, current: User = Depends(access)):
     # Lock also on repeat completion; retry returns the already frozen report.
-    count = db.query(WarehouseStocktake).filter_by(id=count_id).with_for_update().first()
+    count = (
+        db.query(WarehouseStocktake)
+        .options(
+            load_only(
+                WarehouseStocktake.id,
+                WarehouseStocktake.title,
+                WarehouseStocktake.created_at,
+                WarehouseStocktake.completed_at,
+                WarehouseStocktake.created_by,
+            )
+        )
+        .filter_by(id=count_id)
+        .with_for_update()
+        .first()
+    )
     if not count:
         raise HTTPException(404, "Inventory count not found")
     if not count.completed_at:

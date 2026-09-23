@@ -134,6 +134,31 @@ def test_stocktake_completion_projects_only_row_ids_package_ids_and_final_snapsh
     assert "warehouse_stocktake_rows.scan_snapshot" not in selected
 
 
+def test_stocktake_completion_projects_only_count_response_fields(client, auth_headers):
+    count_id = start(client, auth_headers)
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and "from warehouse_stocktakes " in normalized:
+            statements.append(normalized)
+
+    event.listen(SessionLocal.kw["bind"], "before_cursor_execute", capture)
+    try:
+        response = client.post(f"{BASE}/{count_id}/complete", headers=auth_headers)
+    finally:
+        event.remove(SessionLocal.kw["bind"], "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == count_id
+    assert response.json()["completed_at"] is not None
+    assert len(statements) == 1
+    selected = statements[0].split(" from warehouse_stocktakes", 1)[0]
+    assert "warehouse_stocktakes.completed_at" in selected
+    assert "warehouse_stocktakes.created_by" in selected
+    assert "warehouse_stocktakes.request_key" not in selected
+
+
 def test_unrepresentable_scan_row_id_preserves_stocktake_state_precedence(client, auth_headers):
     cid = start(client, auth_headers)
     path = f"{BASE}/{cid}/scans/2147483648"
