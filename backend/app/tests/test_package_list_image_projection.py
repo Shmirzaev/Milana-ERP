@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import event
 
-from app.models import Model, ModelImage, Package, ProductionOrder
+from app.models import Customer, Model, ModelImage, Package, ProductionOrder, SalesOrder
 from app.tests.conftest import TestSessionLocal
 
 
@@ -18,10 +18,20 @@ def test_package_list_loads_image_metadata_without_blob(client, auth_headers, im
         )
         db.add(model)
         db.flush()
+        customer = Customer(name=f"Package list customer {marker}")
+        db.add(customer)
+        db.flush()
+        sales_order = SalesOrder(
+            order_no=f"PERF35-PACKAGE-SO-{marker}",
+            customer_id=customer.id,
+        )
+        db.add(sales_order)
+        db.flush()
         order = ProductionOrder(
             production_no=f"PERF35-PACKAGE-PO-{marker}",
             production_type="branded_stock",
             model_id=model.id,
+            sales_order_id=sales_order.id,
             planned_quantity=10,
         )
         db.add(order)
@@ -46,6 +56,7 @@ def test_package_list_loads_image_metadata_without_blob(client, auth_headers, im
             barcode=f"PERF35-PACKAGE-QR-{marker}",
             qr_code_url="https://images.example.invalid/package-qr.png",
             production_order_id=order.id,
+            sales_order_id=sales_order.id,
             model_id=model.id,
             color="BLUE",
             package_type="bag",
@@ -88,3 +99,12 @@ def test_package_list_loads_image_metadata_without_blob(client, auth_headers, im
     image_reads = [statement for statement in statements if " from model_images " in statement]
     assert len(image_reads) == 1
     assert "model_images.file_data" not in image_reads[0]
+    production_read = next(statement for statement in statements if " from production_orders " in statement)
+    sales_order_reads = [statement for statement in statements if " from sales_orders " in statement]
+    customer_read = next(statement for statement in statements if " from customers " in statement)
+    assert "production_orders.printing_attachments" not in production_read
+    assert "production_orders.service_material_description" not in production_read
+    assert all("sales_orders.printing_attachments" not in statement for statement in sales_order_reads)
+    assert all("sales_orders.notes" not in statement for statement in sales_order_reads)
+    assert "customers.phone" not in customer_read
+    assert "customers.email" not in customer_read

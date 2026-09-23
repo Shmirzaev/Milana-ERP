@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Query, Response
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
 from sqlalchemy import func, or_
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 import base64
 from datetime import date, datetime
@@ -928,19 +928,36 @@ def list_packages(db: DbSession, current: CurrentUser,
         int(po.id): po
         for po in (
             db.query(ProductionOrder)
-            .options(joinedload(ProductionOrder.sales_order))
+            .options(
+                load_only(
+                    ProductionOrder.id,
+                    ProductionOrder.production_no,
+                    ProductionOrder.production_type,
+                    ProductionOrder.sales_order_id,
+                ),
+                joinedload(ProductionOrder.sales_order).load_only(
+                    SalesOrder.id,
+                    SalesOrder.order_no,
+                    SalesOrder.customer_id,
+                    SalesOrder.order_type,
+                ),
+            )
             .filter(ProductionOrder.id.in_(po_ids))
             .all()
         )
     } if po_ids else {}
     sales_by_id = {
         int(so.id): so
-        for so in db.query(SalesOrder).filter(SalesOrder.id.in_(so_ids)).all()
+        for so in db.query(SalesOrder).options(
+            load_only(SalesOrder.id, SalesOrder.order_no, SalesOrder.customer_id, SalesOrder.order_type),
+        ).filter(SalesOrder.id.in_(so_ids)).all()
     } if so_ids else {}
     customer_ids = {int(so.customer_id) for so in sales_by_id.values() if so.customer_id}
     customer_by_id = {
         int(customer.id): customer
-        for customer in db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
+        for customer in db.query(Customer).options(load_only(Customer.id, Customer.name)).filter(
+            Customer.id.in_(customer_ids),
+        ).all()
     } if customer_ids else {}
     model_ids = {int(p.model_id) for p in rows if p.model_id}
     model_by_id = {
