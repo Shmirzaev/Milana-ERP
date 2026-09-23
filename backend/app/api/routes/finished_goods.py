@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import func, or_
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, load_only
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import (
@@ -49,6 +49,28 @@ def _stock_payload(
     }
 
 
+def _stock_list_projection():
+    return load_only(
+        FinishedGoodsStock.id,
+        FinishedGoodsStock.production_order_id,
+        FinishedGoodsStock.sales_order_id,
+        FinishedGoodsStock.package_id,
+        FinishedGoodsStock.model_id,
+        FinishedGoodsStock.brand_id,
+        FinishedGoodsStock.collection_id,
+        FinishedGoodsStock.color,
+        FinishedGoodsStock.size,
+        FinishedGoodsStock.quantity,
+        FinishedGoodsStock.available_qty,
+        FinishedGoodsStock.reserved_qty,
+        FinishedGoodsStock.sold_qty,
+        FinishedGoodsStock.cost_per_piece,
+        FinishedGoodsStock.selling_price,
+        FinishedGoodsStock.warehouse_id,
+        FinishedGoodsStock.status,
+    )
+
+
 def _require_storable_sales_order_id(sales_order_id: int) -> None:
     if sales_order_id < 1 or sales_order_id > _DB_INTEGER_MAX:
         raise HTTPException(404, "Sales order not found")
@@ -81,6 +103,7 @@ def list_stock(db: DbSession, _: CurrentUser,
             Model.name.label("model_name"),
             Brand.name.label("brand_name"),
         )
+        .options(_stock_list_projection())
         .outerjoin(Model, Model.id == FinishedGoodsStock.model_id)
         .outerjoin(Brand, Brand.id == FinishedGoodsStock.brand_id)
     )
@@ -132,6 +155,7 @@ def list_branded(
             Model.name.label("model_name"),
             func.coalesce(Brand.name, PackageBrand.name).label("brand_name"),
         )
+        .options(_stock_list_projection())
         .outerjoin(ProductionOrder, ProductionOrder.id == FinishedGoodsStock.production_order_id)
         .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
         .outerjoin(Model, Model.id == FinishedGoodsStock.model_id)
