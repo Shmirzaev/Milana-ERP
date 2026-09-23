@@ -73,8 +73,8 @@ def test_jwt_algorithm_allows_only_supported_hmac_algorithms():
             Settings(JWT_ALGORITHM=algorithm)
 
 
-def test_jwt_algorithm_settings_round_trip_with_python_jose():
-    from jose import jwt
+def test_jwt_algorithm_settings_round_trip_with_pyjwt():
+    import jwt
     from app.core.config import Settings
 
     for algorithm in ("HS256", "HS384", "HS512"):
