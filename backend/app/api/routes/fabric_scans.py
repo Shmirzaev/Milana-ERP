@@ -100,22 +100,41 @@ def scan(payload: ScanInput, db: DbSession, user: User = Depends(scan_access)):
 @router.get("")
 def report(db: DbSession, user: User = Depends(report_access),
            report_date: date | None = None, page: int = Query(1, ge=1),
-           page_size: int = Query(50, ge=1, le=200)):
+           page_size: int = Query(50, ge=1, le=200),
+           summary_page: int | None = Query(None, ge=1),
+           summary_page_size: int | None = Query(None, ge=1, le=500)):
     department = cutting_department_scope(user, None)
     day = report_date or now_utc().astimezone(TASHKENT).date()
     query = db.query(FabricScan).filter_by(department=department, report_date=day)
     received = func.sum(case((FabricScan.direction == "received", 1), else_=0))
     returned = func.sum(case((FabricScan.direction == "returned", 1), else_=0))
     totals = query.with_entities(func.count(FabricScan.id), received, returned).one()
-    groups = query.with_entities(FabricScan.batch_id, FabricScan.fabric_name, FabricScan.batch_no,
-                                FabricScan.color, received, returned).group_by(
+    summary_query = query.with_entities(FabricScan.batch_id, FabricScan.fabric_name, FabricScan.batch_no,
+                                       FabricScan.color, received, returned).group_by(
         FabricScan.batch_id, FabricScan.fabric_name, FabricScan.batch_no, FabricScan.color,
-    ).order_by(FabricScan.fabric_name, FabricScan.batch_no).all()
+    ).order_by(FabricScan.fabric_name, FabricScan.batch_no)
+    summary_pagination = None
+    if summary_page is not None or summary_page_size is not None:
+        summary_page = summary_page or 1
+        summary_page_size = summary_page_size or 100
+        summary_total = summary_query.order_by(None).count()
+        groups = summary_query.offset((summary_page - 1) * summary_page_size).limit(summary_page_size).all()
+        summary_pagination = {
+            "page": summary_page,
+            "page_size": summary_page_size,
+            "total": summary_total,
+            "pages": max((summary_total + summary_page_size - 1) // summary_page_size, 1),
+        }
+    else:
+        groups = summary_query.all()
     rows = query.order_by(FabricScan.scanned_at.desc(), FabricScan.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    return {
+    result = {
         "report_date": day, "department": department, "total": totals[0],
         "received": totals[1] or 0, "returned": totals[2] or 0,
         "summary": [{"fabric_name": r[1], "batch_no": r[2], "color": r[3],
                      "received": r[4], "returned": r[5]} for r in groups],
         "rows": [row_data(row) for row in rows], "page": page, "page_size": page_size,
     }
+    if summary_pagination is not None:
+        result["summary_pagination"] = summary_pagination
+    return result
