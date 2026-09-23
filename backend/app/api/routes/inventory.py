@@ -762,12 +762,13 @@ def list_received_stock_colors(
     db: DbSession,
     _: User = Depends(require_permissions(*INVENTORY_READ_PERMISSIONS)),
 ):
+    color_expr = func.trim(StockBatch.color)
     rows = (
-        db.query(StockBatch.color)
+        db.query(color_expr)
         .filter(StockBatch.item_id.in_(db.query(Item.id).filter(Item.category.in_(inventory_access.MATERIAL_CATEGORIES))) if inventory_access.materials_only(_) else True)
         .filter(
             StockBatch.color.isnot(None),
-            func.length(func.trim(StockBatch.color)) > 0,
+            func.length(color_expr) > 0,
         )
         .distinct()
         .all()
