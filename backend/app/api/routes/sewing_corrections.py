@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_
+from sqlalchemy.orm import load_only
 from app.core.deps import DbSession, require_permissions
 from app.models import (User, WorkOrder, SewingRecord, SewingAssignment, SewingFlow,
                         SewingReplacementRequest, PackagingReceipt, PackagingRecord, CuttingRecord, PrintingRecord)
@@ -130,7 +131,24 @@ def list_records(
     if not wo or wo.operation != "sewing":
         raise HTTPException(404, "Not found")
     require_work_order_factory_access(user, db, wo)
-    query = db.query(SewingRecord).filter_by(work_order_id=wid)
+    query = db.query(SewingRecord).options(load_only(
+        SewingRecord.id,
+        SewingRecord.work_order_id,
+        SewingRecord.production_batch_id,
+        SewingRecord.input_qty,
+        SewingRecord.sewn_qty,
+        SewingRecord.passed_qty,
+        SewingRecord.failed_qty,
+        SewingRecord.rejected_qty,
+        SewingRecord.rework_qty,
+        SewingRecord.line_name,
+        SewingRecord.notes,
+        SewingRecord.size_quantities,
+        SewingRecord.created_at,
+        SewingRecord.correction_version,
+        SewingRecord.sewing_assignment_id,
+        SewingRecord.assignment_applied_qty,
+    )).filter_by(work_order_id=wid)
     ordered_query = query.order_by(SewingRecord.id.desc())
     if page is None and page_size is None:
         rows = ordered_query.all()

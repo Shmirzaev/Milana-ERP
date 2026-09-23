@@ -1,6 +1,7 @@
 import pytest
+from sqlalchemy import event
 from app.tests.test_sewing_assignment_return import make_assignment
-from app.tests.conftest import TestSessionLocal
+from app.tests.conftest import TestSessionLocal, test_engine
 from app.models import (SewingRecord, SewingAssignment, WorkOrder, AuditLog, Department,
                         PackagingReceipt, SewingReplacementRequest, Role, User)
 from app.main import app
@@ -93,6 +94,29 @@ def test_factory_and_permission_enforced(client, auth_headers):
             assert update(client, {}, rid).status_code == 403
             assert client.get(f"/api/work-orders/{wid}/sewing-records").status_code == 403
         finally: app.dependency_overrides.pop(get_current_user)
+
+
+def test_sewing_record_history_projects_snapshot_columns(client, auth_headers):
+    rid, wid, _ = setup_record()
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(f"/api/work-orders/{wid}/sewing-records", headers=auth_headers)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["id"] == rid
+    assert response.json()[0]["input_qty"] == 100
+    record_reads = [statement for statement in statements if " from sewing_records " in statement]
+    assert len(record_reads) == 1
+    assert "sewing_records.defect_reason" not in record_reads[0]
+    assert "sewing_records.operator_id" not in record_reads[0]
 
 
 def test_legacy_assignment_safe_inference(client, auth_headers):
