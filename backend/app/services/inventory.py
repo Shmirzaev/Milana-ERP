@@ -240,7 +240,12 @@ def _bom_requirement_rows(
     categories: tuple[str, ...] | None = None,
 ) -> list[dict]:
     po_items = (
-        db.query(ProductionOrderItem)
+        db.query(
+            ProductionOrderItem.model_id,
+            ProductionOrderItem.planned_quantity,
+            ProductionOrderItem.size,
+            ProductionOrderItem.color,
+        )
         .filter(ProductionOrderItem.production_order_id == po.id)
         .all()
     )
@@ -348,13 +353,13 @@ def _bom_requirement_rows(
         row["required_quantity"] += qty
 
     if po_items:
-        for line in po_items:
-            for bom, item in by_model.get(int(line.model_id or po.model_id), []):
-                if bom.size and bom.size != line.size:
+        for model_id, planned_quantity, size, color in po_items:
+            for bom, item in by_model.get(int(model_id or po.model_id), []):
+                if bom.size and bom.size != size:
                     continue
-                if bom.color and bom.color != line.color:
+                if bom.color and bom.color != color:
                     continue
-                add_requirement(bom, item, int(line.planned_quantity or 0))
+                add_requirement(bom, item, int(planned_quantity or 0))
     else:
         for bom, item in by_model.get(int(po.model_id), []):
             add_requirement(bom, item, int(po.planned_quantity or 0))

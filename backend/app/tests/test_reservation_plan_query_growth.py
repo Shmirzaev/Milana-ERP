@@ -99,6 +99,23 @@ def test_reservation_plan_reads_are_chunk_bounded(line_count, expected_selects):
         )
 
     assert len(statements) == expected_selects
+    order_item_reads = [
+        " ".join(statement.lower().split())
+        for statement in statements
+        if " from production_order_items " in " ".join(statement.lower().split())
+    ]
+    assert len(order_item_reads) == 1
+    assert all(
+        column in order_item_reads[0]
+        for column in (
+            "production_order_items.model_id",
+            "production_order_items.planned_quantity",
+            "production_order_items.size",
+            "production_order_items.color",
+        )
+    )
+    assert "production_order_items.created_at" not in order_item_reads[0]
+    assert "production_order_items.updated_at" not in order_item_reads[0]
     assert [row["stock_batch_id"] for row in payload["rows"]] == batch_ids
     assert [row["required_quantity"] for row in payload["rows"]] == [
         float(number) for number in range(1, line_count + 1)
