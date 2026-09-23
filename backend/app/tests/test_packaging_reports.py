@@ -255,6 +255,34 @@ def test_excel_reads_only_selected_model_image_blobs(client, auth_headers, repor
     assert len(workbook.worksheets[0]._images) == 2
 
 
+def test_excel_export_tracks_numeric_totals_during_row_write():
+    from app.services.packaging_report_exports import ENTRY_COLUMNS, export_packaging_report
+
+    class CountingRow(dict):
+        reads = {}
+
+        def get(self, key, default=None):
+            self.reads[key] = self.reads.get(key, 0) + 1
+            return super().get(key, default)
+
+    entry = CountingRow({key: None for key in ENTRY_COLUMNS if key != "date"})
+    entry.update({"date": "2026-09-03", "package_count": 0})
+    report = {
+        "packaging_department_code": "PKG",
+        "from_date": "2026-09-03",
+        "to_date": "2026-09-03",
+        "entries": [entry],
+        "completed": [],
+        "daily": [],
+    }
+
+    content = export_packaging_report(report, "en")
+
+    workbook = load_workbook(BytesIO(content))
+    assert workbook.worksheets[0]["M5"].value == "=SUM(M4:M4)"
+    assert entry.reads["package_count"] == 1
+
+
 @pytest.mark.parametrize("endpoint", ["", "/export.xlsx"])
 def test_report_requires_permission_and_selected_factory(client, report_data, endpoint):
     with TestSessionLocal() as db:
