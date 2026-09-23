@@ -2177,11 +2177,11 @@ def delete_sales_order(sid: int, db: DbSession, current: User = Depends(require_
 
     if so.status not in ("draft", "cancelled"):
         raise HTTPException(409, "Only draft or cancelled sales orders can be deleted")
-    if db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == sid).first():
+    if db.query(ProductionOrder.id).filter(ProductionOrder.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has linked production orders")
-    if db.query(Shipment).filter(Shipment.sales_order_id == sid).first():
+    if db.query(Shipment.id).filter(Shipment.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has linked shipments")
-    if db.query(StockReservation).filter(StockReservation.sales_order_id == sid).first():
+    if db.query(StockReservation.id).filter(StockReservation.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has stock reservations")
 
     db.delete(so)
