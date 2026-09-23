@@ -128,11 +128,14 @@ def build_daily_attendance_xlsx(
         text["departure"],
         text["worked"],
     ]
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    body_center_alignment = Alignment(horizontal="center", vertical="center")
+    body_left_alignment = Alignment(horizontal="left", vertical="center")
     for column, value in enumerate(headers, 1):
         cell = sheet.cell(header_row, column, value)
         cell.fill = dark_fill
         cell.font = white_font
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.alignment = header_alignment
 
     for index, row in enumerate(rows, 1):
         excel_row = header_row + index
@@ -149,10 +152,7 @@ def build_daily_attendance_xlsx(
         for column, value in enumerate(values, 1):
             cell = sheet.cell(excel_row, column, value)
             cell.border = thin_border
-            cell.alignment = Alignment(
-                horizontal="center" if column in {1, 2, 4, 5, 6, 7} else "left",
-                vertical="center",
-            )
+            cell.alignment = body_center_alignment if column in {1, 2, 4, 5, 6, 7} else body_left_alignment
         if status == "absent":
             for column in range(1, 8):
                 sheet.cell(excel_row, column).fill = light_fill
