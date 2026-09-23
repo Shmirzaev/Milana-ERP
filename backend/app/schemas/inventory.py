@@ -86,7 +86,9 @@ class StockBatchIn(BaseModel):
     order_no: Optional[str] = None
     width: Optional[float] = None
     gsm: Optional[float] = None
-    quantity: float
+    quantity: float = Field(
+        gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     piece_count: Optional[int] = None
     roll_weights_kg: list[float] = Field(default_factory=list)
     processes: Optional[str] = None
