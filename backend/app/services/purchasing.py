@@ -332,18 +332,49 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
     if status not in ORDER_CREATE_STATUSES:
         raise HTTPException(400, "Purchase order status must be draft or sent")
 
+    def valid_ids(values):
+        for value in values:
+            try:
+                yield int(value)
+            except (TypeError, ValueError):
+                # Leave malformed identifiers for the original line-by-line
+                # conversions below so validation/error precedence is stable.
+                continue
+
+    items = _bulk_by_id(db, Item, valid_ids(raw.get("item_id") or 0 for raw in line_inputs))
+    warehouses = _bulk_by_id(
+        db,
+        Warehouse,
+        valid_ids(raw["warehouse_id"] for raw in line_inputs if raw.get("warehouse_id")),
+    )
+    suppliers = _bulk_by_id(
+        db,
+        Supplier,
+        valid_ids(
+            raw.get("supplier_id") or supplier_id
+            for raw in line_inputs
+            if raw.get("supplier_id") or supplier_id
+        ),
+    )
+
     line_values = []
     for raw in line_inputs:
-        item = _require_item(db, int(raw.get("item_id") or 0))
+        item_id = int(raw.get("item_id") or 0)
+        item = items.get(item_id)
+        if not item:
+            raise HTTPException(404, f"Item {item_id} not found")
         ordered_quantity = _purchase_quantity(raw.get("ordered_quantity"))
         if ordered_quantity <= 0:
             raise HTTPException(400, "Ordered quantity must be greater than zero")
         warehouse_id = raw.get("warehouse_id")
         if warehouse_id:
-            _require_warehouse(db, int(warehouse_id))
+            normalized_warehouse_id = int(warehouse_id)
+            if normalized_warehouse_id not in warehouses:
+                raise HTTPException(404, f"Warehouse {normalized_warehouse_id} not found")
         unit = str(raw.get("unit") or item.unit or "").strip() or item.unit
         line_supplier_id = raw.get("supplier_id") or supplier_id
-        _require_supplier(db, int(line_supplier_id) if line_supplier_id else None)
+        if line_supplier_id and int(line_supplier_id) not in suppliers:
+            raise HTTPException(404, f"Supplier {int(line_supplier_id)} not found")
         line_values.append({
             "item_id": item.id,
             "ordered_quantity": ordered_quantity,
