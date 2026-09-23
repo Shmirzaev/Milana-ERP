@@ -848,14 +848,18 @@ def _sewing_work_order_for_batch(db: DbSession, batch: ProductionBatch) -> WorkO
 
 
 def _sewing_batch_payload(db: DbSession, batch: ProductionBatch) -> dict:
-    bundles = (
-        db.query(Bundle)
+    bundle_aggregates = (
+        db.query(
+            Bundle.status,
+            func.count(Bundle.id).label("bundle_count"),
+            func.coalesce(func.sum(Bundle.quantity), 0).label("quantity"),
+        )
         .filter(
             Bundle.production_batch_id == batch.id,
             Bundle.production_order_id == batch.production_order_id,
             Bundle.status != "cancelled",
         )
-        .order_by(Bundle.id.asc())
+        .group_by(Bundle.status)
         .all()
     )
     po = db.get(ProductionOrder, batch.production_order_id)
@@ -875,9 +879,13 @@ def _sewing_batch_payload(db: DbSession, batch: ProductionBatch) -> dict:
             .all()
         )
     status_counts: dict[str, int] = {}
-    for bundle in bundles:
-        status = str(bundle.status or "unknown")
-        status_counts[status] = status_counts.get(status, 0) + 1
+    bundle_count = 0
+    quantity = 0
+    for status, count, status_quantity in bundle_aggregates:
+        status_key = str(status or "unknown")
+        status_counts[status_key] = int(count or 0)
+        bundle_count += int(count or 0)
+        quantity += int(status_quantity or 0)
     batch_meta = _batch_meta(db, batch.production_order_id, batch.id)
     return {
         "production_batch_id": int(batch.id),
@@ -886,8 +894,8 @@ def _sewing_batch_payload(db: DbSession, batch: ProductionBatch) -> dict:
         "order_no": (po.order_no if po else None) or public_production_order_no(po.production_no if po else None),
         "model_code": model.code if model else None,
         **batch_meta,
-        "bundle_count": len(bundles),
-        "quantity": sum(int(bundle.quantity or 0) for bundle in bundles),
+        "bundle_count": bundle_count,
+        "quantity": quantity,
         "status_counts": status_counts,
         "assignment_ids": [int(assignment.id) for assignment, _flow in assignments],
         "assigned_flow_ids": sorted({int(flow.id) for _assignment, flow in assignments}),
