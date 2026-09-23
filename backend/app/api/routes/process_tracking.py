@@ -8,13 +8,13 @@ planned, deadlines, sewing-flow assignment, overdue and block flags.
 from datetime import date, datetime, timezone
 from fastapi import APIRouter
 from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 
 from app.core.deps import DbSession, CurrentUser
 from app.core.pagination import clamp_pagination
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models import (
-    SalesOrder, ProductionOrder, WorkOrder, Customer, Model, ModelBOM, SewingFlow, SewingAssignment,
+    SalesOrder, ProductionOrder, WorkOrder, Customer, Model, ModelBOM, Item, SewingFlow, SewingAssignment,
     CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord, SewingReplacementRequest, ModelImage,
     PackagingRecord, Package, PackageBatchAllocation, StockBatch, Department, Bundle,
 )
@@ -952,6 +952,7 @@ def list_processes(
         for m in (
             db.query(Model)
             .options(
+                load_only(Model.id, Model.code, Model.name),
                 selectinload(Model.images).load_only(
                     ModelImage.id,
                     ModelImage.model_id,
@@ -961,8 +962,17 @@ def list_processes(
                     ModelImage.image_type,
                     ModelImage.is_primary,
                 ),
-                selectinload(Model.bom).joinedload(ModelBOM.item),
-                selectinload(Model.bom).joinedload(ModelBOM.stock_batch),
+                selectinload(Model.bom).options(
+                    load_only(
+                        ModelBOM.id,
+                        ModelBOM.model_id,
+                        ModelBOM.item_id,
+                        ModelBOM.stock_batch_id,
+                        ModelBOM.photo_url,
+                    ),
+                    joinedload(ModelBOM.item).load_only(Item.id, Item.category, Item.image_url),
+                    joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+                ),
             )
             .filter(Model.id.in_(model_ids))
             .all()
