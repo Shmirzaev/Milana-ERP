@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import case, func, or_, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
@@ -545,7 +545,15 @@ def _attendance_people_query(
         representative_people.c.person_id == AttendancePerson.id,
     ).filter(
         AttendancePerson.factory_code == factory_code,
-    )
+    ).options(load_only(
+        AttendancePerson.id,
+        AttendancePerson.external_person_id,
+        AttendancePerson.full_name,
+        AttendancePerson.user_type,
+        AttendancePerson.is_valid,
+        AttendancePerson.has_face,
+        AttendancePerson.photo_file_name,
+    ))
     search = query.strip()
     if search:
         like = f"%{search}%"

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from io import BytesIO
+from uuid import uuid4
 
 from openpyxl import load_workbook
 from PIL import Image
+import pytest
 
 from app.api.routes import attendance as attendance_routes
 from app.core.dt import as_utc
 from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, Employee
-from app.tests.conftest import TestSessionLocal
+from app.tests.conftest import TestSessionLocal, test_engine
 
 
 INTEGRATION_HEADERS = {"X-Attendance-Token": "test-attendance-token"}
@@ -41,6 +43,80 @@ def person(employee_no: str, name: str):
         "card_count": 0,
         "fingerprint_count": 0,
     }
+
+
+@pytest.mark.parametrize("count", [1, 50, 401])
+def test_attendance_people_query_projects_only_overview_fields(count):
+    marker = uuid4().hex[:10]
+    name_prefix = f"Perf projection {marker}"
+    day = date(2026, 8, 17)
+    start, end = attendance_routes._day_bounds(day)
+    with TestSessionLocal() as db:
+        device = AttendanceDevice(
+            factory_code="ECO",
+            device_key=f"projection-{marker}",
+            name="Projection test device",
+            vendor="Hikvision",
+        )
+        db.add(device)
+        db.flush()
+        db.add_all([
+            AttendancePerson(
+                factory_code="ECO",
+                device_id=device.id,
+                external_person_id=f"{marker}-{index:04d}",
+                full_name=f"{name_prefix} {index:04d}",
+                is_valid=True,
+                has_face=False,
+                last_synced_at=datetime(2026, 8, 17, tzinfo=timezone.utc),
+            )
+            for index in range(count)
+        ])
+        db.commit()
+
+        query = attendance_routes._attendance_people_query(
+            db,
+            factory_code="ECO",
+            start=start,
+            end=end,
+            query=marker,
+            usage="all",
+        ).order_by(AttendancePerson.external_person_id)
+        projected_sql = str(query.statement.compile(dialect=test_engine.dialect)).lower()
+        legacy_sql = str(
+            db.query(AttendancePerson)
+            .filter(AttendancePerson.factory_code == "ECO")
+            .statement.compile(dialect=test_engine.dialect)
+        ).lower()
+        rows = query.all()
+        projected_payload = [
+            attendance_routes._attendance_row_payload(person_row, event_count, first, last)
+            for person_row, event_count, first, last in rows
+        ]
+        legacy_people = (
+            db.query(AttendancePerson)
+            .filter(
+                AttendancePerson.factory_code == "ECO",
+                AttendancePerson.full_name.ilike(f"%{marker}%"),
+            )
+            .order_by(AttendancePerson.external_person_id)
+            .all()
+        )
+        legacy_payload = [
+            attendance_routes._attendance_row_payload(person_row, None, None, None)
+            for person_row in legacy_people
+        ]
+
+    assert len(projected_payload) == count
+    assert projected_payload == legacy_payload
+    assert "card_count" not in projected_sql
+    assert "fingerprint_count" not in projected_sql
+    assert "photo_sha256" not in projected_sql
+    assert "valid_from" not in projected_sql
+    assert "card_count" in legacy_sql
+    assert "fingerprint_count" in legacy_sql
+    assert "photo_sha256" in legacy_sql
+    assert "valid_from" in legacy_sql
 
 
 def test_attendance_snapshot_is_isolated_from_hr(client, auth_headers):
@@ -157,6 +233,8 @@ def test_older_event_batch_keeps_events_without_regressing_device_checkpoint(cli
         "source_host": "10.100.50.12",
         "reported_person_count": 3,
     }
+
+
     monkeypatch.setattr(attendance_routes, "utcnow", lambda: older)
     stale = client.post(
         "/api/attendance/integration/events",
