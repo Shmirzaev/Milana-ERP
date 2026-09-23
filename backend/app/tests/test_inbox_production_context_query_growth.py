@@ -1,9 +1,10 @@
 from uuid import uuid4
+from types import SimpleNamespace
 
 from sqlalchemy import event
 
 from app.api.routes import inbox
-from app.models import Item, Model, ModelBOM, ModelImage, ProductionOrder, StockBatch, Warehouse
+from app.models import Item, Model, ModelBOM, ModelImage, Package, ProductionOrder, StockBatch, Warehouse
 from app.tests.conftest import TestSessionLocal
 
 
@@ -104,6 +105,76 @@ def test_material_context_defers_material_image_blobs_and_preserves_url():
             event.remove(db.bind, "before_cursor_execute", capture)
         assert payload[order.id]["material_image_url"] == f"/material/{suffix}.webp"
         assert "file_data" not in "\n".join(statements).lower()
+
+
+def test_finished_goods_package_lists_project_only_response_columns(monkeypatch):
+    suffix = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        model = Model(code=f"INBOX-PKG-{suffix}", name="Inbox package model", status="approved")
+        db.add(model)
+        db.flush()
+        order = ProductionOrder(
+            production_no=f"INBOX-PKG-PO-{suffix}",
+            production_type="client_order",
+            model_id=model.id,
+            planned_quantity=2,
+        )
+        db.add(order)
+        db.flush()
+        packages = [
+            Package(
+                package_no=f"INBOX-PKG-{suffix}-{status}",
+                barcode=f"INBOX-PKG-{suffix}-{status}",
+                production_order_id=order.id,
+                model_id=model.id,
+                color="navy",
+                total_quantity=2,
+                status=status,
+            )
+            for status in ("packed", "reserved")
+        ]
+        db.add_all(packages)
+        db.commit()
+        package_ids = {package.status: int(package.id) for package in packages}
+
+    monkeypatch.setattr(inbox, "require_operational_department_access", lambda *_args: None)
+    monkeypatch.setattr(inbox, "user_permissions", lambda _user: ["*"])
+    statements = []
+    with TestSessionLocal() as db:
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT") and "FROM PACKAGES" in statement.upper():
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            result = inbox.department_inbox(db, SimpleNamespace(department_id=None), dept="FGS")
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    pending = next(row for row in result["pending_packages"] if row["id"] == package_ids["packed"])
+    ready = next(row for row in result["ready_packages"] if row["id"] == package_ids["reserved"])
+    assert pending == {
+        "id": package_ids["packed"],
+        "package_no": f"INBOX-PKG-{suffix}-packed",
+        "sales_order_id": None,
+        "sales_order_no": None,
+        "order_no": None,
+        "total_quantity": 2,
+    }
+    assert ready == {
+        "id": package_ids["reserved"],
+        "package_no": f"INBOX-PKG-{suffix}-reserved",
+        "sales_order_id": None,
+        "sales_order_no": None,
+        "order_no": None,
+        "total_quantity": 2,
+        "status": "reserved",
+    }
+    package_list_reads = [statement for statement in statements if "where packages.status" in statement]
+    assert len(package_list_reads) == 2
+    assert all("packages.barcode" not in statement for statement in package_list_reads)
+    assert all("packages.notes" not in statement for statement in package_list_reads)
+    assert all("packages.qr_code_url" not in statement for statement in package_list_reads)
 
 
 def test_production_context_preserves_model_image_fallback_precedence():

@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, or_
-from sqlalchemy.orm import defer, selectinload
+from sqlalchemy.orm import defer, load_only, selectinload
 
 from app.core.deps import CurrentUser, DbSession, user_permissions
 from app.core.dt import as_utc
@@ -1097,7 +1097,16 @@ def department_inbox(
     ready_packages = []
     ready_to_ship = []
     if d.code == "FGS":
-        packed = db.query(Package).filter(Package.status == "packed").order_by(Package.id.desc()).limit(200).all()
+        package_list_columns = (
+            Package.id,
+            Package.package_no,
+            Package.sales_order_id,
+            Package.total_quantity,
+            Package.status,
+        )
+        packed = db.query(Package).options(
+            load_only(*package_list_columns)
+        ).filter(Package.status == "packed").order_by(Package.id.desc()).limit(200).all()
         packed_so_ids = {int(p.sales_order_id) for p in packed if p.sales_order_id}
         packed_sales_by_id = {
             int(so.id): so
@@ -1114,7 +1123,9 @@ def department_inbox(
             }
             for p in packed
         ]
-        ready = db.query(Package).filter(Package.status.in_(["received_in_storage", "reserved"])).all()
+        ready = db.query(Package).options(
+            load_only(*package_list_columns)
+        ).filter(Package.status.in_(["received_in_storage", "reserved"])).all()
         ready_so_ids = {int(p.sales_order_id) for p in ready if p.sales_order_id}
         ready_sales_by_id = {
             int(so.id): so
