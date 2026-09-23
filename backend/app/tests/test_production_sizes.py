@@ -5,6 +5,8 @@ from sqlalchemy import event
 
 from app.core.security import create_access_token
 from app.models import AuditLog, Department, ProductionOrder, ProductionOrderItem, User, WorkOrder
+from app.schemas.production import ProductionOrderSizesIn
+from app.services.production_sizes import update_production_sizes
 from app.tests.conftest import TestSessionLocal
 
 
@@ -94,6 +96,34 @@ def test_size_edit_projects_only_work_order_lock_fields(client, auth_headers):
     assert "work_orders.status" in selected
     assert "work_orders.notes" not in selected
     assert "work_orders.block_reason" not in selected
+
+
+def test_size_activity_guard_checks_all_sources_in_one_exists_query():
+    pid = make_plan()
+    with TestSessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        items = db.query(ProductionOrderItem).filter_by(production_order_id=pid).order_by(ProductionOrderItem.id).all()
+        payload = ProductionOrderSizesIn(items=[
+            {"id": item.id, "original_size": item.size, "size": "50" if index == 0 else item.size}
+            for index, item in enumerate(items)
+        ])
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            normalized = " ".join(statement.lower().split())
+            if normalized.startswith("select") and any(
+                table in normalized for table in ("bundles", "cutting_records", "payroll_qr_labels")
+            ):
+                statements.append(normalized)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            update_production_sizes(db, pid, payload, current)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+        assert len(statements) == 1, statements
+        assert all(table in statements[0] for table in ("bundles", "cutting_records", "payroll_qr_labels"))
 
 
 @pytest.mark.parametrize("invalid", ["duplicate_size", "blank", "too_long", "duplicate_id", "foreign_id", "missing_row", "stale", "quantity"])
