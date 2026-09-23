@@ -37,7 +37,7 @@ from app.models import (
     PackagingRecord, PackagingReceipt,
     SalesOrder, QualityCheck, User, Department, SewingFlow, SewingAssignment, SewingDailyReport,
     Package, PackageBatchAllocation,
-    ProductionBatch, WasteRecord,
+    ProductionBatch, WasteRecord, ModelImage,
     ProductionOrderItem, Bundle, Item, Model, ModelBOM, StockBatch,
 )
 from app.schemas.inventory import MaterialReservationOut, MaterialReservationStatusOut
@@ -826,7 +826,15 @@ def _work_order_images_by_po(db: DbSession, po_ids: list[int]) -> dict[int, dict
     models = (
         db.query(Model)
         .options(
-            joinedload(Model.images),
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
             joinedload(Model.bom).joinedload(ModelBOM.item),
             joinedload(Model.bom).joinedload(ModelBOM.stock_batch),
         )
