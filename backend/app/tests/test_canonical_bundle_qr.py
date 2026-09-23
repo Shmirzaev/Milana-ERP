@@ -82,6 +82,7 @@ def test_bundle_image_works_with_browser_cookie_and_requires_auth(client, auth_h
         browser.cookies.set(settings.AUTH_COOKIE_NAME, token)
         assert browser.get(image_url).status_code == 200
         assert browser.get("/api/barcode/bundle-image/2147483647").status_code == 404
+        assert browser.get("/api/barcode/bundle-image/2147483648").status_code == 404
 
 
 def test_five_digit_bundle_and_order_references_keep_qr_and_alias_lookup(client, auth_headers):

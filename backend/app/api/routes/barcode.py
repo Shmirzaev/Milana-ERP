@@ -19,6 +19,8 @@ def bundle_qr(bundle_no: str, db: DbSession, _: CurrentUser):
 @router.get("/bundle-image/{bundle_id}")
 def bundle_qr_image(bundle_id: int, db: DbSession, _: CurrentUser):
     """Cookie-authenticated image for the same-origin bundle detail page."""
+    if bundle_id > 2_147_483_647:
+        raise HTTPException(404, "Bundle not found")
     bundle = db.get(Bundle, bundle_id)
     if bundle is None:
         raise HTTPException(404, "Bundle not found")
