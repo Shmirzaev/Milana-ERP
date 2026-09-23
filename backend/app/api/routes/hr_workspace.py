@@ -11,7 +11,7 @@ from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
@@ -286,28 +286,43 @@ def _position_dict(row: HrPosition, occupied: int = 0, department_name: str | No
 @router.get("/dashboard")
 def dashboard(db: DbSession, current: User = HrUser):
     factory = _factory(current)
-    employees = db.query(Employee).filter(Employee.factory_code == factory).all()
-    active = [row for row in employees if row.status == "active"]
-    positions = db.query(HrPosition).filter(HrPosition.factory_code == factory, HrPosition.is_active.is_(True)).all()
-    approved = sum(row.approved_count for row in positions)
+    department_name = func.coalesce(Department.name, "Unassigned")
+    employee_counts = (
+        db.query(
+            department_name.label("department_name"),
+            func.count(Employee.id).label("employee_count"),
+            func.sum(case((Employee.status == "active", 1), else_=0)).label("active_count"),
+        )
+        .outerjoin(Department, Department.id == Employee.department_id)
+        .filter(Employee.factory_code == factory)
+        .group_by(department_name)
+        .all()
+    )
+    headcount = sum(int(row.active_count or 0) for row in employee_counts)
+    inactive = sum(int(row.employee_count or 0) - int(row.active_count or 0) for row in employee_counts)
+    approved = int(
+        db.query(func.coalesce(func.sum(HrPosition.approved_count), 0))
+        .filter(HrPosition.factory_code == factory, HrPosition.is_active.is_(True))
+        .scalar()
+        or 0
+    )
     candidates = db.query(HrRecruitmentCandidate).filter(HrRecruitmentCandidate.factory_code == factory).count()
     upcoming = db.query(HrCalendarEvent).filter(
         HrCalendarEvent.factory_code == factory,
         HrCalendarEvent.starts_at >= datetime.now(timezone.utc),
     ).count()
-    by_department: dict[str, int] = {}
-    department_names = {row.id: row.name for row in db.query(Department).all()}
-    for employee in active:
-        name = department_names.get(employee.department_id, "Unassigned")
-        by_department[name] = by_department.get(name, 0) + 1
     return {
-        "headcount": len(active),
-        "inactive": len(employees) - len(active),
+        "headcount": headcount,
+        "inactive": inactive,
         "approved_positions": approved,
-        "vacancies": max(0, approved - len(active)),
+        "vacancies": max(0, approved - headcount),
         "candidates": candidates,
         "upcoming_events": upcoming,
-        "by_department": [{"name": name, "count": count} for name, count in sorted(by_department.items())],
+        "by_department": [
+            {"name": row.department_name, "count": int(row.active_count)}
+            for row in sorted(employee_counts, key=lambda item: item.department_name)
+            if row.active_count
+        ],
     }
 
 
