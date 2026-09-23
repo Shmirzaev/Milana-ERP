@@ -257,6 +257,16 @@ def receive_run(db, current, payload):
     if len(packages) != len(members) or not packages:
         raise HTTPException(409, "Print run membership is incomplete")
     by_id = {p.id: p for p in packages}
+    stocks_by_package = {package_id: [] for package_id in ids}
+    stocks = (
+        db.query(FinishedGoodsStock)
+        .filter(FinishedGoodsStock.package_id.in_(ids))
+        .order_by(FinishedGoodsStock.package_id, FinishedGoodsStock.id)
+        .with_for_update()
+        .all()
+    )
+    for stock in stocks:
+        stocks_by_package[stock.package_id].append(stock)
     for member in members:
         pkg = by_id[member.package_id]
         if contents(pkg) != member.snapshot:
@@ -267,17 +277,17 @@ def receive_run(db, current, payload):
         if not (pkg.production_order_id or pkg.manual_receipt_id or pkg.legacy_receipt_id):
             raise HTTPException(409, "Package has no source evidence")
         # Existing stock must already be complete; receiving must never create it.
-        stocks = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == pkg.id).order_by(FinishedGoodsStock.id).with_for_update().all()
+        package_stocks = stocks_by_package[pkg.id]
         expected = {}
         actual = {}
         for item in pkg.items:
             key = (item.model_id, item.color, item.size)
             expected[key] = expected.get(key, 0) + item.quantity
-        for stock in stocks:
+        for stock in package_stocks:
             key = (stock.model_id, stock.color, stock.size)
             actual[key] = actual.get(key, 0) + stock.quantity
-        if (actual != expected or sum(s.quantity for s in stocks) != pkg.total_quantity
-                or any(s.reserved_qty or s.sold_qty or s.available_qty != s.quantity or s.status != "available" for s in stocks)):
+        if (actual != expected or sum(s.quantity for s in package_stocks) != pkg.total_quantity
+                or any(s.reserved_qty or s.sold_qty or s.available_qty != s.quantity or s.status != "available" for s in package_stocks)):
             raise HTTPException(409, f"Package {pkg.package_no} stock evidence is inconsistent")
     if payload.warehouse_id and not db.get(Warehouse, payload.warehouse_id):
         raise HTTPException(404, "Warehouse not found")

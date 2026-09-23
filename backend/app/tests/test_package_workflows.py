@@ -159,9 +159,22 @@ def test_six_then_four_receive_by_actual_package_qr_and_alias(client, auth_heade
     scan = package_qr(first["package_ids"][3])
     resolved = client.get(BASE + "/print-runs/resolve", params={"code": scan}, headers=warehouse)
     assert resolved.json()["print_run"]["package_ids"] == first["package_ids"]
-    received = client.post(BASE + "/print-runs/receive", json={"code": scan, "storage_cell": "A-01", "storage_shelf": "S1"}, headers=warehouse)
+    stock_reads = []
+
+    def capture_stock_read(_connection, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from finished_goods_stock " in normalized:
+            stock_reads.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture_stock_read)
+    try:
+        received = client.post(BASE + "/print-runs/receive", json={"code": scan, "storage_cell": "A-01", "storage_shelf": "S1"}, headers=warehouse)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture_stock_read)
     assert received.status_code == 200, received.text
     assert received.json()["count"] == 6
+    assert len(stock_reads) == 1, stock_reads
+    assert "finished_goods_stock.package_id in" in stock_reads[0]
     with SessionLocal() as db:
         assert {p.status for p in db.query(Package).filter(Package.id.in_(second["package_ids"]))} == {"packed"}
         db.add(PackageBarcodeAlias(package_id=second["package_ids"][2], code="UNIQUE-SECOND-RUN", code_type="legacy"))
