@@ -5,11 +5,13 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import event
 
+from app.api.routes import package_workflows as package_workflow_routes
 from app.api.routes import packages as package_routes
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
 from app.models import (
     AuditLog,
+    FinishedGoodsStock,
     Model,
     Package,
     PackageItem,
@@ -19,7 +21,9 @@ from app.models import (
     ProductionOrder,
     User,
 )
+from app.schemas.package_workflows import PrintRunReceiveIn
 from app.schemas.tracking import PackageBatchReceiveStorageIn, PackageBatchStoragePlacementIn
+from app.services import package_workflows as package_workflow_service
 from app.services import packages as package_service
 
 
@@ -98,6 +102,50 @@ def _batch_packages(package_count: int, *, status: str) -> list[int]:
         return [int(package.id) for package in packages]
 
 
+def _print_run(package_count: int) -> tuple[int, str, list[int]]:
+    package_ids = _batch_packages(package_count, status="packed")
+    with SessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        packages = {
+            int(package.id): package
+            for package in db.query(Package).filter(Package.id.in_(package_ids)).all()
+        }
+        ordered_ids = list(reversed(package_ids))
+        marker = uuid4().hex[:8].upper()
+        print_run = PackagePrintRun(
+            run_no=f"PERF10-RUN-{marker}",
+            code=f"PACKRUN:PERF10-{marker}",
+            packaging_department_code="PKG",
+            package_ids=ordered_ids,
+            created_by=current.id,
+        )
+        db.add(print_run)
+        db.flush()
+        for package_id in ordered_ids:
+            package = packages[package_id]
+            package.packaging_department_code = "PKG"
+            db.add(
+                FinishedGoodsStock(
+                    package_id=package.id,
+                    production_order_id=package.production_order_id,
+                    model_id=package.model_id,
+                    color=package.color,
+                    size="M",
+                    quantity=1,
+                    available_qty=1,
+                )
+            )
+            db.add(
+                PackagePrintRunMember(
+                    run_id=print_run.id,
+                    package_id=package.id,
+                    snapshot=package_workflow_service.contents(package),
+                )
+            )
+        db.commit()
+        return int(print_run.id), str(print_run.code), ordered_ids
+
+
 def test_batch_production_sync_deduplicates_in_deterministic_order(monkeypatch):
     calls = []
     monkeypatch.setattr(
@@ -109,6 +157,50 @@ def test_batch_production_sync_deduplicates_in_deterministic_order(monkeypatch):
     package_service.sync_package_production_orders(None, [3, 2, None, 3, 1, 2])
 
     assert calls == [1, 2, 3]
+
+
+@pytest.mark.parametrize("package_count", [1, 50, 401])
+def test_print_run_receive_batches_package_stock_member_and_response_reads(monkeypatch, package_count):
+    _run_id, code, package_ids = _print_run(package_count)
+    monkeypatch.setattr(package_workflow_service, "log_action", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(package_service, "_sync_package_production", lambda *_args, **_kwargs: None)
+
+    with SessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        result, statements = _select_trace(
+            db.bind,
+            lambda: package_workflow_routes.receive_print_run(
+                PrintRunReceiveIn(code=code, storage_cell="B-02", storage_shelf="S2"),
+                db,
+                current,
+            ),
+        )
+
+    assert result["count"] == package_count
+    assert result["package_ids"] == package_ids
+    assert [row["id"] for row in result["packages"]] == package_ids
+    assert all(row["status"] == "received_in_storage" for row in result["packages"])
+    assert all(row["print_run_id"] == _run_id for row in result["packages"])
+    assert all(len(row["items"]) == 1 and len(row["scan_logs"]) == 1 for row in result["packages"])
+    expected_chunks = ceil(package_count / 400)
+    measured = {
+        "total": len(statements),
+        "packages": _table_selects(statements, "packages"),
+        "members": _table_selects(statements, "package_print_run_members"),
+        "stocks": _table_selects(statements, "finished_goods_stock"),
+        "items": _table_selects(statements, "package_items"),
+        "allocations": _table_selects(statements, "package_batch_allocations"),
+        "orders": _table_selects(statements, "production_orders"),
+    }
+    assert measured == {
+        "total": 13 * expected_chunks + 5,
+        "packages": expected_chunks + 1,
+        "members": expected_chunks + 1,
+        "stocks": 1,
+        "items": 2 * expected_chunks,
+        "allocations": 2 * expected_chunks,
+        "orders": 2 * expected_chunks,
+    }
 
 
 @pytest.mark.parametrize("package_count", [1, 50, 401])
@@ -422,6 +514,34 @@ def test_batch_receive_builds_response_before_commit(monkeypatch, client, auth_h
         assert package.status == "packed"
         assert package.storage_cell is None
         assert db.query(PackageScanLog).filter(PackageScanLog.package_id == package_id).count() == 0
+
+
+def test_print_run_receive_serialization_failure_rolls_back_every_package(monkeypatch, client, auth_headers):
+    run_id, code, package_ids = _print_run(2)
+    monkeypatch.setattr(
+        package_routes,
+        "_package_detail_payloads",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("serialization failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="serialization failed"):
+        client.post(
+            "/api/packages/print-runs/receive",
+            json={"code": code, "storage_cell": "B-02", "storage_shelf": "S2"},
+            headers=auth_headers,
+        )
+
+    with SessionLocal() as db:
+        print_run = db.get(PackagePrintRun, run_id)
+        packages = db.query(Package).filter(Package.id.in_(package_ids)).all()
+        assert print_run.received_at is None
+        assert {package.status for package in packages} == {"packed"}
+        assert db.query(PackageScanLog).filter(PackageScanLog.package_id.in_(package_ids)).count() == 0
+        assert db.query(AuditLog).filter_by(
+            action="receive_print_run",
+            entity_type="PackagePrintRun",
+            entity_id=run_id,
+        ).count() == 0
 
 
 def test_scalar_receive_keeps_print_member_conflict_precedence():

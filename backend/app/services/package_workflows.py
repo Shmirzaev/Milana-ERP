@@ -14,7 +14,8 @@ from app.services.barcode import generate_barcode_value, save_qr_image
 from app.services.idempotency import request_fingerprint
 from app.services.numbering import _next, next_package_nos
 from app.services.packages import (
-    _require_warehouse_package, _warehouse_source_types, receive_at_storage, validate_storage_location,
+    _warehouse_source_types, prepare_locked_package_receive,
+    receive_at_storage, sync_package_production_orders, validate_storage_location,
     _packaging_record_totals_by_batch, _existing_package_totals_by_batch,
 )
 
@@ -279,13 +280,16 @@ def receive_run(db, current, payload):
     require_active_run(run)
     # One persistent receipt per group; a retried scan returns that same receipt.
     if run.received_at:
-        return run, []
+        return run, [], run_members(db, run)
     members = run_members(db, run)
     ids = [m.package_id for m in members]
-    packages = db.query(Package).filter(Package.id.in_(ids)).order_by(Package.id).with_for_update().populate_existing().all()
-    if len(packages) != len(members) or not packages:
+    receive_gate = prepare_locked_package_receive(db, ids, print_run_id=run.id)
+    if len(receive_gate.packages_by_id) != len(members) or not members:
         raise HTTPException(409, "Print run membership is incomplete")
-    by_id = {p.id: p for p in packages}
+    if any(receive_gate.member_run_ids.get(int(package_id)) != int(run.id) for package_id in ids):
+        raise HTTPException(409, "Print run membership is incomplete")
+    packages = [receive_gate.packages_by_id[package_id] for package_id in ids]
+    items_by_package, allocations_by_package = _package_children(db, packages)
     stocks_by_package = {package_id: [] for package_id in ids}
     stocks = (
         db.query(FinishedGoodsStock)
@@ -297,19 +301,24 @@ def receive_run(db, current, payload):
     for stock in stocks:
         stocks_by_package[stock.package_id].append(stock)
     for member in members:
-        pkg = by_id[member.package_id]
-        if contents(pkg) != member.snapshot:
+        pkg = receive_gate.packages_by_id[member.package_id]
+        if contents(
+            pkg,
+            items=items_by_package[int(pkg.id)],
+            batch_allocations=allocations_by_package[int(pkg.id)],
+        ) != member.snapshot:
             raise HTTPException(409, f"Package {pkg.package_no} changed since printing; review required")
         if pkg.status != "packed":
             raise HTTPException(409, f"Package {pkg.package_no} is already received or unavailable")
-        _require_warehouse_package(db, pkg)
+        if receive_gate.source_types_by_order_id.get(int(pkg.production_order_id or 0)) == "usluga":
+            raise HTTPException(400, "Usluga packages are handed directly to the customer and cannot enter warehouse flow")
         if not (pkg.production_order_id or pkg.manual_receipt_id or pkg.legacy_receipt_id):
             raise HTTPException(409, "Package has no source evidence")
         # Existing stock must already be complete; receiving must never create it.
         package_stocks = stocks_by_package[pkg.id]
         expected = {}
         actual = {}
-        for item in pkg.items:
+        for item in items_by_package[int(pkg.id)]:
             key = (item.model_id, item.color, item.size)
             expected[key] = expected.get(key, 0) + item.quantity
         for stock in package_stocks:
@@ -322,13 +331,15 @@ def receive_run(db, current, payload):
         raise HTTPException(404, "Warehouse not found")
     for pkg in packages:
         receive_at_storage(db, pkg, payload.warehouse_id, current.id,
-                           storage_cell=payload.storage_cell, storage_shelf=payload.storage_shelf, print_run_id=run.id)
+                           storage_cell=payload.storage_cell, storage_shelf=payload.storage_shelf,
+                           print_run_id=run.id, receive_gate=receive_gate, sync_production=False)
+    sync_package_production_orders(db, (pkg.production_order_id for pkg in packages))
     run.received_at = datetime.now(timezone.utc)
     run.received_by = current.id
     run.receipt_location = payload.model_dump(exclude={"code"})
     log_action(db, current, "receive_print_run", "PackagePrintRun", run.id,
                new_value={"run_no": run.run_no, "package_ids": ids, **run.receipt_location})
-    return run, packages
+    return run, packages, members
 
 
 def delete_manual_run(db, current, run, package_ids=None):

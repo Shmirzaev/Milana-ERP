@@ -375,9 +375,10 @@ def test_stale_resolved_run_refreshes_receipt_after_lock(client, auth_headers, p
             completed.received_by = 1
             other.commit()
         monkeypatch.setattr(service, "resolve_run", lambda *_: stale)
-        refreshed, packages = service.receive_run(db, db.get(User, 1), PrintRunReceiveIn(code=run["code"]))
+        refreshed, packages, members = service.receive_run(db, db.get(User, 1), PrintRunReceiveIn(code=run["code"]))
         assert refreshed.received_at is not None
         assert packages == []
+        assert [member.package_id for member in members] == run["package_ids"]
 
 
 def test_pending_correction_cannot_change_newly_grouped_package(client, auth_headers, warehouse, packaging_order):

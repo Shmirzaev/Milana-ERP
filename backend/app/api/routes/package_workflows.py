@@ -269,10 +269,14 @@ def resolve_print_run(code: str, db: DbSession,
 @router.post("/print-runs/receive")
 def receive_print_run(payload: PrintRunReceiveIn, db: DbSession,
                       current: User = Depends(require_permissions("storage.packages", "*"))):
-    from app.api.routes.packages import _package_detail_payload
-    run, _ = service.receive_run(db, current, payload)
-    result = service.run_payload(db, run)
-    result["packages"] = [_package_detail_payload(db, db.get(Package, pid)) for pid in result["package_ids"]]
+    from app.api.routes.packages import _package_detail_payloads, _package_details_by_ids
+    run, _, members = service.receive_run(db, current, payload)
+    result = service.run_payload(db, run, members=members)
+    result["packages"] = _package_detail_payloads(
+        db,
+        _package_details_by_ids(db, result["package_ids"]),
+        print_run_ids={int(package_id): int(run.id) for package_id in result["package_ids"]},
+    )
     db.commit()
     return result
 
