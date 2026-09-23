@@ -265,10 +265,10 @@
       "risk": "Operator cannot recover without intervention.",
       "proposed_fix": "Reconcile request status and rejected retry state.",
       "baseline_source": "frontend/src/lib/packageWorkflow.ts:64",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "3ef1c83, 0056773, e2a6d8c, 641c058",
-      "evidence": "Existing package and purchase receipt recovery remains. Commit 641c058 serializes restored uncertain purchase receipts against the original order lock: it replays an exact committed result or persists a cancellation tombstone so delayed old-key writes fail and corrected values can use a new key without duplicate stock. Fourteen focused backend cases pass with three PostgreSQL-only skips; frontend stabilization, strict types and lint pass. Other package workflows and deleted-result/revoked-access recovery remain."
+      "commit": "3ef1c83, 0056773, e2a6d8c, 641c058, 3532e8e",
+      "evidence": "Manual receipts, print runs, package creation, manual shipments and purchase receipts now reconcile owner/fingerprint-scoped saved request keys under the same lock hierarchy as their writes. Recovery never reposts a physical mutation: committed results are returned only while currently authorized and active, deleted or permission-revoked results return completed_unavailable without stored data or identifiers, and unused keys receive a cancellation tombstone that blocks delayed writes. Browser evidence uses localStorage, Web Locks, storage events, guarded legacy migration and fail-closed corrupt/conflicting data so two tabs reuse one key and late completions cannot clear newer evidence. Twenty-six focused local backend cases pass with seven expected PostgreSQL skips; seven real PostgreSQL races, all three frontend recovery contracts, full frontend stabilization, strict TypeScript, targeted ESLint, Ruff and diff checks pass."
     },
     {
       "number": 23,
