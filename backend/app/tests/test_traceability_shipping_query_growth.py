@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
-from app.models import Customer, Model, Package, ProductionOrder, SalesOrder, Shipment, Warehouse
+from app.models import Customer, Model, Package, ProductionOrder, SalesOrder, Shipment, ShipmentPackage, Warehouse
 from app.services import traceability
 
 
@@ -131,6 +131,59 @@ def test_traceability_batches_package_and_shipment_references(row_count):
     assert [row["warehouse_name"] for row in package_payloads] == case["warehouse_names"]
     assert [row["sales_order_no"] for row in shipment_payloads] == case["order_nos"]
     assert [row["customer_name"] for row in shipment_payloads] == case["customer_names"]
+
+
+@pytest.mark.parametrize("package_count", [1, 50, 401])
+def test_shipment_traceability_reuses_package_warehouse_map(package_count):
+    with SessionLocal() as db:
+        suffix = uuid4().hex[:8].upper()
+        model_id = db.query(Model.id).order_by(Model.id).first()[0]
+        production_order = ProductionOrder(
+            production_no=f"PERF21-S-WPO-{suffix}",
+            production_type="branded_stock",
+            model_id=model_id,
+            status="packaging",
+            planned_quantity=package_count,
+        )
+        warehouses = [
+            Warehouse(name=f"PERF21 ship reuse warehouse {suffix} {number}", type="finished_goods")
+            for number in range(package_count)
+        ]
+        db.add_all([production_order, *warehouses])
+        db.flush()
+        packages = [
+            Package(
+                package_no=f"PERF21-S-WPKG-{suffix}-{number:04d}",
+                barcode=f"PERF21-S-WBC-{suffix}-{number:04d}",
+                production_order_id=production_order.id,
+                model_id=model_id,
+                color="navy",
+                total_quantity=1,
+                capacity=1,
+                warehouse_id=warehouse.id,
+                status="shipped",
+            )
+            for number, warehouse in enumerate(warehouses)
+        ]
+        shipment = Shipment(shipment_no=f"PERF21-S-WSH-{suffix}", status="shipped")
+        db.add_all([shipment, *packages])
+        db.flush()
+        db.add_all(
+            ShipmentPackage(shipment_id=shipment.id, package_id=package.id, quantity=1)
+            for package in packages
+        )
+        db.commit()
+        shipment_id = shipment.id
+        expected_names = [warehouse.name for warehouse in warehouses]
+
+    with SessionLocal() as db:
+        shipment = db.get(Shipment, shipment_id)
+        payload, statements = _select_trace(db, lambda: traceability.shipment_traceability(db, shipment))
+
+    warehouse_queries = [statement for statement in statements if " from warehouses " in statement]
+    assert len(warehouse_queries) == ceil(package_count / 400), statements
+    assert [row["warehouse_name"] for row in payload["packages"]] == expected_names
+    assert payload["shipment"]["shipment_no"].endswith(suffix)
 
 
 def test_traceability_shipping_maps_match_scalar_precedence_missing_and_order():

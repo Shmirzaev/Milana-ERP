@@ -422,8 +422,14 @@ def _package_payload(
     }
 
 
-def _package_payloads(db: Session, packages: list[Package]) -> list[dict]:
-    warehouses = _package_warehouses(db, packages)
+def _package_payloads(
+    db: Session,
+    packages: list[Package],
+    *,
+    warehouses: dict[int, Warehouse] | None = None,
+) -> list[dict]:
+    if warehouses is None:
+        warehouses = _package_warehouses(db, packages)
     return [_package_payload(db, pkg, warehouses=warehouses) for pkg in packages]
 
 
@@ -643,6 +649,7 @@ def build_traceability(
     shipment: Shipment | None = None,
     production_batch_id: int | None = None,
     preloaded_work_orders: list[WorkOrder] | None = None,
+    preloaded_package_warehouses: dict[int, Warehouse] | None = None,
 ) -> dict:
     gaps: list[str] = []
     po = production_order
@@ -807,7 +814,11 @@ def build_traceability(
             )
         ]
 
-    package_payload = _package_payloads(db, [package])[0] if package else None
+    package_payload = (
+        _package_payloads(db, [package], warehouses=preloaded_package_warehouses)[0]
+        if package
+        else None
+    )
     package_items = _package_items(package) if package else []
     package_scan_history = _package_scans(package) if package else []
     if package and not any(log["scan_type"] == "received_storage" for log in package_scan_history):
@@ -1270,12 +1281,20 @@ def shipment_traceability(db: Session, shipment: Shipment) -> dict:
         .order_by(Package.id.asc())
         .all()
     )
+    package_warehouses = _package_warehouses(db, packages)
     po = db.get(ProductionOrder, packages[0].production_order_id) if packages else None
-    data = build_traceability(db, subject_type="shipment", production_order=po, package=packages[0] if packages else None, shipment=shipment)
+    data = build_traceability(
+        db,
+        subject_type="shipment",
+        production_order=po,
+        package=packages[0] if packages else None,
+        shipment=shipment,
+        preloaded_package_warehouses=package_warehouses,
+    )
     data["package"] = None
     data["package_items"] = []
     data["package_scan_history"] = []
-    data["packages"] = _package_payloads(db, packages)
+    data["packages"] = _package_payloads(db, packages, warehouses=package_warehouses)
     data["shipment"] = _shipment_payload(db, shipment)
     data["shipments"] = [data["shipment"]] if data["shipment"] else []
     data["shipment_packages"] = _shipment_packages(db, [int(shipment.id)])
