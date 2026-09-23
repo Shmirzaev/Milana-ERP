@@ -270,12 +270,33 @@ def list_employees(
 
 @router.get("/employees/{eid}")
 def get_employee(eid: int, db: DbSession, current: CurrentUser):
-    e = db.query(Employee).filter(
-        Employee.id == eid,
-        Employee.factory_code == selected_factory_code(current),
-    ).first()
+    include_private = _can_view_private_employee_fields(current)
+    employee_fields = [
+        Employee.id,
+        Employee.factory_code,
+        Employee.employee_no,
+        Employee.user_id,
+        Employee.full_name,
+        Employee.department_id,
+        Employee.position,
+        Employee.status,
+        Employee.joined_at,
+        Employee.manager_employee_id,
+        Employee.hr_position_id,
+    ]
+    if include_private:
+        employee_fields.extend([Employee.phone, Employee.salary, Employee.hr_profile_json])
+    e = (
+        db.query(Employee)
+        .options(load_only(*employee_fields))
+        .filter(
+            Employee.id == eid,
+            Employee.factory_code == selected_factory_code(current),
+        )
+        .first()
+    )
     if not e: raise HTTPException(404, "Employee not found")
-    return _serialize(e, include_private=_can_view_private_employee_fields(current))
+    return _serialize(e, include_private=include_private)
 
 
 @router.post("/employees", status_code=201)
