@@ -118,6 +118,8 @@ MCP_BLOCKED_ACTIONS = [
     "mutate raw database records",
 ]
 
+_DB_INTEGER_MAX = 2_147_483_647
+
 
 ACTION_LABELS = {
     "add_package": "added a package",
@@ -556,6 +558,11 @@ def list_users(
     }
 
 
+def _require_storable_user_id(user_id: int) -> None:
+    if user_id < 1 or user_id > _DB_INTEGER_MAX:
+        raise HTTPException(404, "User not found")
+
+
 @router.post("/users", response_model=UserOut, status_code=201)
 def create_user(
     payload: UserIn,
@@ -616,6 +623,7 @@ def create_user(
 
 @router.get("/users/{user_id}", response_model=UserOut)
 def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
+    _require_storable_user_id(user_id)
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
@@ -626,6 +634,7 @@ def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions(
 def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
     if {"role_id", "extra_permissions", "access_policy", "is_active"} & payload.model_fields_set:
         _lock_active_user_memberships(db)
+    _require_storable_user_id(user_id)
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
@@ -695,6 +704,7 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
     _lock_active_user_memberships(db)
+    _require_storable_user_id(user_id)
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
