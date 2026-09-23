@@ -1,10 +1,22 @@
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import BrandedPlanningOrder, Customer, Department, Model, ModelImage, User, SalesOrder, WorkOrder
+from app.models import (
+    BrandedPlanningOrder,
+    Customer,
+    Department,
+    Item,
+    Model,
+    ModelBOM,
+    ModelImage,
+    SalesOrder,
+    StockBatch,
+    User,
+    WorkOrder,
+)
 from app.schemas.production import (
     BrandedOrderPartiesOut,
     BrandedOrderPartiesPageOut,
@@ -174,6 +186,7 @@ def list_branded_orders(
     models = (
         db.query(Model)
         .options(
+            load_only(Model.id, Model.code, Model.name, Model.details_json),
             selectinload(Model.images).load_only(
                 ModelImage.id,
                 ModelImage.model_id,
@@ -183,7 +196,25 @@ def list_branded_orders(
                 ModelImage.image_type,
                 ModelImage.is_primary,
             ),
-            selectinload(Model.bom),
+            selectinload(Model.bom)
+            .load_only(
+                ModelBOM.id,
+                ModelBOM.model_id,
+                ModelBOM.item_id,
+                ModelBOM.stock_batch_id,
+                ModelBOM.color,
+                ModelBOM.photo_url,
+            )
+            .options(
+                joinedload(ModelBOM.item).load_only(
+                    Item.id,
+                    Item.category,
+                    Item.name,
+                    Item.sku,
+                    Item.image_url,
+                ),
+                joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+            ),
         )
         .filter(Model.id.in_(model_ids))
         .all()
