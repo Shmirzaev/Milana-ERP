@@ -40,11 +40,20 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
     production_order_reads = [
         statement for statement in normalized if "from production_orders" in statement
     ]
+    receipt_order_reads = [
+        statement for statement in production_order_reads
+        if "where production_orders.id in" in statement
+    ]
     assert len(department_reads) <= 2
     assert len(received_sum_reads) <= 1
     # Receipt status synchronization stays live per bundle, but its already
     # loaded order and work-order references are reused for the whole batch.
     assert len(production_order_reads) <= 3
+    assert len(receipt_order_reads) == 1
+    assert "production_orders.source_type" in receipt_order_reads[0]
+    assert "production_orders.handed_over_at" in receipt_order_reads[0]
+    assert "production_orders.printing_attachments" not in receipt_order_reads[0]
+    assert "production_orders.service_handover_notes" not in receipt_order_reads[0]
     assert len(work_order_reads) <= 4
     print(f"{mode} {bundle_count}: {len(statements)} SELECTs")
     assert len(statements) == (20 if mode == "manual" else 30)

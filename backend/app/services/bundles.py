@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.models import (
     Bundle, BundleScanLog, CuttingRecord, ProductionOrder, ProductionBatch, Department, SalesOrder, User, WorkOrder,
@@ -641,7 +641,12 @@ def _sewing_receipt_context(
     # every bundle even though all transitions share this transaction.
     production_orders = {
         int(row.id): row
-        for row in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()
+        for row in db.query(ProductionOrder).options(load_only(
+            ProductionOrder.id,
+            ProductionOrder.status,
+            ProductionOrder.source_type,
+            ProductionOrder.handed_over_at,
+        )).filter(ProductionOrder.id.in_(order_ids)).all()
     }
     work_orders = {order_id: [] for order_id in order_ids}
     for row in (
