@@ -1,7 +1,62 @@
 from uuid import uuid4
 
+from sqlalchemy import event
+
 from app.db.session import SessionLocal
-from app.models import PackagingRecord, PackageScanLog, Payment, ShipmentScanLog, WorkOrder
+from app.models import IdempotencyRecord, PackagingRecord, PackageScanLog, Payment, ShipmentScanLog, User, WorkOrder
+from app.services.idempotency import replay_idempotent_response, request_fingerprint
+
+
+def test_idempotency_replay_projects_only_response_validation_columns():
+    key = f"projection-{uuid4().hex}"
+    payload = {"amount": 12, "method": "cash"}
+    response = {"id": 47, "ok": True}
+    statements = []
+    with SessionLocal() as db:
+        user = db.query(User).first()
+        assert user is not None
+        db.add(IdempotencyRecord(
+            scope="test.projection",
+            key=key,
+            request_hash=request_fingerprint(payload),
+            response_json=response,
+            status_code=201,
+            user_id=user.id,
+        ))
+        db.commit()
+        user_id = user.id
+        legacy_sql = str(
+            db.query(IdempotencyRecord)
+            .filter(IdempotencyRecord.scope == "test.projection", IdempotencyRecord.key == key)
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+        bind = db.get_bind()
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().lower().startswith("select"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        with SessionLocal() as db:
+            user = db.get(User, user_id)
+            result = replay_idempotent_response(
+                db,
+                user=user,
+                scope="test.projection",
+                key=key,
+                payload=payload,
+            )
+            assert result == response
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+
+    record_read = next(statement for statement in statements if " from idempotency_records " in statement)
+    assert "idempotency_records.user_id" in record_read
+    assert "idempotency_records.request_hash" in record_read
+    assert "idempotency_records.response_json" in record_read
+    assert "idempotency_records.status_code" not in record_read
+    assert "idempotency_records.status_code" in legacy_sql
 
 
 def _model_id(client, headers) -> int:

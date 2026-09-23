@@ -52,7 +52,11 @@ def replay_idempotent_response(
 
     fingerprint = request_fingerprint(payload)
     row = (
-        db.query(IdempotencyRecord)
+        db.query(
+            IdempotencyRecord.user_id,
+            IdempotencyRecord.request_hash,
+            IdempotencyRecord.response_json,
+        )
         .filter(IdempotencyRecord.scope == scope, IdempotencyRecord.key == normalized_key)
         .populate_existing()
         .first()
