@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import event
 
 from app.api.routes import stocktake as stocktake_routes
-from app.models import Package, User
+from app.models import LegacyStockReceipt, Model, Package, PackageItem, User
 from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
 from app.services import stocktake as stocktake_service
 from app.tests.conftest import TestSessionLocal
@@ -526,6 +526,60 @@ def test_requested_package_snapshot_scopes_finished_goods_balance_subquery():
 
     assert statements
     assert all("where finished_goods_stock.package_id in" in statement for statement in statements)
+
+
+def test_package_snapshot_item_read_projects_only_output_columns():
+    marker = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        model = Model(code=f"PERF33-ITEM-{marker}", name=f"Stocktake item {marker}")
+        db.add(model)
+        db.flush()
+        receipt = LegacyStockReceipt(
+            source_system="PERF33",
+            source_warehouse_id="stocktake-item-projection",
+            source_record_id=marker,
+            source_checksum=marker.ljust(64, "0"),
+            source_payload={},
+        )
+        db.add(receipt)
+        db.flush()
+        package = Package(
+            package_no=f"PERF33-PKG-{marker}", barcode=f"PERF33-BC-{marker}", model_id=model.id,
+            legacy_receipt_id=receipt.id, color="navy", total_quantity=3, capacity=3,
+            status="received_in_storage",
+        )
+        db.add(package)
+        db.flush()
+        db.add(PackageItem(package_id=package.id, model_id=model.id, color="navy", size="M", quantity=3))
+        db.flush()
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            normalized = " ".join(statement.lower().split())
+            if normalized.startswith("select") and " from package_items " in normalized:
+                statements.append(normalized)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            snapshot = stocktake_service.package_snapshots(db, [package.id], include_items=True)[package.id]
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert snapshot["items"] == [{
+        "model_code": model.code,
+        "model_name": model.name,
+        "color": "navy",
+        "size": "M",
+        "quantity": 3,
+    }]
+    assert len(statements) == 1, statements
+    selected = statements[0].split(" from package_items ", maxsplit=1)[0]
+    assert "package_items.package_id" in selected
+    assert "package_items.color" in selected
+    assert "package_items.size" in selected
+    assert "package_items.quantity" in selected
+    assert "package_items.id" not in selected
+    assert "package_items.model_id" not in selected
 
 
 @pytest.mark.parametrize("scan_count", [1, 50, 401])

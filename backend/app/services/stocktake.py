@@ -76,13 +76,20 @@ def package_snapshots(db, package_ids=None, *, expected_only=False, include_item
     if include_items and snapshots:
         for snapshot in snapshots.values():
             snapshot["items"] = []
-        items = db.query(PackageItem, Model.code, Model.name).outerjoin(Model, Model.id == PackageItem.model_id).filter(
+        items = db.query(
+            PackageItem.package_id,
+            Model.code,
+            Model.name,
+            PackageItem.color,
+            PackageItem.size,
+            PackageItem.quantity,
+        ).outerjoin(Model, Model.id == PackageItem.model_id).filter(
             PackageItem.package_id.in_(snapshots)
         ).order_by(PackageItem.package_id, PackageItem.id).all()
-        for item, code, name in items:
-            snapshots[item.package_id]["items"].append({
-                "model_code": code, "model_name": name, "color": item.color,
-                "size": item.size, "quantity": item.quantity,
+        for package_id, code, name, color, size, quantity in items:
+            snapshots[package_id]["items"].append({
+                "model_code": code, "model_name": name, "color": color,
+                "size": size, "quantity": quantity,
             })
     return snapshots
 
