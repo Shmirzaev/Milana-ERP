@@ -1,5 +1,9 @@
 from uuid import uuid4
 
+from sqlalchemy import event
+
+from app.tests.conftest import test_engine
+
 
 def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
     from app.db.session import SessionLocal
@@ -33,8 +37,26 @@ def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
     with SessionLocal() as db:
         assert db.get(ProductionOrder, order_id).fabric_batch_id == original
         assert sum(float(r.released_quantity) for r in db.query(MaterialReservation).filter_by(production_order_id=order_id, stock_batch_id=original)) == 0
-    corrected = client.patch(url, headers=cutting_headers, json={"stock_batch_id": replacement})
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from stock_batches " in normalized:
+            statements.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        corrected = client.patch(url, headers=cutting_headers, json={"stock_batch_id": replacement})
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
     assert corrected.status_code == 200, corrected.text
+    replacement_reads = [sql for sql in statements if "stock_batches.id in (?, ?)" in sql]
+    assert len(replacement_reads) == 1
+    selected_columns = replacement_reads[0].split(" from stock_batches ", maxsplit=1)[0]
+    assert "stock_batches.cost_per_unit" not in selected_columns
+    assert "stock_batches.roll_weights_kg" not in selected_columns
+    assert "items_1.default_cost" not in selected_columns
+    assert "join items" in replacement_reads[0]
     # A stale second click cannot move the reservation twice.
     assert client.patch(url, headers=cutting_headers, json={"stock_batch_id": replacement}).status_code == 409
     with SessionLocal() as db:

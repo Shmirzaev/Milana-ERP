@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 from sqlalchemy import or_
+from sqlalchemy.orm import joinedload, load_only
 
 from app.models import (
     CuttingMaterialUsage, CuttingRecord, Item, MaterialReservation,
@@ -63,9 +64,23 @@ def replace_cutting_material_batch(db, current, work_order_id, old_batch_id, new
     )).first()
     if used:
         raise HTTPException(409, "This material has already been used in Cutting; its recorded batch cannot be replaced")
-    batches = db.query(StockBatch).filter(StockBatch.id.in_([old_batch_id, new_batch_id])).order_by(StockBatch.id).with_for_update(of=StockBatch).all()
+    batches = db.query(StockBatch).options(
+        load_only(
+            StockBatch.id,
+            StockBatch.item_id,
+            StockBatch.archived_at,
+            StockBatch.quantity,
+            StockBatch.unit,
+            StockBatch.warehouse_id,
+            StockBatch.batch_no,
+            StockBatch.internal_batch_no,
+        ),
+        joinedload(StockBatch.item).load_only(Item.id, Item.category, Item.sku, Item.name),
+    ).filter(StockBatch.id.in_([old_batch_id, new_batch_id])).order_by(
+        StockBatch.id,
+    ).with_for_update(of=StockBatch).all()
     batch = next((row for row in batches if row.id == new_batch_id), None)
-    item = db.get(Item, batch.item_id) if batch else None
+    item = batch.item if batch else None
     if not batch or not item or item.category not in {"fabric", "semi_finished"}:
         raise HTTPException(400, "Select a fabric inventory batch")
     if batch.archived_at is not None or float(batch.quantity or 0) <= 0:
