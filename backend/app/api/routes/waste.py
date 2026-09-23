@@ -24,19 +24,19 @@ WASTE_QUANTITY_QUANTUM = Decimal("0.0001")
 
 def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | None) -> Decimal:
     if batch_id:
-        batch = db.get(StockBatch, batch_id)
+        batch = db.query(StockBatch.id, StockBatch.cost_per_unit).filter(StockBatch.id == batch_id).one_or_none()
         if batch:
             return Decimal(str(batch.cost_per_unit or 0))
     if item_id:
         latest = (
-            db.query(StockBatch)
+            db.query(StockBatch.id, StockBatch.cost_per_unit)
             .filter(StockBatch.item_id == item_id)
             .order_by(StockBatch.id.desc())
             .first()
         )
         if latest:
             return Decimal(str(latest.cost_per_unit or 0))
-        item = db.get(Item, item_id)
+        item = db.query(Item.id, Item.default_cost).filter(Item.id == item_id).one_or_none()
         if item:
             return Decimal(str(item.default_cost or 0))
     return Decimal("0")
