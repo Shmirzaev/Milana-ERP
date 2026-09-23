@@ -91,6 +91,7 @@ from app.services.packaging_scope import (
 
 router = APIRouter(prefix="/packages", tags=["packages"])
 _LABEL_CONTEXT_CHUNK_SIZE = 400
+_RECEIVING_QUEUE_MAX_PAGE_SIZE = 500
 _RECEIVING_QUEUE_EVENTS = (
     "queued_storage",
     "removed_storage_queue",
@@ -445,8 +446,8 @@ def _package_details_by_ids(db: DbSession, package_ids: list[int]) -> list[Packa
     return [packages_by_id[package_id] for package_id in ordered_ids if package_id in packages_by_id]
 
 
-def _receiving_queue_query(db: DbSession):
-    latest_event = (
+def _receiving_queue_latest_event_subquery(db: DbSession):
+    return (
         db.query(
             PackageScanLog.package_id.label("package_id"),
             func.max(PackageScanLog.id).label("event_id"),
@@ -455,6 +456,10 @@ def _receiving_queue_query(db: DbSession):
         .group_by(PackageScanLog.package_id)
         .subquery()
     )
+
+
+def _receiving_queue_query(db: DbSession):
+    latest_event = _receiving_queue_latest_event_subquery(db)
     return (
         db.query(Package)
         .options(*_package_detail_relationship_options())
@@ -483,7 +488,18 @@ def _receiving_queue_packages(
 
 
 def _receiving_queue_count(db: DbSession) -> int:
-    return _receiving_queue_query(db).order_by(None).count()
+    latest_event = _receiving_queue_latest_event_subquery(db)
+    return int(
+        db.query(func.count(Package.id))
+        .join(latest_event, latest_event.c.package_id == Package.id)
+        .join(PackageScanLog, PackageScanLog.id == latest_event.c.event_id)
+        .filter(
+            Package.status == "packed",
+            PackageScanLog.scan_type == "queued_storage",
+        )
+        .scalar()
+        or 0
+    )
 
 
 def _package_for_receiving_scan(db: DbSession, raw_code: str) -> Package | None:
@@ -1600,7 +1616,7 @@ def receiving_queue(
     response: Response,
     _: User = Depends(require_permissions("storage.packages", "*")),
     offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
-    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    limit: Annotated[int, Query(ge=1, le=_RECEIVING_QUEUE_MAX_PAGE_SIZE)] = _RECEIVING_QUEUE_MAX_PAGE_SIZE,
 ):
     total = _receiving_queue_count(db)
     if response is not None:
@@ -1667,6 +1683,11 @@ def remove_from_receiving_queue(
     db: DbSession,
     current: User = Depends(require_permissions("storage.packages", "*")),
 ):
+    if len(payload.package_ids) > _RECEIVING_QUEUE_MAX_PAGE_SIZE:
+        raise HTTPException(
+            422,
+            f"At most {_RECEIVING_QUEUE_MAX_PAGE_SIZE} packages may be removed at a time",
+        )
     requested_ids = {int(package_id) for package_id in payload.package_ids if int(package_id or 0) > 0}
     if not requested_ids:
         return {

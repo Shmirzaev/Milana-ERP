@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.api.routes import packages as package_routes
 from app.db.session import SessionLocal
 from app.models import (
+    AuditLog,
     Customer,
     Item,
     LegacyStockReceipt,
@@ -330,6 +331,63 @@ def test_receiving_queue_bounds_page_and_reports_total(client, auth_headers):
     assert response.headers["x-page-limit"] == "2"
 
 
+@pytest.mark.parametrize("package_count", [1, 50, 401])
+def test_receiving_queue_page_scopes_detail_and_reference_loads_to_returned_packages(
+    client, auth_headers, package_count,
+):
+    package_ids = _receiving_queue_case(package_count)
+    offset = package_count // 2
+    limit = min(3, package_count)
+    with SessionLocal() as db:
+        bind = db.bind
+
+    response, statements = _select_trace(
+        bind,
+        lambda: client.get(
+            f"/api/packages/receiving-queue?offset={offset}&limit={limit}",
+            headers=auth_headers,
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+    expected_ids = list(reversed(package_ids))[offset:offset + limit]
+    payload = response.json()
+    assert [row["id"] for row in payload] == expected_ids
+    assert all(len(row["items"]) == 1 for row in payload)
+    assert all(len(row["batch_allocations"]) == 1 for row in payload)
+    assert all(len(row["scan_logs"]) == 2 for row in payload)
+    assert response.headers["x-total-count"] == str(package_count)
+
+    count_queries = [statement for statement in statements if "count(" in statement]
+    assert len(count_queries) == 1, statements
+    assert "count(packages.id)" in count_queries[0]
+    assert " from (select packages." not in count_queries[0]
+
+    for table in ("package_items", "package_batch_allocations", "package_scan_logs"):
+        child_reads = [
+            statement for statement in statements
+            if f" from {table} " in statement and f"{table}.package_id in (" in statement
+        ]
+        assert len(child_reads) == 1, statements
+        marker = f"{table}.package_id in ("
+        start = child_reads[0].find(marker)
+        assert start >= 0, child_reads[0]
+        end = child_reads[0].find(")", start)
+        assert child_reads[0][start:end].count("?") == limit, child_reads[0]
+
+    for table in (
+        "models",
+        "production_orders",
+        "sales_orders",
+        "customers",
+        "package_print_run_members",
+    ):
+        reference_reads = [statement for statement in statements if f" from {table} " in statement]
+        assert len(reference_reads) == 1, statements
+        assert " in (" in reference_reads[0], reference_reads[0]
+        assert reference_reads[0].split(" in (", 1)[1].split(")", 1)[0].count("?") == limit
+
+
 def test_receiving_queue_remove_returns_same_batched_list_contract(client, auth_headers):
     package_ids = _receiving_queue_case(3)
 
@@ -355,6 +413,23 @@ def test_receiving_queue_remove_returns_same_batched_list_contract(client, auth_
     )
     assert unchanged.status_code == 200, unchanged.text
     assert unchanged.json() == {"count": 0, "packages": payload["packages"]}
+
+
+def test_receiving_queue_remove_bounds_requested_packages_before_mutation(client, auth_headers):
+    _receiving_queue_case(1)
+    with SessionLocal() as db:
+        before = (db.query(PackageScanLog).count(), db.query(AuditLog).count())
+
+    response = client.post(
+        "/api/packages/receiving-queue/remove",
+        headers=auth_headers,
+        json={"package_ids": [-1] * 501},
+    )
+
+    assert response.status_code == 422, response.text
+    with SessionLocal() as db:
+        after = (db.query(PackageScanLog).count(), db.query(AuditLog).count())
+    assert after == before
 
 
 def test_shared_model_context_preserves_bom_stock_batch_image_fallback(client, auth_headers, monkeypatch):
@@ -478,5 +553,7 @@ def test_label_context_eagerly_loads_distinct_embedded_model_images(monkeypatch)
     embedded = "data:image/png;base64," + base64.b64encode(b"unused-image-blob").decode("ascii")
     assert all(embedded in card for card in cards)
     image_selects = [statement for statement in statements if " from model_images " in statement]
-    assert len(image_selects) == 1
-    assert "file_data" in image_selects[0]
+    metadata_selects = [statement for statement in image_selects if "model_images.file_data" not in statement]
+    blob_selects = [statement for statement in image_selects if "model_images.file_data" in statement]
+    assert len(metadata_selects) == len(blob_selects) == 1
+    assert "model_images.file_data" in blob_selects[0]
