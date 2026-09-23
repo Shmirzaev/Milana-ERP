@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import event
 
 from app.models import (
     AuditLog, IdempotencyRecord, Item, ManualAccessoryIssue, Model, ModelBOM,
@@ -68,6 +69,37 @@ def test_return_is_deducted_once_per_order_item_unit(accessory_case, stock, manu
         assert row["returned_quantity"] == returned
         assert row["returnable_quantity"] == stock + sum(manual) - returned
         assert row["movement_count"] == int(stock > 0) + len(manual)
+
+
+def test_accessory_issue_summary_projects_only_fields_used_from_movements_and_items(accessory_case):
+    with TestSessionLocal() as db:
+        _seed_issues(db, accessory_case, manual=(), returned=0)
+        statements = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            normalized = " ".join(statement.lower().split())
+            if (
+                normalized.startswith("select")
+                and " from stock_movements " in normalized
+                and " join items " in normalized
+            ):
+                statements.append(normalized)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rows = accessory_issue_summary(db, production_order_id=accessory_case["po_id"])
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert len(rows) == 1
+    assert len(statements) == 1
+    selected = statements[0].split(" from stock_movements", 1)[0]
+    assert "stock_movements.quantity" in selected
+    assert "stock_movements.reference_type" in selected
+    assert "items.sku" in selected
+    assert "items.category" in selected
+    assert "stock_movements.note" not in selected
+    assert "items.composition_json" not in selected
 
 
 def test_return_groups_keep_other_orders_items_units_and_itemless_labels_separate(accessory_case):

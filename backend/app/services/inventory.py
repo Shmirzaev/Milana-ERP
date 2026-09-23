@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, func, or_, text
-from sqlalchemy.orm import Session, lazyload
+from sqlalchemy.orm import Session, lazyload, load_only
 
 from app.core.pagination import clamp_pagination
 from app.core.model_search import model_code_contains, normalized_model_code_column, normalized_model_code_key
@@ -1546,6 +1546,17 @@ def accessory_issue_summary(
 ) -> list[dict]:
     query = (
         db.query(StockMovement, Item)
+        .options(
+            load_only(
+                StockMovement.id,
+                StockMovement.reference_type,
+                StockMovement.reference_id,
+                StockMovement.unit,
+                StockMovement.created_at,
+                StockMovement.quantity,
+            ),
+            load_only(Item.id, Item.unit, Item.sku, Item.name, Item.image_url, Item.category),
+        )
         .join(Item, Item.id == StockMovement.item_id)
         .filter(
             Item.category.in_(ACCESSORY_CATEGORIES),
