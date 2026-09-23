@@ -123,6 +123,45 @@ def test_utilization_snapshot_queries_are_chunk_bounded(flow_count, expected_sel
     assert [by_id[flow_id]["committed_today"] for flow_id in flow_ids] == [8] * flow_count
 
 
+def test_single_flow_load_scopes_managed_assignment_lookup_to_its_work_orders():
+    with SessionLocal() as db:
+        flow_ids = _flow_set(db, 50)
+        unrelated_work_orders = db.query(WorkOrder).filter(WorkOrder.sewing_flow_id.in_(flow_ids[1:])).all()
+        db.add_all([
+            SewingAssignment(
+                work_order_id=work_order.id,
+                sewing_flow_id=work_order.sewing_flow_id,
+                quantity=10,
+                completed_qty=0,
+                status="completed",
+            )
+            for work_order in unrelated_work_orders
+        ])
+        db.commit()
+
+    with SessionLocal() as db:
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            normalized = " ".join(statement.lower().split())
+            if normalized.startswith("select"):
+                statements.append(normalized)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            load = sewing_flows._single_load(db, flow_ids[0])
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert load == {"active_work_orders": 1, "planned_units": 10, "completed_units": 2}
+    managed_reads = [
+        statement for statement in statements
+        if " from sewing_assignments " in statement and "where sewing_assignments.work_order_id in" in statement
+    ]
+    assert len(managed_reads) == 1, statements
+    assert "sewing_assignments.work_order_id in (?)" in managed_reads[0]
+
+
 @pytest.mark.parametrize("flow_count", [1, 50, 401])
 def test_utilization_snapshot_page_bounds_rows_and_preserves_legacy_payload(flow_count):
     with SessionLocal() as db:

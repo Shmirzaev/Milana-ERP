@@ -165,17 +165,19 @@ def _bulk_load(db, flow_ids: list[int]) -> dict[int, dict]:
 
 
 def _single_load(db, flow_id: int) -> dict:
-    assignment_managed_wo_ids = {
-        wid for (wid,) in db.query(SewingAssignment.work_order_id).filter(
-            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
-        ).distinct().all()
-    }
     direct_rows = (
         db.query(WorkOrder.id, WorkOrder.planned_output_qty, WorkOrder.passed_qty)
         .filter(WorkOrder.sewing_flow_id == flow_id)
         .filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
         .all()
     )
+    direct_work_order_ids = [wid for wid, _planned, _done in direct_rows]
+    assignment_managed_wo_ids = {
+        wid for (wid,) in db.query(SewingAssignment.work_order_id).filter(
+            SewingAssignment.work_order_id.in_(direct_work_order_ids),
+            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
+        ).distinct().all()
+    } if direct_work_order_ids else set()
     direct_active = 0
     direct_planned = 0
     direct_done = 0
