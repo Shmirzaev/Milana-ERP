@@ -1456,8 +1456,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "1896408, f288ada, f0a1536",
-      "evidence": "Dependency evidence remains. Commit f0a1536 normalizes JWT_ALGORITHM and permits only HS256/384/512, rejecting none/asymmetric/arbitrary settings; five startup/config cases and real python-jose round trips pass. Ecdsa advisory, Node20 lifecycle, deployment configuration and container scanning remain unresolved."
+      "commit": "1896408, f288ada, f0a1536, 06705b9",
+      "evidence": "Commit 06705b9 replaces python-jose with PyJWT2.14.0, removing the vulnerable unused ecdsa chain, and moves CI/frontend images from EOL Node20 to Node24 LTS. Runtime/manifest and legacy-token interoperability contracts pass: focused19 and broad85 security cases, fresh pip-audit and npm full/production audits report zero, strict types/Ruff/Bandit pass, and legacy tokens interoperate both directions. Exact built-container OS scanning remains unresolved because Docker/Trivy are unavailable locally and no release/CI execution is authorized."
     },
     {
       "number": 122,
