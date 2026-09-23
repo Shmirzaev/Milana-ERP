@@ -403,8 +403,15 @@ def test_search_and_changed_filters_serialize_only_matching_page(monkeypatch):
     assert calls == 1  # only the search match; unchanged rows never hydrate
 
 
-@pytest.mark.parametrize("row_count", [1, 50, 401])
-def test_changed_filter_matches_scalar_parity_and_bounds_hydration_queries(monkeypatch, row_count):
+@pytest.mark.parametrize(
+    ("row_count", "expected_select_count"),
+    [(1, 9), (50, 10), (401, 14)],
+)
+def test_changed_filter_matches_scalar_parity_and_bounds_hydration_queries(
+    monkeypatch,
+    row_count,
+    expected_select_count,
+):
     count_id = _changed_stocktake_rows(row_count)
     needle = "PERF33-00"
     offset = 3
@@ -467,8 +474,8 @@ def test_changed_filter_matches_scalar_parity_and_bounds_hydration_queries(monke
     assert actual["rows"] == expected_rows[offset : offset + limit]
     assert calls == len(actual["rows"]) <= limit
     select_count = sum(statement.lstrip().upper().startswith("SELECT") for statement in statements)
-    # Summary plus two 400-row scan/snapshot chunks and one page hydration stays constant-scale.
-    assert select_count <= 14
+    # Summary and changed filtering each use one package read per 400-row chunk.
+    assert select_count == expected_select_count
 
 
 def test_search_serializes_only_matching_rows_for_large_count(monkeypatch):

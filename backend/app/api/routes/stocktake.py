@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import io
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from itertools import islice
 from types import SimpleNamespace
@@ -31,6 +32,30 @@ router = APIRouter(prefix="/warehouse-stocktakes", tags=["warehouse_stocktakes"]
 access = require_permissions("storage.packages", "storage.shipment")
 _STOCKTAKE_EXPORT_CHUNK_SIZE = 400
 _DB_INTEGER_MAX = 2_147_483_647
+
+
+@contextmanager
+def _stocktake_read_snapshot(db):
+    """Keep every live package read in one PostgreSQL MVCC snapshot."""
+    if db.get_bind().dialect.name != "postgresql":
+        yield db
+        return
+
+    # Authentication has already read the user in the request session, which
+    # starts a READ COMMITTED transaction. End that read-only transaction so
+    # the stocktake itself can select its isolation level before its first
+    # statement. The endpoints using this helper never stage writes.
+    db.rollback()
+    db.connection(execution_options={
+        "isolation_level": "REPEATABLE READ",
+        "postgresql_readonly": True,
+    })
+    try:
+        yield db
+    finally:
+        # Streaming responses hold the snapshot until their generator closes.
+        # Rollback releases it on normal completion, failure, or disconnect.
+        db.rollback()
 
 
 def _stocktake_list_scan_summaries(db, stocktake_ids):
@@ -303,25 +328,24 @@ def detail(
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
 ):
-    count = get_count(db, count_id)
-    needle = q.strip().casefold()
-    if result != "changed":
+    with _stocktake_read_snapshot(db):
+        count = get_count(db, count_id)
+        needle = q.strip().casefold()
         summary = stocktake_summary(db, count)
-        total, page_rows = stocktake_detail_page(
-            db,
-            count,
-            result=result,
-            offset=offset,
-            limit=limit,
-            search=needle,
-        )
+        if result != "changed":
+            total, page_rows = stocktake_detail_page(
+                db,
+                count,
+                result=result,
+                offset=offset,
+                limit=limit,
+                search=needle,
+            )
+        else:
+            total, page_rows = changed_detail_page(
+                db, count, search=needle, offset=offset, limit=limit,
+            )
         return {**count_info(count), "summary": summary, "total": total, "rows": page_rows}
-
-    summary = stocktake_summary(db, count)
-    total, page_rows = changed_detail_page(
-        db, count, search=needle, offset=offset, limit=limit,
-    )
-    return {**count_info(count), "summary": summary, "total": total, "rows": page_rows}
 
 
 @router.post("/{count_id}/scan")
@@ -511,7 +535,9 @@ def _stocktake_export_rows(db, count):
 
 @router.get("/{count_id}/export.csv")
 def export(count_id: int, db: DbSession, _: User = Depends(access)):
-    count = get_count(db, count_id)
+    # Validate before sending response headers. The generator reloads the
+    # count inside the same repeatable-read snapshot as all streamed rows.
+    get_count(db, count_id)
     headers = [
             "Count",
             "Completed",
@@ -544,68 +570,70 @@ def export(count_id: int, db: DbSession, _: User = Depends(access)):
             "Row type",
     ]
     def csv_lines():
-        yield "\ufeff" + _csv_line(headers)
-        scanned_packages = 0
-        scanned_pieces = 0
-        estimated_packages = 0
-        unquantified_packages = 0
-        unknown = 0
-        ambiguous = 0
-        for row in _stocktake_export_rows(db, count):
-            s = row["snapshot"]
-            now = row["current"] or {}
-            observed = row["scan_snapshot"] or (s if row["scanned_at"] and row["package_id"] else {})
-            items = observed.get("items") or ([observed] if observed else [])
-            breakdown = "; ".join(
-                " / ".join(str(item.get(key) or "") for key in ("model_code", "model_name", "color", "size"))
-                + f" : {item.get('quantity', '')}"
-                for item in items
-            )
-            yield _csv_line([
-                count.title,
-                count.completed_at or "",
-                row["result"],
-                row["changed"],
-                s.get("package_no"),
-                s.get("barcode"),
-                s.get("model_code"),
-                s.get("color"),
-                s.get("quantity"),
-                s.get("available"),
-                s.get("reserved"),
-                s.get("location"),
-                row["scan_code"],
-                row["scanned_at"],
-                now.get("status"),
-                now.get("quantity"),
-                now.get("available"),
-                now.get("reserved"),
-                now.get("location"),
-                row["scanned_pieces"],
-                row["scan_evidence_source"] if row["scanned_at"] else "",
-                breakdown,
-                "", "", "", "", "", "", "package",
-            ])
-            if row.pop("_first_scanned_package", False):
-                scanned_packages += 1
-                scanned_pieces += row["scanned_pieces"] or 0
-                estimated_packages += row["scan_evidence_source"] == "count_start"
-                unquantified_packages += row["scanned_pieces"] is None
-            unknown += row["result"] == "unknown"
-            ambiguous += row["result"] == "ambiguous"
-        footer = {
-            "Count": count.title,
-            "Completed": count.completed_at or "",
-            "Result": "TOTAL",
-            "Row type": "totals",
-            "Scanned packages total": scanned_packages,
-            "Scanned pieces total": scanned_pieces,
-            "Count-start fallback packages": estimated_packages,
-            "Scanned packages without quantity evidence": unquantified_packages,
-            "Unknown labels total": unknown,
-            "Ambiguous labels total": ambiguous,
-        }
-        yield _csv_line([footer.get(header, "") for header in headers])
+        with _stocktake_read_snapshot(db):
+            count = get_count(db, count_id)
+            yield "\ufeff" + _csv_line(headers)
+            scanned_packages = 0
+            scanned_pieces = 0
+            estimated_packages = 0
+            unquantified_packages = 0
+            unknown = 0
+            ambiguous = 0
+            for row in _stocktake_export_rows(db, count):
+                s = row["snapshot"]
+                now = row["current"] or {}
+                observed = row["scan_snapshot"] or (s if row["scanned_at"] and row["package_id"] else {})
+                items = observed.get("items") or ([observed] if observed else [])
+                breakdown = "; ".join(
+                    " / ".join(str(item.get(key) or "") for key in ("model_code", "model_name", "color", "size"))
+                    + f" : {item.get('quantity', '')}"
+                    for item in items
+                )
+                yield _csv_line([
+                    count.title,
+                    count.completed_at or "",
+                    row["result"],
+                    row["changed"],
+                    s.get("package_no"),
+                    s.get("barcode"),
+                    s.get("model_code"),
+                    s.get("color"),
+                    s.get("quantity"),
+                    s.get("available"),
+                    s.get("reserved"),
+                    s.get("location"),
+                    row["scan_code"],
+                    row["scanned_at"],
+                    now.get("status"),
+                    now.get("quantity"),
+                    now.get("available"),
+                    now.get("reserved"),
+                    now.get("location"),
+                    row["scanned_pieces"],
+                    row["scan_evidence_source"] if row["scanned_at"] else "",
+                    breakdown,
+                    "", "", "", "", "", "", "package",
+                ])
+                if row.pop("_first_scanned_package", False):
+                    scanned_packages += 1
+                    scanned_pieces += row["scanned_pieces"] or 0
+                    estimated_packages += row["scan_evidence_source"] == "count_start"
+                    unquantified_packages += row["scanned_pieces"] is None
+                unknown += row["result"] == "unknown"
+                ambiguous += row["result"] == "ambiguous"
+            footer = {
+                "Count": count.title,
+                "Completed": count.completed_at or "",
+                "Result": "TOTAL",
+                "Row type": "totals",
+                "Scanned packages total": scanned_packages,
+                "Scanned pieces total": scanned_pieces,
+                "Count-start fallback packages": estimated_packages,
+                "Scanned packages without quantity evidence": unquantified_packages,
+                "Unknown labels total": unknown,
+                "Ambiguous labels total": ambiguous,
+            }
+            yield _csv_line([footer.get(header, "") for header in headers])
 
     return StreamingResponse(
         csv_lines(),
