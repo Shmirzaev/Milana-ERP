@@ -273,6 +273,8 @@ def _reserve_piece_stock(db, current, stock_id, package_id, quantity, sales_orde
 @router.post("/reserve")
 def reserve(stock_id: int, quantity: int, sales_order_id: int, db: DbSession,
             current: User = Depends(require_permissions("sales.orders", "*"))):
+    if stock_id < 1 or stock_id > _DB_INTEGER_MAX:
+        raise HTTPException(404, "Stock not found")
     s = db.get(FinishedGoodsStock, stock_id)
     if not s: raise HTTPException(404, "Stock not found")
     if quantity <= 0: raise HTTPException(400, "Quantity must be > 0")
