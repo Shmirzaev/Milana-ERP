@@ -9,7 +9,7 @@ from anyio import CancelScope, to_thread
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
 from sqlalchemy import and_, func, literal, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.config import settings
@@ -24,7 +24,7 @@ from app.core.uploads import (
     read_validated_upload_content,
 )
 from app.models import (
-    SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation,
+    SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation, ModelImage,
     BrandedPlanningOrder, Customer, Model, User, ProductionOrder,
     CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, QualityCheck, Shipment, ShipmentPackage,
     Task, Department, Invoice, Payment, StockMovement, Item, StockBatch, MaterialReservation,
@@ -185,7 +185,18 @@ def _history_products(db: DbSession, model_ids: set[int]) -> list[dict]:
         return []
     models = (
         db.query(Model)
-        .options(joinedload(Model.images), joinedload(Model.bom))
+        .options(
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            joinedload(Model.bom),
+        )
         .filter(Model.id.in_(model_ids))
         .order_by(Model.code.asc())
         .all()
