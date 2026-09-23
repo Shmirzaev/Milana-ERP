@@ -1,3 +1,9 @@
+import pytest
+from fastapi import HTTPException
+
+from app.services.material_rolls import MAX_MATERIAL_ROLLS, normalize_material_roll_weights
+
+
 def _material_context(client, auth_headers):
     items = client.get("/api/inventory/items?group=materials", headers=auth_headers)
     warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
@@ -82,3 +88,22 @@ def test_existing_material_requires_matching_total_before_roll_weights_save(clie
     assert saved.status_code == 200, saved.text
     assert saved.json()["piece_count"] == 2
     assert saved.json()["roll_weights_kg"] == [12.25, 17.75]
+
+
+def test_oversized_roll_weight_iterable_is_rejected_without_full_materialization():
+    consumed = []
+
+    def weights():
+        for index in range(MAX_MATERIAL_ROLLS + 5000):
+            consumed.append(index)
+            yield 1
+
+    with pytest.raises(HTTPException, match="cannot contain more than"):
+        normalize_material_roll_weights(
+            item_category="fabric",
+            unit="kg",
+            quantity=MAX_MATERIAL_ROLLS + 5000,
+            roll_weights_kg=weights(),
+        )
+
+    assert len(consumed) == MAX_MATERIAL_ROLLS + 1

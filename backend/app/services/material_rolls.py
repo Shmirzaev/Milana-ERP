@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
+from itertools import islice
 
 from fastapi import HTTPException
 
@@ -37,7 +38,7 @@ def normalize_material_roll_weights(
     Existing API clients may omit roll weights. When weights are supplied, they
     become the source of truth for roll count and must equal the batch quantity.
     """
-    raw_weights = list(roll_weights_kg or [])
+    raw_weights = list(islice(roll_weights_kg or (), MAX_MATERIAL_ROLLS + 1))
     if not raw_weights:
         if require_weights:
             raise HTTPException(400, "At least one roll weight is required")
