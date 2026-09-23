@@ -379,7 +379,20 @@ def list_positions(
         page = page or 1
         page_size = page_size or 100
         total = query.count()
-    query = query.order_by(HrPosition.name)
+    query = query.options(load_only(
+        HrPosition.id,
+        HrPosition.org_unit_id,
+        HrPosition.department_id,
+        HrPosition.name,
+        HrPosition.job_description,
+        HrPosition.required_skills_json,
+        HrPosition.qualification_level,
+        HrPosition.grade_level,
+        HrPosition.salary_min,
+        HrPosition.salary_max,
+        HrPosition.approved_count,
+        HrPosition.is_active,
+    )).order_by(HrPosition.name)
     if total is not None:
         query = query.offset((page - 1) * page_size).limit(page_size)
     rows = query.all()
