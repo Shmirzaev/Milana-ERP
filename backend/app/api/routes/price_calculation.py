@@ -41,7 +41,20 @@ router = APIRouter(prefix="/price-calculation", tags=["price_calculation"])
 
 def _list_request_load_options():
     return (
-        joinedload(PriceCalculationRequest.model).options(
+        joinedload(PriceCalculationRequest.model)
+        .load_only(
+            Model.id,
+            Model.code,
+            Model.name,
+            Model.category,
+            Model.product_type,
+            Model.details_json,
+            Model.selling_price,
+            Model.selling_price_source,
+            Model.selling_price_request_id,
+            raiseload=True,
+        )
+        .options(
             selectinload(Model.sizes).load_only(ModelSize.id, ModelSize.model_id, ModelSize.size),
             selectinload(Model.images).load_only(
                 ModelImage.id,
