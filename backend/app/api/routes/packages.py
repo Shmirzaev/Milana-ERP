@@ -22,6 +22,7 @@ from app.core.model_search import (
 )
 from app.models import (
     Customer,
+    Item,
     Package,
     PackageBatchAllocation,
     PackageBarcodeAlias,
@@ -553,6 +554,25 @@ def _warehouse_model_image_loader():
         ModelImage.content_type,
         ModelImage.image_type,
         ModelImage.is_primary,
+    )
+
+
+def _warehouse_model_bom_loader():
+    return (
+        selectinload(Model.bom)
+        .load_only(
+            ModelBOM.id,
+            ModelBOM.model_id,
+            ModelBOM.item_id,
+            ModelBOM.stock_batch_id,
+            ModelBOM.photo_url,
+        )
+        .joinedload(ModelBOM.item)
+        .load_only(Item.id, Item.category, Item.image_url)
+    ), (
+        selectinload(Model.bom)
+        .joinedload(ModelBOM.stock_batch)
+        .load_only(StockBatch.id, StockBatch.image_url)
     )
 
 
@@ -1113,7 +1133,7 @@ def storage_map(
         .join(Model, Model.id == Package.model_id)
         .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
         .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
-        .options(_warehouse_model_image_loader(), selectinload(Model.bom).joinedload(ModelBOM.item))
+        .options(_warehouse_model_image_loader(), *_warehouse_model_bom_loader())
         .filter(Package.status.in_(ready_statuses))
         .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
     )
