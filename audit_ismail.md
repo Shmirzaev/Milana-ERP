@@ -6,11 +6,11 @@
 
 | Status | Count | Meaning |
 | --- | ---: | --- |
-| **Fixed and tested** | **86** | Resolved with regression evidence |
-| **Partially fixed** | **26** | Improved, but remaining risk is documented |
+| **Fixed and tested** | **87** | Resolved with regression evidence |
+| **Partially fixed** | **25** | Improved, but remaining risk is documented |
 | **Open** | **15** | Not resolved |
-| **Total remaining** | **41** | Partial + open; not production-ready |
-| **Total audited** | **127** | 67.7% fully resolved |
+| **Total remaining** | **40** | Partial + open; not production-ready |
+| **Total audited** | **127** | 68.5% fully resolved |
 
 [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`. The latest batch completes Sewing conservation, batches catalog-family approval checks, defers model BOM metadata until its visible tab, and caps payroll bulk records at 500. Its corrected combined backend slice passed 33 tests and Ruff; the four full-suite loss-semantics cases pass separately within a 24-test compatibility selection, and both model-detail fetch contracts pass. Validation-only run `35675969462` passed backend, frontend lint/strict types/optimized build/contracts and all PostgreSQL selections on `bae444d`; release was skipped. The preceding run `35674868826` passed frontend/PostgreSQL but exposed the initial Sewing compatibility error in four backend cases, which `65586e0` corrected.
 
@@ -41,9 +41,9 @@ The 23 committed changes in this range continue the existing partial findings; o
 
 Other committed finite-storage and query-projection changes are linked by finding in [the backlog](docs/audit_backlog.json). The current reviewed range ends at `95111b5`; no uncommitted working-tree changes are counted as evidence.
 
-### 23 September closure pass (`95111b5..a93409d`)
+### 23 September closure pass (`95111b5..10198ea`)
 
-This pass reviewed whole findings instead of counting individual optimization slices. The official ledger is now **86 fixed, 26 partial, 15 open, 41 remaining**. The committed history through `f25b064` was pushed to `feat/ismoiljon`; later closure commits remain local until separately approved.
+This pass reviewed whole findings instead of counting individual optimization slices. The official ledger is now **87 fixed, 25 partial, 15 open, 40 remaining**. The committed history through `f25b064` was pushed to `feat/ismoiljon`; later closure commits remain local until separately approved.
 
 - **PERF13 fixed:** `f5977d0` reuses the already-loaded accepted bundle rows for response aggregation. Manual receipt uses 20 SELECTs and sewing acceptance 29 SELECTs at 1/50/401 bundles. Twenty-six focused receiving, gate and aggregate-parity cases pass. Necessary per-bundle transitions/scans/audits remain O(N) writes; repeated lookup/gate reads are resolved.
 - **PERF28 fixed:** `cda1df0` completes chunked supplier validation for approval and adds audit-head/query-growth assertions across request creation, approval, order creation and receipt. At 1/50/401 lines, reference reads are bounded by 400-ID chunks and audit-head reads stay exactly one per operation. The focused purchasing suite passes 140 with five PostgreSQL-only skips. Necessary per-line persistence and chain hashing remain O(N).
@@ -222,7 +222,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **AT06 partial:** device imports serialize; five real PostgreSQL cases pass (`853d2e4`), including forced lock waits and overtaking roster requests. Server-start timestamps reject overlapping stale work, but cannot identify an old snapshot uploaded later. Source-version support remains open.
 - **SEC09 partial:** earlier same-second tokens are revoked; profile edits preserve factory context (`177c3cd`; 48 tests). Reset proxies abort stalled upstream fetch/body reads after15 seconds (`b926fba`;12 handler cases). Password changes now serialize (`16544e1`; evidence above). Proxy trust and cross-workflow credential policy remain open. Legacy integer tokens in the rotation second require a fresh login.
 - **PERF40 partial:** image conversion, file writes and thumbnails leave the event loop, with one upload slot per process (`170200f`). Thumbnail batch failure restores earlier/pre-existing targets (`503d068`). `940acd5` rolls back the company-logo transaction and cancellation-shielded cleanup removes only its newly stored original/thumbnails; generated names reject original or derived-thumbnail collisions. Twenty-five focused cases pass with four PostgreSQL-only skips. Other upload routes, async SQL and cross-process capacity remain open; this is not a throughput benchmark.
-- **PERF14 partial:** cutting-passport defaults and lists batch lookups (`a3f8127`, `2279d2d`; seven tests independently passed). Defaults1/50/401: **10/157/1210 → 10/10/11 SELECTs**; lists: **5/152/1205 → 4/4/7**, without image binaries. Write/reservation queries remain open.
+- **PERF14 fixed:** cutting-passport defaults and lists batch lookups (`a3f8127`, `2279d2d`) and `10198ea` batches sorted item locks, reservation-number allocation, reservation inserts, material-plan inserts and audit flushes. Defaults1/50/401 stay at **10/10/11 SELECTs** and lists at **4/4/7** without image binaries. At1/50/401 materials, the reservation helper stays at11 SELECTs and the full Cutting addition path at15; each lock/read/insert transfer remains1/1/1. Fourteen local cases pass with17 PostgreSQL-only skips, and all28 disposable-PostgreSQL concurrency, rollback, plan and query-growth cases pass. Necessary row creation/output remains O(N).
 - **WF02 fixed:** generic work-order PATCH/start/complete/block/unblock enforce stage and selected-factory rights, including legacy Usluga records (`84c322a`, `62a3544`). The owner explicitly retained authorized generic completion without stage evidence; `d8cd060` verifies that policy and its audit event. All27 focused cases pass.
 - **PERF29 partial:** customer payment allocation batches invoice totals (`91f2f73`; 14 tests +six PostgreSQL races passed). 1/50/401 invoices: **2/51/402 → 2/2/3 SELECTs**. `8235602` groups affected 1C totals/statuses and `138420b` reuses the loaded invoice rows for its synchronization hook. Invoice locking, reassignment, first-payable order and advances are preserved; other 1C row work remains.
 - **PERF36 partial:** task broadcasts batch writes (`c5b2483`;35 SQLite +3 PostgreSQL tests passed). Commit `ebe8399` bounds notification recipient discovery at cap+1 before any insert/audit and moves the actual Data Console to a count-free metadata directory;1/50/401 table directories execute0 count queries while the legacy counted endpoint stays compatible. The independent backend selection passes51 with5 PostgreSQL-only skips, and the frontend component harness, strict types and lint pass. Task broadcast still hydrates full recipient rows and has no recipient ceiling; fixing it overlaps the protected dirty API02 scaffold. Necessary fan-out rows remain O(N).

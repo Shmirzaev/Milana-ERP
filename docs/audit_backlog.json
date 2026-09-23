@@ -961,10 +961,10 @@
       "risk": "More materials mean more round trips.",
       "proposed_fix": "Hoist shared data.",
       "baseline_source": "backend/app/api/routes/cutting_passports.py:317",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "a3f8127, 2279d2d, 8bf780a, 9cac5fb, 5890272",
-      "evidence": "Defaults/list and reservation reads remain batched. Commit 5890272 passes Cutting's already validated Item map into reservation creation, reducing Item reads2/2/2 to1/1/1 at1/50/401 additions while retaining independent StockBatch refresh/locks, validation order and rollback. Eleven independently rerun cases pass with ten PostgreSQL-only skips. Remaining write/numbering work and PostgreSQL load validation keep PERF14 partial."
+      "commit": "a3f8127, 2279d2d, 8bf780a, 9cac5fb, 5890272, 10198ea",
+      "evidence": "Defaults/list and reservation reads are batched. Commit 10198ea adds sorted batched item locks, one advisory-locked reservation-number range, one reservation flush and one material-plan flush before ordered audit queuing. At1/50/401 materials, the reservation helper stays at11 SELECTs and the full Cutting addition path at15; item locks, numbering locks, number reads, reservation inserts, ProductionOrderMaterial inserts and audit inserts each use1/1/1 database transfers. Defaults remain10/10/11 and lists4/4/7 SELECTs. Fourteen local cases pass with17 PostgreSQL-only skips; all28 disposable-PostgreSQL concurrency, rollback, indexed-plan and query-growth cases pass. Necessary O(N) row creation/output remains."
     },
     {
       "number": 81,
