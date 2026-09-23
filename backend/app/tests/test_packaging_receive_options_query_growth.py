@@ -22,7 +22,7 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.services.packaging_scope import packaging_work_order_department_code
+from app.services.packaging_scope import packaging_department_for_order, packaging_work_order_department_code
 from app.tests.conftest import TestSessionLocal
 
 
@@ -96,6 +96,83 @@ def _receive_option_orders(count: int) -> None:
                 rework_qty=0,
             ))
         db.commit()
+
+
+def test_packaging_department_lookup_preserves_priority_with_one_projected_query():
+    marker = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        model = Model(code=f"PERF18-SCOPE-{marker}", name=f"Packaging scope {marker}")
+        db.add(model)
+        db.flush()
+        orders = [
+            ProductionOrder(
+                production_no=f"PERF18-SCOPE-PO-{marker}-{index}",
+                production_type="branded_stock",
+                model_id=model.id,
+                planned_quantity=1,
+            )
+            for index in range(2)
+        ]
+        db.add_all(orders)
+        db.flush()
+        first_batch = ProductionBatch(
+            production_order_id=orders[0].id,
+            batch_no=f"PERF18-SCOPE-B1-{marker}",
+            batch_index=1,
+            planned_quantity=1,
+        )
+        other_batch = ProductionBatch(
+            production_order_id=orders[0].id,
+            batch_no=f"PERF18-SCOPE-B2-{marker}",
+            batch_index=2,
+            planned_quantity=1,
+        )
+        fallback_batch = ProductionBatch(
+            production_order_id=orders[1].id,
+            batch_no=f"PERF18-SCOPE-B3-{marker}",
+            batch_index=1,
+            planned_quantity=1,
+        )
+        latest_fallback_batch = ProductionBatch(
+            production_order_id=orders[1].id,
+            batch_no=f"PERF18-SCOPE-B4-{marker}",
+            batch_index=2,
+            planned_quantity=1,
+        )
+        requested_fallback_batch = ProductionBatch(
+            production_order_id=orders[1].id,
+            batch_no=f"PERF18-SCOPE-B5-{marker}",
+            batch_index=3,
+            planned_quantity=1,
+        )
+        db.add_all([first_batch, other_batch, fallback_batch, latest_fallback_batch, requested_fallback_batch])
+        db.flush()
+        pk, bp, ec = (_department(db, code).id for code in ("PKG", "BPK", "ECP"))
+        db.add_all([
+            _work_order(order_id=orders[0].id, batch_id=first_batch.id, department_id=bp, operation="packaging"),
+            _work_order(order_id=orders[0].id, batch_id=None, department_id=pk, operation="packaging"),
+            _work_order(order_id=orders[1].id, batch_id=fallback_batch.id, department_id=bp, operation="packaging"),
+            _work_order(order_id=orders[1].id, batch_id=latest_fallback_batch.id, department_id=ec, operation="packaging"),
+        ])
+        db.flush()
+
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            assert packaging_department_for_order(db, orders[0].id, first_batch.id) == "BPK"
+            assert packaging_department_for_order(db, orders[0].id, other_batch.id) == "PKG"
+            assert packaging_department_for_order(db, orders[0].id) == "PKG"
+            assert packaging_department_for_order(db, orders[1].id, requested_fallback_batch.id) == "ECP"
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+        assert len(statements) == 4, statements
+        assert all("select departments.code" in statement for statement in statements)
 
 
 @pytest.mark.parametrize("scope_count", [1, 50, 401])

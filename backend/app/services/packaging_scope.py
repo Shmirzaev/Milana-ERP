@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+from sqlalchemy import case
 
 from app.models import Department, WorkOrder
 
@@ -45,16 +46,26 @@ def packaging_department_for_order(
             Department.code.in_(PACKAGING_DEPARTMENT_CODES),
         )
     )
-    work_order = None
     if production_batch_id is not None:
-        work_order = query.filter(WorkOrder.production_batch_id == production_batch_id).order_by(WorkOrder.id.desc()).first()
-    if not work_order:
-        work_order = query.filter(WorkOrder.production_batch_id.is_(None)).order_by(WorkOrder.id.desc()).first()
-    if not work_order:
-        work_order = query.order_by(WorkOrder.id.desc()).first()
-    if not work_order:
+        priority = case(
+            (WorkOrder.production_batch_id == production_batch_id, 0),
+            (WorkOrder.production_batch_id.is_(None), 1),
+            else_=2,
+        )
+    else:
+        priority = case(
+            (WorkOrder.production_batch_id.is_(None), 0),
+            else_=1,
+        )
+    department_code = (
+        query.with_entities(Department.code)
+        .order_by(priority, WorkOrder.id.desc())
+        .limit(1)
+        .scalar()
+    )
+    if not department_code:
         raise HTTPException(404, "Packaging work order not found for this production order")
-    return packaging_work_order_department_code(db, work_order)
+    return normalize_packaging_department_code(department_code)
 
 
 def require_packaging_work_order_access(current, db, work_order: WorkOrder, requested: str | None = None) -> str:
