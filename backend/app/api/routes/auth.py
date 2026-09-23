@@ -277,7 +277,9 @@ def logout(request: Request, response: Response):
 def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: BackgroundTasks, request: Request):
     email = normalize_email(str(payload.email))
     _enforce_reset_rate_limit(request, email)
-    user = db.query(User).filter(User.email == email).first()
+    user = db.query(User).options(
+        load_only(User.id, User.email, User.name, User.is_active)
+    ).filter(User.email == email).first()
     if user and user.is_active:
         raw_token = create_password_reset_token(db, user)
         reset_url = password_reset_url(raw_token)
