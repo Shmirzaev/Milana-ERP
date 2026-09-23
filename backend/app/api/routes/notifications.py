@@ -70,16 +70,16 @@ def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User
         value = (payload.department or "").strip().lower()
         if not value:
             raise HTTPException(400, "department is required for target_type=department")
-        department = (
-            db.query(Department)
+        department_id = (
+            db.query(Department.id)
             .filter((func.lower(Department.code) == value) | (func.lower(Department.name) == value))
-            .first()
+            .scalar()
         )
-        if not department:
+        if department_id is None:
             raise HTTPException(404, "Recipient department not found")
         return (
             _recipient_user_query(db)
-            .filter(User.department_id == department.id, User.is_active.is_(True))
+            .filter(User.department_id == department_id, User.is_active.is_(True))
             .order_by(User.id.asc())
             .all()
         )
