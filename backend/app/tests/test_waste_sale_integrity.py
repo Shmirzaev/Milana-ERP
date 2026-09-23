@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -18,6 +18,7 @@ from app.core.security import create_access_token
 from app.db.base import Base
 from app.db.session import SessionLocal
 from app.models import AuditLog, IdempotencyRecord, User, WasteDisposalRequest, WasteRecord, WasteSale
+from app.tests.conftest import test_engine
 
 
 def _actor(permissions=("waste.sell",), session_factory=SessionLocal):
@@ -102,6 +103,30 @@ def test_partial_sales_keep_stock_open_until_exactly_exhausted(client):
     assert retry.status_code == 400
     assert retry.json() == {"detail": "Cannot sell from status 'sold'"}
     assert _snapshot(wid) == exhausted
+
+
+def test_sale_response_does_not_reload_persisted_row_after_commit(client):
+    _, headers = _actor()
+    wid = _fixture()
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from waste_sales " in normalized:
+            statements.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = _sell(client, headers, wid, quantity=2, unit_price=3)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["quantity"] == 2
+    assert response.json()["unit_price"] == 3
+    assert response.json()["total_amount"] == 6
+    assert len(statements) == 1
+    assert statements[0].startswith("select waste_sales.quantity as waste_sales_quantity from waste_sales ")
 
 
 def test_sale_rejects_quantity_above_aggregate_remaining_without_writes(client):

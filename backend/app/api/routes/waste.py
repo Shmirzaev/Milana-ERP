@@ -227,7 +227,7 @@ def sell_waste(
         response=response,
         user=current,
     )
-    db.commit(); db.refresh(sale)
+    db.commit()
     return response
 
 
