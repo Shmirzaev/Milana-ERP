@@ -451,6 +451,17 @@ def _stocktake_export_rows(db, count):
     while True:
         rows = (
             db.query(WarehouseStocktakeRow)
+            .options(load_only(
+                WarehouseStocktakeRow.id,
+                WarehouseStocktakeRow.package_id,
+                WarehouseStocktakeRow.snapshot,
+                WarehouseStocktakeRow.scan_snapshot,
+                WarehouseStocktakeRow.scanned_at,
+                WarehouseStocktakeRow.expected,
+                WarehouseStocktakeRow.category,
+                WarehouseStocktakeRow.scan_code,
+                WarehouseStocktakeRow.scanned_by,
+            ))
             .filter(
                 WarehouseStocktakeRow.stocktake_id == count.id,
                 WarehouseStocktakeRow.id > last_row_id,

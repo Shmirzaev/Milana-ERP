@@ -182,6 +182,15 @@ def test_stocktake_export_streams_complete_keyset_pages(
     ]
     assert len(row_pages) == expected_row_pages, statements
     assert all("warehouse_stocktake_rows.id >" in statement for statement in row_pages)
+    for statement in row_pages:
+        selected_columns = statement.split(" from warehouse_stocktake_rows ", maxsplit=1)[0]
+        for field in (
+            "id", "package_id", "snapshot", "scan_snapshot", "scanned_at",
+            "expected", "category", "scan_code", "scanned_by",
+        ):
+            assert f"warehouse_stocktake_rows.{field}" in selected_columns
+        for field in ("identity", "final_snapshot", "created_at", "updated_at"):
+            assert f"warehouse_stocktake_rows.{field}" not in selected_columns
 
     with TestSessionLocal() as db:
         current = db.query(User).filter(User.email == "admin@example.com").one()
