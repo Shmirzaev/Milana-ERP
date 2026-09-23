@@ -517,11 +517,22 @@ def _capacity_warning(
 
 @router.get("/sewing-flows/{fid}/utilization")
 def flow_utilization(fid: int, db: DbSession, current: CurrentUser):
-    f = db.get(SewingFlow, fid)
+    f = db.query(SewingFlow).options(load_only(
+        SewingFlow.id,
+        SewingFlow.factory_code,
+        SewingFlow.code,
+        SewingFlow.capacity_per_day,
+    )).filter(SewingFlow.id == fid).first()
     if not f: raise HTTPException(404, "Flow not found")
     require_sewing_flow_access(current, f)
     now = datetime.now(timezone.utc)
-    rows = db.query(SewingAssignment).join(
+    rows = db.query(SewingAssignment).options(load_only(
+        SewingAssignment.id,
+        SewingAssignment.quantity,
+        SewingAssignment.completed_qty,
+        SewingAssignment.planned_start,
+        SewingAssignment.planned_end,
+    )).join(
         WorkOrder, WorkOrder.id == SewingAssignment.work_order_id
     ).filter(
         SewingAssignment.sewing_flow_id == fid,
@@ -545,7 +556,11 @@ def flow_utilization(fid: int, db: DbSession, current: CurrentUser):
         SewingAssignment.work_order_id == WorkOrder.id,
         SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
     ).exists()
-    direct_wos = db.query(WorkOrder).filter(
+    direct_wos = db.query(WorkOrder).options(load_only(
+        WorkOrder.id,
+        WorkOrder.planned_output_qty,
+        WorkOrder.passed_qty,
+    )).filter(
         WorkOrder.sewing_flow_id == fid,
         WorkOrder.operation == "sewing",
         WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
