@@ -144,7 +144,7 @@ class PurchaseOrderReceiveLineIn(BaseModel):
     width: Optional[float] = None
     gsm: Optional[float] = None
     piece_count: Optional[int] = None
-    roll_weights_kg: list[float] = Field(default_factory=list)
+    roll_weights_kg: list[float] = Field(default_factory=list, max_length=1000)
     processes: Optional[str] = None
     qc_status: str = "passed"
 
