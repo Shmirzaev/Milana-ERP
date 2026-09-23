@@ -913,10 +913,10 @@
       "risk": "Scanner actions slow under load.",
       "proposed_fix": "Batch supporting reads.",
       "baseline_source": "backend/app/api/routes/packages.py:1131",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "ba1fe9a, 749ea5a, 4bfc9b3",
-      "evidence": "Batch receive locks/preload member/source checks and response references; placement batches source types. Commit 4bfc9b3 reuses the validated package-to-print-run map during receive response serialization, reducing supporting SELECTs13/13/25 to12/12/23 and membership reads2/2/4 to1/1/2 at1/50/401 packages. Nineteen focused cases pass with one PostgreSQL-only race skipped locally. Per-package writes/scans/audits and serialization remain O(N), so PERF10 remains partial."
+      "commit": "ba1fe9a, 749ea5a, 4bfc9b3, b6ab791",
+      "evidence": "Direct batch receive and placement retain chunk-bounded12/12/23 SELECTs at1/50/401 packages. Commit b6ab791 reuses one locked print-run receive gate and batch-loads children, membership, source types, stock evidence and response references in manifest order; full print-run receiving falls from21/756/6021 to18/18/31 SELECTs at1/50/401. Twenty-three focused SQLite cases and3 disposable-PostgreSQL concurrency/rollback cases pass, proving receiver serialization, one persistent scan/audit and clean rollback/retry. Necessary per-package writes remain O(N)."
     },
     {
       "number": 77,
