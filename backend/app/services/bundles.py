@@ -45,7 +45,12 @@ def verify_sewing_accessory_gate(db: Session, production_order_id: int) -> Sewin
     return SewingAccessoryGate(production_order_id=production_order_id, transaction=transaction)
 
 
-def find_bundle_by_scanned_code(db: Session, raw_code: str) -> Bundle | None:
+def find_bundle_by_scanned_code(
+    db: Session,
+    raw_code: str,
+    *,
+    qr_payload_only: bool = False,
+) -> Bundle | None:
     """Resolve current/printed bundle identities, rejecting mixed-bundle QR data.
 
     Barcode values are immutable. Historical bundle numbers are aliases; neither
@@ -63,7 +68,15 @@ def find_bundle_by_scanned_code(db: Session, raw_code: str) -> Bundle | None:
         BusinessOrderAlias.namespace == "BND", BusinessOrderAlias.reference.in_(candidates),
         BusinessOrderAlias.entity_id > 0,
     )
-    matches = db.query(Bundle).filter(or_(
+    query = db.query(Bundle)
+    if qr_payload_only:
+        query = query.options(load_only(
+            Bundle.id,
+            Bundle.barcode,
+            Bundle.bundle_no,
+            raiseload=True,
+        ))
+    matches = query.filter(or_(
         Bundle.barcode.in_(candidates), Bundle.bundle_no.in_(candidates), Bundle.id.in_(aliases),
     )).limit(2).all()
     if len(matches) > 1:

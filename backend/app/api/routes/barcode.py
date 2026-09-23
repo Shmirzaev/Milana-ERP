@@ -12,7 +12,7 @@ router = APIRouter(prefix="/barcode", tags=["barcode"])
 
 @router.get("/bundle/{bundle_no}")
 def bundle_qr(bundle_no: str, db: DbSession, _: CurrentUser):
-    b = find_bundle_by_scanned_code(db, bundle_no)
+    b = find_bundle_by_scanned_code(db, bundle_no, qr_payload_only=True)
     if not b: raise HTTPException(404, "Bundle not found")
     return {"qr_code_url": bundle_qr_image_url(b.id), "barcode": b.barcode, "bundle_no": b.bundle_no}
 
