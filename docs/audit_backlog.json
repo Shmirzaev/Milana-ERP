@@ -901,10 +901,10 @@
       "risk": "Bulk creation/edit becomes slow.",
       "proposed_fix": "Reuse locked context.",
       "baseline_source": "backend/app/services/packages.py:258",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "0066d32, a51eb6f, a3f8948, cd6ec8b, 0ce77fb",
-      "evidence": "Package costing batches highest-ID stock costs and allocation validation reads distinct IDs in400-row chunks. Commit 0ce77fb defers bulk package workflow synchronization and runs it only for the first and final package, reducing WorkOrder reads at1/50/401 packages from1/50/401 to1/2/2; nine focused cases pass. Per-package writes and allocations remain open, so PERF09 stays partial."
+      "commit": "0066d32, a51eb6f, a3f8948, cd6ec8b, 0ce77fb, a93409d",
+      "evidence": "Package groups reuse one transaction-local context for locked order, costing, reference metadata, batch presence/membership, remaining packaged availability, notification recipients and final workflow synchronization. Number ranges, packaging owners and print-run child hydration are batched. At1/50/401, reads are3/3/3 availability,2/2/2 numbering,2/2/2 notification directories,1/1/1 workflow/batch presence/direct membership/owner and2/2/4 print children; distinct-allocation validation remains2/2/3 and costing2/2/2. Thirty-four focused and34 adjacent cases plus2 real-PostgreSQL scalar/bulk lock-order and rollback/range-reuse races pass. Order, weights, items, factory ownership, validation, rollback and workflow parity remain covered. Required package/item/stock/scan/notification/audit/member rows remain O(N)."
     },
     {
       "number": 76,
