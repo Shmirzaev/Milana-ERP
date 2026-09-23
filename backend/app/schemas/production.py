@@ -377,17 +377,17 @@ class CuttingRecordIn(BaseModel):
     production_batch_id: Optional[int] = None
     fabric_batch_id: Optional[int] = None
     model_bom_id: Optional[int] = None
-    input_quantity: float = Field(ge=0, allow_inf_nan=False)
+    input_quantity: float = Field(ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
     input_unit: str = "kg"
     cut_pieces: int = Field(ge=0, le=2_147_483_647)
     report_piece_count: int = Field(default=0, ge=0, le=2_147_483_647)
     passed_pieces: int = Field(ge=0, le=2_147_483_647)
     defective_pieces: int = Field(default=0, ge=0, le=2_147_483_647)
-    waste_quantity: float = Field(default=0, ge=0, allow_inf_nan=False)
+    waste_quantity: float = Field(default=0, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
     waste_unit: str = "kg"
-    layer_material_kg: float = Field(default=0, ge=0)
-    beika_kg: float = Field(default=0, ge=0)
-    material_rolls_used: float = Field(default=0, ge=0)
+    layer_material_kg: float = Field(default=0, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
+    beika_kg: float = Field(default=0, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
+    material_rolls_used: float = Field(default=0, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
     operator_id: Optional[int] = None
     layup_operator_name: Optional[str] = Field(default=None, max_length=128)
     notes: Optional[str] = None

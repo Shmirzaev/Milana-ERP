@@ -242,17 +242,17 @@ class CuttingBundleQuantityUpdateIn(BaseModel):
 
 class CuttingMaterialDetailsUpdateIn(BaseModel):
     stock_batch_id: int
-    layer_material_kg: float = Field(ge=0, allow_inf_nan=False)
-    beika_kg: float = Field(ge=0, allow_inf_nan=False)
-    material_rolls_used: float = Field(ge=0, allow_inf_nan=False)
+    layer_material_kg: float = Field(ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
+    beika_kg: float = Field(ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
+    material_rolls_used: float = Field(ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
     layup_operator_name: str = Field(max_length=128)
 
 
 class CuttingRecordDetailsUpdateIn(BaseModel):
     materials: list[CuttingMaterialDetailsUpdateIn] | None = None
-    layer_material_kg: float | None = None
-    beika_kg: float | None = None
-    material_rolls_used: float | None = None
+    layer_material_kg: float | None = Field(default=None, le=9_999_999_999.9999, allow_inf_nan=False)
+    beika_kg: float | None = Field(default=None, le=9_999_999_999.9999, allow_inf_nan=False)
+    material_rolls_used: float | None = Field(default=None, le=9_999_999_999.9999, allow_inf_nan=False)
     layup_operator_name: str | None = None
     notes: str | None = None
 

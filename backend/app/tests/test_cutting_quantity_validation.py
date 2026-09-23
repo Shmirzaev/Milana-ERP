@@ -3,7 +3,11 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from app.api.routes.production import _parse_cutting_bundle_specs
+from app.api.routes.production import (
+    CuttingMaterialDetailsUpdateIn,
+    CuttingRecordDetailsUpdateIn,
+    _parse_cutting_bundle_specs,
+)
 from app.models import (
     AuditLog,
     Bundle,
@@ -118,6 +122,68 @@ def test_cutting_schema_rejects_invalid_quantities(quantities):
 
     with pytest.raises(ValueError):
         CuttingRecordIn(**payload)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["input_quantity", "waste_quantity", "layer_material_kg", "beika_kg", "material_rolls_used"],
+)
+@pytest.mark.parametrize("value", ["10000000000", "Infinity", "-Infinity", "NaN"])
+def test_cutting_numeric_storage_fields_reject_nonrepresentable_values(field, value):
+    payload = {
+        "work_order_id": 1,
+        "input_quantity": 0,
+        "cut_pieces": 0,
+        "passed_pieces": 0,
+        field: value,
+    }
+
+    with pytest.raises(ValueError):
+        CuttingRecordIn(**payload)
+
+
+def test_cutting_numeric_storage_fields_keep_roundable_float_contract():
+    record = CuttingRecordIn(
+        work_order_id=1,
+        input_quantity="9999999999.9999",
+        cut_pieces=0,
+        passed_pieces=0,
+        waste_quantity="1.234567",
+    )
+
+    assert record.input_quantity == 9999999999.9999
+    assert record.waste_quantity == 1.234567
+
+
+@pytest.mark.parametrize("schema,field", [
+    (CuttingRecordDetailsUpdateIn, "layer_material_kg"),
+    (CuttingRecordDetailsUpdateIn, "beika_kg"),
+    (CuttingRecordDetailsUpdateIn, "material_rolls_used"),
+    (CuttingMaterialDetailsUpdateIn, "layer_material_kg"),
+    (CuttingMaterialDetailsUpdateIn, "beika_kg"),
+    (CuttingMaterialDetailsUpdateIn, "material_rolls_used"),
+])
+@pytest.mark.parametrize("value", ["10000000000", "Infinity", "-Infinity", "NaN"])
+def test_cutting_details_update_rejects_nonrepresentable_values(schema, field, value):
+    payload = {field: value}
+    if schema is CuttingMaterialDetailsUpdateIn:
+        payload = {
+            "stock_batch_id": 1,
+            "layer_material_kg": 0,
+            "beika_kg": 0,
+            "material_rolls_used": 0,
+            "layup_operator_name": "Operator",
+            field: value,
+        }
+
+    with pytest.raises(ValueError):
+        schema(**payload)
+
+
+def test_cutting_record_details_update_preserves_route_negative_quantity_validation():
+    payload = CuttingRecordDetailsUpdateIn(layer_material_kg=-1)
+
+    assert payload.layer_material_kg == -1
 
 
 def test_cutting_accepts_conserved_output_and_bundle_derived_output():
