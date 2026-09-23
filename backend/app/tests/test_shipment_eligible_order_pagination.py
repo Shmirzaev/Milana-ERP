@@ -95,6 +95,10 @@ def test_eligible_order_page_bounds_joined_data_and_matches_legacy_prefix(row_co
     assert "left outer join (select packages.sales_order_id" in row_statement
     assert "exists (select" in row_statement
     assert "order by sales_orders.id desc" in row_statement
+    assert "sales_orders.printing_attachments" not in row_statement
+    assert "sales_orders.notes" not in row_statement
+    assert "customers.address" not in row_statement
+    assert "customers.notes" not in row_statement
 
 
 def test_eligible_order_page_contract_auth_and_no_writes(client, auth_headers):

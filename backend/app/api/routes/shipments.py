@@ -1051,6 +1051,16 @@ def eligible_orders(
             Customer,
             func.coalesce(package_totals.c.ready_qty, 0).label("ready_qty"),
         )
+        .options(
+            load_only(
+                SalesOrder.id,
+                SalesOrder.order_no,
+                SalesOrder.customer_id,
+                SalesOrder.status,
+                SalesOrder.total_amount,
+            ),
+            load_only(Customer.id, Customer.name),
+        )
         .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
         .outerjoin(package_totals, package_totals.c.sales_order_id == SalesOrder.id)
         .filter(
