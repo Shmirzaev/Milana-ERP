@@ -6,11 +6,11 @@
 
 | Status | Count | Meaning |
 | --- | ---: | --- |
-| **Fixed and tested** | **81** | Resolved with regression evidence |
-| **Partially fixed** | **31** | Improved, but remaining risk is documented |
+| **Fixed and tested** | **82** | Resolved with regression evidence |
+| **Partially fixed** | **30** | Improved, but remaining risk is documented |
 | **Open** | **15** | Not resolved |
-| **Total remaining** | **46** | Partial + open; not production-ready |
-| **Total audited** | **127** | 63.8% fully resolved |
+| **Total remaining** | **45** | Partial + open; not production-ready |
+| **Total audited** | **127** | 64.6% fully resolved |
 
 [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`. The latest batch completes Sewing conservation, batches catalog-family approval checks, defers model BOM metadata until its visible tab, and caps payroll bulk records at 500. Its corrected combined backend slice passed 33 tests and Ruff; the four full-suite loss-semantics cases pass separately within a 24-test compatibility selection, and both model-detail fetch contracts pass. Validation-only run `35675969462` passed backend, frontend lint/strict types/optimized build/contracts and all PostgreSQL selections on `bae444d`; release was skipped. The preceding run `35674868826` passed frontend/PostgreSQL but exposed the initial Sewing compatibility error in four backend cases, which `65586e0` corrected.
 
@@ -41,9 +41,9 @@ The 23 committed changes in this range continue the existing partial findings; o
 
 Other committed finite-storage and query-projection changes are linked by finding in [the backlog](docs/audit_backlog.json). The current reviewed range ends at `95111b5`; no uncommitted working-tree changes are counted as evidence.
 
-### 23 September closure pass (`95111b5..44faa28`)
+### 23 September closure pass (`95111b5..fbdda65`)
 
-This pass reviewed whole findings instead of counting individual optimization slices. The official ledger is now **81 fixed, 31 partial, 15 open, 46 remaining**. The committed history through `f25b064` was pushed to `feat/ismoiljon`; later closure commits remain local until separately approved.
+This pass reviewed whole findings instead of counting individual optimization slices. The official ledger is now **82 fixed, 30 partial, 15 open, 45 remaining**. The committed history through `f25b064` was pushed to `feat/ismoiljon`; later closure commits remain local until separately approved.
 
 - **PERF13 fixed:** `f5977d0` reuses the already-loaded accepted bundle rows for response aggregation. Manual receipt uses 20 SELECTs and sewing acceptance 29 SELECTs at 1/50/401 bundles. Twenty-six focused receiving, gate and aggregate-parity cases pass. Necessary per-bundle transitions/scans/audits remain O(N) writes; repeated lookup/gate reads are resolved.
 - **PERF28 fixed:** `cda1df0` completes chunked supplier validation for approval and adds audit-head/query-growth assertions across request creation, approval, order creation and receipt. At 1/50/401 lines, reference reads are bounded by 400-ID chunks and audit-head reads stay exactly one per operation. The focused purchasing suite passes 140 with five PostgreSQL-only skips. Necessary per-line persistence and chain hashing remain O(N).
@@ -51,6 +51,7 @@ This pass reviewed whole findings instead of counting individual optimization sl
 - **PERF08 partial:** `2dd8ef8` bounds queue pages and removal IDs at 500 and keeps child/reference reads scoped to returned parents; 47 focused cases pass. Each selected package still returns its complete child arrays, so a hard child-row ceiling would require an API contract decision.
 - **PERF22 partial:** paged Usluga reads are bounded and the frontend uses 100-row load-more pages, but the legacy non-paginated endpoint intentionally returns the complete array. Removing that compatibility behavior requires approval.
 - **PERF33 partial:** `44faa28` streams summary/export work and removes O(unique-package) sets; 63 stocktake cases pass. Cross-batch live-read atomicity remains unproven under default PostgreSQL READ COMMITTED semantics.
+- **PERF26 fixed:** `fbdda65` batches legacy Finished Goods metadata repair across distinct sales-order/model and collection references. At 1/50/401 distinct rows, sales-item reads are 1/1/2, collection reads are 1/1/2 and the stock candidate read stays one; 15 focused and 99 adjacent branded-stock/Finished Goods cases pass. Existing reservation candidate reads remain 3/3/5 total and 2/2/4 stock SELECTs. Necessary per-row metadata updates, reservations and response output remain O(N).
 - **Other continuation evidence:** commits through `f25b064` add focused projections, count-query refinements, finite/range checks and audit-chain streaming across FN07, PERF06/08/21/32/35/36/40 and related paths. These improve the documented partial findings but do not close their remaining umbrella scope.
 
 ## Repository workflow cleanup
@@ -199,7 +200,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 
 - **DB07 fixed — Identifier ceiling:** `b350c4f`, `11aabc1` allow growth past9999 without renumbering or gap reuse.22 compatibility cases and a real PostgreSQL two-writer boundary race pass; branch CI at `38e4fa7` is green.
 - **PERF09 partial — Package writes:** `0066d32`, `a51eb6f`, `a3f8948`, `cd6ec8b`, [packages.py](backend/app/services/packages.py): batch cost and allocation validation reads. Distinct allocation1/50/401 uses2/2/3 batch SELECTs instead of2/51/402. Bulk creation valuation falls from2/100/802 to2/2/2 cost SELECTs at1/50/401 packages while preserving order, weights, item rows and rollback. Seventeen focused cost/model cases pass; other per-package workflow writes remain open.
-- **PERF26 partial — Repeated reservation package/variant reads:** `5a89e27`, `2cc66e0`, [sales.py](backend/app/api/routes/sales.py): reuse locked package identities and batch up to200 requested variant predicates without caching mutable eligibility. Full reservation at1/50/401 variants drops3/52/403→3/3/5 SELECTs; stock reads drop2/51/402→2/2/4. Twenty-two local cases pass; package-first locks, wildcard/brand matching, metadata repair and shortages remain compatible. Other repair/write work remains.
+- **PERF26 fixed — Repeated reservation package/variant reads:** `5a89e27`, `2cc66e0`, `fbdda65`, [sales.py](backend/app/api/routes/sales.py) and [finished_goods.py](backend/app/services/finished_goods.py) reuse locked package identities, batch up to200 requested variant predicates, and batch legacy metadata repair without caching mutable eligibility. Full reservation at1/50/401 variants uses3/3/5 total and2/2/4 stock SELECTs; distinct missing-metadata rows use1/1/2 sales-item and1/1/2 collection reads with one stock read. Fifteen focused and99 adjacent compatibility cases pass; package-first locks, wildcard/brand matching, legacy receipts, exact/whole-pack allocation, rollback and shortages remain compatible. Required per-row updates/reservations remain O(N).
 - **PERF32 partial — Inbox/forecast references:** `f79d195`, `6c2c5ac`, `b40cace`: production and material-context image reads omit binary data while preserving URL/fallback precedence; forecast BOM demand eager-loads referenced stock batches instead of lazy per-BOM lookups. Other helpers remain open.
 - **PERF39 partial — Hidden form fetches:** `ada4aaf`, `5a85dcd`, `0094748`, `fd5bf6e`, `4c75160`, `8589ba4`, `be696e1`: HR documents/recruitment, inventory Accessories, Purchasing request items, model-detail seasons and model BOM metadata load only when their UI is visible or required. Read-only BOM names/cost metadata still load on the Materials tab. Both model-detail contracts pass; CI for the newest BOM change is pending. Other waterfalls and visual proof remain open.
 - **PERF13 fixed — Slow bulk bundle receipt:** `ef9cb88`, `49fdeea`, `f5977d0`, [bundles.py](backend/app/api/routes/bundles.py): receipt context, gates, order references and accepted-batch response aggregates are reused. Manual receipt uses20 SELECTs and acceptance29 at1/50/401 bundles;26 focused cases pass. Required state transitions, scans and audit writes remain O(N), but repeated lookup/gate reads are resolved.

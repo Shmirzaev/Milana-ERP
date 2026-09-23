@@ -1105,10 +1105,10 @@
       "risk": "Slow multi-variant orders.",
       "proposed_fix": "Bulk candidates; separate repair.",
       "baseline_source": "backend/app/api/routes/sales.py:1328",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "5a89e27, 2cc66e0",
-      "evidence": "Reuse locked Package identities between allocation checks and recompute mutable stock completeness each call. Bounded200-key variant batches reduce full reservation SELECTs at1/50/401 variants from3/52/403 to3/3/5 and stock reads from2/51/402 to2/2/4. Twenty-two local query/compatibility cases pass; package-first locks, wildcard/brand filters, shortage behavior, metadata repair, legacy receipt and exact/whole-pack workflows remain compatible. Other repair/write work remains open."
+      "commit": "5a89e27, 2cc66e0, fbdda65",
+      "evidence": "Reuse locked Package identities between allocation checks, recompute mutable stock completeness each call and batch legacy Finished Goods metadata repair across distinct sales-order/model and collection references. Bounded200-key variant batches reduce full reservation SELECTs at1/50/401 variants from3/52/403 to3/3/5 and stock reads from2/51/402 to2/2/4. Distinct missing-metadata rows use1/1/2 sales-item and1/1/2 collection SELECTs with one stock candidate read at1/50/401. Fifteen focused and99 adjacent compatibility cases pass; package-first locks, wildcard/brand filters, shortage behavior, metadata repair, legacy receipt and exact/whole-pack workflows remain compatible. Necessary per-row metadata updates, reservations and response output remain O(N)."
     },
     {
       "number": 93,
