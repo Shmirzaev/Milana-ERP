@@ -115,7 +115,22 @@ def create_customer(payload: PartyIn, db: DbSession, current: User = Depends(req
 
 @router.get("/customers/{cid}", response_model=PartyOut)
 def get_customer(cid: int, db: DbSession, _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS))):
-    c = db.get(Customer, cid)
+    c = (
+        db.query(Customer)
+        .options(
+            load_only(
+                Customer.id,
+                Customer.name,
+                Customer.phone,
+                Customer.email,
+                Customer.address,
+                Customer.notes,
+                raiseload=True,
+            )
+        )
+        .filter(Customer.id == cid)
+        .one_or_none()
+    )
     if not c:
         raise HTTPException(404, "Customer not found")
     return c
