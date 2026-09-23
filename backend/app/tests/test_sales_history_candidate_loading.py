@@ -89,6 +89,37 @@ def test_history_candidate_paging_filters_and_empty_pages(monkeypatch):
         assert sales_routes.list_sales_order_history(db, None, page=999) == []
 
 
+def test_history_sales_page_hydration_skips_unused_attachment_columns(monkeypatch):
+    expected, customer_id = _history_candidates(2)
+    sales_id = next(row_id for _, kind, row_id in expected if kind == "sales")
+    monkeypatch.setattr(sales_routes, "_sales_order_history",
+                        lambda db, entity, **kw: {"kind": "sales", "id": entity.id})
+    monkeypatch.setattr(sales_routes, "_stock_production_history",
+                        lambda db, entity, **kw: {"kind": "production", "id": entity.id})
+    statements = []
+    with TestSessionLocal() as db:
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rows = sales_routes.list_sales_order_history(
+                db, None, customer_id=customer_id, page=1, page_size=1,
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert rows == [{"kind": "sales", "id": sales_id}]
+    sales_entity_reads = [
+        statement for statement in statements
+        if "from sales_orders" in statement and "sales_orders.id in" in statement
+    ]
+    assert len(sales_entity_reads) == 1
+    assert "sales_orders.printing_attachments" not in sales_entity_reads[0]
+    assert "sales_orders.notes" not in sales_entity_reads[0]
+
+
 def test_history_equal_timestamp_and_id_keeps_sales_before_production(monkeypatch):
     expected, _ = _history_candidates(3)
     monkeypatch.setattr(sales_routes, "_sales_order_history",

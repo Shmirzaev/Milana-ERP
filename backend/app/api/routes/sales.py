@@ -9,7 +9,7 @@ from anyio import CancelScope, to_thread
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
 from sqlalchemy import and_, func, literal, or_
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.config import settings
@@ -1868,7 +1868,20 @@ def list_sales_order_history(
     sales_ids = [row_id for _, kind, row_id in selected if kind == "sales"]
     production_ids = [row_id for _, kind, row_id in selected if kind == "production"]
     selected_sales = {
-        row.id: row for row in db.query(SalesOrder).filter(SalesOrder.id.in_(sales_ids)).all()
+        row.id: row for row in db.query(SalesOrder).options(
+            load_only(
+                SalesOrder.id,
+                SalesOrder.status,
+                SalesOrder.updated_at,
+                SalesOrder.created_at,
+                SalesOrder.planning_estimate_submitted_at,
+                SalesOrder.total_amount,
+                SalesOrder.order_no,
+                SalesOrder.customer_id,
+                SalesOrder.order_type,
+                SalesOrder.deadline,
+            )
+        ).filter(SalesOrder.id.in_(sales_ids)).all()
     } if sales_ids else {}
     selected_production = {
         row.id: row for row in db.query(ProductionOrder).options(
