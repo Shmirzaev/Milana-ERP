@@ -6,7 +6,7 @@ from sqlalchemy import event
 
 from app.api.routes.production import list_wos
 from app.db.session import SessionLocal
-from app.models import Department, Model, ProductionOrder, WorkOrder
+from app.models import Department, Model, ProductionOrder, SalesOrder, WorkOrder
 
 
 def _factory_user():
@@ -94,6 +94,15 @@ def test_work_order_pages_bound_rows_and_dependent_queries(count):
     assert page["rows"] == legacy[:returned_count]
     assert all(row["operation"] == operation for row in page["rows"])
     assert len(statements) == 5, "\n\n".join(statements)
+    order_join = next(
+        statement for statement in statements
+        if "left outer join production_orders as production_orders_1" in statement
+    )
+    assert "production_orders_1.production_no" in order_join
+    assert "production_orders_1.sales_order_id" in order_join
+    assert "sales_orders_1.order_no" in order_join
+    assert "production_orders_1.estimated_material_amount" not in order_join
+    assert "sales_orders_1.total_amount" not in order_join
     dependent_queries = statements[2:]
     assert all(" in (" in statement for statement in dependent_queries), statements
     assert all(statement.count("?") == returned_count for statement in dependent_queries), statements
@@ -114,6 +123,34 @@ def test_work_order_page_applies_status_before_count(client, auth_headers):
     assert page["total"] == 1
     assert [row["id"] for row in page["rows"]] == created_ids
     assert page["rows"][0]["status"] == "paused"
+
+
+def test_work_order_list_preserves_sales_order_references_with_narrow_relationship_load():
+    operation = f"perf35_{uuid4().hex[:12]}"
+    work_order_ids = _seed_work_orders(1, operation=operation)
+    with SessionLocal() as db:
+        work_order = db.get(WorkOrder, work_order_ids[0])
+        order = db.get(ProductionOrder, work_order.production_order_id)
+        sales_order = SalesOrder(
+            order_no=f"SO-PERF35-{uuid4().hex[:10]}",
+            status="draft",
+            total_amount=0,
+        )
+        db.add(sales_order)
+        db.flush()
+        order.sales_order_id = sales_order.id
+        sales_order_no = sales_order.order_no
+        db.commit()
+
+    payload, statements = _read(operation=operation)
+    assert payload[0]["sales_order_no"] == sales_order_no
+    assert payload[0]["order_no"] == sales_order_no
+    order_join = next(
+        statement for statement in statements
+        if " from work_orders " in statement and "production_orders" in statement
+    )
+    assert "sales_orders_1.order_no" in order_join
+    assert "sales_orders_1.total_amount" not in order_join
 
 
 def test_work_order_page_size_is_bounded(client, auth_headers):

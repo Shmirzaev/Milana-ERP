@@ -9,7 +9,7 @@ from fastapi import APIRouter, Body, HTTPException, Depends, File, Query, Upload
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import String, and_, case, cast, func, or_
-from sqlalchemy.orm import aliased, joinedload, noload, selectinload
+from sqlalchemy.orm import aliased, joinedload, load_only, noload, selectinload
 
 from app.core.config import settings
 from app.core.deps import (
@@ -1734,7 +1734,20 @@ def list_wos(
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    qry = db.query(WorkOrder).options(joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order))
+    qry = db.query(WorkOrder).options(
+        joinedload(WorkOrder.production_order).options(
+            load_only(
+                ProductionOrder.id,
+                ProductionOrder.production_no,
+                ProductionOrder.sales_order_id,
+            ),
+            joinedload(ProductionOrder.sales_order).load_only(
+                SalesOrder.id,
+                SalesOrder.order_no,
+            ),
+            noload(ProductionOrder.materials),
+        )
+    )
     if selected_factory_code(current) != "ECO":
         qry = qry.filter(~WorkOrder.production_order.has(ProductionOrder.source_type == "usluga"))
     if department_id: qry = qry.filter(WorkOrder.department_id == department_id)
