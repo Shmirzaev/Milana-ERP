@@ -1,6 +1,6 @@
 """User-specific material-only inventory scope; shared Storage roles stay intact."""
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.core.deps import user_permissions
 from app.models import Item, MaterialReservation, StockBatch, User
@@ -33,16 +33,21 @@ def require_category(user: User, category: str) -> None:
 
 def require_item(db: Session, user: User, item_id: int | None) -> None:
     if materials_only(user) and item_id:
-        item = db.get(Item, item_id)
-        if item:
+        item = db.get(Item, item_id, options=(load_only(Item.id, Item.category),))
+        if item is not None:
             require_category(user, item.category)
 
 
 def require_batch(db: Session, user: User, batch_id: int | None) -> None:
     if materials_only(user) and batch_id:
-        batch = db.get(StockBatch, batch_id)
-        if batch:
-            require_item(db, user, batch.item_id)
+        row = (
+            db.query(StockBatch.item_id, Item.category)
+            .join(Item, Item.id == StockBatch.item_id)
+            .filter(StockBatch.id == batch_id)
+            .first()
+        )
+        if row is not None:
+            require_category(user, row.category)
 
 
 def require_reservation(db: Session, user: User, reservation_id: int) -> None:
