@@ -11,6 +11,28 @@ from app.services.factory_scope import require_work_order_factory_access
 from app.services.inventory import create_material_reservations, release_material_reservation
 
 
+def _replacement_material_rows(db, order_id: int, old_batch_id: int, new_batch_id: int):
+    first_material_id = (
+        db.query(ProductionOrderMaterial.id)
+        .filter(ProductionOrderMaterial.production_order_id == order_id)
+        .order_by(ProductionOrderMaterial.position.asc(), ProductionOrderMaterial.id.asc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    return (
+        db.query(ProductionOrderMaterial)
+        .filter(
+            ProductionOrderMaterial.production_order_id == order_id,
+            or_(
+                ProductionOrderMaterial.stock_batch_id.in_({old_batch_id, new_batch_id}),
+                ProductionOrderMaterial.id == first_material_id,
+            ),
+        )
+        .order_by(ProductionOrderMaterial.position.asc(), ProductionOrderMaterial.id.asc())
+        .all()
+    )
+
+
 def replace_cutting_material_batch(db, current, work_order_id, old_batch_id, new_batch_id):
     wo = db.get(WorkOrder, work_order_id)
     if not wo:
@@ -25,7 +47,7 @@ def replace_cutting_material_batch(db, current, work_order_id, old_batch_id, new
         raise HTTPException(400, "Customer-supplied fabrics cannot use warehouse batches")
     if order.status in {"completed", "cancelled", "rejected"} or wo.status in {"completed", "cancelled", "rejected"}:
         raise HTTPException(409, "Materials can only be changed while Cutting is open")
-    materials = db.query(ProductionOrderMaterial).filter_by(production_order_id=order.id).order_by(ProductionOrderMaterial.position).all()
+    materials = _replacement_material_rows(db, order.id, old_batch_id, new_batch_id)
     material = next((row for row in materials if row.stock_batch_id == old_batch_id), None)
     if not material:
         raise HTTPException(409, "The assigned material changed. Reload Cutting before saving")
@@ -73,7 +95,7 @@ def replace_cutting_material_batch(db, current, work_order_id, old_batch_id, new
         if remaining(reservation) > 0:
             release_material_reservation(db, reservation.id)
     material.stock_batch_id = batch.id
-    primary = materials[0] is material
+    primary = materials[0].id == material.id
     if primary:
         order.fabric_batch_id = batch.id
         order.estimated_material_code = item.sku
