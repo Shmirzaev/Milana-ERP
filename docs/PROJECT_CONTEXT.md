@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-23
 
+## Finished-goods Excel names, colors and formatting prepared (2026-09-23)
+
+- The existing warehouse-report.xlsx exporter now uses six columns: model number, exact stored Model.name, variant number, Model.colors color names, packages and pieces. The redundant sequential numbering column is removed. Multiple stored colors share one cell; missing colors use an em dash, and stored blank names remain blank. No names/colors are inferred, translated or substituted. Model/variant identifiers remain text, including leading zeros.
+- Existing aggregate query, ready statuses, model/variant grain, standard/first-grade sheets, row ordering and totals are preserved. Colors use select-in loading after the aggregate query, avoiding a one-to-many join that could multiply stock. No image loading was reintroduced. Existing endpoint, download button and authorization remain unchanged.
+- Workbook formatting uses Calibri 11, thin borders, subtle alternating rows, bold headers, wrapped names with calculated row heights, right-aligned quantities, frozen headers, filters and a distinct totals row. The title, dynamic export timestamp explicitly labeled Tashkent UTC+05:00, ERP warehouse/stock-kind source and existing reserved/unplaced scope notes are separate. Export time is not labeled as inventory snapshot time.
+- Exact old/new exports were compared in one read-only repeatable-read production transaction. All 1,895 rows matched independently read model/color records; totals remained 6,238 packages / 449,855 pieces. First Grade was empty. 317 rows had no recorded catalog color; 208 stored names were blank. Sample export time 23.09.2026 14:01:23 Tashkent. Formula recalculation matched source totals; no formula errors. Both sheet layouts, longest stored name and totals were visually reviewed. No production business data changed.
+- Worktree C:/ERP/.codex-work/warehouse-excel-details-20260923; branch codex/warehouse-excel-details-20260923, based on verified green release 20260923_060425 and manifest 090918dbd4d8a7d1643d1fc1cab20463521abd49496d0b95f1cc31b0dd1fd5ec. Scoped exporter regressions and Ruff passed. Sample and verification evidence are under outputs/warehouse-excel-details-20260923/. This preparation entry is not a deployment claim.
+
 ## Warehouse model search and bulk inventory-count deletion deployed (2026-09-23)
 
 - LIVE: backend/frontend green release `20260923_060425`, exact application commit `8a489c07a930fa886d5ebedd45072555bf802ce8`, merged through PR #194. Both manifests, images, symlinks and slot states agree. Blue `20260923_051930` remains running for rollback. Frontend activated `2026-09-23T06:37:43.720723+00:00`.
