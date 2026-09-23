@@ -366,6 +366,10 @@ def create_bundle(
         batch = db.get(ProductionBatch, batch_id)
         if not batch or int(batch.production_order_id) != int(production_order_id):
             raise HTTPException(400, "Production batch does not belong to this production order")
+    if len(color) > 64:
+        raise HTTPException(422, "color must be at most 64 characters")
+    if len(size) > 32:
+        raise HTTPException(422, "size must be at most 32 characters")
 
     cut = _dept(db, DEPT_CUT)
     factory_code = resolve_sewing_factory_code(
