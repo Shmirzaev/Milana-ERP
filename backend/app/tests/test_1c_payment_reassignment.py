@@ -14,7 +14,7 @@ from app.db.base import Base
 from app.models import Customer, Invoice, Payment, SalesOrder
 from app.schemas.integrations import OneCSyncIn
 from app.services import finance_1c
-from app.services.finance_1c import _sales_order_lookup, sync_from_1c
+from app.services.finance_1c import _lock_sync_rows, _sales_order_lookup, sync_from_1c
 from app.services.payments import create_invoice_payment, invoice_paid_total
 from app.tests.conftest import TestSessionLocal
 
@@ -89,6 +89,43 @@ def test_1c_sales_order_lookup_projects_invoice_reference_fields():
     order_query = next(sql for sql in statements if "from sales_orders" in sql)
     assert "sales_orders.notes" not in order_query
     assert "sales_orders.printing_attachments" not in order_query
+
+
+def test_1c_payment_lock_projects_fields_used_by_reassignment():
+    ids = _invoices(TestSessionLocal, count=1)
+    payload = OneCSyncIn(payments=[_payment_row(ids, target=0, amount=75)])
+    statements = []
+    with TestSessionLocal() as db:
+        legacy_sql = str(
+            db.query(Payment)
+            .filter(Payment.external_source == "1c", Payment.external_id.in_([ids["external_id"]]))
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+        bind = db.get_bind()
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().lower().startswith("select"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        with TestSessionLocal() as db:
+            payments, invoices = _lock_sync_rows(db, payload)
+            assert len(payments) == 1
+            assert payments[0].id == ids["payment_id"]
+            assert payments[0].invoice_id == ids["invoices"][0]
+            assert [invoice.id for invoice in invoices] == [ids["invoices"][0]]
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+
+    payment_read = next(statement for statement in statements if " from payments " in statement)
+    assert all(f"payments.{column}" in payment_read for column in (
+        "id", "invoice_id", "external_source", "external_id", "amount", "payment_method", "paid_at", "notes",
+    ))
+    assert "payments.customer_id" not in payment_read
+    assert "payments.created_at" not in payment_read
+    assert "payments.customer_id" in legacy_sql
+    assert "payments.created_at" in legacy_sql
 
 
 @pytest.mark.parametrize("reference", ["invoice_id", "invoice_no", "invoice_external_id"])

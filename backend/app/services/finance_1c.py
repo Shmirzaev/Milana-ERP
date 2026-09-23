@@ -128,6 +128,16 @@ def _lock_sync_rows(db: Session, payload: OneCSyncIn) -> tuple[list[Payment], li
     external_payment_ids = {row.external_id for row in payload.payments}
     payments = (
         db.query(Payment)
+        .options(load_only(
+            Payment.id,
+            Payment.invoice_id,
+            Payment.external_source,
+            Payment.external_id,
+            Payment.amount,
+            Payment.payment_method,
+            Payment.paid_at,
+            Payment.notes,
+        ))
         .filter(Payment.external_source == SOURCE_1C, Payment.external_id.in_(external_payment_ids))
         .order_by(Payment.id).populate_existing().with_for_update(of=Payment).all()
     ) if external_payment_ids else []
