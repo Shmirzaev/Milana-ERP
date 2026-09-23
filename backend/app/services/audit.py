@@ -19,6 +19,7 @@ _AUDIT_ROLLED_BACK = "audit.chain.rolled_back"
 _AUDIT_FINALIZED = "audit.chain.finalized"
 _AUDIT_HOOKS = "audit.chain.hooks"
 _AUDIT_HEADS = "audit.chain.heads"
+_AUDIT_VERIFY_BATCH_SIZE = 250
 
 
 def _json_safe(value: Any) -> Any:
@@ -313,7 +314,7 @@ def verify_audit_hash_chain(db: Session, *, start_id: int | None = None, limit: 
 
     checked = 0
     last_hash: str | None = expected_prev
-    for row in qry.all():
+    for row in qry.yield_per(_AUDIT_VERIFY_BATCH_SIZE):
         checked += 1
         if not row.entry_hash:
             return {
