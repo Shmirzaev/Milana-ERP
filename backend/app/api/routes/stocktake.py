@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PositiveInt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
@@ -28,6 +28,10 @@ class CreateCount(BaseModel):
 
 class ScanCount(BaseModel):
     code: str = Field(min_length=1, max_length=512)
+
+
+class DeleteCounts(BaseModel):
+    count_ids: list[PositiveInt] = Field(min_length=1, max_length=50)
 
 
 def get_count(db, count_id, *, lock=False):
@@ -123,6 +127,27 @@ def create_count(body: CreateCount, db: DbSession, current: User = Depends(acces
     log_action(db, current, "start", "WarehouseStocktake", count.id, new_value={"title": title})
     db.commit()
     return count_info(count)
+
+
+@router.post("/delete-selected")
+def delete_counts(body: DeleteCounts, db: DbSession, current: User = Depends(access)):
+    ids = sorted(set(body.count_ids))
+    # Use the same parent locks as scanning/completion; a bulk request is atomic.
+    counts = db.query(WarehouseStocktake).filter(WarehouseStocktake.id.in_(ids)).order_by(
+        WarehouseStocktake.id
+    ).with_for_update().all()
+    if len(counts) != len(ids):
+        raise HTTPException(404, "Inventory count not found")
+    for count in counts:
+        rows = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=count.id)
+        log_action(db, current, "delete", "WarehouseStocktake", count.id, old_value={
+            **count_info(count), "rows": rows.count(),
+            "recorded_scans": rows.filter(WarehouseStocktakeRow.scanned_at.is_not(None)).count(),
+        })
+        rows.delete(synchronize_session=False)
+        db.delete(count)
+    db.commit()
+    return {"deleted": ids}
 
 
 @router.get("/{count_id}")

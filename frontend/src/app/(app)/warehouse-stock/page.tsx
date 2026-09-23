@@ -129,6 +129,9 @@ export default function WarehouseStockPage() {
   const filtered = useMemo(() => {
     const q = clean(query);
     if (!q) return placements;
+    // Model/variant searches must not include unrelated package or barcode matches.
+    const modelMatches = placements.filter((row) => modelSearchIncludes(row.model_code, q));
+    if (modelMatches.length) return modelMatches;
     return placements.filter((row) => {
       const fields = [
         row.order_no,
