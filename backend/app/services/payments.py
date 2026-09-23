@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.models import Invoice, Payment, SalesOrder
 
@@ -51,6 +51,13 @@ def create_invoice_payment(
     invoice = (
         db.query(Invoice)
         .filter(Invoice.id == invoice.id)
+        .options(load_only(
+            Invoice.id,
+            Invoice.sales_order_id,
+            Invoice.invoice_no,
+            Invoice.amount,
+            Invoice.status,
+        ))
         .populate_existing()
         .with_for_update(of=Invoice)
         .one()

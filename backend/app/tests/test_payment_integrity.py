@@ -8,7 +8,7 @@ from time import monotonic, sleep
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, func, text
+from sqlalchemy import create_engine, event, func, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -67,6 +67,40 @@ def test_invoice_payment_refreshes_cached_amount_before_status_calculation():
         assert float(cached.amount) == 150
         assert cached.status == "partially_paid"
         assert invoice_paid_total(db, invoice_id) == 100
+
+
+def test_invoice_payment_lock_refresh_projects_only_status_fields():
+    customer_id, _, invoice_id = _create_invoice(SessionLocal)
+    statements = []
+    with SessionLocal() as db:
+        invoice = db.get(Invoice, invoice_id)
+        legacy_sql = str(db.query(Invoice).statement.compile(dialect=db.bind.dialect)).lower()
+        bind = db.get_bind()
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().lower().startswith("select"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(bind, "before_cursor_execute", capture)
+        try:
+            payment = create_invoice_payment(db, invoice, amount=40, payment_method="cash")
+            assert payment.customer_id == customer_id
+            assert invoice.invoice_no.startswith("PAY-")
+            assert invoice.status == "partially_paid"
+        finally:
+            event.remove(bind, "before_cursor_execute", capture)
+        db.commit()
+
+    invoice_reads = [statement for statement in statements if " from invoices " in statement]
+    assert len(invoice_reads) == 1
+    assert all(f"invoices.{column}" in invoice_reads[0] for column in (
+        "id", "sales_order_id", "invoice_no", "amount", "status",
+    ))
+    assert "invoices.external_source" not in invoice_reads[0]
+    assert "invoices.external_id" not in invoice_reads[0]
+    assert "invoices.due_date" not in invoice_reads[0]
+    assert "invoices.external_source" in legacy_sql
+    assert "invoices.due_date" in legacy_sql
 
 
 def test_customer_allocation_refreshes_cached_invoice_before_checking_balance():
