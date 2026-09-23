@@ -96,6 +96,12 @@ def _reserve_api(client, headers, fixture, quantity=4):
 def test_legacy_reserve_locks_package_before_refreshing_stock(client, auth_headers):
     fixture = _legacy_stock()
     locks = []
+    package_reads = []
+
+    def capture_sql(_connection, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from packages " in normalized:
+            package_reads.append(normalized)
 
     def capture(state):
         if state.is_select:
@@ -104,16 +110,29 @@ def test_legacy_reserve_locks_package_before_refreshing_stock(client, auth_heade
                 locks.append((sql, state.load_options._populate_existing))
 
     event.listen(Session, "do_orm_execute", capture)
+    event.listen(SessionLocal.kw["bind"], "before_cursor_execute", capture_sql)
     try:
         response = _reserve_api(client, auth_headers, fixture)
     finally:
         event.remove(Session, "do_orm_execute", capture)
+        event.remove(SessionLocal.kw["bind"], "before_cursor_execute", capture_sql)
 
     assert response.status_code == 200, response.text
     package_lock = next(i for i, (sql, _) in enumerate(locks) if "FOR UPDATE OF packages" in sql)
     stock_lock = next(i for i, (sql, _) in enumerate(locks) if "FOR UPDATE OF finished_goods_stock" in sql)
     assert package_lock < stock_lock
     assert locks[package_lock][1] and locks[stock_lock][1]
+    assert len(package_reads) == 2
+    assert "packages.manual_receipt_id" in package_reads[0]
+    assert "packages.status" in package_reads[1]
+    for statement in package_reads:
+        for omitted in (
+            "packages.qr_code_url",
+            "packages.storage_cell",
+            "packages.storage_shelf",
+            "packages.notes",
+        ):
+            assert omitted not in statement
 
 
 @pytest.fixture(scope="module")
