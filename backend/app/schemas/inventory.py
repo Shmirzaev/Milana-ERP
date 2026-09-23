@@ -84,8 +84,12 @@ class StockBatchIn(BaseModel):
     color_code: Optional[str] = None
     color_status: Optional[str] = None
     order_no: Optional[str] = None
-    width: Optional[float] = None
-    gsm: Optional[float] = None
+    width: Optional[float] = Field(
+        default=None, ge=-99_999_999.99, le=99_999_999.99, allow_inf_nan=False,
+    )
+    gsm: Optional[float] = Field(
+        default=None, ge=-99_999_999.999999, le=99_999_999.999999, allow_inf_nan=False,
+    )
     quantity: float = Field(
         gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
@@ -116,8 +120,12 @@ class StockBatchUpdate(BaseModel):
     color_code: Optional[str] = None
     color_status: Optional[str] = None
     order_no: Optional[str] = None
-    width: Optional[float] = None
-    gsm: Optional[float] = None
+    width: Optional[float] = Field(
+        default=None, ge=-99_999_999.99, le=99_999_999.99, allow_inf_nan=False,
+    )
+    gsm: Optional[float] = Field(
+        default=None, ge=-99_999_999.999999, le=99_999_999.999999, allow_inf_nan=False,
+    )
     quantity: Optional[float] = Field(
         default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
