@@ -7,10 +7,12 @@ from app.core.deps import DbSession, require_permissions
 from app.core.config import settings
 from app.models import (
     Item,
+    ProductionOrder,
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseRequest,
     PurchaseRequestLine,
+    SalesOrder,
     Supplier,
     User,
     Warehouse,
@@ -54,7 +56,54 @@ def list_purchase_requests(
         .filter(~PurchaseRequest.lines.any(PurchaseRequestLine.item_id.in_(
             db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
         )) if inventory_access.materials_only(_) else True)
-        .options(joinedload(PurchaseRequest.lines))
+        .options(
+            lazyload("*"),
+            load_only(
+                PurchaseRequest.id,
+                PurchaseRequest.request_no,
+                PurchaseRequest.status,
+                PurchaseRequest.sales_order_id,
+                PurchaseRequest.production_order_id,
+                PurchaseRequest.requested_by,
+                PurchaseRequest.approved_by,
+                PurchaseRequest.approved_at,
+                PurchaseRequest.notes,
+                PurchaseRequest.created_at,
+                PurchaseRequest.updated_at,
+            ),
+            joinedload(PurchaseRequest.sales_order).load_only(
+                SalesOrder.id,
+                SalesOrder.order_no,
+            ),
+            joinedload(PurchaseRequest.production_order).load_only(
+                ProductionOrder.id,
+                ProductionOrder.production_no,
+            ),
+            joinedload(PurchaseRequest.lines).load_only(
+                PurchaseRequestLine.id,
+                PurchaseRequestLine.purchase_request_id,
+                PurchaseRequestLine.item_id,
+                PurchaseRequestLine.required_quantity,
+                PurchaseRequestLine.requested_quantity,
+                PurchaseRequestLine.unit,
+                PurchaseRequestLine.available_quantity,
+                PurchaseRequestLine.shortage_quantity,
+                PurchaseRequestLine.preferred_supplier_id,
+                PurchaseRequestLine.material_name,
+                PurchaseRequestLine.photo_url,
+                PurchaseRequestLine.notes,
+            ).options(
+                joinedload(PurchaseRequestLine.item).load_only(
+                    Item.id,
+                    Item.sku,
+                    Item.name,
+                ),
+                joinedload(PurchaseRequestLine.preferred_supplier).load_only(
+                    Supplier.id,
+                    Supplier.name,
+                ),
+            ),
+        )
         .order_by(PurchaseRequest.id.desc())
     )
     if page is None and page_size is None:

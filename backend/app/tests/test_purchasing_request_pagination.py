@@ -1,7 +1,9 @@
 from uuid import uuid4
 
+from sqlalchemy import event
+
 from app.models import Item, PurchaseRequest, PurchaseRequestLine
-from app.tests.conftest import TestSessionLocal
+from app.tests.conftest import TestSessionLocal, test_engine
 
 
 def _purchase_requests(count: int) -> tuple[list[int], int]:
@@ -80,3 +82,46 @@ def test_purchase_request_page_size_is_bounded(client, auth_headers):
         headers=auth_headers,
     )
     assert response.status_code == 422, response.text
+
+
+def test_purchase_request_page_projects_only_response_fields(client, auth_headers):
+    _purchase_requests(1)
+    statements: list[str] = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(
+            "/api/purchasing/requests",
+            params={"page": 1, "page_size": 10},
+            headers=auth_headers,
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    rows = response.json()["rows"]
+    assert rows
+    assert rows[0]["lines"][0]["item_sku"]
+    assert not any(
+        f" from {table} " in statement
+        for statement in statements
+        for table in ("items", "suppliers", "sales_orders", "production_orders")
+    ), statements
+    request_page_reads = [
+        statement for statement in statements
+        if " from purchase_requests " in statement and " limit " in statement
+    ]
+    assert len(request_page_reads) == 1, statements
+    row_query = request_page_reads[0]
+    for unrelated in (
+        ".composition_json",
+        "purchase_request_lines.created_at",
+        "purchase_request_lines.updated_at",
+        ".password_hash",
+        ".customer_id",
+    ):
+        assert unrelated not in row_query
