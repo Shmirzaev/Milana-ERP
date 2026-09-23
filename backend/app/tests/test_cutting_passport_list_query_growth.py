@@ -113,6 +113,17 @@ def test_passport_list_models_and_sales_references_are_chunk_bounded_without_blo
         assert all(row["model_image_url"].endswith(".webp") for row in payload)
         assert all(row["order_no"].startswith("SO-PERF14-L-") for row in payload)
         assert "file_data" not in "\n".join(statements).lower()
+        passport_select = next(
+            statement.lower() for statement in statements
+            if " from cutting_passports " in " ".join(statement.lower().split())
+        )
+        assert "production_orders_1.id" in passport_select
+        assert "production_orders_1.model_id" in passport_select
+        assert "production_orders_1.production_no" in passport_select
+        assert "sales_orders" in passport_select
+        assert "sales_orders_1.order_no" in passport_select
+        assert "sales_orders_1.notes" not in passport_select
+        assert "production_orders_1.estimated_material_amount" not in passport_select
 
 
 def test_passport_pages_preserve_legacy_and_scope_model_reads():

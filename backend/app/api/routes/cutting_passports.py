@@ -8,7 +8,7 @@ from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models.cutting_passport import CuttingPassport
-from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionOrder, ProductionOrderItem, Role, StockBatch, User, WorkOrder
+from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionOrder, ProductionOrderItem, Role, SalesOrder, StockBatch, User, WorkOrder
 from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
@@ -512,7 +512,16 @@ def list_passports(
         db.query(CuttingPassport)
         .options(
             joinedload(CuttingPassport.production_order).options(
-                joinedload(ProductionOrder.sales_order),
+                load_only(
+                    ProductionOrder.id,
+                    ProductionOrder.model_id,
+                    ProductionOrder.production_no,
+                    ProductionOrder.sales_order_id,
+                ),
+                joinedload(ProductionOrder.sales_order).load_only(
+                    SalesOrder.id,
+                    SalesOrder.order_no,
+                ),
                 noload(ProductionOrder.materials),
             )
         )
