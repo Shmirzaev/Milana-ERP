@@ -611,7 +611,6 @@ def export_process_html(
                     ModelImage.image_type,
                     ModelImage.is_primary,
                 ),
-                selectinload(Model.bom),
             )
             .filter(Model.id.in_(model_ids))
             .all()

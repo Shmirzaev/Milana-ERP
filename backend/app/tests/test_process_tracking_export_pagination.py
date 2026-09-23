@@ -105,9 +105,11 @@ def test_process_tracking_export_page_is_sql_bounded_at_1_50_and_401_rows(client
         assert response.headers["X-Has-More"] == ("true" if count > 25 else "false")
         production_reads = [statement for statement in statements if " from production_orders " in statement]
         image_reads = [statement for statement in statements if " from model_images " in statement]
+        bom_reads = [statement for statement in statements if " from model_bom " in statement]
         assert any(" limit ? offset ?" in statement for statement in production_reads), production_reads
         assert image_reads
         assert all("model_images.file_data" not in statement for statement in image_reads)
+        assert not bom_reads, bom_reads
         newest_index = count - 1
         assert f"/storage/model-files/export-{production_numbers[0].split('-')[-2]}-{newest_index:04d}.png" in response.text
         query_counts.append(len(statements))
