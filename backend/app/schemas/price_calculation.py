@@ -65,7 +65,7 @@ class PriceCalculationCuttingIn(BaseModel):
 
 class PriceCalculationAccessoryIn(BaseModel):
     name: str | None = Field(default=None, max_length=128)
-    price: float | None = Field(default=None, ge=0)
+    price: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     @field_validator("name")
     @classmethod
