@@ -428,6 +428,15 @@ async def _discard_attendance_photo(destination: Path) -> None:
         await to_thread.run_sync(destination.unlink, True)
 
 
+async def _read_bounded_attendance_photo(request: Request, max_bytes: int) -> bytes:
+    content = bytearray()
+    async for chunk in request.stream():
+        if len(content) + len(chunk) > max_bytes:
+            raise HTTPException(413, "Photo is too large")
+        content.extend(chunk)
+    return bytes(content)
+
+
 @router.post("/integration/photos/{device_key}/{external_person_id}")
 async def import_person_photo(
     device_key: str,
@@ -454,11 +463,9 @@ async def import_person_photo(
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
             raise HTTPException(413, "Photo is too large")
-        content = await request.body()
+        content = await _read_bounded_attendance_photo(request, settings.ATTENDANCE_PHOTO_MAX_BYTES)
         if not content:
             raise HTTPException(400, "Photo body is empty")
-        if len(content) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
-            raise HTTPException(413, "Photo is too large")
         converted = await to_thread.run_sync(convert_image_to_webp, content)
         digest = hashlib.sha256(converted.data).hexdigest()
         if person.photo_sha256 == digest and person.photo_file_name:

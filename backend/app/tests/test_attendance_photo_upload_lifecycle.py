@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from anyio import CancelScope, CapacityLimiter
+from fastapi import HTTPException
 from PIL import Image
 
 from app.api.routes import attendance
@@ -22,8 +23,8 @@ class _RequestBody:
         self._content = content
         self.headers = {"content-length": str(len(content))}
 
-    async def body(self) -> bytes:
-        return self._content
+    async def stream(self):
+        yield self._content
 
 
 def _png_bytes() -> bytes:
@@ -190,9 +191,9 @@ def test_attendance_photo_upload_limiter_bounds_body_read_and_conversion(client,
             super().__init__(content)
             self._read_event = second_body_read if second else first_body_read
 
-        async def body(self) -> bytes:
+        async def stream(self):
             self._read_event.set()
-            return self._content
+            yield self._content
 
     async def run_upload(request: _TrackedRequest):
         with TestSessionLocal() as db:
@@ -216,3 +217,43 @@ def test_attendance_photo_upload_limiter_bounds_body_read_and_conversion(client,
         assert all(result["photo_sha256"] for result in results)
 
     asyncio.run(run_concurrent_uploads())
+
+
+def test_attendance_photo_rejects_oversize_stream_before_buffering_or_decoding(client, tmp_path, monkeypatch):
+    device_id, person_id = _seed_person(client)
+    before = _photo_state(person_id)
+    monkeypatch.setattr(attendance.settings, "ATTENDANCE_PHOTOS_DIR", str(tmp_path))
+    monkeypatch.setattr(attendance.settings, "ATTENDANCE_PHOTO_MAX_BYTES", 4)
+
+    class _OversizedRequest:
+        headers = {}
+
+        def __init__(self):
+            self.read_chunks = 0
+
+        async def stream(self):
+            for chunk in (b"1234", b"5", b"unread remainder"):
+                self.read_chunks += 1
+                yield chunk
+
+        async def body(self):
+            raise AssertionError("The upload route must consume the bounded stream")
+
+    request = _OversizedRequest()
+    monkeypatch.setattr(
+        attendance,
+        "convert_image_to_webp",
+        lambda _: pytest.fail("Oversized uploads must not be decoded"),
+    )
+
+    with TestSessionLocal() as db:
+        identity = db.get(AttendanceDevice, device_id)
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(attendance.import_person_photo(
+                "main-turnstile", "735", request, db, identity
+            ))
+
+    assert getattr(raised.value, "status_code", None) == 413
+    assert request.read_chunks == 2
+    assert _photo_state(person_id) == before
+    assert _stored_files(tmp_path) == set()
