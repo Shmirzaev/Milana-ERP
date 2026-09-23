@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from zoneinfo import ZoneInfo
 
-from anyio import CancelScope, to_thread
+from anyio import CapacityLimiter, CancelScope, to_thread
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
@@ -31,6 +31,7 @@ router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
 ATTENDANCE_IMPORT_LOCK_NAMESPACE = 1096043342
 ATTENDANCE_DEVICE_VENDORS = frozenset({"Hikvision", "Dahua"})
+ATTENDANCE_PHOTO_UPLOAD_LIMITER = CapacityLimiter(2)
 
 
 def _validate_device_vendor(value: str) -> str:
@@ -435,14 +436,6 @@ async def import_person_photo(
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
-        raise HTTPException(413, "Photo is too large")
-    content = await request.body()
-    if not content:
-        raise HTTPException(400, "Photo body is empty")
-    if len(content) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
-        raise HTTPException(413, "Photo is too large")
     device = db.query(AttendanceDevice).filter(
         AttendanceDevice.factory_code == (identity.factory_code if identity else _integration_factory()),
         AttendanceDevice.device_key == device_key,
@@ -457,25 +450,34 @@ async def import_person_photo(
     ).one_or_none()
     if not person:
         raise HTTPException(404, "Attendance person not found")
-    converted = await to_thread.run_sync(convert_image_to_webp, content)
-    digest = hashlib.sha256(converted.data).hexdigest()
-    if person.photo_sha256 == digest and person.photo_file_name:
-        return {"updated": False, "photo_sha256": digest}
-    file_name = f"{device.id}_{person.id}_{digest[:20]}.webp"
-    destination = Path(settings.ATTENDANCE_PHOTOS_DIR) / file_name
-    created = await to_thread.run_sync(_write_new_attendance_photo, destination, converted.data)
-    try:
-        person.photo_file_name = file_name
-        person.photo_sha256 = digest
-        db.commit()
-    except BaseException:
+    async with ATTENDANCE_PHOTO_UPLOAD_LIMITER:
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
+            raise HTTPException(413, "Photo is too large")
+        content = await request.body()
+        if not content:
+            raise HTTPException(400, "Photo body is empty")
+        if len(content) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
+            raise HTTPException(413, "Photo is too large")
+        converted = await to_thread.run_sync(convert_image_to_webp, content)
+        digest = hashlib.sha256(converted.data).hexdigest()
+        if person.photo_sha256 == digest and person.photo_file_name:
+            return {"updated": False, "photo_sha256": digest}
+        file_name = f"{device.id}_{person.id}_{digest[:20]}.webp"
+        destination = Path(settings.ATTENDANCE_PHOTOS_DIR) / file_name
+        created = await to_thread.run_sync(_write_new_attendance_photo, destination, converted.data)
         try:
-            db.rollback()
-        finally:
-            if created:
-                await _discard_attendance_photo(destination)
-        raise
-    return {"updated": True, "photo_sha256": digest}
+            person.photo_file_name = file_name
+            person.photo_sha256 = digest
+            db.commit()
+        except BaseException:
+            try:
+                db.rollback()
+            finally:
+                if created:
+                    await _discard_attendance_photo(destination)
+            raise
+        return {"updated": True, "photo_sha256": digest}
 
 
 def _day_bounds(day: date) -> tuple[datetime, datetime]:
