@@ -996,6 +996,8 @@ def create_period(
         PayrollPeriod.period_no == period_no,
     ).first():
         raise HTTPException(400, "Payroll period number already exists")
+    if len(payload.name) > 128:
+        raise HTTPException(422, "Payroll period name exceeds the 128-character storage limit")
     period = PayrollPeriod(
         factory_code=factory_code,
         period_no=period_no,
@@ -1046,6 +1048,8 @@ def update_period(
         ).first()
         if exists:
             raise HTTPException(400, "Payroll period number already exists")
+    if "name" in changes and changes["name"] is not None and len(changes["name"]) > 128:
+        raise HTTPException(422, "Payroll period name exceeds the 128-character storage limit")
     old = {key: getattr(period, key) for key in changes.keys() if hasattr(period, key)}
     for key, value in changes.items():
         setattr(period, key, value)
