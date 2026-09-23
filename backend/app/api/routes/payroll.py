@@ -109,6 +109,7 @@ PAYROLL_QR_TOKEN_ID_WIDTH = PAYROLL_QR_TOKEN_LENGTH - 1
 PAYROLL_ADJUSTMENT_MAX_AMOUNT = Decimal("999999999999.99")
 PAYROLL_RECORD_COMPONENT_MAX = Decimal("9999999999.9999")
 PAYROLL_RECORD_TOTAL_MAX = Decimal("999999999999.99")
+PAYROLL_PERIOD_NO_MAX_LENGTH = 64
 
 
 def _present(value: Any) -> bool:
@@ -1221,6 +1222,8 @@ def create_period(
         raise HTTPException(400, "Payroll period number already exists")
     if len(payload.name) > 128:
         raise HTTPException(422, "Payroll period name exceeds the 128-character storage limit")
+    if len(period_no) > PAYROLL_PERIOD_NO_MAX_LENGTH:
+        raise HTTPException(422, "Payroll period number exceeds the 64-character storage limit")
     period = PayrollPeriod(
         factory_code=factory_code,
         period_no=period_no,
@@ -1273,6 +1276,12 @@ def update_period(
             raise HTTPException(400, "Payroll period number already exists")
     if "name" in changes and changes["name"] is not None and len(changes["name"]) > 128:
         raise HTTPException(422, "Payroll period name exceeds the 128-character storage limit")
+    if (
+        "period_no" in changes
+        and changes["period_no"] is not None
+        and len(changes["period_no"]) > PAYROLL_PERIOD_NO_MAX_LENGTH
+    ):
+        raise HTTPException(422, "Payroll period number exceeds the 64-character storage limit")
     old = {key: getattr(period, key) for key in changes.keys() if hasattr(period, key)}
     for key, value in changes.items():
         setattr(period, key, value)
