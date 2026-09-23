@@ -1189,10 +1189,10 @@
       "risk": "O(R) memory/work; some sorting O(F log F).",
       "proposed_fix": "SQL pagination; bounded exports.",
       "baseline_source": "backend/app/api/routes/stocktake.py:139",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "7fe32ef, 1610476, a47de56, caa430c, 2f941d2, ea2202f, 9c57d56, 263d2b5, 95111b5, 056badd, 5bf12ec, 9278f60, 44faa28",
-      "evidence": "Common detail/session paging and CSV export use400-row streaming/keyset batches. Commit44faa28 moves first-scan markers and latest completed snapshots into SQL, streams completed-summary comparisons, and removes the export footer's O(unique packages) seen set;63 focused stocktake pagination, scan-evidence and workflow tests pass. Live changed-detail/export batches still make separate package snapshot reads under default READ COMMITTED semantics, so cross-batch atomicity remains unproven and PERF33 stays partial."
+      "commit": "7fe32ef, 1610476, a47de56, caa430c, 2f941d2, ea2202f, 9c57d56, 263d2b5, 95111b5, 056badd, 5bf12ec, 9278f60, 44faa28, 31b4254",
+      "evidence": "Common detail/session paging and CSV export use400-row streaming/keyset batches. Commit44faa28 moves first-scan markers and latest completed snapshots into SQL, streams completed-summary comparisons, and removes the export footer's O(unique packages) set. Commit31b4254 runs each detail response and complete streamed CSV in one PostgreSQL REPEATABLE READ, read-only snapshot; concurrent updates committed after batch1 stay invisible through batch2 and explicit generator close releases the transaction. Changed-detail reads are9/10/14 SELECTs at1/50/401. Sixty-nine compatibility cases pass with3 expected local PostgreSQL skips, and all3 disposable-PostgreSQL snapshot/cleanup races pass."
     },
     {
       "number": 100,
