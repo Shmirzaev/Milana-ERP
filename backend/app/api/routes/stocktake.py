@@ -34,6 +34,10 @@ class DeleteCounts(BaseModel):
     count_ids: list[PositiveInt] = Field(min_length=1, max_length=50)
 
 
+class DeleteScans(BaseModel):
+    row_ids: list[PositiveInt] = Field(min_length=1, max_length=200)
+
+
 def get_count(db, count_id, *, lock=False):
     query = db.query(WarehouseStocktake).filter(WarehouseStocktake.id == count_id)
     if lock:
@@ -238,12 +242,7 @@ def scan(count_id: int, body: ScanCount, db: DbSession, current: User = Depends(
     return {"duplicate": duplicate, "row": row_payload(row, package_snapshots(db, [pid]) if pid else {})}
 
 
-@router.delete("/{count_id}/scans/{row_id}")
-def undo_scan(count_id: int, row_id: int, db: DbSession, current: User = Depends(access)):
-    get_count(db, count_id, lock=True)
-    row = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=count_id, id=row_id).first()
-    if not row or not row.scanned_at:
-        raise HTTPException(404, "Recorded scan not found")
+def remove_recorded_scan(db, current, count_id, row):
     log_action(
         db,
         current,
@@ -257,6 +256,33 @@ def undo_scan(count_id: int, row_id: int, db: DbSession, current: User = Depends
         row.scan_snapshot = None
     else:
         db.delete(row)
+
+
+@router.post("/{count_id}/scans/delete-selected")
+def delete_scans(count_id: int, body: DeleteScans, db: DbSession, current: User = Depends(access)):
+    get_count(db, count_id, lock=True)
+    ids = sorted(set(body.row_ids))
+    rows = db.query(WarehouseStocktakeRow).filter(
+        WarehouseStocktakeRow.stocktake_id == count_id,
+        WarehouseStocktakeRow.id.in_(ids),
+        WarehouseStocktakeRow.scanned_at.is_not(None),
+    ).order_by(WarehouseStocktakeRow.id).all()
+    # Validate the entire selection before undoing anything, under the count lock.
+    if len(rows) != len(ids):
+        raise HTTPException(404, "Recorded scan not found; refresh the count and select again")
+    for row in rows:
+        remove_recorded_scan(db, current, count_id, row)
+    db.commit()
+    return {"deleted": ids}
+
+
+@router.delete("/{count_id}/scans/{row_id}")
+def undo_scan(count_id: int, row_id: int, db: DbSession, current: User = Depends(access)):
+    get_count(db, count_id, lock=True)
+    row = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=count_id, id=row_id).first()
+    if not row or not row.scanned_at:
+        raise HTTPException(404, "Recorded scan not found")
+    remove_recorded_scan(db, current, count_id, row)
     db.commit()
     return {"ok": True}
 
