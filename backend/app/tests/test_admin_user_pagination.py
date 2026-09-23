@@ -69,6 +69,11 @@ def test_user_page_bounds_sql_and_preserves_legacy_prefix(row_count):
     assert len(page_statements) == 2, page_statements
     row_statement = next(statement for statement in page_statements if " limit ? offset ?" in statement)
     assert "order by users.id" in row_statement
+    selected_columns = row_statement.split(" from users", 1)[0]
+    for unrelated in ("users.password_hash", "users.tokens_valid_from", "users.updated_at"):
+        assert unrelated not in selected_columns
+    assert " join roles " not in row_statement
+    assert " join departments " not in row_statement
 
 
 def test_user_page_contract_permission_auth_and_no_writes(client, auth_headers):

@@ -557,7 +557,24 @@ def list_users(
     # Keep direct callers safe as well as HTTP callers: FastAPI replaces the
     # Query marker with an int, but a plain Python call receives the marker.
     effective_limit = limit if isinstance(limit, int) and not isinstance(limit, bool) else 500
-    ordered_query = db.query(User).order_by(User.id)
+    ordered_query = db.query(User).options(
+        load_only(
+            User.id,
+            User.name,
+            User.email,
+            User.role_id,
+            User.department_id,
+            User.factory_code,
+            User.extra_permissions,
+            User.access_policy,
+            User.is_active,
+            User.last_login_at,
+            User.last_seen_at,
+            User.created_at,
+        ),
+        lazyload(User.role),
+        lazyload(User.department),
+    ).order_by(User.id)
     if page is None and page_size is None:
         return ordered_query.limit(effective_limit).all()
 
