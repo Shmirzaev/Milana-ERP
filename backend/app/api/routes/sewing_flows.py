@@ -3,10 +3,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import literal
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import Model, ModelBOM, SewingFlow, StockBatch, WorkOrder, User, SewingAssignment, ProductionOrder, ProductionBatch
+from app.models import Model, ModelBOM, ModelImage, SewingFlow, StockBatch, WorkOrder, User, SewingAssignment, ProductionOrder, ProductionBatch
 from app.schemas.sewing_flow import (
     SewingFlowIn, SewingFlowUpdate, SewingFlowOut, SewingFlowWithLoad, SewingFlowPageOut,
     SewingFlowUtilizationOut, SewingFlowUtilizationPageOut, SewingFlowWorkOrderOut,
@@ -52,7 +52,15 @@ def _work_order_model_context(db, production_order_ids: list[int]) -> dict[int, 
     models = (
         db.query(Model)
         .options(
-            joinedload(Model.images),
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
             joinedload(Model.bom).joinedload(ModelBOM.item),
             joinedload(Model.bom).joinedload(ModelBOM.stock_batch),
         )
