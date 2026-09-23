@@ -776,7 +776,7 @@ def list_roles(
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    query = db.query(Role)
+    query = db.query(Role).options(load_only(Role.id, Role.name, Role.permissions))
     if page is None and page_size is None:
         return query.all()
 

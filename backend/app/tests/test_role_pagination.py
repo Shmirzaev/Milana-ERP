@@ -64,6 +64,14 @@ def test_role_page_bounds_rows_and_preserves_legacy_order(role_count):
     assert page["rows"] == legacy[:50]
     assert len(page["rows"]) == min(page["total"], 50)
     assert len(selects) == 2, selects
+    role_rows = [statement for statement in selects if " order by roles.id" in statement]
+    assert len(role_rows) == 1
+    selected_columns = role_rows[0].split(" from roles", 1)[0]
+    assert "roles.id" in selected_columns
+    assert "roles.name" in selected_columns
+    assert "roles.permissions" in selected_columns
+    assert "roles.created_at" not in selected_columns
+    assert "roles.updated_at" not in selected_columns
     assert len([statement for statement in legacy_statements if statement.startswith("select")]) == 1
     assert writes == []
 
