@@ -723,6 +723,8 @@ def create_usluga_order(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
+    if payload.model_id > 2_147_483_647:
+        raise HTTPException(404, "Usluga model not found")
     model = _usluga_model_query(db).filter(Model.id == payload.model_id).one_or_none()
     if not model:
         raise HTTPException(404, "Usluga model not found")

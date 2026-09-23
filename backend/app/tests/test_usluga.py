@@ -101,6 +101,21 @@ def _create_usluga_order(client, *, quantity: int = 12, size: str = "M") -> tupl
     return model, order_response.json()
 
 
+def test_create_usluga_order_rejects_unrepresentable_model_id_as_missing(client):
+    _login_eco(client)
+    response = client.post(
+        "/api/usluga/orders",
+        json={
+            "customer_name": "Outside Customer LLC",
+            "model_id": 2_147_483_648,
+            "color": "Natural",
+            "sizes": [{"size": "M", "quantity": 1}],
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Usluga model not found"
+
+
 def test_usluga_combined_model_size_remains_one_cutting_size(client):
     _login_eco(client)
     _, order = _create_usluga_order(client, quantity=360, size="40-42")
