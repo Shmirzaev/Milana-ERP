@@ -1,9 +1,11 @@
 """Notification reads and acknowledgements remain private and bounded."""
 
 import pytest
+from fastapi import HTTPException
 
 from app.db.session import SessionLocal
 from app.models import Notification
+from app.api.routes.notifications import NotificationSendIn, _resolve_recipients
 from app.tests.test_task_assignment_authorization import _actor
 
 
@@ -60,3 +62,24 @@ def test_notification_count_and_read_operations_are_user_scoped(client):
 ])
 def test_notification_routes_require_login(client, method, path):
     assert client.request(method, path).status_code == 401
+
+
+def test_notification_send_rejects_unrepresentable_recipient_before_lookup():
+    class LookupSpy:
+        called = False
+
+        def get(self, model, user_id):
+            self.called = True
+            raise AssertionError("unrepresentable IDs must not reach the database")
+
+    db = LookupSpy()
+    payload = NotificationSendIn(
+        target_type="user_id",
+        user_id=2_147_483_648,
+        title="Synthetic notice",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_recipients(payload, db)
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Recipient user not found"
+    assert db.called is False

@@ -50,6 +50,8 @@ def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User
     if payload.target_type == "user_id":
         if payload.user_id is None:
             raise HTTPException(400, "user_id is required for target_type=user_id")
+        if payload.user_id > 2_147_483_647:
+            raise HTTPException(404, "Recipient user not found")
         user = db.get(User, payload.user_id)
         if not user or not user.is_active:
             raise HTTPException(404, "Recipient user not found")
