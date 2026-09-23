@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func
+from sqlalchemy.orm import load_only
 
 from app.core.deps import (
     DASHBOARD_PLANNING_READ_PERMISSIONS,
@@ -88,7 +89,15 @@ def active_production(
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     """Return active sales orders with production progress for the dashboard table."""
-    query = db.query(SalesOrder).filter(SalesOrder.status.in_(("planning", "confirmed", "in_production")))
+    query = db.query(SalesOrder).options(load_only(
+        SalesOrder.id,
+        SalesOrder.order_no,
+        SalesOrder.customer_id,
+        SalesOrder.order_type,
+        SalesOrder.status,
+        SalesOrder.deadline,
+        SalesOrder.total_amount,
+    )).filter(SalesOrder.status.in_(("planning", "confirmed", "in_production")))
     ordered_query = query.order_by(SalesOrder.deadline.asc(), SalesOrder.id.asc())
     paginated = page is not None or page_size is not None
     if paginated:
@@ -100,7 +109,11 @@ def active_production(
         orders = ordered_query.limit(limit).all()
     order_ids = {int(order.id) for order in orders}
     production_orders = (
-        db.query(ProductionOrder)
+        db.query(ProductionOrder).options(load_only(
+            ProductionOrder.id,
+            ProductionOrder.sales_order_id,
+            ProductionOrder.planned_quantity,
+        ))
         .filter(ProductionOrder.sales_order_id.in_(order_ids))
         .all()
         if order_ids
@@ -111,7 +124,11 @@ def active_production(
         production_orders_by_sales_order.setdefault(int(production_order.sales_order_id), []).append(production_order)
     production_order_ids = {int(production_order.id) for production_order in production_orders}
     packaging_work_orders = (
-        db.query(WorkOrder)
+        db.query(WorkOrder).options(load_only(
+            WorkOrder.production_order_id,
+            WorkOrder.passed_qty,
+            WorkOrder.actual_output_qty,
+        ))
         .filter(
             WorkOrder.production_order_id.in_(production_order_ids),
             WorkOrder.operation == "packaging",
@@ -138,7 +155,9 @@ def active_production(
     customers_by_id = {
         int(customer.id): customer
         for customer in (
-            db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
+            db.query(Customer).options(load_only(Customer.id, Customer.name)).filter(
+                Customer.id.in_(customer_ids),
+            ).all()
             if customer_ids
             else []
         )

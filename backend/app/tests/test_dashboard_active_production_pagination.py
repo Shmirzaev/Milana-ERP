@@ -65,6 +65,15 @@ def test_active_production_pages_bound_dependent_reads_and_preserve_legacy_paylo
     assert page["rows"] == legacy[:returned_count]
     assert len(statements) == 4, statements
     assert len(legacy_statements) == 3, legacy_statements
+    sales_order_reads = [
+        statement.lower()
+        for statement in statements
+        if " limit ? offset ?" in statement.lower()
+        and "sales_orders.order_no as sales_orders_order_no" in statement.lower()
+    ]
+    assert len(sales_order_reads) == 1
+    assert "sales_orders.printing_attachments" not in sales_order_reads[0]
+    assert "sales_orders.notes" not in sales_order_reads[0]
 
 
 def test_active_production_page_contract_auth_and_no_writes(client, auth_headers):
