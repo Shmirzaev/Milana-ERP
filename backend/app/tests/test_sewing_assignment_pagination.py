@@ -111,6 +111,11 @@ def test_assignment_pages_bound_rows_and_preserve_legacy_payload(count):
     assert len(legacy_statements) == 2, legacy_statements
     _assert_assignment_projection(statements)
     _assert_assignment_projection(legacy_statements)
+    count_queries = [statement for statement in statements if "count(" in statement]
+    assert len(count_queries) == 1, statements
+    assert "count(sewing_assignments.id)" in count_queries[0]
+    assert "sewing_assignments.work_order_id = ?" in count_queries[0]
+    assert " from (select sewing_assignments." not in count_queries[0]
 
 
 def test_assignment_page_contract_not_found_auth_and_no_writes(client, auth_headers):

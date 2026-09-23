@@ -200,7 +200,7 @@ def list_assignments(
 
     page = page or 1
     page_size = page_size or 50
-    total = query.count()
+    total = query.with_entities(func.count(SewingAssignment.id)).scalar()
     rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
     return {
         "rows": rows,
