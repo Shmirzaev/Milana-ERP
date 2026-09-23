@@ -68,6 +68,10 @@ def test_scan_is_read_only_and_return_requires_dispatch(client, auth_headers, fa
     assert response.status_code == 200 and float(response.json()["quantity"]) == 10
     assert client.post("/api/eco-fabric-transfers/return", headers=auth_headers,
         json={"code": f"B{fabric_batch}-R1", "dispatch_id": 999, "request_key": str(uuid4())}).status_code == 409
+    oversized = client.post("/api/eco-fabric-transfers/return", headers=auth_headers,
+        json={"code": f"B{fabric_batch}-R1", "dispatch_id": 2_147_483_648, "request_key": str(uuid4())})
+    assert oversized.status_code == 409
+    assert oversized.json()["detail"] == "ecoTransfers.notSent"
     with TestSessionLocal() as db:
         assert db.get(StockBatch, fabric_batch).quantity == 45
         assert db.query(EcoFabricDispatch).count() == 0
