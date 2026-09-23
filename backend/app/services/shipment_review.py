@@ -9,7 +9,7 @@ from hashlib import sha256
 import json
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.models import (
     Customer, FinishedGoodsStock, Invoice, Model, Package, PackageBatchAllocation, Payment,
@@ -183,7 +183,20 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
     order = db.get(SalesOrder, shipment.sales_order_id) if shipment.sales_order_id else None
     customer_id = shipment.customer_id or (order.customer_id if order else None)
     customer = db.get(Customer, customer_id) if customer_id else None
-    order_items = db.query(SalesOrderItem).filter_by(sales_order_id=order.id).all() if order else []
+    order_items = (
+        db.query(SalesOrderItem)
+        .options(load_only(
+            SalesOrderItem.id,
+            SalesOrderItem.sales_order_id,
+            SalesOrderItem.model_id,
+            SalesOrderItem.color,
+            SalesOrderItem.size,
+            SalesOrderItem.unit_price,
+        ))
+        .filter_by(sales_order_id=order.id)
+        .all()
+        if order else []
+    )
     rows = db.query(ShipmentPackage, Package).options(selectinload(Package.legacy_receipt)).join(Package, Package.id == ShipmentPackage.package_id).filter(
         ShipmentPackage.shipment_id == shipment.id).order_by(Package.id).all()
     package_ids = [package.id for _, package in rows]

@@ -158,8 +158,35 @@ def test_price_precedence_ambiguity_order_and_frozen_document_are_preserved():
                 ShipmentPackage(shipment_id=shipment.id, package_id=package.id, quantity=1),
             ])
         db.commit()
+        legacy_order_item_sql = str(
+            db.query(SalesOrderItem)
+            .filter_by(sales_order_id=order.id)
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+        statements = []
 
-        document = shipment_document(db, shipment)
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().lower().startswith("select"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            document = shipment_document(db, shipment)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+        order_item_read = next(
+            statement for statement in statements
+            if " from sales_order_items " in statement
+        )
+        assert all(f"sales_order_items.{column}" in order_item_read for column in (
+            "id", "sales_order_id", "model_id", "color", "size", "unit_price",
+        ))
+        assert "sales_order_items.notes" not in order_item_read
+        assert "sales_order_items.printing_required" not in order_item_read
+        assert "sales_order_items.notes" in legacy_order_item_sql
+        assert "sales_order_items.printing_required" in legacy_order_item_sql
+
         assert [line["package_no"] for line in document["lines"]] == [value[3] for value in variants]
         assert [line["unit_price"] for line in document["lines"]] == ["20.00", "10.00", None]
         assert document["pricing_complete"] is False
