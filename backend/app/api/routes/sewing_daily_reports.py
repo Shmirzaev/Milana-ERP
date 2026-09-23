@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import func, case, or_
-from sqlalchemy.orm import joinedload, noload, selectinload
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from app.core.deps import DbSession, require_permissions
 from app.models import (
@@ -808,7 +808,10 @@ def _report_list(
     for chunk in _read_chunks(production_ids):
         production_orders.extend(
             db.query(ProductionOrder)
-            .options(noload(ProductionOrder.materials))
+            .options(
+                noload(ProductionOrder.materials),
+                load_only(ProductionOrder.id, ProductionOrder.model_id),
+            )
             .filter(ProductionOrder.id.in_(chunk))
             .all()
         )

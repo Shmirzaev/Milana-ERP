@@ -162,6 +162,9 @@ def _read_case(db, count):
 def test_daily_report_list_and_line_context_batch_read_metadata(row_count):
     with SessionLocal() as db:
         case = _read_case(db, row_count)
+        legacy_production_order_sql = str(
+            db.query(ProductionOrder).statement.compile(dialect=db.bind.dialect)
+        ).lower()
 
     with SessionLocal() as db:
         listed, list_statements = _select_trace(
@@ -204,6 +207,20 @@ def test_daily_report_list_and_line_context_batch_read_metadata(row_count):
     assert context_counts["bom"] == expected_chunks, context_counts
     assert context_counts["passports"] == expected_chunks, context_counts
     assert list_counts["total"] == (9 if row_count == 401 else 5), list_counts
+    production_order_reads = [
+        statement for statement in list_statements
+        if " from production_orders " in statement
+    ]
+    assert len(production_order_reads) == expected_chunks, list_statements
+    assert all("production_orders.id" in statement for statement in production_order_reads)
+    assert all("production_orders.model_id" in statement for statement in production_order_reads)
+    assert all(
+        field not in statement
+        for statement in production_order_reads
+        for field in ("printing_attachments", "service_material_notes", "service_handover_notes")
+    ), production_order_reads
+    assert "printing_attachments" in legacy_production_order_sql
+    assert "service_material_notes" in legacy_production_order_sql
     assert page_counts == {
         "models": 1,
         "images": 1,
