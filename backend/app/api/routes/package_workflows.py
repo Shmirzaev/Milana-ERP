@@ -1,6 +1,7 @@
 """Package workflow routes mounted before /packages/{pid}."""
 from fastapi import Query, APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+from sqlalchemy.orm import load_only
 from app.services.print_response import warehouse_print_response
 
 from app.core.deps import DbSession, require_permissions, user_permissions
@@ -156,7 +157,16 @@ def list_print_runs(db: DbSession, production_order_id: int | None = None,
                     page: int | None = Query(default=None, ge=1),
                     page_size: int | None = Query(default=None, ge=1, le=100),
                     current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
-    query = db.query(PackagePrintRun).filter(PackagePrintRun.deleted_at.is_(None))
+    query = db.query(PackagePrintRun).options(load_only(
+        PackagePrintRun.id,
+        PackagePrintRun.run_no,
+        PackagePrintRun.code,
+        PackagePrintRun.created_at,
+        PackagePrintRun.received_at,
+        PackagePrintRun.package_ids,
+        PackagePrintRun.deleted_package_ids,
+        PackagePrintRun.deleted_at,
+    )).filter(PackagePrintRun.deleted_at.is_(None))
     if production_order_id:
         query = query.filter(PackagePrintRun.id.in_(db.query(PackagePrintRunMember.run_id).join(
             Package, Package.id == PackagePrintRunMember.package_id).filter(Package.production_order_id == production_order_id)))

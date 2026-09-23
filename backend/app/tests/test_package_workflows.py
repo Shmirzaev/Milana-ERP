@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import event, select
 
 from app.db.session import SessionLocal
+from app.tests.conftest import test_engine
 from app.models import (
     AuditLog, Department, FinishedGoodsStock, ManualPackageReceipt, Model, Package,
     PackageBarcodeAlias, PackagePrintRun, PackagePrintRunMember,
@@ -358,6 +359,31 @@ def test_pending_correction_cannot_change_newly_grouped_package(client, auth_hea
     approval = client.post(BASE + f"/change-requests/{request.json()['id']}/approve", headers=auth_headers)
     assert approval.status_code == 409, approval.text
     assert client.post(BASE + "/print-runs/receive", headers=warehouse, json={"code": package_qr(pid)}).status_code == 200
+
+
+def test_print_run_list_projects_only_payload_columns(client, auth_headers, warehouse, packaging_order):
+    created = create_run(client, auth_headers, packaging_order, 2)
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(BASE + "/print-runs?page=1&page_size=10", headers=auth_headers)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert any(row["id"] == created["id"] for row in response.json()["rows"])
+    run_reads = [
+        statement for statement in statements
+        if "package_print_runs.run_no" in statement and "limit ? offset ?" in statement
+    ]
+    assert len(run_reads) == 1
+    assert "package_print_runs.receipt_location" not in run_reads[0]
+    assert "package_print_runs.received_by" not in run_reads[0]
 
 
 def test_0115_migration_roundtrip_preserves_existing_packages():
