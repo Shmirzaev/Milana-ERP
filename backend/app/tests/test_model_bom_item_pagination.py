@@ -77,6 +77,13 @@ def test_bom_item_page_bounds_rows_and_preserves_legacy_order(item_count):
     assert len(selects) == 2, selects
     assert len([statement for statement in legacy_statements if statement.startswith("select")]) == 1
     assert writes == []
+    item_page_query = next(
+        statement for statement in selects
+        if " from items " in statement and " limit ? offset ?" in statement
+    )
+    assert "items.composition_json" in item_page_query
+    assert "items.created_at" not in item_page_query
+    assert "items.updated_at" not in item_page_query
 
 
 def test_bom_item_page_http_contract_and_authorization(client, auth_headers):

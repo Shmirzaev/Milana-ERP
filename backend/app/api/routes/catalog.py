@@ -1718,6 +1718,19 @@ def list_model_bom_items(
     """Return only the active item master data needed by the model BOM editor."""
     query = (
         db.query(Item)
+        .options(load_only(
+            Item.id,
+            Item.sku,
+            Item.name,
+            Item.category,
+            Item.unit,
+            Item.default_cost,
+            Item.reorder_level,
+            Item.track_batch,
+            Item.is_active,
+            Item.image_url,
+            Item.composition_json,
+        ))
         .filter(
             Item.is_active.is_(True),
             Item.category.in_(("fabric", "semi_finished", "accessory", "packaging")),
