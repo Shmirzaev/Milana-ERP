@@ -65,6 +65,20 @@ def row_data(row):
     }
 
 
+def _row_data_load_options():
+    return load_only(
+        FabricScan.id,
+        FabricScan.report_date,
+        FabricScan.direction,
+        FabricScan.fabric_name,
+        FabricScan.batch_no,
+        FabricScan.color,
+        FabricScan.roll_number,
+        FabricScan.operator_name,
+        FabricScan.scanned_at,
+    )
+
+
 @router.post("")
 def scan(payload: ScanInput, db: DbSession, user: User = Depends(scan_access)):
     department = cutting_department_scope(user, None)
@@ -72,7 +86,7 @@ def scan(payload: ScanInput, db: DbSession, user: User = Depends(scan_access)):
     timestamp = now_utc()
     identity = dict(department=department, report_date=timestamp.astimezone(TASHKENT).date(),
                     batch_id=batch_id, roll_number=roll, direction=payload.direction)
-    existing = db.query(FabricScan).filter_by(**identity).first()
+    existing = db.query(FabricScan).options(_row_data_load_options()).filter_by(**identity).first()
     if existing:
         return {"duplicate": True, "row": row_data(existing)}
     batch = db.get(StockBatch, batch_id)
@@ -91,7 +105,7 @@ def scan(payload: ScanInput, db: DbSession, user: User = Depends(scan_access)):
         db.commit()
     except IntegrityError:
         db.rollback()
-        existing = db.query(FabricScan).filter_by(**identity).first()
+        existing = db.query(FabricScan).options(_row_data_load_options()).filter_by(**identity).first()
         if existing:
             return {"duplicate": True, "row": row_data(existing)}
         raise
