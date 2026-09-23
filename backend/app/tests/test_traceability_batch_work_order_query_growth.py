@@ -4,7 +4,16 @@ import pytest
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
-from app.models import Department, Model, ProductionBatch, ProductionOrder, WorkOrder
+from app.models import (
+    Department,
+    Model,
+    PackagingRecord,
+    PrintingRecord,
+    ProductionBatch,
+    ProductionOrder,
+    SewingRecord,
+    WorkOrder,
+)
 from app.services.traceability import (
     _work_orders_for_po,
     build_traceability,
@@ -152,3 +161,38 @@ def test_traceability_work_order_lookup_projects_only_consumed_fields():
     assert "work_orders.actual_input_qty" not in work_order_read
     assert "work_orders.notes" in legacy_sql
     assert "work_orders.actual_input_qty" in legacy_sql
+
+
+def test_traceability_operation_records_project_only_payload_fields():
+    with SessionLocal() as db:
+        case = _work_order_case(db, 1)
+        work_order_id = case["work_order_ids"][0]
+        db.add_all(
+            [
+                PrintingRecord(work_order_id=work_order_id, input_qty=12, printed_qty=11, notes="print"),
+                SewingRecord(work_order_id=work_order_id, input_qty=11, sewn_qty=10, notes="sew"),
+                PackagingRecord(work_order_id=work_order_id, input_qty=10, packed_qty=9, notes="pack"),
+            ]
+        )
+        db.commit()
+
+    with SessionLocal() as db:
+        order = db.get(ProductionOrder, case["order_id"])
+        payload, statements = _select_trace(
+            db,
+            lambda: build_traceability(db, subject_type="production_order", production_order=order),
+        )
+
+    record_selects = {
+        table: next(statement for statement in statements if f" from {table} " in statement)
+        for table in ("printing_records", "sewing_records", "packaging_records")
+    }
+    assert "printing_records.input_qty" in record_selects["printing_records"]
+    assert "printing_records.notes" in record_selects["printing_records"]
+    assert "sewing_records.line_name" in record_selects["sewing_records"]
+    assert "sewing_records.size_quantities" not in record_selects["sewing_records"]
+    assert "packaging_records.packaging_material_used" in record_selects["packaging_records"]
+    assert "packaging_records.notes" in record_selects["packaging_records"]
+    assert payload["printing_records"][0]["notes"] == "print"
+    assert payload["sewing_records"][0]["notes"] == "sew"
+    assert payload["packaging_records"][0]["notes"] == "pack"

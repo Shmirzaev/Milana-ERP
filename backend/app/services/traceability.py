@@ -764,8 +764,16 @@ def build_traceability(
     def op_records(model_cls, fields: list[str]) -> list[dict]:
         if not wo_ids:
             return []
+        selected_fields = [
+            model_cls.id,
+            model_cls.work_order_id,
+            model_cls.production_batch_id,
+            model_cls.created_at,
+            *(getattr(model_cls, field) for field in fields),
+        ]
         rows = (
             db.query(model_cls)
+            .options(load_only(*selected_fields))
             .filter(model_cls.work_order_id.in_(wo_ids))
             .order_by(model_cls.created_at.asc(), model_cls.id.asc())
             .all()
