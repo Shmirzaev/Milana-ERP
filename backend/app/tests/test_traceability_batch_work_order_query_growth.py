@@ -68,6 +68,7 @@ def _work_order_case(db, work_order_count):
     return {
         "order_id": order.id,
         "target_batch_id": batches[0].id,
+        "batch_ids": [batch.id for batch in batches],
         "work_order_ids": [work_order.id for work_order in work_orders],
     }
 
@@ -125,3 +126,29 @@ def test_preloaded_work_orders_preserve_base_graph_response_and_order():
     scalar.pop("generated_at")
     preloaded.pop("generated_at")
     assert preloaded == scalar
+
+
+def test_traceability_work_order_lookup_projects_only_consumed_fields():
+    with SessionLocal() as db:
+        case = _work_order_case(db, 2)
+        legacy_sql = str(
+            db.query(WorkOrder)
+            .filter(WorkOrder.production_order_id == case["order_id"])
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+        work_orders, statements = _select_trace(
+            db,
+            lambda: _work_orders_for_po(db, case["order_id"]),
+        )
+
+    assert [row.id for row in work_orders] == case["work_order_ids"]
+    assert {row.operation for row in work_orders} == {"printing"}
+    assert {row.production_batch_id for row in work_orders} == set(case["batch_ids"])
+    work_order_read = next(statement for statement in statements if " from work_orders " in statement)
+    assert "work_orders.id" in work_order_read
+    assert "work_orders.production_batch_id" in work_order_read
+    assert "work_orders.operation" in work_order_read
+    assert "work_orders.notes" not in work_order_read
+    assert "work_orders.actual_input_qty" not in work_order_read
+    assert "work_orders.notes" in legacy_sql
+    assert "work_orders.actual_input_qty" in legacy_sql

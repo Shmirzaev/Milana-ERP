@@ -6,7 +6,7 @@ from html import escape
 from typing import Any
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.models import (
     AuditLog,
@@ -92,6 +92,11 @@ def _basic(obj: Any, *fields: str) -> dict[str, Any] | None:
 def _work_orders_for_po(db: Session, po_id: int) -> list[WorkOrder]:
     return (
         db.query(WorkOrder)
+        .options(load_only(
+            WorkOrder.id,
+            WorkOrder.production_batch_id,
+            WorkOrder.operation,
+        ))
         .filter(WorkOrder.production_order_id == po_id)
         .order_by(WorkOrder.id.asc())
         .all()
