@@ -1,7 +1,9 @@
 """Manual receipt, guarded deletion and scan-to-invoice regression."""
 from decimal import Decimal
+from sqlalchemy import event
 from app.db.session import SessionLocal
 from app.models import Customer, FinishedGoodsStock, Invoice, ManualPackageReceipt, Model, Package, PackagePrintRun, PackagePrintRunMember, Shipment
+from app.tests.conftest import test_engine
 from app.tests.test_package_workflows import warehouse, manual_body, package_qr  # noqa: F401
 
 
@@ -37,8 +39,26 @@ def test_pack_receipt_reprint_delete(client, warehouse):
             assert sum(s.available_qty for s in db.query(FinishedGoodsStock).filter_by(package_id=pid)) == qty
         label = client.get(f"/api/packages/{pid}/label", headers=warehouse)
         assert label.status_code == 200 and "<th>Quantity</th>" in label.text and f">{qty}</td>" in label.text
-    result = client.delete(f"/api/packages/print-runs/{run['id']}/manual-packages", headers=warehouse)
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        result = client.delete(f"/api/packages/print-runs/{run['id']}/manual-packages", headers=warehouse)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
     assert result.status_code == 200, result.text
+    run_reads = [statement for statement in statements if " from package_print_runs " in statement]
+    assert len(run_reads) == 1, statements
+    selected_columns = run_reads[0].split(" from package_print_runs", 1)[0]
+    assert "package_print_runs.package_ids" in selected_columns
+    assert "package_print_runs.deleted_package_ids" in selected_columns
+    assert "package_print_runs.run_no" in selected_columns
+    assert "package_print_runs.created_by" not in selected_columns
+    assert "package_print_runs.receipt_location" not in selected_columns
     with SessionLocal() as db:
         assert not db.query(Package).filter(Package.id.in_(run["package_ids"])).count()
         assert not db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(run["package_ids"])).count()

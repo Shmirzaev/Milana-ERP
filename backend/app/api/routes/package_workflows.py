@@ -234,7 +234,13 @@ def get_print_run(rid: int, db: DbSession,
 @router.delete("/print-runs/{rid}/manual-packages")
 def delete_manual_packages(rid: int, db: DbSession, package_ids: list[int] | None = Query(default=None),
                            current: User = Depends(require_permissions("storage.packages", "*"))):
-    run = db.query(PackagePrintRun).filter_by(id=rid).with_for_update().first()
+    run = db.query(PackagePrintRun).options(load_only(
+        PackagePrintRun.id,
+        PackagePrintRun.run_no,
+        PackagePrintRun.package_ids,
+        PackagePrintRun.deleted_package_ids,
+        PackagePrintRun.deleted_at,
+    )).filter_by(id=rid).with_for_update().first()
     if not run:
         raise HTTPException(404, "Print run not found")
     result = service.delete_manual_run(db, current, run, package_ids)
