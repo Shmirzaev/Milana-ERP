@@ -188,7 +188,9 @@ class PayrollQrLabelIssueIn(BaseModel):
     cutting_passport_id: int | None = None
     cutting_passport_no: str | None = None
     size: str | None = None
-    copy_index: int = 1
+    # SQLAlchemy Integer is a signed 32-bit value on supported databases.
+    # Keep the full legacy signed range; reject only values that cannot persist.
+    copy_index: int = Field(default=1, ge=-(2**31), le=2**31 - 1)
     quantity: PayrollQrStoredAmount = Decimal("0")
     rate_per_piece: PayrollQrStoredAmount = Decimal("0")
     currency: str = "UZS"

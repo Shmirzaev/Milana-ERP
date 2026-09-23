@@ -68,11 +68,23 @@ def test_qr_numeric_fields_preserve_zero_extra_precision_and_exact_maximum():
     assert maximum.rate_per_piece == MAX_STORED_AMOUNT
 
 
+@pytest.mark.parametrize("value", [-(2**31) - 1, 2**31])
+def test_qr_copy_index_rejects_values_outside_database_integer_range(value):
+    with pytest.raises(ValidationError):
+        PayrollQrLabelIssueIn(**_label(copy_index=value))
+
+
+@pytest.mark.parametrize("value", [-(2**31), 2**31 - 1])
+def test_qr_copy_index_preserves_database_integer_boundaries(value):
+    assert PayrollQrLabelIssueIn(**_label(copy_index=value)).copy_index == value
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
         ("quantity", "-0.0001"),
         ("quantity", "10000000000"),
+        ("copy_index", 2**31),
         ("rate_per_piece", "Infinity"),
         ("rate_per_piece", "10000000000"),
     ],
@@ -155,4 +167,20 @@ def test_invalid_qr_numeric_input_preserves_authentication_precedence(client):
     )
 
     assert response.status_code == 401, response.text
+    assert _write_counts() == before
+
+
+def test_invalid_qr_copy_index_has_no_label_or_audit_side_effects(
+    client,
+    auth_headers,
+):
+    before = _write_counts()
+
+    response = client.post(
+        "/api/payroll/qr-labels/issue",
+        headers=auth_headers,
+        json={"labels": [_label(copy_index=2**31)]},
+    )
+
+    assert response.status_code == 422, response.text
     assert _write_counts() == before
