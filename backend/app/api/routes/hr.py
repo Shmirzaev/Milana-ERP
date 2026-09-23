@@ -12,6 +12,7 @@ from app.services.audit import log_action
 from app.services.factory_scope import factory_for_department, selected_factory_code
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -224,7 +225,23 @@ def list_employees(
     if settings.BACKFILL_EMPLOYEES_FROM_USERS:
         _backfill_employees_from_users(db)
     factory_code = selected_factory_code(current)
-    query = db.query(Employee).filter(Employee.factory_code == factory_code)
+    include_private = _can_view_private_employee_fields(current)
+    employee_fields = [
+        Employee.id,
+        Employee.factory_code,
+        Employee.employee_no,
+        Employee.user_id,
+        Employee.full_name,
+        Employee.department_id,
+        Employee.position,
+        Employee.status,
+        Employee.joined_at,
+        Employee.manager_employee_id,
+        Employee.hr_position_id,
+    ]
+    if include_private:
+        employee_fields.extend([Employee.phone, Employee.salary, Employee.hr_profile_json])
+    query = db.query(Employee).options(load_only(*employee_fields)).filter(Employee.factory_code == factory_code)
     ordered_query = query.order_by(Employee.id.desc())
     paginated = page is not None or page_size is not None
     effective_page = page or 1
@@ -239,7 +256,6 @@ def list_employees(
         )
     else:
         rows = ordered_query.limit(limit).all()
-    include_private = _can_view_private_employee_fields(current)
     serialized = [_serialize(r, include_private=include_private) for r in rows]
     if not paginated:
         return serialized
