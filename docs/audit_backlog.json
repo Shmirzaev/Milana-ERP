@@ -1248,11 +1248,11 @@
       "bug": "Historical per-IP budget is shared by office users.",
       "risk": "Legitimate users may receive 429; complaint-time events unmeasured.",
       "proposed_fix": "Test authenticated/NAT budgets",
-      "baseline_source": null,
-      "status": "open",
+      "baseline_source": "backend/app/main.py:190",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "a8b1707",
+      "evidence": "Canonical signed-user buckets isolate authenticated office users while anonymous, invalid/expired-token and all public login/reset paths remain IP-scoped. At limit2 two users behind one IP each receive two successes then429; at limit3 eight simultaneous requests per user produce exactly3 accepted/5 rejected for each identity. Route authentication remains authoritative for unknown users, trusted-proxy behavior is preserved, SQLite work remains off-loop with fixed-window cleanup, and Redis increment plus initial TTL is one atomic Lua operation. The exact final diff passes25 focused cases; the preceding combined auth/security selection passes29."
     },
     {
       "number": 105,
