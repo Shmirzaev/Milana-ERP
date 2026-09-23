@@ -443,6 +443,19 @@ def material_defaults(
     item_ids = sorted(item_priority.keys())
     candidates = (
         db.query(StockBatch, Item)
+        .options(
+            lazyload("*"),
+            load_only(
+                StockBatch.id,
+                StockBatch.item_id,
+                StockBatch.batch_no,
+                StockBatch.order_no,
+                StockBatch.gsm,
+                StockBatch.width,
+                StockBatch.old_code,
+            ),
+            load_only(Item.id, Item.name, Item.sku),
+        )
         .join(Item, Item.id == StockBatch.item_id)
         .filter(
             StockBatch.item_id.in_(item_ids),
