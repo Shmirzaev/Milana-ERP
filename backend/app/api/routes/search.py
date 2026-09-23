@@ -229,18 +229,18 @@ def global_search(
         literal(None).label("value4"),
         literal(None).label("related_id"),
     ).where(Customer.name.ilike(pattern))
-    combined = union_all(sales, bundles, models, customers).subquery()
-    ranked = select(
-        combined,
-        func.row_number().over(
-            partition_by=combined.c.type_rank,
-            order_by=combined.c.id.desc(),
-        ).label("type_row_number"),
-    ).subquery()
+    bounded_matches = [
+        branch.order_by(id_column.desc()).limit(limit).subquery()
+        for branch, id_column in (
+            (sales, SalesOrder.id),
+            (bundles, Bundle.id),
+            (models, Model.id),
+            (customers, Customer.id),
+        )
+    ]
+    combined = union_all(*(select(*branch.c) for branch in bounded_matches)).subquery()
     rows = db.execute(
-        select(ranked)
-        .where(ranked.c.type_row_number <= limit)
-        .order_by(ranked.c.type_rank.asc(), ranked.c.id.desc())
+        select(combined).order_by(combined.c.type_rank.asc(), combined.c.id.desc())
     ).mappings().all()
     results = []
     for row in rows:
