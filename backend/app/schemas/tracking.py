@@ -121,7 +121,7 @@ class PackageItemIn(SchemaModel):
     model_id: int
     color: str
     size: str
-    quantity: int
+    quantity: int = Field(le=2_147_483_647)
 
 
 class PackageItemOut(ORMModel):
