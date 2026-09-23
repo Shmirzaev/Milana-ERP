@@ -50,6 +50,7 @@ def _list_request_load_options():
             Model.product_type,
             Model.details_json,
             Model.selling_price,
+            Model.selling_price_currency,
             Model.selling_price_source,
             Model.selling_price_request_id,
             raiseload=True,
