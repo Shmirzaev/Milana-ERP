@@ -56,7 +56,7 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
     assert "production_orders.service_handover_notes" not in receipt_order_reads[0]
     assert len(work_order_reads) <= 4
     print(f"{mode} {bundle_count}: {len(statements)} SELECTs")
-    assert len(statements) == (20 if mode == "manual" else 30)
+    assert len(statements) == (20 if mode == "manual" else 29)
     with TestSessionLocal() as db:
         bundles = db.query(Bundle).filter(Bundle.id.in_(case["bundle_ids"])).all()
         assert {bundle.status for bundle in bundles} == {"received_sewing"}

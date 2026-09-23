@@ -869,21 +869,39 @@ def _sewing_work_order_for_batch(db: DbSession, batch: ProductionBatch) -> WorkO
     )
 
 
-def _sewing_batch_payload(db: DbSession, batch: ProductionBatch) -> dict:
-    bundle_aggregates = (
-        db.query(
-            Bundle.status,
-            func.count(Bundle.id).label("bundle_count"),
-            func.coalesce(func.sum(Bundle.quantity), 0).label("quantity"),
+def _sewing_batch_payload(
+    db: DbSession,
+    batch: ProductionBatch,
+    bundles: list[Bundle] | None = None,
+) -> dict:
+    if bundles is None:
+        bundle_aggregates = (
+            db.query(
+                Bundle.status,
+                func.count(Bundle.id).label("bundle_count"),
+                func.coalesce(func.sum(Bundle.quantity), 0).label("quantity"),
+            )
+            .filter(
+                Bundle.production_batch_id == batch.id,
+                Bundle.production_order_id == batch.production_order_id,
+                Bundle.status != "cancelled",
+            )
+            .group_by(Bundle.status)
+            .all()
         )
-        .filter(
-            Bundle.production_batch_id == batch.id,
-            Bundle.production_order_id == batch.production_order_id,
-            Bundle.status != "cancelled",
-        )
-        .group_by(Bundle.status)
-        .all()
-    )
+    else:
+        aggregates: dict[str, list[int]] = {}
+        for bundle in bundles:
+            if bundle.status == "cancelled":
+                continue
+            status = str(bundle.status or "unknown")
+            counts = aggregates.setdefault(status, [0, 0])
+            counts[0] += 1
+            counts[1] += int(bundle.quantity or 0)
+        bundle_aggregates = [
+            (status, counts[0], counts[1])
+            for status, counts in aggregates.items()
+        ]
     po = db.get(ProductionOrder, batch.production_order_id)
     model = db.get(Model, po.model_id) if po and po.model_id else None
     wo = _sewing_work_order_for_batch(db, batch)
@@ -1107,7 +1125,7 @@ def accept_sewing_batch(
     )
     db.commit()
 
-    result = _sewing_batch_payload(db, batch)
+    result = _sewing_batch_payload(db, batch, bundles)
     result.update({
         "sewing_assignment_id": int(assignment.id),
         "sewing_flow_id": int(flow.id),

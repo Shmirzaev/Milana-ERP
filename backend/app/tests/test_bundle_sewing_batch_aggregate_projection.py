@@ -56,6 +56,14 @@ def test_sewing_batch_payload_aggregates_bundle_rows_in_database():
             ]
         )
         db.commit()
+        batch_bundles = (
+            db.query(Bundle)
+            .filter(
+                Bundle.production_batch_id == batch.id,
+                Bundle.production_order_id == order.id,
+            )
+            .all()
+        )
 
         statements: list[str] = []
 
@@ -70,12 +78,23 @@ def test_sewing_batch_payload_aggregates_bundle_rows_in_database():
                 db,
                 SimpleNamespace(id=batch.id, production_order_id=order.id),
             )
+            preloaded_query_start = len(statements)
+            preloaded_payload = _sewing_batch_payload(
+                db,
+                SimpleNamespace(id=batch.id, production_order_id=order.id),
+                batch_bundles,
+            )
         finally:
             event.remove(db.bind, "before_cursor_execute", capture)
 
     assert payload["bundle_count"] == 3
     assert payload["quantity"] == 11
     assert payload["status_counts"] == {"created": 2, "sent_to_sewing": 1}
+    assert preloaded_payload == payload
+    assert not any(
+        " from bundles " in statement
+        for statement in statements[preloaded_query_start:]
+    )
 
     bundle_query = next(statement for statement in statements if " from bundles " in statement)
     assert "group by bundles.status" in bundle_query
