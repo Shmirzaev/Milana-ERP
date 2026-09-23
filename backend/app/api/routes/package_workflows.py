@@ -58,7 +58,17 @@ def _write(db, current, operation, payload, action):
 
 
 def _run(db, current, rid):
-    run = db.get(PackagePrintRun, rid)
+    run = db.query(PackagePrintRun).options(load_only(
+        PackagePrintRun.id,
+        PackagePrintRun.run_no,
+        PackagePrintRun.code,
+        PackagePrintRun.packaging_department_code,
+        PackagePrintRun.package_ids,
+        PackagePrintRun.created_at,
+        PackagePrintRun.received_at,
+        PackagePrintRun.deleted_package_ids,
+        PackagePrintRun.deleted_at,
+    )).filter(PackagePrintRun.id == rid).first()
     if not run:
         raise HTTPException(404, "Print run not found")
     permissions = set(user_permissions(current))
