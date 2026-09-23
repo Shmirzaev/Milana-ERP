@@ -55,6 +55,12 @@ class PaidProcessPageOut(PaidProcessListOut):
     page_size: int
 
 
+def _existing_process(db, identity):
+    return db.query(PaidProcess).options(load_only(
+        PaidProcess.id, PaidProcess.code, PaidProcess.name, PaidProcess.section,
+    )).filter_by(**identity).first()
+
+
 def output(row):
     return {"id": row.id, "code": row.code, "name": row.name, "section": row.section}
 
@@ -98,7 +104,7 @@ def create_process(payload: PaidProcessIn, db: DbSession,
                    current: User = Depends(require_permissions("payroll.manage", "modeling.models", "*"))):
     identity = {"factory_code": selected_factory_code(current), "normalized_key": normalized_key(payload.name),
                 "section": payload.section}
-    existing = db.query(PaidProcess).filter_by(**identity).first()
+    existing = _existing_process(db, identity)
     if existing:
         return output(existing)
     row = PaidProcess(**identity, normalized_name=normalized_name(payload.name), name=payload.name, code=f"OP-{uuid4().hex[:12].upper()}")
@@ -107,7 +113,7 @@ def create_process(payload: PaidProcessIn, db: DbSession,
         db.flush()
     except IntegrityError:
         db.rollback()
-        existing = db.query(PaidProcess).filter_by(**identity).first()
+        existing = _existing_process(db, identity)
         if existing:
             return output(existing)
         raise
