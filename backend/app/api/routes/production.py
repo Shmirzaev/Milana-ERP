@@ -6173,11 +6173,23 @@ def list_quality(
     if page is not None or page_size is not None:
         page = page or 1
         page_size = page_size or 100
-        total = qry.order_by(None).count()
+        total = qry.order_by(None).with_entities(func.count(QualityCheck.id)).scalar()
     qry = qry.order_by(QualityCheck.id.desc())
     if total is not None:
         qry = qry.offset((page - 1) * page_size).limit(page_size)
-    rows = qry.all()
+    rows = qry.options(load_only(
+        QualityCheck.id,
+        QualityCheck.work_order_id,
+        QualityCheck.department_id,
+        QualityCheck.checked_qty,
+        QualityCheck.passed_qty,
+        QualityCheck.failed_qty,
+        QualityCheck.defect_type,
+        QualityCheck.defect_reason,
+        QualityCheck.severity,
+        QualityCheck.checked_at,
+        raiseload=True,
+    )).all()
     if total is None:
         return rows
     return {
