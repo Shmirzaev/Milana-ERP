@@ -5611,7 +5611,10 @@ def packaging_receive_options(
         )
         .filter(WorkOrder.operation == "packaging")
         .group_by(WorkOrder.production_order_id, WorkOrder.production_batch_id)
-        .subquery()
+        .cte("packaging_exact_targets")
+        # PostgreSQL otherwise inlines this grouped map and may execute its
+        # aggregate once per sewing scope. SQLite ignores the dialect prefix.
+        .prefix_with("MATERIALIZED", dialect="postgresql")
     )
     fallback_targets = (
         db.query(
@@ -5624,7 +5627,8 @@ def packaging_receive_options(
         )
         .filter(WorkOrder.operation == "packaging")
         .group_by(WorkOrder.production_order_id)
-        .subquery()
+        .cte("packaging_fallback_targets")
+        .prefix_with("MATERIALIZED", dialect="postgresql")
     )
     # Preserve the scalar resolver's exact-batch -> legacy NULL -> oldest order.
     target_id = func.coalesce(

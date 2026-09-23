@@ -1,13 +1,17 @@
+import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import event
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import sessionmaker
 
 from app.api.routes.bundles import sewing_receive_options
-from app.models import AuditLog, Bundle, Model, ProductionOrder
+from app.db.base import Base
+from app.models import AuditLog, Bundle, Department, Model, ProductionOrder
 from app.tests.conftest import TestSessionLocal
 
 
@@ -144,3 +148,144 @@ def test_sewing_receive_option_page_preserves_auth_scope_validation_and_no_write
             db.query(AuditLog).count(),
         )
     assert after == before
+
+
+def test_sewing_receive_option_sqlite_plan_has_no_correlated_subplan():
+    _seed_receive_options(50)
+
+    with TestSessionLocal() as db:
+        statements: list[tuple[str, object]] = []
+
+        def capture(_connection, _cursor, statement, parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append((statement, parameters))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rows = sewing_receive_options(db, _milana_user(), limit=10)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+        grouped_statement, grouped_parameters = next(
+            (statement, parameters)
+            for statement, parameters in statements
+            if "GROUP BY bundles.production_order_id" in statement
+        )
+        plan = db.connection().exec_driver_sql(
+            f"EXPLAIN QUERY PLAN {grouped_statement}",
+            grouped_parameters,
+        ).all()
+
+    assert len(rows) == 10
+    assert len(statements) == 5, statements
+    plan_text = "\n".join(str(column) for row in plan for column in row).upper()
+    assert "CORRELATED" not in plan_text
+    assert "SCALAR SUBQUERY" not in plan_text
+
+
+@pytest.fixture
+def sewing_receive_options_postgres_session():
+    raw_url = os.environ.get("STABILIZATION_POSTGRES_URL")
+    if not raw_url:
+        pytest.skip("Set STABILIZATION_POSTGRES_URL for the PostgreSQL sewing receive-options query")
+    url = make_url(raw_url)
+    if (
+        url.get_backend_name() != "postgresql"
+        or url.host not in {"127.0.0.1", "localhost", "::1"}
+        or url.query
+    ):
+        pytest.fail("Sewing receive-options PostgreSQL test requires a loopback URL without overrides")
+    schema = f"sewing_receive_options_{uuid4().hex}"
+    engine = create_engine(
+        url,
+        connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=20000"},
+        isolation_level="READ COMMITTED",
+    )
+    with engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    try:
+        Base.metadata.create_all(engine)
+        yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        engine.dispose()
+
+
+@pytest.mark.parametrize("scope_count", [1, 50, 401])
+def test_postgres_sewing_receive_options_has_bounded_query_and_plan_growth(
+    sewing_receive_options_postgres_session,
+    scope_count,
+):
+    sessions = sewing_receive_options_postgres_session
+    marker = uuid4().hex[:8]
+    with sessions() as db:
+        sewing_department = Department(name="Sewing", code="SEW")
+        model = Model(
+            code=f"PERF18-SEW-PG-{marker}",
+            name="PostgreSQL sewing receive option",
+            product_type="shirt",
+            status="approved",
+        )
+        db.add_all([sewing_department, model])
+        db.flush()
+        orders = [
+            ProductionOrder(
+                production_no=f"PERF18-SEW-PG-{marker}-{index:04d}",
+                production_type="client_order",
+                model_id=model.id,
+                planned_quantity=1,
+                status="sewing",
+            )
+            for index in range(scope_count)
+        ]
+        db.add_all(orders)
+        db.flush()
+        base_time = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        db.add_all([
+            Bundle(
+                bundle_no=f"PERF18-SEW-PG-BND-{marker}-{index:04d}",
+                barcode=f"PERF18-SEW-PG-BC-{marker}-{index:04d}",
+                production_order_id=order.id,
+                model_id=model.id,
+                color="navy",
+                size="M",
+                quantity=1,
+                sewing_factory_code="MIL",
+                status="sent_to_sewing",
+                created_at=base_time + timedelta(minutes=index),
+            )
+            for index, order in enumerate(orders)
+        ])
+        db.commit()
+
+        statements: list[tuple[str, object]] = []
+
+        def capture(_connection, _cursor, statement, parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append((statement, parameters))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rows = sewing_receive_options(db, _milana_user(), limit=100)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+        grouped_statement, grouped_parameters = next(
+            (statement, parameters)
+            for statement, parameters in statements
+            if "GROUP BY bundles.production_order_id" in statement
+        )
+        explain = db.connection().exec_driver_sql(
+            f"EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) {grouped_statement}",
+            grouped_parameters,
+        ).scalars().all()
+
+    assert len(rows) == min(scope_count, 100)
+    assert [row["production_order_id"] for row in rows] == [
+        int(order.id) for order in reversed(orders[-100:])
+    ]
+    assert len(statements) == 5, statements
+    assert any(line.lstrip().startswith("Limit") for line in explain)
+    assert not any("SubPlan" in line for line in explain)
+    print("PERF18 sewing PostgreSQL EXPLAIN\n" + "\n".join(explain))

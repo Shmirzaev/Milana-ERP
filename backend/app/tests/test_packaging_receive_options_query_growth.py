@@ -12,6 +12,7 @@ from app.api.routes import production as production_routes
 from app.core.model_search import model_code_contains
 from app.db.base import Base
 from app.models import (
+    AuditLog,
     Department,
     Model,
     PackagingReceipt,
@@ -183,7 +184,7 @@ def test_packaging_receive_options_has_bounded_query_and_result_growth(scope_cou
         statements: list[str] = []
 
         def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
-            if statement.lstrip().upper().startswith("SELECT"):
+            if statement.lstrip().upper().startswith(("SELECT", "WITH")):
                 statements.append(statement)
                 assert len(statements) <= 20, (
                     f"{scope_count} receive scopes exceeded the 20-SELECT budget"
@@ -202,10 +203,40 @@ def test_packaging_receive_options_has_bounded_query_and_result_growth(scope_cou
             event.remove(db.bind, "before_cursor_execute", capture)
 
     assert len(rows) == min(scope_count, 10)
+    assert len(statements) == 2, statements
     assert [row["available_quantity"] for row in rows] == sorted(
         (row["available_quantity"] for row in rows),
         reverse=True,
     )
+
+
+def test_packaging_receive_options_preserves_auth_factory_scope_and_no_writes(
+    client,
+    auth_headers,
+):
+    _receive_option_orders(1)
+    with TestSessionLocal() as db:
+        before = (db.query(PackagingReceipt).count(), db.query(AuditLog).count())
+
+    unauthorized = client.get(
+        "/api/packaging/receive-options?packaging_department_code=PKG",
+    )
+    allowed = client.get(
+        "/api/packaging/receive-options?packaging_department_code=PKG&limit=1",
+        headers=auth_headers,
+    )
+    foreign = client.get(
+        "/api/packaging/receive-options?packaging_department_code=BPK&limit=1",
+        headers=auth_headers,
+    )
+
+    assert unauthorized.status_code == 401
+    assert allowed.status_code == 200, allowed.text
+    assert len(allowed.json()) == 1
+    assert foreign.status_code == 403
+    with TestSessionLocal() as db:
+        after = (db.query(PackagingReceipt).count(), db.query(AuditLog).count())
+    assert after == before
 
 
 def test_packaging_receive_options_plan_has_no_correlated_target_probe():
@@ -215,7 +246,7 @@ def test_packaging_receive_options_plan_has_no_correlated_target_probe():
         statements: list[tuple[str, object]] = []
 
         def capture(_connection, _cursor, statement, parameters, _context, _executemany):
-            if statement.lstrip().upper().startswith("SELECT"):
+            if statement.lstrip().upper().startswith(("SELECT", "WITH")):
                 statements.append((statement, parameters))
 
         event.listen(db.bind, "before_cursor_execute", capture)
@@ -677,8 +708,10 @@ def receive_options_postgres_session():
         engine.dispose()
 
 
+@pytest.mark.parametrize("scope_count", [1, 50, 401])
 def test_postgres_packaging_receive_options_executes_grouped_target_query(
     receive_options_postgres_session,
+    scope_count,
 ):
     sessions = receive_options_postgres_session
     marker = uuid4().hex[:8]
@@ -692,13 +725,13 @@ def test_postgres_packaging_receive_options_executes_grouped_target_query(
             production_no=f"PERF18-PG-{marker}",
             production_type="branded_stock",
             model_id=model.id,
-            planned_quantity=5000,
+            planned_quantity=max(5000, scope_count * 100),
             status="sewing",
         )
         db.add(order)
         db.flush()
         expected_first = None
-        for index in range(50):
+        for index in range(scope_count):
             batch = ProductionBatch(
                 production_order_id=order.id,
                 batch_no=f"PG-{index:02d}",
@@ -742,13 +775,13 @@ def test_postgres_packaging_receive_options_executes_grouped_target_query(
                     receive_method="manual",
                 ),
             ])
-            if index == 49:
-                expected_first = {
-                    "work_order_id": int(target.id),
-                    "source_work_order_id": int(source.id),
-                    "production_batch_id": int(batch.id),
-                    "batch_no": batch.batch_no,
-                }
+            expected_first = {
+                "work_order_id": int(target.id),
+                "source_work_order_id": int(source.id),
+                "production_batch_id": int(batch.id),
+                "batch_no": batch.batch_no,
+                "sewing_passed": 30 + index,
+            }
         db.commit()
 
         current = SimpleNamespace(
@@ -761,7 +794,7 @@ def test_postgres_packaging_receive_options_executes_grouped_target_query(
         statements = []
 
         def capture(_connection, _cursor, statement, parameters, _context, _executemany):
-            if statement.lstrip().upper().startswith("SELECT"):
+            if statement.lstrip().upper().startswith(("SELECT", "WITH")):
                 statements.append((statement, parameters))
 
         event.listen(db.bind, "before_cursor_execute", capture)
@@ -784,7 +817,7 @@ def test_postgres_packaging_receive_options_executes_grouped_target_query(
 
     assert db.bind.dialect.name == "postgresql"
     assert len(statements) == 2
-    assert len(rows) == 10
+    assert len(rows) == min(scope_count, 10)
     assert expected_first is not None
     assert rows[0] == {
         "work_order_id": expected_first["work_order_id"],
@@ -797,10 +830,15 @@ def test_postgres_packaging_receive_options_executes_grouped_target_query(
         "model_name": model.name,
         "batch_no": expected_first["batch_no"],
         "batch_name": None,
-        "sewing_passed": 79,
+        "sewing_passed": expected_first["sewing_passed"],
         "received_quantity": 7,
-        "available_quantity": 72,
+        "available_quantity": expected_first["sewing_passed"] - 7,
     }
     assert any(line.lstrip().startswith("Limit") for line in explain)
     assert not any("SubPlan" in line for line in explain)
+    if scope_count > 1:
+        assert not any(
+            "Aggregate" in line and f"loops={scope_count}" in line
+            for line in explain
+        ), "a grouped target map was recomputed once per receive scope"
     print("PERF18 PostgreSQL EXPLAIN\n" + "\n".join(explain))
