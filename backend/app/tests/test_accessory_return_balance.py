@@ -78,10 +78,10 @@ def test_accessory_issue_summary_projects_only_fields_used_from_movements_and_it
 
         def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
             normalized = " ".join(statement.lower().split())
-            if (
-                normalized.startswith("select")
-                and " from stock_movements " in normalized
-                and " join items " in normalized
+            if normalized.startswith("select") and (
+                " from production_orders " in normalized
+                or " from models " in normalized
+                or (" from stock_movements " in normalized and " join items " in normalized)
             ):
                 statements.append(normalized)
 
@@ -92,14 +92,31 @@ def test_accessory_issue_summary_projects_only_fields_used_from_movements_and_it
             event.remove(db.bind, "before_cursor_execute", capture)
 
     assert len(rows) == 1
-    assert len(statements) == 1
-    selected = statements[0].split(" from stock_movements", 1)[0]
+    movement_selects = [
+        statement for statement in statements if " from stock_movements " in statement and " join items " in statement
+    ]
+    assert len(movement_selects) == 1
+    selected = movement_selects[0].split(" from stock_movements", 1)[0]
     assert "stock_movements.quantity" in selected
     assert "stock_movements.reference_type" in selected
     assert "items.sku" in selected
     assert "items.category" in selected
     assert "stock_movements.note" not in selected
     assert "items.composition_json" not in selected
+    production_order_selects = [
+        statement for statement in statements if " from production_orders " in statement
+    ]
+    model_selects = [statement for statement in statements if " from models " in statement]
+    assert len(production_order_selects) == 1
+    assert len(model_selects) == 1
+    production_order_columns = production_order_selects[0].split(" from production_orders", 1)[0]
+    model_columns = model_selects[0].split(" from models", 1)[0]
+    assert "production_orders.production_no" in production_order_columns
+    assert "sales_orders_1.order_no" in production_order_columns
+    assert "production_orders.printing_instructions" not in production_order_columns
+    assert "models.code" in model_columns
+    assert "models.name" in model_columns
+    assert "models.image_url" not in model_columns
 
 
 def test_return_groups_keep_other_orders_items_units_and_itemless_labels_separate(accessory_case):

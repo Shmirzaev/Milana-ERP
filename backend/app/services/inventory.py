@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, func, or_, text
-from sqlalchemy.orm import Session, lazyload, load_only
+from sqlalchemy.orm import Session, joinedload, lazyload, load_only, noload
 
 from app.core.pagination import clamp_pagination
 from app.core.model_search import model_code_contains, normalized_model_code_column, normalized_model_code_key
@@ -1597,11 +1597,32 @@ def accessory_issue_summary(
     }
     if not all_po_ids:
         return []
-    po_rows = db.query(ProductionOrder).filter(ProductionOrder.id.in_(all_po_ids)).all()
+    po_rows = (
+        db.query(ProductionOrder)
+        .options(
+            load_only(
+                ProductionOrder.id,
+                ProductionOrder.model_id,
+                ProductionOrder.production_no,
+                ProductionOrder.sales_order_id,
+            ),
+            joinedload(ProductionOrder.sales_order).load_only(SalesOrder.id, SalesOrder.order_no),
+            noload(ProductionOrder.materials),
+        )
+        .filter(ProductionOrder.id.in_(all_po_ids))
+        .all()
+    )
     po_by_id = {int(po.id): po for po in po_rows}
 
     model_ids = {int(po.model_id) for po in po_rows if po.model_id}
-    models = db.query(Model).filter(Model.id.in_(model_ids)).all() if model_ids else []
+    models = (
+        db.query(Model)
+        .options(load_only(Model.id, Model.code, Model.name))
+        .filter(Model.id.in_(model_ids))
+        .all()
+        if model_ids
+        else []
+    )
     model_by_id = {int(model.id): model for model in models}
 
     item_by_id: dict[int, Item] = {}
