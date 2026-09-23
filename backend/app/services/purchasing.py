@@ -35,6 +35,7 @@ REQUEST_REJECTABLE_STATUSES = {"draft", "pending_approval", "approved"}
 ORDER_CREATE_STATUSES = {"draft", "sent"}
 ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
 MAX_PURCHASE_QUANTITY = Decimal("9999999999.9999")
+MAX_STOCK_BATCH_PIECE_COUNT = 2_147_483_647
 
 
 def _num(value) -> float:
@@ -519,6 +520,9 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
         item = items.get(int(line.item_id))
         if not item:
             raise HTTPException(404, f"Item {int(line.item_id)} not found")
+        piece_count = raw.get("piece_count")
+        if piece_count is not None and not 0 <= piece_count <= MAX_STOCK_BATCH_PIECE_COUNT:
+            raise HTTPException(422, "piece_count must be between 0 and 2147483647")
         unit = str(line.unit or item.unit or "").strip() or item.unit
         cost_per_unit = _num(raw.get("cost_per_unit")) if raw.get("cost_per_unit") is not None else _num(line.unit_cost)
         roll_weights, piece_count = normalize_material_roll_weights(
