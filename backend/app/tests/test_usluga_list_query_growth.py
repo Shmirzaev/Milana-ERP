@@ -166,6 +166,10 @@ def test_usluga_order_list_preloads_are_chunk_bounded_without_image_blobs(order_
     assert all(row["package_count"] == 1 and row["package_quantity"] == 1 for row in payload)
     assert "file_data" not in "\n".join(statements).lower()
     expected_projection = {
+        "models": (
+            ("id", "code", "name", "category", "description", "created_at"),
+            ("details_json", "product_type", "selling_price"),
+        ),
         "production_order_items": (
             ("id", "production_order_id", "color", "size", "planned_quantity"),
             ("completed_quantity", "printing_required"),

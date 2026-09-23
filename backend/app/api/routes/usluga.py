@@ -699,7 +699,14 @@ def list_usluga_orders(
     for start in range(0, len(model_ids), _PRELOAD_CHUNK_SIZE):
         rows = _usluga_model_query(db).filter(
             Model.id.in_(model_ids[start:start + _PRELOAD_CHUNK_SIZE]),
-        ).all()
+        ).options(load_only(
+            Model.id,
+            Model.code,
+            Model.name,
+            Model.category,
+            Model.description,
+            Model.created_at,
+        )).all()
         models_by_id.update((int(row.id), row) for row in rows)
     for start in range(0, len(order_ids), _PRELOAD_CHUNK_SIZE):
         chunk = order_ids[start:start + _PRELOAD_CHUNK_SIZE]
