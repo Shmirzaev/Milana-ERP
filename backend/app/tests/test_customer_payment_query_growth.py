@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import event
 
-from app.api.routes.partners import _find_payable_invoice
+from app.api.routes.partners import _find_payable_invoice, get_customer_payments
 from app.db.session import SessionLocal
 from app.models import Customer, Invoice, Payment, SalesOrder
 
@@ -67,3 +67,70 @@ def test_payable_selection_keeps_first_invoice_and_ignores_other_orders():
         db.commit()
         assert _find_payable_invoice(db, order).id == first_id
         assert _find_payable_invoice(db, db.get(SalesOrder, other_id)) is None
+
+
+def test_customer_payment_history_projects_only_response_columns():
+    marker = uuid4().hex
+    with SessionLocal() as db:
+        customer = Customer(name=f"Projection {marker}")
+        db.add(customer)
+        db.flush()
+        order = SalesOrder(
+            order_no=f"PAY-PROJECTION-{marker}",
+            customer_id=customer.id,
+            total_amount=125,
+            notes="unused order note" * 20,
+            printing_attachments=[{"unused": "attachment"}],
+        )
+        db.add(order)
+        db.flush()
+        invoice = Invoice(
+            sales_order_id=order.id,
+            invoice_no=f"PAY-PROJECTION-INV-{marker}",
+            amount=125,
+        )
+        db.add(invoice)
+        db.flush()
+        payment = Payment(
+            invoice_id=invoice.id,
+            customer_id=customer.id,
+            amount=40,
+            payment_method="cash",
+            notes="payment note",
+        )
+        db.add(payment)
+        db.commit()
+        expected = {
+            "id": payment.id,
+            "row_key": f"payment-{payment.id}",
+            "amount": 40.0,
+            "payment_method": "cash",
+            "paid_at": payment.paid_at,
+            "notes": "payment note",
+            "order_id": order.id,
+            "order_no": order.order_no,
+            "invoice_id": invoice.id,
+            "invoice_no": invoice.invoice_no,
+            "invoice_amount": 125.0,
+            "is_advance": False,
+        }
+
+        statements = []
+
+        def capture(_conn, _cursor, statement, _params, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement.lower())
+
+        event.listen(db.get_bind(), "before_cursor_execute", capture)
+        try:
+            result = get_customer_payments(customer.id, db, None)
+        finally:
+            event.remove(db.get_bind(), "before_cursor_execute", capture)
+
+    assert result == [expected]
+    payment_query = next(sql for sql in statements if "from payments" in sql and "join invoices" in sql)
+    selected_columns = payment_query.split(" from payments", 1)[0]
+    assert "sales_orders.notes" not in selected_columns
+    assert "sales_orders.printing_attachments" not in selected_columns
+    assert "payments.notes" in selected_columns
+    assert "invoices.invoice_no" in selected_columns

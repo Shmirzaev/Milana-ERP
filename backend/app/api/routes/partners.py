@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
+from sqlalchemy.orm import load_only
 
 from app.core.dt import date_filter_bounds
 from app.core.deps import (
@@ -202,6 +203,17 @@ def get_customer_payments(
         raise HTTPException(404, "Customer not found")
     query = (
         db.query(Payment, Invoice, SalesOrder)
+        .options(
+            load_only(
+                Payment.id,
+                Payment.amount,
+                Payment.payment_method,
+                Payment.paid_at,
+                Payment.notes,
+            ),
+            load_only(Invoice.id, Invoice.invoice_no, Invoice.amount),
+            load_only(SalesOrder.id, SalesOrder.order_no),
+        )
         .outerjoin(Invoice, Invoice.id == Payment.invoice_id)
         .outerjoin(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
         .filter(or_(SalesOrder.customer_id == cid, Payment.customer_id == cid))
