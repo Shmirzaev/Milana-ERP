@@ -65,6 +65,10 @@ def test_active_production_pages_bound_dependent_reads_and_preserve_legacy_paylo
     assert page["rows"] == legacy[:returned_count]
     assert len(statements) == 4, statements
     assert len(legacy_statements) == 3, legacy_statements
+    count_queries = [statement for statement in statements if "count(" in statement]
+    assert len(count_queries) == 1, statements
+    assert "count(sales_orders.id)" in count_queries[0]
+    assert " from (select sales_orders." not in count_queries[0]
     sales_order_reads = [
         statement.lower()
         for statement in statements

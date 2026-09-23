@@ -103,7 +103,7 @@ def active_production(
     if paginated:
         page = page or 1
         page_size = page_size or limit
-        total = query.count()
+        total = query.order_by(None).with_entities(func.count(SalesOrder.id)).scalar()
         orders = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
     else:
         orders = ordered_query.limit(limit).all()
