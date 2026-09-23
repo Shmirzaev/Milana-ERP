@@ -207,6 +207,16 @@ def _preparation_payload(
 
     order_items = (
         db.query(SalesOrderItem)
+        .options(
+            load_only(
+                SalesOrderItem.id,
+                SalesOrderItem.model_id,
+                SalesOrderItem.color,
+                SalesOrderItem.size,
+                SalesOrderItem.quantity,
+                SalesOrderItem.requested_pack_count,
+            )
+        )
         .filter(SalesOrderItem.sales_order_id == sales_order_id)
         .order_by(SalesOrderItem.id.asc())
         .all()

@@ -85,9 +85,16 @@ def test_sales_order_preparation_omits_image_binaries_at_scale(
     assert response.status_code == 200, response.text
     items = response.json()["items"]
     image_reads = [statement for statement in statements if " from model_images " in statement]
+    order_item_reads = [
+        statement for statement in statements if " from sales_order_items " in statement
+    ]
     print(f"Shipment preparation variants {variant_count}: {len(statements)} SELECTs")
     assert [int(item["model_id"]) for item in items] == model_ids
     assert [item["model_image_url"] for item in items] == image_urls
     assert image_reads
     assert all("model_images.file_data" not in statement for statement in image_reads)
-    assert len(statements) == 8
+    assert len(order_item_reads) == 1
+    assert "sales_order_items.unit_price" not in order_item_reads[0]
+    assert "sales_order_items.notes" not in order_item_reads[0]
+    assert "sales_order_items.requested_pack_count" in order_item_reads[0]
+    assert len(statements) == 7
