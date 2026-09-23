@@ -35,11 +35,11 @@ def add_process_qr_model_sizes(
         raise HTTPException(404, "Model not found")
     # The standard catalog is shared across factories, as on the GET resolver.
     # Query arguments must never expose the separate Eco Cotton Usluga catalog.
-    model = db.query(Model).filter(
+    model_id = db.query(Model.id).filter(
         Model.id == mid,
         Model.catalog_scope == "standard",
     ).with_for_update().one_or_none()
-    if model is None:
+    if model_id is None:
         raise HTTPException(404, "Model not found")
     # Lock the parent before checking children so concurrent setup requests
     # cannot both observe an empty model and insert their own sets.

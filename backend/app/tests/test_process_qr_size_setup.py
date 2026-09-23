@@ -1,7 +1,9 @@
 import pytest
+from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models import AuditLog, ModelSize
+from app.tests.conftest import test_engine
 from app.tests.test_payroll import _create_user_with_permissions
 from app.tests.test_process_qr_model_sizes import _model
 
@@ -22,6 +24,32 @@ def test_setup_persists_exact_variant_sizes_and_audit(client, auth_headers):
         audit = db.query(AuditLog).filter(AuditLog.action == "process_qr_sizes_added", AuditLog.entity_id == mid).one()
         assert audit.old_value_json == {"sizes": []}
         assert audit.new_value_json == {"sizes": ["52", "54"]}
+
+
+def test_setup_locks_model_with_id_only_projection(client, auth_headers):
+    mid = _model("QR-SETUP-PROJECTION")
+    statements: list[str] = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.post(
+            f"/api/models/{mid}/process-qr-sizes",
+            json={"sizes": ["48", "50"]},
+            headers=auth_headers,
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 201, response.text
+    model_reads = [statement for statement in statements if " from models " in statement]
+    assert len(model_reads) == 1
+    assert "select models.id " in model_reads[0]
+    assert "models.code" not in model_reads[0]
+    assert "models.details_json" not in model_reads[0]
 
 
 @pytest.mark.parametrize("sizes", [[], [" "], ["S", " s "], ["S"] * 41, ["X" * 33], ["48", ""]])
