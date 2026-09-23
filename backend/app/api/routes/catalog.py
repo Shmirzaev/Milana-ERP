@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi import UploadFile, File, Form
 from pydantic import ValidationError
 from sqlalchemy import and_, case, func, literal_column, or_, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import lazyload, load_only, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.core.config import settings
@@ -1269,7 +1269,18 @@ def list_collections(
     page_size: int | None = None,
     include_total: bool = False,
 ):
-    qry = db.query(Collection)
+    qry = db.query(Collection).options(
+        lazyload("*"),
+        load_only(
+            Collection.id,
+            Collection.brand_id,
+            Collection.name,
+            Collection.season,
+            Collection.year,
+            Collection.description,
+            Collection.status,
+        ),
+    )
     if brand_id:
         qry = qry.filter(Collection.brand_id == brand_id)
     paginated = include_total or page is not None or page_size is not None

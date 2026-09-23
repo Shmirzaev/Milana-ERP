@@ -51,6 +51,9 @@ def _read(db: Session, **kwargs):
 @pytest.mark.parametrize("count", [1, 50, 401])
 def test_collection_pages_bound_sql_and_preserve_legacy_payload(count):
     with _collection_database(count) as (db, brand_id):
+        legacy_full_row_sql = str(
+            db.query(Collection).statement.compile(dialect=db.bind.dialect)
+        ).lower()
         page, statements = _read(
             db,
             brand_id=brand_id,
@@ -78,6 +81,11 @@ def test_collection_pages_bound_sql_and_preserve_legacy_payload(count):
         assert len(page["rows"]) == min(count, 50)
         assert len(selects) == 2, selects
         assert " limit ? offset ?" in selects[1]
+        assert " join brands " not in selects[1]
+        assert "brands_1.description" not in selects[1]
+        assert "brands_1.logo_url" not in selects[1]
+        assert "brands_1.description" in legacy_full_row_sql
+        assert "brands_1.logo_url" in legacy_full_row_sql
         assert len([statement for statement in legacy_statements if statement.startswith("select")]) == 1
         assert writes == []
 
