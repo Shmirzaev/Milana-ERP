@@ -59,11 +59,14 @@ def test_brand_metadata_repair_reuses_sales_order_model_references(stock_count):
     model_id, order_id, brand_id, collection_id, stock_ids = _seed_missing_stock_metadata(stock_count)
     with TestSessionLocal() as db:
         statements: list[str] = []
+        stock_statements: list[str] = []
 
         def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
             normalized = " ".join(statement.lower().split())
             if normalized.startswith("select") and " from sales_order_items " in normalized:
                 statements.append(normalized)
+            if normalized.startswith("select") and " from finished_goods_stock " in normalized:
+                stock_statements.append(normalized)
 
         event.listen(db.bind, "before_cursor_execute", capture)
         try:
@@ -75,6 +78,20 @@ def test_brand_metadata_repair_reuses_sales_order_model_references(stock_count):
     print(f"Finished-goods metadata repair {stock_count}: {len(statements)} sales-item SELECTs")
     assert updated == stock_count
     assert len(statements) == 1
+    assert len(stock_statements) == 1, stock_statements
+    selected_columns = stock_statements[0].split(" from finished_goods_stock", 1)[0]
+    for needed in (
+        "finished_goods_stock.id",
+        "finished_goods_stock.model_id",
+        "finished_goods_stock.sales_order_id",
+        "finished_goods_stock.production_order_id",
+        "finished_goods_stock.package_id",
+        "finished_goods_stock.brand_id",
+        "finished_goods_stock.collection_id",
+    ):
+        assert needed in selected_columns
+    assert "finished_goods_stock.created_at" not in selected_columns
+    assert "finished_goods_stock.updated_at" not in selected_columns
     assert all(row.sales_order_id == order_id for row in rows)
     assert all(row.collection_id == collection_id for row in rows)
     assert all(row.brand_id == brand_id for row in rows)

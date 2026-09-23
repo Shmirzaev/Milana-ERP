@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.models import Collection, CollectionModel, FinishedGoodsStock, Package, ProductionOrder, SalesOrderItem
 
@@ -141,7 +141,15 @@ def infer_brand_and_collection(
 def repair_missing_brand_metadata(db: Session, *, model_ids: set[int] | None = None) -> int:
     query = db.query(FinishedGoodsStock).filter(
         (FinishedGoodsStock.brand_id.is_(None)) | (FinishedGoodsStock.collection_id.is_(None))
-    )
+    ).options(load_only(
+        FinishedGoodsStock.id,
+        FinishedGoodsStock.model_id,
+        FinishedGoodsStock.sales_order_id,
+        FinishedGoodsStock.production_order_id,
+        FinishedGoodsStock.package_id,
+        FinishedGoodsStock.brand_id,
+        FinishedGoodsStock.collection_id,
+    ))
     if model_ids is not None:
         normalized_model_ids = {int(model_id) for model_id in model_ids}
         if not normalized_model_ids:
