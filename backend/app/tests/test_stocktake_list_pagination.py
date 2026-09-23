@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from uuid import uuid4
 
@@ -122,3 +123,42 @@ def test_stocktake_page_contract_auth_compatibility_and_no_writes(client, auth_h
 
     with TestSessionLocal() as db:
         assert db.query(WarehouseStocktake).count() == before
+
+
+def test_stocktake_list_scan_summary_streams_and_preserves_first_package_evidence():
+    with _stocktake_database(1) as (db, created_ids):
+        stocktake_id = created_ids[0]
+        scanned_at = datetime.now(timezone.utc)
+        db.add_all([
+            WarehouseStocktakeRow(
+                stocktake_id=stocktake_id, identity="package:first", package_id=91,
+                expected=True, category="expected", snapshot={"quantity": 7},
+                scanned_at=scanned_at,
+            ),
+            WarehouseStocktakeRow(
+                stocktake_id=stocktake_id, identity="package:duplicate", package_id=91,
+                expected=False, category="unexpected", snapshot={"quantity": 9},
+                scan_snapshot={"quantity": 12}, scanned_at=scanned_at,
+            ),
+            WarehouseStocktakeRow(
+                stocktake_id=stocktake_id, identity="code:unknown", package_id=None,
+                expected=False, category="unknown", snapshot={}, scanned_at=scanned_at,
+            ),
+        ])
+        db.commit()
+
+        payload, statements = _read(db, offset=0, page=1, page_size=1)
+
+    assert payload["items"][0]["summary"] == {
+        "scanned": 3,
+        "scanned_packages": 1,
+        "scanned_pieces": 7,
+        "estimated_packages": 1,
+        "unquantified_packages": 0,
+    }
+    scan_selects = [
+        statement for statement in statements
+        if statement.startswith("select") and "warehouse_stocktake_rows" in statement
+    ]
+    assert len(scan_selects) == 1
+    assert "order by warehouse_stocktake_rows.id asc" in scan_selects[0]

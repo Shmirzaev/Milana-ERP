@@ -2,6 +2,7 @@ import csv
 import hashlib
 import io
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -10,7 +11,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, require_permissions
 from app.models import Package, User
@@ -21,7 +21,6 @@ from app.services.stocktake import (
     resolve_package,
     row_payload,
     scan_fields,
-    scan_summary,
     stocktake_detail_page,
     stocktake_summary,
 )
@@ -30,6 +29,52 @@ router = APIRouter(prefix="/warehouse-stocktakes", tags=["warehouse_stocktakes"]
 access = require_permissions("storage.packages", "storage.shipment")
 _STOCKTAKE_EXPORT_CHUNK_SIZE = 400
 _DB_INTEGER_MAX = 2_147_483_647
+
+
+def _stocktake_list_scan_summaries(db, stocktake_ids):
+    summaries = {
+        stocktake_id: {"scanned": 0, "packages": {}}
+        for stocktake_id in stocktake_ids
+    }
+    rows = (
+        db.query(
+            WarehouseStocktakeRow.stocktake_id,
+            WarehouseStocktakeRow.id,
+            WarehouseStocktakeRow.package_id,
+            WarehouseStocktakeRow.expected,
+            WarehouseStocktakeRow.snapshot,
+            WarehouseStocktakeRow.scan_snapshot,
+            WarehouseStocktakeRow.scanned_at,
+        )
+        .filter(
+            WarehouseStocktakeRow.stocktake_id.in_(stocktake_ids),
+            WarehouseStocktakeRow.scanned_at.is_not(None),
+        )
+        .order_by(WarehouseStocktakeRow.id.asc())
+        .yield_per(_STOCKTAKE_EXPORT_CHUNK_SIZE)
+    ) if stocktake_ids else ()
+    for values in rows:
+        stocktake_id, *_ = values
+        summary = summaries[stocktake_id]
+        summary["scanned"] += 1
+        row = SimpleNamespace(
+            expected=values[3], snapshot=values[4], scan_snapshot=values[5],
+            scanned_at=values[6], package_id=values[2],
+        )
+        if row.package_id is not None:
+            summary["packages"].setdefault(row.package_id, scan_fields(row))
+
+    result = {}
+    for stocktake_id, summary in summaries.items():
+        packages = summary["packages"].values()
+        result[stocktake_id] = {
+            "scanned": summary["scanned"],
+            "scanned_packages": len(summary["packages"]),
+            "scanned_pieces": sum(row["scanned_pieces"] or 0 for row in packages),
+            "estimated_packages": sum(row["scan_evidence_source"] == "count_start" for row in packages),
+            "unquantified_packages": sum(row["scanned_pieces"] is None for row in packages),
+        }
+    return result
 
 
 class CreateCount(BaseModel):
@@ -190,17 +235,10 @@ def list_counts(
         .limit(current_page_size if paginated else 50)
         .all()
     )
-    scans = {count.id: [] for count in counts}
-    if scans:
-        recorded = db.query(WarehouseStocktakeRow).options(load_only(
-            WarehouseStocktakeRow.stocktake_id, WarehouseStocktakeRow.package_id, WarehouseStocktakeRow.expected,
-            WarehouseStocktakeRow.snapshot, WarehouseStocktakeRow.scan_snapshot, WarehouseStocktakeRow.scanned_at,
-        )).filter(WarehouseStocktakeRow.stocktake_id.in_(scans), WarehouseStocktakeRow.scanned_at.is_not(None)).all()
-        for row in recorded:
-            scans[row.stocktake_id].append(scan_fields(row))
+    scans = _stocktake_list_scan_summaries(db, [count.id for count in counts])
     result = {
         "total": query.count(),
-        "items": [{**count_info(c), "summary": scan_summary(scans[c.id])} for c in counts],
+        "items": [{**count_info(c), "summary": scans[c.id]} for c in counts],
     }
     if paginated:
         result.update({
