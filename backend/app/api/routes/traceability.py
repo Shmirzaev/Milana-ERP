@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+from sqlalchemy.orm import load_only
 from urllib.parse import parse_qs, unquote, urlparse
 
 from app.core.deps import DbSession, require_permissions
@@ -108,11 +109,22 @@ def _find_production_batch(db: DbSession, key: str) -> ProductionBatch | None:
 
 def _find_shipment(db: DbSession, key: str) -> Shipment | None:
     decoded = _decode(key)
+    query = db.query(Shipment).options(load_only(
+        Shipment.id,
+        Shipment.shipment_no,
+        Shipment.status,
+        Shipment.sales_order_id,
+        Shipment.customer_id,
+        Shipment.shipped_at,
+        Shipment.delivered_at,
+        Shipment.created_at,
+        Shipment.notes,
+    ))
     if decoded.isdigit():
-        shipment = db.get(Shipment, int(decoded))
+        shipment = query.filter(Shipment.id == int(decoded)).first()
         if shipment:
             return shipment
-    return db.query(Shipment).filter(Shipment.shipment_no == decoded).first()
+    return query.filter(Shipment.shipment_no == decoded).first()
 
 
 @router.get("/package/barcode/{barcode}")
