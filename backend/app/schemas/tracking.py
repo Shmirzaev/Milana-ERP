@@ -135,7 +135,7 @@ class PackageItemOut(ORMModel):
 
 class PackageBatchAllocationIn(BaseModel):
     production_batch_id: int
-    quantity: int
+    quantity: int = Field(le=2_147_483_647)
 
 
 class PackageBatchAllocationOut(ORMModel):
