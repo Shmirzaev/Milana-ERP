@@ -423,7 +423,7 @@ def _validate_employee_references(
     if manager_employee_id is not None:
         if manager_employee_id == employee_id:
             raise HTTPException(409, "Employee cannot be their own manager")
-        manager = db.query(Employee).filter(
+        manager = db.query(Employee.id).filter(
             Employee.id == manager_employee_id,
             Employee.factory_code == factory_code,
         ).first()
@@ -432,7 +432,7 @@ def _validate_employee_references(
     if hr_position_id is not None:
         from app.models import HrPosition
 
-        position = db.query(HrPosition).filter(
+        position = db.query(HrPosition.id).filter(
             HrPosition.id == hr_position_id,
             HrPosition.factory_code == factory_code,
         ).first()
