@@ -567,7 +567,12 @@ def list_pos(
     page_size: Annotated[int, Query(ge=1, le=500)] = 50,
     include_total: bool = False,
 ):
-    qry = db.query(ProductionOrder).options(joinedload(ProductionOrder.sales_order)).filter(
+    qry = db.query(ProductionOrder).options(
+        joinedload(ProductionOrder.sales_order).load_only(
+            SalesOrder.id,
+            SalesOrder.order_no,
+        )
+    ).filter(
         ProductionOrder.source_type == "standard"
     )
     if status: qry = qry.filter(ProductionOrder.status == status)

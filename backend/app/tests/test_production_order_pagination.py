@@ -6,7 +6,7 @@ from sqlalchemy import event
 
 from app.api.routes.production import list_pos
 from app.db.session import SessionLocal
-from app.models import AuditLog, Model, ProductionOrder
+from app.models import AuditLog, Model, ProductionOrder, SalesOrder
 
 
 def _seed_orders(count: int) -> tuple[str, int]:
@@ -87,6 +87,55 @@ def test_production_order_pages_bound_rows_and_preserve_legacy_payload(order_cou
     assert " limit ? offset ?" in selects[1]
     assert len([statement for statement in legacy_statements if statement.startswith("select")]) == 2
     assert writes == []
+
+
+def test_production_order_list_projects_sales_order_reference_fields():
+    marker = uuid4().hex[:8].upper()
+    with SessionLocal() as db:
+        model = Model(
+            code=f"PERF35-PO-SO-M-{marker}",
+            name=f"Sales linked production model {marker}",
+            status="approved",
+        )
+        sales_order = SalesOrder(
+            order_no=f"SO-PERF35-PO-{marker}",
+            status="draft",
+            total_amount=0,
+        )
+        db.add_all([model, sales_order])
+        db.flush()
+        production_order = ProductionOrder(
+            production_no=f"PERF35-PO-SO-{marker}",
+            production_type=f"perf35-so-{marker}",
+            source_type="standard",
+            model_id=model.id,
+            sales_order_id=sales_order.id,
+            planned_quantity=1,
+            status="new",
+        )
+        db.add(production_order)
+        db.commit()
+        production_type = production_order.production_type
+        sales_order_no = sales_order.order_no
+
+    with SessionLocal() as db:
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rows = list_pos(db, SimpleNamespace(), production_type=production_type)
+            assert rows[0].sales_order_no == sales_order_no
+            assert rows[0].order_no == sales_order_no
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    order_query = next(statement for statement in statements if " from production_orders " in statement)
+    assert "sales_orders_1.order_no" in order_query
+    assert "sales_orders_1.total_amount" not in order_query
 
 
 def test_production_order_page_contract_auth_filter_and_no_writes(client, auth_headers):
