@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only
 
 from app.models import (
     Brand,
@@ -138,7 +138,18 @@ def _add_demand_event(
 
 def _branded_demand_groups(db: Session) -> dict[BrandedKey, dict[str, Any]]:
     sales_rows = (
-        db.query(SalesOrderItem, SalesOrder)
+        db.query(SalesOrderItem, SalesOrder).options(
+            load_only(
+                SalesOrderItem.id,
+                SalesOrderItem.model_id,
+                SalesOrderItem.brand_id,
+                SalesOrderItem.collection_id,
+                SalesOrderItem.color,
+                SalesOrderItem.size,
+                SalesOrderItem.quantity,
+            ),
+            load_only(SalesOrder.id, SalesOrder.created_at),
+        )
         .join(SalesOrder, SalesOrder.id == SalesOrderItem.sales_order_id)
         .filter(
             SalesOrder.order_type == "branded_stock_sale",
@@ -165,7 +176,21 @@ def _branded_demand_groups(db: Session) -> dict[BrandedKey, dict[str, Any]]:
         )
 
     production_rows = (
-        db.query(ProductionOrderItem, ProductionOrder)
+        db.query(ProductionOrderItem, ProductionOrder).options(
+            load_only(
+                ProductionOrderItem.id,
+                ProductionOrderItem.model_id,
+                ProductionOrderItem.color,
+                ProductionOrderItem.size,
+                ProductionOrderItem.planned_quantity,
+            ),
+            load_only(
+                ProductionOrder.id,
+                ProductionOrder.created_at,
+                ProductionOrder.brand_id,
+                ProductionOrder.collection_id,
+            ),
+        )
         .join(ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id)
         .filter(
             ProductionOrder.production_type == "branded_stock",
