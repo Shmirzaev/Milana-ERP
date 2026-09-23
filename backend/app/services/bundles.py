@@ -1,6 +1,7 @@
 """Bundle service: create cutting bundles with QR/barcode, manage scan transitions."""
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
@@ -294,21 +295,29 @@ def format_batch_passport(batch: ProductionBatch | None, production_order_id: in
 
 def bundle_qr_payload(db: Session, bundle: Bundle) -> str:
     parts = [f"BUNDLE:{bundle.bundle_no}", str(bundle.barcode or "")]
-    production_no = db.query(ProductionOrder.production_no).filter(
+    context = db.query(
+        ProductionOrder.production_no,
+        ProductionBatch.batch_no,
+        ProductionBatch.batch_index,
+        ProductionBatch.production_order_id,
+    ).outerjoin(
+        ProductionBatch,
+        ProductionBatch.id == bundle.production_batch_id,
+    ).filter(
         ProductionOrder.id == bundle.production_order_id,
-    ).scalar()
+    ).first()
+    production_no = context[0] if context else None
     if production_no:
         parts.append(f"PO:{production_no}")
-    if bundle.production_batch_id:
-        batch = db.query(
-            ProductionBatch.batch_no,
-            ProductionBatch.batch_index,
-            ProductionBatch.production_order_id,
-        ).filter(ProductionBatch.id == bundle.production_batch_id).first()
-        if batch:
-            passport = format_batch_passport(batch, bundle.production_order_id)
-            parts.append(f"BATCH:{passport}")
-            parts.append(f"BATCH_ID:{bundle.production_batch_id}")
+    if bundle.production_batch_id and context and context[3] is not None:
+        batch = SimpleNamespace(
+            batch_no=context[1],
+            batch_index=context[2],
+            production_order_id=context[3],
+        )
+        passport = format_batch_passport(batch, bundle.production_order_id)
+        parts.append(f"BATCH:{passport}")
+        parts.append(f"BATCH_ID:{bundle.production_batch_id}")
     return "|".join(part for part in parts if part)
 
 

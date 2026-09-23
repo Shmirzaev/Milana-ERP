@@ -144,12 +144,13 @@ def test_bundle_qr_payload_projects_live_order_and_batch_columns(client, auth_he
         f"BUNDLE:{saved.bundle_no}|{saved.barcode}|PO:{order.production_no}|"
         f"BATCH:QR-PROJECTION|BATCH_ID:{batch.id}"
     )
-    order_reads = [statement for statement in statements if " from production_orders " in statement]
-    batch_reads = [statement for statement in statements if " from production_batches " in statement]
-    assert len(order_reads) == 1
-    assert len(batch_reads) == 1
-    assert "production_orders.planning_estimate_comment" not in order_reads[0]
-    assert "production_batches.notes" not in batch_reads[0]
+    context_reads = [statement for statement in statements if " from production_orders " in statement]
+    assert len(context_reads) == 1
+    assert "production_orders.production_no" in context_reads[0]
+    assert "production_batches.batch_no" in context_reads[0]
+    assert "production_batches.batch_index" in context_reads[0]
+    assert "production_orders.planning_estimate_comment" not in context_reads[0]
+    assert "production_batches.notes" not in context_reads[0]
 
 
 def test_bundle_image_loads_only_fields_used_for_canonical_qr_payload(client, auth_headers):
