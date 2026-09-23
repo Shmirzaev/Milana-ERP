@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from sqlalchemy import event
+
 from app.db.session import SessionLocal
 from app.models import (
     Brand,
@@ -94,12 +96,35 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
         ))
         db.commit()
 
-        result = order_profit(db, order.id)
+        statements = []
+
+        def capture_select(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().lower().startswith("select"):
+                statements.append(statement.lower())
+
+        event.listen(db.get_bind(), "before_cursor_execute", capture_select)
+        try:
+            result = order_profit(db, order.id)
+        finally:
+            event.remove(db.get_bind(), "before_cursor_execute", capture_select)
 
     assert result["revenue"] == 1.3
     assert result["material_cost"] == 0.066
     assert result["waste_cost"] == 0.1
     assert result["gross_profit"] == 1.134
+    sales_query = next(sql for sql in statements if "from sales_orders" in sql)
+    sales_item_query = next(sql for sql in statements if "from sales_order_items" in sql)
+    production_query = next(sql for sql in statements if "from production_orders" in sql)
+    bom_query = next(sql for sql in statements if "from model_bom" in sql)
+    stock_batch_query = next(sql for sql in statements if "from stock_batches" in sql)
+    assert "printing_attachments" not in sales_query
+    assert "notes" not in sales_item_query
+    assert "production_no" not in production_query
+    assert "material_name" not in bom_query
+    assert "join items" not in bom_query
+    assert "join stock_batches" not in bom_query
+    assert "image_url" not in stock_batch_query
+    assert "join items" not in stock_batch_query
 
 
 def test_branded_stock_value_uses_decimal_intermediates():
@@ -147,6 +172,64 @@ def test_cost_breakdown_uses_decimal_for_fractional_bom_totals():
     assert result["fabric_cost"] == 0.17
     assert result["accessories_cost"] == 0.03
     assert result["total_cogs"] == 0.2
+
+
+def test_cost_breakdown_projects_only_calculation_columns():
+    with SessionLocal() as db:
+        model = Model(code=f"COGS-PROJECTION-{uuid4().hex}", name="COGS projection model")
+        fabric = Item(
+            sku=f"COGS-PROJECTION-{uuid4().hex}",
+            name="Projected fabric",
+            category="fabric",
+            unit="kg",
+            default_cost="0.25",
+            composition_json=[{"kind": "ignored"}],
+        )
+        db.add_all([model, fabric])
+        db.flush()
+        db.add(ProductionOrder(
+            production_no=f"COGS-PROJECTION-{uuid4().hex}",
+            production_type="client_order",
+            model_id=model.id,
+            planned_quantity=4,
+        ))
+        db.flush()
+        db.add(ModelBOM(
+            model_id=model.id,
+            item_id=fabric.id,
+            quantity_per_piece="0.5",
+            unit="kg",
+            waste_percent="10.00",
+        ))
+        db.commit()
+
+        statements = []
+
+        def capture_select(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().lower().startswith("select"):
+                statements.append(statement.lower())
+
+        event.listen(db.get_bind(), "before_cursor_execute", capture_select)
+        try:
+            result = cost_breakdown(db)
+        finally:
+            event.remove(db.get_bind(), "before_cursor_execute", capture_select)
+
+    assert result == {
+        "fabric_cost": 0.55,
+        "labor_cost": 0.0,
+        "accessories_cost": 0.0,
+        "total_cogs": 0.55,
+    }
+    production_query = next(sql for sql in statements if "from production_orders" in sql)
+    bom_query = next(sql for sql in statements if "from model_bom" in sql)
+    item_query = next(sql for sql in statements if "from items" in sql)
+    assert "production_no" not in production_query
+    assert "material_name" not in bom_query
+    assert "join items" not in bom_query
+    assert "join stock_batches" not in bom_query
+    assert "image_url" not in item_query
+    assert "composition_json" not in item_query
 
 
 def test_cost_breakdown_ignores_unlinked_bom_notes():

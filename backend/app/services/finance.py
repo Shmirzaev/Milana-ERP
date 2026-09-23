@@ -2,11 +2,11 @@
 from datetime import datetime
 from decimal import Decimal
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only, noload, selectinload
 
 from app.core.dt import as_utc
 from app.models import (
-    SalesOrder, ProductionOrder, FinishedGoodsStock,
+    SalesOrder, SalesOrderItem, ProductionOrder, FinishedGoodsStock,
     WasteRecord, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
 )
 
@@ -47,7 +47,20 @@ def branded_stock_value(db: Session) -> float:
 
 
 def order_profit(db: Session, sales_order_id: int) -> dict:
-    so = db.get(SalesOrder, sales_order_id)
+    so = (
+        db.query(SalesOrder)
+        .options(
+            load_only(SalesOrder.id, SalesOrder.order_no),
+            selectinload(SalesOrder.items).load_only(
+                SalesOrderItem.id,
+                SalesOrderItem.sales_order_id,
+                SalesOrderItem.quantity,
+                SalesOrderItem.unit_price,
+            ),
+        )
+        .filter(SalesOrder.id == sales_order_id)
+        .first()
+    )
     if not so:
         return {}
     # Keep intermediate money arithmetic exact; the public response remains
@@ -59,10 +72,35 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
     )
     # cost = sum over production orders linked to SO: estimated material cost via BOM
     cost = Decimal("0")
-    pos = db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == sales_order_id).all()
+    pos = (
+        db.query(ProductionOrder)
+        .options(load_only(
+            ProductionOrder.id,
+            ProductionOrder.sales_order_id,
+            ProductionOrder.model_id,
+            ProductionOrder.planned_quantity,
+        ))
+        .filter(ProductionOrder.sales_order_id == sales_order_id)
+        .all()
+    )
     if pos:
         model_ids = {p.model_id for p in pos}
-        bom_rows = db.query(ModelBOM).filter(ModelBOM.model_id.in_(model_ids)).all()
+        bom_rows = (
+            db.query(ModelBOM)
+            .options(
+                load_only(
+                    ModelBOM.id,
+                    ModelBOM.model_id,
+                    ModelBOM.item_id,
+                    ModelBOM.quantity_per_piece,
+                    ModelBOM.waste_percent,
+                ),
+                noload(ModelBOM.item),
+                noload(ModelBOM.stock_batch),
+            )
+            .filter(ModelBOM.model_id.in_(model_ids))
+            .all()
+        )
         boms_by_model: dict[int, list[ModelBOM]] = {}
         for row in bom_rows:
             boms_by_model.setdefault(row.model_id, []).append(row)
@@ -72,6 +110,10 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
         if item_ids:
             latest_rows = (
                 db.query(StockBatch)
+                .options(
+                    load_only(StockBatch.id, StockBatch.item_id, StockBatch.cost_per_unit),
+                    noload(StockBatch.item),
+                )
                 .filter(StockBatch.item_id.in_(item_ids))
                 .order_by(StockBatch.item_id.asc(), StockBatch.id.desc())
                 .all()
@@ -184,18 +226,48 @@ def revenue_by_period(
 
 def cost_breakdown(db: Session) -> dict:
     """Estimate COGS split into fabric, accessories, and labor components."""
-    pos = db.query(ProductionOrder).all()
+    pos = db.query(ProductionOrder).options(
+        load_only(ProductionOrder.id, ProductionOrder.model_id, ProductionOrder.planned_quantity),
+    ).all()
     model_ids = {int(po.model_id) for po in pos if po.model_id}
-    bom_rows = db.query(ModelBOM).filter(ModelBOM.model_id.in_(model_ids)).all() if model_ids else []
+    bom_rows = (
+        db.query(ModelBOM)
+        .options(
+            load_only(
+                ModelBOM.id,
+                ModelBOM.model_id,
+                ModelBOM.item_id,
+                ModelBOM.quantity_per_piece,
+                ModelBOM.waste_percent,
+            ),
+            noload(ModelBOM.item),
+            noload(ModelBOM.stock_batch),
+        )
+        .filter(ModelBOM.model_id.in_(model_ids))
+        .all()
+        if model_ids
+        else []
+    )
 
     item_ids = {int(row.item_id) for row in bom_rows if row.item_id}
-    item_rows = db.query(Item).filter(Item.id.in_(item_ids)).all() if item_ids else []
+    item_rows = (
+        db.query(Item)
+        .options(load_only(Item.id, Item.category, Item.default_cost))
+        .filter(Item.id.in_(item_ids))
+        .all()
+        if item_ids
+        else []
+    )
     item_map = {int(item.id): item for item in item_rows}
 
     latest_cost_by_item: dict[int, Decimal] = {}
     if item_ids:
         latest_rows = (
             db.query(StockBatch)
+            .options(
+                load_only(StockBatch.id, StockBatch.item_id, StockBatch.cost_per_unit),
+                noload(StockBatch.item),
+            )
             .filter(StockBatch.item_id.in_(item_ids))
             .order_by(StockBatch.item_id.asc(), StockBatch.id.desc())
             .all()
