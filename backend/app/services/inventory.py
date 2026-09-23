@@ -209,10 +209,10 @@ def available_stock_for_items(db: Session, item_ids) -> dict[int | None, float]:
 
 
 def current_stock_for_batch(db: Session, stock_batch_id: int) -> float:
-    batch = db.get(StockBatch, stock_batch_id)
-    if not batch:
+    quantity = db.query(StockBatch.quantity).filter(StockBatch.id == stock_batch_id).scalar()
+    if quantity is None:
         raise HTTPException(404, "Stock batch not found")
-    return float(batch.quantity or 0)
+    return float(quantity or 0)
 
 
 def reserved_stock_for_batch(db: Session, stock_batch_id: int) -> float:
