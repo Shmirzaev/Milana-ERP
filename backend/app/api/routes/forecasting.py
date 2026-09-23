@@ -60,7 +60,7 @@ def _validate_recommendation_references(payload: ForecastRecommendationIn, db: D
         ("collection_id", Collection, payload.collection_id),
     )
     for field, entity, value in references:
-        if value is not None and db.get(entity, value) is None:
+        if value is not None and db.query(entity.id).filter(entity.id == value).first() is None:
             raise HTTPException(400, f"{field} references a missing record")
 
 
