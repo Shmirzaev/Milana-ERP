@@ -1353,7 +1353,18 @@ def list_collection_seasons(
 
 @router.get("/collections/{cid}", response_model=CollectionOut)
 def get_collection(cid: int, db: DbSession, _: CurrentUser):
-    c = db.get(Collection, cid)
+    c = db.query(Collection).options(
+        load_only(
+            Collection.id,
+            Collection.brand_id,
+            Collection.name,
+            Collection.season,
+            Collection.year,
+            Collection.description,
+            Collection.status,
+        ),
+        lazyload(Collection.brand),
+    ).filter(Collection.id == cid).first()
     if not c: raise HTTPException(404, "Collection not found")
     return c
 
