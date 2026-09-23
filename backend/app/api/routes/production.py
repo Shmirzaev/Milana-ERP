@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import uuid4
 
 from anyio import CancelScope, to_thread
@@ -50,6 +50,7 @@ from app.schemas.production import (
     QualityCheckIn, QualityCheckOut, QualityCheckPageOut,
     ProductionOrderSizesIn,
 )
+from app.schemas.sales import SalesOrderDetail
 from app.schemas.work_order import WorkOrderPageOut
 from app.core.dt import as_utc
 from app.services.audit import log_action
@@ -890,6 +891,94 @@ def _work_order_payload(
     return out
 
 
+class PageModelImage(BaseModel):
+    id: int
+    file_url: str
+    file_name: str | None = None
+    content_type: str | None = None
+    image_type: str | None = None
+    is_primary: bool = False
+
+
+class PageModelBomItem(BaseModel):
+    id: int
+    category: str | None = None
+
+
+class PageModelBomRow(BaseModel):
+    item_id: int | None = None
+    material_name: str | None = None
+    material_role: str | None = None
+    item: PageModelBomItem | None = None
+
+
+class PageModelProjection(BaseModel):
+    id: int
+    code: str
+    name: str
+    details_json: dict[str, Any] | None = None
+    material_composition: list[dict[str, Any]] = Field(default_factory=list)
+    images: list[PageModelImage] = Field(default_factory=list)
+    bom: list[PageModelBomRow] = Field(default_factory=list)
+
+
+class ProductionOrderPageContext(BaseModel):
+    production_order: ProductionOrderDetail
+    model: PageModelProjection | None = None
+
+
+class WorkOrderPageContext(ProductionOrderPageContext):
+    work_order: WorkOrderOut
+    sales_order: SalesOrderDetail | None = None
+
+
+def _page_model_projection(
+    model: Model | None,
+    *,
+    include_images: bool,
+    include_bom: bool,
+) -> dict | None:
+    if not model:
+        return None
+    details = model.details_json if isinstance(model.details_json, dict) else {}
+    safe_details = {
+        key: details[key]
+        for key in ("general", "composition")
+        if key in details
+    }
+    return {
+        "id": int(model.id),
+        "code": str(model.code),
+        "name": str(model.name),
+        "details_json": safe_details or None,
+        "material_composition": model.material_composition,
+        "images": [
+            {
+                "id": int(image.id),
+                "file_url": str(image.file_url),
+                "file_name": image.file_name,
+                "content_type": image.content_type,
+                "image_type": image.image_type,
+                "is_primary": bool(image.is_primary),
+            }
+            for image in sorted(model.images or [], key=lambda row: int(row.id), reverse=True)
+        ] if include_images else [],
+        "bom": [
+            {
+                "item_id": row.item_id,
+                "material_name": row.material_name,
+                "material_role": row.material_role,
+                "item": (
+                    {"id": int(row.item.id), "category": row.item.category}
+                    if row.item
+                    else None
+                ),
+            }
+            for row in (model.bom or [])
+        ] if include_bom else [],
+    }
+
+
 def _received_sewing_work_order_payloads(
     db: DbSession,
     rows: list[WorkOrder],
@@ -1034,7 +1123,15 @@ def _project_original_plan_for_detail(
     return out
 
 
-def _production_order_detail_payload(db: DbSession, pid: int) -> dict:
+def _production_order_detail_payload(
+    db: DbSession,
+    pid: int,
+    *,
+    include_page_model: bool = False,
+    include_page_model_images: bool = False,
+    include_page_model_bom: bool = False,
+    page_model_catalog_scope: str | None = None,
+) -> dict:
     po = db.query(ProductionOrder).options(
         joinedload(ProductionOrder.sales_order),
         joinedload(ProductionOrder.batches),
@@ -1064,6 +1161,15 @@ def _production_order_detail_payload(db: DbSession, pid: int) -> dict:
     )
     out["model_code"] = model.code if model else None
     out["model_name"] = model.name if model else None
+    if include_page_model:
+        scoped_model = model
+        if scoped_model and page_model_catalog_scope and scoped_model.catalog_scope != page_model_catalog_scope:
+            scoped_model = None
+        out["_page_model"] = _page_model_projection(
+            scoped_model,
+            include_images=include_page_model_images,
+            include_bom=include_page_model_bom,
+        )
     out["model_image_url"] = model_preview_image_url(model)
     planned_fabric_batch = db.get(StockBatch, po.fabric_batch_id) if po.fabric_batch_id else None
     # The order workspace is variant-scoped, matching the department inbox
@@ -1174,6 +1280,25 @@ def get_po(pid: int, db: DbSession, current: User = Depends(require_permissions(
     if po and po.source_type == "usluga":
         require_factory_access(current, "ECO")
     return _production_order_detail_payload(db, pid)
+
+
+@router.get("/production-orders/{pid}/page-context", response_model=ProductionOrderPageContext)
+def get_production_order_page_context(
+    pid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
+):
+    po = db.get(ProductionOrder, pid)
+    if po and po.source_type == "usluga":
+        require_factory_access(current, "ECO")
+    payload = _production_order_detail_payload(
+        db,
+        pid,
+        include_page_model=True,
+        page_model_catalog_scope="standard",
+    )
+    model = payload.pop("_page_model", None)
+    return {"production_order": payload, "model": model}
 
 
 @router.patch("/production-orders/{pid}", response_model=ProductionOrderOut)
@@ -1822,6 +1947,63 @@ def get_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(
     received_by_po = _received_bundle_totals_by_po(db, [int(wo.production_order_id)]) if wo.operation == "sewing" else {}
     images_by_po = _work_order_images_by_po(db, [int(wo.production_order_id)])
     return _work_order_payload(wo, received_by_po, images_by_po)
+
+
+@router.get("/work-orders/{wid}/page-context", response_model=WorkOrderPageContext)
+def get_work_order_page_context(
+    wid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
+):
+    wo = (
+        db.query(WorkOrder)
+        .options(joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order))
+        .filter(WorkOrder.id == wid)
+        .first()
+    )
+    if not wo:
+        raise HTTPException(404, "Work order not found")
+    po = wo.production_order
+    is_usluga = po.source_type == "usluga"
+    if is_usluga:
+        require_factory_access(current, "ECO")
+
+    received_by_po = _received_bundle_totals_by_po(db, [int(wo.production_order_id)]) if wo.operation == "sewing" else {}
+    images_by_po = _work_order_images_by_po(db, [int(wo.production_order_id)])
+    work_order = _work_order_payload(wo, received_by_po, images_by_po)
+    production_order = _production_order_detail_payload(
+        db,
+        int(wo.production_order_id),
+        include_page_model=True,
+        include_page_model_images=True,
+        include_page_model_bom=wo.operation == "cutting",
+        page_model_catalog_scope="usluga" if is_usluga and wo.operation == "cutting" else "standard",
+    )
+    model = production_order.pop("_page_model", None)
+    if is_usluga:
+        permissions = set(user_permissions(current))
+        if not permissions.intersection({"*", "usluga.view", "usluga.manage"}):
+            model = None
+
+    sales_order = None
+    if po.sales_order_id:
+        from app.api.routes.sales import _serialize_sales_order
+
+        so = (
+            db.query(SalesOrder)
+            .options(joinedload(SalesOrder.items))
+            .filter(SalesOrder.id == po.sales_order_id)
+            .first()
+        )
+        if so:
+            sales_order = _serialize_sales_order(db, so, include_items=True)
+
+    return {
+        "work_order": work_order,
+        "production_order": production_order,
+        "sales_order": sales_order,
+        "model": model,
+    }
 
 
 @router.get("/work-orders/{wid}/replacement-status")

@@ -11,14 +11,19 @@ import { formatComposition } from "@/lib/materialComposition";
 import { formatModelComposition } from "@/lib/modelComposition";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
+type SalesOrderPageContext = { sales_order: any; material_requirements: any[] | null };
 
 export default function SalesOrderDetail() {
   const params = useParams<{ id: string }>();
   const { t, lang } = useT();
   const id = params.id;
   const isNumericId = /^\d+$/.test(String(id || ""));
-  const { data: so, error: orderError, isLoading: orderLoading, mutate } = useSWR<any>(isNumericId ? `/api/sales-orders/${id}` : null, fetcher);
-  const { data: mr } = useSWR<any[]>(so ? `/api/planning/material-requirements/${id}` : null, fetcher);
+  const { data: pageContext, error: orderError, isLoading: orderLoading, mutate } = useSWR<SalesOrderPageContext>(
+    isNumericId ? `/api/sales-orders/${id}/page-context` : null,
+    fetcher,
+  );
+  const so = pageContext?.sales_order;
+  const mr = pageContext?.material_requirements;
   const processesKey = so && so.status !== "draft" ? "/api/process-tracking" : null;
   const { data: processes } = useSWR<any[]>(processesKey, fetcher);
   const [msg, setMsg] = useState("");

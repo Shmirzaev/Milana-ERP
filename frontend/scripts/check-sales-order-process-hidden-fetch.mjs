@@ -4,6 +4,7 @@ import ts from "typescript";
 
 const processKey = "/api/process-tracking";
 const materialRequirementsKey = "/api/planning/material-requirements/12";
+const pageContextKey = "/api/sales-orders/12/page-context";
 const source = fs.readFileSync(new URL("../src/app/(app)/sales-orders/[id]/page.tsx", import.meta.url), "utf8");
 
 assert.match(
@@ -13,9 +14,10 @@ assert.match(
 );
 assert.match(
   source,
-  /so \? `\/api\/planning\/material-requirements\/\$\{id\}` : null/,
-  "material requirements must not bypass sales-order authorization or existence resolution",
+  /`\/api\/sales-orders\/\$\{id\}\/page-context`/,
+  "sales-order detail and its authorized requirements must use one canonical context key",
 );
+assert.doesNotMatch(source, /`\/api\/planning\/material-requirements\/\$\{id\}`/);
 assert.match(
   source,
   /\{activeProcess && \([\s\S]*?page\.soDetail\.currentProductionStage[\s\S]*?<StagePipeline/,
@@ -41,10 +43,8 @@ function renderCase({ order, denied = false }) {
       default: (key) => {
         requests.push(key);
         return {
-          data: key === "/api/sales-orders/12"
-            ? order
-            : key === "/api/planning/material-requirements/12"
-              ? []
+          data: key === pageContextKey
+            ? order ? { sales_order: order, material_requirements: [] } : undefined
               : key === processKey
                 ? [{
                     sales_order_id: 12,
@@ -56,7 +56,7 @@ function renderCase({ order, denied = false }) {
                     po_deadline: null,
                   }]
                 : undefined,
-          error: key === "/api/sales-orders/12" && denied ? new Error("403 forbidden") : undefined,
+          error: key === pageContextKey && denied ? new Error("403 forbidden") : undefined,
           isLoading: false,
           mutate() {},
         };
@@ -118,14 +118,15 @@ const baseOrder = {
 };
 
 const draft = renderCase({ order: baseOrder });
+assert.equal(draft.requests.filter((key) => key === pageContextKey).length, 1);
 assert.equal(draft.requests.filter((key) => key === processKey).length, 0);
-assert.equal(draft.requests.filter((key) => key === materialRequirementsKey).length, 1);
+assert.equal(draft.requests.filter((key) => key === materialRequirementsKey).length, 0);
 assert.match(textContent(draft.tree), /SO-12/);
 assert.doesNotMatch(textContent(draft.tree), /page\.soDetail\.currentProductionStage|sewing/);
 
 const active = renderCase({ order: { ...baseOrder, status: "confirmed" } });
 assert.equal(active.requests.filter((key) => key === processKey).length, 1);
-assert.equal(active.requests.filter((key) => key === materialRequirementsKey).length, 1);
+assert.equal(active.requests.filter((key) => key === materialRequirementsKey).length, 0);
 assert.match(textContent(active.tree), /SO-12/);
 assert.match(textContent(active.tree), /page\.soDetail\.currentProductionStage/);
 assert.match(textContent(active.tree), /PO-30\s+·\s+sewing\s+·\s+in_progress/);
@@ -133,7 +134,8 @@ assert.match(textContent(active.tree), /PO-30\s+·\s+sewing\s+·\s+in_progress/)
 const denied = renderCase({ order: undefined, denied: true });
 assert.equal(denied.requests.filter((key) => key === processKey).length, 0);
 assert.equal(denied.requests.filter((key) => key === materialRequirementsKey).length, 0);
+assert.equal(denied.requests.filter((key) => key === pageContextKey).length, 1);
 assert.match(textContent(denied.tree), /page\.salesOrder\.loadError/);
 assert.doesNotMatch(textContent(denied.tree), /SO-12|currentProductionStage|PO-30/);
 
-console.log("Sales-order detail: hidden process tracking and authorization-dependent material keys retain exact parity.");
+console.log("Sales-order detail: order and authorized requirements share one context request with denial parity.");

@@ -81,8 +81,11 @@ export default function PackagingPage() {
   const { me } = useMe();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  const { data: wo, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
-  const { data: po, mutate: mutatePo } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
+  const { data: pageContext, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}/page-context`, fetcher);
+  const wo = pageContext?.work_order;
+  const po = pageContext?.production_order;
+  const so = pageContext?.sales_order;
+  const model = pageContext?.model;
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
     wo ? `/api/work-orders/${id}/packaging-batch-progress` : null,
     fetcher,
@@ -91,8 +94,6 @@ export default function PackagingPage() {
     wo ? `/api/work-orders/${id}/replacement-status` : null,
     fetcher,
   );
-  const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
-  const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
 
   const [rec, setRec] = useState<PackagingRecordForm>({
     production_batch_id: 0,
@@ -491,7 +492,7 @@ export default function PackagingPage() {
   }, [isAlreadyBatched, po?.batches]);
 
   async function refreshPackagingOutputs() {
-    await Promise.all([mutateBatchProgress(), mutateWo(), mutatePo(), mutateReplacementStatus()]);
+    await Promise.all([mutateBatchProgress(), mutateWo(), mutateReplacementStatus()]);
     setPackageQrRefreshKey((prev) => prev + 1);
   }
 

@@ -41,10 +41,11 @@ export default function SewingPage() {
   const { t } = useT();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  const { data: wo, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
-  const { data: po } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
-  const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
-  const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
+  const { data: pageContext, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}/page-context`, fetcher);
+  const wo = pageContext?.work_order;
+  const po = pageContext?.production_order;
+  const so = pageContext?.sales_order;
+  const model = pageContext?.model;
   const { data: flows = [] } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
   const { data: assignments = [], mutate: mutateAssignments } = useSWR<Assignment[]>(wo ? `/api/work-orders/${id}/assignments` : null, fetcher);
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(

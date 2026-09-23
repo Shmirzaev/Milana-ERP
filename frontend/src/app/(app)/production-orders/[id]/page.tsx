@@ -80,6 +80,11 @@ type ModelSummary = {
   material_composition?: MaterialComposition[] | null;
 };
 
+type ProductionOrderPageContext = {
+  production_order: any;
+  model: ModelSummary | null;
+};
+
 type SalesOrderSummary = {
   id: number;
   order_no?: string | null;
@@ -212,7 +217,11 @@ export default function ProductionOrderDetail() {
   const isNumericId = /^\d+$/.test(String(id || ""));
   const [editing, setEditing] = useState<WO | null>(null);
   const [openAssignments, setOpenAssignments] = useState<number | null>(null);
-  const { data: po, error: poError, isLoading: poLoading, mutate } = useSWR<any>(isNumericId ? `/api/production-orders/${id}` : null, fetcher);
+  const { data: pageContext, error: poError, isLoading: poLoading, mutate } = useSWR<ProductionOrderPageContext>(
+    isNumericId ? `/api/production-orders/${id}/page-context` : null,
+    fetcher,
+  );
+  const po = pageContext?.production_order;
   const { data: reservationStatus, mutate: mutateReservationStatus } = useSWR<ReservationStatus>(
     isNumericId ? `/api/production-orders/${id}/material-reservation-status` : null,
     fetcher,
@@ -223,7 +232,7 @@ export default function ProductionOrderDetail() {
     : null;
   const { data: flowUtil } = useSWR<FlowUtil[]>(flowUtilKey, fetcher, { refreshInterval: 60_000 });
   const { data: users } = useSWR<any[]>(canPlan && editing ? "/api/users" : null, fetcher);
-  const { data: selectedModelDetail } = useSWR<ModelSummary>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
+  const selectedModelDetail = pageContext?.model || undefined;
   const utilByFlow = new Map((flowUtil || []).map((u) => [u.flow_id, u]));
   const batchById = new Map<number, BatchMeta>(((po?.batches || []) as BatchMeta[]).map((b) => [b.id, b]));
   const selectedModel = selectedModelDetail || (
@@ -470,7 +479,10 @@ export default function ProductionOrderDetail() {
             && !(po.items || []).some((item: { completed_quantity: number }) => item.completed_quantity > 0)}
           onSave={async (items) => {
             const updated = await api.patch(`/api/production-orders/${id}/sizes`, { items });
-            await mutate(updated, { revalidate: false });
+            await mutate(
+              pageContext ? { ...pageContext, production_order: updated } : undefined,
+              { revalidate: false },
+            );
           }}
         />
         <div className="card p-4">

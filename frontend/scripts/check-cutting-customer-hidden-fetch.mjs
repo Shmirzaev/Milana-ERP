@@ -8,6 +8,8 @@ assert.doesNotMatch(
   /["'`]\/api\/customers["'`]/,
   "cutting must reuse the projected customer instead of fetching the full directory",
 );
+assert.match(source, /`\/api\/work-orders\/\$\{id\}\/page-context`/);
+assert.doesNotMatch(source, /mutatePo/, "cutting must revalidate its combined context only once per mutation");
 assert.match(
   source,
   /canReadCustomers[\s\S]*?so\.customer\?\.name \|\| so\.customer_name[\s\S]*?: `#\$\{so\.customer_id\}`/,
@@ -27,14 +29,13 @@ function renderCase({ salesOrderId, authorized = true }) {
   const jsx = (type, props) => ({ type, props: props || {} });
   const useSWR = (key) => {
     requests.push(key);
-    const data = key === "/api/work-orders/7"
-      ? { id: 7, production_order_id: 12, status: "new", department_id: 1 }
-      : key === "/api/production-orders/12"
-        ? { id: 12, sales_order_id: salesOrderId, model_id: 4, batches: [], source_type: "standard" }
-        : key === "/api/sales-orders/21"
-          ? { id: 21, customer_id: 33, customer_name: "Client A", order_no: "SO-21" }
-          : key === "/api/models/4"
-            ? { id: 4, code: "MODEL-4", name: "Model 4", bom: [], sizes: [], colors: [] }
+    const data = key === "/api/work-orders/7/page-context"
+      ? {
+          work_order: { id: 7, production_order_id: 12, status: "new", department_id: 1 },
+          production_order: { id: 12, sales_order_id: salesOrderId, model_id: 4, batches: [], source_type: "standard" },
+          sales_order: salesOrderId ? { id: 21, customer_id: 33, customer_name: "Client A", order_no: "SO-21" } : null,
+          model: { id: 4, code: "MODEL-4", name: "Model 4", bom: [], sizes: [], colors: [] },
+        }
             : key === "/api/departments"
                 ? []
                 : typeof key === "string" && key.startsWith("/api/bundles?")
@@ -102,6 +103,8 @@ function find(tree, type) {
 }
 
 const unresolved = renderCase({ salesOrderId: null });
+assert.equal(unresolved.requests.filter((key) => key === "/api/work-orders/7/page-context").length, 1);
+assert.equal(unresolved.requests.filter((key) => ["/api/work-orders/7", "/api/production-orders/12", "/api/sales-orders/21", "/api/models/4"].includes(key)).length, 0);
 assert.equal(unresolved.requests.filter((key) => key === "/api/customers").length, 0);
 assert.equal(find(unresolved.tree, "product-info")?.props.customerName, null);
 

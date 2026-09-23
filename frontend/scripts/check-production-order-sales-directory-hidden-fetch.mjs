@@ -3,11 +3,19 @@ import fs from "node:fs";
 import ts from "typescript";
 
 const salesDirectoryKey = "/api/sales-orders?page_size=500";
+const pageContextKey = "/api/production-orders/12/page-context";
 const source = fs.readFileSync(new URL("../src/app/(app)/production-orders/[id]/page.tsx", import.meta.url), "utf8");
 assert.match(
   source,
   /useSWR<SalesOrderSummary\[\]>\(\s*canEditSummary && summaryEditing \? "\/api\/sales-orders\?page_size=500" : null,\s*fetcher,\s*\)/,
   "the sales-order directory must depend on the authorized summary editor",
+);
+assert.match(source, /`\/api\/production-orders\/\$\{id\}\/page-context`/);
+assert.doesNotMatch(source, /`\/api\/models\/\$\{po\.model_id\}`/);
+assert.match(
+  source,
+  /pageContext \? \{ \.\.\.pageContext, production_order: updated \} : undefined/,
+  "optimistic size updates must preserve the page-context envelope",
 );
 assert.match(
   source,
@@ -52,8 +60,8 @@ function createHarness(authorized) {
 
   function useSWR(key) {
     requests.push(key);
-    const data = key === "/api/production-orders/12"
-      ? {
+    const data = key === pageContextKey
+      ? { production_order: {
           id: 12,
           production_no: "PO-12",
           sales_order_id: 21,
@@ -76,7 +84,7 @@ function createHarness(authorized) {
           }],
           batches: [],
           items: [],
-        }
+        }, model: { id: 4, code: "MODEL-4", name: "Model 4" } }
       : key === "/api/production-orders/12/material-reservation-status"
         ? undefined
         : key === "/api/sewing-flows"
@@ -85,9 +93,7 @@ function createHarness(authorized) {
             ? []
             : key === "/api/users"
               ? []
-              : key === "/api/models/4"
-                ? { id: 4, code: "MODEL-4", name: "Model 4" }
-                : key === salesDirectoryKey
+              : key === salesDirectoryKey
                   ? [{ id: 21, order_no: "SO-21", customer_name: "Client A" }]
                   : undefined;
     return { data, error: undefined, isLoading: false, mutate() {} };
@@ -170,6 +176,9 @@ function textContent(tree) {
 
 const authorized = createHarness(true);
 const closed = authorized.render();
+assert.equal(closed.requests.filter((key) => key === pageContextKey).length, 1);
+assert.equal(closed.requests.filter((key) => key === "/api/production-orders/12").length, 0);
+assert.equal(closed.requests.filter((key) => key === "/api/models/4").length, 0);
 assert.equal(closed.requests.filter((key) => key === salesDirectoryKey).length, 0);
 assert.equal(closed.requests.filter((key) => key === "/api/sewing-flows/utilization-snapshot").length, 0);
 assert.equal(closed.requests.filter((key) => key === "/api/users").length, 0);

@@ -8,6 +8,7 @@ assert.doesNotMatch(
   /["'`]\/api\/customers["'`]/,
   "printing must reuse the customer projection already returned by the sales-order detail",
 );
+assert.match(source, /`\/api\/work-orders\/\$\{id\}\/page-context`/);
 
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
@@ -22,14 +23,13 @@ function renderCase(salesOrderId) {
   const jsx = (type, props) => ({ type, props: props || {} });
   const useSWR = (key) => {
     requests.push(key);
-    const data = key === "/api/work-orders/7"
-      ? { id: 7, production_order_id: 12, status: "new", operation: "printing" }
-      : key === "/api/production-orders/12"
-        ? { id: 12, sales_order_id: salesOrderId, model_id: 4, items: [], batches: [] }
-        : key === "/api/sales-orders/21"
-          ? { id: 21, customer_id: 33, customer_name: "Client A", items: [] }
-          : key === "/api/models/4"
-            ? { id: 4, code: "MODEL-4", name: "Model 4" }
+    const data = key === "/api/work-orders/7/page-context"
+      ? {
+          work_order: { id: 7, production_order_id: 12, status: "new", operation: "printing" },
+          production_order: { id: 12, sales_order_id: salesOrderId, model_id: 4, items: [], batches: [] },
+          sales_order: salesOrderId ? { id: 21, customer_id: 33, customer_name: "Client A", items: [] } : null,
+          model: { id: 4, code: "MODEL-4", name: "Model 4" },
+        }
             : key === "/api/work-orders/7/printing-batch-progress"
               ? { items: [] }
               : undefined;
@@ -75,6 +75,8 @@ function find(tree, type) {
 }
 
 const branded = renderCase(null);
+assert.equal(branded.requests.filter((key) => key === "/api/work-orders/7/page-context").length, 1);
+assert.equal(branded.requests.filter((key) => ["/api/work-orders/7", "/api/production-orders/12", "/api/sales-orders/21", "/api/models/4"].includes(key)).length, 0);
 assert.equal(branded.requests.includes("/api/customers"), false);
 assert.equal(find(branded.tree, "product-info")?.props.customerName, null);
 

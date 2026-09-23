@@ -8,10 +8,11 @@ from uuid import uuid4
 from anyio import CancelScope, to_thread
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
+from pydantic import BaseModel
 from sqlalchemy import and_, func, literal, or_
 from sqlalchemy.orm import joinedload, load_only, selectinload
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.core.config import settings
 from app.core.dt import date_filter_bounds
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
@@ -33,6 +34,7 @@ from app.models import (
 from app.schemas.sales import (
     SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
 )
+from app.schemas.production import MaterialRequirement
 from app.services.audit import log_action
 from app.services.finished_goods import repair_missing_brand_metadata
 from app.services.ready_stock_sales import ready_pack_candidates, reserve_ready_packs
@@ -41,6 +43,7 @@ from app.services.numbering import next_invoice_no
 from app.services.workflow import notify_department
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.model_images import material_preview_image_url, model_display_image_url
+from app.services.planning import material_requirements_for_sales_order
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
@@ -48,6 +51,11 @@ _STOCK_VARIANT_QUERY_CHUNK_SIZE = 200
 _MAX_SALES_ORDER_TOTAL = Decimal("999999999999.99")
 _SALES_ORDER_TOTAL_OVERFLOW_THRESHOLD = Decimal("999999999999.995")
 _SALES_ORDER_ITEM_SOURCE_TYPES = frozenset({"produce_new", "from_stock"})
+
+
+class SalesOrderPageContext(BaseModel):
+    sales_order: SalesOrderDetail
+    material_requirements: list[MaterialRequirement] | None = None
 
 
 def _attachments_for_storage(attachments) -> list[dict]:
@@ -2032,6 +2040,25 @@ def get_sales_order(sid: int, db: DbSession, _: CurrentUser):
     so = db.query(SalesOrder).options(joinedload(SalesOrder.items)).filter(SalesOrder.id == sid).first()
     if not so: raise HTTPException(404, "Sales order not found")
     return _serialize_sales_order(db, so, include_items=True)
+
+
+@router.get("/{sid}/page-context", response_model=SalesOrderPageContext)
+def get_sales_order_page_context(sid: int, db: DbSession, current: CurrentUser):
+    so = db.query(SalesOrder).options(joinedload(SalesOrder.items)).filter(SalesOrder.id == sid).first()
+    if not so:
+        raise HTTPException(404, "Sales order not found")
+    permissions = set(user_permissions(current))
+    may_view_requirements = bool(permissions.intersection({"*", "planning.requirements", "sales.orders"}))
+    requirements = None
+    if may_view_requirements:
+        requirements = [
+            MaterialRequirement(**row)
+            for row in material_requirements_for_sales_order(db, sid)
+        ]
+    return {
+        "sales_order": _serialize_sales_order(db, so, include_items=True),
+        "material_requirements": requirements,
+    }
 
 
 @router.patch("/{sid}", response_model=SalesOrderOut)
