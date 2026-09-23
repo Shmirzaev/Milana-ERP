@@ -1221,7 +1221,17 @@ def department_inbox(
         so_ids = [int(x) for x in grouped.keys()]
         if so_ids:
             item_rows = (
-                db.query(SalesOrderItem, Model)
+                db.query(SalesOrderItem, Model).options(
+                    load_only(
+                        SalesOrderItem.id,
+                        SalesOrderItem.sales_order_id,
+                        SalesOrderItem.model_id,
+                        SalesOrderItem.color,
+                        SalesOrderItem.size,
+                        SalesOrderItem.quantity,
+                    ),
+                    load_only(Model.id, Model.code, Model.name),
+                )
                 .join(Model, Model.id == SalesOrderItem.model_id)
                 .filter(SalesOrderItem.sales_order_id.in_(so_ids))
                 .order_by(SalesOrderItem.sales_order_id.asc(), SalesOrderItem.id.asc())
