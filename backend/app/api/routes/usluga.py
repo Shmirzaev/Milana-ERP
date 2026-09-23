@@ -694,6 +694,13 @@ def list_usluga_orders(
         chunk = order_ids[start:start + _PRELOAD_CHUNK_SIZE]
         for item in (
             db.query(ProductionOrderItem)
+            .options(load_only(
+                ProductionOrderItem.id,
+                ProductionOrderItem.production_order_id,
+                ProductionOrderItem.color,
+                ProductionOrderItem.size,
+                ProductionOrderItem.planned_quantity,
+            ))
             .filter(ProductionOrderItem.production_order_id.in_(chunk))
             .order_by(ProductionOrderItem.production_order_id, ProductionOrderItem.id)
             .all()
@@ -701,6 +708,15 @@ def list_usluga_orders(
             items_by_order.setdefault(int(item.production_order_id), []).append(item)
         for work_order in (
             db.query(WorkOrder)
+            .options(load_only(
+                WorkOrder.id,
+                WorkOrder.production_order_id,
+                WorkOrder.operation,
+                WorkOrder.status,
+                WorkOrder.planned_output_qty,
+                WorkOrder.passed_qty,
+                WorkOrder.failed_qty,
+            ))
             .filter(WorkOrder.production_order_id.in_(chunk))
             .order_by(WorkOrder.production_order_id, WorkOrder.id)
             .all()
@@ -708,6 +724,11 @@ def list_usluga_orders(
             work_orders_by_order.setdefault(int(work_order.production_order_id), []).append(work_order)
         for package in (
             db.query(Package)
+            .options(load_only(
+                Package.id,
+                Package.production_order_id,
+                Package.total_quantity,
+            ))
             .filter(Package.production_order_id.in_(chunk))
             .order_by(Package.production_order_id, Package.id)
             .all()

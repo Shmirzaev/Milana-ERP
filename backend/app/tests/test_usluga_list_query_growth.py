@@ -165,6 +165,29 @@ def test_usluga_order_list_preloads_are_chunk_bounded_without_image_blobs(order_
     assert all(row["work_orders"][0]["operation"] == "packaging" for row in payload)
     assert all(row["package_count"] == 1 and row["package_quantity"] == 1 for row in payload)
     assert "file_data" not in "\n".join(statements).lower()
+    expected_projection = {
+        "production_order_items": (
+            ("id", "production_order_id", "color", "size", "planned_quantity"),
+            ("completed_quantity", "printing_required"),
+        ),
+        "work_orders": (
+            ("id", "production_order_id", "operation", "status", "planned_output_qty", "passed_qty", "failed_qty"),
+            ("planned_input_qty", "actual_input_qty", "notes"),
+        ),
+        "packages": (
+            ("id", "production_order_id", "total_quantity"),
+            ("qr_code_url", "storage_cell", "notes"),
+        ),
+    }
+    for table, (required_columns, omitted_columns) in expected_projection.items():
+        reads = [statement.lower() for statement in statements if f"from {table} " in statement.lower()]
+        assert reads
+        for statement in reads:
+            selected_columns = statement.split(f"from {table}", 1)[0]
+            for column in required_columns:
+                assert f"{table}.{column}" in selected_columns
+            for column in omitted_columns:
+                assert f"{table}.{column}" not in selected_columns
     if order_count == 401:
         assert payload[0]["model"] is None
         assert all(row["model"]["image_url"].endswith(".webp") for row in payload[1:])
