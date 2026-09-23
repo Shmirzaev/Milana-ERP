@@ -93,7 +93,9 @@ class StockBatchIn(BaseModel):
     roll_weights_kg: list[float] = Field(default_factory=list)
     processes: Optional[str] = None
     unit: str
-    cost_per_unit: float = 0
+    cost_per_unit: float = Field(
+        default=0, ge=0, le=99_999_999.9999, allow_inf_nan=False,
+    )
     image_url: Optional[str] = None
     warehouse_id: int
     qc_status: str = "pending"
@@ -122,7 +124,9 @@ class StockBatchUpdate(BaseModel):
     piece_count: Optional[int] = Field(default=None, ge=0)
     processes: Optional[str] = None
     unit: Optional[str] = None
-    cost_per_unit: Optional[float] = Field(default=None, ge=0)
+    cost_per_unit: Optional[float] = Field(
+        default=None, ge=0, le=99_999_999.9999, allow_inf_nan=False,
+    )
     image_url: Optional[str] = None
     received_date: Optional[datetime] = None
     warehouse_id: Optional[int] = None

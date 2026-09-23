@@ -2,6 +2,8 @@
 
 from uuid import uuid4
 
+import pytest
+
 from app.db.session import SessionLocal
 from app.models import AuditLog, IdempotencyRecord, Item, StockBatch, StockMovement, Warehouse
 
@@ -41,6 +43,36 @@ def test_stock_receipt_quantity_enforces_numeric_14_4_range(client, auth_headers
         "/api/inventory/receive",
         headers=auth_headers,
         json=_receipt_payload(10_000_000_000),
+    )
+
+    assert response.status_code == 422, response.text
+    assert _write_counts() == before
+
+
+def test_stock_receipt_cost_accepts_numeric_12_4_maximum(client, auth_headers):
+    response = client.post(
+        "/api/inventory/receive",
+        headers=auth_headers,
+        json={**_receipt_payload(1), "cost_per_unit": "99999999.9999"},
+    )
+
+    assert response.status_code == 201, response.text
+    with SessionLocal() as db:
+        batch = db.get(StockBatch, response.json()["id"])
+        assert batch is not None
+        assert str(batch.cost_per_unit) == "99999999.9999"
+
+
+@pytest.mark.parametrize("cost_per_unit", ["-0.0001", "NaN", "Infinity", "-Infinity", "100000000"])
+def test_stock_receipt_rejects_unrepresentable_cost_without_writes(
+    client, auth_headers, cost_per_unit
+):
+    before = _write_counts()
+
+    response = client.post(
+        "/api/inventory/receive",
+        headers=auth_headers,
+        json={**_receipt_payload(1), "cost_per_unit": cost_per_unit},
     )
 
     assert response.status_code == 422, response.text
