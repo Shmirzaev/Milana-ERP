@@ -1693,7 +1693,9 @@ def list_sales_orders(
     page: int = 1, page_size: int = 50,
     include_total: bool = False,
 ):
-    qry = db.query(SalesOrder, Customer).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+    qry = db.query(SalesOrder, Customer).options(
+        load_only(Customer.id, Customer.name),
+    ).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
     if status: qry = qry.filter(SalesOrder.status == status)
     if order_type: qry = qry.filter(SalesOrder.order_type == order_type)
     if customer_id: qry = qry.filter(SalesOrder.customer_id == customer_id)

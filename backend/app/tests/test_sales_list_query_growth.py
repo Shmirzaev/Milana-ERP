@@ -45,6 +45,8 @@ def test_sales_list_customer_queries_are_bounded(count):
     assert all(row["customer"]["name"] == row["customer_name"] for row in rows)
     assert all(row["customer_name"].startswith(f"Buyer {marker}") for row in rows)
     assert len(queries) == 1
+    assert "customers.name" in queries[0].lower()
+    assert "customers.phone" not in queries[0].lower()
 
 
 def test_sales_list_preserves_paging_total_filters_and_null_customer():
