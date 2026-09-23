@@ -21,7 +21,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models import (
-    Role, User, Notification, PasswordResetToken,
+    Department, Role, User, Notification, PasswordResetToken,
 )
 from app.schemas.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.services.audit import log_action
@@ -284,10 +284,23 @@ def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: 
         raw_token = create_password_reset_token(db, user)
         reset_url = password_reset_url(raw_token)
         background_tasks.add_task(send_password_email_safely, user.email, user.name, reset_url, user.id)
-        recipients = [
-            admin for admin in db.query(User).filter(User.is_active.is_(True)).all()
-            if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
-        ]
+        active_users = db.query(User).options(
+            load_only(
+                User.id,
+                User.factory_code,
+                User.extra_permissions,
+                User.access_policy,
+                User.role_id,
+                User.department_id,
+            ),
+            joinedload(User.role).load_only(Role.id, Role.name, Role.permissions),
+            joinedload(User.department).load_only(Department.id, Department.code),
+        ).filter(User.is_active.is_(True)).all()
+        recipients = []
+        for admin in active_users:
+            permissions = user_permissions(admin)
+            if "*" in permissions or "admin.users" in permissions:
+                recipients.append(admin)
         for admin in recipients:
             db.add(Notification(
                 user_id=admin.id,

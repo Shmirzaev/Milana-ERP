@@ -168,6 +168,36 @@ def test_forgot_password_sends_reset_link_for_known_user(client, auth_headers, m
     )
 
 
+def test_forgot_password_admin_recipients_use_projected_single_query(client, monkeypatch):
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "projection-token")
+    monkeypatch.setattr("app.services.password_reset.send_password_reset_email", lambda *args: True)
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.post("/api/auth/forgot-password", json={"email": "planning@example.com"})
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    active_user_reads = [
+        statement
+        for statement in statements
+        if " from users " in statement
+        and "where users.is_active is 1" in statement
+        and "roles_1.permissions" in statement
+    ]
+    assert len(active_user_reads) == 1
+    assert "users.password_hash" not in active_user_reads[0]
+    assert "roles_1.permissions" in active_user_reads[0]
+    assert "departments_1.code" in active_user_reads[0]
+    assert not any(" from roles " in statement or " from departments " in statement for statement in statements)
+
+
 def test_forgot_password_uses_neutral_response_for_unknown_email(client):
     r = client.post("/api/auth/forgot-password", json={"email": "missing@example.com"})
     assert r.status_code == 200
