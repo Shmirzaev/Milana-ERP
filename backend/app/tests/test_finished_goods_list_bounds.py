@@ -29,8 +29,10 @@ class _Query:
 class _Db:
     def __init__(self):
         self.query_obj = _Query()
+        self.query_calls = 0
 
     def query(self, *args, **kwargs):
+        self.query_calls += 1
         return self.query_obj
 
 
@@ -54,3 +56,20 @@ def test_branded_finished_goods_list_clamps_limit_at_500():
     list_branded(db, None, limit=9999)
     assert db.query_obj.limit_value == 500
     assert db.query_obj.offset_value == 0
+
+
+def test_finished_goods_list_skips_unrepresentable_integer_filters():
+    for invalid_id in (2_147_483_648, -2_147_483_649):
+        db = _Db()
+        assert list_stock(db, None, model_id=invalid_id) == []
+        assert db.query_calls == 0
+
+        db = _Db()
+        assert list_stock(db, None, brand_id=invalid_id, page=2, page_size=20) == {
+            "rows": [],
+            "total": 0,
+            "page": 2,
+            "page_size": 20,
+            "has_more": False,
+        }
+        assert db.query_calls == 0

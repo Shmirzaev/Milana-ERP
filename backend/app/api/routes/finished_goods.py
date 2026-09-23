@@ -14,6 +14,8 @@ from app.schemas.tracking import FinishedGoodsStockOut, FinishedGoodsStockPageOu
 from app.services.audit import log_action
 router = APIRouter(prefix="/finished-goods", tags=["finished_goods"])
 PackageBrand = aliased(Brand)
+_DB_INTEGER_MIN = -2_147_483_648
+_DB_INTEGER_MAX = 2_147_483_647
 
 
 def _stock_payload(
@@ -55,6 +57,18 @@ def list_stock(db: DbSession, _: CurrentUser,
                page_size: Annotated[int | None, Query(ge=1, le=500)] = None):
     limit = max(0, min(limit, 500))
     offset = max(0, offset)
+    if any(value is not None and not _DB_INTEGER_MIN <= value <= _DB_INTEGER_MAX for value in (model_id, brand_id)):
+        if page is None and page_size is None:
+            return []
+        effective_page = page or 1
+        effective_page_size = page_size or 100
+        return {
+            "rows": [],
+            "total": 0,
+            "page": effective_page,
+            "page_size": effective_page_size,
+            "has_more": False,
+        }
     qry = (
         db.query(
             FinishedGoodsStock,
