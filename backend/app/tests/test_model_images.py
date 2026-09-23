@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 
 from app.services.label_images import fabric_label_image_src
-from app.services.model_images import material_preview_image_url, warehouse_stock_image_url
+from app.services import model_images
+from app.services.model_images import material_preview_image_url, model_display_image_url, warehouse_stock_image_url
 
 
 def _fabric_bom(row_id: int, photo_url: str):
@@ -92,3 +93,24 @@ def test_warehouse_stock_prefers_catalog_picture_over_legacy_package_picture():
     )
 
     assert warehouse_stock_image_url(model) == "/storage/model-files/catalog-model.jpg"
+
+
+def test_model_display_reuses_preview_image_filtering_for_material_fallback(monkeypatch):
+    model = SimpleNamespace(
+        bom=[],
+        images=[
+            _image(93, "material", "/storage/model-files/material.jpg"),
+            _image(92, "warehouse_package", "/storage/model-files/warehouse.jpg"),
+        ],
+    )
+    original = model_images.is_preview_model_image
+    checked = []
+
+    def track_image(img):
+        checked.append(img)
+        return original(img)
+
+    monkeypatch.setattr(model_images, "is_preview_model_image", track_image)
+
+    assert model_display_image_url(model) == "/storage/model-files/material.jpg"
+    assert checked == model.images
