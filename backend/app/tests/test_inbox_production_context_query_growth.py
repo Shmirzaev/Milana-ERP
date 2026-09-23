@@ -71,6 +71,15 @@ def test_production_context_model_assets_have_bounded_queries_without_blobs():
         assert set(payload) == set(order_ids)
         assert all(row["model_image_url"].endswith(".webp") for row in payload.values())
         assert "file_data" not in "\n".join(statements).lower()
+        normalized_statements = [" ".join(statement.lower().split()) for statement in statements]
+        model_reads = [statement for statement in normalized_statements if " from models " in statement]
+        assert model_reads
+        for statement in model_reads:
+            selected_columns = statement.split("from models", 1)[0]
+            for column in ("models.id", "models.code", "models.name", "models.details_json"):
+                assert column in selected_columns
+            for column in ("models.product_type", "models.selling_price", "models.status"):
+                assert column not in selected_columns
 
 
 def test_material_context_defers_material_image_blobs_and_preserves_url():

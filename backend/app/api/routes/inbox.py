@@ -27,6 +27,7 @@ from app.models import (
     ProductionOrderItem,
     Item,
     FinishedGoodsStock,
+    StockBatch,
 )
 from app.services.bundles import (
     DEFAULT_SEWING_FACTORY_CODE,
@@ -681,8 +682,29 @@ def _production_context_by_production_order(db: DbSession, production_order_ids:
         for model in (
             db.query(Model)
             .options(
-                selectinload(Model.images).defer(ModelImage.file_data),
-                selectinload(Model.bom),
+                load_only(Model.id, Model.code, Model.name, Model.details_json),
+                selectinload(Model.images).load_only(
+                    ModelImage.id,
+                    ModelImage.model_id,
+                    ModelImage.file_url,
+                    ModelImage.file_name,
+                    ModelImage.content_type,
+                    ModelImage.image_type,
+                    ModelImage.is_primary,
+                ),
+                selectinload(Model.bom).load_only(
+                    ModelBOM.id,
+                    ModelBOM.model_id,
+                    ModelBOM.item_id,
+                    ModelBOM.stock_batch_id,
+                    ModelBOM.photo_url,
+                ),
+                selectinload(Model.bom)
+                .joinedload(ModelBOM.item)
+                .load_only(Item.id, Item.category, Item.image_url),
+                selectinload(Model.bom)
+                .joinedload(ModelBOM.stock_batch)
+                .load_only(StockBatch.id, StockBatch.image_url),
             )
             .filter(Model.id.in_(model_ids))
             .all()
