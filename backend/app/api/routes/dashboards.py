@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import load_only
 
 from app.core.deps import (
@@ -217,13 +217,25 @@ def management(db: DbSession, _: User = Depends(require_permissions("management.
     end_utc = end_local.astimezone(timezone.utc)
 
     # "Active orders" means commercially active demand: confirmed, in planning, or already in production.
-    active_orders = (
-        db.query(func.count(SalesOrder.id))
-        .filter(SalesOrder.status.in_(_ACTIVE_ORDER_STATUSES))
-        .scalar()
-        or 0
-    )
-    late_orders = db.query(func.count(SalesOrder.id)).filter(SalesOrder.deadline < now, SalesOrder.status.not_in(["delivered", "closed", "cancelled"])).scalar() or 0
+    active_orders, late_orders = db.query(
+        func.coalesce(
+            func.sum(case((SalesOrder.status.in_(_ACTIVE_ORDER_STATUSES), 1), else_=0)),
+            0,
+        ),
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        (SalesOrder.deadline < now)
+                        & SalesOrder.status.not_in(["delivered", "closed", "cancelled"]),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ),
+    ).one()
     todays_defects = (
         db.query(func.coalesce(func.sum(SewingRecord.failed_qty + SewingRecord.rejected_qty), 0))
         .filter(SewingRecord.created_at >= start_utc, SewingRecord.created_at < end_utc)
