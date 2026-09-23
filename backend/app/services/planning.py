@@ -1,7 +1,7 @@
 """Planning service: calculate material requirements from BOM and stock."""
 from types import SimpleNamespace
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, lazyload, load_only
 
 from app.models import Model, ModelBOM, Item, SalesOrder, SalesOrderItem
 from app.services.inventory import available_stock_for_items
@@ -19,7 +19,31 @@ def _chunks(values):
 def _bom_by_model(db: Session, model_ids) -> dict[int, list[ModelBOM]]:
     grouped: dict[int, list[ModelBOM]] = {}
     for chunk in _chunks(model_ids):
-        for row in db.query(ModelBOM).filter(ModelBOM.model_id.in_(chunk)).order_by(ModelBOM.id).all():
+        rows = (
+            db.query(ModelBOM)
+            .options(
+                lazyload("*"),
+                load_only(
+                    ModelBOM.id,
+                    ModelBOM.model_id,
+                    ModelBOM.item_id,
+                    ModelBOM.size,
+                    ModelBOM.color,
+                    ModelBOM.quantity_per_piece,
+                    ModelBOM.unit,
+                ),
+                joinedload(ModelBOM.item).load_only(
+                    Item.id,
+                    Item.sku,
+                    Item.name,
+                    Item.composition_json,
+                ),
+            )
+            .filter(ModelBOM.model_id.in_(chunk))
+            .order_by(ModelBOM.id)
+            .all()
+        )
+        for row in rows:
             grouped.setdefault(int(row.model_id), []).append(row)
     return grouped
 

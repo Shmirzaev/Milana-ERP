@@ -88,6 +88,37 @@ def test_material_requirements_queries_are_flat_and_order_is_preserved():
     assert all(row["composition"] == [{"name": "Cotton", "percentage": 100.0}] for row in many)
 
 
+def test_planning_bom_query_omits_unused_stock_batch_and_item_columns():
+    with SessionLocal() as db:
+        order_id, expected_ids = _sales_order(db, 1)
+
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from model_bom " in normalized:
+            statements.append(normalized)
+
+    with SessionLocal() as db:
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rows = material_requirements_for_sales_order(db, order_id)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert [row["item_id"] for row in rows] == expected_ids
+    assert len(statements) == 1
+    selected = statements[0].split(" from model_bom", 1)[0]
+    assert "model_bom.quantity_per_piece" in selected
+    assert "model_bom.color" in selected
+    assert "model_bom.size" in selected
+    assert "model_bom.waste_percent" not in selected
+    assert "items_1.sku" in selected
+    assert "items_1.composition_json" in selected
+    assert "items_1.default_cost" not in selected
+    assert "stock_batches" not in statements[0]
+
+
 def test_planning_estimate_batches_cold_session_item_and_model_enrichment():
     with SessionLocal() as db:
         one_id, one_items = _sales_order(db, 1)
