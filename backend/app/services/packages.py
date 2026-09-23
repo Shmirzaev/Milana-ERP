@@ -564,6 +564,13 @@ def create_package(
         collection_id=collection_id if collection_id is not None else po.collection_id,
     )
     package_type = _validate_package_type(package_type)
+    if len(str(color)) > 64:
+        raise HTTPException(422, "color must be at most 64 characters")
+    for item in items:
+        if len(str(item["color"])) > 64:
+            raise HTTPException(422, "item color must be at most 64 characters")
+        if len(str(item["size"])) > 32:
+            raise HTTPException(422, "item size must be at most 32 characters")
 
     pkg_no = next_package_no(db)
     barcode_value = generate_barcode_value("PKG")
