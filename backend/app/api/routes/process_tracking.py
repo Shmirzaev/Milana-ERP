@@ -988,7 +988,17 @@ def list_processes(
             else []
         )
     }
-    sos = {s.id: s for s in (db.query(SalesOrder).filter(SalesOrder.id.in_(so_ids)).all() if so_ids else [])}
+    sos = {
+        s.id: s
+        for s in (
+            db.query(SalesOrder)
+            .options(load_only(SalesOrder.id, SalesOrder.customer_id, SalesOrder.order_no))
+            .filter(SalesOrder.id.in_(so_ids))
+            .all()
+            if so_ids
+            else []
+        )
+    }
     customer_ids = {s.customer_id for s in sos.values() if s.customer_id}
     customers = {c.id: c for c in (db.query(Customer).filter(Customer.id.in_(customer_ids)).all() if customer_ids else [])}
     flows = {f.id: f for f in (db.query(SewingFlow).filter(SewingFlow.id.in_(flow_ids)).all() if flow_ids else [])}
