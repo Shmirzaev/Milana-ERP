@@ -1021,10 +1021,10 @@
       "risk": "Costly updates on large orders.",
       "proposed_fix": "Grouped counters.",
       "baseline_source": "backend/app/api/routes/production.py:4220",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "87c1b76, 7ebe82b",
-      "evidence": "Reconciliation bulk-groups evidence and now reuses that grouped context in batch quantity validation. Commit 7ebe82b holds SELECTs at20/20/20 for1/50/401 scopes; twenty focused cases pass. Other scalar callers and database row-processing cost remain."
+      "commit": "87c1b76, 7ebe82b, cf7e606",
+      "evidence": "Grouped reconciliation remains16/16/16 SELECTs at1/50/401 scopes and now restricts every evidence aggregate to the actual scope set. Commit cf7e606 replaces repeated bundle-edit scalar evidence reads with one scoped eight-branch UNION, reducing the full endpoint from41/41/41 to29/29/29 SELECTs while preserving sewing, receipt, direct-package and allocated-package identity/quantity semantics. Twenty-eight focused SQLite cases and one disposable-PostgreSQL lock/rollback race pass; remaining work is proportional to relevant evidence and required work-order updates."
     },
     {
       "number": 86,
