@@ -9,19 +9,19 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, or_
-from sqlalchemy.orm import noload, selectinload
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
-    WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, ModelImage, User,
-    Customer, SalesOrder, Bundle, ProductionBatch, SewingDailyReport, SewingRecord,
+    WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, ModelBOM, ModelImage, User,
+    Customer, Item, SalesOrder, StockBatch, Bundle, ProductionBatch, SewingDailyReport, SewingRecord,
 )
 from app.schemas.sewing_assignment import (
     SewingAssignmentIn, SewingAssignmentUpdate, SewingAssignmentOut, SewingAssignmentPageOut,
 )
 from app.core.dt import as_utc
 from app.services.audit import log_action
-from app.services.model_images import model_display_image_url
+from app.services.model_images import is_preview_model_image, model_display_image_url, model_preview_image_url
 from app.services.notifications import notify
 from app.services.bundles import resolve_sewing_factory_code
 from app.services.factory_scope import require_factory_access, require_work_order_factory_access
@@ -592,8 +592,25 @@ def export_process_html(
         total = qry.order_by(None).count()
         qry = qry.offset((page - 1) * page_size).limit(page_size)
     pos = qry.options(
+        load_only(
+            ProductionOrder.id,
+            ProductionOrder.production_no,
+            ProductionOrder.model_id,
+            ProductionOrder.sales_order_id,
+            ProductionOrder.service_customer_name,
+            ProductionOrder.planned_quantity,
+            ProductionOrder.status,
+            ProductionOrder.deadline,
+        ),
         noload(ProductionOrder.materials),
-        selectinload(ProductionOrder.work_orders),
+        selectinload(ProductionOrder.work_orders).load_only(
+            WorkOrder.id,
+            WorkOrder.production_order_id,
+            WorkOrder.operation,
+            WorkOrder.status,
+            WorkOrder.passed_qty,
+            WorkOrder.planned_output_qty,
+        ),
     ).all()
 
     model_ids = {po.model_id for po in pos}
@@ -602,6 +619,7 @@ def export_process_html(
         for model in (
             db.query(Model)
             .options(
+                load_only(Model.id, Model.code, Model.name),
                 selectinload(Model.images).load_only(
                     ModelImage.id,
                     ModelImage.model_id,
@@ -618,11 +636,41 @@ def export_process_html(
             else []
         )
     }
+
+    bom_fallback_ids = {
+        int(model.id)
+        for model in models.values()
+        if not model_preview_image_url(model)
+        and not any(
+            is_preview_model_image(image)
+            and str(image.image_type or "").lower() == "material"
+            for image in model.images or []
+        )
+    }
+    if bom_fallback_ids:
+        db.query(Model).options(
+            load_only(Model.id),
+            selectinload(Model.bom)
+            .load_only(
+                ModelBOM.id,
+                ModelBOM.model_id,
+                ModelBOM.item_id,
+                ModelBOM.stock_batch_id,
+                ModelBOM.photo_url,
+            )
+            .options(
+                joinedload(ModelBOM.item).load_only(Item.id, Item.category, Item.image_url),
+                joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+            ),
+        ).filter(Model.id.in_(bom_fallback_ids)).all()
     sales_order_ids = {po.sales_order_id for po in pos if po.sales_order_id is not None}
     sales_orders = {
         order.id: order
         for order in (
-            db.query(SalesOrder).filter(SalesOrder.id.in_(sales_order_ids)).all()
+            db.query(SalesOrder)
+            .options(load_only(SalesOrder.id, SalesOrder.order_no, SalesOrder.customer_id))
+            .filter(SalesOrder.id.in_(sales_order_ids))
+            .all()
             if sales_order_ids
             else []
         )
@@ -631,7 +679,10 @@ def export_process_html(
     customers = {
         customer.id: customer
         for customer in (
-            db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
+            db.query(Customer)
+            .options(load_only(Customer.id, Customer.name))
+            .filter(Customer.id.in_(customer_ids))
+            .all()
             if customer_ids
             else []
         )
