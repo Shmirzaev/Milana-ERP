@@ -959,19 +959,19 @@ def _model_with_variant_relations(
 
 def _model_usage_blockers(db: DbSession, mid: int) -> list[str]:
     blockers: list[str] = []
-    if db.query(SalesOrderItem).filter(SalesOrderItem.model_id == mid).first():
+    if db.query(SalesOrderItem.id).filter(SalesOrderItem.model_id == mid).first():
         blockers.append("sales orders")
-    if db.query(ProductionOrder).filter(ProductionOrder.model_id == mid).first():
+    if db.query(ProductionOrder.id).filter(ProductionOrder.model_id == mid).first():
         blockers.append("production orders")
-    if db.query(ProductionOrderItem).filter(ProductionOrderItem.model_id == mid).first():
+    if db.query(ProductionOrderItem.id).filter(ProductionOrderItem.model_id == mid).first():
         blockers.append("production order items")
-    if db.query(Bundle).filter(Bundle.model_id == mid).first():
+    if db.query(Bundle.id).filter(Bundle.model_id == mid).first():
         blockers.append("bundles")
-    if db.query(Package).filter(Package.model_id == mid).first():
+    if db.query(Package.id).filter(Package.model_id == mid).first():
         blockers.append("packages")
-    if db.query(PackageItem).filter(PackageItem.model_id == mid).first():
+    if db.query(PackageItem.id).filter(PackageItem.model_id == mid).first():
         blockers.append("package items")
-    if db.query(FinishedGoodsStock).filter(FinishedGoodsStock.model_id == mid).first():
+    if db.query(FinishedGoodsStock.id).filter(FinishedGoodsStock.model_id == mid).first():
         blockers.append("finished goods stock")
     return blockers
 
