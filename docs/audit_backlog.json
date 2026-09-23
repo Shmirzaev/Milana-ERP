@@ -1227,8 +1227,8 @@
       "baseline_source": "backend/app/api/routes/tasks.py:94",
       "status": "partial",
       "owner": null,
-      "commit": "c5b2483, b6a8beb, 1785a88",
-      "evidence": "Task broadcast batching and portable admin table counts remain. Commit 1785a88 batches notification fan-out inserts and flushes once, reducing flushes at1/50/250 recipients from2/51/251 to2/2/2 while retaining two recipient-reference reads; fifteen cases pass with four PostgreSQL-only skips. Fan-out writes and full table scans remain O(N)."
+      "commit": "c5b2483, b6a8beb, 1785a88, ebe8399",
+      "evidence": "Task and notification fan-out inserts are batched. Commit ebe8399 bounds notification recipient discovery at cap+1 before any write/audit and adds a count-free metadata directory used by Data Console;1/50/401 table directories execute0 count SQL while legacy counted responses remain compatible. The independent backend selection passes51 with5 PostgreSQL-only skips; frontend component, strict-type and lint checks pass. Remaining task broadcast work is in the protected dirty API02 route: it still hydrates full User rows and has no recipient ceiling. Necessary task/notification rows remain O(N), so PERF36 stays partial."
     },
     {
       "number": 103,
