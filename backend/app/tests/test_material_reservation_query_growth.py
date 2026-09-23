@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy import event
 
 from app.services import inventory
@@ -5,9 +6,10 @@ from app.tests.test_material_reservation_concurrency import _line, _stock
 from app.tests.conftest import TestSessionLocal
 
 
-def test_material_reservation_reference_and_availability_reads_are_batched():
-    ids = _stock(TestSessionLocal, item_count=50)
-    lines = [_line(ids, 1, item=index, batch=index) for index in range(50)]
+@pytest.mark.parametrize("line_count", [1, 50, 401])
+def test_material_reservation_reference_number_and_availability_reads_are_batched(line_count):
+    ids = _stock(TestSessionLocal, item_count=line_count)
+    lines = [_line(ids, 1, item=index, batch=index) for index in range(line_count)]
     with TestSessionLocal() as db:
         statements: list[str] = []
 
@@ -27,9 +29,15 @@ def test_material_reservation_reference_and_availability_reads_are_batched():
             event.remove(db.bind, "before_cursor_execute", capture)
 
         assert len(created) == len(lines)
-        # The per-line item, batch, movement and availability reads are now
-        # set-based; numbering remains intentionally serialized per reservation.
+        # References, availability and the transaction-scoped number range are
+        # read once; the returned collection still contains every required row.
         assert sum("from items" in sql for sql in statements) == 1
         assert sum("stock_batches.item_id" in sql and "group by" in sql for sql in statements) == 1
         assert sum("material_reservations.item_id" in sql and "group by" in sql for sql in statements) == 1
         assert sum("stock_movements.item_id" in sql for sql in statements) == 1
+        number_reads = [
+            sql for sql in statements
+            if "material_reservations.reservation_no" in sql
+            and "order by material_reservations.reservation_no desc" in sql
+        ]
+        assert len(number_reads) == 1

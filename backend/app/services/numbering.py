@@ -213,6 +213,11 @@ def next_material_reservation_no(db: Session) -> str:
     return _next(db, MaterialReservation, "reservation_no", "MR")
 
 
+def next_material_reservation_nos(db: Session, count: int) -> list[str]:
+    """Reserve a consecutive material-reservation number range."""
+    return _next_many(db, MaterialReservation, "reservation_no", "MR", count)
+
+
 def retire_label_numbers(db: Session, package_numbers: list[str], run_number: str) -> None:
     from app.models import PackagePrintRun
     for model, attr, prefix, numbers in ((Package, "package_no", "PKG", package_numbers),

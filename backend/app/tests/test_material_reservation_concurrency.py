@@ -1,3 +1,4 @@
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -9,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -342,16 +343,16 @@ def test_postgres_cutting_additions_and_batchless_reservation_do_not_deadlock(
     ready = Queue()
     first_number_locked = Event()
     release_first = Event()
-    original = inventory.next_material_reservation_no
+    original = inventory.next_material_reservation_nos
 
-    def pause_first_number(db):
-        number = original(db)
+    def pause_first_number(db, count):
+        numbers = original(db, count)
         if db.info.get("reservation_worker") == first_worker and not first_number_locked.is_set():
             first_number_locked.set()
             assert release_first.wait(10), "Coordinator did not release the first reservation-number lock"
-        return number
+        return numbers
 
-    monkeypatch.setattr(inventory, "next_material_reservation_no", pause_first_number)
+    monkeypatch.setattr(inventory, "next_material_reservation_nos", pause_first_number)
 
     def reserve(worker):
         with sessions() as db:
@@ -405,3 +406,126 @@ def test_postgres_cutting_additions_and_batchless_reservation_do_not_deadlock(
         assert [row.stock_batch_id for row in materials] == [row.stock_batch_id for row in payload.additional_materials]
         assert [row.position for row in materials] == [1, 2]
         assert db.query(AuditLog).filter_by(action="add_cutting_passport_material", entity_id=ids["orders"][0]).count() == 2
+
+
+@pytest.mark.parametrize("line_count", [1, 50, 401])
+def test_postgres_reservation_locks_numbering_and_insert_transfers_are_batched(
+    reservation_postgres_engine, line_count,
+):
+    engine = reservation_postgres_engine
+    sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions, item_count=line_count)
+    lines = [_line(ids, 1, item=index, batch=index) for index in range(line_count)]
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(" ".join(statement.lower().split()))
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        with sessions() as db:
+            created = inventory.create_material_reservations(
+                db,
+                production_order_id=ids["orders"][0],
+                lines=lines,
+                user_id=None,
+            )
+            db.commit()
+            assert len(created) == line_count
+            assert len({row.reservation_no for row in created}) == line_count
+            assert all(row.id is not None for row in created)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    item_lock_transfers = [sql for sql in statements if "pg_advisory_xact_lock" in sql and "unnest" in sql]
+    numbering_lock_transfers = [sql for sql in statements if "pg_advisory_xact_lock" in sql and "hashtext" in sql]
+    number_reads = [
+        sql for sql in statements
+        if sql.startswith("select")
+        and "material_reservations.reservation_no" in sql
+        and "order by material_reservations.reservation_no desc" in sql
+    ]
+    reservation_inserts = [sql for sql in statements if sql.startswith("insert into material_reservations")]
+    assert sum(sql.startswith("select") for sql in statements) == 11
+    assert len(item_lock_transfers) == 1
+    assert len(numbering_lock_transfers) == 1
+    assert len(number_reads) == 1
+    assert len(reservation_inserts) == 1
+
+    if line_count == 401:
+        with sessions() as db:
+            year = datetime.now(timezone.utc).year
+            statement = (
+                select(MaterialReservation.reservation_no)
+                .where(MaterialReservation.reservation_no.like(f"MR-{year}-%"))
+                .order_by(MaterialReservation.reservation_no.desc())
+                .limit(1)
+            )
+            compiled = statement.compile(bind=db.get_bind(), compile_kwargs={"literal_binds": True})
+            plan = db.execute(text(f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {compiled}")).scalar_one()
+        plan_text = json.dumps(plan, sort_keys=True)
+        assert "ix_material_reservations_reservation_no" in plan_text
+        assert "Seq Scan" not in plan_text
+
+
+@pytest.mark.parametrize("material_count", [1, 50, 401])
+def test_postgres_cutting_addition_reads_and_write_transfers_are_batched(
+    reservation_postgres_engine, material_count,
+):
+    engine = reservation_postgres_engine
+    sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions, item_count=material_count)
+    payload = _passport_payload(ids, reverse=False)
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(" ".join(statement.lower().split()))
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        with sessions() as db:
+            _add_passport_materials(db, ids, payload)
+            db.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    selects = [sql for sql in statements if sql.startswith("select")]
+    reservation_inserts = [sql for sql in statements if sql.startswith("insert into material_reservations")]
+    material_inserts = [sql for sql in statements if sql.startswith("insert into production_order_materials")]
+    audit_inserts = [sql for sql in statements if sql.startswith("insert into audit_logs")]
+    assert len(selects) == 15
+    assert len(reservation_inserts) == 1
+    assert len(material_inserts) == 1
+    assert len(audit_inserts) == 1
+
+    with sessions() as db:
+        assert db.query(MaterialReservation).filter_by(production_order_id=ids["orders"][0]).count() == material_count
+        assert db.query(ProductionOrderMaterial).filter_by(production_order_id=ids["orders"][0]).count() == material_count
+        assert db.query(AuditLog).filter_by(
+            action="add_cutting_passport_material", entity_id=ids["orders"][0],
+        ).count() == material_count
+
+
+def test_postgres_bulk_reservation_numbers_are_reused_after_rollback(reservation_postgres_engine):
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions, item_count=50)
+    lines = [_line(ids, 1, item=index, batch=index) for index in range(50)]
+
+    with sessions() as db:
+        first = inventory.create_material_reservations(
+            db, production_order_id=ids["orders"][0], lines=lines, user_id=None,
+        )
+        first_numbers = [row.reservation_no for row in first]
+        db.rollback()
+
+    with sessions() as db:
+        retried = inventory.create_material_reservations(
+            db, production_order_id=ids["orders"][0], lines=lines, user_id=None,
+        )
+        retry_numbers = [row.reservation_no for row in retried]
+        db.rollback()
+
+    assert retry_numbers == first_numbers
+    assert [int(number.rsplit("-", 1)[-1]) for number in first_numbers] == list(
+        range(int(first_numbers[0].rsplit("-", 1)[-1]), int(first_numbers[0].rsplit("-", 1)[-1]) + 50)
+    )

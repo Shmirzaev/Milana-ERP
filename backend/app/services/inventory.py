@@ -28,7 +28,7 @@ from app.models import (
     WorkOrder,
     public_production_order_no,
 )
-from app.services.numbering import next_material_reservation_no
+from app.services.numbering import next_material_reservation_nos
 from app.services.workflow import consume_item_from_batches, consume_stock_batch, notify_department
 
 MATERIAL_CATEGORIES = ("fabric", "semi_finished")
@@ -727,11 +727,15 @@ def _lock_reservation_resources(db: Session, lines: list[dict]) -> dict[int, Sto
         # request lists several items/batches in a different order.
         # Use one item key across warehouses and batched/unbatched reservations:
         # an unbatched availability check includes reservations for its batches.
-        for item_id in sorted({int(line.get("item_id") or 0) for line in lines}):
-            db.execute(
-                text("SELECT pg_advisory_xact_lock(:namespace, :item_id)"),
-                {"namespace": _RESERVATION_LOCK_NAMESPACE, "item_id": item_id},
-            )
+        item_ids = sorted({int(line.get("item_id") or 0) for line in lines})
+        db.execute(
+            text(
+                "SELECT pg_advisory_xact_lock(:namespace, lock_id) "
+                "FROM unnest(CAST(:item_ids AS INTEGER[])) AS ordered_locks(lock_id) "
+                "ORDER BY lock_id"
+            ),
+            {"namespace": _RESERVATION_LOCK_NAMESPACE, "item_ids": item_ids},
+        )
     return batches
 
 
@@ -896,7 +900,7 @@ def create_material_reservations(
         preloaded_items=preloaded_items,
     )
     used_by_key: dict[tuple[str, int, int | None], float] = {}
-    created: list[MaterialReservation] = []
+    reservation_values: list[dict] = []
     for idx, raw in enumerate(lines, start=1):
         item_id = int(raw.get("item_id") or 0)
         quantity = float(raw.get("reserved_quantity") or raw.get("quantity") or 0)
@@ -948,27 +952,31 @@ def create_material_reservations(
 
         used_by_key[availability_key] = used_by_key.get(availability_key, 0.0) + quantity
 
-        reservation = MaterialReservation(
-            reservation_no=next_material_reservation_no(db),
-            production_order_id=int(po.id),
-            sales_order_id=int(po.sales_order_id) if po.sales_order_id else None,
-            item_id=item_id,
-            stock_batch_id=stock_batch_id,
-            warehouse_id=warehouse_id,
-            reserved_quantity=quantity,
-            consumed_quantity=0,
-            released_quantity=0,
-            unit=unit,
-            status="reserved",
-            reservation_type=reservation_type,
-            source=source,
-            reserved_by=user_id,
-            reserved_at=datetime.now(timezone.utc),
-            notes=notes,
-        )
-        db.add(reservation)
-        db.flush()
-        created.append(reservation)
+        reservation_values.append({
+            "production_order_id": int(po.id),
+            "sales_order_id": int(po.sales_order_id) if po.sales_order_id else None,
+            "item_id": item_id,
+            "stock_batch_id": stock_batch_id,
+            "warehouse_id": warehouse_id,
+            "reserved_quantity": quantity,
+            "consumed_quantity": 0,
+            "released_quantity": 0,
+            "unit": unit,
+            "status": "reserved",
+            "reservation_type": reservation_type,
+            "source": source,
+            "reserved_by": user_id,
+            "reserved_at": datetime.now(timezone.utc),
+            "notes": notes,
+        })
+
+    reservation_nos = next_material_reservation_nos(db, len(reservation_values))
+    created = [
+        MaterialReservation(reservation_no=reservation_no, **values)
+        for reservation_no, values in zip(reservation_nos, reservation_values, strict=True)
+    ]
+    db.add_all(created)
+    db.flush()
     return created
 
 

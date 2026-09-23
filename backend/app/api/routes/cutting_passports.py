@@ -749,11 +749,15 @@ def _add_passport_materials(db, order, work_order, payload, current):
                                       estimated_quantity=addition.estimated_quantity, unit=batch.unit, position=position)
         db.add(row)
         existing[batch.id] = row
+    # Flush the required material rows as one transfer before queuing their
+    # ordered audit entries. PostgreSQL audit appends are finalized together
+    # at commit, while SQLite keeps its existing sequential hash behavior.
+    db.flush()
+    for addition, batch in pending_additions:
         log_action(db, current, "add_cutting_passport_material", "ProductionOrder", order.id, new_value={
             "stock_batch_id": batch.id, "estimated_quantity": addition.estimated_quantity,
             "unit": batch.unit, "passport_no": payload.passport_no,
         })
-    db.flush()
     db.expire(order, ["materials"])
 
 
