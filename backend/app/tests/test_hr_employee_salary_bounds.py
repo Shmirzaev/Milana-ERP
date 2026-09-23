@@ -109,3 +109,19 @@ def test_employee_salary_validation_preserves_auth_and_not_found_precedence(
         json={"salary": "10000000000"},
     )
     assert missing.status_code == 404, missing.text
+
+
+@pytest.mark.parametrize("user_id", [2_147_483_648, -2_147_483_649])
+def test_employee_create_treats_unrepresentable_user_id_as_missing(
+    client, auth_headers, user_id,
+):
+    before = _employee_counts()
+    response = client.post(
+        "/api/employees",
+        headers=auth_headers,
+        json={"full_name": "Invalid FK employee", "user_id": user_id},
+    )
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == "Employee user not found"
+    assert _employee_counts() == before

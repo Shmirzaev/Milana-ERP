@@ -351,6 +351,8 @@ def _validate_employee_references(
     employee_id: int | None = None,
 ) -> None:
     if user_id is not None:
+        if not -2_147_483_648 <= user_id <= 2_147_483_647:
+            raise HTTPException(404, "Employee user not found")
         user = db.get(User, user_id)
         if not user:
             raise HTTPException(404, "Employee user not found")
