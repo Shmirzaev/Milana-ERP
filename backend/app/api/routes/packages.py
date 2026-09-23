@@ -2024,7 +2024,14 @@ def history(
     query = db.query(PackageScanLog).filter(PackageScanLog.package_id == pid)
     total = int(query.count())
     scans = (
-        query.order_by(PackageScanLog.scanned_at.asc(), PackageScanLog.id.asc())
+        query.options(load_only(
+            PackageScanLog.id,
+            PackageScanLog.scan_type,
+            PackageScanLog.scanned_by,
+            PackageScanLog.scanned_at,
+            PackageScanLog.location,
+        ))
+        .order_by(PackageScanLog.scanned_at.asc(), PackageScanLog.id.asc())
         .offset((effective_page - 1) * effective_page_size)
         .limit(effective_page_size)
         .all()

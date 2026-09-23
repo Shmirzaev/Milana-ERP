@@ -92,6 +92,10 @@ def test_package_history_page_bounds_sql_and_preserves_legacy_payload(row_count)
     )
     assert "package_scan_logs.package_id = ?" in row_statement
     assert "order by package_scan_logs.scanned_at asc, package_scan_logs.id asc" in row_statement
+    selected = row_statement.split(" from package_scan_logs", 1)[0]
+    for column in ("id", "scan_type", "scanned_by", "scanned_at", "location"):
+        assert f"package_scan_logs.{column}" in selected
+    assert "package_scan_logs.package_id" not in selected
 
 
 def test_package_history_page_contract_scope_auth_and_no_writes(client, auth_headers):
