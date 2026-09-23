@@ -1348,6 +1348,16 @@ def stock_summary(
         supplier_id=supplier_id,
         created_from=created_from,
         created_to=created_to,
+    ).options(
+        load_only(
+            Item.id,
+            Item.sku,
+            Item.name,
+            Item.image_url,
+            Item.category,
+            Item.unit,
+            raiseload=True,
+        )
     ).outerjoin(latest_batch_receipt, latest_batch_receipt.c.item_id == Item.id)
     query = query.order_by(
         func.coalesce(latest_batch_receipt.c.received_at, Item.created_at).desc(),
