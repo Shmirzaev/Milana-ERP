@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from sqlalchemy import func
+from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import WasteRecord, WasteSale, WasteDisposalRequest, User, StockBatch, Item
@@ -71,7 +72,22 @@ def list_waste(
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    qry = db.query(WasteRecord)
+    qry = db.query(WasteRecord).options(load_only(
+        WasteRecord.id,
+        WasteRecord.production_order_id,
+        WasteRecord.work_order_id,
+        WasteRecord.source_department_id,
+        WasteRecord.item_id,
+        WasteRecord.batch_id,
+        WasteRecord.waste_type,
+        WasteRecord.quantity,
+        WasteRecord.unit,
+        WasteRecord.reason,
+        WasteRecord.sellable,
+        WasteRecord.estimated_value,
+        WasteRecord.status,
+        WasteRecord.created_at,
+    ))
     if status: qry = qry.filter(WasteRecord.status == status)
     if sellable is not None: qry = qry.filter(WasteRecord.sellable.is_(sellable))
     total = None

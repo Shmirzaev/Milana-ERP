@@ -64,6 +64,10 @@ def test_waste_pages_bound_rows_preserve_legacy_payload_and_query_growth(count):
     assert all(float(row.estimated_value) == 0 for row in page["rows"])
     assert all(float(row.remaining_quantity) == float(row.quantity) for row in page["rows"])
     assert len(statements) == 3, statements
+    page_query = next(statement for statement in statements if "from waste_records" in statement and "count(" not in statement)
+    assert "created_by" not in page_query
+    assert "updated_at" not in page_query
+    assert "created_at" in page_query
 
 
 def test_waste_page_applies_status_and_sellable_before_count(client, auth_headers):
