@@ -711,8 +711,8 @@
       "baseline_source": "backend/app/schemas/sales.py",
       "status": "partial",
       "owner": null,
-      "commit": "5a68d12,41ae782, 5c08c2c, a66321b, 26a4e73, 77205c9, 652f754, 47f0411",
-      "evidence": "Existing numeric bounds remain. Commit 47f0411 computes the complete sales-order line aggregate with Decimal and rejects totals that would round beyond NUMERIC(14,2) before reservations, audit or commit while retaining valid sub-cent input. Six focused bound cases pass independently; the agent also passed nineteen focused and three compatibility cases. Other derived prices, states and list bounds remain open."
+      "commit": "5a68d12, 41ae782, 5c08c2c, a66321b, 26a4e73, 77205c9, 652f754, 47f0411, 37527f4, 7e4d055, 3e75ca6, 8f48bce, 5bd112b, ac6c3d6, 0b3950b, 5638b8a, 3e50527, 50cbbe8, 41700e6, e27c514, 9d368e9, ee75b88, 3de6182",
+      "evidence": "Existing numeric bounds remain. Commit 47f0411 computes the complete sales-order line aggregate with Decimal and rejects totals that would round beyond NUMERIC(14,2) before reservations, audit or commit while retaining valid sub-cent input. Follow-up commits add finite/representable purchase request, unit-cost, order/receipt and purchasing/finance input checks plus Decimal-safe customer-payment and waste-sale amounts; see test_purchase_request_quantity_bounds.py, test_purchase_cost_bounds.py, test_purchase_order_quantity_bounds.py, test_purchase_receipt_quantity_bounds.py, test_purchase_receipt_piece_count_bounds.py, test_price_calculation_purchasing_bounds.py, test_price_calculation_finance_bounds.py and test_customer_payment_amount_bounds.py. Commits 3e50527, 50cbbe8, 41700e6, e27c514 and 9d368e9 add HR approved-count, payroll, cutting, stock-batch cost/dimension/quantity guards with focused regressions. Existing business/error precedence is retained; other derived prices, states and list bounds remain open."
     },
     {
       "number": 60,
@@ -831,8 +831,8 @@
       "baseline_source": "backend/app/services/inventory.py:1425",
       "status": "partial",
       "owner": null,
-      "commit": "2c30d5d, 704abef, 3a74e5a, 74211ab",
-      "evidence": "Accessory reference reads remain batched. Commit 74211ab keeps search candidates as SQL subqueries and processes paged requests in 400-order chunks, retaining only the requested globally sorted prefix while preserving exact totals, normalized aliases, legacy arrays and envelope responses. At1/50/401 candidates the construction batches are1/50/400+1 and endpoint SELECTs11/11/21. Thirteen focused plus28 compatibility cases pass. Exact derived totals/status ordering still inspect each candidate, so PERF02 remains partial."
+      "commit": "2c30d5d, 704abef, 3a74e5a, 74211ab, 12579f6, 314265f, 6aaf2ba",
+      "evidence": "Accessory reference and stock reads are batched, including one aggregate stock read per source for issue plans and narrow summary projections. The paged request path still derives BOM requirements, linked/manual issuance, stock/reservations and completion/shortage status for every candidate before exact total and global status sorting. Twenty-three closure-audit tests pass. A safe closure requires parity-proven database-side derivation before LIMIT or an approved change to exact-total/status-order semantics, so PERF02 remains partial."
     },
     {
       "number": 70,
@@ -891,8 +891,8 @@
       "baseline_source": "backend/app/api/routes/packages.py:1032",
       "status": "partial",
       "owner": null,
-      "commit": "890177e, 3da6174",
-      "evidence": "Full-detail queue references remain batched. Commit 3da6174 adds offset/limit <=500 with total/page headers, bounds both POST remove responses, and filters removal validation to requested packages; eight focused cases pass, including 1/50/401 growth and legacy payload parity. Child serialization/write synchronization still scales with returned rows."
+      "commit": "890177e, 3da6174, cbebcd4, 2dd8ef8",
+      "evidence": "Queue pages and removal inputs are bounded to500 parents, use a direct scalar count, and scope child/reference reads to returned package IDs. Detail eager loads project only serializer fields;47 receiving/detail/pagination compatibility cases pass. Each selected package still returns its complete child arrays to preserve the full-detail contract; a hard child-row ceiling requires an API contract decision, so PERF08 remains partial."
     },
     {
       "number": 75,
@@ -939,8 +939,8 @@
       "baseline_source": "backend/app/api/routes/packages.py:1486",
       "status": "partial",
       "owner": null,
-      "commit": "f27e240, 9fe1c14, 7f5b30d",
-      "evidence": "Bundle-label references remain batched with a 200-label output bound and no image BLOB selection. Commit 7f5b30d renders scoped label endpoints from their already-loaded bundle rows instead of re-entering the by-ID path, reducing bundle SELECTs from2 to1 at1/50/200 labels with byte-identical HTML; thirteen focused cases pass. Other QR and large-output CPU paths remain."
+      "commit": "f27e240, 9fe1c14, 7f5b30d, d990aa6, 4fba5f1, f378278, 2f92465",
+      "evidence": "Bundle-label references remain batched with a 200-label output bound and no image BLOB selection. Commit 7f5b30d renders scoped label endpoints from their already-loaded bundle rows instead of re-entering the by-ID path, reducing bundle SELECTs from2 to1 at1/50/200 labels with byte-identical HTML; thirteen focused cases pass. Image BLOB projection was added to package and bundle label context; test_bundle_label_image_blob_projection.py covers the bundle projection. Commit f378278 caps package by-ID sheets at500; test_package_label_query_growth.py passes eight focused cases including 500 accepted and 501 rejected before package SELECT or card rendering. Other QR and large-output CPU paths remain."
     },
     {
       "number": 79,
@@ -949,10 +949,10 @@
       "risk": "Bulk acceptance scales poorly.",
       "proposed_fix": "Bulk context; synchronize once.",
       "baseline_source": "backend/app/api/routes/bundles.py:326",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "ef9cb88, 952b569, 49fdeea",
-      "evidence": "Receipt-scoped factory/quantity context remains batched. Commit 49fdeea retains strong ProductionOrder references across the receipt so live status synchronization no longer re-reads the same order each iteration. Manual1/50/401 SELECTs fall21/168/1221 to21/70/421 and acceptance31/178/1231 to31/80/431. Twenty-four independently rerun focused cases pass; other live per-bundle work remains O(N), so PERF13 stays partial."
+      "commit": "ef9cb88, 952b569, 49fdeea, df862ca, fb79677, f4c8723, f5977d0",
+      "evidence": "Receipt-scoped references, legacy gates and response aggregates are reused instead of re-read per bundle. Commit f5977d0 reuses the already-loaded accepted bundle rows for the response while preserving the database aggregate for ordinary detail reads. At1/50/401 bundles, manual receipt uses20 SELECTs and sewing acceptance29 SELECTs at every size. Twenty-six focused receiving, gate, aggregate-parity and compatibility cases pass. Required bundle transitions, scans, audit rows and synchronization remain O(N) writes, but the repeated lookup/gate query defect is resolved."
     },
     {
       "number": 80,
@@ -1047,8 +1047,8 @@
       "baseline_source": "backend/app/services/traceability.py:251",
       "status": "partial",
       "owner": null,
-      "commit": "2f8f951,ae88bb5,4447c97,a4f005a,24bba90,6acfa70",
-      "evidence": "Bundle, cutting, shipping and material-origin references remain batched. Commit 24bba90 preloads production-batch Package.scan_logs on allocated/direct paths and reuses one ordered WorkOrder load; 6acfa70 records the 1/50/401 work-order regression. Allocated scan SELECTs fall from2+N to3 and WorkOrder reads from2 to1 while preserving graph parity. Forty-five traceability cases pass. Other graph bounds remain open."
+      "commit": "2f8f951, ae88bb5, 4447c97, a4f005a, 24bba90, 6acfa70, 16d9ec4, 403af90",
+      "evidence": "Bundle, cutting, shipping and material-origin references remain batched. Commit 24bba90 preloads production-batch Package.scan_logs on allocated/direct paths and reuses one ordered WorkOrder load; 6acfa70 records the 1/50/401 work-order regression. Allocated scan SELECTs fall from2+N to3 and WorkOrder reads from2 to1 while preserving graph parity. Commit 16d9ec4 pushes cutting batch scope into SQL with a focused regression, preventing unrelated batch history from being hydrated. Commit 403af90 reuses shipment warehouse references; test_traceability_shipping_query_growth.py adds the regression. Forty-five earlier traceability cases pass; other graph bounds remain open."
     },
     {
       "number": 88,
@@ -1059,8 +1059,8 @@
       "baseline_source": "backend/app/api/routes/usluga.py:588",
       "status": "partial",
       "owner": null,
-      "commit": "d1c4117, c8ac9f3, 0005ff3",
-      "evidence": "Usluga child reads remain batched. Commit c8ac9f3 adds opt-in server pagination/status filtering and frontend SWR page aggregation with executable load-more coverage. Commit 0005ff3 restores the historical all-row array for callers that do not opt into pagination instead of silently truncating at500; the UI continues to use bounded pages. Eight focused backend cases, full frontend stabilization, strict types and targeted lint pass. Other history/output scopes remain."
+      "commit": "d1c4117, c8ac9f3, 0005ff3, bec46dd, 55fef7f, 9c5d9c9",
+      "evidence": "Paged Usluga reads bulk-load projected models/items/work orders/packages, and the frontend uses100-row SWR pages with executable load-more coverage. Twenty-four backend tests plus the frontend pagination test pass. Legacy callers that omit pagination intentionally retain the complete historical array; bounding that compatibility response requires an approved contract change, so PERF22 remains partial."
     },
     {
       "number": 89,
@@ -1129,10 +1129,10 @@
       "risk": "Large receipts are expensive.",
       "proposed_fix": "Bulk references; safe audit append.",
       "baseline_source": "backend/app/services/purchasing.py:93",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "1efce38, 67f0309, 4137431, d200161, b4b2da0",
-      "evidence": "Reference SELECTs remain bounded in chunks and transaction-scoped audit heads are reused. Commit b4b2da0 batches Item and Supplier validation for purchase requests, reducing those reads at1/50/401 lines from2/100/802 to2/2/4; fifteen focused cases pass. Receipt writes, hashing and other per-line work remain, so PERF28 stays partial."
+      "commit": "1efce38, 67f0309, 4137431, d200161, b4b2da0, 23d149a, 5698e99, cda1df0",
+      "evidence": "Request creation, approval, order creation and receipt reference reads are chunk-bounded, and each operation reads the audit head exactly once. At1/50/401 lines, approval supplier reads are1/1/2, request references2/2/4, order references3/3/6 and receipt references4/4/8; the additional401-line reads are400-ID chunk boundaries. The full focused purchasing request/order/receipt suite passes140 with5 PostgreSQL-only skips. Per-line stock, movement and audit writes plus chain hashing remain necessarily O(N), but repeated reference and audit-head reads are resolved."
     },
     {
       "number": 95,
@@ -1179,8 +1179,8 @@
       "baseline_source": "backend/app/api/routes/inbox.py:689",
       "status": "partial",
       "owner": null,
-      "commit": "f79d195, 6c2c5ac, b40cace, 491058b",
-      "evidence": "Inbox production context and planned demand asset/reference reads remain batched without image BLOB hydration. Commit 491058b preloads forecast Model, Brand and Collection references into column maps, reducing reference SELECTs at1/50/401 rows from7/154/1207 to7/7/10; twenty-four focused cases pass. Output/memory remains linear and other helpers remain unmeasured."
+      "commit": "f79d195, 6c2c5ac, b40cace, 491058b, 8574264, 3cc7e67, 7f0d085, 0e2bd6d",
+      "evidence": "Inbox production context and planned demand asset/reference reads remain batched without image BLOB hydration. Commit 491058b preloads forecast Model, Brand and Collection references into column maps, reducing reference SELECTs at1/50/401 rows from7/154/1207 to7/7/10; twenty-four focused cases pass. Commits 8574264, 3cc7e67, 7f0d085 and 0e2bd6d project Process Tracking model context, catalog/package image metadata and Super Data binary sizes; focused projection regressions are committed. Output/memory remains linear and other helpers remain unmeasured."
     },
     {
       "number": 99,
@@ -1191,8 +1191,8 @@
       "baseline_source": "backend/app/api/routes/stocktake.py:139",
       "status": "partial",
       "owner": null,
-      "commit": "7fe32ef, 1610476, a47de56, caa430c",
-      "evidence": "Common detail paging and streamed CSV export remain bounded. Commit caa430c counts scans in SQL and selects only MIN(row_id) evidence per non-null package, removing the O(scanned rows) Python uniqueness set and duplicate JSON transfer while preserving total scan count and first-scan-wins quantities. Twenty-six pagination cases pass independently; the agent's complete stocktake slice passed45. Summary search/changed work and live-read atomicity remain open."
+      "commit": "7fe32ef, 1610476, a47de56, caa430c, 2f941d2, ea2202f, 9c57d56, 263d2b5, 95111b5, 056badd, 5bf12ec, 9278f60, 44faa28",
+      "evidence": "Common detail/session paging and CSV export use400-row streaming/keyset batches. Commit44faa28 moves first-scan markers and latest completed snapshots into SQL, streams completed-summary comparisons, and removes the export footer's O(unique packages) seen set;63 focused stocktake pagination, scan-evidence and workflow tests pass. Live changed-detail/export batches still make separate package snapshot reads under default READ COMMITTED semantics, so cross-batch atomicity remains unproven and PERF33 stays partial."
     },
     {
       "number": 100,
@@ -1215,8 +1215,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "29d9aed, ac27943, 9e50847, 35182b8, 2978048, a66321b, a8307d8, 7b45c23, 58b9317, 64f97e9, 0c51202, ee43ff3, 39aded7, 0760289, 9993e26, 1974b3d, 3188ee4, e9c37b4, 37d6bc6, edf17ac, a1ceb96, 851e015, 972ed0b, a65b621, 754bbab, b7c6453, ba8b25f, 321c4d0, f05bfdd, 33a19cd, 58a50bc, c7e2754, af59e49, 95e961d, 2b40ac4, 28c8246, 49c8e71, 3427714, a3db96b, c0208ba, c1ecec2, 57acf05, 18a6e99, 9a9d0b3, 3234b03, c3b40cb, c89c5f7, 78c7477, 444a4bd, 61f57bf, a5a20ec, e5cbce5, a39f245, bdf94a9, 1c888c6, d946d3a, 7eefc6d, 6d12669, 5856d7b",
-      "evidence": "Reviewed SQL bounds cover notifications, global search, admin users/roles/data tables, dashboard production, departments, warehouses, HR recruitment/employees/positions, finance invoices/revenue, payroll records/paid processes/adjustments/periods, suppliers, purchase orders, forecast recommendations, sewing reports/assignments/history/utilization, quality checks, brands/collection seasons/model BOM items, Finished Goods/branded stock, shipment customers/eligible orders/ready packages, bundle history, package changes/storage search, material reservations, customer payment history, packaging receipts, branded planning parties, HR Documents and Calendar. New opt-in SQL pages preserve exact legacy responses while applying filters before count and scoping dependent reads to returned rows. Boundary/parity suites at1/50/401 cover the named surfaces. Other lists/reports/exports remain open."
+      "commit": "29d9aed, ac27943, 9e50847, 35182b8, 2978048, a66321b, a8307d8, 7b45c23, 58b9317, 64f97e9, 0c51202, ee43ff3, 39aded7, 0760289, 9993e26, 1974b3d, 3188ee4, e9c37b4, 37d6bc6, edf17ac, a1ceb96, 851e015, 972ed0b, a65b621, 754bbab, b7c6453, ba8b25f, 321c4d0, f05bfdd, 33a19cd, 58a50bc, c7e2754, af59e49, 95e961d, 2b40ac4, 28c8246, 49c8e71, 3427714, a3db96b, c0208ba, c1ecec2, 57acf05, 18a6e99, 9a9d0b3, 3234b03, c3b40cb, c89c5f7, 78c7477, 444a4bd, 61f57bf, a5a20ec, e5cbce5, a39f245, bdf94a9, 1c888c6, d946d3a, 7eefc6d, 6d12669, 5856d7b, d78ca27, 0c3a1c3, 764af78, 7c0a404, 339e4c2, 32eb372, 2f941d2, 9e2d34d, 68f9c59, 1070ffb, 5125049, 2e25fb2, bc3e63f",
+      "evidence": "Reviewed SQL bounds cover notifications, global search, admin users/roles/data tables, dashboard production, departments, warehouses, HR recruitment/employees/positions, finance invoices/revenue, payroll records/paid processes/adjustments/periods and order options, suppliers, purchase orders, forecast recommendations, sewing reports/assignments/history/utilization/exports, quality checks, brands/collection seasons/model BOM items, Finished Goods/branded stock, shipment customers/eligible orders/ready packages, bundle history, package changes/storage search, material reservations, customer payment history, packaging receipts, branded planning parties, HR Documents/Calendar, fabric-scan summaries and stocktake sessions. New opt-in SQL pages preserve legacy responses while applying filters before count and scoping dependent reads to returned rows. Commit bc3e63f omits an unused Process Tracking export BOM load; test_process_tracking_export_pagination.py covers that export path. Boundary/parity suites cover named surfaces; other lists/reports/exports remain open."
     },
     {
       "number": 102,
@@ -1275,8 +1275,8 @@
       "baseline_source": "backend/app/services/image_storage.py:180",
       "status": "partial",
       "owner": null,
-      "commit": "170200f, 503d068, 940acd5, 056009d",
-      "evidence": "Upload conversion/original writes/thumbnails run off the event loop with one upload slot per process. Commit 056009d adds cancellation-shielded cleanup for failed/cancelled BOM-photo transactions while preserving collision/pre-existing files; eight focused cases pass. Company-logo rollback and thumbnail restoration remain covered. Other upload routes, async SQL, cross-process capacity and broader lifecycle remain open."
+      "commit": "170200f, 503d068, 940acd5, 056009d, 81887a1, 64f98a5, 3452166, 31a3a3c, ad5b278, 623c169, b2958f0",
+      "evidence": "Upload conversion/original writes/thumbnails run off the event loop with one upload slot per process. Commit 056009d adds cancellation-shielded cleanup for failed/cancelled BOM-photo transactions while preserving collision/pre-existing files; eight focused cases pass. Follow-up lifecycle regressions cover HR documents, model images, production and sales attachments, and attendance photos (81887a1, 64f98a5, 3452166, 31a3a3c, ad5b278). Commits 623c169 and b2958f0 cap attendance-photo upload concurrency and buffering; test_attendance_photo_upload_lifecycle.py covers the added path. Company-logo rollback and thumbnail restoration remain covered. Other upload routes, async SQL, cross-process capacity and broader lifecycle remain open."
     },
     {
       "number": 107,
