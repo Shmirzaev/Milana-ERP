@@ -108,6 +108,30 @@ def test_print_run_list_rejects_corrupt_manifest(client, auth_headers):
     assert response.status_code == 409
 
 
+def test_single_print_run_read_projects_only_payload_and_scope_fields(client, auth_headers):
+    [run_id] = _seed_runs(1)
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT") and "package_print_runs" in statement.lower():
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(f"/api/packages/print-runs/{run_id}", headers=auth_headers)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == run_id
+    assert response.json()["count"] == 1
+    assert response.json()["quantity"] == 3
+    run_reads = [sql for sql in statements if " from package_print_runs " in sql]
+    assert len(run_reads) == 1
+    assert "receipt_location" not in run_reads[0]
+    assert "received_by" not in run_reads[0]
+
+
 def test_print_run_list_excludes_retired_runs_and_requires_login(client, auth_headers):
     [run_id] = _seed_runs(1)
     with TestSessionLocal() as db:
