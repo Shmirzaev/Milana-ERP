@@ -33,6 +33,11 @@ def _require_storable_capacity(value: int) -> None:
         raise HTTPException(422, "capacity_per_day must fit a 32-bit database integer")
 
 
+def _require_storable_user_id(value: int | None) -> None:
+    if value is not None and (value < 1 or value > _DB_INTEGER_MAX):
+        raise HTTPException(422, "supervisor_id must fit a positive 32-bit database integer")
+
+
 def _require_storable_text(value: str, field: str, maximum: int) -> None:
     if len(value) > maximum:
         raise HTTPException(422, f"{field} must be at most {maximum} characters")
@@ -264,6 +269,7 @@ def create_flow(payload: SewingFlowIn, db: DbSession, current: User = Depends(re
     _require_storable_text(payload.name, "name", 64)
     _require_storable_text(payload.code, "code", 32)
     _require_storable_capacity(payload.capacity_per_day)
+    _require_storable_user_id(payload.supervisor_id)
     values = payload.model_dump()
     values["factory_code"] = factory
     f = SewingFlow(**values)
@@ -466,6 +472,8 @@ def update_flow(fid: int, payload: SewingFlowUpdate, db: DbSession, current: Use
         _require_storable_text(changes["code"], "code", 32)
     if "capacity_per_day" in changes:
         _require_storable_capacity(int(changes["capacity_per_day"]))
+    if "supervisor_id" in changes:
+        _require_storable_user_id(changes["supervisor_id"])
     for k, v in changes.items():
         setattr(f, k, v)
     log_action(db, current, "update", "SewingFlow", f.id, new_value=changes)
