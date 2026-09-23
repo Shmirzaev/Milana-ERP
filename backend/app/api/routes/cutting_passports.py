@@ -511,6 +511,7 @@ def list_passports(
     qry = (
         db.query(CuttingPassport)
         .options(
+            joinedload(CuttingPassport.operator).load_only(User.id, User.name),
             joinedload(CuttingPassport.production_order).options(
                 load_only(
                     ProductionOrder.id,

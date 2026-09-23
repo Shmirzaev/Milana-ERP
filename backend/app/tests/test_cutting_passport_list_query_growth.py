@@ -124,6 +124,10 @@ def test_passport_list_models_and_sales_references_are_chunk_bounded_without_blo
         assert "sales_orders_1.order_no" in passport_select
         assert "sales_orders_1.notes" not in passport_select
         assert "production_orders_1.estimated_material_amount" not in passport_select
+        assert "users_1.name" in passport_select
+        assert "users_1.password_hash" not in passport_select
+        assert "users_1.email" not in passport_select
+        assert "users_1.extra_permissions" not in passport_select
 
 
 def test_passport_pages_preserve_legacy_and_scope_model_reads():
