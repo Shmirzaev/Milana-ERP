@@ -4,11 +4,12 @@ from urllib.parse import quote
 
 from PIL import Image
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.main import app
-from app.models import BusinessOrderAlias, Bundle, CuttingRecord, ProductionOrder, WorkOrder
+from app.models import BusinessOrderAlias, Bundle, CuttingRecord, ProductionBatch, ProductionOrder, WorkOrder
 from app.services import barcode
 from app.services.bundles import bundle_qr_payload
 from app.services.cutting_sheet import render_cutting_sheet_html
@@ -107,6 +108,48 @@ def test_five_digit_bundle_and_order_references_keep_qr_and_alias_lookup(client,
         response = client.get("/api/bundles/lookup", params={"code": code}, headers=auth_headers)
         assert response.status_code == 200, response.text
         assert response.json()["bundle_no"] == "BND-10000"
+
+
+def test_bundle_qr_payload_projects_live_order_and_batch_columns(client, auth_headers):
+    bundle_payload = _create_bundle_for_scan(client, auth_headers)
+    statements = []
+    with SessionLocal() as db:
+        saved = db.get(Bundle, bundle_payload["id"])
+        order = db.get(ProductionOrder, saved.production_order_id)
+        batch = ProductionBatch(
+            production_order_id=order.id,
+            batch_no="BT-QR-PROJECTION",
+            batch_index=3,
+            planned_quantity=1,
+        )
+        db.add(batch)
+        db.flush()
+        saved.production_batch_id = batch.id
+        db.commit()
+
+    with SessionLocal() as db:
+        saved = db.get(Bundle, bundle_payload["id"])
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            payload = bundle_qr_payload(db, saved)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert payload == (
+        f"BUNDLE:{saved.bundle_no}|{saved.barcode}|PO:{order.production_no}|"
+        f"BATCH:QR-PROJECTION|BATCH_ID:{batch.id}"
+    )
+    order_reads = [statement for statement in statements if " from production_orders " in statement]
+    batch_reads = [statement for statement in statements if " from production_batches " in statement]
+    assert len(order_reads) == 1
+    assert len(batch_reads) == 1
+    assert "production_orders.planning_estimate_comment" not in order_reads[0]
+    assert "production_batches.notes" not in batch_reads[0]
 
 
 def test_cutting_sheet_renders_current_canonical_reference(client, auth_headers):

@@ -294,15 +294,21 @@ def format_batch_passport(batch: ProductionBatch | None, production_order_id: in
 
 def bundle_qr_payload(db: Session, bundle: Bundle) -> str:
     parts = [f"BUNDLE:{bundle.bundle_no}", str(bundle.barcode or "")]
-    po = db.get(ProductionOrder, bundle.production_order_id)
-    if po and po.production_no:
-        parts.append(f"PO:{po.production_no}")
+    production_no = db.query(ProductionOrder.production_no).filter(
+        ProductionOrder.id == bundle.production_order_id,
+    ).scalar()
+    if production_no:
+        parts.append(f"PO:{production_no}")
     if bundle.production_batch_id:
-        batch = db.get(ProductionBatch, bundle.production_batch_id)
+        batch = db.query(
+            ProductionBatch.batch_no,
+            ProductionBatch.batch_index,
+            ProductionBatch.production_order_id,
+        ).filter(ProductionBatch.id == bundle.production_batch_id).first()
         if batch:
             passport = format_batch_passport(batch, bundle.production_order_id)
             parts.append(f"BATCH:{passport}")
-            parts.append(f"BATCH_ID:{batch.id}")
+            parts.append(f"BATCH_ID:{bundle.production_batch_id}")
     return "|".join(part for part in parts if part)
 
 
