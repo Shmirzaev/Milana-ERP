@@ -1202,7 +1202,11 @@ def list_brands(
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     """Return the reference-brand list with a bounded payload."""
-    ordered_query = db.query(Brand).order_by(Brand.name, Brand.id)
+    ordered_query = (
+        db.query(Brand)
+        .options(load_only(Brand.id, Brand.name, Brand.description, Brand.logo_url, Brand.is_active))
+        .order_by(Brand.name, Brand.id)
+    )
     if page is None and page_size is None:
         return ordered_query.limit(limit).all()
     page = page or 1
