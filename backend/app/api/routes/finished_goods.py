@@ -406,6 +406,8 @@ def _release_piece_reservation(db, current, reservation_id, stock_id, package_id
 @router.post("/release-reservation")
 def release(reservation_id: int, db: DbSession,
             current: User = Depends(require_permissions("sales.orders", "*"))):
+    if reservation_id < 1 or reservation_id > _DB_INTEGER_MAX:
+        raise HTTPException(404, "Reservation not found")
     r = db.get(StockReservation, reservation_id)
     if not r: raise HTTPException(404, "Reservation not found")
     s = db.get(FinishedGoodsStock, r.finished_goods_stock_id)

@@ -169,6 +169,23 @@ def _release(client, headers, reservation_id):
     )
 
 
+def test_release_short_circuits_unrepresentable_reservation_id_after_auth(client, auth_headers):
+    class LookupForbidden:
+        def get(self, *_args, **_kwargs):
+            raise AssertionError("unrepresentable reservation ID must not reach the database")
+
+    with pytest.raises(HTTPException) as exc_info:
+        release(2_147_483_648, LookupForbidden(), current=None)
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Reservation not found"
+
+    path = "/api/finished-goods/release-reservation?reservation_id=2147483648"
+    assert client.post(path).status_code == 401
+    response = client.post(path, headers=auth_headers)
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Reservation not found"
+
+
 def test_untouched_legacy_reservation_releases_once_with_ordered_locks(client, auth_headers):
     fixture = _legacy_reservation(client, auth_headers)
     locks = []
