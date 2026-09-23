@@ -361,8 +361,8 @@ def create_work_orders(
         raise HTTPException(404, "Production order not found")
 
     existing_ops = {
-        str(wo.operation)
-        for wo in db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()
+        str(operation)
+        for (operation,) in db.query(WorkOrder.operation).filter(WorkOrder.production_order_id == po.id).all()
     }
     created: list[WorkOrder] = []
     planned_qty = int(po.planned_quantity or 0)
