@@ -15,7 +15,7 @@ from app.core.pagination import clamp_pagination
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models import (
     SalesOrder, ProductionOrder, WorkOrder, Customer, Model, ModelBOM, SewingFlow, SewingAssignment,
-    CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord, SewingReplacementRequest,
+    CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord, SewingReplacementRequest, ModelImage,
     PackagingRecord, Package, PackageBatchAllocation, StockBatch, Department, Bundle,
 )
 from app.core.dt import as_utc, date_filter_bounds
@@ -952,7 +952,15 @@ def list_processes(
         for m in (
             db.query(Model)
             .options(
-                selectinload(Model.images),
+                selectinload(Model.images).load_only(
+                    ModelImage.id,
+                    ModelImage.model_id,
+                    ModelImage.file_url,
+                    ModelImage.file_name,
+                    ModelImage.content_type,
+                    ModelImage.image_type,
+                    ModelImage.is_primary,
+                ),
                 selectinload(Model.bom).joinedload(ModelBOM.item),
                 selectinload(Model.bom).joinedload(ModelBOM.stock_batch),
             )
