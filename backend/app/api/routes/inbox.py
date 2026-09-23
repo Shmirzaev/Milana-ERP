@@ -165,7 +165,9 @@ def _shipment_type_label(order_type: str | None) -> str:
 
 def _resolve_department(db: DbSession, current: CurrentUser, dept: str | None) -> Department:
     if dept:
-        found = db.query(Department).filter(Department.code == dept.upper()).first()
+        found = db.query(Department).options(
+            load_only(Department.id, Department.code),
+        ).filter(Department.code == dept.upper()).first()
         if not found:
             raise HTTPException(404, f"Department {dept} not found")
         require_operational_department_access(current, found.code)
