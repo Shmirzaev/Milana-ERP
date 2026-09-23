@@ -186,6 +186,41 @@ def test_ready_sales_options_permissions_and_bounded_queries(client, auth_header
     assert client.post("/api/sales-orders", json=_payload(model_id), headers=headers).status_code == 403
 
 
+def test_ready_pack_candidates_project_only_fields_used_by_validation():
+    model_id, package_ids = _packs((12,))
+    statements = []
+    with SessionLocal() as db:
+        legacy_package_sql = str(db.query(Package).statement.compile(dialect=db.bind.dialect)).lower()
+        legacy_stock_sql = str(db.query(FinishedGoodsStock).statement.compile(dialect=db.bind.dialect)).lower()
+        legacy_item_sql = str(db.query(PackageItem).statement.compile(dialect=db.bind.dialect)).lower()
+        bind = db.get_bind()
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().lower().startswith("select"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        with SessionLocal() as db:
+            candidates = ready_pack_candidates(db, model_ids={model_id})
+            assert len(candidates) == 1
+            package, stock_rows = candidates[0]
+            assert package.id == package_ids[0]
+            assert sum(row.quantity for row in stock_rows) == package.total_quantity == 12
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+
+    package_read = next(sql for sql in statements if " from packages " in sql and " join models " in sql)
+    stock_read = next(sql for sql in statements if " from finished_goods_stock " in sql)
+    item_read = next(sql for sql in statements if " from package_items " in sql)
+    assert "packages.notes" not in package_read and "packages.weight_kg" not in package_read
+    assert "finished_goods_stock.selling_price" not in stock_read
+    assert "package_items.created_at" not in item_read
+    assert "packages.notes" in legacy_package_sql and "packages.weight_kg" in legacy_package_sql
+    assert "finished_goods_stock.selling_price" in legacy_stock_sql
+    assert "package_items.created_at" in legacy_item_sql
+
+
 def test_regular_production_sales_keep_piece_quantity(client, auth_headers):
     model_id, _ = _packs()
     payload = {"order_type": "client_order", "items": [{
