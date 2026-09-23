@@ -6,11 +6,11 @@
 
 | Status | Count | Meaning |
 | --- | ---: | --- |
-| **Fixed and tested** | **84** | Resolved with regression evidence |
-| **Partially fixed** | **28** | Improved, but remaining risk is documented |
+| **Fixed and tested** | **85** | Resolved with regression evidence |
+| **Partially fixed** | **27** | Improved, but remaining risk is documented |
 | **Open** | **15** | Not resolved |
-| **Total remaining** | **43** | Partial + open; not production-ready |
-| **Total audited** | **127** | 66.1% fully resolved |
+| **Total remaining** | **42** | Partial + open; not production-ready |
+| **Total audited** | **127** | 66.9% fully resolved |
 
 [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`. The latest batch completes Sewing conservation, batches catalog-family approval checks, defers model BOM metadata until its visible tab, and caps payroll bulk records at 500. Its corrected combined backend slice passed 33 tests and Ruff; the four full-suite loss-semantics cases pass separately within a 24-test compatibility selection, and both model-detail fetch contracts pass. Validation-only run `35675969462` passed backend, frontend lint/strict types/optimized build/contracts and all PostgreSQL selections on `bae444d`; release was skipped. The preceding run `35674868826` passed frontend/PostgreSQL but exposed the initial Sewing compatibility error in four backend cases, which `65586e0` corrected.
 
@@ -41,9 +41,9 @@ The 23 committed changes in this range continue the existing partial findings; o
 
 Other committed finite-storage and query-projection changes are linked by finding in [the backlog](docs/audit_backlog.json). The current reviewed range ends at `95111b5`; no uncommitted working-tree changes are counted as evidence.
 
-### 23 September closure pass (`95111b5..31b4254`)
+### 23 September closure pass (`95111b5..96d7a61`)
 
-This pass reviewed whole findings instead of counting individual optimization slices. The official ledger is now **84 fixed, 28 partial, 15 open, 43 remaining**. The committed history through `f25b064` was pushed to `feat/ismoiljon`; later closure commits remain local until separately approved.
+This pass reviewed whole findings instead of counting individual optimization slices. The official ledger is now **85 fixed, 27 partial, 15 open, 42 remaining**. The committed history through `f25b064` was pushed to `feat/ismoiljon`; later closure commits remain local until separately approved.
 
 - **PERF13 fixed:** `f5977d0` reuses the already-loaded accepted bundle rows for response aggregation. Manual receipt uses 20 SELECTs and sewing acceptance 29 SELECTs at 1/50/401 bundles. Twenty-six focused receiving, gate and aggregate-parity cases pass. Necessary per-bundle transitions/scans/audits remain O(N) writes; repeated lookup/gate reads are resolved.
 - **PERF28 fixed:** `cda1df0` completes chunked supplier validation for approval and adds audit-head/query-growth assertions across request creation, approval, order creation and receipt. At 1/50/401 lines, reference reads are bounded by 400-ID chunks and audit-head reads stay exactly one per operation. The focused purchasing suite passes 140 with five PostgreSQL-only skips. Necessary per-line persistence and chain hashing remain O(N).
@@ -53,6 +53,7 @@ This pass reviewed whole findings instead of counting individual optimization sl
 - **PERF33 fixed:** `31b4254` runs detail responses and complete streamed CSV generation in one PostgreSQL `REPEATABLE READ`, read-only snapshot, closing the cross-batch atomicity gap left after `44faa28`. Two real races commit a package-location update after batch1 and before batch2 without mixing snapshots; explicit generator close releases the transaction. The compatibility selection passes69 with3 expected local PostgreSQL skips, all3 disposable-PostgreSQL cases pass, and changed-detail reads are9/10/14 SELECTs at1/50/401 rows.
 - **PERF26 fixed:** `fbdda65` batches legacy Finished Goods metadata repair across distinct sales-order/model and collection references. At 1/50/401 distinct rows, sales-item reads are 1/1/2, collection reads are 1/1/2 and the stock candidate read stays one; 15 focused and 99 adjacent branded-stock/Finished Goods cases pass. Existing reservation candidate reads remain 3/3/5 total and 2/2/4 stock SELECTs. Necessary per-row metadata updates, reservations and response output remain O(N).
 - **PERF30 fixed:** `b4db4b4` preserves global lowest-gap clone numbering while replacing broad prefix hydration with 400-code exact indexed batches. Occupied clone counts1/50/401 use1/1/2 code-only reads; rename uses2/2/2 filtered reads and approval uses1/1/1. Sixty-six compatibility cases and six disposable-PostgreSQL cases pass. PostgreSQL plans use `models_code_key` and `ix_models_model_group_key_id` without sequential scans, while advisory transaction locks serialize colliding clone namespaces and release on rollback.
+- **PERF18 fixed:** `96d7a61` materializes the packaging exact/fallback target maps on PostgreSQL so grouped aggregates are not recomputed per receive scope. Packaging and sewing retain bounded SQL limits and constant query trips at1/50/401. The focused suite passes25 with6 expected local PostgreSQL skips; all6 disposable-PostgreSQL plan cases pass with top-level limits, no subplans and no aggregate loops equal to scope count. Twenty-eight adjacent cases pass; three unrelated manual-receipt fixtures fail before endpoint execution because their generated role name exceeds the established64-character bound.
 - **Other continuation evidence:** commits through `f25b064` add focused projections, count-query refinements, finite/range checks and audit-chain streaming across FN07, PERF06/08/21/32/35/36/40 and related paths. These improve the documented partial findings but do not close their remaining umbrella scope.
 
 ## Repository workflow cleanup
@@ -146,7 +147,7 @@ The repository is public, so standard GitHub-hosted runner time is currently fre
 
 ## Evidence
 
-- **PERF18 partial:** [production.py:5306](backend/app/api/routes/production.py#L5306), `3217856`: receive options use **two SELECTs**, with SQL limit for blank search. Fourteen SQLite cases and a50-scope PostgreSQL case independently pass. Database grouping and correlated lookups still grow with data; search remains unbounded. Not O(1) total work.
+- **PERF18 fixed:** [production.py](backend/app/api/routes/production.py), `3217856`, `b61e210`, `3aa28b9`, `96d7a61`: packaging receive options use two SELECTs with bounded SQL search/limits and grouped exact/legacy/oldest target maps; PostgreSQL materializes the target maps to prevent one aggregate execution per sewing scope. Sewing options retain five bounded SELECTs. At1/50/401, six real-PostgreSQL EXPLAIN cases have top-level limits, no correlated subplans and no repeated aggregate loops. Twenty-five focused compatibility cases pass locally with6 expected PostgreSQL skips; all6 PostgreSQL cases pass independently.
 - **PERF25 partial:** [sales.py:1741](backend/app/api/routes/sales.py#L1741), `565d1cd`: sales history loads **10 order objects instead of802** for a10-row page. Five focused and nine history/payment compatibility cases pass. Candidate keys still sort in memory; summaries remain per row. Concurrent deletion can shorten a page.
 - **PERF08 partial:** [packages.py:208](backend/app/api/routes/packages.py#L208), `890177e`: batch receiving-queue references; omit unused image bytes. 1/50/401 packages: **13/13/21 SELECTs**. All 13 queue/label cases independently pass. Full response remains unbounded; printed images retain their existing embedded format.
 - **PERF19 partial:** [production.py:4295](backend/app/api/routes/production.py#L4295), `87c1b76`: cutting reconciliation uses grouped evidence instead of repeated per-work-order queries. 1/50/401 scopes: **16/16/16 SELECTs**. All 16 focused cases independently pass. Other scalar validation callers remain unchanged; fixed query count does not mean constant database work.

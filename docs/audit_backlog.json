@@ -1009,10 +1009,10 @@
       "risk": "Small screens still do full work.",
       "proposed_fix": "Filter/page eligible scopes.",
       "baseline_source": "backend/app/api/routes/production.py:5031",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "3217856, b61e210, 3aa28b9",
-      "evidence": "Receive options remain at2 SELECTs for1/50/401 scopes with bounded SQL search and limits. Commit 3aa28b9 replaces three correlated target probes per sewing scope with grouped exact/legacy/oldest maps while preserving precedence. Eighteen focused cases pass, one PostgreSQL environment case skips locally, and SQLite/PostgreSQL plan guards reject correlated scalar subplans. Other production options work remains."
+      "commit": "3217856, b61e210, 3aa28b9, 96d7a61",
+      "evidence": "Receive options retain bounded SQL search/limits and constant query trips at1/50/401. Grouped exact/legacy/oldest target maps preserve scalar precedence; commit96d7a61 makes the packaging target CTEs PostgreSQL MATERIALIZED so their aggregates no longer execute once per receive scope. Twenty-five focused cases pass with6 expected local PostgreSQL skips. All6 disposable-PostgreSQL packaging/sewing EXPLAIN cases at1/50/401 pass with top-level limits, no subplans and no aggregate loops equal to scope count. Authorization, selected-factory isolation, exact/fallback/search/department parity and no-write behavior remain covered. Twenty-eight adjacent cases pass;3 unrelated fixtures fail during overlong role creation before receive-options execution."
     },
     {
       "number": 85,
