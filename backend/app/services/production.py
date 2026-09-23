@@ -1,5 +1,6 @@
 """Production service: build production orders and work orders, manage flow."""
 from datetime import datetime, timezone
+import math
 import re
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -37,6 +38,7 @@ WORK_ORDER_OPERATION_PERMISSIONS = {
 }
 
 _NUMERIC_SIZE_RANGE = re.compile(r"^\s*(\d+)\s*[-\u2013\u2014]\s*(\d+)\s*$")
+_MAX_ESTIMATED_MATERIAL_AMOUNT = 9_999_999_999.9999
 
 
 def expand_production_size_range_items(items: list[dict] | None) -> list[dict]:
@@ -233,6 +235,11 @@ def create_production_order(
             material_amount = float(estimated_material_amount)
             if material_amount < 0:
                 raise HTTPException(400, "Estimated material amount cannot be negative")
+            if (
+                not math.isfinite(material_amount)
+                or material_amount > _MAX_ESTIMATED_MATERIAL_AMOUNT
+            ):
+                raise HTTPException(422, "Estimated material amount exceeds storage limits")
             material_unit = material_unit or "kg"
 
     production_no = (
