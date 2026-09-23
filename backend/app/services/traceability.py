@@ -695,12 +695,10 @@ def build_traceability(
         for material in material_batches
     }
     if wo_ids:
-        all_cutting = (
-            db.query(CuttingRecord)
-            .filter(CuttingRecord.work_order_id.in_(wo_ids))
-            .order_by(CuttingRecord.created_at.asc(), CuttingRecord.id.asc())
-            .all()
-        )
+        cutting_query = db.query(CuttingRecord).filter(CuttingRecord.work_order_id.in_(wo_ids))
+        if strict_batch_scope and batch_ids:
+            cutting_query = cutting_query.filter(CuttingRecord.production_batch_id.in_(batch_ids))
+        all_cutting = cutting_query.order_by(CuttingRecord.created_at.asc(), CuttingRecord.id.asc()).all()
         cutting_records = _filter_records_for_package(all_cutting, batch_ids, strict=strict_batch_scope)
         stock_batches, suppliers, warehouses = _cutting_reference_maps(db, cutting_records)
         for row in cutting_records:
