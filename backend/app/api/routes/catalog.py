@@ -2644,6 +2644,10 @@ def add_color(
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
     if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
+    if len(payload.color_name) > 64:
+        raise HTTPException(422, "color_name must be at most 64 characters")
+    if payload.color_code is not None and len(payload.color_code) > 16:
+        raise HTTPException(422, "color_code must be at most 16 characters")
     c = ModelColor(model_id=mid, **payload.model_dump())
     db.add(c); db.commit(); db.refresh(c)
     return {"id": c.id}
