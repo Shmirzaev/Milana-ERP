@@ -68,6 +68,8 @@ def test_stocktake_pages_bound_sql_and_preserve_legacy_payload(count):
         assert len(page["items"]) == min(count, 50)
         assert len(selects) == 3, selects
         assert " limit ? offset ?" in selects[0]
+        assert "warehouse_stocktakes.request_key" not in selects[0]
+        assert "warehouse_stocktakes.created_by" in selects[0]
         assert len([statement for statement in legacy_statements if statement.startswith("select")]) == 3
         assert writes == []
 

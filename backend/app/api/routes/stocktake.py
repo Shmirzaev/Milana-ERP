@@ -231,7 +231,14 @@ def list_counts(
     current_page_size = page_size or 50
     current_offset = (current_page - 1) * current_page_size if paginated else offset
     counts = (
-        query.order_by(WarehouseStocktake.id.desc())
+        query.options(load_only(
+            WarehouseStocktake.id,
+            WarehouseStocktake.title,
+            WarehouseStocktake.created_at,
+            WarehouseStocktake.completed_at,
+            WarehouseStocktake.created_by,
+        ))
+        .order_by(WarehouseStocktake.id.desc())
         .offset(current_offset)
         .limit(current_page_size if paginated else 50)
         .all()
