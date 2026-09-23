@@ -186,6 +186,12 @@ def test_utilization_snapshot_page_bounds_rows_and_preserves_legacy_payload(flow
     assert page["rows"] == legacy[:50]
     assert len(page["rows"]) == min(page["total"], 50)
     assert len(selects) == 4, selects
+    count_queries = [statement for statement in selects if "count(" in statement]
+    assert len(count_queries) == 1, selects
+    assert "count(sewing_flows.id)" in count_queries[0]
+    assert "sewing_flows.factory_code = ?" in count_queries[0]
+    assert "sewing_flows.is_active is 1" in count_queries[0]
+    assert " from (select sewing_flows." not in count_queries[0]
     assert all(" in (" in statement for statement in selects[2:]), selects
     assert writes == []
 

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from sqlalchemy import literal
+from sqlalchemy import func, literal
 from sqlalchemy.orm import joinedload, load_only, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -419,7 +419,7 @@ def utilization_snapshot(
     if page is not None or page_size is not None:
         page = page or 1
         page_size = page_size or 100
-        total = query.count()
+        total = query.with_entities(func.count(SewingFlow.id)).scalar()
     query = query.order_by(SewingFlow.code)
     if total is not None:
         query = query.offset((page - 1) * page_size).limit(page_size)
