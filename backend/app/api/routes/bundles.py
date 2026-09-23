@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_, text
-from sqlalchemy.orm import joinedload, load_only, selectinload
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 import base64
 import hashlib
@@ -282,7 +282,13 @@ def _bundle_payload(
     if production_no is None or order_no is None:
         if po:
             production_no = production_no or po.production_no
-            order_no = order_no or po.order_no
+            if order_no is None and reference_context is not None:
+                sales_order = reference_context["sales_orders"].get(int(po.sales_order_id)) if po.sales_order_id else None
+                order_no = (
+                    sales_order.order_no if sales_order else None
+                ) or public_production_order_no(production_no) or production_no
+            else:
+                order_no = order_no or po.order_no
     if order_no is None and bundle.sales_order_id:
         so = (
             reference_context["sales_orders"].get(int(bundle.sales_order_id))
@@ -347,7 +353,13 @@ def _bundle_label_reference_context(db: DbSession, bundles: list[Bundle]) -> dic
     }
     production_orders = {
         int(row.id): row
-        for row in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()
+        for row in db.query(ProductionOrder)
+        .options(
+            load_only(ProductionOrder.id, ProductionOrder.production_no, ProductionOrder.sales_order_id),
+            noload(ProductionOrder.materials),
+            noload(ProductionOrder.items),
+        )
+        .filter(ProductionOrder.id.in_(order_ids)).all()
     }
     sales_order_ids = {
         int(bundle.sales_order_id)
@@ -361,7 +373,9 @@ def _bundle_label_reference_context(db: DbSession, bundles: list[Bundle]) -> dic
     )
     sales_orders = {
         int(row.id): row
-        for row in db.query(SalesOrder).filter(SalesOrder.id.in_(sales_order_ids)).all()
+        for row in db.query(SalesOrder)
+        .options(load_only(SalesOrder.id, SalesOrder.order_no))
+        .filter(SalesOrder.id.in_(sales_order_ids)).all()
     } if sales_order_ids else {}
     model_ids = {int(bundle.model_id) for bundle in bundles if bundle.model_id}
     models = {
@@ -384,7 +398,15 @@ def _bundle_label_reference_context(db: DbSession, bundles: list[Bundle]) -> dic
     batch_ids = {key[1] for key in batch_keys if key[1] is not None}
     batches = {
         int(row.id): row
-        for row in db.query(ProductionBatch).filter(ProductionBatch.id.in_(batch_ids)).all()
+        for row in db.query(ProductionBatch)
+        .options(load_only(
+            ProductionBatch.id,
+            ProductionBatch.production_order_id,
+            ProductionBatch.batch_no,
+            ProductionBatch.batch_index,
+            ProductionBatch.name,
+        ))
+        .filter(ProductionBatch.id.in_(batch_ids)).all()
     } if batch_ids else {}
     cutting_record_ids = {key: [] for key in batch_keys}
     if order_ids:

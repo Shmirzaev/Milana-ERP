@@ -109,6 +109,13 @@ def test_bundle_label_context_has_constant_reference_reads_and_scalar_parity(cli
     assert batched == scalar
     assert len(statements) <= 8, statements
     assert all("file_data" not in statement.lower() for statement in statements)
+    normalized = [statement.lower() for statement in statements]
+    production_order_reads = [statement for statement in normalized if "production_orders.production_no" in statement]
+    assert production_order_reads, normalized
+    assert all("production_orders.production_no" in statement for statement in production_order_reads)
+    assert all("production_orders.sales_order_id" in statement for statement in production_order_reads)
+    assert all("production_orders.printing_attachments" not in statement for statement in production_order_reads)
+    assert not any(" from production_order_materials " in statement for statement in normalized)
 
 
 @pytest.mark.parametrize("bundle_count", [1, 50, 200])
