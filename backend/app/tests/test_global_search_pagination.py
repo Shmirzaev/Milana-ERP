@@ -58,7 +58,11 @@ def test_global_search_page_bounds_union_and_matches_legacy_prefix(row_count):
     assert page["page_size"] == 50
     assert page["has_more"] is (row_count > 50)
     assert len(page["rows"]) <= 50
-    assert len(legacy_statements) == 4
+    assert len(legacy_statements) == 1
+    assert legacy_statements[0].count(" union all ") == 3
+    assert "row_number() over (" in legacy_statements[0]
+    assert "partition by" in legacy_statements[0]
+    assert "type_row_number <= ?" in legacy_statements[0]
     assert len(page_statements) == 2
     assert all(statement.count(" union all ") == 3 for statement in page_statements)
     row_statement = next(statement for statement in page_statements if " order by anon_1.type_rank" in statement)
