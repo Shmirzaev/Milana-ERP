@@ -218,7 +218,18 @@ def _structural_edit_blocker(db: DbSession, order: ProductionOrder) -> str | Non
     if db.query(Package.id).filter(Package.production_order_id == order.id).first():
         return "Packages already exist"
 
-    work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == order.id).all()
+    work_orders = db.query(WorkOrder).options(
+        load_only(
+            WorkOrder.id,
+            WorkOrder.actual_input_qty,
+            WorkOrder.actual_output_qty,
+            WorkOrder.passed_qty,
+            WorkOrder.failed_qty,
+            WorkOrder.rework_qty,
+            WorkOrder.end_time,
+            WorkOrder.status,
+        ),
+    ).filter(WorkOrder.production_order_id == order.id).all()
     work_order_ids = [int(row.id) for row in work_orders]
     if any(
         int(row.actual_input_qty or 0) > 0
