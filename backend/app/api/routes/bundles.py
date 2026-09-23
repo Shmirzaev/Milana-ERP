@@ -54,6 +54,7 @@ from app.services.bundles import (
     receive_many_at_sewing,
     verify_sewing_accessory_gate,
     bundle_qr_payload,
+    bundle_qr_payload_from_references,
     format_batch_passport,
     resolve_sewing_factory_code,
 )
@@ -195,8 +196,26 @@ def _bundle_label_response(title: str, page_css: str, body: str) -> HTMLResponse
     return HTMLResponse(html, headers={"Content-Security-Policy": policy})
 
 
-def _qr_data_uri_for_bundle(db: DbSession, b: Bundle) -> str:
-    return qr_png_data_uri(bundle_qr_payload(db, b))
+def _qr_data_uri_for_bundle(
+    db: DbSession,
+    b: Bundle,
+    reference_context: dict | None = None,
+) -> str:
+    if reference_context is None:
+        payload = bundle_qr_payload(db, b)
+    else:
+        order = reference_context["production_orders"].get(int(b.production_order_id))
+        batch = (
+            reference_context["batches"].get(int(b.production_batch_id))
+            if order is not None and b.production_batch_id
+            else None
+        )
+        payload = bundle_qr_payload_from_references(
+            b,
+            production_no=order.production_no if order else None,
+            batch_passport=format_batch_passport(batch, b.production_order_id) if batch else None,
+        )
+    return qr_png_data_uri(payload)
 
 
 def _batch_meta(db: DbSession, production_order_id: int | None, production_batch_id: int | None) -> dict:
@@ -425,6 +444,7 @@ def _bundle_label_reference_context(db: DbSession, bundles: list[Bundle]) -> dic
         "production_orders": production_orders,
         "sales_orders": sales_orders,
         "models": models,
+        "batches": batches,
         "batch_meta": {
             key: _batch_meta_from_batch(batches.get(key[1]), key[0], key[1])
             for key in batch_keys
@@ -1373,7 +1393,7 @@ def _bundle_label_sheet_response(db: DbSession, bundles: list[Bundle]) -> HTMLRe
     reference_context = _bundle_label_reference_context(db, bundles)
     cards = []
     for b in bundles:
-        qr = _qr_data_uri_for_bundle(db, b)
+        qr = _qr_data_uri_for_bundle(db, b, reference_context)
         cards.append(_bundle_label_card(_label_context(db, b, reference_context), qr))
 
     page_css = """

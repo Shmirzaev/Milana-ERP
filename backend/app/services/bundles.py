@@ -306,8 +306,22 @@ def format_batch_passport(batch: ProductionBatch | None, production_order_id: in
     return f"{idx:02d}"
 
 
-def bundle_qr_payload(db: Session, bundle: Bundle) -> str:
+def bundle_qr_payload_from_references(
+    bundle: Bundle,
+    *,
+    production_no: str | None,
+    batch_passport: str | None,
+) -> str:
     parts = [f"BUNDLE:{bundle.bundle_no}", str(bundle.barcode or "")]
+    if production_no:
+        parts.append(f"PO:{production_no}")
+    if bundle.production_batch_id and batch_passport:
+        parts.append(f"BATCH:{batch_passport}")
+        parts.append(f"BATCH_ID:{bundle.production_batch_id}")
+    return "|".join(part for part in parts if part)
+
+
+def bundle_qr_payload(db: Session, bundle: Bundle) -> str:
     context = db.query(
         ProductionOrder.production_no,
         ProductionBatch.batch_no,
@@ -320,18 +334,19 @@ def bundle_qr_payload(db: Session, bundle: Bundle) -> str:
         ProductionOrder.id == bundle.production_order_id,
     ).first()
     production_no = context[0] if context else None
-    if production_no:
-        parts.append(f"PO:{production_no}")
+    batch_passport = None
     if bundle.production_batch_id and context and context[3] is not None:
         batch = SimpleNamespace(
             batch_no=context[1],
             batch_index=context[2],
             production_order_id=context[3],
         )
-        passport = format_batch_passport(batch, bundle.production_order_id)
-        parts.append(f"BATCH:{passport}")
-        parts.append(f"BATCH_ID:{bundle.production_batch_id}")
-    return "|".join(part for part in parts if part)
+        batch_passport = format_batch_passport(batch, bundle.production_order_id)
+    return bundle_qr_payload_from_references(
+        bundle,
+        production_no=production_no,
+        batch_passport=batch_passport,
+    )
 
 
 def _work_order_for_bundle(

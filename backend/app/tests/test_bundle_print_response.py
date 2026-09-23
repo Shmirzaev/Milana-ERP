@@ -119,6 +119,108 @@ def test_bundle_label_context_has_constant_reference_reads_and_scalar_parity(cli
 
 
 @pytest.mark.parametrize("bundle_count", [1, 50, 200])
+def test_bundle_label_sheet_batches_qr_references_and_bounds_rendering(
+    client,
+    auth_headers,
+    monkeypatch,
+    bundle_count,
+):
+    source = _create_bundle_for_scan(client, auth_headers)
+    with SessionLocal() as db:
+        original = db.get(Bundle, source["id"])
+        bundles = [original]
+        for index in range(1, bundle_count):
+            bundles.append(Bundle(
+                bundle_no=f"PERF12-QR-{uuid4().hex[:16]}-{index}",
+                barcode=f"PERF12-QR-BC-{uuid4().hex[:16]}-{index}",
+                production_order_id=original.production_order_id,
+                production_batch_id=original.production_batch_id,
+                sales_order_id=original.sales_order_id,
+                model_id=original.model_id,
+                color=original.color,
+                size=original.size,
+                quantity=original.quantity,
+                status=original.status,
+                created_by=original.created_by,
+            ))
+        db.add_all(bundles[1:])
+        db.commit()
+        bundle_ids = [int(bundle.id) for bundle in bundles]
+        bundle_nos = [bundle.bundle_no for bundle in bundles]
+        bind = db.bind
+
+    qr_payloads = []
+    monkeypatch.setattr(
+        bundle_routes,
+        "qr_png_data_uri",
+        lambda payload: qr_payloads.append(payload) or "data:image/png;base64,AA==",
+    )
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        response = client.get(
+            "/api/bundles/label-sheet/by-ids",
+            params={"ids": ",".join(str(bundle_id) for bundle_id in bundle_ids)},
+            headers=auth_headers,
+        )
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.text.count("class='label'") == bundle_count
+    assert len(qr_payloads) == bundle_count
+    assert bundle_nos[0] in response.text and bundle_nos[-1] in response.text
+    assert len(statements) == 7, statements
+
+
+def test_batched_bundle_qr_keeps_orphan_scalar_parity(monkeypatch):
+    with SessionLocal() as db:
+        order = ProductionOrder(
+            production_no=f"PERF12-QR-ORPHAN-{uuid4().hex[:12]}",
+            production_type="branded_stock",
+            model_id=1,
+            planned_quantity=1,
+        )
+        db.add(order)
+        db.flush()
+        batch = ProductionBatch(
+            production_order_id=order.id,
+            batch_no="ORPHAN",
+            batch_index=1,
+            planned_quantity=1,
+        )
+        db.add(batch)
+        db.flush()
+        orphan = Bundle(
+            bundle_no="PERF12-ORPHAN",
+            barcode="PERF12-ORPHAN-BC",
+            production_order_id=2_147_483_647,
+            production_batch_id=batch.id,
+            model_id=1,
+            color="white",
+            size="M",
+            quantity=1,
+        )
+        scalar = bundle_routes.bundle_qr_payload(db, orphan)
+        monkeypatch.setattr(bundle_routes, "qr_png_data_uri", lambda payload: payload)
+        batched = bundle_routes._qr_data_uri_for_bundle(
+            db,
+            orphan,
+            {
+                "production_orders": {},
+                "batches": {int(batch.id): batch},
+            },
+        )
+
+    assert scalar == batched == "BUNDLE:PERF12-ORPHAN|PERF12-ORPHAN-BC"
+
+
+@pytest.mark.parametrize("bundle_count", [1, 50, 200])
 @pytest.mark.parametrize("sheet_scope", ["production-order", "batch"])
 def test_scoped_bundle_label_sheets_reuse_their_bounded_bundle_query(
     client,
@@ -170,7 +272,7 @@ def test_scoped_bundle_label_sheets_reuse_their_bounded_bundle_query(
     monkeypatch.setattr(
         bundle_routes,
         "_qr_data_uri_for_bundle",
-        lambda _db, _bundle: "data:image/png;base64,AA==",
+        lambda _db, _bundle, *_args: "data:image/png;base64,AA==",
     )
     statements = []
 

@@ -1,7 +1,7 @@
 """Package workflow routes mounted before /packages/{pid}."""
 from fastapi import Query, APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import load_only, selectinload
 from app.services.print_response import warehouse_print_response
 
 from app.core.deps import DbSession, require_permissions, user_permissions
@@ -34,6 +34,8 @@ from app.services.packages import (
 from app.services.workflow import sync_production_order_status
 
 router = APIRouter()
+
+_PRINT_RUN_LABEL_LIMIT = 200
 
 
 def _request_body(operation, payload):
@@ -307,15 +309,27 @@ def delete_manual_packages(rid: int, db: DbSession, package_ids: list[int] | Non
 @router.get("/print-runs/{rid}/label", response_class=HTMLResponse)
 def print_run_label(rid: int, db: DbSession,
                      current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
-    from app.api.routes.packages import _h, _package_label_card_html, _PACKAGE_LABEL_CSS
+    from app.api.routes.packages import (
+        _h,
+        _package_label_card_html,
+        _package_label_reference_context,
+        _PACKAGE_LABEL_CSS,
+    )
     run = _run(db, current, rid)
+    if len(run.package_ids) > _PRINT_RUN_LABEL_LIMIT:
+        raise HTTPException(413, f"A print run label may contain at most {_PRINT_RUN_LABEL_LIMIT} packages")
     members = service.active_run_members(db, run)
     packages_by_id = {
         int(pkg.id): pkg
         for pkg in db.query(Package)
+        .options(
+            selectinload(Package.items),
+            selectinload(Package.batch_allocations),
+        )
         .filter(Package.id.in_([int(member.package_id) for member in members]))
         .all()
     } if members else {}
+    context = _package_label_reference_context(db, list(packages_by_id.values()))
     cards = []
     current_quantity = 0
     for member in members:
@@ -325,7 +339,12 @@ def print_run_label(rid: int, db: DbSession,
         if not run.received_at and service.contents(pkg) != member.snapshot:
             raise HTTPException(409, "Package changed since printing; review required before receipt")
         current_quantity += pkg.total_quantity
-        cards.append(_package_label_card_html(db, pkg))
+        cards.append(_package_label_card_html(
+            db,
+            pkg,
+            context=context,
+            active_label_checked=True,
+        ))
     # This cover QR resolves only the persisted run, never an order/time selection.
     cover = f"""<section class='cover'><h1>{_h(run.run_no)}</h1>
     <p>Packages / Упаковки / Qadoqlar: {len(members)}</p>

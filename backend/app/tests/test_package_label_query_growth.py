@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.orm import selectinload
 
+from app.api.routes import package_workflows as package_workflow_routes
 from app.api.routes import packages as package_routes
 from app.db.session import SessionLocal
 from app.models import (
@@ -26,6 +27,7 @@ from app.models import (
     User,
     Warehouse,
 )
+from app.services import package_workflows as package_workflow_service
 
 
 def _select_trace(bind, callback):
@@ -114,6 +116,31 @@ def _package_case(db, package_count):
     db.add_all(packages)
     db.commit()
     return [row.id for row in packages], [row.package_no for row in packages]
+
+
+def _print_run_case(db, package_count):
+    package_ids, package_nos = _package_case(db, package_count)
+    packages = db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).all()
+    actor_id = db.query(User.id).order_by(User.id).first()[0]
+    run = PackagePrintRun(
+        run_no=f"PERF12-PRINT-{uuid4().hex}",
+        code=f"PERF12-PRINT-CODE-{uuid4().hex}",
+        packaging_department_code="PKG",
+        package_ids=package_ids,
+        created_by=actor_id,
+    )
+    db.add(run)
+    db.flush()
+    db.add_all([
+        PackagePrintRunMember(
+            run_id=run.id,
+            package_id=package.id,
+            snapshot=package_workflow_service.contents(package),
+        )
+        for package in packages
+    ])
+    db.commit()
+    return int(run.id), package_ids, package_nos
 
 
 def _distinct_reference_package_case(db, package_count):
@@ -360,6 +387,96 @@ def test_package_label_sheet_batches_reference_context(client, auth_headers, mon
     assert len(statements) == 10 + (2 * expected_chunks), statements
     positions = [response.text.index(package_no) for package_no in package_nos]
     assert positions == sorted(positions)
+
+
+@pytest.mark.parametrize("package_count", [1, 50, 200])
+def test_print_run_label_batches_reference_context_and_bounds_rendering(
+    client,
+    auth_headers,
+    monkeypatch,
+    package_count,
+):
+    with SessionLocal() as db:
+        run_id, package_ids, package_nos = _print_run_case(db, package_count)
+        bind = db.bind
+
+    package_qr_ids = []
+    cover_qr_payloads = []
+    rendered_package_ids = []
+    original_card = package_routes._package_label_card_html
+
+    monkeypatch.setattr(
+        package_routes,
+        "_qr_data_uri_for_package",
+        lambda _db, package: (
+            package_qr_ids.append(int(package.id)) or "data:image/png;base64,AA=="
+        ),
+    )
+    monkeypatch.setattr(
+        package_workflow_routes,
+        "qr_png_data_uri",
+        lambda payload: cover_qr_payloads.append(payload) or "data:image/png;base64,AA==",
+    )
+
+    def tracked_card(db, package, **kwargs):
+        rendered_package_ids.append(int(package.id))
+        return original_card(db, package, **kwargs)
+
+    monkeypatch.setattr(package_routes, "_package_label_card_html", tracked_card)
+    response, statements = _select_trace(
+        bind,
+        lambda: client.get(
+            f"/api/packages/print-runs/{run_id}/label",
+            headers=auth_headers,
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.text.count("<article class='label'") == package_count
+    assert package_qr_ids == package_ids
+    assert rendered_package_ids == package_ids
+    assert len(cover_qr_payloads) == 1
+    assert package_nos[0] in response.text and package_nos[-1] in response.text
+    assert len(statements) == 14, statements
+
+
+def test_print_run_label_rejects_over_limit_before_members_packages_or_rendering(
+    client,
+    auth_headers,
+    monkeypatch,
+):
+    with SessionLocal() as db:
+        actor_id = db.query(User.id).order_by(User.id).first()[0]
+        run = PackagePrintRun(
+            run_no=f"PERF12-OVER-{uuid4().hex}",
+            code=f"PERF12-OVER-CODE-{uuid4().hex}",
+            packaging_department_code="PKG",
+            package_ids=list(range(1, 202)),
+            created_by=actor_id,
+        )
+        db.add(run)
+        db.commit()
+        run_id = int(run.id)
+        bind = db.bind
+
+    def fail_after_limit(*_args, **_kwargs):
+        pytest.fail("over-limit print run must reject before members, packages, cards, or QR work")
+
+    monkeypatch.setattr(package_workflow_service, "active_run_members", fail_after_limit)
+    monkeypatch.setattr(package_routes, "_package_label_card_html", fail_after_limit)
+    monkeypatch.setattr(package_workflow_routes, "qr_png_data_uri", fail_after_limit)
+    response, statements = _select_trace(
+        bind,
+        lambda: client.get(
+            f"/api/packages/print-runs/{run_id}/label",
+            headers=auth_headers,
+        ),
+    )
+
+    assert response.status_code == 413, response.text
+    assert response.json()["detail"] == "A print run label may contain at most 200 packages"
+    assert _table_selects(statements, "package_print_run_members") == 0
+    assert _table_selects(statements, "packages") == 0
 
 
 def test_package_label_sheet_rejects_over_limit_before_package_reads_or_rendering(
