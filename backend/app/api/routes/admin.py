@@ -6,6 +6,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from sqlalchemy import delete, update
+from sqlalchemy.orm import joinedload, load_only
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
@@ -476,7 +477,7 @@ def _effective_permissions_for(db: DbSession, role_id: int | None, extra_permiss
 
 def _count_active_admins(db: DbSession, exclude_user_id: int | None = None) -> int:
     count = 0
-    for u in db.query(User).filter(User.is_active.is_(True)).all():
+    for u in _active_membership_users(db):
         if exclude_user_id is not None and u.id == exclude_user_id:
             continue
         if "*" in user_permissions(u):
@@ -486,12 +487,32 @@ def _count_active_admins(db: DbSession, exclude_user_id: int | None = None) -> i
 
 def _count_active_super_admins(db: DbSession, exclude_user_id: int | None = None) -> int:
     count = 0
-    for u in db.query(User).filter(User.is_active.is_(True)).all():
+    for u in _active_membership_users(db):
         if exclude_user_id is not None and u.id == exclude_user_id:
             continue
         if is_super_admin(u):
             count += 1
     return count
+
+
+def _active_membership_users(db: DbSession) -> list[User]:
+    return (
+        db.query(User)
+        .options(
+            load_only(
+                User.id,
+                User.role_id,
+                User.department_id,
+                User.factory_code,
+                User.extra_permissions,
+                User.access_policy,
+            ),
+            joinedload(User.role).load_only(Role.id, Role.name, Role.permissions),
+            joinedload(User.department).load_only(Department.id, Department.code),
+        )
+        .filter(User.is_active.is_(True))
+        .all()
+    )
 
 
 def _lock_active_user_memberships(db: DbSession) -> None:
