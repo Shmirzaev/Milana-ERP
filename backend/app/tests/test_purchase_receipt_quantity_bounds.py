@@ -21,11 +21,12 @@ from app.models import (
 from app.schemas.purchasing import PurchaseOrderReceiveLineIn
 
 
-def _receive_line(quantity):
+def _receive_line(quantity, **overrides):
     return PurchaseOrderReceiveLineIn.model_validate({
         "purchase_order_line_id": 1,
         "received_quantity": quantity,
         "batch_no": "BOUNDARY-BATCH",
+        **overrides,
     })
 
 
@@ -65,12 +66,13 @@ def _seed_order(*, received_quantity: Decimal = Decimal("0")) -> dict[str, int |
         }
 
 
-def _payload(order: dict[str, int | str], quantity) -> dict:
+def _payload(order: dict[str, int | str], quantity, **overrides) -> dict:
     return {"lines": [{
         "purchase_order_line_id": order["line_id"],
         "received_quantity": quantity,
         "batch_no": order["batch_no"],
         "warehouse_id": order["warehouse_id"],
+        **overrides,
     }]}
 
 
@@ -97,10 +99,40 @@ def test_purchase_receipt_quantity_preserves_float_contract_and_storage_boundary
     assert maximum.received_quantity == 9999999999.9999
 
 
+def test_purchase_receipt_dimensions_accept_numeric_column_boundaries():
+    maximum_width = _receive_line(1, width="99999999.99")
+    minimum_width = _receive_line(1, width="-99999999.99")
+    maximum_gsm = _receive_line(1, gsm="99999999.999999")
+    minimum_gsm = _receive_line(1, gsm="-99999999.999999")
+
+    assert maximum_width.width == 99_999_999.99
+    assert minimum_width.width == -99_999_999.99
+    assert maximum_gsm.gsm == 99_999_999.999999
+    assert minimum_gsm.gsm == -99_999_999.999999
+
+
 @pytest.mark.parametrize("quantity", ["Infinity", "-Infinity", "NaN", "0", "10000000000"])
 def test_purchase_receipt_quantity_rejects_invalid_or_unrepresentable_values(quantity):
     with pytest.raises(ValidationError):
         _receive_line(quantity)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("width", "100000000"),
+        ("width", "-100000000"),
+        ("width", "NaN"),
+        ("width", "Infinity"),
+        ("gsm", "100000000"),
+        ("gsm", "-100000000"),
+        ("gsm", "NaN"),
+        ("gsm", "-Infinity"),
+    ],
+)
+def test_purchase_receipt_dimensions_reject_nonfinite_or_unrepresentable_values(field, value):
+    with pytest.raises(ValidationError):
+        _receive_line(1, **{field: value})
 
 
 def test_purchase_receipt_quantity_keeps_idempotent_valid_receipts(client, auth_headers):
@@ -173,4 +205,29 @@ def test_purchase_receipt_quantity_rejects_before_side_effects_and_preserves_aut
         f"/api/purchasing/orders/{order['order_id']}/receive",
         json=_payload(order, "Infinity"),
     ).status_code == 401
+    assert _state(order) == before
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("width", "100000000"),
+        ("width", "NaN"),
+        ("gsm", "100000000"),
+        ("gsm", "Infinity"),
+    ],
+)
+def test_purchase_receipt_dimensions_reject_before_side_effects(
+    client, auth_headers, field, value
+):
+    order = _seed_order()
+    before = _state(order)
+
+    response = client.post(
+        f"/api/purchasing/orders/{order['order_id']}/receive",
+        json=_payload(order, 1, **{field: value}),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422, response.text
     assert _state(order) == before
