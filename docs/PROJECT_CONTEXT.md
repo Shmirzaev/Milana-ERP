@@ -2,6 +2,17 @@
 
 Last updated: 2026-09-23
 
+## Ready product warehouse Excel report deployed (2026-09-23)
+
+- LIVE: backend/frontend green release `20260923_043113`, exact application commit `bcd262c4a640ca2e17354b7bef3d85413b2403d7`, merged through PR #190. Both manifests, images, symlinks and slot states agree. Blue `20260922_043845` remains running for rollback. Frontend activated `2026-09-23T05:11:20.784623+00:00`.
+- Warehouse Stock and Finished Goods now provide Download Excel report in EN/RU/UZ. The full warehouse export ignores page filters, separates Standard and First Grade sheets, embeds model and exact catalog-variant pictures where locally available, shows business model/variant numbers, package counts and actual piece totals. It includes the existing Warehouse Stock ready statuses and unplaced/reserved stock. First Grade packages represent singles. Missing/unavailable photos are labeled; stock rows are never suppressed for missing pictures.
+- The endpoint and button require existing storage.packages/storage.shipment permission. This is read-only: no schema, business data, stock, packages, permissions or workflow rules changed. Database remains `0132_first_grade_singles`; startup seeding disabled.
+- Scoped Ruff and diff checks passed. Standard immutable CI [35818665254](https://github.com/Shmirzaev/Milana-ERP/actions/runs/35818665254) passed backend/frontend validation and published exact-commit artifacts. Extra local suites, browser/performance exercises and extended monitoring were omitted at the user's explicit request. Verified backup, candidate warm-up/runtime and all four immediate health/login checks passed. No extended observation or signed-in download QA is claimed.
+- Two workers per backend slot, zero restarts/OOM/error markers; PostgreSQL 23/100 connections and zero invalid indexes. Disk 74% backend / 67% frontend. External-only or absent images are not downloaded by the server and appear as No picture. Historical audit/security risks remain outside this scope.
+- Manifest `f78b440a1f92700fdc6e1cbd405bd63f3d2761d5724de26b81010a166b5965c5`, archive SHA-256 `68442b9bfc2082bb1a6a3fbb935025d0ffdec0d9d752518cf4930557ed348bf1`, 887 source files verified against the exact commit. Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:a209b4a1ad6b1b77970f563bc6b9e914c4153576412dbcb4ea844e3d83336325`; frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:c31430525060232e6ca203f9b3e0d2e07f7831f42d41b153683eda18f4415af3`.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260923_043113.dump`: mode 0600, 55348707 bytes, 1203 restore objects, SHA-256 `217ca5d2274389a8b299dc9ec2b91f6b93df817ca52f709504e34312e372dc9a`, restore-list SHA-256 `238671c76d11232334cfe95d5f5bdd5e66eac76db7695b7d2499095cdedc06c3`. Rollback retains the previous blue application with unchanged database revision.
+- Worktree `C:/ERP/.codex-work/warehouse-excel-20260923`; branch `codex/warehouse-excel-20260923` pushed/merged/deployed. Evidence `outputs/deployment/evidence.json`. Deployment record committed separately and mirrored to Obsidian; legacy checkout preserved.
+
 ## Ready product warehouse Excel report prepared (2026-09-23)
 
 - Added Download Excel report to Warehouse Stock and Finished Goods, with EN/RU/UZ labels and the existing storage.packages/storage.shipment permissions on both button and API.
