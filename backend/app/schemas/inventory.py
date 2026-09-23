@@ -116,7 +116,9 @@ class StockBatchUpdate(BaseModel):
     order_no: Optional[str] = None
     width: Optional[float] = None
     gsm: Optional[float] = None
-    quantity: Optional[float] = Field(default=None, ge=0)
+    quantity: Optional[float] = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     piece_count: Optional[int] = Field(default=None, ge=0)
     processes: Optional[str] = None
     unit: Optional[str] = None
