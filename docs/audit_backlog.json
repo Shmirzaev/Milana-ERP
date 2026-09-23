@@ -1263,8 +1263,8 @@
       "baseline_source": "frontend/src/components/AuthGate.tsx:183",
       "status": "partial",
       "owner": null,
-      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160, 8589ba4, be696e1, 55468e1, 7d841b1, ea3acaa, 7445ad4, b3f3d9f, 7f947c5, d025ee8, cb2ba52, e101d30, 1da4f66, 044e121",
-      "evidence": "Prior hidden-directory gating remains. Later commits defer inactive customer, warehouse, ready-stock, sales-order, forecast, sewing-flow, department, staffing-position, payment-history, draft process-tracking, pre-scan bundle, collapsed pending-change and unreferenced cutting-inventory requests across packaging, sales, inventory, cutting, sewing, production-order, planning, Usluga, Work Orders, Process QR, HR Employees, bundle scanning, Packages and customer/order detail pages while preserving active and unauthorized render/key parity. Executable actual-component regressions, full stabilization, strict types and targeted lint pass. Other waterfalls and browser-level visual proof remain open."
+      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160, 8589ba4, be696e1, 55468e1, 7d841b1, ea3acaa, 7445ad4, b3f3d9f, 7f947c5, d025ee8, cb2ba52, e101d30, 1da4f66, 044e121, 534c8bf",
+      "evidence": "Prior hidden-directory gating remains. Commit534c8bf removes redundant customer-directory requests from sales-order and cutting/printing/sewing/packaging pages; defers supplier, selected-model, paid-process, employee, department, utilization and user requests until their actual UI is active; and retains hidden drafts with keepPreviousData. Actual-component regressions preserve active, denied, missing-data and fallback render/key parity. Full stabilization, strict types and targeted lint pass. Remaining request chains require backend projections or authorization-equivalent contracts: Work Order to Production Order to Sales Order/model, authorized Sales Order to material requirements, and Production Order to model detail. Browser network traces follow those contract changes, so PERF39 remains partial."
     },
     {
       "number": 106,
