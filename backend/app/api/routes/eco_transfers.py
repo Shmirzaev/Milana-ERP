@@ -145,10 +145,18 @@ def send(payload: SendIn, db: DbSession, user: User = Depends(access)):
     # Immutable snapshot: later returns/consumption never rewrite this dispatch's PDF.
     offsite_counts = dict(db.query(EcoFabricRoll.batch_id, func.count(EcoFabricRoll.id)).filter(
         EcoFabricRoll.returned_at.is_(None)).group_by(EcoFabricRoll.batch_id).all())
-    dispatch.remaining_inventory = [{"fabric_name": item.name, "batch_no": batch.batch_no,
-                "color": batch.color, "quantity": str(batch.quantity), "unit": batch.unit,
-                "rolls": max(0, batch.piece_count - offsite_counts.get(batch.id, 0)) if batch.piece_count is not None else None}
-        for batch, item in db.query(StockBatch, Item).join(Item, Item.id == StockBatch.item_id).filter(
+    dispatch.remaining_inventory = [{"fabric_name": item_name, "batch_no": batch_no,
+                "color": color, "quantity": str(batch_quantity), "unit": unit,
+                "rolls": max(0, piece_count - offsite_counts.get(batch_id, 0)) if piece_count is not None else None}
+        for batch_id, batch_no, color, batch_quantity, unit, piece_count, item_name in db.query(
+            StockBatch.id,
+            StockBatch.batch_no,
+            StockBatch.color,
+            StockBatch.quantity,
+            StockBatch.unit,
+            StockBatch.piece_count,
+            Item.name,
+        ).join(Item, Item.id == StockBatch.item_id).filter(
             Item.category.in_(MATERIAL_CATEGORIES), StockBatch.archived_at.is_(None), StockBatch.quantity > 0,
         ).order_by(Item.name, StockBatch.batch_no, StockBatch.id).all()]
     result = dispatch_data(db, dispatch)

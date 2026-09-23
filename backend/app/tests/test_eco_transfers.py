@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 import pytest
-from app.models import (StockBatch, StockMovement, EcoFabricDispatch, EcoFabricRoll, User, Role,
+from sqlalchemy import event
+from app.models import (StockBatch, StockMovement, EcoFabricDispatch, EcoFabricRoll, User, Role, Item,
                         MaterialReservation, ProductionOrder)
-from app.tests.conftest import TestSessionLocal
+from app.tests.conftest import TestSessionLocal, test_engine
 from app.core.deps import get_current_user
 from app.main import app
 from app.tests.test_fabric_scans import fabric_batch  # noqa: F401
@@ -52,6 +53,56 @@ def test_dispatch_return_inventory_and_immutable_pdf(client, auth_headers, fabri
     for lang in ["en", "ru", "uz"]:
         pdf = client.get(f'/api/eco-fabric-transfers/{dispatch["id"]}/pdf?lang={lang}', headers=auth_headers)
         assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+
+
+def test_dispatch_inventory_snapshot_projects_only_payload_columns(client, auth_headers, fabric_batch):
+    legacy_inventory_sql = ""
+    statements = []
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        fabric_name = db.get(Item, batch.item_id).name
+        legacy_inventory_sql = str(
+            db.query(StockBatch, Item)
+            .join(Item, Item.id == StockBatch.item_id)
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().lower().startswith("select"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = send(client, auth_headers, fabric_batch, (1,))
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert "remaining_inventory" not in response.json()
+    with TestSessionLocal() as db:
+        snapshot = next(
+            row for row in db.query(EcoFabricDispatch).one().remaining_inventory
+            if row["batch_no"] == "DAILY-ROLLS"
+        )
+    assert snapshot == {
+        "fabric_name": fabric_name,
+        "batch_no": "DAILY-ROLLS",
+        "color": "Blue",
+        "quantity": "35.0000",
+        "unit": "kg",
+        "rolls": 2,
+    }
+    inventory_reads = [
+        statement for statement in statements
+        if " from stock_batches " in statement and " join items " in statement
+    ]
+    assert len(inventory_reads) == 1
+    assert "stock_batches.id" in inventory_reads[0]
+    assert "items.name" in inventory_reads[0]
+    assert "roll_weights_kg" not in inventory_reads[0]
+    assert "items.composition_json" not in inventory_reads[0]
+    assert "stock_batches.roll_weights_kg" in legacy_inventory_sql
+    assert "items.composition_json" in legacy_inventory_sql
 
 
 @pytest.mark.parametrize("rolls", [(1, 1), (1, 99)])
