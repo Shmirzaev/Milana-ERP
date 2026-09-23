@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from sqlalchemy import delete, update
-from sqlalchemy.orm import joinedload, load_only
+from sqlalchemy.orm import joinedload, lazyload, load_only
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
@@ -911,7 +911,15 @@ def list_audit_logs(
     date_to: str | None = None,
     q: str | None = None,
 ):
-    qry = db.query(AuditLog, User).outerjoin(User, User.id == AuditLog.user_id)
+    qry = (
+        db.query(AuditLog, User)
+        .outerjoin(User, User.id == AuditLog.user_id)
+        .options(
+            load_only(User.id, User.name, User.email),
+            lazyload(User.role),
+            lazyload(User.department),
+        )
+    )
     if user_id:
         qry = qry.filter(AuditLog.user_id == user_id)
     if entity_type:
