@@ -3,7 +3,7 @@
 from datetime import timezone
 
 from sqlalchemy import String, and_, case, cast, func, or_
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import aliased, load_only
 
 from app.models import FinishedGoodsStock, Model, Package, PackageBarcodeAlias, PackageItem
 from app.models.stocktake import WarehouseStocktakeRow
@@ -225,24 +225,28 @@ def stocktake_summary(db, count):
 
     changed = 0
     if count.completed_at:
-        completed_current: dict[int, dict | None] = {}
-        completed_rows = db.query(
-            WarehouseStocktakeRow.package_id,
-            WarehouseStocktakeRow.final_snapshot,
+        latest_completed = db.query(
+            WarehouseStocktakeRow.package_id.label("package_id"),
+            func.max(WarehouseStocktakeRow.id).label("row_id"),
         ).filter(
             WarehouseStocktakeRow.stocktake_id == count.id,
             WarehouseStocktakeRow.package_id.is_not(None),
-        ).order_by(WarehouseStocktakeRow.id.asc()).yield_per(_STOCKTAKE_PAGE_CHUNK_SIZE)
-        for row in completed_rows:
-            completed_current[int(row.package_id)] = row.final_snapshot
+        ).group_by(WarehouseStocktakeRow.package_id).subquery()
+        latest_row = aliased(WarehouseStocktakeRow)
         snapshot_rows = db.query(
-            WarehouseStocktakeRow.package_id,
             WarehouseStocktakeRow.snapshot,
+            latest_row.final_snapshot,
+        ).outerjoin(
+            latest_completed,
+            latest_completed.c.package_id == WarehouseStocktakeRow.package_id,
+        ).outerjoin(
+            latest_row,
+            latest_row.id == latest_completed.c.row_id,
         ).filter(
             WarehouseStocktakeRow.stocktake_id == count.id,
             WarehouseStocktakeRow.package_id.is_not(None),
         ).yield_per(_STOCKTAKE_PAGE_CHUNK_SIZE)
-        changed = sum(completed_current[int(row.package_id)] != row.snapshot for row in snapshot_rows)
+        changed = sum(final_snapshot != snapshot for snapshot, final_snapshot in snapshot_rows)
     else:
         last_row_id = 0
         while True:

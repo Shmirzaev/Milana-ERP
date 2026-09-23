@@ -2,6 +2,7 @@ import csv
 import hashlib
 import io
 from datetime import datetime, timezone
+from itertools import islice
 from types import SimpleNamespace
 from typing import Annotated, Literal
 from uuid import UUID
@@ -11,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import aliased, load_only
 
 from app.core.deps import DbSession, require_permissions
 from app.models import Package, User
@@ -447,67 +448,65 @@ def _csv_line(values) -> str:
 
 
 def _stocktake_export_rows(db, count):
-    last_row_id = 0
-    while True:
-        rows = (
-            db.query(WarehouseStocktakeRow)
-            .options(load_only(
-                WarehouseStocktakeRow.id,
-                WarehouseStocktakeRow.package_id,
-                WarehouseStocktakeRow.snapshot,
-                WarehouseStocktakeRow.scan_snapshot,
-                WarehouseStocktakeRow.scanned_at,
-                WarehouseStocktakeRow.expected,
-                WarehouseStocktakeRow.category,
-                WarehouseStocktakeRow.scan_code,
-                WarehouseStocktakeRow.scanned_by,
-            ))
-            .filter(
-                WarehouseStocktakeRow.stocktake_id == count.id,
-                WarehouseStocktakeRow.id > last_row_id,
-            )
-            .order_by(WarehouseStocktakeRow.id.asc())
-            .limit(_STOCKTAKE_EXPORT_CHUNK_SIZE)
-            .all()
-        )
-        if not rows:
-            return
-        package_ids = sorted({int(row.package_id) for row in rows if row.package_id})
-        if count.completed_at and package_ids:
-            latest_completed = (
-                db.query(
-                    WarehouseStocktakeRow.package_id.label("package_id"),
-                    func.max(WarehouseStocktakeRow.id).label("row_id"),
-                )
-                .filter(
-                    WarehouseStocktakeRow.stocktake_id == count.id,
-                    WarehouseStocktakeRow.package_id.in_(package_ids),
-                )
-                .group_by(WarehouseStocktakeRow.package_id)
-                .subquery()
-            )
-            completed_rows = (
-                db.query(
-                    WarehouseStocktakeRow.package_id,
-                    WarehouseStocktakeRow.final_snapshot,
-                )
-                .join(
-                    latest_completed,
-                    latest_completed.c.row_id == WarehouseStocktakeRow.id,
-                )
-                .all()
-            )
-            current = {
-                int(package_id): final_snapshot
-                for package_id, final_snapshot in completed_rows
+    first_scanned = db.query(
+        WarehouseStocktakeRow.package_id.label("package_id"),
+        func.min(WarehouseStocktakeRow.id).label("row_id"),
+    ).filter(
+        WarehouseStocktakeRow.stocktake_id == count.id,
+        WarehouseStocktakeRow.scanned_at.is_not(None),
+        WarehouseStocktakeRow.package_id.is_not(None),
+    ).group_by(WarehouseStocktakeRow.package_id).subquery()
+    query = db.query(
+        WarehouseStocktakeRow,
+        (first_scanned.c.row_id == WarehouseStocktakeRow.id).label("first_scanned_package"),
+    ).outerjoin(first_scanned, first_scanned.c.row_id == WarehouseStocktakeRow.id)
+    latest_completed_row = None
+    if count.completed_at:
+        latest_completed = db.query(
+            WarehouseStocktakeRow.package_id.label("package_id"),
+            func.max(WarehouseStocktakeRow.id).label("row_id"),
+        ).filter(
+            WarehouseStocktakeRow.stocktake_id == count.id,
+            WarehouseStocktakeRow.package_id.is_not(None),
+        ).group_by(WarehouseStocktakeRow.package_id).subquery()
+        latest_completed_row = aliased(WarehouseStocktakeRow)
+        query = query.outerjoin(
+            latest_completed,
+            latest_completed.c.package_id == WarehouseStocktakeRow.package_id,
+        ).outerjoin(latest_completed_row, latest_completed_row.id == latest_completed.c.row_id)
+        query = query.add_columns(latest_completed_row.final_snapshot.label("latest_final_snapshot"))
+
+    rows = query.options(load_only(
+        WarehouseStocktakeRow.id,
+        WarehouseStocktakeRow.package_id,
+        WarehouseStocktakeRow.snapshot,
+        WarehouseStocktakeRow.scan_snapshot,
+        WarehouseStocktakeRow.scanned_at,
+        WarehouseStocktakeRow.expected,
+        WarehouseStocktakeRow.category,
+        WarehouseStocktakeRow.scan_code,
+        WarehouseStocktakeRow.scanned_by,
+    )).filter(
+        WarehouseStocktakeRow.stocktake_id == count.id,
+    ).order_by(WarehouseStocktakeRow.id.asc()).yield_per(_STOCKTAKE_EXPORT_CHUNK_SIZE)
+
+    row_iterator = iter(rows)
+    while chunk := list(islice(row_iterator, _STOCKTAKE_EXPORT_CHUNK_SIZE)):
+        package_ids = sorted({int(row.package_id) for row, *_ in chunk if row.package_id})
+        current = (
+            {
+                int(row.package_id): final_snapshot
+                for row, _first_scanned, final_snapshot in chunk
+                if row.package_id is not None
             }
-        else:
-            current = package_snapshots(db, package_ids) if package_ids else {}
-        for row in rows:
-            yield row_payload(row, current)
-        last_row_id = int(rows[-1].id)
-        if len(rows) < _STOCKTAKE_EXPORT_CHUNK_SIZE:
-            return
+            if count.completed_at
+            else package_snapshots(db, package_ids) if package_ids else {}
+        )
+        for record in chunk:
+            row, first_scanned_package = record[:2]
+            payload = row_payload(row, current)
+            payload["_first_scanned_package"] = bool(first_scanned_package)
+            yield payload
 
 
 @router.get("/{count_id}/export.csv")
@@ -546,7 +545,7 @@ def export(count_id: int, db: DbSession, _: User = Depends(access)):
     ]
     def csv_lines():
         yield "\ufeff" + _csv_line(headers)
-        seen_packages: set[int] = set()
+        scanned_packages = 0
         scanned_pieces = 0
         estimated_packages = 0
         unquantified_packages = 0
@@ -587,9 +586,8 @@ def export(count_id: int, db: DbSession, _: User = Depends(access)):
                 breakdown,
                 "", "", "", "", "", "", "package",
             ])
-            package_id = int(row["package_id"]) if row["package_id"] is not None else None
-            if row["scanned_at"] is not None and package_id is not None and package_id not in seen_packages:
-                seen_packages.add(package_id)
+            if row.pop("_first_scanned_package", False):
+                scanned_packages += 1
                 scanned_pieces += row["scanned_pieces"] or 0
                 estimated_packages += row["scan_evidence_source"] == "count_start"
                 unquantified_packages += row["scanned_pieces"] is None
@@ -600,7 +598,7 @@ def export(count_id: int, db: DbSession, _: User = Depends(access)):
             "Completed": count.completed_at or "",
             "Result": "TOTAL",
             "Row type": "totals",
-            "Scanned packages total": len(seen_packages),
+            "Scanned packages total": scanned_packages,
             "Scanned pieces total": scanned_pieces,
             "Count-start fallback packages": estimated_packages,
             "Scanned packages without quantity evidence": unquantified_packages,

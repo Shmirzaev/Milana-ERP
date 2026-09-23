@@ -133,14 +133,8 @@ def test_stocktake_detail_reads_only_serialized_row_fields():
     assert "warehouse_stocktake_rows.identity" not in selected_columns
 
 
-@pytest.mark.parametrize(("row_count", "expected_row_pages"), [(1, 1), (50, 1), (401, 2)])
-def test_stocktake_export_streams_complete_keyset_pages(
-    client,
-    auth_headers,
-    monkeypatch,
-    row_count,
-    expected_row_pages,
-):
+@pytest.mark.parametrize("row_count", [1, 50, 401])
+def test_stocktake_export_streams_bounded_row_batches(client, auth_headers, monkeypatch, row_count):
     count_id = _stocktake_rows(row_count)
     serialized = 0
     original = stocktake_routes.row_payload
@@ -152,12 +146,16 @@ def test_stocktake_export_streams_complete_keyset_pages(
 
     monkeypatch.setattr(stocktake_routes, "row_payload", counted_payload)
     statements: list[str] = []
+    row_fetch_sizes = []
     with TestSessionLocal() as db:
         bind = db.bind
 
-    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
-        if statement.lstrip().upper().startswith("SELECT"):
-            statements.append(" ".join(statement.lower().split()))
+    def capture(_connection, _cursor, statement, _parameters, context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select"):
+            statements.append(normalized)
+            if " from warehouse_stocktake_rows " in normalized and "order by warehouse_stocktake_rows.id asc" in normalized:
+                row_fetch_sizes.append(context.execution_options.get("yield_per"))
 
     event.listen(bind, "before_cursor_execute", capture)
     try:
@@ -173,24 +171,20 @@ def test_stocktake_export_streams_complete_keyset_pages(
     assert len(rows) == row_count + 1  # Data rows plus totals footer.
     assert rows[-1]["Row type"] == "totals"
     assert serialized == row_count
-    row_pages = [
-        statement
-        for statement in statements
+    assert row_fetch_sizes == [stocktake_routes._STOCKTAKE_EXPORT_CHUNK_SIZE], statements
+    row_query = next(
+        statement for statement in statements
         if " from warehouse_stocktake_rows " in statement
         and "order by warehouse_stocktake_rows.id asc" in statement
-        and " limit " in statement
-    ]
-    assert len(row_pages) == expected_row_pages, statements
-    assert all("warehouse_stocktake_rows.id >" in statement for statement in row_pages)
-    for statement in row_pages:
-        selected_columns = statement.split(" from warehouse_stocktake_rows ", maxsplit=1)[0]
-        for field in (
-            "id", "package_id", "snapshot", "scan_snapshot", "scanned_at",
-            "expected", "category", "scan_code", "scanned_by",
-        ):
-            assert f"warehouse_stocktake_rows.{field}" in selected_columns
-        for field in ("identity", "final_snapshot", "created_at", "updated_at"):
-            assert f"warehouse_stocktake_rows.{field}" not in selected_columns
+    )
+    selected_columns = row_query.split(" from warehouse_stocktake_rows ", maxsplit=1)[0]
+    for field in (
+        "id", "package_id", "snapshot", "scan_snapshot", "scanned_at",
+        "expected", "category", "scan_code", "scanned_by",
+    ):
+        assert f"warehouse_stocktake_rows.{field}" in selected_columns
+    for field in ("identity", "created_at", "updated_at"):
+        assert f"warehouse_stocktake_rows.{field}" not in selected_columns
 
     with TestSessionLocal() as db:
         current = db.query(User).filter(User.email == "admin@example.com").one()
@@ -247,7 +241,43 @@ def test_completed_export_uses_global_latest_snapshot_for_cross_chunk_duplicate_
         if "max(warehouse_stocktake_rows.id)" in statement
         and "group by warehouse_stocktake_rows.package_id" in statement
     ]
-    assert len(latest_snapshot_queries) == 2, statements
+    assert len(latest_snapshot_queries) == 1, statements
+
+
+def test_completed_summary_streams_changed_snapshot_comparison_without_package_map():
+    count_id = _stocktake_rows(401)
+    with TestSessionLocal() as db:
+        count = db.get(WarehouseStocktake, count_id)
+        count.completed_at = datetime.now(timezone.utc)
+        rows = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=count_id).order_by(
+            WarehouseStocktakeRow.id.asc(),
+        ).all()
+        for index, row in enumerate(rows):
+            row.package_id = 9_000_000 + index % 2
+            row.final_snapshot = {"latest": index % 2}
+        db.commit()
+
+    statements = []
+    with TestSessionLocal() as db:
+        count = db.get(WarehouseStocktake, count_id)
+        bind = db.bind
+
+        def capture(_connection, _cursor, statement, _parameters, context, _executemany):
+            normalized = " ".join(statement.lower().split())
+            if "warehouse_stocktake_rows.snapshot" in normalized and "max(warehouse_stocktake_rows.id)" in normalized:
+                statements.append((normalized, context.execution_options.get("yield_per")))
+
+        event.listen(bind, "before_cursor_execute", capture)
+        try:
+            summary = stocktake_service.stocktake_summary(db, count)
+        finally:
+            event.remove(bind, "before_cursor_execute", capture)
+
+    assert summary["changed"] == 401
+    assert len(statements) == 1
+    statement, fetch_size = statements[0]
+    assert fetch_size == stocktake_service._STOCKTAKE_PAGE_CHUNK_SIZE
+    assert "warehouse_stocktake_rows_1.final_snapshot" in statement
 
 
 def _scalar_detail(rows, result, offset, limit):
