@@ -387,7 +387,7 @@ def update_item_image(
 @router.post("/items", response_model=ItemOut, status_code=201)
 def create_item(payload: ItemIn, db: DbSession, current: User = Depends(require_permissions("storage.items", "*"))):
     inventory_access.require_category(current, payload.category)
-    if db.query(Item).filter(Item.sku == payload.sku).first():
+    if db.query(Item.id).filter(Item.sku == payload.sku).first():
         raise HTTPException(400, "SKU already exists")
     data = _item_payload(payload)
     _ensure_unique_active_item_name(db, data)
@@ -410,7 +410,7 @@ def update_item(
     it = db.get(Item, item_id)
     if not it:
         raise HTTPException(404, "Item not found")
-    duplicate = db.query(Item).filter(Item.sku == payload.sku, Item.id != item_id).first()
+    duplicate = db.query(Item.id).filter(Item.sku == payload.sku, Item.id != item_id).first()
     if duplicate:
         raise HTTPException(400, "SKU already exists")
     data = _item_payload(payload)
