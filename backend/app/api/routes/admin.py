@@ -743,6 +743,8 @@ def create_role(payload: RoleIn, db: DbSession, current: User = Depends(require_
     if payload.name.strip().lower() == SUPER_ADMIN_ROLE_NAME.lower() and not is_super_admin(current):
         raise HTTPException(403, "Only a super admin can create the super admin role")
     _assert_can_grant_permissions(current, permissions)
+    if len(payload.name) > 64:
+        raise HTTPException(422, "Role name must be at most 64 characters")
     r = Role(name=payload.name, permissions=permissions)
     db.add(r)
     db.flush()
