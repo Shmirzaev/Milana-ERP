@@ -50,6 +50,13 @@ def test_eco_history_query_count_does_not_grow_per_dispatch(client, auth_headers
         body = response.json()
         assert body["total"] == 50 and len(body["items"]) == size
         assert body["outstanding_rolls"] == 50 and float(body["outstanding_kg"]) == 50
+        roll_reads = [
+            statement.lower()
+            for statement in statements
+            if "eco_fabric_rolls_id" in statement.lower()
+        ]
+        assert len(roll_reads) == 1
+        assert "eco_fabric_rolls.return_key" not in roll_reads[0]
         counts.append(len(statements))
     print(f"Eco history SELECTs for 1/10/50 dispatches: {counts}")
     assert counts == [5, 5, 5], counts

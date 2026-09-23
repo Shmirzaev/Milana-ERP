@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
-from sqlalchemy.orm import defer, lazyload
+from sqlalchemy.orm import defer, lazyload, load_only
 from app.core.deps import DbSession, require_permissions
 from app.models import EcoFabricDispatch, EcoFabricRoll, Item, StockBatch, StockMovement, User
 from app.api.routes.fabric_scans import parse_roll, TASHKENT
@@ -205,7 +205,19 @@ def report(db: DbSession, user: User = Depends(access), report_date: date | None
     if rows:
         for roll in db.query(EcoFabricRoll).filter(
             EcoFabricRoll.dispatch_id.in_(rolls_by_dispatch),
-        ).order_by(EcoFabricRoll.id).all():
+        ).options(load_only(
+            EcoFabricRoll.id,
+            EcoFabricRoll.dispatch_id,
+            EcoFabricRoll.batch_id,
+            EcoFabricRoll.roll_number,
+            EcoFabricRoll.fabric_name,
+            EcoFabricRoll.batch_no,
+            EcoFabricRoll.color,
+            EcoFabricRoll.quantity,
+            EcoFabricRoll.unit,
+            EcoFabricRoll.returned_at,
+            EcoFabricRoll.return_operator_name,
+        )).order_by(EcoFabricRoll.id).all():
             rolls_by_dispatch[roll.dispatch_id].append(roll)
     return {"total": query.count(), "outstanding_rolls": outstanding[0], "outstanding_kg": outstanding[1],
             "items": [dispatch_data(db, row, rows=rolls_by_dispatch[row.id]) for row in rows]}
