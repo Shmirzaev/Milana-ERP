@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 from sqlalchemy import Date, case, cast, func, or_
-from sqlalchemy.orm import object_session
+from sqlalchemy.orm import load_only, object_session
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
 from app.core.dt import as_utc, utcnow
@@ -869,12 +869,26 @@ def _validate_and_enrich_record(
 def _load_employee_maps(db: DbSession, employee_ids: set[int]) -> tuple[dict[int, Employee], dict[int, Department]]:
     employees = {
         int(e.id): e
-        for e in (db.query(Employee).filter(Employee.id.in_(employee_ids)).all() if employee_ids else [])
+        for e in (
+            db.query(Employee)
+            .options(load_only(Employee.id, Employee.full_name, Employee.department_id))
+            .filter(Employee.id.in_(employee_ids))
+            .all()
+            if employee_ids
+            else []
+        )
     }
     department_ids = {int(e.department_id) for e in employees.values() if e.department_id}
     departments = {
         int(d.id): d
-        for d in (db.query(Department).filter(Department.id.in_(department_ids)).all() if department_ids else [])
+        for d in (
+            db.query(Department)
+            .options(load_only(Department.id, Department.name))
+            .filter(Department.id.in_(department_ids))
+            .all()
+            if department_ids
+            else []
+        )
     }
     return employees, departments
 

@@ -1,8 +1,53 @@
 from uuid import uuid4
 
-from app.models import Employee
+from sqlalchemy import event
+
+from app.api.routes.payroll import _load_employee_maps
+from app.models import Department, Employee
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_user_with_permissions
+
+
+def test_employee_context_maps_project_only_payroll_display_fields():
+    suffix = uuid4().hex
+    with TestSessionLocal() as db:
+        department = Department(name=f"Payroll projection {suffix}", code=f"P-{suffix[:20]}")
+        db.add(department)
+        db.flush()
+        employee = Employee(
+            factory_code="MIL",
+            full_name=f"Payroll Projection {suffix}",
+            department_id=department.id,
+            phone="private-phone",
+            salary="1234.56",
+            hr_profile_json={"private": "profile"},
+        )
+        db.add(employee)
+        db.commit()
+        employee_id = employee.id
+        department_id = department.id
+
+        statements = []
+
+        def capture(_conn, _cursor, statement, _params, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement.lower())
+
+        event.listen(db.get_bind(), "before_cursor_execute", capture)
+        try:
+            employees, departments = _load_employee_maps(db, {employee_id})
+        finally:
+            event.remove(db.get_bind(), "before_cursor_execute", capture)
+
+    assert employees[employee_id].full_name == f"Payroll Projection {suffix}"
+    assert employees[employee_id].department_id == department_id
+    assert departments[department_id].name == f"Payroll projection {suffix}"
+    employee_query = next(sql for sql in statements if "from employees" in sql)
+    department_query = next(sql for sql in statements if "from departments" in sql)
+    assert "employees.phone" not in employee_query
+    assert "employees.salary" not in employee_query
+    assert "employees.hr_profile_json" not in employee_query
+    assert "departments.code" not in department_query
 
 
 def test_employee_search_is_scoped_minimal_and_permission_protected(client, auth_headers):
