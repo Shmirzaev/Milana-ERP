@@ -1033,10 +1033,10 @@
       "risk": "Large records multiply work.",
       "proposed_fix": "Bulk supporting data.",
       "baseline_source": "backend/app/api/routes/production.py:3012",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "57a0b35, b4e91e5, 82824ef, 4a0ee8e, 5d8a765",
-      "evidence": "Existing cutting-batch/Usluga scan-log and packaging receipt preloads remain. Commit 5d8a765 batches StockBatch and Item validation for cutting materials, reducing reference reads at1/50/401 lines from1/50/401 to1/1/1; nine focused cases pass. Other cutting/packaging paths remain."
+      "commit": "57a0b35, b4e91e5, 82824ef, 4a0ee8e, 5d8a765, 05206df",
+      "evidence": "Commit 05206df batches cutting reservation/stock locks, bundle departments/numbers, Usluga scan logs and packaging BOM stock reads. At1/50/401, full cutting bundle writes use41/41/41 SELECTs, cutting material writes30/30/30 even when every line mixes reserved/direct consumption, packaging writes27/27/27 and Usluga rejection18/18/18. Strict duplicate-batch reservation requirements accumulate in input order. Thirty-two focused,36 adjacent inventory and120 broad compatibility cases pass; all12 disposable-PostgreSQL query-growth, LockRows/no-SubPlan, reverse-order concurrency and rollback cases pass. Necessary movement, reservation, alias and response rows remain O(N)."
     },
     {
       "number": 87,
