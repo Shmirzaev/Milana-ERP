@@ -335,10 +335,6 @@ export default function CuttingPage() {
     fetcher,
   );
   const canReadCustomers = can(me, "*", "sales.customers", "sales.orders", "finance.view");
-  const { data: customers = [] } = useSWR<any[]>(
-    canReadCustomers && so?.customer_id ? "/api/customers" : null,
-    fetcher,
-  );
   const { data: departments = [] } = useSWR<any[]>("/api/departments", fetcher);
   const { data: bundlePage, mutate: mutateBundles } = useSWR<any>(
     po?.id ? `/api/bundles?production_order_id=${po.id}&include_total=true&page=1&page_size=2000` : null,
@@ -356,7 +352,11 @@ export default function CuttingPage() {
     isUsluga && wo ? `/api/work-orders/${id}/usluga-cutting-batches` : null,
     fetcher,
   );
-  const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
+  const customerName = so?.customer_id
+    ? canReadCustomers
+      ? so.customer?.name || so.customer_name || `#${so.customer_id}`
+      : `#${so.customer_id}`
+    : null;
   const isEcoCottonCutting = departments.some(
     (department) => Number(department.id) === Number(wo?.department_id) && String(department.code).toUpperCase() === "ECT",
   );
@@ -1516,7 +1516,7 @@ export default function CuttingPage() {
         po={productInfoPo}
         wo={wo}
         model={model}
-        customerName={so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : null}
+        customerName={customerName}
         statusText={wo ? statusLabel(wo.status, t) : "-"}
         canEditBreakdown={canEditBreakdown}
         onSaveBreakdown={saveBreakdown}

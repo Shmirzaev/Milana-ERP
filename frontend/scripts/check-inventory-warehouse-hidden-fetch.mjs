@@ -14,6 +14,11 @@ assert.equal(
   3,
   "warehouses must remain limited to the SWR binding, endpoint, and batch-editor selector",
 );
+assert.match(
+  source,
+  /group === "materials" \|\| \(canEditItems && editingBatch\) \? "\/api\/suppliers" : null/,
+  "accessory suppliers must stay dormant until their batch editor opens",
+);
 
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
@@ -61,7 +66,7 @@ const batch = {
   qc_status: "pending",
 };
 
-function createHarness(withBatch) {
+function createHarness(withBatch, group = "materials") {
   const jsx = (type, props) => ({ type, props: props || {} });
   const states = [];
   const refs = [];
@@ -100,20 +105,23 @@ function createHarness(withBatch) {
   function useSWR(key) {
     requests.push(key);
     const base = { error: undefined, isLoading: false, mutate: async () => {} };
-    if (typeof key === "string" && key.startsWith("/api/inventory/stock?group=materials")) {
+    if (key === "/api/inventory/stock?group=accessories&page_size=500") {
+      return { ...base, data: [stockRow] };
+    }
+    if (typeof key === "string" && key.startsWith(`/api/inventory/stock?group=${group}`)) {
       return { ...base, data: { rows: [stockRow], total: 1 } };
     }
-    if (key === "/api/inventory/items?group=materials&page_size=500") return { ...base, data: [item] };
+    if (key === `/api/inventory/items?group=${group}&page_size=500`) return { ...base, data: [item] };
     if (typeof key === "string" && key.startsWith("/api/inventory/batches?")) {
       return { ...base, data: { rows: withBatch ? [batch] : [], total: withBatch ? 1 : 0 } };
     }
-    if (key === "/api/suppliers") return { ...base, data: [] };
+    if (key === "/api/suppliers") return { ...base, data: [{ id: 8, name: "Directory Supplier" }] };
     if (key === warehouseKey) return { ...base, data: [{ id: 5, name: "Directory Warehouse" }] };
     return { ...base, data: undefined };
   }
 
   const router = { push() {}, replace() {} };
-  const searchParams = { get: () => null };
+  const searchParams = { get: (name) => (name === "group" ? group : null) };
   const dependencies = {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
     react: { useEffect, useMemo: (calculate) => calculate(), useRef, useState },
@@ -195,8 +203,8 @@ function textContent(tree) {
   return values.join(" ");
 }
 
-function openEditor(withBatch) {
-  const harness = createHarness(withBatch);
+function openEditor(withBatch, group = "materials") {
+  const harness = createHarness(withBatch, group);
   const closed = harness.renderUntilStable();
   assert.equal(closed.requests.filter((key) => key === warehouseKey).length, 0);
   assert.doesNotMatch(textContent(closed.tree), /Directory Warehouse/);
@@ -222,4 +230,16 @@ assert.equal(
 );
 assert.match(textContent(batchEditor.tree), /Directory Warehouse/);
 
-console.log("Inventory warehouses: closed/item editor requests 1 -> 0; batch editor remains exactly 1.");
+const accessoryClosed = createHarness(true, "accessories").renderUntilStable();
+assert.equal(
+  accessoryClosed.requests.filter((key) => key === "/api/suppliers").length,
+  0,
+  "closed accessory inventory must not request a supplier directory used only by its batch editor",
+);
+assert.doesNotMatch(textContent(accessoryClosed.tree), /Directory Supplier/);
+
+const accessoryBatchEditor = openEditor(true, "accessories");
+assert.equal(accessoryBatchEditor.requests.filter((key) => key === "/api/suppliers").length, 1);
+assert.match(textContent(accessoryBatchEditor.tree), /Directory Supplier/);
+
+console.log("Inventory directories: warehouses and accessory suppliers stay dormant until batch editing.");

@@ -714,11 +714,21 @@ export default function ProcessQrPage() {
       keepPreviousData: true,
     },
   );
+  const [collapsedSections, setCollapsedSections] = useState<Record<CollapsibleSection, boolean>>({
+    paidOperations: true,
+    employees: true,
+    employeePreview: true,
+    workPreview: true,
+  });
+  const employeeDirectoryActive = !collapsedSections.employees || !collapsedSections.employeePreview;
   const { data: employees = [], error: employeesError, isLoading: employeesLoading, mutate: mutateEmployees } = useSWR<Employee[]>(
-    "/api/employees",
+    employeeDirectoryActive ? "/api/employees" : null,
     fetcher,
+    { keepPreviousData: true },
   );
-  const departmentDirectoryKey = employees.some((employee) => employee.department_id != null) ? "/api/departments" : null;
+  const departmentDirectoryKey = employeeDirectoryActive && employees.some((employee) => employee.department_id != null)
+    ? "/api/departments"
+    : null;
   const { data: departments = [] } = useSWR<Department[]>(departmentDirectoryKey, fetcher);
   const { data: sewingFlows = [] } = useSWR<SewingFlow[]>("/api/sewing-flows", fetcher);
   const [sourceMode, setSourceMode] = useState<"erp" | "manual">("erp");
@@ -759,13 +769,6 @@ export default function ProcessQrPage() {
   const [preparingPrint, setPreparingPrint] = useState(false);
   const [workLabelsToPrint, setWorkLabelsToPrint] = useState<PreparedPrintLabel[]>([]);
   const issuedLabelsSectionRef = useRef<HTMLElement | null>(null);
-  const [collapsedSections, setCollapsedSections] = useState<Record<CollapsibleSection, boolean>>({
-    paidOperations: true,
-    employees: true,
-    employeePreview: true,
-    workPreview: true,
-  });
-
   useEffect(() => {
     setPrintPaidOperationFactory(accountPaidOperationFactory);
   }, [accountPaidOperationFactory]);
@@ -2007,7 +2010,16 @@ export default function ProcessQrPage() {
           </div>
 
           <div className={`process-qr-collapsible ${collapsedSections.paidOperations ? "is-collapsed" : ""}`}>
-          {canManagePayroll && <div className="mb-3"><PaidProcessPicker key={selectedModelId} existing={factoryOperations} onSelect={addOperation} /></div>}
+          {canManagePayroll && (
+            <div className="mb-3">
+              <PaidProcessPicker
+                key={selectedModelId}
+                active={!collapsedSections.paidOperations}
+                existing={factoryOperations}
+                onSelect={addOperation}
+              />
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="table process-qr-operations">
               <colgroup>

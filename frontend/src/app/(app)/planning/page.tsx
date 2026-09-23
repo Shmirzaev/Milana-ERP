@@ -371,8 +371,9 @@ export default function PlanningDashboard() {
   const [brandedPrintingAttachments, setBrandedPrintingAttachments] = useState<PrintingAttachment[]>([]);
   const [brandedUploadingPrintFile, setBrandedUploadingPrintFile] = useState(false);
   const { data: selectedBrandedModelDetail } = useSWR<BrandedModelDetail>(
-    brandedForm.model_id ? `/api/models/${brandedForm.model_id}` : null,
+    brandedDialogOpen && brandedForm.model_id ? `/api/models/${brandedForm.model_id}` : null,
     fetcher,
+    { keepPreviousData: true },
   );
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
   const [materialEstimate, setMaterialEstimate] = useState<MaterialEstimateState | null>(null);

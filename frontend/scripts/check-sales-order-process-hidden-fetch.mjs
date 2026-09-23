@@ -3,12 +3,18 @@ import fs from "node:fs";
 import ts from "typescript";
 
 const processKey = "/api/process-tracking";
+const materialRequirementsKey = "/api/planning/material-requirements/12";
 const source = fs.readFileSync(new URL("../src/app/(app)/sales-orders/[id]/page.tsx", import.meta.url), "utf8");
 
 assert.match(
   source,
   /const processesKey = so && so\.status !== "draft" \? "\/api\/process-tracking" : null;/,
   "process tracking must stay dormant for draft or unresolved orders",
+);
+assert.match(
+  source,
+  /so \? `\/api\/planning\/material-requirements\/\$\{id\}` : null/,
+  "material requirements must not bypass sales-order authorization or existence resolution",
 );
 assert.match(
   source,
@@ -113,18 +119,21 @@ const baseOrder = {
 
 const draft = renderCase({ order: baseOrder });
 assert.equal(draft.requests.filter((key) => key === processKey).length, 0);
+assert.equal(draft.requests.filter((key) => key === materialRequirementsKey).length, 1);
 assert.match(textContent(draft.tree), /SO-12/);
 assert.doesNotMatch(textContent(draft.tree), /page\.soDetail\.currentProductionStage|sewing/);
 
 const active = renderCase({ order: { ...baseOrder, status: "confirmed" } });
 assert.equal(active.requests.filter((key) => key === processKey).length, 1);
+assert.equal(active.requests.filter((key) => key === materialRequirementsKey).length, 1);
 assert.match(textContent(active.tree), /SO-12/);
 assert.match(textContent(active.tree), /page\.soDetail\.currentProductionStage/);
 assert.match(textContent(active.tree), /PO-30\s+·\s+sewing\s+·\s+in_progress/);
 
 const denied = renderCase({ order: undefined, denied: true });
 assert.equal(denied.requests.filter((key) => key === processKey).length, 0);
+assert.equal(denied.requests.filter((key) => key === materialRequirementsKey).length, 0);
 assert.match(textContent(denied.tree), /page\.salesOrder\.loadError/);
 assert.doesNotMatch(textContent(denied.tree), /SO-12|currentProductionStage|PO-30/);
 
-console.log("Sales-order process tracking: draft key 1 -> 0; active remains 1; denied remains 0.");
+console.log("Sales-order detail: hidden process tracking and authorization-dependent material keys retain exact parity.");

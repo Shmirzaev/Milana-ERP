@@ -3,15 +3,10 @@ import fs from "node:fs";
 import ts from "typescript";
 
 const source = fs.readFileSync(new URL("../src/app/(app)/work-orders/[id]/sewing/page.tsx", import.meta.url), "utf8");
-assert.match(
+assert.doesNotMatch(
   source,
-  /useSWR<any\[\]>\(so\?\.customer_id \? "\/api\/customers" : null, fetcher\)/,
-  "the customer directory must depend on a resolved sales-order customer",
-);
-assert.equal(
-  [...source.matchAll(/\bcustomers\b/g)].length,
-  4,
-  "customers must remain limited to the SWR binding, endpoint, and customer-name map",
+  /["'`]\/api\/customers["'`]/,
+  "sewing must reuse the customer projection already returned by the sales-order detail",
 );
 
 const compiled = ts.transpileModule(source, {
@@ -32,7 +27,7 @@ function renderCase(salesOrderId) {
       : key === "/api/production-orders/12"
         ? { id: 12, sales_order_id: salesOrderId, model_id: 4, batches: [] }
         : key === "/api/sales-orders/21"
-          ? { id: 21, customer_id: 33, order_no: "SO-21" }
+          ? { id: 21, customer_id: 33, customer_name: "Client A", order_no: "SO-21" }
           : key === "/api/models/4"
             ? { id: 4, code: "MODEL-4", name: "Model 4" }
             : key === "/api/sewing-flows"
@@ -43,9 +38,7 @@ function renderCase(salesOrderId) {
                   ? { items: [] }
                   : key === "/api/work-orders/7/replacement-status"
                     ? { items: [], open_qty: 0 }
-                    : key === "/api/customers"
-                      ? [{ id: 33, name: "Client A" }]
-                      : undefined;
+                    : undefined;
     return { data, mutate() {} };
   };
   const dependencies = {
@@ -101,9 +94,9 @@ assert.equal(find(warehouseOrBranded.tree, "product-info")?.props.customerName, 
 const client = renderCase(21);
 assert.equal(
   client.requests.filter((key) => key === "/api/customers").length,
-  1,
-  "a resolved client work order must fetch the customer directory exactly once",
+  0,
+  "a resolved client work order must render the projection without a directory request",
 );
 assert.equal(find(client.tree, "product-info")?.props.customerName, "Client A");
 
-console.log("Sewing customer directory: unresolved/no-customer requests 1 -> 0; client work order remains exactly 1.");
+console.log("Sewing customer identity: unresolved/client rendering preserved without a directory waterfall.");

@@ -3,15 +3,15 @@ import fs from "node:fs";
 import ts from "typescript";
 
 const source = fs.readFileSync(new URL("../src/app/(app)/work-orders/[id]/cutting/page.tsx", import.meta.url), "utf8");
+assert.doesNotMatch(
+  source,
+  /["'`]\/api\/customers["'`]/,
+  "cutting must reuse the projected customer instead of fetching the full directory",
+);
 assert.match(
   source,
-  /useSWR<any\[\]>\(\s*canReadCustomers && so\?\.customer_id \? "\/api\/customers" : null,\s*fetcher,\s*\)/,
-  "the authorized customer directory must depend on a resolved sales-order customer",
-);
-assert.equal(
-  [...source.matchAll(/\bcustomers\b/g)].length,
-  5,
-  "customers must remain limited to permission, SWR, and customer-name mapping",
+  /canReadCustomers[\s\S]*?so\.customer\?\.name \|\| so\.customer_name[\s\S]*?: `#\$\{so\.customer_id\}`/,
+  "projected names must retain the restricted-user ID-only fallback",
 );
 
 const compiled = ts.transpileModule(source, {
@@ -32,12 +32,10 @@ function renderCase({ salesOrderId, authorized = true }) {
       : key === "/api/production-orders/12"
         ? { id: 12, sales_order_id: salesOrderId, model_id: 4, batches: [], source_type: "standard" }
         : key === "/api/sales-orders/21"
-          ? { id: 21, customer_id: 33, order_no: "SO-21" }
+          ? { id: 21, customer_id: 33, customer_name: "Client A", order_no: "SO-21" }
           : key === "/api/models/4"
             ? { id: 4, code: "MODEL-4", name: "Model 4", bom: [], sizes: [], colors: [] }
-            : key === "/api/customers"
-              ? [{ id: 33, name: "Client A" }]
-              : key === "/api/departments"
+            : key === "/api/departments"
                 ? []
                 : typeof key === "string" && key.startsWith("/api/bundles?")
                   ? { rows: [], total: 0 }
@@ -118,9 +116,9 @@ assert.equal(find(unauthorized.tree, "product-info")?.props.customerName, "#33")
 const client = renderCase({ salesOrderId: 21 });
 assert.equal(
   client.requests.filter((key) => key === "/api/customers").length,
-  1,
-  "an authorized resolved client work order must fetch the directory exactly once",
+  0,
+  "an authorized resolved client work order must render the projection without a directory request",
 );
 assert.equal(find(client.tree, "product-info")?.props.customerName, "Client A");
 
-console.log("Cutting customer directory: unresolved requests 1 -> 0; authorized client remains 1; denial remains 0.");
+console.log("Cutting customers: unresolved/unauthorized parity and projected authorized names need zero directory requests.");

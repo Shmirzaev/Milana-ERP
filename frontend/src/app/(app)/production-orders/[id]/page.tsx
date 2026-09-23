@@ -210,14 +210,19 @@ export default function ProductionOrderDetail() {
   const isAdmin = can(me, "*");
   const id = params.id;
   const isNumericId = /^\d+$/.test(String(id || ""));
+  const [editing, setEditing] = useState<WO | null>(null);
+  const [openAssignments, setOpenAssignments] = useState<number | null>(null);
   const { data: po, error: poError, isLoading: poLoading, mutate } = useSWR<any>(isNumericId ? `/api/production-orders/${id}` : null, fetcher);
   const { data: reservationStatus, mutate: mutateReservationStatus } = useSWR<ReservationStatus>(
     isNumericId ? `/api/production-orders/${id}/material-reservation-status` : null,
     fetcher,
   );
   const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
-  const { data: flowUtil } = useSWR<FlowUtil[]>("/api/sewing-flows/utilization-snapshot", fetcher, { refreshInterval: 60_000 });
-  const { data: users } = useSWR<any[]>(canPlan ? "/api/users" : null, fetcher);
+  const flowUtilKey = editing?.operation === "sewing" || openAssignments !== null
+    ? "/api/sewing-flows/utilization-snapshot"
+    : null;
+  const { data: flowUtil } = useSWR<FlowUtil[]>(flowUtilKey, fetcher, { refreshInterval: 60_000 });
+  const { data: users } = useSWR<any[]>(canPlan && editing ? "/api/users" : null, fetcher);
   const { data: selectedModelDetail } = useSWR<ModelSummary>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
   const utilByFlow = new Map((flowUtil || []).map((u) => [u.flow_id, u]));
   const batchById = new Map<number, BatchMeta>(((po?.batches || []) as BatchMeta[]).map((b) => [b.id, b]));
@@ -231,7 +236,6 @@ export default function ProductionOrderDetail() {
   const cuttingWO = workOrders.find((w) => w.operation === "cutting");
   const canEditSummary = canPlan && (!cuttingWO || PRE_CUTTING_EDIT_STATUSES.has(String(cuttingWO.status || "")));
 
-  const [editing, setEditing] = useState<WO | null>(null);
   const [edit, setEdit] = useState({ deadline: "", sewing_flow_id: 0, assigned_to: 0 });
   const [editMsg, setEditMsg] = useState("");
   const [summaryEditing, setSummaryEditing] = useState(false);
@@ -251,7 +255,6 @@ export default function ProductionOrderDetail() {
   });
   const [summaryMsg, setSummaryMsg] = useState("");
   const [summarySaving, setSummarySaving] = useState(false);
-  const [openAssignments, setOpenAssignments] = useState<number | null>(null);
   const [repairing, setRepairing] = useState(false);
   const [repairMsg, setRepairMsg] = useState("");
   const [reservationBusy, setReservationBusy] = useState("");

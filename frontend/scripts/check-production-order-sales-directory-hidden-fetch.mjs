@@ -14,6 +14,16 @@ assert.match(
   /\{summaryEditing \? \([\s\S]*?salesOrders\?\.map/,
   "the sales-order directory must remain scoped to the active summary editor",
 );
+assert.match(
+  source,
+  /const flowUtilKey = editing\?\.operation === "sewing" \|\| openAssignments !== null[\s\S]*?"\/api\/sewing-flows\/utilization-snapshot"[\s\S]*?: null;/,
+  "flow utilization must depend on an active sewing editor or assignment panel",
+);
+assert.match(
+  source,
+  /useSWR<any\[\]>\(canPlan && editing \? "\/api\/users" : null, fetcher\)/,
+  "the user directory must depend on the authorized work-order editor",
+);
 
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
@@ -53,7 +63,17 @@ function createHarness(authorized) {
           status: "new",
           source_type: "standard",
           planned_quantity: 100,
-          work_orders: [],
+          work_orders: [{
+            id: 44,
+            operation: "sewing",
+            status: "new",
+            planned_input_qty: 100,
+            planned_output_qty: 100,
+            actual_input_qty: 0,
+            actual_output_qty: 0,
+            failed_qty: 0,
+            sewing_flow_id: null,
+          }],
           batches: [],
           items: [],
         }
@@ -151,6 +171,8 @@ function textContent(tree) {
 const authorized = createHarness(true);
 const closed = authorized.render();
 assert.equal(closed.requests.filter((key) => key === salesDirectoryKey).length, 0);
+assert.equal(closed.requests.filter((key) => key === "/api/sewing-flows/utilization-snapshot").length, 0);
+assert.equal(closed.requests.filter((key) => key === "/api/users").length, 0);
 assert.doesNotMatch(textContent(closed.tree), /Client A/);
 const editButton = find(closed.tree, (node) => node.type === "button" && node.props?.children === "btn.edit");
 assert.ok(editButton, "the authorized summary edit action must render");
@@ -164,12 +186,32 @@ assert.equal(
 );
 assert.match(textContent(open.tree), /Client A/);
 
+const assignmentEditor = createHarness(true);
+const editorClosed = assignmentEditor.render();
+const assignButton = find(editorClosed.tree, (node) => node.type === "button" && node.props?.children === "btn.assign");
+assert.ok(assignButton, "the authorized sewing assignment action must render");
+assignButton.props.onClick();
+const editorOpen = assignmentEditor.render();
+assert.equal(editorOpen.requests.filter((key) => key === "/api/sewing-flows/utilization-snapshot").length, 1);
+assert.equal(editorOpen.requests.filter((key) => key === "/api/users").length, 1);
+
+const splitPanel = createHarness(true);
+const splitClosed = splitPanel.render();
+const splitButton = find(splitClosed.tree, (node) => node.type === "button" && node.props?.children === "btn.split");
+assert.ok(splitButton, "the sewing split action must render");
+splitButton.props.onClick();
+const splitOpen = splitPanel.render();
+assert.equal(splitOpen.requests.filter((key) => key === "/api/sewing-flows/utilization-snapshot").length, 1);
+assert.equal(splitOpen.requests.filter((key) => key === "/api/users").length, 0);
+
 const denied = createHarness(false).render();
 assert.equal(denied.requests.filter((key) => key === salesDirectoryKey).length, 0);
+assert.equal(denied.requests.filter((key) => key === "/api/sewing-flows/utilization-snapshot").length, 0);
+assert.equal(denied.requests.filter((key) => key === "/api/users").length, 0);
 assert.equal(
   find(denied.tree, (node) => node.type === "button" && node.props?.children === "btn.edit"),
   null,
   "unauthorized users must retain no summary edit action",
 );
 
-console.log("Production-order sales directory: closed requests 1 -> 0; open editor remains 1; denial remains 0.");
+console.log("Production-order directories: sales, utilization, and users stay dormant until their actual editors open.");

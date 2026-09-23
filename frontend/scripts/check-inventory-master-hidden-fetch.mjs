@@ -36,7 +36,7 @@ new Function("exports", "require", output)(exports, name => ({
     keys.push(key);
     if (key === "/api/inventory/items?group=materials&page_size=500") return { data: [{ id: 1, name: "Visible Material", composition: [] }], mutate: async () => {} };
     if (key === "/api/inventory/items?group=accessories&page_size=500") return { data: [{ id: 2, name: "Deferred Accessory", composition: [] }], mutate: async () => {} };
-    if (key === "/api/suppliers") return { data: [], mutate: async () => {} };
+    if (key === "/api/suppliers") return { data: [{ id: 3, name: "Deferred Supplier" }], mutate: async () => {} };
     return { data: undefined, mutate: async () => {} };
   } },
   "lucide-react": Object.fromEntries(["Edit3", "Plus", "Search", "Trash2", "X"].map(icon => [icon, () => null])),
@@ -72,8 +72,8 @@ const materials = render();
 assert.deepEqual(keys, [
   "/api/inventory/items?group=materials&page_size=500",
   null,
-  "/api/suppliers",
-], "hidden Accessories tab must not fetch its item directory");
+  null,
+], "hidden Accessories and Suppliers tabs must not fetch their directories");
 const materialsHtml = renderToStaticMarkup(materials);
 assert.ok(materialsHtml.includes("Visible Material"));
 assert.ok(!materialsHtml.includes("Deferred Accessory"));
@@ -86,8 +86,21 @@ const accessories = render();
 assert.deepEqual(keys, [
   "/api/inventory/items?group=materials&page_size=500",
   "/api/inventory/items?group=accessories&page_size=500",
-  "/api/suppliers",
+  null,
 ], "opening Accessories must fetch the same authorized item endpoint");
 assert.ok(renderToStaticMarkup(accessories).includes("Deferred Accessory"));
 
-console.log("Inventory master data: accessory items fetch only when the Accessories tab opens.");
+const suppliersTab = find(accessories, node => node.type === "button" && node.props.children === "page.masterData.suppliers");
+assert.ok(suppliersTab, "actual Suppliers tab action must render");
+suppliersTab.props.onClick();
+
+keys.length = 0;
+const suppliers = render();
+assert.deepEqual(keys, [
+  "/api/inventory/items?group=materials&page_size=500",
+  null,
+  "/api/suppliers",
+], "opening Suppliers must fetch the same authorized supplier endpoint");
+assert.ok(renderToStaticMarkup(suppliers).includes("Deferred Supplier"));
+
+console.log("Inventory master data: accessory and supplier directories fetch only when their tabs open.");

@@ -51,7 +51,6 @@ export default function PrintingPage() {
     fetcher,
   );
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
-  const { data: customers } = useSWR<any[]>(so?.customer_id ? "/api/customers" : null, fetcher);
   const soItems = Array.isArray(so?.items) ? so.items : [];
   const poItems = Array.isArray(po?.items)
     ? po.items.map((item: any) => ({ ...item, quantity: item.quantity ?? item.planned_quantity }))
@@ -61,7 +60,7 @@ export default function PrintingPage() {
   const { data: models } = useSWR<any[]>(printingModelOptionsKey, modelOptionsByIdsFetcher);
   const printSource = so || po;
   const printFiles: PrintingAttachment[] = Array.isArray(printSource?.printing_attachments) ? printSource.printing_attachments : [];
-  const customerName = customers?.find((c) => Number(c.id) === Number(so?.customer_id))?.name;
+  const customerName = so?.customer?.name || so?.customer_name;
   const printingItems = orderItems.filter((item: any) => Boolean(item?.printing_required));
   const orderItemsForPrint = printingItems.length > 0 ? printingItems : orderItems;
   const woStatus = String(wo?.status || "").toLowerCase();

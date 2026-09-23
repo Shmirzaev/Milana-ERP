@@ -55,8 +55,6 @@ export default function SewingPage() {
     wo ? `/api/work-orders/${id}/replacement-status` : null,
     fetcher,
   );
-  const { data: customers = [] } = useSWR<any[]>(so?.customer_id ? "/api/customers" : null, fetcher);
-  const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
   const batchById = useMemo(() => new Map((po?.batches || []).map((b: any) => [Number(b.id), b])), [po?.batches]);
   const lineOptions = useMemo<LineOption[]>(() => {
     if (assignments.length > 0) {
@@ -305,7 +303,7 @@ export default function SewingPage() {
         po={po}
         wo={wo}
         model={model}
-        customerName={so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : null}
+        customerName={so?.customer_id ? (so.customer?.name || so.customer_name || `#${so.customer_id}`) : null}
         statusText={wo ? statusLabel(wo.status, t) : "-"}
       />
       {Number(replacementStatus?.open_qty || 0) > 0 && (

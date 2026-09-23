@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import ts from "typescript";
 
-const source = fs.readFileSync(new URL("../src/app/(app)/work-orders/[id]/packaging/page.tsx", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../src/app/(app)/work-orders/[id]/printing/page.tsx", import.meta.url), "utf8");
 assert.doesNotMatch(
   source,
   /["'`]\/api\/customers["'`]/,
-  "packaging must reuse the customer projection already returned by the sales-order detail",
+  "printing must reuse the customer projection already returned by the sales-order detail",
 );
 
 const compiled = ts.transpileModule(source, {
@@ -23,48 +23,44 @@ function renderCase(salesOrderId) {
   const useSWR = (key) => {
     requests.push(key);
     const data = key === "/api/work-orders/7"
-      ? { id: 7, production_order_id: 12, status: "new", operation: "packaging" }
+      ? { id: 7, production_order_id: 12, status: "new", operation: "printing" }
       : key === "/api/production-orders/12"
         ? { id: 12, sales_order_id: salesOrderId, model_id: 4, items: [], batches: [] }
         : key === "/api/sales-orders/21"
           ? { id: 21, customer_id: 33, customer_name: "Client A", items: [] }
           : key === "/api/models/4"
             ? { id: 4, code: "MODEL-4", name: "Model 4" }
-            : undefined;
+            : key === "/api/work-orders/7/printing-batch-progress"
+              ? { items: [] }
+              : undefined;
     return { data, mutate() {} };
   };
   const dependencies = {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
     react: {
       useEffect() {},
-      useMemo: (calculate) => calculate(),
       useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
     },
     "next/navigation": { useParams: () => ({ id: "7" }) },
     swr: { default: useSWR },
     "@/lib/api": { api: {}, fetcher() {} },
+    "@/lib/useModelOptions": { modelOptionsByIdsFetcher() {}, modelOptionsByIdsKey: () => null },
     "@/lib/batchSerial": { formatBatchLabel: () => "Batch", formatBatchSerial: () => "1" },
-    "@/components/PackageQrSection": { default: "package-qr" },
-    "@/lib/packageWorkflow": { postPackageWorkflow() {} },
-    "@/components/PageHeader": { default: "page-header" },
     "@/components/StagePipeline": { operationLabel: (value) => value, statusLabel: (value) => value },
+    "@/components/PageHeader": { default: "page-header" },
+    "@/components/DefectReasonSelect": { default: "defect-reason" },
     "@/components/WorkOrderProductInfo": { default: "product-info" },
     "@/lib/auth": { can: () => true, useMe: () => ({ me: { id: 1, permissions: ["*"] } }) },
     "@/lib/i18n": { useT: () => ({ t: (key) => key }) },
-    "@/lib/numberInput": {
-      numberOrFallback: (value, fallback) => Number(value || fallback),
-      numberOrZero: (value) => Number(value || 0),
-      parseNumberInput: Number,
-    },
-    "@/lib/orderRef": { orderReference: () => "PO-12" },
+    "@/lib/numberInput": { numberOrZero: Number, parseNumberInput: Number },
+    "@/lib/orderRef": { formatOrderReference: (value) => value, orderReference: () => "PO-12" },
   };
   const loadedModule = { exports: {} };
   new Function("require", "exports", "module", compiled)((name) => {
     assert.ok(name in dependencies, `Unexpected dependency ${name}`);
     return dependencies[name];
   }, loadedModule.exports, loadedModule);
-  const tree = loadedModule.exports.default();
-  return { requests, tree };
+  return { requests, tree: loadedModule.exports.default() };
 }
 
 function find(tree, type) {
@@ -79,19 +75,11 @@ function find(tree, type) {
 }
 
 const branded = renderCase(null);
-assert.equal(
-  branded.requests.includes("/api/customers"),
-  false,
-  "branded packaging must not fetch an unused customer directory",
-);
+assert.equal(branded.requests.includes("/api/customers"), false);
 assert.equal(find(branded.tree, "product-info")?.props.customerName, null);
 
 const client = renderCase(21);
-assert.equal(
-  client.requests.filter((key) => key === "/api/customers").length,
-  0,
-  "client packaging must not add a directory waterfall after sales-order resolution",
-);
+assert.equal(client.requests.filter((key) => key === "/api/customers").length, 0);
 assert.equal(find(client.tree, "product-info")?.props.customerName, "Client A");
 
-console.log("Packaging customer identity: branded/client rendering preserved without a directory waterfall.");
+console.log("Printing customer identity: branded/client rendering preserved without a directory waterfall.");

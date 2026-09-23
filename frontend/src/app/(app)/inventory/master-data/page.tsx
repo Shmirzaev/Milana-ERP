@@ -193,7 +193,7 @@ export default function InventoryMasterDataPage() {
     fetcher,
   );
   const { data: suppliers, mutate: refreshSuppliers } = useSWR<Supplier[]>(
-    canEditSuppliers ? "/api/suppliers" : null,
+    canEditSuppliers && tab === "suppliers" ? "/api/suppliers" : null,
     fetcher,
   );
 

@@ -4,11 +4,22 @@ import ts from "typescript";
 
 const departmentKey = "/api/departments";
 const source = fs.readFileSync(new URL("../src/app/(app)/process-qr/page.tsx", import.meta.url), "utf8");
+const pickerSource = fs.readFileSync(new URL("../src/components/PaidProcessPicker.tsx", import.meta.url), "utf8");
 
 assert.match(
   source,
-  /const departmentDirectoryKey = employees\.some\(\(employee\) => employee\.department_id != null\) \? "\/api\/departments" : null;/,
-  "the department directory must depend on employees carrying department references",
+  /employeeDirectoryActive \? "\/api\/employees" : null/,
+  "the employee directory must depend on an expanded employee section",
+);
+assert.match(
+  source,
+  /employeeDirectoryActive && employees\.some\(\(employee\) => employee\.department_id != null\)/,
+  "the department directory must depend on an active employee directory carrying department references",
+);
+assert.match(
+  source,
+  /active=\{!collapsedSections\.paidOperations\}/,
+  "the paid-process picker must receive the visible-section state without being unmounted",
 );
 assert.match(
   source,
@@ -24,16 +35,25 @@ const compiled = ts.transpileModule(source, {
   },
 }).outputText;
 
-function renderCase(employeeResult) {
-  const requests = [];
+function createHarness(employeeResult) {
   const jsx = (type, props) => ({ type, props: props || {} });
+  const states = [];
+  let stateCursor = 0;
+  let requests = [];
+  function useState(initial) {
+    const index = stateCursor++;
+    if (!(index in states)) states[index] = typeof initial === "function" ? initial() : initial;
+    return [states[index], (next) => {
+      states[index] = typeof next === "function" ? next(states[index]) : next;
+    }];
+  }
   const dependencies = {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
     react: {
       useEffect() {},
       useMemo: (calculate) => calculate(),
       useRef: (initial) => ({ current: initial }),
-      useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
+      useState,
     },
     "next/link": { default: "link" },
     swr: {
@@ -97,8 +117,15 @@ function renderCase(employeeResult) {
     assert.ok(name in dependencies, `Unexpected dependency ${name}`);
     return dependencies[name];
   }, loadedModule.exports, loadedModule);
-  const tree = loadedModule.exports.default();
-  return { requests: requests.filter(Boolean), tree };
+  const Page = loadedModule.exports.default;
+  return {
+    render() {
+      stateCursor = 0;
+      requests = [];
+      const tree = Page();
+      return { requests: requests.filter(Boolean), tree };
+    },
+  };
 }
 
 function visit(tree, callback) {
@@ -123,19 +150,40 @@ function textContent(tree) {
   return values.join(" ");
 }
 
-const withDepartment = renderCase([{
+function sectionToggles(tree) {
+  const toggles = [];
+  visit(tree, (node) => {
+    if (typeof node === "object" && node.type === "button" && typeof node.props?.["aria-expanded"] === "boolean") {
+      toggles.push(node);
+    }
+  });
+  return toggles;
+}
+
+const employeeWithDepartment = {
   id: 5,
   employee_no: "EMP-5",
   full_name: "Employee Five",
   position: "Cutter",
   status: "active",
   department_id: 2,
-}]);
+};
+const withDepartmentHarness = createHarness([employeeWithDepartment]);
+const closed = withDepartmentHarness.render();
+assert.equal(closed.requests.filter((key) => key === "/api/employees").length, 0);
+assert.equal(closed.requests.filter((key) => key === departmentKey).length, 0);
+assert.doesNotMatch(textContent(closed.tree), /Employee Five|CUT - Cutting/);
+const closedToggles = sectionToggles(closed.tree);
+assert.equal(closedToggles.length, 4, "all four actual collapsible section controls must render");
+closedToggles[1].props.onClick();
+
+const withDepartment = withDepartmentHarness.render();
+assert.equal(withDepartment.requests.filter((key) => key === "/api/employees").length, 1);
 assert.equal(withDepartment.requests.filter((key) => key === departmentKey).length, 1);
 assert.match(textContent(withDepartment.tree), /Employee Five/);
 assert.match(textContent(withDepartment.tree), /CUT - Cutting/);
 
-const withoutDepartment = renderCase([{
+const withoutDepartmentHarness = createHarness([{
   id: 6,
   employee_no: "EMP-6",
   full_name: "Employee Six",
@@ -143,12 +191,58 @@ const withoutDepartment = renderCase([{
   status: "active",
   department_id: null,
 }]);
+sectionToggles(withoutDepartmentHarness.render().tree)[1].props.onClick();
+const withoutDepartment = withoutDepartmentHarness.render();
+assert.equal(withoutDepartment.requests.filter((key) => key === "/api/employees").length, 1);
 assert.equal(withoutDepartment.requests.filter((key) => key === departmentKey).length, 0);
 assert.match(textContent(withoutDepartment.tree), /Employee Six/);
 
-const denied = renderCase(undefined);
+const deniedHarness = createHarness(undefined);
+sectionToggles(deniedHarness.render().tree)[1].props.onClick();
+const denied = deniedHarness.render();
+assert.equal(denied.requests.filter((key) => key === "/api/employees").length, 1);
 assert.equal(denied.requests.filter((key) => key === departmentKey).length, 0);
 assert.match(textContent(denied.tree), /403 forbidden/);
 assert.doesNotMatch(textContent(denied.tree), /Employee Five|CUT - Cutting/);
 
-console.log("Process QR departments: unused/denied key 1 -> 0; referenced-department key remains exactly 1.");
+const pickerCompiled = ts.transpileModule(pickerSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2020,
+    jsx: ts.JsxEmit.ReactJSX,
+  },
+}).outputText;
+
+function renderPicker({ active, authorized }) {
+  const requests = [];
+  const jsx = (type, props) => ({ type, props: props || {} });
+  const dependencies = {
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
+    react: {
+      useEffect() {},
+      useRef: (initial) => ({ current: initial }),
+      useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
+    },
+    swr: { default: (key) => { requests.push(key); return { data: { items: [], has_more: false }, mutate() {} }; } },
+    "lucide-react": { Plus: "plus" },
+    "@/lib/api": { api: {}, fetcher() {} },
+    "@/lib/auth": { can: () => authorized, useMe: () => ({ me: { id: 1 } }) },
+    "@/lib/i18n": { useT: () => ({ t: (key) => key, lang: "en" }) },
+    "@/lib/modelPaidOperations": { VALID_SECTIONS: [], samePaidProcess: () => false },
+    "@/lib/paidProcessSections": { paidSectionLabel: (value) => value },
+    "@/components/SearchableSelect": { default: "searchable-select" },
+  };
+  const loadedModule = { exports: {} };
+  new Function("require", "exports", "module", pickerCompiled)((name) => {
+    assert.ok(name in dependencies, `Unexpected picker dependency ${name}`);
+    return dependencies[name];
+  }, loadedModule.exports, loadedModule);
+  loadedModule.exports.default({ active, existing: [], onSelect() {} });
+  return requests.filter(Boolean);
+}
+
+assert.deepEqual(renderPicker({ active: false, authorized: true }), []);
+assert.deepEqual(renderPicker({ active: true, authorized: false }), []);
+assert.deepEqual(renderPicker({ active: true, authorized: true }), ["/api/paid-processes?search="]);
+
+console.log("Process QR directories: collapsed employees/paid processes stay dormant; expanded and denied paths retain exact behavior.");
