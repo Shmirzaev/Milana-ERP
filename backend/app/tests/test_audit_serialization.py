@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from sqlalchemy import event
+
 from app.db.session import SessionLocal
 from app.models import AuditLog, User
 from app.services.audit import log_action, verify_audit_hash_chain
@@ -73,8 +75,6 @@ def test_sqlite_audit_head_is_reused_within_transaction(monkeypatch):
 
 
 def test_sqlite_audit_head_discards_rolled_back_savepoint(monkeypatch):
-    from app.services import audit
-
     db = SessionLocal()
     try:
         user = db.query(User).first()
@@ -233,3 +233,47 @@ def test_audit_log_endpoint_computes_changed_fields_once_per_row(client, auth_he
     )
     assert response.status_code == 200, response.text
     assert calls == 1
+
+
+def test_hash_chain_start_lookup_projects_only_previous_entry_hash():
+    statements = []
+    db = SessionLocal()
+    try:
+        user = db.query(User).first()
+        assert user is not None
+        log_action(db, user, "create", "AuditHashProjection", 1, new_value={"step": 1})
+        second = log_action(db, user, "update", "AuditHashProjection", 2, new_value={"step": 2})
+        db.commit()
+        start_id = int(second.id)
+        legacy_sql = str(
+            db.query(AuditLog)
+            .filter(AuditLog.id < start_id, AuditLog.entry_hash.isnot(None))
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+        bind = db.get_bind()
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().lower().startswith("select"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(bind, "before_cursor_execute", capture)
+        try:
+            result = verify_audit_hash_chain(db, start_id=start_id, limit=1)
+        finally:
+            event.remove(bind, "before_cursor_execute", capture)
+
+        assert result == {
+            "ok": True,
+            "checked": 1,
+            "last_valid_hash": second.entry_hash,
+            "first_mismatch": None,
+        }
+    finally:
+        db.close()
+
+    prior_lookup = next(statement for statement in statements if "audit_logs.id <" in statement)
+    assert prior_lookup.startswith("select audit_logs.entry_hash ")
+    assert "audit_logs.old_value_json" not in prior_lookup
+    assert "audit_logs.new_value_json" not in prior_lookup
+    assert "audit_logs.old_value_json" in legacy_sql
+    assert "audit_logs.new_value_json" in legacy_sql

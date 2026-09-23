@@ -301,7 +301,7 @@ def verify_audit_hash_chain(db: Session, *, start_id: int | None = None, limit: 
     qry = db.query(AuditLog).order_by(AuditLog.id.asc())
     if start_id is not None:
         prior = (
-            db.query(AuditLog)
+            db.query(AuditLog.entry_hash)
             .filter(AuditLog.id < int(start_id), AuditLog.entry_hash.isnot(None))
             .order_by(AuditLog.id.desc())
             .first()
