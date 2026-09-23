@@ -1246,7 +1246,21 @@ def create_brand(
 
 @router.get("/brands/{bid}", response_model=BrandOut)
 def get_brand(bid: int, db: DbSession, _: CurrentUser):
-    b = db.get(Brand, bid)
+    b = (
+        db.query(Brand)
+        .options(
+            load_only(
+                Brand.id,
+                Brand.name,
+                Brand.description,
+                Brand.logo_url,
+                Brand.is_active,
+                raiseload=True,
+            )
+        )
+        .filter(Brand.id == bid)
+        .one_or_none()
+    )
     if not b: raise HTTPException(404, "Brand not found")
     return b
 
