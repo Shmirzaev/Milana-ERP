@@ -771,6 +771,17 @@ def _process_summary(stages: list[dict], po_status: str) -> dict:
     }
 
 
+def _fabric_batch_images(db: DbSession, batch_ids: set[int]) -> dict[int, str | None]:
+    if not batch_ids:
+        return {}
+    return {
+        int(batch_id): image_url
+        for batch_id, image_url in db.query(StockBatch.id, StockBatch.image_url)
+        .filter(StockBatch.id.in_(batch_ids))
+        .all()
+    }
+
+
 @router.get("")
 def list_processes(
     db: DbSession, current: CurrentUser,
@@ -984,14 +995,7 @@ def list_processes(
             else []
         )
     }
-    fabric_batches = {
-        batch.id: batch
-        for batch in (
-            db.query(StockBatch).filter(StockBatch.id.in_(fabric_batch_ids)).all()
-            if fabric_batch_ids
-            else []
-        )
-    }
+    fabric_batch_images = _fabric_batch_images(db, fabric_batch_ids)
     sos = {
         s.id: s
         for s in (
@@ -1097,7 +1101,7 @@ def list_processes(
     out: list[dict] = []
     for po in pos:
         model = models.get(po.model_id)
-        fabric_batch = fabric_batches.get(po.fabric_batch_id)
+        fabric_batch_image = fabric_batch_images.get(po.fabric_batch_id)
         so = sos.get(po.sales_order_id) if po.sales_order_id else None
         customer = customers.get(so.customer_id) if so and so.customer_id else None
         cutting_passports = passports_by_order.get(int(po.id), [])
@@ -1277,9 +1281,7 @@ def list_processes(
                 for size, quantities in size_totals.items()
             ],
             "model_image_url": model_display_image_url(model),
-            "material_image_url": (
-                fabric_batch.image_url if fabric_batch else None
-            ) or material_preview_image_url(model),
+            "material_image_url": fabric_batch_image or material_preview_image_url(model),
             "cutting_passport_id": cutting_passports[0].id if cutting_passports else None,
             "cutting_passport_no": cutting_passports[0].passport_no if cutting_passports else None,
             "cutting_passports": [
