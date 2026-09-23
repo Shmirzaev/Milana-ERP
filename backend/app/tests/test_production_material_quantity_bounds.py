@@ -65,6 +65,20 @@ def test_production_material_quantity_preserves_extra_precision_and_exact_maximu
     )
 
 
+def test_production_material_stock_batch_id_rejects_integer_storage_overflow():
+    with pytest.raises(ValidationError):
+        ProductionOrderMaterialIn(
+            stock_batch_id=2_147_483_648,
+            estimated_quantity=1,
+            unit="kg",
+        )
+
+    payload = _order_payload("1")
+    payload["materials"][0]["stock_batch_id"] = 2_147_483_648
+    with pytest.raises(ValidationError):
+        ProductionOrderIn(**payload)
+
+
 def test_invalid_production_material_quantity_has_no_write_side_effects(
     client,
     auth_headers,
@@ -88,6 +102,17 @@ def test_invalid_production_material_quantity_preserves_authentication_precedenc
         "/api/production-orders",
         json=_order_payload("Infinity"),
     )
+
+    assert response.status_code == 401, response.text
+    assert _write_counts() == before
+
+
+def test_invalid_production_material_id_preserves_authentication_precedence(client):
+    before = _write_counts()
+    payload = _order_payload("1")
+    payload["materials"][0]["stock_batch_id"] = 2_147_483_648
+
+    response = client.post("/api/production-orders", json=payload)
 
     assert response.status_code == 401, response.text
     assert _write_counts() == before

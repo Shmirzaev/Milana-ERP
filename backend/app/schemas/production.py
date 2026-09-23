@@ -87,7 +87,7 @@ class ProductionOrderUpdateIn(BaseModel):
 
 
 class ProductionOrderMaterialIn(BaseModel):
-    stock_batch_id: int
+    stock_batch_id: int = Field(le=2_147_483_647)
     estimated_quantity: float = Field(
         gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
