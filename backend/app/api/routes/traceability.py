@@ -21,6 +21,35 @@ from app.services.traceability import (
 router = APIRouter(prefix="/traceability", tags=["traceability"])
 
 
+def _package_lookup(db: DbSession):
+    return db.query(Package).options(load_only(
+        Package.id,
+        Package.package_no,
+        Package.barcode,
+        Package.qr_code_url,
+        Package.production_order_id,
+        Package.production_batch_id,
+        Package.sales_order_id,
+        Package.brand_id,
+        Package.collection_id,
+        Package.model_id,
+        Package.color,
+        Package.package_type,
+        Package.total_quantity,
+        Package.capacity,
+        Package.weight_kg,
+        Package.warehouse_id,
+        Package.storage_cell,
+        Package.storage_shelf,
+        Package.storage_placed_at,
+        Package.status,
+        Package.packed_at,
+        Package.received_at,
+        Package.shipped_at,
+        Package.created_at,
+    ))
+
+
 def _decode(value: str) -> str:
     return unquote(str(value or "").strip())
 
@@ -41,11 +70,13 @@ def _package_lookup_candidates(raw_code: str) -> list[str]:
 def _find_package(db: DbSession, key: str) -> Package | None:
     decoded = _decode(key)
     if decoded.isdigit():
-        pkg = db.get(Package, int(decoded))
+        pkg = _package_lookup(db).filter(Package.id == int(decoded)).first()
         if pkg:
             return pkg
     for candidate in _package_lookup_candidates(decoded):
-        pkg = db.query(Package).filter((Package.barcode == candidate) | (Package.package_no == candidate)).first()
+        pkg = _package_lookup(db).filter(
+            (Package.barcode == candidate) | (Package.package_no == candidate)
+        ).first()
         if pkg:
             return pkg
     return None
