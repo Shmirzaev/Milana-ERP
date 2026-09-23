@@ -69,6 +69,30 @@ def test_reserve_returns_missing_for_unrepresentable_stock_id(client, auth_heade
     assert response.json()["detail"] == "Stock not found"
 
 
+@pytest.mark.parametrize("source", ["manual", "aggregate"])
+@pytest.mark.parametrize("sales_order_id", [0, 2_147_483_648])
+def test_reserve_rejects_unstorable_sales_order_id_without_mutation(
+    client, auth_headers, source, sales_order_id,
+):
+    fixture = _stock(source=source)
+    stock_id = fixture["stock_ids"][0]
+    quantity = 10 if source == "manual" else 1
+
+    response = client.post(
+        "/api/finished-goods/reserve",
+        headers=auth_headers,
+        params={"stock_id": stock_id, "quantity": quantity, "sales_order_id": sales_order_id},
+    )
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == "Sales order not found"
+    with SessionLocal() as db:
+        stock = db.get(FinishedGoodsStock, stock_id)
+        assert stock.available_qty == stock.quantity
+        assert stock.reserved_qty == 0
+        assert db.query(StockReservation).filter_by(finished_goods_stock_id=stock_id).count() == 0
+
+
 def _balances(fixture):
     with SessionLocal() as db:
         stocks = [(s.id, s.quantity, s.available_qty, s.reserved_qty, s.sold_qty, s.status)

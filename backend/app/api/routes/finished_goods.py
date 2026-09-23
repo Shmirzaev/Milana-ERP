@@ -49,6 +49,11 @@ def _stock_payload(
     }
 
 
+def _require_storable_sales_order_id(sales_order_id: int) -> None:
+    if sales_order_id < 1 or sales_order_id > _DB_INTEGER_MAX:
+        raise HTTPException(404, "Sales order not found")
+
+
 @router.get("", response_model=list[FinishedGoodsStockOut] | FinishedGoodsStockPageOut)
 def list_stock(db: DbSession, _: CurrentUser,
                model_id: int | None = None, status: str | None = None, brand_id: int | None = None,
@@ -182,6 +187,7 @@ def _reserve_manual_package(db, current, stock, quantity, sales_order_id):
         raise HTTPException(409, "Manual package is not available for reservation")
     if quantity != package.total_quantity or quantity <= 0:
         raise HTTPException(409, "Reserve the entire manual package quantity in one request")
+    _require_storable_sales_order_id(sales_order_id)
     order = db.get(SalesOrder, sales_order_id)
     if not order:
         raise HTTPException(404, "Sales order not found")
@@ -257,6 +263,7 @@ def _reserve_piece_stock(db, current, stock_id, package_id, quantity, sales_orde
         raise HTTPException(409, "Stock package changed; reload before reserving")
     if quantity > stock.available_qty:
         raise HTTPException(400, "Not enough available")
+    _require_storable_sales_order_id(sales_order_id)
     stock.available_qty -= quantity
     stock.reserved_qty += quantity
     if stock.available_qty == 0:
