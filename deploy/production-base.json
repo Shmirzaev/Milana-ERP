@@ -1,6 +1,6 @@
 {
-  "release": "20260923_090323",
-  "source_manifest_sha256": "5cf922d4ef50640174361486e1c992ae3183f7e3aa574c0441f36590872a32ec",
+  "release": "20260923_094746",
+  "source_manifest_sha256": "8382a08dcfc0f5c2a80d0f5af0f1d2ed53d039308cbbe78337367a53bfa23d73",
   "database_revision": "0132_first_grade_singles",
-  "git_baseline_commit": "b1ad090405a91d1422449e9c8af364e5fa602cd6"
+  "git_baseline_commit": "3d63d77f72376e1cafd97795ff9ed41e7b190444"
 }
