@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 
@@ -48,8 +48,8 @@ class WastePageOut(BaseModel):
 
 class WasteSaleIn(BaseModel):
     buyer_name: str
-    quantity: float
-    unit_price: float
+    quantity: Decimal = Field(allow_inf_nan=True)
+    unit_price: Decimal = Field(allow_inf_nan=True)
 
 
 class WasteSaleOut(ORMModel):

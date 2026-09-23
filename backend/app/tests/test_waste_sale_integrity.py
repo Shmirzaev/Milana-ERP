@@ -118,6 +118,26 @@ def test_sale_rejects_quantity_above_aggregate_remaining_without_writes(client):
 
 
 @pytest.mark.parametrize(("field", "value", "detail"), [
+    ("quantity", "1.00000000000000001", "Sale quantity supports at most 4 decimal places"),
+    ("unit_price", "2.00000000000000001", "Unit price supports at most 2 decimal places"),
+])
+def test_sale_preserves_decimal_input_precision_when_validating(client, field, value, detail):
+    _, headers = _actor()
+    wid = _fixture()
+    before = _snapshot(wid)
+
+    response = client.post(
+        f"/api/waste/{wid}/sell",
+        headers=headers,
+        json={"buyer_name": "Synthetic buyer", "quantity": 1, "unit_price": 2, field: value},
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json() == {"detail": detail}
+    assert _snapshot(wid) == before
+
+
+@pytest.mark.parametrize(("field", "value", "detail"), [
     ("quantity", 0, "Sale quantity must be finite and greater than zero"),
     ("quantity", -1, "Sale quantity must be finite and greater than zero"),
     ("quantity", 0.00001, "Sale quantity supports at most 4 decimal places"),
