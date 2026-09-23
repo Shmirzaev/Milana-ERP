@@ -150,7 +150,18 @@ def _package_context(db: DbSession, pkg: Package) -> dict:
     customer = db.get(Customer, so.customer_id) if so and so.customer_id else None
     model = (
         db.query(Model)
-        .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
+        .options(
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            selectinload(Model.bom).joinedload(ModelBOM.item),
+        )
         .filter(Model.id == pkg.model_id)
         .first()
         if pkg.model_id
@@ -530,6 +541,18 @@ def _label_model(db: DbSession, model_id: int | None) -> Model | None:
         .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
         .filter(Model.id == model_id)
         .first()
+    )
+
+
+def _warehouse_model_image_loader():
+    return selectinload(Model.images).load_only(
+        ModelImage.id,
+        ModelImage.model_id,
+        ModelImage.file_url,
+        ModelImage.file_name,
+        ModelImage.content_type,
+        ModelImage.image_type,
+        ModelImage.is_primary,
     )
 
 
@@ -1075,7 +1098,7 @@ def storage_map(
         .join(Model, Model.id == Package.model_id)
         .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
         .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
-        .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
+        .options(_warehouse_model_image_loader(), selectinload(Model.bom).joinedload(ModelBOM.item))
         .filter(Package.status.in_(ready_statuses))
         .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
     )
@@ -1179,7 +1202,7 @@ def storage_map(
             int(model.id): model
             for model in (
                 db.query(Model)
-                .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
+                .options(_warehouse_model_image_loader(), selectinload(Model.bom).joinedload(ModelBOM.item))
                 .filter(Model.id.in_(model_ids))
                 .all()
                 if model_ids
