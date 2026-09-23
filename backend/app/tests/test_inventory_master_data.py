@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from openpyxl import load_workbook
+from sqlalchemy import event
 from sqlalchemy.dialects import postgresql
 
 from app.api.routes.cutting_passports import _compute, _size_count_from_range
@@ -1186,8 +1187,23 @@ def test_reserved_batch_delete_releases_reservation_and_archives_inventory(clien
         ).one()
         assert reservation.item_id == materials[1]["id"]
 
-    deleted = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    movement_reads = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT") and "from stock_movements" in statement.lower():
+            movement_reads.append(" ".join(statement.lower().split()))
+
+    event.listen(session_module.SessionLocal.kw["bind"], "before_cursor_execute", capture)
+    try:
+        deleted = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    finally:
+        event.remove(session_module.SessionLocal.kw["bind"], "before_cursor_execute", capture)
     assert deleted.status_code == 204, deleted.text
+    # This path archives because reservations exist, so it only needs the narrow
+    # downstream-existence probe; receipt rows are fetched only for hard delete.
+    assert len(movement_reads) == 1
+    selected_columns = movement_reads[0].split(" from stock_movements", 1)[0]
+    assert selected_columns == "select stock_movements.id as stock_movements_id"
     with session_module.SessionLocal() as db:
         batch = db.get(StockBatch, batch_id)
         assert batch is not None
@@ -1666,6 +1682,60 @@ def test_stock_batch_delete_archives_used_batch_and_reduces_remaining_inventory(
     )
     assert visible.status_code == 200, visible.text
     assert all(row["id"] != batch_id for row in visible.json())
+
+
+def test_stock_batch_delete_treats_legacy_null_reference_type_as_downstream(client, auth_headers):
+    from app.db import session as session_module
+    from app.models import StockBatch, StockMovement
+
+    suffix = uuid4().hex[:8].upper()
+    item_response = client.post(
+        "/api/inventory/items",
+        json={
+            "sku": f"ACC-NULL-REF-{suffix}",
+            "name": f"Legacy null reference {suffix}",
+            "category": "accessory",
+            "unit": "pcs",
+            "default_cost": 1,
+            "reorder_level": 0,
+            "track_batch": True,
+            "is_active": True,
+        },
+        headers=auth_headers,
+    )
+    assert item_response.status_code == 201, item_response.text
+    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
+    assert warehouses.status_code == 200, warehouses.text
+    accessory_warehouse = next(
+        row for row in warehouses.json() if row["type"] == "accessory_storage"
+    )
+    receive = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_id": item_response.json()["id"],
+            "batch_no": f"NULL-REF-{suffix}",
+            "quantity": 3,
+            "unit": "pcs",
+            "cost_per_unit": 1,
+            "warehouse_id": accessory_warehouse["id"],
+            "qc_status": "passed",
+        },
+        headers=auth_headers,
+    )
+    assert receive.status_code == 201, receive.text
+    batch_id = int(receive.json()["id"])
+    with session_module.SessionLocal() as db:
+        movement = db.query(StockMovement).filter_by(batch_id=batch_id).one()
+        movement.reference_type = None
+        db.commit()
+
+    deleted = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    assert deleted.status_code == 204, deleted.text
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        assert batch is not None
+        assert batch.archived_at is not None
+        assert float(batch.quantity) == 0
 
 
 def test_admin_can_create_update_and_delete_supplier(client, auth_headers):

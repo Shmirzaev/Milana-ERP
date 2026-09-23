@@ -1677,13 +1677,16 @@ def archive_or_delete_batch(
         or db.query(CuttingMaterialUsage.id).filter(CuttingMaterialUsage.stock_batch_id == batch_id).first()
         or db.query(WasteRecord.id).filter(WasteRecord.batch_id == batch_id).first()
     )
-    movements = db.query(StockMovement).filter(StockMovement.batch_id == batch_id).all()
-    has_downstream_movement = any(
-        movement.movement_type != "receive"
-        or movement.reference_type != "StockBatch"
-        or int(movement.reference_id or 0) != batch_id
-        for movement in movements
-    )
+    has_downstream_movement = db.query(StockMovement.id).filter(
+        StockMovement.batch_id == batch_id,
+        or_(
+            StockMovement.movement_type != "receive",
+            StockMovement.reference_type.is_(None),
+            StockMovement.reference_type != "StockBatch",
+            StockMovement.reference_id.is_(None),
+            StockMovement.reference_id != batch_id,
+        ),
+    ).first() is not None
 
     old_value = {
         "batch_no": batch.batch_no,
@@ -1750,7 +1753,13 @@ def archive_or_delete_batch(
         db.commit()
         return
 
-    _delete_stock_batch_receipt_movements(db, movements)
+    receipt_movements = db.query(StockMovement).filter(
+        StockMovement.batch_id == batch_id,
+        StockMovement.movement_type == "receive",
+        StockMovement.reference_type == "StockBatch",
+        StockMovement.reference_id == batch_id,
+    ).all()
+    _delete_stock_batch_receipt_movements(db, receipt_movements)
     db.delete(batch)
     log_action(db, current, "delete", "StockBatch", batch_id, old_value=old_value)
     db.commit()
