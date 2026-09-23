@@ -924,11 +924,29 @@ def _model_group_member_ids(qry) -> list[list[int]]:
     ]
 
 
-def _model_with_variant_relations(db: DbSession, mid: int, catalog_scope: str = "standard") -> Model | None:
+def _model_with_variant_relations(
+    db: DbSession,
+    mid: int,
+    catalog_scope: str = "standard",
+    *,
+    include_image_binaries: bool = False,
+) -> Model | None:
+    image_loader = selectinload(Model.images)
+    if not include_image_binaries:
+        image_loader = image_loader.load_only(
+            ModelImage.id,
+            ModelImage.model_id,
+            ModelImage.file_url,
+            ModelImage.file_name,
+            ModelImage.content_type,
+            ModelImage.image_type,
+            ModelImage.is_primary,
+            ModelImage.created_at,
+        )
     return (
         db.query(Model)
         .options(
-            selectinload(Model.images),
+            image_loader,
             selectinload(Model.sizes),
             selectinload(Model.colors),
             selectinload(Model.bom).joinedload(ModelBOM.item),
@@ -2004,7 +2022,7 @@ def create_model_variant(
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
     catalog_scope = _normalize_catalog_scope(catalog_scope)
-    source = _model_with_variant_relations(db, mid, catalog_scope)
+    source = _model_with_variant_relations(db, mid, catalog_scope, include_image_binaries=True)
     if not source:
         raise HTTPException(404, "Model not found")
 
