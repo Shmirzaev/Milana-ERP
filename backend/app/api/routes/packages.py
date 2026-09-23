@@ -23,10 +23,12 @@ from app.core.model_search import (
 from app.models import (
     Customer,
     Item,
+    LegacyStockReceipt,
     Package,
     PackageBatchAllocation,
     PackageBarcodeAlias,
     PackageChangeRequest,
+    PackageItem,
     PackageScanLog,
     Model,
     ModelBOM,
@@ -394,10 +396,36 @@ def _package_detail_payloads(
 
 def _package_detail_relationship_options():
     return (
-        selectinload(Package.items),
-        selectinload(Package.batch_allocations),
-        selectinload(Package.scan_logs),
-        joinedload(Package.legacy_receipt),
+        selectinload(Package.items).load_only(
+            PackageItem.id,
+            PackageItem.package_id,
+            PackageItem.model_id,
+            PackageItem.color,
+            PackageItem.size,
+            PackageItem.quantity,
+        ),
+        selectinload(Package.batch_allocations).load_only(
+            PackageBatchAllocation.id,
+            PackageBatchAllocation.package_id,
+            PackageBatchAllocation.production_batch_id,
+            PackageBatchAllocation.quantity,
+        ),
+        selectinload(Package.scan_logs).load_only(
+            PackageScanLog.id,
+            PackageScanLog.package_id,
+            PackageScanLog.scanned_by,
+            PackageScanLog.scan_type,
+            PackageScanLog.location,
+            PackageScanLog.scanned_at,
+        ),
+        joinedload(Package.legacy_receipt).load_only(
+            LegacyStockReceipt.id,
+            LegacyStockReceipt.source_payload,
+            LegacyStockReceipt.source_system,
+            LegacyStockReceipt.source_record_id,
+            LegacyStockReceipt.source_warehouse_name,
+            LegacyStockReceipt.imported_at,
+        ),
     )
 
 

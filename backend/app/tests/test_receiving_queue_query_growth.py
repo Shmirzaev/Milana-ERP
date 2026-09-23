@@ -197,6 +197,34 @@ def test_receiving_queue_batches_full_detail_payload(client, auth_headers, packa
     image_selects = [statement for statement in statements if " from model_images " in statement]
     assert len(image_selects) == expected_chunks
     assert all("file_data" not in statement for statement in image_selects)
+    expected_detail_columns = {
+        "package_items": (
+            ("id", "package_id", "model_id", "color", "size", "quantity"),
+            ("created_at", "updated_at"),
+        ),
+        "package_batch_allocations": (
+            ("id", "package_id", "production_batch_id", "quantity"),
+            ("created_at", "updated_at"),
+        ),
+        "package_scan_logs": (
+            ("id", "package_id", "scanned_by", "scan_type", "location", "scanned_at"),
+            ("created_at", "updated_at"),
+        ),
+    }
+    for table, (required_columns, omitted_columns) in expected_detail_columns.items():
+        reads = [
+            statement
+            for statement in statements
+            if "select count(*)" not in statement
+            and f"{table}.{required_columns[-1]}" in statement
+        ]
+        assert reads
+        for statement in reads:
+            selected_columns = statement.split(" from ", maxsplit=1)[0]
+            for column in required_columns:
+                assert f"{table}.{column}" in selected_columns
+            for column in omitted_columns:
+                assert f"{table}.{column}" not in selected_columns
 
 
 def test_receiving_queue_preserves_scalar_payload_and_event_membership(client, auth_headers):
