@@ -145,6 +145,33 @@ def test_undo_is_scoped_audited_and_restores_missing(client, auth_headers, packs
         )
 
 
+def test_bulk_undo_scans_is_atomic_scoped_audited_and_preserves_stock(client, auth_headers, packs):
+    cid, other = start(client, auth_headers), start(client, auth_headers)
+    found = scan(client, auth_headers, cid, "COUNT-0")["row"]["id"]
+    unknown = scan(client, auth_headers, cid, "UNKNOWN")["row"]["id"]
+    retained = scan(client, auth_headers, cid, "COUNT-1")["row"]["id"]
+    foreign = scan(client, auth_headers, other, "COUNT-0")["row"]["id"]
+    before = business_fingerprint()
+    path = f"{BASE}/{cid}/scans/delete-selected"
+    assert client.post(path, headers=auth_headers, json={"row_ids": [found, foreign]}).status_code == 404
+    assert detail(client, auth_headers, cid)["summary"]["scanned"] == 3
+    response = client.post(path, headers=auth_headers, json={"row_ids": [found, unknown, found]})
+    assert response.status_code == 200, response.text
+    assert response.json()["deleted"] == sorted([found, unknown])
+    result = detail(client, auth_headers, cid)
+    assert [row["id"] for row in result["rows"] if row["scanned_at"]] == [retained]
+    assert next(row for row in result["rows"] if row["id"] == found)["result"] == "missing"
+    assert not any(row["id"] == unknown for row in result["rows"])
+    assert detail(client, auth_headers, other)["summary"]["scanned"] == 1
+    assert client.post(path, headers=auth_headers, json={"row_ids": [retained, found]}).status_code == 404
+    assert detail(client, auth_headers, cid)["summary"]["scanned"] == 1
+    assert client.post(f"{BASE}/{cid}/complete", headers=auth_headers).status_code == 200
+    assert client.post(path, headers=auth_headers, json={"row_ids": [retained]}).status_code == 409
+    assert business_fingerprint() == before
+    with SessionLocal() as db:
+        assert db.query(AuditLog).filter_by(entity_type="WarehouseStocktake", entity_id=cid, action="undo_scan").count() == 2
+
+
 def test_movement_snapshot_and_completed_report_are_stable(client, auth_headers, packs):
     cid = start(client, auth_headers)
     with SessionLocal() as db:
@@ -205,6 +232,7 @@ def test_all_count_endpoints_require_warehouse_access(client, auth_headers, pack
         ("post", f"{BASE}/{cid}/scan", {"code": "COUNT-0"}),
         ("post", f"{BASE}/{cid}/complete", None),
         ("post", f"{BASE}/delete-selected", {"count_ids": [cid]}),
+        ("post", f"{BASE}/{cid}/scans/delete-selected", {"row_ids": [row_id]}),
         ("delete", f"{BASE}/{cid}/scans/{row_id}", None),
     ]:
         kwargs = {"headers": headers}

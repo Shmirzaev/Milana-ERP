@@ -31,12 +31,16 @@ export default function StocktakeSession({ countId, userId, onBack }: { countId:
   const [failure, setFailure] = useState("");
   const [feedback, setFeedback] = useState<{ duplicate: boolean; row: Row } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState<number[]>([]);
   const queue = useRef<PendingStocktakeScan[]>([]);
   const saving = useRef(false);
   const failed = useRef(false);
   const input = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
   const completed = !!data?.completed_at;
+  const selectable = completed ? [] : (data?.rows || []).filter(row => row.scanned_at).map(row => row.id);
+  const selectedIds = selectable.filter(id => selected.includes(id));
+  const selectionDisabled = busy || pending > 0 || isValidating;
   const storageKey = stocktakePendingPrefix(userId, countId);
   const appendScanCharacter = useCallback((character: string) => setCode(value => (value + character).slice(0, 512)), []);
   useScannerFocus(input, !!data && !completed && !busy, appendScanCharacter);
@@ -74,7 +78,7 @@ export default function StocktakeSession({ countId, userId, onBack }: { countId:
   }, []);
 
   async function drain() {
-    if (saving.current || failed.current || completed) return;
+    if (saving.current || failed.current || completed || busy) return;
     saving.current = true;
     while (mounted.current && queue.current.length) {
       const scan = queue.current[0];
@@ -107,7 +111,7 @@ export default function StocktakeSession({ countId, userId, onBack }: { countId:
     void drain(); input.current?.focus();
   }
 
-  async function action(path: string, confirmation: string, remove = false) {
+  async function action(path: string, confirmation: string, remove = false, body?: { row_ids: number[] }) {
     if (queue.current.length || saving.current || busy) return;
     // Block scanner input while the confirmation is open as well as during the request.
     setBusy(true);
@@ -116,9 +120,11 @@ export default function StocktakeSession({ countId, userId, onBack }: { countId:
       refreshQueue();
       if (queue.current.length) { failed.current = true; setFailure(text.recovered); return; }
       setFailure("");
-      if (remove) await api.del(path); else await api.post(path, undefined, 60000);
+      if (remove) await api.del(path); else await api.post(path, body, 60000);
       setFeedback(null);
-      await mutate();
+      setSelected([]);
+      const updated = await mutate();
+      if (updated && offset >= updated.total && offset > 0) setOffset(Math.max(0, Math.ceil(updated.total / 100) - 1) * 100);
     } catch (e) { setFailure(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); input.current?.focus(); }
   }
@@ -149,7 +155,7 @@ export default function StocktakeSession({ countId, userId, onBack }: { countId:
       {!completed && <p className="text-sm text-slate-500">{text.scannerReady}</p>}
       {pending > 0 && <div role="status" className="space-y-2"><span>{text.pending}: {pending}</span>{failure && <>
         <textarea className="input w-full font-mono" aria-label={text.pending} readOnly value={unsaved.join("\n")} />
-        <div className="flex flex-wrap gap-2"><button className="btn" disabled={completed} onClick={() => { failed.current = false; setFailure(""); void drain(); }}>{text.retry}</button>
+        <div className="flex flex-wrap gap-2"><button className="btn" disabled={completed || busy} onClick={() => { failed.current = false; setFailure(""); void drain(); }}>{text.retry}</button>
         <button className="btn" disabled={busy} onClick={async () => {
           if (saving.current || busy) return;
           setBusy(true);
@@ -175,14 +181,19 @@ export default function StocktakeSession({ countId, userId, onBack }: { countId:
       {data.summary.changed > 0 && <p className="text-amber-800 text-sm">{text.movement}</p>}
       {(data.summary.unknown > 0 || data.summary.ambiguous > 0) && <p className="text-sm">{text.unknownHelp}</p>}
       <div className="flex flex-wrap gap-3 items-end">
-        <label className="flex flex-col gap-1">{text.result}<select className="input" value={filter} onChange={e => { setFilter(e.target.value); setOffset(0); input.current?.focus({ preventScroll: true }); }}>
+        <label className="flex flex-col gap-1">{text.result}<select className="input" value={filter} disabled={busy} onChange={e => { setSelected([]); setFilter(e.target.value); setOffset(0); input.current?.focus({ preventScroll: true }); }}>
           {["scanned", "all", "found", "missing", "unknown", "unexpected", "ambiguous", "changed"].map(key => <option key={key} value={key}>{key === "scanned" ? text.scanHistory : key === "missing" && completed ? text.missingFinal : text[key as keyof typeof text]}</option>)}
         </select></label>
-        <form className="flex min-w-48 flex-wrap gap-2 items-end flex-1" onSubmit={e => { e.preventDefault(); setSearch(query); setOffset(0); input.current?.focus({ preventScroll: true }); }}><label className="flex flex-col gap-1 flex-1 min-w-48">{text.search}<input className="input" value={query} onChange={e => setQuery(e.target.value)} maxLength={120} /></label><button className="btn">{t("common.search")}</button></form>
+        <form className="flex min-w-48 flex-wrap gap-2 items-end flex-1" onSubmit={e => { e.preventDefault(); if (busy) return; setSelected([]); setSearch(query); setOffset(0); input.current?.focus({ preventScroll: true }); }}><label className="flex flex-col gap-1 flex-1 min-w-48">{text.search}<input className="input" value={query} disabled={busy} onChange={e => setQuery(e.target.value)} maxLength={120} /></label><button className="btn" disabled={busy}>{t("common.search")}</button></form>
       </div>
       <p className="text-sm text-slate-500">{text.historySaved}</p>
-      <div className="overflow-x-auto border-y" aria-busy={isValidating}><table className="table"><thead><tr><th>{text.result}</th><th>{text.package}</th><th>{text.model}</th><th>{text.qty}</th><th>{text.location}</th><th>{text.status}</th><th>{text.scannedAt}</th><th /></tr></thead><tbody>
+      {!completed && <div className="flex flex-wrap items-center gap-3">
+        <button className="btn" disabled={selectionDisabled || !selectedIds.length} onClick={() => void action(`${base}/scans/delete-selected`, text.deleteScansConfirm.replace("{count}", String(selectedIds.length)), false, { row_ids: selectedIds })}>{text.deleteSelectedScans} ({selectedIds.length})</button>
+        <span className="text-sm text-slate-500">{text.selectScansPage}</span>
+      </div>}
+      <div className="overflow-x-auto border-y" aria-busy={isValidating}><table className="table"><thead><tr>{!completed && <th><input type="checkbox" aria-label={text.selectScansPage} disabled={selectionDisabled || !selectable.length} checked={selectable.length > 0 && selectedIds.length === selectable.length} ref={element => { if (element) element.indeterminate = selectedIds.length > 0 && selectedIds.length < selectable.length; }} onChange={e => setSelected(e.target.checked ? selectable : [])} /></th>}<th>{text.result}</th><th>{text.package}</th><th>{text.model}</th><th>{text.qty}</th><th>{text.location}</th><th>{text.status}</th><th>{text.scannedAt}</th><th /></tr></thead><tbody>
         {data.rows.map(row => <tr key={row.id}>
+          {!completed && <td>{row.scanned_at && <input type="checkbox" aria-label={`${text.selectScan}: ${row.snapshot.package_no || row.scan_code}`} disabled={selectionDisabled} checked={selectedIds.includes(row.id)} onChange={e => setSelected(e.target.checked ? [...selectedIds, row.id] : selectedIds.filter(id => id !== row.id))} />}</td>}
           <td><span className={row.result === "found" ? "text-green-700" : row.result === "missing" ? "" : "text-amber-800"}>{resultLabel(row.result)}</span>{row.changed && <span className="block text-sm text-amber-800">{text.changed}</span>}</td>
           <td className="break-all">{row.package_id ? <Link className="underline" href={`/packages/${row.package_id}`} target="_blank" rel="noreferrer">{row.snapshot.package_no}</Link> : row.scan_code}<span className="block text-xs text-slate-500">{row.snapshot.barcode}</span></td>
           <td>{contents(row.scan_snapshot || row.snapshot)}</td><td>{row.scanned_at ? row.scanned_pieces ?? "—" : row.snapshot.quantity ?? "—"}{row.scan_evidence_source === "count_start" && <span className="block text-xs text-amber-800">{text.estimatedScan}</span>}{row.package_id && <span className="block text-xs">{t("field.available")}: {row.snapshot.available} · {t("field.reserved")}: {row.snapshot.reserved}</span>}{row.changed && <span className="block text-xs">{text.current}: {row.current?.quantity ?? "—"} · {t("field.available")}: {row.current?.available ?? "—"} · {t("field.reserved")}: {row.current?.reserved ?? "—"}</span>}</td>
@@ -190,9 +201,9 @@ export default function StocktakeSession({ countId, userId, onBack }: { countId:
           <td className="whitespace-nowrap">{row.scanned_at ? new Date(row.scanned_at).toLocaleString() : "—"}</td>
           <td>{!completed && row.scanned_at && <button className="btn" disabled={pending > 0 || busy} onClick={() => void action(`${base}/scans/${row.id}`, text.undoConfirm, true)}>{text.undo}</button>}</td>
         </tr>)}
-        {data.rows.length === 0 && <tr><td colSpan={8}>{text.noRows}</td></tr>}
+        {data.rows.length === 0 && <tr><td colSpan={completed ? 8 : 9}>{text.noRows}</td></tr>}
       </tbody></table></div>
-      <div className="flex gap-3 items-center"><button className="btn" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>{text.previous}</button><span>{data.total ? offset + 1 : 0}–{Math.min(offset + 100, data.total)} / {data.total}</span><button className="btn" disabled={offset + 100 >= data.total} onClick={() => setOffset(offset + 100)}>{text.next}</button></div>
+      <div className="flex gap-3 items-center"><button className="btn" disabled={busy || offset === 0} onClick={() => { setSelected([]); setOffset(Math.max(0, offset - 100)); }}>{text.previous}</button><span>{data.total ? offset + 1 : 0}–{Math.min(offset + 100, data.total)} / {data.total}</span><button className="btn" disabled={busy || offset + 100 >= data.total} onClick={() => { setSelected([]); setOffset(offset + 100); }}>{text.next}</button></div>
     </>}
   </section>;
 }
