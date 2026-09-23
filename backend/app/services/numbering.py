@@ -56,9 +56,9 @@ def _next(db: Session, model, attr: str, prefix: str, *, width: int = 6) -> str:
     # Deleted manual-label identities remain retired: old printed QR codes must
     # never resolve to a new physical pack or print run.
     if model.__tablename__ in {"packages", "package_print_runs"}:
-        floor = db.query(SystemSetting).filter_by(key=f"retired_number:{prefix}:{year}").first()
+        floor = db.query(SystemSetting.value_json).filter_by(key=f"retired_number:{prefix}:{year}").scalar()
         if floor:
-            next_num = max(next_num, int(floor.value_json.get("number", 0)) + 1)
+            next_num = max(next_num, int(floor.get("number", 0)) + 1)
     return f"{prefix}-{year}-{next_num:0{width}d}"
 
 
