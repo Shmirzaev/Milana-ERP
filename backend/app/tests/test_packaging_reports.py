@@ -190,6 +190,18 @@ def test_report_counts_actual_packages_once_and_uses_tashkent_creation_date(clie
     assert closed["packed_quantity"] == 175 and closed["damaged_quantity"] == 3 and closed["balance"] == -2
     assert closed["shortage"] is None and closed["first_sort"] is None
     assert len(selects) <= 13
+    package_reads = [
+        statement.lower()
+        for statement in selects
+        if "packages.packed_at" in statement.lower() and "limit ?" in statement.lower()
+    ]
+    order_reads = [
+        statement.lower() for statement in selects if "production_orders.production_no" in statement.lower()
+    ]
+    assert len(package_reads) == 1
+    assert len(order_reads) == 1
+    assert "packages.notes" not in package_reads[0]
+    assert "production_orders.planning_estimate_comment" not in order_reads[0]
     with TestSessionLocal() as db:
         after = (db.query(func.count(Package.id)).scalar(), db.query(func.count(AuditLog.id)).scalar())
         assert before == after

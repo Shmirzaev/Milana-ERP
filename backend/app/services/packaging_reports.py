@@ -8,7 +8,7 @@ from io import BytesIO
 import base64
 
 from fastapi import HTTPException
-from sqlalchemy.orm import lazyload, selectinload
+from sqlalchemy.orm import lazyload, load_only, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 from PIL import Image
 
@@ -20,6 +20,8 @@ from app.models import (
     Model,
     ModelImage,
     Package,
+    PackageBatchAllocation,
+    PackageItem,
     ProductionBatch,
     ProductionOrder,
     WorkOrder,
@@ -84,8 +86,28 @@ def build_packaging_report(
     packages = (
         package_query.options(
             lazyload("*"),
-            selectinload(Package.items),
-            selectinload(Package.batch_allocations),
+            load_only(
+                Package.id,
+                Package.production_order_id,
+                Package.model_id,
+                Package.brand_id,
+                Package.production_batch_id,
+                Package.color,
+                Package.total_quantity,
+                Package.capacity,
+                Package.packed_at,
+            ),
+            selectinload(Package.items).load_only(
+                PackageItem.id,
+                PackageItem.package_id,
+                PackageItem.size,
+                PackageItem.quantity,
+            ),
+            selectinload(Package.batch_allocations).load_only(
+                PackageBatchAllocation.id,
+                PackageBatchAllocation.package_id,
+                PackageBatchAllocation.production_batch_id,
+            ),
         )
         .filter(Package.packed_at >= start, Package.packed_at < end)
         .order_by(
@@ -102,7 +124,19 @@ def build_packaging_report(
     completed = (
         db.query(WorkOrder)
         .join(Department)
-        .options(lazyload("*"))
+        .options(
+            lazyload("*"),
+            load_only(
+                WorkOrder.id,
+                WorkOrder.production_order_id,
+                WorkOrder.production_batch_id,
+                WorkOrder.end_time,
+                WorkOrder.planned_output_qty,
+                WorkOrder.passed_qty,
+                WorkOrder.failed_qty,
+                WorkOrder.notes,
+            ),
+        )
         .filter(
             Department.code == department,
             WorkOrder.operation == "packaging",
@@ -120,7 +154,15 @@ def build_packaging_report(
     orders = (
         {
             o.id: o
-            for o in db.query(ProductionOrder).options(lazyload("*")).filter(ProductionOrder.id.in_(order_ids)).all()
+            for o in db.query(ProductionOrder).options(
+                lazyload("*"),
+                load_only(
+                    ProductionOrder.id,
+                    ProductionOrder.model_id,
+                    ProductionOrder.production_no,
+                    ProductionOrder.brand_id,
+                ),
+            ).filter(ProductionOrder.id.in_(order_ids)).all()
         }
         if order_ids
         else {}
@@ -136,7 +178,19 @@ def build_packaging_report(
         ModelImage.is_primary,
     )
     models = (
-        {m.id: m for m in db.query(Model).options(lazyload("*"), image_loader).filter(Model.id.in_(model_ids)).all()}
+        {m.id: m for m in db.query(Model).options(
+            lazyload("*"),
+            load_only(
+                Model.id,
+                Model.code,
+                Model.name,
+                Model.category,
+                Model.product_type,
+                Model.brand_id,
+                Model.details_json,
+            ),
+            image_loader,
+        ).filter(Model.id.in_(model_ids)).all()}
         if model_ids
         else {}
     )
