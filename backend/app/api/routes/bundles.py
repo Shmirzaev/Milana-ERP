@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_, text
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 import base64
 import hashlib
@@ -21,6 +21,7 @@ from app.models import (
     BundleScanLog,
     CuttingRecord,
     Department,
+    Item,
     Model,
     ModelBOM,
     ModelImage,
@@ -29,6 +30,7 @@ from app.models import (
     SalesOrder,
     SewingAssignment,
     SewingFlow,
+    StockBatch,
     User,
     WorkOrder,
     public_production_order_no,
@@ -103,6 +105,7 @@ def _material_images_by_model_id(db: DbSession, model_ids) -> dict[int, str | No
     models = (
         db.query(Model)
         .options(
+            load_only(Model.id),
             selectinload(Model.images).load_only(
                 ModelImage.id,
                 ModelImage.model_id,
@@ -112,8 +115,26 @@ def _material_images_by_model_id(db: DbSession, model_ids) -> dict[int, str | No
                 ModelImage.image_type,
                 ModelImage.is_primary,
             ),
-            selectinload(Model.bom).joinedload(ModelBOM.item),
-            selectinload(Model.bom).joinedload(ModelBOM.stock_batch),
+            selectinload(Model.bom).options(
+                load_only(
+                    ModelBOM.id,
+                    ModelBOM.model_id,
+                    ModelBOM.item_id,
+                    ModelBOM.stock_batch_id,
+                    ModelBOM.photo_url,
+                ),
+                joinedload(ModelBOM.item).load_only(
+                    Item.id,
+                    Item.category,
+                    Item.image_url,
+                ),
+                joinedload(ModelBOM.stock_batch).load_only(
+                    StockBatch.id,
+                    StockBatch.image_url,
+                ).lazyload(
+                    StockBatch.item,
+                ),
+            ),
         )
         .filter(Model.id.in_(ids))
         .all()
