@@ -106,7 +106,7 @@ class CandidateIn(BaseModel):
     passport_issue_date: date | None = None
     passport_expiry_date: date | None = None
     pinfl: str | None = Field(default=None, pattern="^[0-9]{14}$")
-    phone: str | None = None
+    phone: str | None = Field(default=None, max_length=64)
     email: str | None = None
     source: str | None = None
     stage: str = Field(default="applied", pattern="^(applied|screening|interview|offer|hired|rejected)$")
