@@ -12,9 +12,9 @@ class WasteIn(BaseModel):
     source_department_id: Optional[int] = None
     item_id: Optional[int] = None
     batch_id: Optional[int] = None
-    waste_type: str
+    waste_type: str = Field(max_length=64)
     quantity: Decimal | float | int | str
-    unit: str
+    unit: str = Field(max_length=32)
     reason: Optional[str] = None
     sellable: bool = False
     estimated_value: float = 0
