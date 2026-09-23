@@ -55,6 +55,9 @@ def test_branded_order_party_pages_bound_sql_and_preserve_legacy_payload(count):
         assert page["page_size"] == 50
         assert page["has_more"] is (count > 50)
         assert len(statements) == 2, statements
+        assert "customers.name" in statements[1]
+        assert "customers.phone" not in statements[1]
+        assert "customers.email" not in statements[1]
         assert " limit ? offset ?" in statements[1]
         assert len(legacy_statements) == 1, legacy_statements
 

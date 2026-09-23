@@ -130,7 +130,9 @@ def branded_order_parties(
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    ordered_query = db.query(Customer).order_by(Customer.name.asc())
+    ordered_query = db.query(Customer).options(
+        load_only(Customer.id, Customer.name),
+    ).order_by(Customer.name.asc())
     payload = {
         "companies": [{"type": key, "name": name} for key, name in BRANDED_ORDER_PARTIES.items()],
     }
