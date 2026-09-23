@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, require_permissions
 from app.models import User
@@ -72,7 +73,9 @@ def list_processes(
         escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         query = query.filter(or_(PaidProcess.normalized_name.contains(escaped, autoescape=False, escape="\\"),
                                  PaidProcess.code.ilike(f"%{escaped}%", escape="\\")))
-    ordered_query = query.order_by(PaidProcess.normalized_name, PaidProcess.section, PaidProcess.id)
+    ordered_query = query.options(
+        load_only(PaidProcess.id, PaidProcess.code, PaidProcess.name, PaidProcess.section)
+    ).order_by(PaidProcess.normalized_name, PaidProcess.section, PaidProcess.id)
     if page is None and page_size is None:
         rows = ordered_query.limit(51).all()
         return {"items": [output(row) for row in rows[:50]], "has_more": len(rows) > 50}

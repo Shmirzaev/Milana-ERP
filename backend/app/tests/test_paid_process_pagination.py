@@ -66,6 +66,11 @@ def test_paid_process_pages_bound_rows_and_preserve_legacy_prefix(count):
     assert page["items"][:50] == legacy["items"]
     assert legacy["has_more"] is (count > 50)
     assert len(statements) == 2, statements
+    selected_columns = statements[-1].split(" from ", 1)[0]
+    assert "normalized_name" not in selected_columns, statements[-1]
+    assert "normalized_key" not in selected_columns, statements[-1]
+    assert "created_at" not in selected_columns, statements[-1]
+    assert "updated_at" not in selected_columns, statements[-1]
     assert len(legacy_statements) == 1, legacy_statements
 
 
