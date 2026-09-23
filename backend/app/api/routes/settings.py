@@ -63,16 +63,19 @@ def _default_payload() -> dict:
     return {key: schema().model_dump() for key, schema in _SCHEMAS.items()}
 
 
-def _get_or_default(db: DbSession, key: str) -> dict:
-    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-    if row and isinstance(row.value_json, dict):
-        return _SCHEMAS[key](**row.value_json).model_dump()
+def _payload_or_default(key: str, value: object) -> dict:
+    if isinstance(value, dict):
+        return _SCHEMAS[key](**value).model_dump()
     return _SCHEMAS[key]().model_dump()
 
 
 @router.get("")
 def get_settings(db: DbSession, _: CurrentUser):
-    return {key: _get_or_default(db, key) for key in _SCHEMAS}
+    rows = db.query(SystemSetting.key, SystemSetting.value_json).filter(
+        SystemSetting.key.in_(_SCHEMAS)
+    ).all()
+    values = {key: value for key, value in rows}
+    return {key: _payload_or_default(key, values.get(key)) for key in _SCHEMAS}
 
 
 @router.patch("/{section}")
