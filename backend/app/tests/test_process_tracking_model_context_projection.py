@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from sqlalchemy import event
 
-from app.models import Model, ModelImage, ProductionOrder, SalesOrder
+from app.models import Model, ModelImage, ProductionOrder, ProductionOrderItem, SalesOrder
 from app.tests.conftest import TestSessionLocal, test_engine
 
 
@@ -129,3 +129,53 @@ def test_process_tracking_eager_loads_only_sales_order_reference(client, auth_he
     assert len(sales_order_reads) == 1
     assert "sales_orders.order_no" in sales_order_reads[0]
     assert "sales_orders.total_amount" not in sales_order_reads[0]
+
+
+def test_process_tracking_projects_only_size_item_output_fields(client, auth_headers):
+    marker = uuid4().hex[:10]
+    with TestSessionLocal() as db:
+        model = Model(code=f"PERF35-PT-SIZE-{marker}", name="Process tracking size projection", status="approved")
+        db.add(model)
+        db.flush()
+        order = ProductionOrder(
+            production_no=f"PERF35-PT-SIZE-PO-{marker}", production_type="branded_stock",
+            model_id=model.id, status="new", planned_quantity=7,
+        )
+        db.add(order)
+        db.flush()
+        db.add(ProductionOrderItem(
+            production_order_id=order.id, model_id=model.id, color="navy", size="M",
+            planned_quantity=7, completed_quantity=2, printing_required=True,
+        ))
+        db.commit()
+        production_no = order.production_no
+
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(
+            "/api/process-tracking",
+            params={"include_total": "true", "page_size": 1, "q": production_no},
+            headers=auth_headers,
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["rows"][0]["sizes"] == [{
+        "size": "M", "planned_quantity": 7, "completed_quantity": 2,
+    }]
+    item_reads = [statement for statement in statements if " from production_order_items " in statement]
+    assert len(item_reads) == 1, statements
+    selected = item_reads[0].split(" from production_order_items ", maxsplit=1)[0]
+    assert "production_order_items.size" in selected
+    assert "production_order_items.planned_quantity" in selected
+    assert "production_order_items.completed_quantity" in selected
+    assert "production_order_items.color" not in selected
+    assert "production_order_items.model_id" not in selected
+    assert "production_order_items.printing_required" not in selected

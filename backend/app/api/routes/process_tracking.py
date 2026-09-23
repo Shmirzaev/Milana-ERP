@@ -15,7 +15,7 @@ from app.core.pagination import clamp_pagination
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models import (
     SalesOrder, ProductionOrder, WorkOrder, Customer, Model, ModelBOM, Item, SewingFlow, SewingAssignment,
-    CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord, SewingReplacementRequest, ModelImage,
+    ProductionOrderItem, CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord, SewingReplacementRequest, ModelImage,
     PackagingRecord, Package, PackageBatchAllocation, StockBatch, Department, Bundle,
 )
 from app.core.dt import as_utc, date_filter_bounds
@@ -794,7 +794,11 @@ def list_processes(
     qry = db.query(ProductionOrder).options(
         selectinload(ProductionOrder.batches),
         selectinload(ProductionOrder.work_orders),
-        selectinload(ProductionOrder.items),
+        selectinload(ProductionOrder.items).load_only(
+            ProductionOrderItem.size,
+            ProductionOrderItem.planned_quantity,
+            ProductionOrderItem.completed_quantity,
+        ),
     ).outerjoin(
         SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id,
     ).outerjoin(
