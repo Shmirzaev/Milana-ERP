@@ -31,6 +31,8 @@ def add_process_qr_model_sizes(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.manage", "modeling.models", "*")),
 ):
+    if mid > 2_147_483_647:
+        raise HTTPException(404, "Model not found")
     # The standard catalog is shared across factories, as on the GET resolver.
     # Query arguments must never expose the separate Eco Cotton Usluga catalog.
     model = db.query(Model).filter(
