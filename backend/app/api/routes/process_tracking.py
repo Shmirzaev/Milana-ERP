@@ -1005,6 +1005,13 @@ def list_processes(
     passports_by_order: dict[int, list[CuttingPassport]] = {}
     passport_rows = (
         db.query(CuttingPassport)
+        .options(load_only(
+            CuttingPassport.id,
+            CuttingPassport.production_order_id,
+            CuttingPassport.passport_no,
+            CuttingPassport.lot_no,
+            CuttingPassport.date,
+        ))
         .filter(CuttingPassport.production_order_id.in_(production_order_ids))
         .order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())
         .all()
