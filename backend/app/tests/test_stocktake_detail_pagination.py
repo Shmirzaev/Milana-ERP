@@ -101,6 +101,38 @@ def test_common_stocktake_page_serializes_only_requested_rows(monkeypatch, row_c
     assert calls == min(row_count, 10)
 
 
+def test_stocktake_detail_reads_only_serialized_row_fields():
+    count_id = _stocktake_rows(3)
+    statements = []
+    with TestSessionLocal() as db:
+        count = db.get(WarehouseStocktake, count_id)
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().lower().startswith("select"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            total, rows = stocktake_service.stocktake_detail_page(
+                db, count, result="all", offset=0, limit=3,
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert total == 3
+    assert len(rows) == 3
+    row_reads = [sql for sql in statements if " from warehouse_stocktake_rows " in sql and "count(" not in sql]
+    assert len(row_reads) == 1
+    selected_columns = row_reads[0].split(" from warehouse_stocktake_rows ", maxsplit=1)[0]
+    for field in (
+        "id", "package_id", "scanned_at", "scan_snapshot", "snapshot", "expected",
+        "category", "scan_code", "scanned_by",
+    ):
+        assert f"warehouse_stocktake_rows.{field}" in selected_columns
+    assert "warehouse_stocktake_rows.final_snapshot" not in selected_columns
+    assert "warehouse_stocktake_rows.identity" not in selected_columns
+
+
 @pytest.mark.parametrize(("row_count", "expected_row_pages"), [(1, 1), (50, 1), (401, 2)])
 def test_stocktake_export_streams_complete_keyset_pages(
     client,

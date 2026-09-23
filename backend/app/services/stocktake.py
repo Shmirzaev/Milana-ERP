@@ -284,7 +284,17 @@ def stocktake_detail_page(
     limit: int,
     search: str = "",
 ) -> tuple[int, list[dict]]:
-    query = db.query(WarehouseStocktakeRow).filter(WarehouseStocktakeRow.stocktake_id == count.id)
+    query = db.query(WarehouseStocktakeRow).options(load_only(
+        WarehouseStocktakeRow.id,
+        WarehouseStocktakeRow.package_id,
+        WarehouseStocktakeRow.scanned_at,
+        WarehouseStocktakeRow.scan_snapshot,
+        WarehouseStocktakeRow.snapshot,
+        WarehouseStocktakeRow.expected,
+        WarehouseStocktakeRow.category,
+        WarehouseStocktakeRow.scan_code,
+        WarehouseStocktakeRow.scanned_by,
+    )).filter(WarehouseStocktakeRow.stocktake_id == count.id)
     if search:
         pattern = _stocktake_search_pattern(search)
         value_matches = [WarehouseStocktakeRow.scan_code.ilike(pattern, escape="\\")]
