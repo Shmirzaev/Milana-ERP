@@ -6,6 +6,7 @@ from html import escape
 from math import floor
 
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.dt import as_utc
 from app.core.config import settings
@@ -16,6 +17,7 @@ from app.models import (
     CuttingRecord,
     Model,
     ModelBOM,
+    ModelImage,
     ProductionBatch,
     ProductionOrder,
     ProductionOrderItem,
@@ -23,7 +25,7 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.services.label_images import fabric_label_image_src, model_label_image_src
+from app.services.label_images import fabric_label_image_src, is_preview_model_image, model_label_image_src
 from app.services.barcode import qr_png_data_uri
 
 
@@ -263,13 +265,45 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
     model = (
         db.query(Model)
         .options(
-            selectinload(Model.images),
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
             selectinload(Model.bom).selectinload(ModelBOM.item),
             selectinload(Model.bom).selectinload(ModelBOM.stock_batch),
         )
         .filter(Model.id == production_order.model_id)
         .first()
     )
+    if model:
+        images = [image for image in (model.images or []) if is_preview_model_image(image)]
+        typed_model = next((image for image in images if str(image.image_type or "").lower() == "model"), None)
+        primary = next((image for image in images if image.is_primary), None)
+        selected_images = [typed_model or primary or (images[0] if images else None)]
+        typed_material = next(
+            (
+                image
+                for image in sorted(images, key=lambda row: int(row.id or 0), reverse=True)
+                if str(image.image_type or "").lower() == "material"
+            ),
+            None,
+        )
+        selected_images.append(typed_material)
+        selected_image_ids = sorted({int(image.id) for image in selected_images if image is not None})
+        if selected_image_ids:
+            image_data = db.query(ModelImage.id, ModelImage.file_data).filter(
+                ModelImage.id.in_(selected_image_ids),
+                ModelImage.file_data.isnot(None),
+            ).all()
+            for image_id, file_data in image_data:
+                image = next((row for row in selected_images if row is not None and int(row.id) == int(image_id)), None)
+                if image is not None:
+                    set_committed_value(image, "file_data", file_data)
     batch = db.get(ProductionBatch, record.production_batch_id) if record.production_batch_id else None
     fabric_batch = db.get(StockBatch, record.fabric_batch_id) if record.fabric_batch_id else None
     passport = db.get(CuttingPassport, record.cutting_passport_id) if record.cutting_passport_id else (
