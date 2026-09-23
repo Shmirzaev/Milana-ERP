@@ -4074,7 +4074,15 @@ def payroll_summary(
         department_id=department_id,
         date_from=date_from,
         date_to=date_to,
-    ).filter(PayrollRecord.status != "voided")
+    ).filter(PayrollRecord.status != "voided").options(load_only(
+        PayrollRecord.employee_id,
+        PayrollRecord.currency,
+        PayrollRecord.quantity,
+        PayrollRecord.total_amount,
+        PayrollRecord.operation_section,
+        PayrollRecord.operation_code,
+        PayrollRecord.operation_name,
+    ))
 
     rows = base_qry.all()
     adjustments = _filtered_adjustment_query(
@@ -4085,7 +4093,12 @@ def payroll_summary(
         department_id=department_id,
         date_from=date_from,
         date_to=date_to,
-    ).all()
+    ).options(load_only(
+        PayrollAdjustment.employee_id,
+        PayrollAdjustment.currency,
+        PayrollAdjustment.adjustment_type,
+        PayrollAdjustment.amount,
+    )).all()
     employees, departments = _load_employee_maps(db, {int(r.employee_id) for r in rows} | {int(a.employee_id) for a in adjustments})
     currencies = {str(r.currency or "UZS") for r in rows} | {str(a.currency or "UZS") for a in adjustments}
     summary_currency = next(iter(currencies)) if len(currencies) == 1 else ("MIXED" if currencies else "UZS")
