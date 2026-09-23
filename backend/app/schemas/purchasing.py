@@ -37,12 +37,12 @@ class PurchaseRequestLineIn(BaseModel):
     item_id: int
     required_quantity: PurchaseRequestQuantity = Decimal("0")
     requested_quantity: Optional[PurchaseRequestQuantity] = None
-    unit: Optional[str] = None
+    unit: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 32})
     available_quantity: PurchaseRequestQuantity = Decimal("0")
     shortage_quantity: Optional[PurchaseRequestQuantity] = None
     preferred_supplier_id: Optional[int] = None
-    material_name: Optional[str] = None
-    photo_url: Optional[str] = None
+    material_name: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 255})
+    photo_url: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 500})
     notes: Optional[str] = None
 
 
@@ -100,12 +100,12 @@ class PurchaseRequestPageOut(BaseModel):
 class PurchaseOrderLineIn(BaseModel):
     item_id: int
     ordered_quantity: PurchaseOrderQuantity
-    unit: Optional[str] = None
+    unit: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 32})
     unit_cost: PurchaseOrderUnitCost = 0
     warehouse_id: Optional[int] = None
     supplier_id: Optional[int] = None
-    material_name: Optional[str] = None
-    photo_url: Optional[str] = None
+    material_name: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 255})
+    photo_url: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 500})
     notes: Optional[str] = None
 
 

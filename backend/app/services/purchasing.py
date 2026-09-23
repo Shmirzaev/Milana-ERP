@@ -36,6 +36,7 @@ ORDER_CREATE_STATUSES = {"draft", "sent"}
 ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
 MAX_PURCHASE_QUANTITY = Decimal("9999999999.9999")
 MAX_STOCK_BATCH_PIECE_COUNT = 2_147_483_647
+PURCHASE_LINE_VARCHAR_LIMITS = {"unit": 32, "material_name": 255, "photo_url": 500}
 
 
 def _num(value) -> float:
@@ -44,6 +45,17 @@ def _num(value) -> float:
 
 def _purchase_quantity(value) -> Decimal:
     return Decimal(str(value or 0))
+
+
+def _validate_purchase_line_varchar_lengths(line_inputs: list[dict]) -> None:
+    for index, line in enumerate(line_inputs):
+        for field, limit in PURCHASE_LINE_VARCHAR_LIMITS.items():
+            value = line.get(field)
+            if isinstance(value, str) and len(value) > limit:
+                raise HTTPException(
+                    422,
+                    f"lines[{index}].{field} must be at most {limit} characters",
+                )
 
 
 def _require_item(db: Session, item_id: int) -> Item:
@@ -96,17 +108,6 @@ def create_purchase_request(db: Session, *, data: dict, current: User) -> Purcha
     if not line_inputs:
         raise HTTPException(400, "At least one purchase request line is required")
 
-    request = PurchaseRequest(
-        request_no=next_purchase_request_no(db),
-        status=status,
-        sales_order_id=sales_order_id,
-        production_order_id=production_order_id,
-        requested_by=current.id,
-        notes=data.get("notes"),
-    )
-    db.add(request)
-    db.flush()
-
     items = _bulk_by_id(db, Item, (int(raw.get("item_id") or 0) for raw in line_inputs))
     suppliers = _bulk_by_id(
         db,
@@ -117,6 +118,7 @@ def create_purchase_request(db: Session, *, data: dict, current: User) -> Purcha
             if raw.get("preferred_supplier_id")
         ),
     )
+    line_values = []
     for raw in line_inputs:
         item_id = int(raw.get("item_id") or 0)
         item = items.get(item_id)
@@ -146,21 +148,35 @@ def create_purchase_request(db: Session, *, data: dict, current: User) -> Purcha
             raise HTTPException(400, "Requested quantity cannot be negative")
 
         unit = str(raw.get("unit") or item.unit or "").strip() or item.unit
-        db.add(
-            PurchaseRequestLine(
-                purchase_request_id=request.id,
-                item_id=item.id,
-                required_quantity=required_quantity,
-                requested_quantity=requested_quantity,
-                unit=unit,
-                available_quantity=available_quantity,
-                shortage_quantity=shortage_quantity,
-                preferred_supplier_id=preferred_supplier_id,
-                material_name=str(raw.get("material_name") or item.name or "").strip() or item.name,
-                photo_url=str(raw.get("photo_url") or item.image_url or "").strip() or None,
-                notes=raw.get("notes"),
-            )
-        )
+        line_values.append({
+            "item_id": item.id,
+            "required_quantity": required_quantity,
+            "requested_quantity": requested_quantity,
+            "unit": unit,
+            "available_quantity": available_quantity,
+            "shortage_quantity": shortage_quantity,
+            "preferred_supplier_id": preferred_supplier_id,
+            "material_name": str(raw.get("material_name") or item.name or "").strip() or item.name,
+            "photo_url": str(raw.get("photo_url") or item.image_url or "").strip() or None,
+            "notes": raw.get("notes"),
+        })
+
+    _validate_purchase_line_varchar_lengths(line_inputs)
+    _validate_purchase_line_varchar_lengths(line_values)
+    request = PurchaseRequest(
+        request_no=next_purchase_request_no(db),
+        status=status,
+        sales_order_id=sales_order_id,
+        production_order_id=production_order_id,
+        requested_by=current.id,
+        notes=data.get("notes"),
+    )
+    db.add(request)
+    db.flush()
+    db.add_all(
+        PurchaseRequestLine(purchase_request_id=request.id, **values)
+        for values in line_values
+    )
 
     db.flush()
     log_action(
@@ -314,20 +330,11 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
     if not line_inputs:
         raise HTTPException(400, "At least one purchase order line is required")
 
-    order = PurchaseOrder(
-        po_no=next_purchase_order_no(db),
-        purchase_request_id=purchase_request_id,
-        supplier_id=supplier_id,
-        status=str(data.get("status") or "draft"),
-        ordered_by=current.id,
-        expected_date=data.get("expected_date"),
-        notes=data.get("notes"),
-    )
-    if order.status not in ORDER_CREATE_STATUSES:
+    status = str(data.get("status") or "draft")
+    if status not in ORDER_CREATE_STATUSES:
         raise HTTPException(400, "Purchase order status must be draft or sent")
-    db.add(order)
-    db.flush()
 
+    line_values = []
     for raw in line_inputs:
         item = _require_item(db, int(raw.get("item_id") or 0))
         ordered_quantity = _purchase_quantity(raw.get("ordered_quantity"))
@@ -339,21 +346,36 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
         unit = str(raw.get("unit") or item.unit or "").strip() or item.unit
         line_supplier_id = raw.get("supplier_id") or supplier_id
         _require_supplier(db, int(line_supplier_id) if line_supplier_id else None)
-        db.add(
-            PurchaseOrderLine(
-                purchase_order_id=order.id,
-                item_id=item.id,
-                ordered_quantity=ordered_quantity,
-                received_quantity=0,
-                unit=unit,
-                unit_cost=_num(raw.get("unit_cost")),
-                warehouse_id=warehouse_id,
-                supplier_id=line_supplier_id,
-                material_name=str(raw.get("material_name") or item.name or "").strip() or item.name,
-                photo_url=str(raw.get("photo_url") or item.image_url or "").strip() or None,
-                notes=raw.get("notes"),
-            )
-        )
+        line_values.append({
+            "item_id": item.id,
+            "ordered_quantity": ordered_quantity,
+            "received_quantity": 0,
+            "unit": unit,
+            "unit_cost": _num(raw.get("unit_cost")),
+            "warehouse_id": warehouse_id,
+            "supplier_id": line_supplier_id,
+            "material_name": str(raw.get("material_name") or item.name or "").strip() or item.name,
+            "photo_url": str(raw.get("photo_url") or item.image_url or "").strip() or None,
+            "notes": raw.get("notes"),
+        })
+
+    _validate_purchase_line_varchar_lengths(line_inputs)
+    _validate_purchase_line_varchar_lengths(line_values)
+    order = PurchaseOrder(
+        po_no=next_purchase_order_no(db),
+        purchase_request_id=purchase_request_id,
+        supplier_id=supplier_id,
+        status=status,
+        ordered_by=current.id,
+        expected_date=data.get("expected_date"),
+        notes=data.get("notes"),
+    )
+    db.add(order)
+    db.flush()
+    db.add_all(
+        PurchaseOrderLine(purchase_order_id=order.id, **values)
+        for values in line_values
+    )
 
     db.flush()
     log_action(
