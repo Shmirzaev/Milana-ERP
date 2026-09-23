@@ -88,10 +88,37 @@ def test_employee_search_bounds_and_literal_wildcards(client, auth_headers):
             for index in range(23)
         ])
         db.commit()
-    result = client.get("/api/payroll/employees/search", params={"q": suffix}, headers=auth_headers).json()
+        legacy_sql = str(
+            db.query(Employee, Department)
+            .outerjoin(Department, Employee.department_id == Department.id)
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+        bind = db.get_bind()
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().lower().startswith("select"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        result = client.get("/api/payroll/employees/search", params={"q": suffix}, headers=auth_headers).json()
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+
     assert len(result["items"]) == 20
     assert result["has_more"] is True
     assert [item["employee_name"] for item in result["items"]] == [f"Search {suffix} {index:02d}" for index in range(20)]
+    employee_read = next(statement for statement in statements if " from employees " in statement)
+    assert all(f"employees.{column}" in employee_read for column in (
+        "id", "employee_no", "user_id", "full_name", "department_id", "position", "status",
+    ))
+    assert "employees.salary" not in employee_read
+    assert "employees.hr_profile_json" not in employee_read
+    assert "departments.name" in employee_read
+    assert "departments.code" in employee_read
+    assert "employees.salary" in legacy_sql
+    assert "employees.hr_profile_json" in legacy_sql
     for query in [f"{suffix}%", f"{suffix}_", "  "]:
         result = client.get("/api/payroll/employees/search", params={"q": query}, headers=auth_headers)
         assert result.status_code == 200

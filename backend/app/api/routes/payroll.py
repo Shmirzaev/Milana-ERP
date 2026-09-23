@@ -2628,7 +2628,18 @@ def search_payroll_employees(
     terms = q.strip().split()
     if len(q.strip()) < 2:
         return {"items": [], "has_more": False}
-    query = db.query(Employee, Department).outerjoin(Department, Employee.department_id == Department.id).filter(
+    query = db.query(Employee, Department).options(
+        load_only(
+            Employee.id,
+            Employee.employee_no,
+            Employee.user_id,
+            Employee.full_name,
+            Employee.department_id,
+            Employee.position,
+            Employee.status,
+        ),
+        load_only(Department.id, Department.code, Department.name),
+    ).outerjoin(Department, Employee.department_id == Department.id).filter(
         Employee.factory_code == selected_factory_code(current),
         Employee.status == "active",
     )
