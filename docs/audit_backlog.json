@@ -1261,10 +1261,10 @@
       "risk": "Extra waiting and network traffic.",
       "proposed_fix": "Canonical keys; defer unused requests.",
       "baseline_source": "frontend/src/components/AuthGate.tsx:183",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160, 8589ba4, be696e1, 55468e1, 7d841b1, ea3acaa, 7445ad4, b3f3d9f, 7f947c5, d025ee8, cb2ba52, e101d30, 1da4f66, 044e121, 534c8bf",
-      "evidence": "Prior hidden-directory gating remains. Commit534c8bf removes redundant customer-directory requests from sales-order and cutting/printing/sewing/packaging pages; defers supplier, selected-model, paid-process, employee, department, utilization and user requests until their actual UI is active; and retains hidden drafts with keepPreviousData. Actual-component regressions preserve active, denied, missing-data and fallback render/key parity. Full stabilization, strict types and targeted lint pass. Remaining request chains require backend projections or authorization-equivalent contracts: Work Order to Production Order to Sales Order/model, authorized Sales Order to material requirements, and Production Order to model detail. Browser network traces follow those contract changes, so PERF39 remains partial."
+      "commit": "ada4aaf, 5a85dcd, 0094748, fd5bf6e, 4c75160, 8589ba4, be696e1, 55468e1, 7d841b1, ea3acaa, 7445ad4, b3f3d9f, 7f947c5, d025ee8, cb2ba52, e101d30, 1da4f66, 044e121, 534c8bf, b669bd4",
+      "evidence": "Prior commits gate hidden HR, inventory, purchasing, model-detail and inactive directory requests while preserving active, denied, missing-data and retained-draft behavior. Commit b669bd4 adds authorization-equivalent Production Order, Sales Order and Work Order page-context projections, reducing their dependent browser chains from 2 to 1, 2 to 1 and 4 to 1 requests and measured SQL from 21 to 15, 10 to 8 and 30 to 20. Existing ECO/factory, catalog-family and Usluga/Cutting authorization boundaries remain intact, including no dependent reads on denied paths. Three focused backend cases, the full frontend stabilization suite, strict TypeScript, targeted ESLint, Ruff and diff checks pass."
     },
     {
       "number": 106,
