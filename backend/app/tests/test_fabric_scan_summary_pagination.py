@@ -87,3 +87,16 @@ def test_fabric_scan_summary_opt_in_page_is_sql_bounded_and_legacy_stays_full(cl
     assert len(group_reads) == 3
     assert " limit ? offset ?" not in group_reads[0]
     assert sum(" limit ? offset ?" in statement for statement in group_reads) == 1
+    row_reads = [
+        statement
+        for statement in statements
+        if "from fabric_scans" in statement
+        and " limit ? offset ?" in statement
+        and "group by" not in statement
+    ]
+    assert len(row_reads) == 2
+    selected_columns = row_reads[-1].split(" from ", 1)[0]
+    assert "fabric_scans.operator_name" in selected_columns
+    assert "fabric_scans.operator_id" not in selected_columns
+    assert "fabric_scans.department" not in selected_columns
+    assert "fabric_scans.batch_id" not in selected_columns

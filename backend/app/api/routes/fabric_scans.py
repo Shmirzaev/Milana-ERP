@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, require_permissions
 from app.models import StockBatch, User
@@ -127,7 +128,17 @@ def report(db: DbSession, user: User = Depends(report_access),
         }
     else:
         groups = summary_query.all()
-    rows = query.order_by(FabricScan.scanned_at.desc(), FabricScan.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    rows = query.options(load_only(
+        FabricScan.id,
+        FabricScan.report_date,
+        FabricScan.direction,
+        FabricScan.fabric_name,
+        FabricScan.batch_no,
+        FabricScan.color,
+        FabricScan.roll_number,
+        FabricScan.operator_name,
+        FabricScan.scanned_at,
+    )).order_by(FabricScan.scanned_at.desc(), FabricScan.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     result = {
         "report_date": day, "department": department, "total": totals[0],
         "received": totals[1] or 0, "returned": totals[2] or 0,
