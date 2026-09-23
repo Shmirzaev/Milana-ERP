@@ -72,9 +72,9 @@ class UserOut(ORMModel):
 
 # Customers / Suppliers
 class PartyIn(BaseModel):
-    name: str
-    phone: Optional[str] = None
-    email: Optional[str] = None
+    name: str = Field(max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=64)
+    email: Optional[str] = Field(default=None, max_length=255)
     address: Optional[str] = None
     notes: Optional[str] = None
 
