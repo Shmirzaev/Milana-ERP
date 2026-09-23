@@ -8,7 +8,7 @@ from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models.cutting_passport import CuttingPassport
-from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
+from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionOrder, ProductionOrderItem, Role, StockBatch, User, WorkOrder
 from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
@@ -481,7 +481,19 @@ def cutting_operator_options(
     permission details).
     """
     factory_code = selected_factory_code(current)
-    users = db.query(User).filter(User.is_active.is_(True)).order_by(User.name.asc(), User.id.asc()).all()
+    users = (
+        db.query(User)
+        .options(
+            load_only(
+                User.id, User.name, User.role_id, User.factory_code,
+                User.extra_permissions, User.access_policy, User.is_active,
+            ),
+            joinedload(User.role).load_only(Role.id, Role.name, Role.permissions),
+        )
+        .filter(User.is_active.is_(True))
+        .order_by(User.name.asc(), User.id.asc())
+        .all()
+    )
     return [user for user in users if factory_code in available_factory_codes(user)]
 
 
