@@ -6,13 +6,13 @@ from fastapi.exceptions import RequestValidationError
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
-from app.models import Employee, User
+from app.models import Employee, Role, User
 from app.schemas.hr import EmployeeOut, EmployeePageOut
 from app.services.audit import log_action
 from app.services.factory_scope import factory_for_department, selected_factory_code
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import joinedload, load_only, noload
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -186,7 +186,23 @@ def _backfill_employees_from_users(db: DbSession) -> int:
         for (uid,) in db.query(Employee.user_id).filter(Employee.user_id.isnot(None)).all()
         if uid is not None
     }
-    users = db.query(User).order_by(User.id.asc()).all()
+    users = (
+        db.query(User)
+        .options(
+            load_only(
+                User.id,
+                User.name,
+                User.factory_code,
+                User.department_id,
+                User.is_active,
+                User.created_at,
+            ),
+            joinedload(User.role).load_only(Role.id, Role.name),
+            noload(User.department),
+        )
+        .order_by(User.id.asc())
+        .all()
+    )
     created = 0
     for u in users:
         if u.id in existing_user_ids:
