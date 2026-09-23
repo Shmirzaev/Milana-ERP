@@ -1,6 +1,6 @@
 """Edit existing planned size labels without changing quantities or row identities."""
 from fastapi import HTTPException
-from sqlalchemy.orm import Session, lazyload
+from sqlalchemy.orm import Session, lazyload, load_only
 
 from app.models import Bundle, CuttingRecord, ProductionOrder, ProductionOrderItem, User, WorkOrder
 from app.models.payroll import PayrollQrLabel
@@ -17,9 +17,18 @@ def update_production_sizes(db: Session, pid: int, payload: ProductionOrderSizes
         raise HTTPException(404, "Production order not found")
     if po.source_type == "usluga" or po.status not in PRE_CUTTING_STATUSES:
         raise HTTPException(409, "production_sizes_locked")
-    work_orders = (db.query(WorkOrder).options(lazyload("*"))
-                   .filter(WorkOrder.production_order_id == pid).order_by(WorkOrder.id)
-                   .with_for_update().populate_existing().all())
+    work_orders = (
+        db.query(WorkOrder)
+        .options(
+            lazyload("*"),
+            load_only(WorkOrder.id, WorkOrder.operation, WorkOrder.status),
+        )
+        .filter(WorkOrder.production_order_id == pid)
+        .order_by(WorkOrder.id)
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
     if any(wo.operation == "cutting" and wo.status not in PRE_CUTTING_STATUSES for wo in work_orders):
         raise HTTPException(409, "production_sizes_locked")
     items = (db.query(ProductionOrderItem).filter(ProductionOrderItem.production_order_id == pid)

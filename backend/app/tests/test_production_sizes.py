@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import event
 
 from app.core.security import create_access_token
 from app.models import AuditLog, Department, ProductionOrder, ProductionOrderItem, User, WorkOrder
@@ -60,6 +61,39 @@ def test_size_edit_preserves_plan_and_reaches_cutting_bundles(client, auth_heade
     _, retry = payload_for(client, auth_headers, pid)
     retry["items"][0]["size"] = "50"
     assert client.patch(f"/api/production-orders/{pid}/sizes", json=retry, headers=auth_headers).status_code == 409
+
+
+def test_size_edit_projects_only_work_order_lock_fields(client, auth_headers):
+    pid = make_plan()
+    _, payload = payload_for(client, auth_headers, pid)
+    payload["items"][0]["size"] = "50"
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from work_orders " in normalized:
+            statements.append(normalized)
+
+    event.listen(TestSessionLocal.kw["bind"], "before_cursor_execute", capture)
+    try:
+        response = client.patch(f"/api/production-orders/{pid}/sizes", json=payload, headers=auth_headers)
+    finally:
+        event.remove(TestSessionLocal.kw["bind"], "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert len(statements) == 2  # Locked guard projection plus response serialization query.
+    lock_selects = [
+        statement.split(" from work_orders", 1)[0]
+        for statement in statements
+        if "work_orders.actual_output_qty" not in statement.split(" from work_orders", 1)[0]
+    ]
+    assert len(lock_selects) == 1
+    selected = lock_selects[0]
+    assert "work_orders.id" in selected
+    assert "work_orders.operation" in selected
+    assert "work_orders.status" in selected
+    assert "work_orders.notes" not in selected
+    assert "work_orders.block_reason" not in selected
 
 
 @pytest.mark.parametrize("invalid", ["duplicate_size", "blank", "too_long", "duplicate_id", "foreign_id", "missing_row", "stale", "quantity"])
