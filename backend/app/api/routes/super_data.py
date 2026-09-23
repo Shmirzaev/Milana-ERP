@@ -314,13 +314,26 @@ def list_super_data_rows(
     condition = _search_condition(table, q)
 
     count_stmt = select(func.count()).select_from(table)
-    rows_stmt = select(table).order_by(pk.desc()).offset((safe_page - 1) * safe_size).limit(safe_size)
+    row_columns = [
+        func.length(column).label(column.name) if _is_binary(column) else column
+        for column in table.columns
+    ]
+    rows_stmt = select(*row_columns).order_by(pk.desc()).offset((safe_page - 1) * safe_size).limit(safe_size)
     if condition is not None:
         count_stmt = count_stmt.where(condition)
         rows_stmt = rows_stmt.where(condition)
 
     total = db.execute(count_stmt).scalar_one()
-    rows = [_serialize_row(dict(row)) for row in db.execute(rows_stmt).mappings().all()]
+    rows = []
+    for row in db.execute(rows_stmt).mappings().all():
+        serialized = {}
+        for column in table.columns:
+            value = row[column.name]
+            if _is_binary(column):
+                serialized[column.name] = None if value is None else {"__binary": True, "size": int(value)}
+            else:
+                serialized[column.name] = _serialize_value(value)
+        rows.append(serialized)
     return SuperDataRowsOut(
         table=table.name,
         label=_table_name_label(table.name),
