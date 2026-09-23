@@ -1822,6 +1822,10 @@ def accessory_issue_plan(db: Session, production_order_id: int) -> dict:
                 issued_row.get("issued_quantity") or 0
             )
 
+    available_by_item_id = available_stock_for_items(
+        db,
+        {int(row["item_id"]) for row in required_rows},
+    )
     rows = []
     for row in required_rows:
         key = (int(row["item_id"]), str(row["unit"]))
@@ -1830,7 +1834,7 @@ def accessory_issue_plan(db: Session, production_order_id: int) -> dict:
         for value in (row.get("item_sku"), row.get("item_name")):
             manual_key = (_accessory_match_key(value), unit)
             issued += manual_issued_by_label_unit.get(manual_key, 0.0)
-        available = available_stock_for_item(db, int(row["item_id"]))
+        available = available_by_item_id.get(int(row["item_id"]), 0.0)
         remaining = max(0.0, float(row["required_quantity"] or 0) - issued)
         shortage = max(0.0, remaining - available)
         if remaining <= EPSILON:
