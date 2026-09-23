@@ -64,7 +64,14 @@ def test_customer_pages_bound_sql_and_preserve_legacy_payload(count):
         assert [row["id"] for row in page["rows"]] == list(reversed(created_ids))[:50]
         assert len(selects) == 2, selects
         assert " limit ? offset ?" in selects[1]
-        assert len([statement for statement in legacy_statements if statement.startswith("select")]) == 1
+        legacy_selects = [statement for statement in legacy_statements if statement.startswith("select")]
+        assert len(legacy_selects) == 1
+        for statement in (selects[1], legacy_selects[0]):
+            selected_columns = statement.split(" from customers ", 1)[0]
+            for field in ("id", "name", "phone", "email", "address", "notes"):
+                assert f"customers.{field}" in selected_columns
+            for field in ("created_at", "updated_at"):
+                assert f"customers.{field}" not in selected_columns
         assert writes == []
 
 

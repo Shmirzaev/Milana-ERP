@@ -69,7 +69,15 @@ def list_customers(
     page_size: int | None = None,
     include_total: bool = False,
 ):
-    qry = db.query(Customer)
+    qry = db.query(Customer).options(load_only(
+        Customer.id,
+        Customer.name,
+        Customer.phone,
+        Customer.email,
+        Customer.address,
+        Customer.notes,
+        raiseload=True,
+    ))
     if q:
         qry = qry.filter(Customer.name.ilike(f"%{q}%"))
     start, end = date_filter_bounds(created_from, created_to)
@@ -93,17 +101,7 @@ def list_customers(
         qry = qry.offset((effective_page - 1) * effective_page_size).limit(effective_page_size)
     rows = [
         PartyOut.model_validate(c).model_dump()
-        for c in qry.options(
-            load_only(
-                Customer.id,
-                Customer.name,
-                Customer.phone,
-                Customer.email,
-                Customer.address,
-                Customer.notes,
-                raiseload=True,
-            )
-        ).all()
+        for c in qry.all()
     ]
     if paginated:
         return {
