@@ -87,11 +87,24 @@ def list_customers(
         effective_page_size = page_size or 50
         if effective_page < 1 or effective_page_size < 1 or effective_page_size > 500:
             raise HTTPException(422, "page must be >= 1 and page_size must be between 1 and 500")
-    total = qry.count() if paginated else 0
+    total = qry.order_by(None).with_entities(func.count(Customer.id)).scalar() if paginated else 0
     qry = qry.order_by(Customer.id.desc())
     if paginated:
         qry = qry.offset((effective_page - 1) * effective_page_size).limit(effective_page_size)
-    rows = [PartyOut.model_validate(c).model_dump() for c in qry.all()]
+    rows = [
+        PartyOut.model_validate(c).model_dump()
+        for c in qry.options(
+            load_only(
+                Customer.id,
+                Customer.name,
+                Customer.phone,
+                Customer.email,
+                Customer.address,
+                Customer.notes,
+                raiseload=True,
+            )
+        ).all()
+    ]
     if paginated:
         return {
             "rows": rows,
