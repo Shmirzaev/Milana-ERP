@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload, load_only
+from sqlalchemy.orm import Session, load_only
 
 from app.models import (
     Brand,
@@ -19,6 +19,7 @@ from app.models import (
     ProductionOrderItem,
     SalesOrder,
     SalesOrderItem,
+    StockBatch,
     StockMovement,
 )
 from app.services.inventory import available_stock_for_item, stock_summary
@@ -270,7 +271,14 @@ def _branded_stock_analysis(
         ] = int(qty or 0)
 
     pipeline_rows = (
-        db.query(ProductionOrderItem, ProductionOrder)
+        db.query(
+            ProductionOrderItem.model_id,
+            ProductionOrderItem.color,
+            ProductionOrderItem.size,
+            ProductionOrderItem.planned_quantity,
+            ProductionOrder.brand_id,
+            ProductionOrder.collection_id,
+        )
         .join(ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id)
         .filter(
             ProductionOrder.production_type == "branded_stock",
@@ -279,15 +287,15 @@ def _branded_stock_analysis(
         .all()
     )
     pipeline: dict[BrandedKey, int] = defaultdict(int)
-    for item, order in pipeline_rows:
+    for model_id, color, size, planned_quantity, brand_id, collection_id in pipeline_rows:
         key = (
-            int(item.model_id),
-            int(order.brand_id) if order.brand_id else None,
-            int(order.collection_id) if order.collection_id else None,
-            str(item.color or ""),
-            str(item.size or ""),
+            int(model_id),
+            int(brand_id) if brand_id else None,
+            int(collection_id) if collection_id else None,
+            str(color or ""),
+            str(size or ""),
         )
-        pipeline[key] += max(0, int(item.planned_quantity or 0))
+        pipeline[key] += max(0, int(planned_quantity or 0))
 
     analysis: list[dict] = []
     for (model_id, brand_id, collection_id, color, size), row in groups.items():
@@ -348,7 +356,11 @@ def branded_stock_suggestions(db: Session, *, horizon_weeks: int = 4) -> list[di
 
 def _planned_bom_demand(db: Session) -> dict[tuple[int, str], float]:
     active_pos = (
-        db.query(ProductionOrder)
+        db.query(
+            ProductionOrder.id,
+            ProductionOrder.model_id,
+            ProductionOrder.planned_quantity,
+        )
         .filter(ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES))
         .all()
     )
@@ -356,21 +368,54 @@ def _planned_bom_demand(db: Session) -> dict[tuple[int, str], float]:
         return {}
     po_ids = [int(po.id) for po in active_pos]
     items_by_po: dict[int, list[ProductionOrderItem]] = defaultdict(list)
-    for row in db.query(ProductionOrderItem).filter(ProductionOrderItem.production_order_id.in_(po_ids)).all():
-        items_by_po[int(row.production_order_id)].append(row)
+    for ids in _reference_id_chunks(set(po_ids)):
+        rows = db.query(
+            ProductionOrderItem.production_order_id,
+            ProductionOrderItem.model_id,
+            ProductionOrderItem.color,
+            ProductionOrderItem.size,
+            ProductionOrderItem.planned_quantity,
+        ).filter(ProductionOrderItem.production_order_id.in_(ids)).all()
+        for row in rows:
+            items_by_po[int(row.production_order_id)].append(row)
 
     model_ids = {int(po.model_id) for po in active_pos}
     for lines in items_by_po.values():
         model_ids.update(int(line.model_id) for line in lines if line.model_id)
-    bom_by_model: dict[int, list[ModelBOM]] = defaultdict(list)
-    for bom in db.query(ModelBOM).options(joinedload(ModelBOM.stock_batch)).filter(ModelBOM.model_id.in_(model_ids)).all():
+    bom_by_model: dict[int, list] = defaultdict(list)
+    bom_rows = []
+    for ids in _reference_id_chunks(model_ids):
+        bom_rows.extend(
+            db.query(
+                ModelBOM.model_id,
+                ModelBOM.item_id,
+                ModelBOM.stock_batch_id,
+                ModelBOM.color,
+                ModelBOM.size,
+                ModelBOM.quantity_per_piece,
+                ModelBOM.unit,
+                ModelBOM.waste_percent,
+            )
+            .filter(ModelBOM.model_id.in_(ids))
+            .all()
+        )
+    stock_batch_item_ids: dict[int, int] = {}
+    stock_batch_ids = {int(bom.stock_batch_id) for bom in bom_rows if bom.stock_batch_id}
+    for ids in _reference_id_chunks(stock_batch_ids):
+        stock_batch_item_ids.update({
+            int(batch_id): int(item_id)
+            for batch_id, item_id in db.query(StockBatch.id, StockBatch.item_id)
+            .filter(StockBatch.id.in_(ids))
+            .all()
+        })
+    for bom in bom_rows:
         bom_by_model[int(bom.model_id)].append(bom)
 
     demand: dict[tuple[int, str], float] = defaultdict(float)
 
-    def add_bom(bom: ModelBOM, planned_qty: int, color: str | None = None, size: str | None = None) -> None:
+    def add_bom(bom, planned_qty: int, color: str | None = None, size: str | None = None) -> None:
         # Descriptive BOM rows are valid, but cannot identify inventory demand.
-        item_id = bom.item_id or (bom.stock_batch.item_id if bom.stock_batch else None)
+        item_id = bom.item_id or stock_batch_item_ids.get(int(bom.stock_batch_id or 0))
         if not item_id:
             return
         if bom.color and color and bom.color != color:
@@ -409,7 +454,14 @@ def _recent_usage_by_item(db: Session, *, days: int = 90) -> dict[tuple[int, str
 
 
 def item_reorder_suggestions(db: Session) -> list[dict]:
-    item_rows = db.query(Item).filter(Item.is_active.is_(True)).order_by(Item.sku.asc()).all()
+    item_rows = db.query(
+        Item.id,
+        Item.sku,
+        Item.name,
+        Item.category,
+        Item.unit,
+        Item.reorder_level,
+    ).filter(Item.is_active.is_(True)).order_by(Item.sku.asc()).all()
     if not item_rows:
         return []
     stock_rows = {int(row["item_id"]): row for row in stock_summary(db)}

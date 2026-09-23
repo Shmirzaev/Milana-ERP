@@ -4,7 +4,18 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import event
 
-from app.models import Brand, Collection, Model, SalesOrder, SalesOrderItem
+from app.models import (
+    Brand,
+    Collection,
+    Item,
+    Model,
+    ModelBOM,
+    ProductionOrder,
+    SalesOrder,
+    SalesOrderItem,
+    StockBatch,
+    Warehouse,
+)
 from app.services import forecasting
 from app.tests.conftest import TestSessionLocal
 
@@ -169,3 +180,93 @@ def test_forecasting_dashboard_reuses_branded_demand_rows(group_count):
     assert len(sales_demand_reads) == 1
     assert len(production_demand_reads) == 2
     assert len(statements) == (18 if group_count == 401 else 15)
+
+
+def _planned_demand_case(count: int):
+    marker = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        warehouse_id = db.query(Warehouse.id).order_by(Warehouse.id).first()[0]
+        models = [
+            Model(code=f"PERF32-DEMAND-{marker}-{index:04d}", name=f"Demand model {index}")
+            for index in range(count)
+        ]
+        items = [
+            Item(
+                sku=f"PERF32-DEMAND-{marker}-{index:04d}",
+                name=f"Demand item {index}",
+                category="fabric",
+                unit="kg",
+                composition_json=[{"unused": "must not hydrate"}],
+            )
+            for index in range(count)
+        ]
+        db.add_all([*models, *items])
+        db.flush()
+        batches = [
+            StockBatch(
+                item_id=item.id,
+                warehouse_id=warehouse_id,
+                batch_no=f"PERF32-DEMAND-{marker}-{index:04d}",
+                quantity=1,
+                unit="kg",
+                cost_per_unit=1,
+                qc_status="passed",
+                image_url=f"/unused/{marker}-{index}.webp",
+                roll_weights_kg=[999],
+            )
+            for index, item in enumerate(items)
+        ]
+        db.add_all(batches)
+        db.flush()
+        orders = [
+            ProductionOrder(
+                production_no=f"PERF32-DEMAND-PO-{marker}-{index:04d}",
+                production_type="client_order",
+                model_id=model.id,
+                status="planning",
+                planned_quantity=3,
+                printing_attachments=[{"unused": "must not hydrate"}],
+            )
+            for index, model in enumerate(models)
+        ]
+        db.add_all([
+            *orders,
+            *[
+                ModelBOM(
+                    model_id=model.id,
+                    item_id=None,
+                    stock_batch_id=batch.id,
+                    quantity_per_piece=2,
+                    unit="kg",
+                )
+                for model, batch in zip(models, batches, strict=True)
+            ],
+        ])
+        db.commit()
+        return [int(item.id) for item in items]
+
+
+@pytest.mark.parametrize("row_count,expected_selects", [(1, 4), (50, 4), (401, 7)])
+def test_planned_demand_uses_bounded_narrow_reference_maps(row_count, expected_selects):
+    item_ids = _planned_demand_case(row_count)
+    with TestSessionLocal() as db:
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            demand = forecasting._planned_bom_demand(db)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert len(statements) == expected_selects
+    assert [demand[(item_id, "kg")] for item_id in item_ids] == [6] * row_count
+    selected = "\n".join(statements)
+    assert "production_orders.printing_attachments" not in selected
+    assert "items.composition_json" not in selected
+    assert "stock_batches.image_url" not in selected
+    assert "stock_batches.roll_weights_kg" not in selected
+    assert "stock_batches.roll_lengths_m" not in selected

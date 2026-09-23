@@ -116,6 +116,100 @@ def test_material_context_defers_material_image_blobs_and_preserves_url():
         assert "file_data" not in "\n".join(statements).lower()
 
 
+def _material_reference_case(count: int):
+    suffix = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        warehouse_id = db.query(Warehouse.id).order_by(Warehouse.id).first()[0]
+        models = [
+            Model(code=f"PERF32-MAP-{suffix}-{index:04d}", name=f"Map model {index}")
+            for index in range(count)
+        ]
+        items = [
+            Item(
+                sku=f"PERF32-MAP-{suffix}-{index:04d}",
+                name=f"Map item {index}",
+                category="fabric",
+                unit="m",
+                image_url=f"/item/{suffix}-{index}.webp",
+                composition_json=[{"unused": "must not hydrate"}],
+            )
+            for index in range(count)
+        ]
+        db.add_all([*models, *items])
+        db.flush()
+        batches = [
+            StockBatch(
+                item_id=item.id,
+                batch_no=f"PERF32-MAP-{suffix}-{index:04d}",
+                quantity=1,
+                unit="m",
+                cost_per_unit=1,
+                warehouse_id=warehouse_id,
+                qc_status="passed",
+                image_url=f"/batch/{suffix}-{index}.webp",
+                roll_weights_kg=[999],
+            )
+            for index, item in enumerate(items)
+        ]
+        db.add_all(batches)
+        db.flush()
+        orders = [
+            ProductionOrder(
+                production_no=f"PERF32-MAP-PO-{suffix}-{index:04d}",
+                production_type="client_order",
+                model_id=model.id,
+                planned_quantity=1,
+            )
+            for index, model in enumerate(models)
+        ]
+        db.add_all([
+            *orders,
+            *[
+                ModelBOM(
+                    model_id=model.id,
+                    item_id=item.id,
+                    stock_batch_id=batch.id,
+                    quantity_per_piece=1,
+                    unit="m",
+                )
+                for model, item, batch in zip(models, items, batches, strict=True)
+            ],
+        ])
+        db.commit()
+        return (
+            [int(order.id) for order in orders],
+            [f"/batch/{suffix}-{index}.webp" for index in range(count)],
+        )
+
+
+def test_material_context_uses_bounded_narrow_reference_maps():
+    measurements = []
+    for count in (1, 50, 401):
+        order_ids, expected_urls = _material_reference_case(count)
+        with TestSessionLocal() as db:
+            statements = []
+
+            def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+                if statement.lstrip().upper().startswith("SELECT"):
+                    statements.append(" ".join(statement.lower().split()))
+
+            event.listen(db.bind, "before_cursor_execute", capture)
+            try:
+                payload = inbox._material_payload_by_production_order(db, order_ids)
+            finally:
+                event.remove(db.bind, "before_cursor_execute", capture)
+        measurements.append((payload, statements, expected_urls, order_ids))
+
+    assert [len(statements) for _payload, statements, _urls, _ids in measurements] == [4, 4, 8]
+    for payload, statements, expected_urls, order_ids in measurements:
+        assert [payload[order_id]["material_image_url"] for order_id in order_ids] == expected_urls
+        selected = "\n".join(statements)
+        assert "items.composition_json" not in selected
+        assert "stock_batches.roll_weights_kg" not in selected
+        assert "stock_batches.roll_lengths_m" not in selected
+        assert "model_images.file_data" not in selected
+
+
 def test_finished_goods_package_lists_project_only_response_columns(monkeypatch):
     suffix = uuid4().hex[:8]
     with TestSessionLocal() as db:

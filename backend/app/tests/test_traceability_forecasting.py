@@ -31,7 +31,7 @@ def _token_headers(client, email: str, password: str = "demo12345") -> dict[str,
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
-def test_planned_bom_demand_eager_loads_stock_batches_once():
+def test_planned_bom_demand_loads_narrow_stock_batch_reference_map_once():
     marker = uuid4().hex[:8]
     with TestSessionLocal() as db:
         model = Model(code=f"FORECAST-BOM-{marker}", name="Forecast BOM", status="approved")
@@ -64,14 +64,17 @@ def test_planned_bom_demand_eager_loads_stock_batches_once():
             event.remove(db.bind, "before_cursor_execute", capture)
         assert demand[(item.id, "kg")] == 8
         bom_queries = [statement.lower() for statement in statements if "model_bom" in statement.lower()]
-        standalone_batch_queries = [
+        batch_queries = [
             statement.lower()
             for statement in statements
             if " from stock_batches " in f" {statement.lower().replace(chr(10), ' ')} "
         ]
         assert len(bom_queries) == 1
-        assert "join stock_batches" in bom_queries[0]
-        assert standalone_batch_queries == []
+        assert "join stock_batches" not in bom_queries[0]
+        assert len(batch_queries) == 1
+        assert "stock_batches.id" in batch_queries[0]
+        assert "stock_batches.item_id" in batch_queries[0]
+        assert "stock_batches.image_url" not in batch_queries[0]
 
 
 def _warehouse(client, headers, warehouse_type: str) -> dict:
