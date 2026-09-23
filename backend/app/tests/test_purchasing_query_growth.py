@@ -49,9 +49,12 @@ def _measure_request_creation(payload):
     with SessionLocal() as db:
         current = db.query(User).order_by(User.id).first()
         reference_selects = []
+        audit_head_selects = []
 
         def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
             normalized = " ".join(statement.lower().split())
+            if statement.lstrip().upper().startswith("SELECT") and " from audit_logs " in normalized:
+                audit_head_selects.append(normalized)
             if statement.lstrip().upper().startswith("SELECT") and (
                 " from items " in normalized or " from suppliers " in normalized
             ):
@@ -73,6 +76,7 @@ def _measure_request_creation(payload):
         request = db.get(PurchaseRequest, request_id)
         return {
             "reference": len(reference_selects),
+            "audit_head": len(audit_head_selects),
             "item_ids": [int(line.item_id) for line in request.lines],
             "supplier_ids": [int(line.preferred_supplier_id) for line in request.lines],
             "requested": [float(line.requested_quantity) for line in request.lines],
@@ -93,6 +97,7 @@ def test_purchase_request_creation_batches_line_references_and_preserves_order(
     measured = _measure_request_creation(payload)
 
     assert measured["reference"] == expected_reference_reads
+    assert measured["audit_head"] == 1
     assert measured["item_ids"] == [row["item_id"] for row in payload]
     assert measured["supplier_ids"] == [row["preferred_supplier_id"] for row in payload]
     assert measured["requested"] == [float(row["requested_quantity"]) for row in payload]
@@ -184,18 +189,20 @@ def test_business_reference_lookup_replaces_per_reference_queries_with_chunked_r
 def test_receipt_catalog_order_reference_and_audit_head_queries_are_bounded():
     with SessionLocal() as db:
         one_id, one_payload = _receipt(db, 1)
-        ten_id, ten_payload = _receipt(db, 10)
-        many_id, many_payload = _receipt(db, 50)
+        fifty_id, fifty_payload = _receipt(db, 50)
+        many_id, many_payload = _receipt(db, 401)
 
     one = _measure(one_id, one_payload)
-    ten = _measure(ten_id, ten_payload)
+    fifty = _measure(fifty_id, fifty_payload)
     many = _measure(many_id, many_payload)
 
-    assert one["reference"] == ten["reference"] == many["reference"] == 4
-    assert (one["audit_head"], ten["audit_head"], many["audit_head"]) == (1, 1, 1)
-    assert one["total"] == ten["total"] == many["total"]
+    # Three reference maps and generic order aliases use 400-ID chunks. The
+    # 401-line case adds exactly one read per map, not one read per line.
+    assert (one["reference"], fifty["reference"], many["reference"]) == (4, 4, 8)
+    assert (one["audit_head"], fifty["audit_head"], many["audit_head"]) == (1, 1, 1)
+    assert many["total"] - one["total"] == 4
     with SessionLocal() as db:
-        assert db.query(StockBatch).filter(StockBatch.internal_batch_no.like("PUR-PERF28-%")).count() == 61
+        assert db.query(StockBatch).filter(StockBatch.internal_batch_no.like("PUR-PERF28-%")).count() == 452
 
 
 def test_purchase_request_batched_reference_failure_preserves_error_order_and_rolls_back():

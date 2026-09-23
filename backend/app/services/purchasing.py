@@ -90,6 +90,17 @@ def _bulk_by_id(db: Session, model, ids, *, chunk_size=400):
     return rows
 
 
+def _existing_ids_by_id(db: Session, model, ids, *, chunk_size=400) -> set[int]:
+    existing = set()
+    ordered = sorted(set(ids))
+    for start in range(0, len(ordered), chunk_size):
+        existing.update(
+            int(row_id)
+            for (row_id,) in db.query(model.id).filter(model.id.in_(ordered[start:start + chunk_size])).all()
+        )
+    return existing
+
+
 def create_purchase_request(db: Session, *, data: dict, current: User) -> PurchaseRequest:
     status = str(data.get("status") or "pending_approval").strip() or "pending_approval"
     if status not in REQUEST_CREATE_STATUSES:
@@ -253,6 +264,16 @@ def approve_purchase_request(db: Session, *, request_id: int, data: dict, curren
     lines_by_id = {int(line.id): line for line in request.lines}
     if len(approval_lines) != len(lines_by_id):
         raise HTTPException(400, "Photo, material name, and supplier are required for every request line")
+    supplier_ids = set()
+    for raw in approval_lines:
+        supplier_value = raw.get("preferred_supplier_id")
+        if supplier_value:
+            try:
+                supplier_ids.add(int(supplier_value))
+            except (TypeError, ValueError):
+                # Preserve the original line-order conversion/error boundary.
+                continue
+    existing_supplier_ids = _existing_ids_by_id(db, Supplier, supplier_ids)
     seen: set[int] = set()
     for raw in approval_lines:
         line_id = int(raw.get("purchase_request_line_id") or 0)
@@ -265,7 +286,8 @@ def approve_purchase_request(db: Session, *, request_id: int, data: dict, curren
         supplier_id = int(raw.get("preferred_supplier_id") or 0)
         if not material_name or not photo_url or not supplier_id:
             raise HTTPException(400, "Photo, material name, and supplier are required for every request line")
-        _require_supplier(db, supplier_id)
+        if supplier_id not in existing_supplier_ids:
+            raise HTTPException(404, f"Supplier {supplier_id} not found")
         line.material_name = material_name
         line.photo_url = photo_url
         line.preferred_supplier_id = supplier_id

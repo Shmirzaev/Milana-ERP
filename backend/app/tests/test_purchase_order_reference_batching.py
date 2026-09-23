@@ -46,9 +46,12 @@ def test_purchase_order_creation_batches_line_references_and_preserves_rows(
     with TestSessionLocal() as db:
         current = db.query(User).order_by(User.id).first()
         statements: list[str] = []
+        audit_head_statements: list[str] = []
 
         def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
             normalized = " ".join(statement.lower().split())
+            if normalized.startswith("select") and " from audit_logs " in normalized:
+                audit_head_statements.append(normalized)
             if normalized.startswith("select") and any(
                 f" from {table} " in normalized for table in ("items", "warehouses", "suppliers")
             ):
@@ -71,6 +74,7 @@ def test_purchase_order_creation_batches_line_references_and_preserves_rows(
         )
 
     assert len(statements) == expected_reference_selects
+    assert len(audit_head_statements) == 1
     assert [int(row.item_id) for row in persisted_lines] == [line["item_id"] for line in lines]
     assert [int(row.warehouse_id) for row in persisted_lines] == [line["warehouse_id"] for line in lines]
     assert [int(row.supplier_id) for row in persisted_lines] == [line["supplier_id"] for line in lines]
