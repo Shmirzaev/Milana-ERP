@@ -158,19 +158,20 @@ def unread_count(db: DbSession, current: CurrentUser):
 @router.get("/summary")
 def notification_summary(db: DbSession, current: CurrentUser, limit: int = 10):
     safe_limit = max(1, min(int(limit or 10), 50))
-    count = db.query(func.count(Notification.id)).filter(
+    unread_qry = db.query(Notification).filter(
         Notification.user_id == current.id,
         Notification.is_read.is_(False),
-    ).scalar() or 0
-    rows = (
-        db.query(Notification)
-        .filter(Notification.user_id == current.id, Notification.is_read.is_(False))
+    )
+    rows_with_count = (
+        unread_qry.add_columns(func.count(Notification.id).over().label("total"))
         .order_by(Notification.id.desc())
         .limit(safe_limit)
         .all()
     )
+    rows = [row for row, _total in rows_with_count]
+    count = int(rows_with_count[0][1] or 0) if rows_with_count else int(unread_qry.count())
     return {
-        "count": int(count),
+        "count": count,
         "rows": [NotificationOut.model_validate(row).model_dump(mode="json") for row in rows],
     }
 
