@@ -2,6 +2,12 @@
 
 Last updated: 2026-09-23
 
+## Warehouse Excel without pictures prepared (2026-09-23)
+
+- User explicitly removed the picture requirement after the image report was slow. The export now contains only row number, model number, variant number, package count and piece count; Standard/First Grade sheets, all-stock scope, permissions, totals and languages remain unchanged. No image files, image relationships, BOM or stock-batch relationships are read by this report.
+- Read-only diagnosis of active 20260923_043113 found 1,895 stock model records, 3,784 image slots / 2,043 unique URLs and 3,493,772,449 bytes of original on-disk photos. The old export decoded these originals on each request, including repeated shared pictures. Metadata retrieval took 2.988 seconds. The user's chosen fix removes image processing entirely; no thumbnail optimization or image cache is added.
+- Both production manifests/slots and GitHub source matched baseline green 20260923_043113 (manifest f78b440a1f92700fdc6e1cbd405bd63f3d2761d5724de26b81010a166b5965c5); rollback blue 20260922_043845, database 0132_first_grade_singles. Worktree C:/ERP/.codex-work/warehouse-excel-speed-20260923, branch codex/warehouse-excel-speed-20260923. Legacy checkout preserved. Scoped Ruff and whitespace checks passed; standard immutable CI/build and immediate deployment gates retained, no extra suites or extended monitoring.
+
 ## Ready product warehouse Excel report deployed (2026-09-23)
 
 - LIVE: backend/frontend green release `20260923_043113`, exact application commit `bcd262c4a640ca2e17354b7bef3d85413b2403d7`, merged through PR #190. Both manifests, images, symlinks and slot states agree. Blue `20260922_043845` remains running for rollback. Frontend activated `2026-09-23T05:11:20.784623+00:00`.
