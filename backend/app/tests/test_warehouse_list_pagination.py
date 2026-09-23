@@ -63,6 +63,8 @@ def test_warehouse_pages_bound_rows_and_preserve_legacy_payload(count):
     assert created_ids == [row.id for row in legacy[-count:]]
     assert _payload(page["rows"]) == _payload(legacy[:count])
     assert len(statements) == 2, statements
+    assert "created_at" not in statements[-1], statements[-1]
+    assert "updated_at" not in statements[-1], statements[-1]
     assert len(legacy_statements) == 1, legacy_statements
 
 

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Depends, Header, UploadFile, File, Response, Query
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import lazyload, load_only
 
 from app.core.dt import date_filter_bounds
 from app.core.deps import (
@@ -478,7 +478,9 @@ def list_warehouses(
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    qry = db.query(Warehouse)
+    qry = db.query(Warehouse).options(
+        load_only(Warehouse.id, Warehouse.name, Warehouse.type, Warehouse.department_id)
+    )
     if inventory_access.materials_only(_):
         qry = qry.filter(Warehouse.type != "accessory_storage")
     ordered_qry = qry.order_by(Warehouse.id)
