@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy.orm import load_only, selectinload
+from sqlalchemy.orm import load_only, noload, selectinload
 
 from app.api.routes import catalog as catalog_routes
 from app.core.deps import DbSession, require_permissions
@@ -635,7 +635,31 @@ def list_usluga_orders(
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     _require_eco(current)
-    query = db.query(ProductionOrder).filter(ProductionOrder.source_type == "usluga")
+    query = (
+        db.query(ProductionOrder)
+        .options(
+            load_only(
+                ProductionOrder.id,
+                ProductionOrder.production_no,
+                ProductionOrder.status,
+                ProductionOrder.model_id,
+                ProductionOrder.planned_quantity,
+                ProductionOrder.deadline,
+                ProductionOrder.service_customer_name,
+                ProductionOrder.service_customer_reference,
+                ProductionOrder.service_material_description,
+                ProductionOrder.service_material_usage_kg,
+                ProductionOrder.service_material_notes,
+                ProductionOrder.service_handover_recipient,
+                ProductionOrder.service_handover_notes,
+                ProductionOrder.handed_over_at,
+                ProductionOrder.created_at,
+            ),
+            noload(ProductionOrder.materials),
+            noload(ProductionOrder.items),
+        )
+        .filter(ProductionOrder.source_type == "usluga")
+    )
     if status:
         query = query.filter(ProductionOrder.status == status)
     # Keep the historical list response for callers that do not opt into

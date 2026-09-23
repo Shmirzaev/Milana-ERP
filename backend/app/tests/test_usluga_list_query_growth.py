@@ -144,7 +144,7 @@ def _order_set(db, count):
     return status, [order.id for order in orders]
 
 
-@pytest.mark.parametrize(("order_count", "expected_selects"), [(1, 9), (50, 9), (401, 12)])
+@pytest.mark.parametrize(("order_count", "expected_selects"), [(1, 8), (50, 8), (401, 11)])
 def test_usluga_order_list_preloads_are_chunk_bounded_without_image_blobs(order_count, expected_selects):
     with SessionLocal() as db:
         status, order_ids = _order_set(db, order_count)
@@ -237,7 +237,7 @@ def test_usluga_order_list_chunks_distinct_models_and_assets_at_400():
             lambda: usluga.list_usluga_orders(db, _eco_user(), status=status),
         )
 
-    assert len(statements) == 16
+    assert len(statements) == 15
     assert [row["id"] for row in payload] == list(reversed(order_ids))
     assert all(row["model"]["sizes"] == ["L"] for row in payload)
     assert all(row["model"]["colors"] == ["Blue"] for row in payload)

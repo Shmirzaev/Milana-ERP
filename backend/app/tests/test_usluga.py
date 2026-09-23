@@ -25,7 +25,7 @@ from app.models import (
 )
 from app.core.security import hash_password
 from app.services.production import expand_production_size_range_items
-from app.tests.conftest import TestSessionLocal
+from app.tests.conftest import TestSessionLocal, test_engine
 
 
 def _login_eco(client) -> None:
@@ -134,6 +134,31 @@ def test_usluga_combined_model_size_remains_one_cutting_size(client):
         {"color": "Natural", "size": "40", "planned_quantity": 180},
         {"color": "Natural", "size": "42", "planned_quantity": 180},
     ]
+
+
+def test_usluga_order_list_projects_response_columns_without_material_prefetch(client):
+    _login_eco(client)
+    _create_usluga_order(client, quantity=12, size="M")
+    statements: list[str] = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get("/api/usluga/orders")
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    order_reads = [statement for statement in statements if " from production_orders " in statement]
+    assert len(order_reads) == 1
+    assert "production_orders.service_customer_name" in order_reads[0]
+    assert "production_orders.handed_over_at" in order_reads[0]
+    assert "production_orders.printing_attachments" not in order_reads[0]
+    assert "production_orders.estimated_material_amount" not in order_reads[0]
+    assert not any(" from production_order_materials " in statement for statement in statements)
 
 
 def test_usluga_main_batch_size_counts_update_existing_bundles_only(client):
