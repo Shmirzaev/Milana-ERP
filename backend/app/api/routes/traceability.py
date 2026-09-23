@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+from sqlalchemy import case, or_
 from sqlalchemy.orm import load_only
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -69,17 +70,26 @@ def _package_lookup_candidates(raw_code: str) -> list[str]:
 
 def _find_package(db: DbSession, key: str) -> Package | None:
     decoded = _decode(key)
+    candidates = _package_lookup_candidates(decoded)
+    rank_cases = []
+    conditions = []
     if decoded.isdigit():
-        pkg = _package_lookup(db).filter(Package.id == int(decoded)).first()
-        if pkg:
-            return pkg
-    for candidate in _package_lookup_candidates(decoded):
-        pkg = _package_lookup(db).filter(
-            (Package.barcode == candidate) | (Package.package_no == candidate)
-        ).first()
-        if pkg:
-            return pkg
-    return None
+        package_id = int(decoded)
+        conditions.append(Package.id == package_id)
+        rank_cases.append((Package.id == package_id, 0))
+    for rank, candidate in enumerate(candidates, start=1):
+        barcode_match = Package.barcode == candidate
+        package_no_match = Package.package_no == candidate
+        conditions.extend((barcode_match, package_no_match))
+        rank_cases.extend(((barcode_match, rank), (package_no_match, rank)))
+    if not conditions:
+        return None
+    return (
+        _package_lookup(db)
+        .filter(or_(*conditions))
+        .order_by(case(*rank_cases, else_=len(candidates) + 1), Package.id.asc())
+        .first()
+    )
 
 
 def _find_bundle(db: DbSession, key: str) -> Bundle | None:
