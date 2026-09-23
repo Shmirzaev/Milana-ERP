@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import and_, func, exists, or_, select
-from sqlalchemy.orm import selectinload, aliased
+from sqlalchemy.orm import load_only, selectinload, aliased
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import (
@@ -901,9 +901,31 @@ def list_shipments(
 ):
     qry = (
         db.query(Shipment, SalesOrder, Customer)
+        .options(
+            load_only(
+                Shipment.id,
+                Shipment.sales_order_id,
+                Shipment.customer_id,
+                Shipment.shipment_no,
+                Shipment.status,
+                Shipment.shipped_at,
+                Shipment.delivered_at,
+                Shipment.notes,
+                Shipment.transport_details,
+                Shipment.dispatch_snapshot,
+                Shipment.created_at,
+            ),
+            load_only(SalesOrder.id, SalesOrder.customer_id, SalesOrder.order_no),
+            load_only(Customer.id, Customer.name),
+            selectinload(Shipment.packages).load_only(
+                ShipmentPackage.id,
+                ShipmentPackage.shipment_id,
+                ShipmentPackage.package_id,
+                ShipmentPackage.quantity,
+            ),
+        )
         .outerjoin(SalesOrder, SalesOrder.id == Shipment.sales_order_id)
         .outerjoin(Customer, Customer.id == func.coalesce(func.nullif(Shipment.customer_id, 0), SalesOrder.customer_id))
-        .options(selectinload(Shipment.packages))
     )
     if sales_order_id:
         qry = qry.filter(Shipment.sales_order_id == sales_order_id)

@@ -55,6 +55,15 @@ def test_shipment_list_batches_distinct_order_and_customer_references(count, exp
         assert row["shipment_type"] == "sales_order"
         assert row["is_complete"] is False
     assert len(statements) == expected
+    shipment_query = next(sql.lower() for sql in statements if "from shipments" in sql.lower())
+    package_link_query = next(sql.lower() for sql in statements if "from shipment_packages" in sql.lower())
+    assert "sales_orders.order_no" in shipment_query
+    assert "customers.name" in shipment_query
+    assert "sales_orders.printing_attachments" not in shipment_query
+    assert "sales_orders.notes" not in shipment_query
+    assert "customers.phone" not in shipment_query
+    assert "customers.email" not in shipment_query
+    assert "join packages" not in package_link_query
 
 
 @pytest.mark.parametrize("count", [1, 50, 401])
