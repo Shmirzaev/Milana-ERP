@@ -40,7 +40,17 @@ def _model_variant_number_is_occupied(db: Session, variant_no: str) -> bool:
     )
 
 
-def _next(db: Session, model, attr: str, prefix: str, *, width: int = 6) -> str:
+def _next_many(
+    db: Session,
+    model,
+    attr: str,
+    prefix: str,
+    count: int,
+    *,
+    width: int = 6,
+) -> list[str]:
+    if count <= 0:
+        return []
     year = datetime.now(timezone.utc).year
     column = getattr(model, attr)
     _acquire_numbering_lock(db, f"{model.__tablename__}:{attr}:{prefix}:{year}")
@@ -59,7 +69,14 @@ def _next(db: Session, model, attr: str, prefix: str, *, width: int = 6) -> str:
         floor = db.query(SystemSetting.value_json).filter_by(key=f"retired_number:{prefix}:{year}").scalar()
         if floor:
             next_num = max(next_num, int(floor.get("number", 0)) + 1)
-    return f"{prefix}-{year}-{next_num:0{width}d}"
+    return [
+        f"{prefix}-{year}-{number:0{width}d}"
+        for number in range(next_num, next_num + count)
+    ]
+
+
+def _next(db: Session, model, attr: str, prefix: str, *, width: int = 6) -> str:
+    return _next_many(db, model, attr, prefix, 1, width=width)[0]
 
 
 def _next_order(db: Session, model, attr: str, prefix: str) -> str:
@@ -169,6 +186,11 @@ def next_bundle_no(db: Session) -> str:
 
 def next_package_no(db: Session) -> str:
     return _next(db, Package, "package_no", "PKG")
+
+
+def next_package_nos(db: Session, count: int) -> list[str]:
+    """Reserve a consecutive package-number range in the caller's transaction."""
+    return _next_many(db, Package, "package_no", "PKG", count)
 
 
 def next_shipment_no(db: Session) -> str:

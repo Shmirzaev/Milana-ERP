@@ -6,15 +6,15 @@ from fastapi import HTTPException
 from sqlalchemy import text, or_
 
 from app.models import (
-    FinishedGoodsStock, Model, Package, PackageItem, PackageScanLog,
+    FinishedGoodsStock, Model, Package, PackageBatchAllocation, PackageItem, PackageScanLog,
     Warehouse, ManualPackageReceipt, PackagePrintRun, PackagePrintRunMember, PackageBarcodeAlias,
 )
 from app.services.audit import log_action
 from app.services.barcode import generate_barcode_value, save_qr_image
 from app.services.idempotency import request_fingerprint
-from app.services.numbering import _next, next_package_no
+from app.services.numbering import _next, next_package_nos
 from app.services.packages import (
-    _require_warehouse_package, receive_at_storage, validate_storage_location,
+    _require_warehouse_package, _warehouse_source_types, receive_at_storage, validate_storage_location,
     _packaging_record_totals_by_batch, _existing_package_totals_by_batch,
 )
 
@@ -37,18 +37,35 @@ def lock_request(db, user_id, operation, key):
                    {"key": f"{user_id}:{operation}:{key}"})
 
 
-def contents(pkg):
+def contents(pkg, *, items=None, batch_allocations=None):
+    package_items = pkg.items if items is None else items
+    allocations = pkg.batch_allocations if batch_allocations is None else batch_allocations
     return {
         "package_no": pkg.package_no, "barcode": pkg.barcode,
         "model_id": pkg.model_id, "color": pkg.color,
         "production_order_id": pkg.production_order_id, "production_batch_id": pkg.production_batch_id,
         "manual_receipt_id": pkg.manual_receipt_id, "legacy_receipt_id": pkg.legacy_receipt_id,
         "batch_allocations": sorted([{"production_batch_id": a.production_batch_id, "quantity": a.quantity}
-                                     for a in pkg.batch_allocations], key=lambda a: a["production_batch_id"]),
+                                     for a in allocations], key=lambda a: a["production_batch_id"]),
         "quantity": pkg.total_quantity, "weight_kg": float(pkg.weight_kg) if pkg.weight_kg is not None else None,
         "items": sorted([{"model_id": item.model_id, "color": item.color, "size": item.size,
-                          "quantity": item.quantity} for item in pkg.items], key=lambda x: (x["model_id"], x["color"], x["size"])),
+                          "quantity": item.quantity} for item in package_items], key=lambda x: (x["model_id"], x["color"], x["size"])),
     }
+
+
+def _package_children(db, packages):
+    package_ids = [int(package.id) for package in packages]
+    items_by_package = {package_id: [] for package_id in package_ids}
+    allocations_by_package = {package_id: [] for package_id in package_ids}
+    for offset in range(0, len(package_ids), 400):
+        chunk = package_ids[offset:offset + 400]
+        for item in db.query(PackageItem).filter(PackageItem.package_id.in_(chunk)).all():
+            items_by_package[int(item.package_id)].append(item)
+        for allocation in db.query(PackageBatchAllocation).filter(
+            PackageBatchAllocation.package_id.in_(chunk),
+        ).all():
+            allocations_by_package[int(allocation.package_id)].append(allocation)
+    return items_by_package, allocations_by_package
 
 
 def create_run(db, current, packages, *, received=False):
@@ -59,9 +76,11 @@ def create_run(db, current, packages, *, received=False):
         raise HTTPException(400, "A print run must belong to one packaging department")
     if db.query(PackagePrintRunMember.id).filter(PackagePrintRunMember.package_id.in_([p.id for p in packages])).first():
         raise HTTPException(409, "Package already belongs to a print run; reprint its existing run")
+    source_types = _warehouse_source_types(db, packages)
     checked_orders = set()
     for pkg in packages:
-        _require_warehouse_package(db, pkg)
+        if pkg.production_order_id and source_types.get(int(pkg.production_order_id)) == "usluga":
+            raise HTTPException(400, "Usluga packages are handed directly to the customer and cannot enter warehouse flow")
         if pkg.production_order_id and pkg.production_order_id not in checked_orders:
             checked_orders.add(pkg.production_order_id)
             packed = _packaging_record_totals_by_batch(db, pkg.production_order_id)
@@ -78,8 +97,17 @@ def create_run(db, current, packages, *, received=False):
         run.received_at = datetime.now(timezone.utc)
     db.add(run)
     db.flush()
+    items_by_package, allocations_by_package = _package_children(db, packages)
     for pkg in packages:
-        db.add(PackagePrintRunMember(run_id=run.id, package_id=pkg.id, snapshot=contents(pkg)))
+        db.add(PackagePrintRunMember(
+            run_id=run.id,
+            package_id=pkg.id,
+            snapshot=contents(
+                pkg,
+                items=items_by_package[int(pkg.id)],
+                batch_allocations=allocations_by_package[int(pkg.id)],
+            ),
+        ))
     db.flush()
     log_action(db, current, "create_print_run", "PackagePrintRun", run.id,
                new_value={"run_no": run.run_no, "package_ids": [p.id for p in packages]})
@@ -198,8 +226,9 @@ def manual_receipt(db, current, payload):
     db.flush()
     now = datetime.now(timezone.utc)
     packages = []
-    for items, total in zip(pack_items, quantities):
-        pkg = Package(package_no=next_package_no(db), barcode=generate_barcode_value("PKG"),
+    package_numbers = next_package_nos(db, len(pack_items))
+    for package_no, items, total in zip(package_numbers, pack_items, quantities):
+        pkg = Package(package_no=package_no, barcode=generate_barcode_value("PKG"),
                       manual_receipt_id=receipt.id, model_id=model.id, color=payload.color,
                       brand_id=model.brand_id, collection_id=model.collection_id,
                       total_quantity=total, capacity=total, weight_kg=weight,

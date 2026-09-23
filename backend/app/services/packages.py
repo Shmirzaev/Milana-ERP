@@ -15,7 +15,7 @@ from app.models import (
 from app.core.deps import user_permissions
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
 from app.services.finished_goods import infer_brand_and_collection
-from app.services.numbering import next_package_no
+from app.services.numbering import next_package_no, next_package_nos
 from app.services.workflow import (
     decrement_finished_goods_for_package,
     notify_department,
@@ -49,6 +49,33 @@ PACKAGE_CHANGE_PENDING_STATUS = "pending"
 PACKAGE_TYPES = frozenset({"bag", "box", "legacy_stock"})
 _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE = 400
 _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE = 400
+
+
+@dataclass
+class PackageWriteContext:
+    """Transaction-local reads reused while creating a package group."""
+
+    cost_by_model_id: dict[int, float]
+    has_batches_by_order_id: dict[int, bool]
+    reference_metadata: dict
+    locked_orders: dict[int, ProductionOrder]
+    batch_membership: dict[tuple[int, int], bool]
+    remaining_quantity_by_order_id: dict[int, dict[int | None, int]]
+    notification_recipients: dict[str, tuple[int, ...]]
+    package_number_count: int
+    package_numbers: list[str]
+    next_package_number_index: int
+
+    @classmethod
+    def empty(cls) -> "PackageWriteContext":
+        return cls({}, {}, {}, {}, {}, {}, {}, 0, [], 0)
+
+    def take_package_number(self, db: Session) -> str:
+        if not self.package_numbers:
+            self.package_numbers = next_package_nos(db, self.package_number_count)
+        package_number = self.package_numbers[self.next_package_number_index]
+        self.next_package_number_index += 1
+        return package_number
 
 
 def _active_package_receive_transaction(db: Session):
@@ -362,6 +389,58 @@ def _existing_package_totals_by_batch(
     return totals
 
 
+def prime_package_batch_memberships(
+    db: Session,
+    context: PackageWriteContext,
+    *,
+    production_order_id: int,
+    production_batch_ids: Iterable[int],
+) -> None:
+    """Cache membership for the requested batches, including missing IDs."""
+    order_id = int(production_order_id)
+    requested_ids = sorted({int(batch_id) for batch_id in production_batch_ids})
+    missing_ids = [
+        batch_id
+        for batch_id in requested_ids
+        if (order_id, batch_id) not in context.batch_membership
+    ]
+    for offset in range(0, len(missing_ids), _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE):
+        chunk = missing_ids[offset:offset + _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE]
+        existing_ids = {
+            int(batch_id)
+            for (batch_id,) in db.query(ProductionBatch.id).filter(
+                ProductionBatch.id.in_(chunk),
+                ProductionBatch.production_order_id == order_id,
+            ).all()
+        }
+        for batch_id in chunk:
+            context.batch_membership[(order_id, batch_id)] = batch_id in existing_ids
+
+
+def prime_packaged_quantity_availability(
+    db: Session,
+    context: PackageWriteContext,
+    *,
+    production_order_id: int,
+    packed_by_batch: dict[int | None, int] | None = None,
+) -> None:
+    order_id = int(production_order_id)
+    if order_id in context.remaining_quantity_by_order_id:
+        return
+    packed = (
+        packed_by_batch
+        if packed_by_batch is not None
+        else _packaging_record_totals_by_batch(db, order_id)
+    )
+    if not packed:
+        raise HTTPException(409, "Save Packaging output before creating packages")
+    existing = _existing_package_totals_by_batch(db, order_id)
+    context.remaining_quantity_by_order_id[order_id] = {
+        batch_id: max(0, int(quantity) - int(existing.get(batch_id, 0)))
+        for batch_id, quantity in packed.items()
+    }
+
+
 def _enforce_packaged_quantity_available(
     db: Session,
     *,
@@ -370,18 +449,31 @@ def _enforce_packaged_quantity_available(
     total: int,
     exclude_package_id: int | None = None,
     require_evidence: bool = False,
+    remaining_cache: dict[int, dict[int | None, int]] | None = None,
 ) -> None:
-    packed_by_batch = _packaging_record_totals_by_batch(db, production_order_id)
-    if not packed_by_batch:
-        if require_evidence:
-            raise HTTPException(409, "Save Packaging output before creating packages")
-        return
-
-    existing_by_batch = _existing_package_totals_by_batch(
-        db,
-        production_order_id,
-        exclude_package_id=exclude_package_id,
+    remaining_by_batch = (
+        remaining_cache.get(int(production_order_id))
+        if remaining_cache is not None and exclude_package_id is None
+        else None
     )
+    if remaining_by_batch is None:
+        packed_by_batch = _packaging_record_totals_by_batch(db, production_order_id)
+        if not packed_by_batch:
+            if require_evidence:
+                raise HTTPException(409, "Save Packaging output before creating packages")
+            return
+
+        existing_by_batch = _existing_package_totals_by_batch(
+            db,
+            production_order_id,
+            exclude_package_id=exclude_package_id,
+        )
+        remaining_by_batch = {
+            batch_id: max(0, int(packed) - int(existing_by_batch.get(batch_id, 0)))
+            for batch_id, packed in packed_by_batch.items()
+        }
+        if remaining_cache is not None and exclude_package_id is None:
+            remaining_cache[int(production_order_id)] = remaining_by_batch
     requested_by_batch: dict[int | None, int] = {}
     if allocations:
         for alloc in allocations:
@@ -391,15 +483,16 @@ def _enforce_packaged_quantity_available(
         requested_by_batch[None] = int(total)
 
     for batch_id, requested in requested_by_batch.items():
-        packed = int(packed_by_batch.get(batch_id, 0))
-        existing = int(existing_by_batch.get(batch_id, 0))
-        available = max(0, packed - existing)
+        available = int(remaining_by_batch.get(batch_id, 0))
         if requested > available:
             label = f"batch #{batch_id}" if batch_id is not None else "this production order"
             raise HTTPException(
                 400,
                 f"Package quantity {requested} exceeds available packed quantity {available} for {label}",
             )
+    if remaining_cache is not None and exclude_package_id is None:
+        for batch_id, requested in requested_by_batch.items():
+            remaining_by_batch[batch_id] = int(remaining_by_batch.get(batch_id, 0)) - requested
 
 
 def create_package(
@@ -427,8 +520,27 @@ def create_package(
     _batch_presence_cache: dict[int, bool] | None = None,
     _reference_metadata_cache: dict | None = None,
     _locked_order_cache: dict[int, ProductionOrder] | None = None,
+    _write_context: PackageWriteContext | None = None,
+    _package_no: str | None = None,
     _sync_production: bool = True,
 ) -> Package:
+    if _write_context is not None:
+        _cost_cache = _cost_cache if _cost_cache is not None else _write_context.cost_by_model_id
+        _batch_presence_cache = (
+            _batch_presence_cache
+            if _batch_presence_cache is not None
+            else _write_context.has_batches_by_order_id
+        )
+        _reference_metadata_cache = (
+            _reference_metadata_cache
+            if _reference_metadata_cache is not None
+            else _write_context.reference_metadata
+        )
+        _locked_order_cache = (
+            _locked_order_cache
+            if _locked_order_cache is not None
+            else _write_context.locked_orders
+        )
     if not items:
         raise HTTPException(400, "Package must contain at least one size line")
 
@@ -521,20 +633,17 @@ def create_package(
             parsed_allocations.append((alloc_batch_id, qty))
 
         requested_batch_ids = sorted({batch_id for batch_id, _qty in parsed_allocations})
-        existing_batch_ids: set[int] = set()
-        for offset in range(0, len(requested_batch_ids), _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE):
-            chunk = requested_batch_ids[offset:offset + _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE]
-            existing_batch_ids.update(
-                batch_id
-                for (batch_id,) in db.query(ProductionBatch.id).filter(
-                    ProductionBatch.id.in_(chunk),
-                    ProductionBatch.production_order_id == po.id,
-                ).all()
-            )
+        membership_context = _write_context or PackageWriteContext.empty()
+        prime_package_batch_memberships(
+            db,
+            membership_context,
+            production_order_id=int(po.id),
+            production_batch_ids=requested_batch_ids,
+        )
 
         batch_totals: dict[int, int] = {}
         for alloc_batch_id, qty in parsed_allocations:
-            if alloc_batch_id not in existing_batch_ids:
+            if not membership_context.batch_membership[(int(po.id), alloc_batch_id)]:
                 raise HTTPException(404, "Production batch not found for this production order")
             batch_totals[alloc_batch_id] = batch_totals.get(alloc_batch_id, 0) + qty
         if validation_error is not None:
@@ -547,11 +656,14 @@ def create_package(
         ]
         batch_id = normalized_allocations[0]["production_batch_id"] if len(normalized_allocations) == 1 else None
     elif batch_id is not None:
-        batch_exists = db.query(ProductionBatch.id).filter(
-            ProductionBatch.id == batch_id,
-            ProductionBatch.production_order_id == po.id,
-        ).first()
-        if not batch_exists:
+        membership_context = _write_context or PackageWriteContext.empty()
+        prime_package_batch_memberships(
+            db,
+            membership_context,
+            production_order_id=int(po.id),
+            production_batch_ids=[batch_id],
+        )
+        if not membership_context.batch_membership[(int(po.id), batch_id)]:
             raise HTTPException(404, "Production batch not found for this production order")
         normalized_allocations = [{"production_batch_id": batch_id, "quantity": total}]
     elif has_batches:
@@ -563,6 +675,11 @@ def create_package(
         allocations=normalized_allocations,
         total=total,
         require_evidence=True,
+        remaining_cache=(
+            _write_context.remaining_quantity_by_order_id
+            if _write_context is not None
+            else None
+        ),
     )
 
     resolved_sales_order_id = sales_order_id if sales_order_id is not None else po.sales_order_id
@@ -585,7 +702,15 @@ def create_package(
         if len(str(item["size"])) > 32:
             raise HTTPException(422, "item size must be at most 32 characters")
 
-    pkg_no = next_package_no(db)
+    if _package_no is not None:
+        pkg_no = _package_no
+    elif _write_context is not None and _write_context.package_number_count:
+        # The production-order row is locked above. Reserve the shared range
+        # only now so scalar and bulk creation use the same row -> advisory
+        # lock hierarchy on PostgreSQL.
+        pkg_no = _write_context.take_package_number(db)
+    else:
+        pkg_no = next_package_no(db)
     barcode_value = generate_barcode_value("PKG")
     pkg = Package(
         package_no=pkg_no,
@@ -674,6 +799,11 @@ def create_package(
             message=f"Package {pkg.package_no} is ready for storage receive.",
             link="/packages/scan",
             exclude_user_id=user_id,
+            recipient_cache=(
+                _write_context.notification_recipients
+                if _write_context is not None
+                else None
+            ),
         )
     return pkg
 
@@ -722,10 +852,10 @@ def create_packages_bulk(
                 raise HTTPException(400, "Package weight must be >= 0")
             normalized_weights.append(value)
     created: list[Package] = []
-    cost_cache: dict[int, float] = {}
-    batch_presence_cache: dict[int, bool] = {}
-    reference_metadata_cache: dict = {}
-    locked_order_cache: dict[int, ProductionOrder] = {}
+    write_context = PackageWriteContext.empty()
+    # The first create_package call locks/caches the order before lazily
+    # reserving this range; later packages reuse both without more reads.
+    write_context.package_number_count = count
     for index in range(count):
         package_weight = normalized_weights[index] if normalized_weights else weight_kg
         created.append(
@@ -749,13 +879,11 @@ def create_packages_bulk(
                 user_id=user_id,
                 notes=notes,
                 packaging_department_code=packaging_department_code,
-                _cost_cache=cost_cache,
-                _batch_presence_cache=batch_presence_cache,
-                _reference_metadata_cache=reference_metadata_cache,
-                _locked_order_cache=locked_order_cache,
-                _sync_production=index in {0, count - 1},
+                _write_context=write_context,
+                _sync_production=False,
             )
         )
+    sync_production_order_status(db, production_order_id)
     return created
 
 

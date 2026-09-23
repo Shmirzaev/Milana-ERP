@@ -18,8 +18,20 @@ from app.services import package_workflows as service
 from app.services.audit import log_action
 from app.services.barcode import qr_png_data_uri
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.packaging_scope import packaging_department_for_order, packaging_department_scope, require_package_access
-from app.services.packages import create_package, _packaging_record_totals_by_batch
+from app.services.numbering import next_package_nos
+from app.services.packaging_scope import (
+    packaging_department_scope,
+    packaging_departments_for_order,
+    require_package_access,
+)
+from app.services.packages import (
+    PackageWriteContext,
+    _packaging_record_totals_by_batch,
+    create_package,
+    prime_package_batch_memberships,
+    prime_packaged_quantity_availability,
+)
+from app.services.workflow import sync_production_order_status
 
 router = APIRouter()
 
@@ -142,22 +154,62 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
         if order.source_type == "usluga":
             raise HTTPException(400, "Usluga does not enter warehouse receiving print runs")
         # The existing helper has a legacy no-record fallback. This new path never uses it.
-        if not _packaging_record_totals_by_batch(db, order.id):
+        packed_by_batch = _packaging_record_totals_by_batch(db, order.id)
+        if not packed_by_batch:
             raise HTTPException(409, "Save Packaging output before creating packages")
+        first_row = payload.packages[0]
+        if first_row.model_id != order.model_id or any(
+            item.model_id != order.model_id for item in first_row.items
+        ):
+            raise HTTPException(400, "Package model must match the production order")
+        batch_ids = {
+            int(batch_id)
+            for row in payload.packages
+            for batch_id in (
+                [row.production_batch_id] if row.production_batch_id is not None else []
+            ) + [allocation.production_batch_id for allocation in row.batch_allocations]
+        }
+        owners = packaging_departments_for_order(
+            db,
+            int(order.id),
+            {row.production_batch_id for row in payload.packages},
+        )
+        write_context = PackageWriteContext.empty()
+        write_context.locked_orders[int(order.id)] = order
+        prime_package_batch_memberships(
+            db,
+            write_context,
+            production_order_id=int(order.id),
+            production_batch_ids=batch_ids,
+        )
+        prime_packaged_quantity_availability(
+            db,
+            write_context,
+            production_order_id=int(order.id),
+            packed_by_batch=packed_by_batch,
+        )
+        package_numbers = next_package_nos(db, len(payload.packages))
         packages = []
-        for row in payload.packages:
+        for index, row in enumerate(payload.packages):
             if row.model_id != order.model_id or any(item.model_id != order.model_id for item in row.items):
                 raise HTTPException(400, "Package model must match the production order")
-            owner = packaging_department_for_order(db, order.id, row.production_batch_id)
+            owner = owners[row.production_batch_id]
             packaging_department_scope(current, owner)
             data = row.model_dump()
             data["packaging_department_code"] = owner
             data["user_id"] = current.id
             data["is_admin"] = False
             data["override_capacity"] = False
-            pkg = create_package(db, **data)
+            pkg = create_package(
+                db,
+                **data,
+                _write_context=write_context,
+                _package_no=package_numbers[index],
+                _sync_production=False,
+            )
             log_action(db, current, "create", "Package", pkg.id, new_value={"package_no": pkg.package_no})
             packages.append(pkg)
+        sync_production_order_status(db, int(order.id))
         return service.run_payload(db, service.create_run(db, current, packages))
     return _write(db, current, "create-packages-run", payload, action)
 

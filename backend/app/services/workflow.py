@@ -432,16 +432,28 @@ def notify_department(
     message: str | None = None,
     link: str | None = None,
     exclude_user_id: int | None = None,
+    recipient_cache: dict[str, tuple[int, ...]] | None = None,
 ) -> int:
-    dept = db.query(Department).filter(Department.code == department_code).first()
-    if not dept:
-        return 0
-    users = db.query(User).filter(User.department_id == dept.id, User.is_active.is_(True)).all()
+    user_ids = recipient_cache.get(department_code) if recipient_cache is not None else None
+    if user_ids is None:
+        dept_id = db.query(Department.id).filter(Department.code == department_code).scalar()
+        if not dept_id:
+            user_ids = ()
+        else:
+            user_ids = tuple(
+                int(user_id)
+                for (user_id,) in db.query(User.id).filter(
+                    User.department_id == dept_id,
+                    User.is_active.is_(True),
+                ).all()
+            )
+        if recipient_cache is not None:
+            recipient_cache[department_code] = user_ids
     created = 0
-    for u in users:
-        if exclude_user_id and u.id == exclude_user_id:
+    for user_id in user_ids:
+        if exclude_user_id and user_id == exclude_user_id:
             continue
-        db.add(Notification(user_id=u.id, title=title, message=message, link=link))
+        db.add(Notification(user_id=user_id, title=title, message=message, link=link))
         created += 1
     return created
 

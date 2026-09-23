@@ -68,6 +68,45 @@ def packaging_department_for_order(
     return normalize_packaging_department_code(department_code)
 
 
+def packaging_departments_for_order(
+    db,
+    production_order_id: int,
+    production_batch_ids: set[int | None],
+) -> dict[int | None, str]:
+    """Resolve all package owners for one order with one workflow read."""
+    rows = (
+        db.query(WorkOrder.production_batch_id, Department.code)
+        .join(Department, Department.id == WorkOrder.department_id)
+        .filter(
+            WorkOrder.production_order_id == production_order_id,
+            WorkOrder.operation == "packaging",
+            Department.code.in_(PACKAGING_DEPARTMENT_CODES),
+        )
+        .order_by(WorkOrder.id.desc())
+        .all()
+    )
+    if not rows:
+        raise HTTPException(404, "Packaging work order not found for this production order")
+
+    fallback = normalize_packaging_department_code(rows[0][1])
+    unbatched = next(
+        (
+            normalize_packaging_department_code(department_code)
+            for batch_id, department_code in rows
+            if batch_id is None
+        ),
+        fallback,
+    )
+    exact: dict[int, str] = {}
+    for batch_id, department_code in rows:
+        if batch_id is not None:
+            exact.setdefault(int(batch_id), normalize_packaging_department_code(department_code))
+    return {
+        batch_id: unbatched if batch_id is None else exact.get(int(batch_id), unbatched)
+        for batch_id in production_batch_ids
+    }
+
+
 def require_packaging_work_order_access(current, db, work_order: WorkOrder, requested: str | None = None) -> str:
     owner = packaging_work_order_department_code(db, work_order)
     target = packaging_department_scope(current, requested or owner)

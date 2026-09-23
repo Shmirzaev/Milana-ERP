@@ -131,7 +131,7 @@ def test_bulk_package_workflow_status_reads_are_constant(monkeypatch, package_co
         assert {package.status for package in packages} == {"packed"}
         assert db.get(ProductionOrder, order_id).status == "planning"
 
-    assert len(work_order_selects) == (1 if package_count == 1 else 2)
+    assert len(work_order_selects) == 1
 
 
 @pytest.mark.parametrize("package_count", [1, 50, 401])
@@ -222,14 +222,15 @@ def test_bulk_package_batch_presence_read_is_reused(monkeypatch, package_count):
     assert len(batch_presence_selects) == 1
 
 
-def test_bulk_batch_presence_cache_keeps_each_package_membership_check_live(monkeypatch):
+@pytest.mark.parametrize("package_count", [1, 50, 401])
+def test_bulk_batch_membership_read_is_reused(monkeypatch, package_count):
     order_id, model_id, _expected_cost = _bulk_order()
     with SessionLocal() as db:
         batch = ProductionBatch(
             production_order_id=order_id,
             batch_no=f"PERF09-BULK-B-{uuid4().hex[:8]}",
             batch_index=1,
-            planned_quantity=3,
+            planned_quantity=package_count,
         )
         db.add(batch)
         db.commit()
@@ -248,7 +249,7 @@ def test_bulk_batch_presence_cache_keeps_each_package_membership_check_live(monk
         try:
             packages = package_service.create_packages_bulk(
                 db,
-                count=3,
+                count=package_count,
                 production_order_id=order_id,
                 production_batch_id=batch_id,
                 model_id=model_id,
@@ -260,11 +261,16 @@ def test_bulk_batch_presence_cache_keeps_each_package_membership_check_live(monk
         finally:
             event.remove(db.bind, "before_cursor_execute", capture)
 
-    presence_reads = [statement for statement in batch_selects if "production_batches.id =" not in statement]
-    membership_reads = [statement for statement in batch_selects if "production_batches.id =" in statement]
-    assert len(packages) == 3
+    presence_reads = [
+        statement
+        for statement in batch_selects
+        if "production_batches.production_order_id =" in statement
+        and "production_batches.id in" not in statement
+    ]
+    membership_reads = [statement for statement in batch_selects if "production_batches.id in" in statement]
+    assert len(packages) == package_count
     assert len(presence_reads) == 1
-    assert len(membership_reads) == 3
+    assert len(membership_reads) == 1
 
 
 def test_bulk_cost_reuse_preserves_order_weights_and_item_rows(monkeypatch):
