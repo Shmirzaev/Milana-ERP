@@ -45,6 +45,17 @@ def _payload(rows: list[Department]) -> list[dict]:
     return [DepartmentOut.model_validate(row).model_dump(mode="json") for row in rows]
 
 
+def _assert_department_projection(statements):
+    reads = [sql for sql in statements if " from departments " in sql and "count(" not in sql]
+    assert len(reads) == 1
+    selected_columns = reads[0].split(" from departments ", maxsplit=1)[0]
+    assert "departments.id" in selected_columns
+    assert "departments.name" in selected_columns
+    assert "departments.code" in selected_columns
+    assert "created_at" not in selected_columns
+    assert "updated_at" not in selected_columns
+
+
 @pytest.mark.parametrize("count", [1, 50, 401])
 def test_department_pages_bound_rows_and_preserve_legacy_payload(count):
     created_ids, baseline = _seed_departments(count)
@@ -61,6 +72,8 @@ def test_department_pages_bound_rows_and_preserve_legacy_payload(count):
     assert _payload(page["rows"]) == _payload(legacy[:count])
     assert len(statements) == 2, statements
     assert len(legacy_statements) == 1, legacy_statements
+    _assert_department_projection(statements)
+    _assert_department_projection(legacy_statements)
 
 
 def test_department_page_contract_auth_and_no_writes(client, auth_headers):

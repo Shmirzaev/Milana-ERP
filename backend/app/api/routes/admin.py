@@ -827,7 +827,11 @@ def list_departments(
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     query = db.query(Department)
-    ordered_query = query.order_by(Department.id)
+    ordered_query = query.options(load_only(
+        Department.id,
+        Department.name,
+        Department.code,
+    )).order_by(Department.id)
     if page is None and page_size is None:
         return ordered_query.all()
 
