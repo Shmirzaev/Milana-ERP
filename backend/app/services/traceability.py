@@ -808,7 +808,25 @@ def build_traceability(
                 "checked_by": int(row.checked_by) if row.checked_by else None,
                 "checked_at": _dt(row.checked_at),
             }
-            for row in db.query(QualityCheck).filter(QualityCheck.work_order_id.in_(quality_wo_ids)).order_by(QualityCheck.id.asc()).all()
+            for row in db.query(QualityCheck)
+            .options(
+                load_only(
+                    QualityCheck.id,
+                    QualityCheck.work_order_id,
+                    QualityCheck.department_id,
+                    QualityCheck.checked_qty,
+                    QualityCheck.passed_qty,
+                    QualityCheck.failed_qty,
+                    QualityCheck.defect_type,
+                    QualityCheck.defect_reason,
+                    QualityCheck.severity,
+                    QualityCheck.checked_by,
+                    QualityCheck.checked_at,
+                )
+            )
+            .filter(QualityCheck.work_order_id.in_(quality_wo_ids))
+            .order_by(QualityCheck.id.asc())
+            .all()
         ]
 
     waste_rows = []
