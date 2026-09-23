@@ -29,6 +29,7 @@ from app.services.stocktake import (
 router = APIRouter(prefix="/warehouse-stocktakes", tags=["warehouse_stocktakes"])
 access = require_permissions("storage.packages", "storage.shipment")
 _STOCKTAKE_EXPORT_CHUNK_SIZE = 400
+_DB_INTEGER_MAX = 2_147_483_647
 
 
 class CreateCount(BaseModel):
@@ -69,6 +70,8 @@ class StocktakePageOut(StocktakeListOut):
 
 
 def get_count(db, count_id, *, lock=False):
+    if count_id < 1 or count_id > _DB_INTEGER_MAX:
+        raise HTTPException(404, "Inventory count not found")
     query = db.query(WarehouseStocktake).filter(WarehouseStocktake.id == count_id)
     if lock:
         query = query.with_for_update()

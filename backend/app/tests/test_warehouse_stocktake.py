@@ -89,6 +89,24 @@ def business_fingerprint():
         ]
 
 
+def test_unrepresentable_stocktake_id_returns_not_found_before_database_lookup(client, auth_headers):
+    from fastapi import HTTPException
+
+    from app.api.routes.stocktake import get_count
+
+    class QueryForbidden:
+        def query(self, *_args, **_kwargs):
+            raise AssertionError("unrepresentable stocktake ID must not reach the database")
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_count(QueryForbidden(), 2_147_483_648)
+    assert exc_info.value.status_code == 404
+
+    path = f"{BASE}/2147483648"
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers=auth_headers).status_code == 404
+
+
 def test_full_count_unknown_missing_duplicates_completion_and_no_stock_mutation(client, auth_headers, packs):
     before = business_fingerprint()
     cid = start(client, auth_headers)
