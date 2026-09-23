@@ -14,7 +14,7 @@ from app.db.base import Base
 from app.models import Customer, Invoice, Payment, SalesOrder
 from app.schemas.integrations import OneCSyncIn
 from app.services import finance_1c
-from app.services.finance_1c import sync_from_1c
+from app.services.finance_1c import _sales_order_lookup, sync_from_1c
 from app.services.payments import create_invoice_payment, invoice_paid_total
 from app.tests.conftest import TestSessionLocal
 
@@ -56,6 +56,39 @@ def _assert_invoices(session_factory, ids, totals, statuses):
         payments = db.query(Payment).filter_by(external_source="1c", external_id=ids["external_id"]).all()
         assert len(payments) == 1
         assert payments[0].id == ids["payment_id"]
+
+
+def test_1c_sales_order_lookup_projects_invoice_reference_fields():
+    ids = _invoices(TestSessionLocal, count=1)
+    with TestSessionLocal() as db:
+        order = db.get(SalesOrder, ids["order_id"])
+        order.notes = "unused order note" * 20
+        order.printing_attachments = [{"unused": "attachment"}]
+        db.commit()
+        payload = OneCSyncIn(invoices=[{
+            "external_id": f"projection-{uuid4().hex}",
+            "sales_order_id": ids["order_id"],
+            "amount": 100,
+        }])
+
+        statements = []
+
+        def capture(_conn, _cursor, statement, _params, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement.lower())
+
+        event.listen(db.get_bind(), "before_cursor_execute", capture)
+        try:
+            by_id, by_no, _references = _sales_order_lookup(db, payload)
+        finally:
+            event.remove(db.get_bind(), "before_cursor_execute", capture)
+
+    assert set(by_id) == {ids["order_id"]}
+    assert by_id[ids["order_id"]].order_no == f"REASSIGN-{ids['invoice_nos'][0].split('-')[1]}"
+    assert by_no == {by_id[ids["order_id"]].order_no: by_id[ids["order_id"]]}
+    order_query = next(sql for sql in statements if "from sales_orders" in sql)
+    assert "sales_orders.notes" not in order_query
+    assert "sales_orders.printing_attachments" not in order_query
 
 
 @pytest.mark.parametrize("reference", ["invoice_id", "invoice_no", "invoice_external_id"])

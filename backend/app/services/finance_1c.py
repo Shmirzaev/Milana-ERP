@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.models import Invoice, Payment, SalesOrder
 from app.schemas.integrations import OneCSyncIn
@@ -162,7 +162,14 @@ def _sales_order_lookup(
         filters.append(SalesOrder.id.in_(order_ids))
     if order_nos:
         filters.append(SalesOrder.order_no.in_(order_nos))
-    rows = db.query(SalesOrder).filter(or_(*filters)).all() if filters else []
+    rows = (
+        db.query(SalesOrder)
+        .options(load_only(SalesOrder.id, SalesOrder.order_no))
+        .filter(or_(*filters))
+        .all()
+        if filters
+        else []
+    )
     by_id = {int(row.id): row for row in rows}
     # Alias targets loaded by the shared reference lookup may not have been in
     # the direct id/reference predicates above.
