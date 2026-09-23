@@ -312,7 +312,7 @@ def _rich_package_case(db):
     }
 
 
-@pytest.mark.parametrize("package_count", [1, 50, 401])
+@pytest.mark.parametrize("package_count", [1, 50, 401, 500])
 def test_package_label_sheet_batches_reference_context(client, auth_headers, monkeypatch, package_count):
     with SessionLocal() as db:
         package_ids, package_nos = _package_case(db, package_count)
@@ -360,6 +360,32 @@ def test_package_label_sheet_batches_reference_context(client, auth_headers, mon
     assert len(statements) == 10 + (2 * expected_chunks), statements
     positions = [response.text.index(package_no) for package_no in package_nos]
     assert positions == sorted(positions)
+
+
+def test_package_label_sheet_rejects_over_limit_before_package_reads_or_rendering(
+    client, auth_headers, monkeypatch
+):
+    with SessionLocal() as db:
+        bind = db.bind
+
+    def fail_render(*_args, **_kwargs):
+        pytest.fail("over-limit label sheet must not render package labels")
+
+    monkeypatch.setattr(package_routes, "_package_label_card_html", fail_render)
+    ids = ",".join(str(package_id) for package_id in range(1, 502))
+    response, statements = _select_trace(
+        bind,
+        lambda: client.get(
+            "/api/packages/label-sheet/by-ids",
+            params={"ids": ids},
+            headers=auth_headers,
+        ),
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "A label sheet may contain at most 500 packages"
+    assert _table_selects(statements, "packages") == 0
+    assert _table_selects(statements, "package_items") == 0
 
 
 def test_package_label_context_chunks_distinct_models_and_orders(monkeypatch):

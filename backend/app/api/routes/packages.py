@@ -2053,6 +2053,8 @@ def label_sheet(ids: str, db: DbSession, current: User = Depends(require_permiss
         raise HTTPException(400, "ids must be comma-separated integers")
     if not parsed_ids:
         raise HTTPException(400, "Provide at least one package id")
+    if len(parsed_ids) > 500:
+        raise HTTPException(413, "A label sheet may contain at most 500 packages")
     rows = (
         db.query(Package)
         .options(selectinload(Package.items))
