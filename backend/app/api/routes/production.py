@@ -8,7 +8,7 @@ from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Body, HTTPException, Depends, File, Query, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import String, and_, case, cast, func, or_
+from sqlalchemy import String, and_, case, cast, func, literal, or_, select, union_all
 from sqlalchemy.orm import aliased, joinedload, load_only, noload, selectinload
 
 from app.core.config import settings
@@ -4293,118 +4293,170 @@ def _filter_production_batch(qry, column, production_batch_id: int | None):
     return qry.filter(column == production_batch_id)
 
 
+@dataclass(frozen=True)
+class _CuttingScopeEvidence:
+    downstream_quantity: int
+    has_identity_evidence: bool
+
+
+def _cutting_scope_evidence(
+    db: DbSession,
+    production_order_id: int,
+    production_batch_id: int | None,
+) -> _CuttingScopeEvidence:
+    """Read every scalar bundle-edit guard for one cutting scope in one trip."""
+
+    def scoped(statement, column):
+        return _filter_production_batch(statement, column, production_batch_id)
+
+    def labeled(value, name: str):
+        return value.label(name) if hasattr(value, "label") else literal(value).label(name)
+
+    def evidence_row(source: str, first, second=0, third=0, identity=False):
+        return select(
+            literal(source).label("source"),
+            labeled(first, "first_quantity"),
+            labeled(second, "second_quantity"),
+            labeled(third, "third_quantity"),
+            labeled(identity, "has_identity"),
+        )
+
+    printing = scoped(
+        evidence_row(
+            "printing",
+            func.coalesce(func.sum(PrintingRecord.input_qty), 0),
+            func.coalesce(func.sum(PrintingRecord.printed_qty), 0),
+            func.coalesce(func.sum(PrintingRecord.passed_qty + PrintingRecord.rejected_qty), 0),
+        ).select_from(PrintingRecord).join(
+            WorkOrder,
+            WorkOrder.id == PrintingRecord.work_order_id,
+        ).filter(WorkOrder.production_order_id == production_order_id),
+        PrintingRecord.production_batch_id,
+    )
+    sewing = scoped(
+        evidence_row(
+            "sewing",
+            func.coalesce(func.sum(SewingRecord.input_qty), 0),
+            func.coalesce(func.sum(SewingRecord.sewn_qty), 0),
+            func.coalesce(func.sum(
+                SewingRecord.passed_qty + SewingRecord.failed_qty + SewingRecord.rejected_qty
+            ), 0),
+            func.count(SewingRecord.id) > 0,
+        ).select_from(SewingRecord).join(
+            WorkOrder,
+            WorkOrder.id == SewingRecord.work_order_id,
+        ).filter(WorkOrder.production_order_id == production_order_id),
+        SewingRecord.production_batch_id,
+    )
+    assignments = scoped(
+        evidence_row(
+            "assignment",
+            func.coalesce(func.sum(SewingAssignment.completed_qty), 0),
+        ).select_from(SewingAssignment).join(
+            WorkOrder,
+            WorkOrder.id == SewingAssignment.work_order_id,
+        ).filter(
+            WorkOrder.production_order_id == production_order_id,
+            SewingAssignment.status != "cancelled",
+        ),
+        SewingAssignment.production_batch_id,
+    )
+    daily_reports = scoped(
+        evidence_row(
+            "daily",
+            func.coalesce(func.sum(SewingDailyReport.sewn_qty), 0),
+        ).select_from(SewingDailyReport).filter(
+            SewingDailyReport.production_order_id == production_order_id,
+        ),
+        SewingDailyReport.production_batch_id,
+    )
+    packaging = scoped(
+        evidence_row(
+            "packaging",
+            func.coalesce(func.sum(PackagingRecord.input_qty), 0),
+            func.coalesce(func.sum(PackagingRecord.packed_qty + PackagingRecord.damaged_qty), 0),
+            func.coalesce(func.sum(PackagingRecord.total_packed_quantity), 0),
+        ).select_from(PackagingRecord).join(
+            WorkOrder,
+            WorkOrder.id == PackagingRecord.work_order_id,
+        ).filter(WorkOrder.production_order_id == production_order_id),
+        PackagingRecord.production_batch_id,
+    )
+    receipts = scoped(
+        evidence_row(
+            "receipt",
+            func.coalesce(func.sum(PackagingReceipt.quantity), 0),
+            identity=func.count(PackagingReceipt.id) > 0,
+        ).select_from(PackagingReceipt).filter(
+            PackagingReceipt.production_order_id == production_order_id,
+        ),
+        PackagingReceipt.production_batch_id,
+    )
+    allocated_package_ids = select(PackageBatchAllocation.package_id)
+    direct_packages = scoped(
+        evidence_row(
+            "package",
+            func.coalesce(func.sum(case(
+                (~Package.id.in_(allocated_package_ids), Package.total_quantity),
+                else_=0,
+            )), 0),
+            identity=func.count(Package.id) > 0,
+        ).select_from(Package).filter(Package.production_order_id == production_order_id),
+        Package.production_batch_id,
+    )
+    if production_batch_id is None:
+        allocated_packages = evidence_row("allocation", 0)
+    else:
+        allocated_packages = evidence_row(
+            "allocation",
+            func.coalesce(func.sum(PackageBatchAllocation.quantity), 0),
+            identity=func.count(PackageBatchAllocation.id) > 0,
+        ).select_from(PackageBatchAllocation).join(
+            Package,
+            Package.id == PackageBatchAllocation.package_id,
+        ).filter(
+            Package.production_order_id == production_order_id,
+            PackageBatchAllocation.production_batch_id == production_batch_id,
+        )
+
+    rows = db.execute(union_all(
+        printing,
+        sewing,
+        assignments,
+        daily_reports,
+        packaging,
+        receipts,
+        direct_packages,
+        allocated_packages,
+    )).all()
+    package_quantity = sum(
+        int(row.first_quantity or 0)
+        for row in rows
+        if row.source in {"package", "allocation"}
+    )
+    non_package_quantities = [
+        int(value or 0)
+        for row in rows
+        if row.source not in {"package", "allocation"}
+        for value in (row.first_quantity, row.second_quantity, row.third_quantity)
+    ]
+    return _CuttingScopeEvidence(
+        downstream_quantity=max([package_quantity, *non_package_quantities], default=0),
+        has_identity_evidence=any(bool(row.has_identity) for row in rows),
+    )
+
+
 def _downstream_committed_quantity(
     db: DbSession,
     production_order_id: int,
     production_batch_id: int | None,
 ) -> int:
     """Return the strongest persisted downstream quantity for this cutting scope."""
-    work_order_ids = [
-        int(row_id)
-        for (row_id,) in db.query(WorkOrder.id)
-        .filter(WorkOrder.production_order_id == production_order_id)
-        .all()
-    ]
-    if not work_order_ids:
-        return 0
-
-    evidence = [0]
-    printing = _filter_production_batch(
-        db.query(
-            func.coalesce(func.sum(PrintingRecord.input_qty), 0),
-            func.coalesce(func.sum(PrintingRecord.printed_qty), 0),
-            func.coalesce(func.sum(PrintingRecord.passed_qty + PrintingRecord.rejected_qty), 0),
-        ).filter(PrintingRecord.work_order_id.in_(work_order_ids)),
-        PrintingRecord.production_batch_id,
+    return _cutting_scope_evidence(
+        db,
+        production_order_id,
         production_batch_id,
-    ).one()
-    evidence.extend(int(value or 0) for value in printing)
-
-    sewing = _filter_production_batch(
-        db.query(
-            func.coalesce(func.sum(SewingRecord.input_qty), 0),
-            func.coalesce(func.sum(SewingRecord.sewn_qty), 0),
-            func.coalesce(func.sum(SewingRecord.passed_qty + SewingRecord.failed_qty + SewingRecord.rejected_qty), 0),
-        ).filter(SewingRecord.work_order_id.in_(work_order_ids)),
-        SewingRecord.production_batch_id,
-        production_batch_id,
-    ).one()
-    evidence.extend(int(value or 0) for value in sewing)
-
-    assignment_completed = _filter_production_batch(
-        db.query(func.coalesce(func.sum(SewingAssignment.completed_qty), 0)).filter(
-            SewingAssignment.work_order_id.in_(work_order_ids),
-            SewingAssignment.status != "cancelled",
-        ),
-        SewingAssignment.production_batch_id,
-        production_batch_id,
-    ).scalar()
-    evidence.append(int(assignment_completed or 0))
-
-    daily_reported = _filter_production_batch(
-        db.query(func.coalesce(func.sum(SewingDailyReport.sewn_qty), 0)).filter(
-            SewingDailyReport.production_order_id == production_order_id,
-        ),
-        SewingDailyReport.production_batch_id,
-        production_batch_id,
-    ).scalar()
-    evidence.append(int(daily_reported or 0))
-
-    packaging = _filter_production_batch(
-        db.query(
-            func.coalesce(func.sum(PackagingRecord.input_qty), 0),
-            func.coalesce(func.sum(PackagingRecord.packed_qty + PackagingRecord.damaged_qty), 0),
-            func.coalesce(func.sum(PackagingRecord.total_packed_quantity), 0),
-        ).filter(PackagingRecord.work_order_id.in_(work_order_ids)),
-        PackagingRecord.production_batch_id,
-        production_batch_id,
-    ).one()
-    evidence.extend(int(value or 0) for value in packaging)
-
-    packaging_received = _filter_production_batch(
-        db.query(func.coalesce(func.sum(PackagingReceipt.quantity), 0)).filter(
-            PackagingReceipt.production_order_id == production_order_id,
-        ),
-        PackagingReceipt.production_batch_id,
-        production_batch_id,
-    ).scalar()
-    evidence.append(int(packaging_received or 0))
-
-    if production_batch_id is not None:
-        allocated = int(
-            db.query(func.coalesce(func.sum(PackageBatchAllocation.quantity), 0))
-            .join(Package, Package.id == PackageBatchAllocation.package_id)
-            .filter(
-                Package.production_order_id == production_order_id,
-                PackageBatchAllocation.production_batch_id == production_batch_id,
-            )
-            .scalar()
-            or 0
-        )
-        fallback = int(
-            db.query(func.coalesce(func.sum(Package.total_quantity), 0))
-            .filter(
-                Package.production_order_id == production_order_id,
-                Package.production_batch_id == production_batch_id,
-                ~Package.id.in_(db.query(PackageBatchAllocation.package_id)),
-            )
-            .scalar()
-            or 0
-        )
-        evidence.append(allocated + fallback)
-    else:
-        evidence.append(int(
-            db.query(func.coalesce(func.sum(Package.total_quantity), 0))
-            .filter(
-                Package.production_order_id == production_order_id,
-                Package.production_batch_id.is_(None),
-                ~Package.id.in_(db.query(PackageBatchAllocation.package_id)),
-            )
-            .scalar()
-            or 0
-        ))
-
-    return max(evidence)
+    ).downstream_quantity
 
 
 def _has_downstream_identity_evidence(
@@ -4412,34 +4464,11 @@ def _has_downstream_identity_evidence(
     production_order_id: int,
     production_batch_id: int | None,
 ) -> bool:
-    work_order_ids = db.query(WorkOrder.id).filter(WorkOrder.production_order_id == production_order_id)
-    sewing = _filter_production_batch(
-        db.query(SewingRecord.id).filter(SewingRecord.work_order_id.in_(work_order_ids)),
-        SewingRecord.production_batch_id,
+    return _cutting_scope_evidence(
+        db,
+        production_order_id,
         production_batch_id,
-    ).first()
-    receipt = _filter_production_batch(
-        db.query(PackagingReceipt.id).filter(PackagingReceipt.production_order_id == production_order_id),
-        PackagingReceipt.production_batch_id,
-        production_batch_id,
-    ).first()
-    package = _filter_production_batch(
-        db.query(Package.id).filter(Package.production_order_id == production_order_id),
-        Package.production_batch_id,
-        production_batch_id,
-    ).first()
-    allocation = None
-    if production_batch_id is not None:
-        allocation = (
-            db.query(PackageBatchAllocation.id)
-            .join(Package, Package.id == PackageBatchAllocation.package_id)
-            .filter(
-                Package.production_order_id == production_order_id,
-                PackageBatchAllocation.production_batch_id == production_batch_id,
-            )
-            .first()
-        )
-    return bool(sewing or receipt or package or allocation)
+    ).has_identity_evidence
 
 
 def _bundle_total_for_scope(
@@ -4493,6 +4522,18 @@ def _planned_quantity_for_scope(
     return batch_total if batch_total > 0 else int(po.planned_quantity or 0)
 
 
+def _filter_reconciliation_scopes(qry, column, scopes: set[int | None]):
+    batch_scope_ids = sorted(scope_id for scope_id in scopes if scope_id is not None)
+    clauses = []
+    if batch_scope_ids:
+        clauses.append(column.in_(batch_scope_ids))
+    if None in scopes:
+        clauses.append(column.is_(None))
+    if not clauses:
+        return qry.filter(column.in_([]))
+    return qry.filter(or_(*clauses))
+
+
 @dataclass
 class _CuttingReconciliationContext:
     scopes: set[int | None]
@@ -4534,6 +4575,10 @@ def _cutting_reconciliation_context(
         for row in work_orders
     }
     scopes.update(extra_scopes or ())
+
+    def scoped(qry, column):
+        return _filter_reconciliation_scopes(qry, column, scopes)
+
     planned_by_scope: dict[int | None, int] = {}
     batch_scope_ids = [scope_id for scope_id in scopes if scope_id is not None]
     if batch_scope_ids:
@@ -4556,15 +4601,16 @@ def _cutting_reconciliation_context(
         )
         planned_by_scope[None] = batch_total if batch_total > 0 else int(po.planned_quantity or 0)
 
+    bundle_rows = scoped(db.query(
+        Bundle.production_batch_id,
+        func.coalesce(func.sum(Bundle.quantity), 0),
+    ).filter(
+        Bundle.production_order_id == po.id,
+        Bundle.status != "cancelled",
+    ), Bundle.production_batch_id).group_by(Bundle.production_batch_id)
     bundle_by_scope = {
         (int(scope_id) if scope_id is not None else None): int(quantity or 0)
-        for scope_id, quantity in db.query(
-            Bundle.production_batch_id,
-            func.coalesce(func.sum(Bundle.quantity), 0),
-        ).filter(
-            Bundle.production_order_id == po.id,
-            Bundle.status != "cancelled",
-        ).group_by(Bundle.production_batch_id)
+        for scope_id, quantity in bundle_rows
     }
 
     cutting_by_scope = {
@@ -4573,43 +4619,45 @@ def _cutting_reconciliation_context(
         if row.operation == "cutting"
     }
     fallback_cutting = cutting_by_scope.get(None) or cutting_wo
+    cutting_evidence_rows = scoped(db.query(
+        CuttingRecord.work_order_id,
+        CuttingRecord.production_batch_id,
+        func.coalesce(func.sum(CuttingRecord.passed_pieces), 0),
+    ).join(
+        WorkOrder,
+        WorkOrder.id == CuttingRecord.work_order_id,
+    ).filter(
+        WorkOrder.production_order_id == po.id,
+    ), CuttingRecord.production_batch_id).group_by(
+        CuttingRecord.work_order_id,
+        CuttingRecord.production_batch_id,
+    )
     cutting_rows = {
         (
             int(work_order_id),
             int(scope_id) if scope_id is not None else None,
         ): int(quantity or 0)
-        for work_order_id, scope_id, quantity in db.query(
-            CuttingRecord.work_order_id,
-            CuttingRecord.production_batch_id,
-            func.coalesce(func.sum(CuttingRecord.passed_pieces), 0),
-        ).join(
-            WorkOrder,
-            WorkOrder.id == CuttingRecord.work_order_id,
-        ).filter(
-            WorkOrder.production_order_id == po.id,
-        ).group_by(
-            CuttingRecord.work_order_id,
-            CuttingRecord.production_batch_id,
-        )
+        for work_order_id, scope_id, quantity in cutting_evidence_rows
     }
+    replacement_evidence_rows = scoped(db.query(
+        SewingReplacementRequest.cutting_work_order_id,
+        SewingReplacementRequest.production_batch_id,
+        func.coalesce(func.sum(SewingReplacementRequest.cut_qty), 0),
+    ).join(
+        WorkOrder,
+        WorkOrder.id == SewingReplacementRequest.cutting_work_order_id,
+    ).filter(
+        WorkOrder.production_order_id == po.id,
+    ), SewingReplacementRequest.production_batch_id).group_by(
+        SewingReplacementRequest.cutting_work_order_id,
+        SewingReplacementRequest.production_batch_id,
+    )
     replacement_rows = {
         (
             int(work_order_id),
             int(scope_id) if scope_id is not None else None,
         ): int(quantity or 0)
-        for work_order_id, scope_id, quantity in db.query(
-            SewingReplacementRequest.cutting_work_order_id,
-            SewingReplacementRequest.production_batch_id,
-            func.coalesce(func.sum(SewingReplacementRequest.cut_qty), 0),
-        ).join(
-            WorkOrder,
-            WorkOrder.id == SewingReplacementRequest.cutting_work_order_id,
-        ).filter(
-            WorkOrder.production_order_id == po.id,
-        ).group_by(
-            SewingReplacementRequest.cutting_work_order_id,
-            SewingReplacementRequest.production_batch_id,
-        )
+        for work_order_id, scope_id, quantity in replacement_evidence_rows
     }
     cutting_output_by_work_order_scope = {
         key: max(0, passed - replacement_rows.get(key, 0))
@@ -4633,7 +4681,7 @@ def _cutting_reconciliation_context(
                 *(int(value or 0) for value in row[1:]),
             )
 
-    merge_downstream(db.query(
+    merge_downstream(scoped(db.query(
         PrintingRecord.production_batch_id,
         func.coalesce(func.sum(PrintingRecord.input_qty), 0),
         func.coalesce(func.sum(PrintingRecord.printed_qty), 0),
@@ -4643,8 +4691,8 @@ def _cutting_reconciliation_context(
         WorkOrder.id == PrintingRecord.work_order_id,
     ).filter(
         WorkOrder.production_order_id == po.id,
-    ).group_by(PrintingRecord.production_batch_id))
-    merge_downstream(db.query(
+    ), PrintingRecord.production_batch_id).group_by(PrintingRecord.production_batch_id))
+    merge_downstream(scoped(db.query(
         SewingRecord.production_batch_id,
         func.coalesce(func.sum(SewingRecord.input_qty), 0),
         func.coalesce(func.sum(SewingRecord.sewn_qty), 0),
@@ -4656,8 +4704,8 @@ def _cutting_reconciliation_context(
         WorkOrder.id == SewingRecord.work_order_id,
     ).filter(
         WorkOrder.production_order_id == po.id,
-    ).group_by(SewingRecord.production_batch_id))
-    merge_downstream(db.query(
+    ), SewingRecord.production_batch_id).group_by(SewingRecord.production_batch_id))
+    merge_downstream(scoped(db.query(
         SewingAssignment.production_batch_id,
         func.coalesce(func.sum(SewingAssignment.completed_qty), 0),
     ).join(
@@ -4666,14 +4714,14 @@ def _cutting_reconciliation_context(
     ).filter(
         WorkOrder.production_order_id == po.id,
         SewingAssignment.status != "cancelled",
-    ).group_by(SewingAssignment.production_batch_id))
-    merge_downstream(db.query(
+    ), SewingAssignment.production_batch_id).group_by(SewingAssignment.production_batch_id))
+    merge_downstream(scoped(db.query(
         SewingDailyReport.production_batch_id,
         func.coalesce(func.sum(SewingDailyReport.sewn_qty), 0),
     ).filter(
         SewingDailyReport.production_order_id == po.id,
-    ).group_by(SewingDailyReport.production_batch_id))
-    merge_downstream(db.query(
+    ), SewingDailyReport.production_batch_id).group_by(SewingDailyReport.production_batch_id))
+    merge_downstream(scoped(db.query(
         PackagingRecord.production_batch_id,
         func.coalesce(func.sum(PackagingRecord.input_qty), 0),
         func.coalesce(func.sum(PackagingRecord.packed_qty + PackagingRecord.damaged_qty), 0),
@@ -4683,17 +4731,17 @@ def _cutting_reconciliation_context(
         WorkOrder.id == PackagingRecord.work_order_id,
     ).filter(
         WorkOrder.production_order_id == po.id,
-    ).group_by(PackagingRecord.production_batch_id))
-    merge_downstream(db.query(
+    ), PackagingRecord.production_batch_id).group_by(PackagingRecord.production_batch_id))
+    merge_downstream(scoped(db.query(
         PackagingReceipt.production_batch_id,
         func.coalesce(func.sum(PackagingReceipt.quantity), 0),
     ).filter(
         PackagingReceipt.production_order_id == po.id,
-    ).group_by(PackagingReceipt.production_batch_id))
+    ), PackagingReceipt.production_batch_id).group_by(PackagingReceipt.production_batch_id))
 
-    allocated_by_scope = {
-        int(scope_id): int(quantity or 0)
-        for scope_id, quantity in db.query(
+    allocated_by_scope = {}
+    if batch_scope_ids:
+        allocated_rows = db.query(
             PackageBatchAllocation.production_batch_id,
             func.coalesce(func.sum(PackageBatchAllocation.quantity), 0),
         ).join(
@@ -4701,17 +4749,22 @@ def _cutting_reconciliation_context(
             Package.id == PackageBatchAllocation.package_id,
         ).filter(
             Package.production_order_id == po.id,
+            PackageBatchAllocation.production_batch_id.in_(batch_scope_ids),
         ).group_by(PackageBatchAllocation.production_batch_id)
-    }
+        allocated_by_scope = {
+            int(scope_id): int(quantity or 0)
+            for scope_id, quantity in allocated_rows
+        }
+    direct_rows = scoped(db.query(
+        Package.production_batch_id,
+        func.coalesce(func.sum(Package.total_quantity), 0),
+    ).filter(
+        Package.production_order_id == po.id,
+        ~Package.id.in_(db.query(PackageBatchAllocation.package_id)),
+    ), Package.production_batch_id).group_by(Package.production_batch_id)
     direct_by_scope = {
         (int(scope_id) if scope_id is not None else None): int(quantity or 0)
-        for scope_id, quantity in db.query(
-            Package.production_batch_id,
-            func.coalesce(func.sum(Package.total_quantity), 0),
-        ).filter(
-            Package.production_order_id == po.id,
-            ~Package.id.in_(db.query(PackageBatchAllocation.package_id)),
-        ).group_by(Package.production_batch_id)
+        for scope_id, quantity in direct_rows
     }
     for scope_id in scopes:
         package_quantity = allocated_by_scope.get(scope_id, 0) + direct_by_scope.get(scope_id, 0)
@@ -4902,11 +4955,16 @@ def update_cutting_bundle_quantities(
         for bundle in bundles
         if (update := updates.get(int(bundle.id))) is not None
     )
-    if identity_changed and _has_downstream_identity_evidence(
-        db,
-        int(wo.production_order_id),
-        rec.production_batch_id,
-    ):
+    scope_evidence = (
+        _CuttingScopeEvidence(downstream_quantity=0, has_identity_evidence=False)
+        if is_usluga
+        else _cutting_scope_evidence(
+            db,
+            int(wo.production_order_id),
+            rec.production_batch_id,
+        )
+    )
+    if identity_changed and scope_evidence.has_identity_evidence:
         raise HTTPException(
             409,
             "Color and size cannot be changed after sewn or packaged output is recorded",
@@ -4922,11 +4980,7 @@ def update_cutting_bundle_quantities(
                 bundle.size = update["size"]
 
     new_total = sum(int(bundle.quantity or 0) for bundle in bundles)
-    downstream_floor = _downstream_committed_quantity(
-        db,
-        int(wo.production_order_id),
-        rec.production_batch_id,
-    )
+    downstream_floor = scope_evidence.downstream_quantity
     if is_usluga and new_total < old_total:
         raise HTTPException(400, "Cutting bundle total can only be increased before sewing")
     if not is_usluga and new_total < downstream_floor:

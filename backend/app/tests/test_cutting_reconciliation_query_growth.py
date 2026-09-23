@@ -79,6 +79,47 @@ def _base_order(scope_count: int) -> tuple[int, int]:
         return int(order.id), int(cutting_id)
 
 
+def _bundle_adjustment_order(scope_count: int) -> tuple[int, int, int, int]:
+    order_id, cutting_id = _base_order(scope_count)
+    with TestSessionLocal() as db:
+        cutting = db.get(WorkOrder, cutting_id)
+        order = db.get(ProductionOrder, order_id)
+        bundle = Bundle(
+            bundle_no=f"PERF19-EDIT-{uuid4().hex[:8]}",
+            barcode=f"PERF19-EDIT-QR-{uuid4().hex[:8]}",
+            production_order_id=order_id,
+            production_batch_id=cutting.production_batch_id,
+            model_id=order.model_id,
+            color="blue",
+            size="M",
+            quantity=10,
+            status="created",
+        )
+        record = CuttingRecord(
+            work_order_id=cutting.id,
+            production_batch_id=cutting.production_batch_id,
+            input_quantity=1,
+            input_unit="kg",
+            cut_pieces=10,
+            passed_pieces=10,
+            defective_pieces=0,
+            waste_quantity=0,
+            waste_unit="kg",
+            layer_material_kg=0,
+            beika_kg=0,
+            material_rolls_used=0,
+            bundle_count=1,
+            total_bundled_quantity=10,
+            approval_status="approved",
+        )
+        db.add(record)
+        db.flush()
+        bundle.cutting_record_id = record.id
+        db.add(bundle)
+        db.commit()
+        return order_id, int(cutting.id), int(record.id), int(bundle.id)
+
+
 @pytest.mark.parametrize("scope_count", [1, 50, 401])
 def test_cutting_reconciliation_has_bounded_query_growth(scope_count):
     order_id, cutting_id = _base_order(scope_count)
@@ -103,6 +144,26 @@ def test_cutting_reconciliation_has_bounded_query_growth(scope_count):
         rows = db.query(WorkOrder).filter(WorkOrder.production_order_id == order_id).all()
 
     assert len(rows) == scope_count * 2
+    assert len(statements) == 16
+    normalized_statements = [" ".join(statement.lower().split()) for statement in statements]
+    for table in (
+        "bundles",
+        "cutting_records",
+        "sewing_replacement_requests",
+        "printing_records",
+        "sewing_records",
+        "sewing_assignments",
+        "sewing_daily_reports",
+        "packaging_records",
+        "packaging_receipts",
+        "package_batch_allocations",
+        "packages",
+    ):
+        assert any(
+            f" from {table} " in statement
+            and f"{table}.production_batch_id in" in statement
+            for statement in normalized_statements
+        ), table
     assert all(int(row.planned_input_qty) >= 10 for row in rows)
     assert all(int(row.planned_input_qty) == int(row.planned_output_qty) for row in rows)
 
@@ -186,6 +247,88 @@ def test_cutting_batch_quantity_validation_keeps_floor_and_rolls_back():
         }
 
     assert refreshed_plans == original_plans
+
+
+@pytest.mark.parametrize("scope_count", [1, 50, 401])
+def test_cutting_bundle_adjustment_reuses_one_scoped_evidence_read(scope_count):
+    order_id, _cutting_id, record_id, bundle_id = _bundle_adjustment_order(scope_count)
+    with TestSessionLocal() as db:
+        current = db.query(User).order_by(User.id.asc()).first()
+        statements: list[str] = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            result = production_routes.update_cutting_bundle_quantities(
+                record_id,
+                production_routes.CuttingBundleQuantityUpdateIn(
+                    bundles=[{"id": bundle_id, "quantity": 11, "color": "navy"}],
+                ),
+                db,
+                current,
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        rows = db.query(WorkOrder).filter(WorkOrder.production_order_id == order_id).all()
+
+    assert result["total_bundled_quantity"] == 11
+    assert result["bundles"][0]["color"] == "navy"
+    assert all(int(row.planned_input_qty) == int(row.planned_output_qty) for row in rows)
+    assert len(statements) == 29
+    assert sum(" union all " in statement for statement in statements) == 1
+
+
+def test_cutting_bundle_adjustment_downstream_rejection_rolls_back():
+    order_id, cutting_id, record_id, bundle_id = _bundle_adjustment_order(1)
+    with TestSessionLocal() as db:
+        cutting = db.get(WorkOrder, cutting_id)
+        sewing = WorkOrder(
+            production_order_id=order_id,
+            production_batch_id=cutting.production_batch_id,
+            department_id=cutting.department_id,
+            operation="sewing",
+            status="in_progress",
+            planned_input_qty=20,
+            planned_output_qty=20,
+            actual_input_qty=20,
+            actual_output_qty=20,
+            passed_qty=20,
+            failed_qty=0,
+            rework_qty=0,
+        )
+        db.add(sewing)
+        db.flush()
+        db.add(SewingRecord(
+            work_order_id=sewing.id,
+            production_batch_id=cutting.production_batch_id,
+            input_qty=20,
+            sewn_qty=20,
+            passed_qty=20,
+            failed_qty=0,
+            rejected_qty=0,
+            rework_qty=0,
+        ))
+        db.commit()
+
+        current = db.query(User).order_by(User.id.asc()).first()
+        with pytest.raises(HTTPException, match=r"downstream output \(20\)"):
+            production_routes.update_cutting_bundle_quantities(
+                record_id,
+                production_routes.CuttingBundleQuantityUpdateIn(
+                    bundles=[{"id": bundle_id, "quantity": 5}],
+                ),
+                db,
+                current,
+            )
+        db.rollback()
+
+        assert int(db.get(Bundle, bundle_id).quantity) == 10
+        record = db.get(CuttingRecord, record_id)
+        assert int(record.passed_pieces) == 10
+        assert int(record.total_bundled_quantity) == 10
 
 
 def _mixed_reconciliation_order() -> tuple[int, int]:
@@ -654,6 +797,21 @@ def test_cutting_reconciliation_keeps_each_scalar_evidence_branch(kind):
     assert rows
     assert {int(row.planned_input_qty) for row in rows} == {expected}
     assert {int(row.planned_output_qty) for row in rows} == {expected}
+
+
+@pytest.mark.parametrize("kind", ["sewing", "receipt", "package_direct", "package_allocated"])
+def test_cutting_scope_evidence_keeps_identity_and_quantity_semantics(kind):
+    order_id, cutting_id, expected = _single_dominant_evidence(kind)
+    with TestSessionLocal() as db:
+        cutting = db.get(WorkOrder, cutting_id)
+        evidence = production_routes._cutting_scope_evidence(
+            db,
+            order_id,
+            cutting.production_batch_id,
+        )
+
+    assert evidence.downstream_quantity == expected
+    assert evidence.has_identity_evidence is True
 
 
 def test_cutting_reconciliation_keeps_null_scope_separate_from_batches():
