@@ -6,7 +6,7 @@ from html import escape
 from math import floor
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, load_only, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.dt import as_utc
@@ -340,6 +340,7 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
 
     items = (
         db.query(ProductionOrderItem)
+        .options(load_only(ProductionOrderItem.size, ProductionOrderItem.planned_quantity))
         .filter(ProductionOrderItem.production_order_id == production_order.id)
         .order_by(ProductionOrderItem.id.asc())
         .all()
