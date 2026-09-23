@@ -1549,7 +1549,15 @@ def print_shipment_invoice(sid: int, db: DbSession, lang: str = "en",
 
 @router.get("/{sid}/scan-status", response_model=ShipmentScanOut)
 def scan_status(sid: int, db: DbSession, _: CurrentUser):
-    sh = db.get(Shipment, sid)
+    sh = (
+        db.query(Shipment)
+        .options(
+            load_only(Shipment.id),
+            selectinload(Shipment.packages).load_only(ShipmentPackage.package_id),
+        )
+        .filter(Shipment.id == sid)
+        .first()
+    )
     if not sh:
         raise HTTPException(404, "Shipment not found")
 
