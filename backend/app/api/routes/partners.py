@@ -556,7 +556,22 @@ def create_supplier(payload: PartyIn, db: DbSession, current: User = Depends(req
 
 @router.get("/suppliers/{sid}", response_model=PartyOut)
 def get_supplier(sid: int, db: DbSession, _: User = Depends(require_permissions(*SUPPLIER_READ_PERMISSIONS))):
-    s = db.get(Supplier, sid)
+    s = (
+        db.query(Supplier)
+        .options(
+            load_only(
+                Supplier.id,
+                Supplier.name,
+                Supplier.phone,
+                Supplier.email,
+                Supplier.address,
+                Supplier.notes,
+                raiseload=True,
+            )
+        )
+        .filter(Supplier.id == sid)
+        .one_or_none()
+    )
     if not s:
         raise HTTPException(404, "Supplier not found")
     return s
