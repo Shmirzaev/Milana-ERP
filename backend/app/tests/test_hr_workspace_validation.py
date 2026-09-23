@@ -76,6 +76,54 @@ def test_position_update_rejects_inverted_salary_range_without_mutation(client, 
         assert float(position.salary_max) == 200
 
 
+def test_position_rejects_unstorable_approved_count_after_reference_checks(client, auth_headers):
+    missing_department_id = 2_147_483_647
+    response = client.post(
+        "/api/hr/positions",
+        headers=auth_headers,
+        json={
+            "department_id": missing_department_id,
+            "name": "Invalid approved count",
+            "approved_count": 2_147_483_648,
+        },
+    )
+
+    assert response.status_code == 404, response.text
+
+
+def test_position_update_rejects_unstorable_approved_count_without_mutation(client, auth_headers):
+    created = client.post(
+        "/api/hr/positions",
+        headers=auth_headers,
+        json={"name": "Approved count position", "approved_count": 5},
+    )
+    assert created.status_code == 201, created.text
+    position_id = created.json()["id"]
+
+    response = client.patch(
+        f"/api/hr/positions/{position_id}",
+        headers=auth_headers,
+        json={"name": "Changed name", "approved_count": 2_147_483_648},
+    )
+
+    assert response.status_code == 422, response.text
+    with SessionLocal() as db:
+        position = db.get(HrPosition, position_id)
+        assert position.name == "Approved count position"
+        assert position.approved_count == 5
+
+
+def test_position_accepts_approved_count_database_boundary(client, auth_headers):
+    response = client.post(
+        "/api/hr/positions",
+        headers=auth_headers,
+        json={"name": "Maximum approved count", "approved_count": 2_147_483_647},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["approved_count"] == 2_147_483_647
+
+
 def test_candidate_rejects_passport_expiry_before_issue(client, auth_headers):
     response = client.post(
         "/api/hr/recruitment",

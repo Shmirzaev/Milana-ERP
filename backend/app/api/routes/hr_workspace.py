@@ -258,6 +258,11 @@ def _validate_position_links(payload: PositionIn, db: DbSession, factory: str) -
         _department(db, factory, payload.department_id)
 
 
+def _validate_position_approved_count(payload: PositionIn) -> None:
+    if payload.approved_count > MAX_INT4:
+        raise HTTPException(422, "Approved count must fit a 32-bit database integer")
+
+
 def _position_dict(row: HrPosition, occupied: int = 0, department_name: str | None = None) -> dict:
     return {
         "id": row.id,
@@ -394,6 +399,7 @@ def list_positions(
 def create_position(payload: PositionIn, db: DbSession, current: User = HrUser):
     factory = _factory(current)
     _validate_position_links(payload, db, factory)
+    _validate_position_approved_count(payload)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     row = HrPosition(factory_code=factory, **values)
     db.add(row); db.flush(); log_action(db, current, "create", "HrPosition", row.id, new_value={"name": row.name}); db.commit(); db.refresh(row)
@@ -406,6 +412,7 @@ def update_position(position_id: int, payload: PositionIn, db: DbSession, curren
     row = db.query(HrPosition).filter(HrPosition.id == position_id, HrPosition.factory_code == factory).first()
     if not row: raise HTTPException(404, "Position not found")
     _validate_position_links(payload, db, factory)
+    _validate_position_approved_count(payload)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     for key, value in values.items(): setattr(row, key, value)
     log_action(db, current, "update", "HrPosition", row.id, new_value=values); db.commit(); db.refresh(row)
