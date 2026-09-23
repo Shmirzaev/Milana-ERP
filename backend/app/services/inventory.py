@@ -992,6 +992,59 @@ def _set_reservation_status(reservation: MaterialReservation) -> None:
         reservation.status = "reserved"
 
 
+def _consume_loaded_material_reservation(
+    db: Session,
+    reservation: MaterialReservation,
+    *,
+    quantity: float,
+    user_id: int | None,
+    reference_type: str,
+    reference_id: int | None,
+    stock_batch_cache: dict[int, StockBatch] | None = None,
+    item_cache: dict[int, Item] | None = None,
+) -> MaterialReservation:
+    if reservation.status not in ACTIVE_RESERVATION_STATUSES:
+        raise HTTPException(409, f"Reservation is not active (status: {reservation.status})")
+    quantity = float(quantity or 0)
+    if quantity <= 0:
+        raise HTTPException(400, "Consume quantity must be greater than zero")
+    remaining = _open_reservation_quantity(reservation)
+    if quantity > remaining + EPSILON:
+        raise HTTPException(409, f"Consume quantity exceeds remaining reserved quantity ({remaining:g})")
+
+    movement_reference_id = int(reference_id) if reference_id is not None else int(reservation.id)
+    if reservation.stock_batch_id:
+        consume_stock_batch(
+            db,
+            batch_id=int(reservation.stock_batch_id),
+            quantity=quantity,
+            unit=reservation.unit,
+            reference_type=reference_type,
+            reference_id=movement_reference_id,
+            user_id=user_id,
+            batch_cache=stock_batch_cache,
+            item_cache=item_cache,
+        )
+    else:
+        consume_item_from_batches(
+            db,
+            item_id=int(reservation.item_id),
+            quantity=quantity,
+            unit=reservation.unit,
+            reference_type=reference_type,
+            reference_id=movement_reference_id,
+            user_id=user_id,
+            warehouse_id=int(reservation.warehouse_id) if reservation.warehouse_id else None,
+            require_available=True,
+            item_cache=item_cache,
+        )
+
+    reservation.consumed_quantity = float(reservation.consumed_quantity or 0) + quantity
+    _set_reservation_status(reservation)
+    db.flush()
+    return reservation
+
+
 def release_material_reservation(db: Session, reservation_id: int) -> MaterialReservation:
     reservation = db.get(MaterialReservation, reservation_id)
     if not reservation:
@@ -1021,43 +1074,125 @@ def consume_material_reservation(
     reservation = db.get(MaterialReservation, reservation_id)
     if not reservation:
         raise HTTPException(404, "Material reservation not found")
-    if reservation.status not in ACTIVE_RESERVATION_STATUSES:
-        raise HTTPException(409, f"Reservation is not active (status: {reservation.status})")
-    quantity = float(quantity or 0)
-    if quantity <= 0:
-        raise HTTPException(400, "Consume quantity must be greater than zero")
-    remaining = _open_reservation_quantity(reservation)
-    if quantity > remaining + EPSILON:
-        raise HTTPException(409, f"Consume quantity exceeds remaining reserved quantity ({remaining:g})")
+    return _consume_loaded_material_reservation(
+        db,
+        reservation,
+        quantity=quantity,
+        user_id=user_id,
+        reference_type=reference_type,
+        reference_id=reference_id,
+    )
 
-    movement_reference_id = int(reference_id) if reference_id is not None else int(reservation.id)
-    if reservation.stock_batch_id:
-        consume_stock_batch(
-            db,
-            batch_id=int(reservation.stock_batch_id),
-            quantity=quantity,
-            unit=reservation.unit,
-            reference_type=reference_type,
-            reference_id=movement_reference_id,
-            user_id=user_id,
-        )
-    else:
-        consume_item_from_batches(
-            db,
-            item_id=int(reservation.item_id),
-            quantity=quantity,
-            unit=reservation.unit,
-            reference_type=reference_type,
-            reference_id=movement_reference_id,
-            user_id=user_id,
-            warehouse_id=int(reservation.warehouse_id) if reservation.warehouse_id else None,
-            require_available=True,
-        )
 
-    reservation.consumed_quantity = float(reservation.consumed_quantity or 0) + quantity
-    _set_reservation_status(reservation)
+def _locked_reservations_by_stock_batch(
+    db: Session,
+    *,
+    production_order_id: int,
+    stock_batch_ids: list[int],
+) -> dict[int, list[MaterialReservation]]:
+    if not stock_batch_ids:
+        return {}
+    qry = (
+        db.query(MaterialReservation)
+        .options(
+            lazyload(MaterialReservation.item),
+            lazyload(MaterialReservation.stock_batch),
+            lazyload(MaterialReservation.warehouse),
+        )
+        .filter(
+            MaterialReservation.production_order_id == production_order_id,
+            MaterialReservation.stock_batch_id.in_(stock_batch_ids),
+            MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+        )
+        .order_by(
+            MaterialReservation.stock_batch_id.asc(),
+            MaterialReservation.created_at.asc(),
+            MaterialReservation.id.asc(),
+        )
+    )
+    if db.bind and db.bind.dialect.name == "postgresql":
+        qry = qry.with_for_update(of=MaterialReservation)
+    by_batch: dict[int, list[MaterialReservation]] = {batch_id: [] for batch_id in stock_batch_ids}
+    for reservation in qry.all():
+        by_batch[int(reservation.stock_batch_id)].append(reservation)
+    return by_batch
+
+
+def _locked_stock_batches_for_consumption(
+    db: Session,
+    stock_batch_ids: list[int],
+) -> tuple[dict[int, StockBatch], dict[int, Item]]:
+    if not stock_batch_ids:
+        return {}, {}
+    # Do not let populate_existing discard stock changes already staged by the caller.
     db.flush()
-    return reservation
+    qry = (
+        db.query(StockBatch)
+        .options(lazyload(StockBatch.item))
+        .filter(StockBatch.id.in_(stock_batch_ids))
+        .order_by(StockBatch.id.asc())
+        .populate_existing()
+    )
+    if db.bind and db.bind.dialect.name == "postgresql":
+        qry = qry.with_for_update(of=StockBatch)
+    batches = {int(batch.id): batch for batch in qry.all()}
+    item_ids = sorted({int(batch.item_id) for batch in batches.values()})
+    items = {
+        int(item.id): item
+        for item in db.query(Item).filter(Item.id.in_(item_ids)).all()
+    }
+    return batches, items
+
+
+def _require_full_reservation(
+    reservations: list[MaterialReservation],
+    *,
+    quantity: float,
+) -> None:
+    reserved_available = sum(_open_reservation_quantity(row) for row in reservations)
+    if reserved_available + EPSILON < quantity:
+        raise HTTPException(
+            409,
+            f"Insufficient material reservation for cutting: reserved {reserved_available:g}, requested {quantity:g} "
+            "for this production order and fabric batch.",
+        )
+
+
+def _consume_loaded_stock_batch_reservations(
+    db: Session,
+    reservations: list[MaterialReservation],
+    *,
+    quantity: float,
+    reference_type: str,
+    reference_id: int | None,
+    user_id: int | None,
+    require_full: bool,
+    stock_batch_cache: dict[int, StockBatch],
+    item_cache: dict[int, Item],
+) -> float:
+    if require_full:
+        _require_full_reservation(reservations, quantity=quantity)
+    left = quantity
+    consumed = 0.0
+    for reservation in reservations:
+        if left <= EPSILON:
+            break
+        take = min(left, _open_reservation_quantity(reservation))
+        if take <= EPSILON:
+            continue
+        _consume_loaded_material_reservation(
+            db,
+            reservation,
+            quantity=take,
+            user_id=user_id,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            stock_batch_cache=stock_batch_cache,
+            item_cache=item_cache,
+        )
+        consumed += take
+        left -= take
+    return consumed
 
 
 def consume_material_reservations_for_stock_batch(
@@ -1074,52 +1209,98 @@ def consume_material_reservations_for_stock_batch(
     quantity = float(quantity or 0)
     if quantity <= 0:
         return 0.0
-
-    qry = (
-        db.query(MaterialReservation)
-        .filter(
-            MaterialReservation.production_order_id == production_order_id,
-            MaterialReservation.stock_batch_id == stock_batch_id,
-            MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
-        )
-        .order_by(MaterialReservation.created_at.asc(), MaterialReservation.id.asc())
+    reservations = _locked_reservations_by_stock_batch(
+        db,
+        production_order_id=production_order_id,
+        stock_batch_ids=[stock_batch_id],
+    ).get(stock_batch_id, [])
+    if require_full:
+        _require_full_reservation(reservations, quantity=quantity)
+    if not reservations:
+        return 0.0
+    stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(db, [stock_batch_id])
+    return _consume_loaded_stock_batch_reservations(
+        db,
+        reservations,
+        quantity=quantity,
+        reference_type=reference_type,
+        reference_id=reference_id,
+        user_id=user_id,
+        require_full=False,
+        stock_batch_cache=stock_batch_cache,
+        item_cache=item_cache,
     )
-    if db.bind and db.bind.dialect.name == "postgresql":
-        qry = qry.options(
-            lazyload(MaterialReservation.item),
-            lazyload(MaterialReservation.stock_batch),
-            lazyload(MaterialReservation.warehouse),
-        ).with_for_update(of=MaterialReservation)
-    reservations = qry.all()
 
-    reserved_available = sum(_open_reservation_quantity(row) for row in reservations)
-    if require_full and reserved_available + EPSILON < quantity:
-        raise HTTPException(
-            409,
-            f"Insufficient material reservation for cutting: reserved {reserved_available:g}, requested {quantity:g} "
-            "for this production order and fabric batch.",
-        )
 
-    left = quantity
-    consumed = 0.0
-    for reservation in reservations:
-        if left <= EPSILON:
-            break
-        take = min(left, _open_reservation_quantity(reservation))
-        if take <= EPSILON:
-            continue
-        consume_material_reservation(
+def consume_cutting_materials(
+    db: Session,
+    *,
+    production_order_id: int,
+    lines: list[dict],
+    reference_type: str,
+    reference_id: int | None,
+    user_id: int | None,
+    require_full: bool = False,
+) -> None:
+    """Consume one cutting request with set-based locks and input-order effects."""
+    if not lines:
+        return
+    db.flush()
+    stock_batch_ids = sorted({int(line["stock_batch_id"]) for line in lines})
+    reservations_by_batch = _locked_reservations_by_stock_batch(
+        db,
+        production_order_id=production_order_id,
+        stock_batch_ids=stock_batch_ids,
+    )
+    if require_full:
+        remaining_reserved = {
+            batch_id: sum(
+                _open_reservation_quantity(reservation)
+                for reservation in reservations_by_batch.get(batch_id, [])
+            )
+            for batch_id in stock_batch_ids
+        }
+        for line in lines:
+            batch_id = int(line["stock_batch_id"])
+            quantity = float(line["quantity"])
+            available = remaining_reserved.get(batch_id, 0.0)
+            if available + EPSILON < quantity:
+                raise HTTPException(
+                    409,
+                    f"Insufficient material reservation for cutting: reserved {available:g}, requested {quantity:g} "
+                    "for this production order and fabric batch.",
+                )
+            remaining_reserved[batch_id] = max(0.0, available - quantity)
+
+    stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(db, stock_batch_ids)
+    for line in lines:
+        batch_id = int(line["stock_batch_id"])
+        input_quantity = float(line["quantity"])
+        reserved_consumed = _consume_loaded_stock_batch_reservations(
             db,
-            int(reservation.id),
-            quantity=take,
-            user_id=user_id,
+            reservations_by_batch.get(batch_id, []),
+            quantity=input_quantity,
             reference_type=reference_type,
             reference_id=reference_id,
+            user_id=user_id,
+            require_full=False,
+            stock_batch_cache=stock_batch_cache,
+            item_cache=item_cache,
         )
-        consumed += take
-        left -= take
-
-    return consumed
+        direct_quantity = input_quantity - reserved_consumed
+        if direct_quantity <= EPSILON:
+            continue
+        consume_stock_batch(
+            db,
+            batch_id=batch_id,
+            quantity=direct_quantity,
+            unit=str(line["unit"]),
+            reference_type=reference_type,
+            reference_id=reference_id,
+            user_id=user_id,
+            batch_cache=stock_batch_cache,
+            item_cache=item_cache,
+        )
 
 
 def auto_reserve_materials_for_production_order(

@@ -41,11 +41,12 @@ def archive_depleted_material_batch(
     batch: StockBatch,
     *,
     user_id: int | None,
+    item_cache: dict[int, Item] | None = None,
 ) -> bool:
     """Move a fully used fabric batch out of active stock without losing history."""
     if batch.archived_at is not None or float(batch.quantity or 0) > _STOCK_EPSILON:
         return False
-    item = db.get(Item, int(batch.item_id))
+    item = item_cache.get(int(batch.item_id)) if item_cache is not None else db.get(Item, int(batch.item_id))
     if not item or str(item.category or "").strip().lower() not in _MATERIAL_BATCH_CATEGORIES:
         return False
     batch.quantity = 0
@@ -467,13 +468,18 @@ def consume_stock_batch(
     reference_type: str,
     reference_id: int | None,
     user_id: int | None,
+    batch_cache: dict[int, StockBatch] | None = None,
+    item_cache: dict[int, Item] | None = None,
 ) -> None:
     if quantity <= 0:
         return
-    qry = db.query(StockBatch).filter(StockBatch.id == batch_id)
-    if db.bind and db.bind.dialect.name == "postgresql":
-        qry = qry.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
-    batch = qry.first()
+    if batch_cache is None:
+        qry = db.query(StockBatch).filter(StockBatch.id == batch_id)
+        if db.bind and db.bind.dialect.name == "postgresql":
+            qry = qry.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+        batch = qry.first()
+    else:
+        batch = batch_cache.get(batch_id)
     if not batch:
         raise HTTPException(404, f"Stock batch {batch_id} not found")
     available = float(batch.quantity or 0)
@@ -497,7 +503,7 @@ def consume_stock_batch(
             created_by=user_id,
         )
     )
-    archive_depleted_material_batch(db, batch, user_id=user_id)
+    archive_depleted_material_batch(db, batch, user_id=user_id, item_cache=item_cache)
 
 
 def consume_item_from_batches(
@@ -511,20 +517,29 @@ def consume_item_from_batches(
     user_id: int | None,
     warehouse_id: int | None = None,
     require_available: bool = False,
+    batch_cache: dict[int, list[StockBatch]] | None = None,
+    item_cache: dict[int, Item] | None = None,
 ) -> float:
     if quantity <= 0:
         return 0.0
     left = float(quantity)
     consumed = 0.0
 
-    batch_query = db.query(StockBatch).filter(StockBatch.item_id == item_id, StockBatch.quantity > 0)
-    if warehouse_id is not None:
-        batch_query = batch_query.filter(StockBatch.warehouse_id == warehouse_id)
+    if batch_cache is None:
+        batch_query = db.query(StockBatch).filter(StockBatch.item_id == item_id, StockBatch.quantity > 0)
+        if warehouse_id is not None:
+            batch_query = batch_query.filter(StockBatch.warehouse_id == warehouse_id)
 
-    locked_batch_query = batch_query.order_by(StockBatch.received_date.asc(), StockBatch.id.asc())
-    if db.bind and db.bind.dialect.name == "postgresql":
-        locked_batch_query = locked_batch_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
-    batches = locked_batch_query.all()
+        locked_batch_query = batch_query.order_by(StockBatch.received_date.asc(), StockBatch.id.asc())
+        if db.bind and db.bind.dialect.name == "postgresql":
+            locked_batch_query = locked_batch_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+        batches = locked_batch_query.all()
+    else:
+        batches = [
+            batch
+            for batch in batch_cache.get(item_id, [])
+            if warehouse_id is None or batch.warehouse_id == warehouse_id
+        ]
 
     if require_available:
         available = sum(float(row.quantity or 0) for row in batches)
@@ -554,7 +569,7 @@ def consume_item_from_batches(
                 created_by=user_id,
             )
         )
-        archive_depleted_material_batch(db, b, user_id=user_id)
+        archive_depleted_material_batch(db, b, user_id=user_id, item_cache=item_cache)
         consumed += take
         left -= take
 
@@ -599,10 +614,32 @@ def consume_packaging_materials_from_bom(
         item.id: item
         for item in db.query(Item).filter(Item.id.in_(sorted({row.item_id for row in bom_rows}))).all()
     }
-    for row in bom_rows:
-        item = items.get(row.item_id)
-        if not item or item.category != "packaging":
-            continue
+    packaging_rows = [
+        (row, item)
+        for row in bom_rows
+        if (item := items.get(row.item_id)) is not None and item.category == "packaging"
+    ]
+    packaging_item_ids = sorted({item.id for _row, item in packaging_rows})
+    batch_cache: dict[int, list[StockBatch]] = {item_id: [] for item_id in packaging_item_ids}
+    if packaging_item_ids:
+        batch_query = (
+            db.query(StockBatch)
+            .filter(
+                StockBatch.item_id.in_(packaging_item_ids),
+                StockBatch.quantity > 0,
+            )
+            .order_by(
+                StockBatch.item_id.asc(),
+                StockBatch.received_date.asc(),
+                StockBatch.id.asc(),
+            )
+        )
+        if db.bind and db.bind.dialect.name == "postgresql":
+            batch_query = batch_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+        for batch in batch_query.all():
+            batch_cache[batch.item_id].append(batch)
+
+    for row, item in packaging_rows:
         qty = float(row.quantity_per_piece) * packed_qty * (1.0 + float(row.waste_percent or 0) / 100.0)
         consume_item_from_batches(
             db,
@@ -612,6 +649,8 @@ def consume_packaging_materials_from_bom(
             reference_type=reference_type,
             reference_id=reference_id,
             user_id=user_id,
+            batch_cache=batch_cache,
+            item_cache=items,
         )
 
 

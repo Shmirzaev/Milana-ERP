@@ -380,6 +380,8 @@ def create_bundle(
     sewing_factory_code: str | None = None,
     user_id: int | None = None,
     notes: str | None = None,
+    department_cache: dict[str, Department] | None = None,
+    reserved_bundle_no: str | None = None,
 ) -> Bundle:
     if quantity <= 0:
         raise HTTPException(400, "Bundle quantity must be > 0")
@@ -399,16 +401,20 @@ def create_bundle(
     if len(size) > 32:
         raise HTTPException(422, "size must be at most 32 characters")
 
-    cut = _dept(db, DEPT_CUT)
+    cut = department_cache.get(DEPT_CUT) if department_cache is not None else _dept(db, DEPT_CUT)
     factory_code = resolve_sewing_factory_code(
         sewing_factory_code if sewing_factory_code else next_department_code if is_sewing_department_code(next_department_code) else None
     )
     normalized_next = str(next_department_code or "").strip().upper()
     if is_sewing_department_code(normalized_next):
         normalized_next = factory_code
-    nxt = _dept(db, normalized_next)
+    nxt = (
+        department_cache.get(normalized_next)
+        if department_cache is not None
+        else _dept(db, normalized_next)
+    )
 
-    bundle_no = next_bundle_no(db)
+    bundle_no = reserved_bundle_no or next_bundle_no(db)
     barcode_value = generate_barcode_value("BND")
     b = Bundle(
         bundle_no=bundle_no,
@@ -448,6 +454,33 @@ def create_bundle(
     ))
     db.flush()
     return b
+
+
+def reserve_bundle_numbers(db: Session, count: int) -> list[str]:
+    """Reserve one contiguous bundle-number range in the caller's transaction."""
+    if count <= 0:
+        return []
+    first = next_bundle_no(db)
+    prefix, separator, raw_number = first.rpartition("-")
+    if not separator or not raw_number.isdigit():  # pragma: no cover - guarded by numbering format tests
+        raise RuntimeError(f"Unexpected bundle number format: {first}")
+    width = len(raw_number)
+    start = int(raw_number)
+    references = [
+        f"{prefix}-{number:0{width}d}"
+        for number in range(start, start + count)
+    ]
+    db.add_all([
+        BusinessOrderAlias(
+            namespace="BND",
+            entity_id=0,
+            reference=reference,
+            canonical_reference=reference,
+        )
+        for reference in references[1:]
+    ])
+    db.flush()
+    return references
 
 
 def _require_cutting_batch_approved(db: Session, bundle: Bundle) -> None:

@@ -67,7 +67,7 @@ from app.services.production import (
 )
 from app.services.inventory import (
     auto_reserve_materials_for_production_order,
-    consume_material_reservations_for_stock_batch,
+    consume_cutting_materials,
     ensure_accessories_issued_for_sewing,
     material_reservation_status_for_production_order,
     missing_material_reservation_for_cutting,
@@ -78,6 +78,7 @@ from app.services.bundles import (
     find_bundle_by_scanned_code,
     create_bundle,
     is_sewing_department_code,
+    reserve_bundle_numbers,
     resolve_sewing_factory_code,
     sewing_department_code_for_bundle_route,
     sync_textile_departments_for_bundle_route,
@@ -88,7 +89,6 @@ from app.services.workflow import (
     WORKFLOW_SEQUENCE,
     advance_workflow,
     consume_packaging_materials_from_bom,
-    consume_stock_batch,
     create_waste_record,
     notify_department,
     processed_work_order_qty,
@@ -3662,31 +3662,20 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         )
         if replacement_cut_qty > 0:
             db.flush()
-    for material in cutting_materials:
-        input_quantity = float(material["quantity"])
-        reserved_consumed = consume_material_reservations_for_stock_batch(
-            db,
-            production_order_id=int(wo.production_order_id),
-            stock_batch_id=int(material["stock_batch_id"]),
-            quantity=input_quantity,
-            reference_type="CuttingRecord",
-            reference_id=rec.id,
-            user_id=current.id,
-            require_full=require_material_reservation_before_cutting(db),
-        )
-        direct_quantity = input_quantity - reserved_consumed
-        if direct_quantity <= 1e-9:
-            direct_quantity = 0.0
-        if direct_quantity > 0:
-            consume_stock_batch(
-                db,
-                batch_id=material["stock_batch_id"],
-                quantity=direct_quantity,
-                unit=material["unit"],
-                reference_type="CuttingRecord",
-                reference_id=rec.id,
-                user_id=current.id,
-            )
+    require_full_material_reservation = (
+        require_material_reservation_before_cutting(db)
+        if cutting_materials
+        else False
+    )
+    consume_cutting_materials(
+        db,
+        production_order_id=int(wo.production_order_id),
+        lines=cutting_materials,
+        reference_type="CuttingRecord",
+        reference_id=rec.id,
+        user_id=current.id,
+        require_full=require_full_material_reservation,
+    )
     if not usluga_material and not detailed_materials:
         create_waste_record(
             db,
@@ -3717,6 +3706,21 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     created_bundles = []
     to_printing = 0
     to_sewing_by_code: dict[str, int] = {}
+    bundle_department_codes = {
+        "CUT",
+        *(str(spec["next_code"]) for spec in bundle_specs),
+    }
+    bundle_departments = {
+        str(department.code): department
+        for department in (
+            db.query(Department)
+            .filter(Department.code.in_(bundle_department_codes))
+            .all()
+            if bundle_specs
+            else []
+        )
+    }
+    bundle_numbers = iter(reserve_bundle_numbers(db, sum(spec["count"] for spec in bundle_specs)))
     for spec in bundle_specs:
         factory_code = spec["factory_code"]
         next_code = spec["next_code"]
@@ -3734,6 +3738,8 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
                 next_department_code=next_code,
                 sewing_factory_code=factory_code,
                 user_id=current.id,
+                department_cache=bundle_departments,
+                reserved_bundle_no=next(bundle_numbers),
             )
             created_bundles.append({
                 "id": b.id,
