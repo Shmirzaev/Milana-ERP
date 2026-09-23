@@ -460,10 +460,19 @@ def list_candidates(
     position_id: Annotated[int | None, Query(gt=0)] = None,
 ):
     factory = _factory(current)
+    fields = (
+        "id", "position_id", "department_id", "full_name", "first_name", "last_name", "middle_name",
+        "date_of_birth", "gender", "nationality", "country", "region", "district", "address",
+        "passport_number", "passport_issued_by", "passport_issue_date", "passport_expiry_date", "pinfl",
+        "phone", "email", "source", "stage", "applied_on", "interview_at", "notes",
+    )
     base = db.query(HrRecruitmentCandidate).filter(
         HrRecruitmentCandidate.factory_code == factory,
     )
-    query = base
+    query = base.options(load_only(*(
+        getattr(HrRecruitmentCandidate, field)
+        for field in fields
+    )))
     needle = str(q or "").strip()
     if needle:
         escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -492,12 +501,6 @@ def list_candidates(
         )
     else:
         rows = query.order_by(HrRecruitmentCandidate.id.desc()).limit(limit).all()
-    fields = (
-        "id", "position_id", "department_id", "full_name", "first_name", "last_name", "middle_name",
-        "date_of_birth", "gender", "nationality", "country", "region", "district", "address",
-        "passport_number", "passport_issued_by", "passport_issue_date", "passport_expiry_date", "pinfl",
-        "phone", "email", "source", "stage", "applied_on", "interview_at", "notes",
-    )
     payload = [{key: getattr(row, key) for key in fields} for row in rows]
     if not paginated:
         return payload
