@@ -69,6 +69,8 @@ _MODEL_BOM_NUMERIC_FIELDS = {
 }
 _MAX_MODEL_SAM_MINUTES = Decimal("999999.99")
 _MODEL_SAM_QUANTUM = Decimal("0.01")
+_MODEL_COPY_CODE_BATCH_SIZE = 400
+_MODEL_COPY_CODE_MAX_INDEX = 9_999
 
 
 def _validate_model_sam_minutes(data: dict) -> None:
@@ -1158,27 +1160,33 @@ def _rename_model_group(
     return renamed
 
 
+def _model_copy_code(source_code: str, index: int) -> str:
+    suffix = "-COPY" if index == 1 else f"-COPY-{index}"
+    return f"{source_code[: max(1, 64 - len(suffix))]}{suffix}"
+
+
 def _unique_model_copy_code(db: DbSession, source_code: str) -> str:
-    # Probe the bounded candidate namespace in one query. Candidate bases are
-    # truncated differently as the numeric suffix grows, so include one prefix
-    # for every suffix-width group instead of assuming a single common base.
-    suffix_samples = ("-COPY", "-COPY-2", "-COPY-10", "-COPY-100", "-COPY-1000")
-    copy_prefixes = {
-        f"{source_code[: max(1, 64 - len(suffix))]}{'-COPY' if suffix == '-COPY' else '-COPY-'}"
-        for suffix in suffix_samples
-    }
-    existing_codes = {
-        code
-        for (code,) in db.query(Model.code)
-        .filter(or_(*(Model.code.startswith(prefix, autoescape=True) for prefix in copy_prefixes)))
-        .all()
-    }
-    for index in range(1, 10_000):
-        suffix = "-COPY" if index == 1 else f"-COPY-{index}"
-        base = source_code[: max(1, 64 - len(suffix))]
-        candidate = f"{base}{suffix}"
-        if candidate not in existing_codes:
-            return candidate
+    if db.get_bind().dialect.name == "postgresql":
+        # Long source codes can truncate to the same candidate namespace even
+        # when their tails differ. Lock the shortest prefix retained by every
+        # supported suffix so concurrent clones cannot select the same gap.
+        longest_suffix = f"-COPY-{_MODEL_COPY_CODE_MAX_INDEX}"
+        namespace = source_code[: max(1, 64 - len(longest_suffix))]
+        db.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"model-copy:{namespace}"))))
+
+    # Preserve the historical lowest-gap allocation without a broad LIKE scan
+    # or one existence query per occupied code. Exact candidates use the
+    # existing unique code index; only the current fixed-size window is loaded.
+    for start in range(1, _MODEL_COPY_CODE_MAX_INDEX + 1, _MODEL_COPY_CODE_BATCH_SIZE):
+        stop = min(start + _MODEL_COPY_CODE_BATCH_SIZE, _MODEL_COPY_CODE_MAX_INDEX + 1)
+        candidates = [_model_copy_code(source_code, index) for index in range(start, stop)]
+        existing_codes = {
+            code
+            for (code,) in db.query(Model.code).filter(Model.code.in_(candidates)).all()
+        }
+        for candidate in candidates:
+            if candidate not in existing_codes:
+                return candidate
     raise HTTPException(409, "Could not create a unique cloned model code")
 
 

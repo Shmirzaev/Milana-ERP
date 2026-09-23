@@ -1529,7 +1529,7 @@ def test_rename_model_group_uses_bounded_family_queries_without_code_prefix_assu
     assert "models.details_json" not in normalized_statements[1]
 
 
-def test_clone_code_allocation_uses_one_bounded_prefix_query():
+def test_clone_code_allocation_uses_one_bounded_exact_query():
     from uuid import uuid4
 
     from sqlalchemy import event
@@ -1567,4 +1567,6 @@ def test_clone_code_allocation_uses_one_bounded_prefix_query():
 
     assert candidate == expected_code(25)
     assert len(statements) == 1
-    assert "like" in statements[0].lower()
+    normalized = " ".join(statements[0].lower().split())
+    assert " in " in f" {normalized} "
+    assert " like " not in f" {normalized} "
