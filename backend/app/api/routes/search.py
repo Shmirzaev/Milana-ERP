@@ -66,8 +66,30 @@ def _paged_search(db, *, pattern: str, model_code_pattern: str, sales_model_matc
         literal(None).label("value4"),
         literal(None).label("related_id"),
     ).where(Customer.name.ilike(pattern))
+    sales_matches = select(SalesOrder.id.label("id")).where(
+        order_reference_contains(SalesOrder.order_no, pattern) | sales_model_match
+    )
+    bundle_matches = select(Bundle.id.label("id")).select_from(Bundle).outerjoin(
+        Model,
+        Model.id == Bundle.model_id,
+    ).where(
+        Bundle.barcode.ilike(pattern)
+        | order_reference_contains(Bundle.bundle_no, pattern)
+        | normalized_model_code_column(Model.code).ilike(model_code_pattern)
+    )
+    model_matches = select(Model.id.label("id")).where(
+        Model.catalog_scope == "standard",
+        normalized_model_code_column(Model.code).ilike(model_code_pattern) | Model.name.ilike(pattern),
+    )
+    customer_matches = select(Customer.id.label("id")).where(Customer.name.ilike(pattern))
     combined = union_all(sales, bundles, models, customers).subquery()
-    total = int(db.execute(select(func.count()).select_from(combined)).scalar() or 0)
+    count_matches = union_all(
+        sales_matches,
+        bundle_matches,
+        model_matches,
+        customer_matches,
+    ).subquery()
+    total = int(db.execute(select(func.count()).select_from(count_matches)).scalar() or 0)
     rows = db.execute(
         select(combined)
         .order_by(combined.c.type_rank.asc(), combined.c.id.desc())
