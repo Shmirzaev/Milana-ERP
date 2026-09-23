@@ -55,7 +55,11 @@ def test_cutting_sheet_loads_only_selected_model_image_blob(client, auth_headers
 
     image_reads = [statement for statement in statements if " from model_images " in statement]
     blob_reads = [statement for statement in image_reads if "model_images.file_data" in statement]
+    bundle_reads = [statement for statement in statements if " from bundles " in statement]
     assert f"data:image/webp;base64,{base64.b64encode(image_bytes).decode()}" in html
     assert len(image_reads) == 2
     assert len(blob_reads) == 1
     assert "model_images.id in (?)" in blob_reads[0]
+    assert len(bundle_reads) == 2
+    assert any("sum(bundles.quantity)" in statement for statement in bundle_reads)
+    assert any("bundles.sewing_factory_code" in statement for statement in bundle_reads)

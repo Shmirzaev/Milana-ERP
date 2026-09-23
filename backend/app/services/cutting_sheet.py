@@ -5,6 +5,7 @@ from datetime import timedelta, timezone
 from html import escape
 from math import floor
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -155,12 +156,12 @@ def _scaled_size_plan(items: list[ProductionOrderItem], target_total: int) -> tu
     return sizes, scaled
 
 
-def _scoped_bundles(
+def _scoped_bundle_summary(
     db: Session,
     record: CuttingRecord,
     work_order: WorkOrder,
     bundle_ids: list[int],
-) -> list[Bundle]:
+) -> tuple[list[tuple[str | None, int]], list[str | None]]:
     query = db.query(Bundle).filter(Bundle.production_order_id == work_order.production_order_id)
     if record.production_batch_id is None:
         query = query.filter(Bundle.production_batch_id.is_(None))
@@ -168,16 +169,34 @@ def _scoped_bundles(
         query = query.filter(Bundle.production_batch_id == record.production_batch_id)
 
     if bundle_ids:
-        return query.filter(Bundle.id.in_(bundle_ids)).order_by(Bundle.id.asc()).all()
-
-    record_query = db.query(CuttingRecord.id).filter(CuttingRecord.work_order_id == work_order.id)
-    if record.production_batch_id is None:
-        record_query = record_query.filter(CuttingRecord.production_batch_id.is_(None))
+        query = query.filter(Bundle.id.in_(bundle_ids))
     else:
-        record_query = record_query.filter(CuttingRecord.production_batch_id == record.production_batch_id)
-    if record_query.count() != 1:
-        return []
-    return query.order_by(Bundle.id.asc()).all()
+        record_query = db.query(CuttingRecord.id).filter(CuttingRecord.work_order_id == work_order.id)
+        if record.production_batch_id is None:
+            record_query = record_query.filter(CuttingRecord.production_batch_id.is_(None))
+        else:
+            record_query = record_query.filter(CuttingRecord.production_batch_id == record.production_batch_id)
+        if record_query.count() != 1:
+            return [], []
+
+    first_bundle_id = func.min(Bundle.id)
+    sizes = (
+        query.with_entities(
+            Bundle.size,
+            func.coalesce(func.sum(Bundle.quantity), 0),
+            first_bundle_id,
+        )
+        .group_by(Bundle.size)
+        .order_by(first_bundle_id)
+        .all()
+    )
+    factories = (
+        query.with_entities(Bundle.sewing_factory_code, first_bundle_id)
+        .group_by(Bundle.sewing_factory_code)
+        .order_by(first_bundle_id)
+        .all()
+    )
+    return [(size, int(quantity or 0)) for size, quantity, _ in sizes], [code for code, _ in factories]
 
 
 def _bom_value(rows: list[ModelBOM], keywords: tuple[str, ...]) -> str:
@@ -199,7 +218,7 @@ def _bom_value(rows: list[ModelBOM], keywords: tuple[str, ...]) -> str:
 def _accessory_values(
     rows: list[ModelBOM],
     fabric_batch: StockBatch | None,
-    bundles: list[Bundle],
+    sewing_factory_codes: list[str | None],
 ) -> dict[str, str]:
     values = {label: "" for label in _ACCESSORY_ROWS}
     for label, keywords in _ACCESSORY_KEYWORDS.items():
@@ -219,7 +238,7 @@ def _accessory_values(
     values["Mato turi"] = _text(fabric_item.name or fabric_item.sku) if fabric_item else ""
 
     factory_names = []
-    for code in (_text(bundle.sewing_factory_code).upper() for bundle in bundles):
+    for code in (_text(code).upper() for code in sewing_factory_codes):
         name = "Besttex" if code == "BST" else "Eco Cotton" if code == "ECO" else "Milana" if code == "MIL" else code
         if name and name not in factory_names:
             factory_names.append(name)
@@ -315,7 +334,9 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
     sheet_brand_id = production_order.brand_id or (model.brand_id if model else None)
     brand = db.get(Brand, sheet_brand_id) if sheet_brand_id else None
     operator = db.get(User, record.operator_id) if record.operator_id else None
-    bundles = _scoped_bundles(db, record, work_order, bundle_ids or [])
+    size_quantities, sewing_factory_codes = _scoped_bundle_summary(
+        db, record, work_order, bundle_ids or [],
+    )
 
     items = (
         db.query(ProductionOrderItem)
@@ -326,16 +347,18 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
     planned_total = int(batch.planned_quantity if batch else production_order.planned_quantity or 0)
     sizes, planned_by_size = _scaled_size_plan(items, planned_total)
     cut_by_size: dict[str, int] = defaultdict(int)
-    for bundle in bundles:
-        size = _text(bundle.size)
+    for raw_size, quantity in size_quantities:
+        size = _text(raw_size)
         if size and size not in sizes:
             sizes.append(size)
-        cut_by_size[size] += int(bundle.quantity or 0)
+        cut_by_size[size] += quantity
     while len(sizes) < 5:
         sizes.append("")
 
     identity = _model_identity(model, passport)
-    accessory_values = _accessory_values(list(model.bom or []) if model else [], fabric_batch, bundles)
+    accessory_values = _accessory_values(
+        list(model.bom or []) if model else [], fabric_batch, sewing_factory_codes,
+    )
     if not accessory_values["Mato turi"] and passport:
         accessory_values["Mato turi"] = _text(passport.fabric_type)
     if float(record.beika_kg or 0) > 0:
