@@ -80,6 +80,20 @@ def _payload(rows: list[SewingAssignment]) -> list[dict]:
     return [SewingAssignmentOut.model_validate(row).model_dump(mode="json") for row in rows]
 
 
+def _assert_assignment_projection(statements):
+    work_order_reads = [sql for sql in statements if " from work_orders " in sql]
+    assignment_reads = [
+        sql for sql in statements
+        if " from sewing_assignments " in sql and "count(" not in sql
+    ]
+    assert len(work_order_reads) == 1
+    assert work_order_reads[0].startswith("select work_orders.id as work_orders_id from work_orders ")
+    assert len(assignment_reads) == 1
+    selected_columns = assignment_reads[0].split(" from sewing_assignments ", maxsplit=1)[0]
+    assert "created_at" not in selected_columns
+    assert "updated_at" not in selected_columns
+
+
 @pytest.mark.parametrize("count", [1, 50, 401])
 def test_assignment_pages_bound_rows_and_preserve_legacy_payload(count):
     work_order_id, created_ids = _seed_assignments(count)
@@ -95,6 +109,8 @@ def test_assignment_pages_bound_rows_and_preserve_legacy_payload(count):
     assert _payload(page["rows"]) == _payload(legacy)
     assert len(statements) == 3, statements
     assert len(legacy_statements) == 2, legacy_statements
+    _assert_assignment_projection(statements)
+    _assert_assignment_projection(legacy_statements)
 
 
 def test_assignment_page_contract_not_found_auth_and_no_writes(client, auth_headers):

@@ -177,9 +177,23 @@ def list_assignments(
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    if not db.get(WorkOrder, wid):
+    if not db.query(WorkOrder.id).filter(WorkOrder.id == wid).first():
         raise HTTPException(404, "Work order not found")
-    query = db.query(SewingAssignment).filter(SewingAssignment.work_order_id == wid)
+    query = db.query(SewingAssignment).options(load_only(
+        SewingAssignment.id,
+        SewingAssignment.work_order_id,
+        SewingAssignment.production_batch_id,
+        SewingAssignment.sewing_flow_id,
+        SewingAssignment.quantity,
+        SewingAssignment.completed_qty,
+        SewingAssignment.planned_start,
+        SewingAssignment.planned_end,
+        SewingAssignment.actual_start,
+        SewingAssignment.actual_end,
+        SewingAssignment.status,
+        SewingAssignment.notes,
+        SewingAssignment.created_by,
+    )).filter(SewingAssignment.work_order_id == wid)
     ordered_query = query.order_by(SewingAssignment.id)
     if page is None and page_size is None:
         return ordered_query.all()
