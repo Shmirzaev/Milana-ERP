@@ -4,7 +4,7 @@ from math import ceil
 import pytest
 from sqlalchemy import event
 
-from app.models import AttendancePerson
+from app.models import AttendanceDevice, AttendancePerson
 from app.tests.conftest import TestSessionLocal, test_engine
 from app.tests.test_attendance import INTEGRATION_HEADERS, person, snapshot
 
@@ -60,3 +60,51 @@ def test_people_snapshot_keeps_device_scope_and_rejects_duplicates_atomically(cl
     with TestSessionLocal() as db:
         other = db.query(AttendancePerson).filter_by(device_id=second.json()["device_id"]).one()
         assert other.full_name == "Device two" and other.present_on_device
+
+
+def test_overview_projects_device_metadata_and_managed_flag_without_token_hash(client, auth_headers):
+    imported, _ = _import(client, snapshot(person("PROJECTION-1", "Projection person")))
+    assert imported.status_code == 200, imported.text
+    with TestSessionLocal() as db:
+        device = db.query(AttendanceDevice).filter_by(id=imported.json()["device_id"]).one()
+        device.connector_token_hash = "stored-token-hash"
+        db.commit()
+        expected = {
+            "id": device.id,
+            "device_key": device.device_key,
+            "name": device.name,
+            "vendor": device.vendor,
+            "model": device.model,
+            "serial_no": device.serial_no,
+            "source_host": device.source_host,
+            "certificate_sha256": device.certificate_sha256,
+            "managed": True,
+            "sync_enabled": device.sync_enabled,
+            "read_only": device.read_only,
+            "reported_person_count": device.reported_person_count,
+            "last_seen_at": device.last_seen_at.isoformat() if device.last_seen_at else None,
+            "last_people_sync_at": device.last_people_sync_at.isoformat() if device.last_people_sync_at else None,
+            "last_event_sync_at": device.last_event_sync_at.isoformat() if device.last_event_sync_at else None,
+        }
+
+    statements = []
+
+    def capture(_conn, _cursor, statement, _params, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement.lower())
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get("/api/attendance/overview?day=2026-08-17", headers=auth_headers)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["devices"] == [expected]
+    device_query = next(
+        sql for sql in statements
+        if "from attendance_devices" in sql and "connector_token_hash is not null" in sql
+    )
+    selected_columns = device_query.split(" from attendance_devices", 1)[0]
+    assert "attendance_devices.connector_token_hash," not in selected_columns
+    assert "connector_token_hash is not null as managed" in device_query

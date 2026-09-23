@@ -761,7 +761,25 @@ def attendance_overview(
         AttendanceEvent.occurred_at <= end,
         AttendanceEvent.external_person_id.is_(None),
     ).scalar() or 0
-    devices = db.query(AttendanceDevice).filter(AttendanceDevice.factory_code == factory_code).order_by(AttendanceDevice.name).all()
+    devices = db.query(
+        AttendanceDevice.id,
+        AttendanceDevice.device_key,
+        AttendanceDevice.name,
+        AttendanceDevice.vendor,
+        AttendanceDevice.model,
+        AttendanceDevice.serial_no,
+        AttendanceDevice.source_host,
+        AttendanceDevice.certificate_sha256,
+        AttendanceDevice.connector_token_hash.is_not(None).label("managed"),
+        AttendanceDevice.sync_enabled,
+        AttendanceDevice.read_only,
+        AttendanceDevice.reported_person_count,
+        AttendanceDevice.last_seen_at,
+        AttendanceDevice.last_people_sync_at,
+        AttendanceDevice.last_event_sync_at,
+    ).filter(
+        AttendanceDevice.factory_code == factory_code,
+    ).order_by(AttendanceDevice.name).all()
     return {
         "date": day.isoformat(),
         "summary": {
@@ -771,7 +789,26 @@ def attendance_overview(
             "events_today": events_today,
             "unmatched_events": unmatched_events,
         },
-        "devices": [_device_payload(device) for device in devices],
+        "devices": [
+            {
+                "id": device.id,
+                "device_key": device.device_key,
+                "name": device.name,
+                "vendor": device.vendor,
+                "model": device.model,
+                "serial_no": device.serial_no,
+                "source_host": device.source_host,
+                "certificate_sha256": device.certificate_sha256,
+                "managed": bool(device.managed),
+                "sync_enabled": device.sync_enabled,
+                "read_only": device.read_only,
+                "reported_person_count": device.reported_person_count,
+                "last_seen_at": device.last_seen_at,
+                "last_people_sync_at": device.last_people_sync_at,
+                "last_event_sync_at": device.last_event_sync_at,
+            }
+            for device in devices
+        ],
         "people": [
             _attendance_row_payload(person, event_count, first_seen_at, last_seen_at)
             for person, event_count, first_seen_at, last_seen_at in rows
