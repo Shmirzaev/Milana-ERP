@@ -662,7 +662,29 @@ def create_user(
 @router.get("/users/{user_id}", response_model=UserOut)
 def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
     _require_storable_user_id(user_id)
-    u = db.get(User, user_id)
+    u = (
+        db.query(User)
+        .options(
+            lazyload("*"),
+            load_only(
+                User.id,
+                User.name,
+                User.email,
+                User.role_id,
+                User.department_id,
+                User.factory_code,
+                User.extra_permissions,
+                User.access_policy,
+                User.is_active,
+                User.last_login_at,
+                User.last_seen_at,
+                User.created_at,
+                raiseload=True,
+            ),
+        )
+        .filter(User.id == user_id)
+        .one_or_none()
+    )
     if not u:
         raise HTTPException(404, "User not found")
     return u
