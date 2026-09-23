@@ -1,5 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import event
+
+from app.tests.conftest import TestSessionLocal
+
 
 def test_hr_workspace_is_additive_and_factory_scoped(client, auth_headers):
     position = client.post(
@@ -139,6 +143,28 @@ def test_hr_documents_pagination_preserves_legacy_rows_and_metrics(client, auth_
     empty = client.get("/api/hr/documents?page=3&page_size=2", headers=auth_headers)
     assert empty.status_code == 200 and empty.json()["rows"] == []
     assert empty.json()["total"] == 3 and empty.json()["has_more"] is False
+
+
+def test_hr_documents_list_projects_only_response_columns(client, auth_headers):
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and "from hr_employee_documents" in normalized:
+            statements.append(normalized)
+
+    event.listen(TestSessionLocal.kw["bind"], "before_cursor_execute", capture)
+    try:
+        response = client.get("/api/hr/documents?page=1&page_size=2", headers=auth_headers)
+    finally:
+        event.remove(TestSessionLocal.kw["bind"], "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    document_rows = [statement for statement in statements if "order by hr_employee_documents.id desc limit" in statement]
+    assert len(document_rows) == 1, statements
+    assert "hr_employee_documents.stored_name" not in document_rows[0]
+    assert "hr_employee_documents.uploaded_by" not in document_rows[0]
+    assert "hr_employee_documents.title" in document_rows[0]
 
 
 def test_hr_calendar_pagination_preserves_legacy_rows_and_global_metrics(client, auth_headers):

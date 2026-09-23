@@ -577,7 +577,19 @@ def list_documents(
     page_size: int | None = Query(default=None, ge=1, le=500),
 ):
     factory = _factory(current)
-    query = db.query(HrEmployeeDocument).filter(HrEmployeeDocument.factory_code == factory)
+    query = db.query(HrEmployeeDocument).options(
+        load_only(
+            HrEmployeeDocument.id,
+            HrEmployeeDocument.employee_id,
+            HrEmployeeDocument.category,
+            HrEmployeeDocument.title,
+            HrEmployeeDocument.original_name,
+            HrEmployeeDocument.content_type,
+            HrEmployeeDocument.size_bytes,
+            HrEmployeeDocument.expires_on,
+            HrEmployeeDocument.created_at,
+        )
+    ).filter(HrEmployeeDocument.factory_code == factory)
     paginated = page is not None or page_size is not None
     safe_page = page or 1
     safe_page_size = page_size or 100
