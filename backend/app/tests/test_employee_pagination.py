@@ -84,6 +84,10 @@ def test_employee_page_bounds_factory_rows_and_matches_private_legacy_prefix(row
     assert len(page["rows"]) <= 50
     assert len(legacy_statements) == 1
     assert len(page_statements) == 2
+    count_statement = next(statement for statement in page_statements if "count(" in statement)
+    assert "count(employees.id)" in count_statement
+    assert "employees.factory_code = ?" in count_statement
+    assert " from (select employees." not in count_statement
     row_statement = next(statement for statement in page_statements if " order by employees.id desc" in statement)
     assert "employees.factory_code = ?" in row_statement
     assert " limit ? offset ?" in row_statement

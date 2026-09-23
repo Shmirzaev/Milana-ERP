@@ -11,6 +11,7 @@ from app.schemas.hr import EmployeeOut, EmployeePageOut
 from app.services.audit import log_action
 from app.services.factory_scope import factory_for_department, selected_factory_code
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, load_only, noload
 from datetime import datetime
@@ -262,7 +263,7 @@ def list_employees(
     paginated = page is not None or page_size is not None
     effective_page = page or 1
     effective_page_size = page_size or limit
-    total = int(query.count()) if paginated else None
+    total = int(query.with_entities(func.count(Employee.id)).scalar() or 0) if paginated else None
     if paginated:
         rows = (
             ordered_query
