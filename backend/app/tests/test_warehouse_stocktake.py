@@ -107,6 +107,18 @@ def test_unrepresentable_stocktake_id_returns_not_found_before_database_lookup(c
     assert client.get(path, headers=auth_headers).status_code == 404
 
 
+def test_unrepresentable_scan_row_id_preserves_stocktake_state_precedence(client, auth_headers):
+    cid = start(client, auth_headers)
+    path = f"{BASE}/{cid}/scans/2147483648"
+    assert client.delete(path, headers=auth_headers).status_code == 404
+
+    completed = client.post(f"{BASE}/{cid}/complete", headers=auth_headers)
+    assert completed.status_code == 200, completed.text
+    response = client.delete(path, headers=auth_headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This inventory count is completed"
+
+
 def test_full_count_unknown_missing_duplicates_completion_and_no_stock_mutation(client, auth_headers, packs):
     before = business_fingerprint()
     cid = start(client, auth_headers)

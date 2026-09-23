@@ -289,6 +289,8 @@ def scan(count_id: int, body: ScanCount, db: DbSession, current: User = Depends(
 @router.delete("/{count_id}/scans/{row_id}")
 def undo_scan(count_id: int, row_id: int, db: DbSession, current: User = Depends(access)):
     get_count(db, count_id, lock=True)
+    if row_id < 1 or row_id > _DB_INTEGER_MAX:
+        raise HTTPException(404, "Recorded scan not found")
     row = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=count_id, id=row_id).first()
     if not row or not row.scanned_at:
         raise HTTPException(404, "Recorded scan not found")
