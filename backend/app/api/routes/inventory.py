@@ -1854,6 +1854,7 @@ def list_batches(
     qry = (
         db.query(StockBatch, Item, Warehouse, Supplier)
         .options(
+            lazyload(StockBatch.item),
             load_only(*item_columns),
             load_only(Warehouse.id, Warehouse.name),
             load_only(Supplier.id, Supplier.name),
