@@ -204,6 +204,7 @@ def test_all_count_endpoints_require_warehouse_access(client, auth_headers, pack
         ("get", f"{BASE}/{cid}/export.csv", None),
         ("post", f"{BASE}/{cid}/scan", {"code": "COUNT-0"}),
         ("post", f"{BASE}/{cid}/complete", None),
+        ("post", f"{BASE}/delete-selected", {"count_ids": [cid]}),
         ("delete", f"{BASE}/{cid}/scans/{row_id}", None),
     ]:
         kwargs = {"headers": headers}
@@ -229,6 +230,30 @@ def test_ready_storage_user_can_run_count_and_anonymous_cannot(client, packs):
     assert detail(client, headers, cid)["summary"]["found"] == 1
     assert client.post(f"{BASE}/{cid}/complete", headers=headers).status_code == 200
     assert client.get(f"{BASE}/{cid}/export.csv", headers=headers).status_code == 200
+
+
+def test_bulk_delete_counts_is_atomic_scoped_audited_and_preserves_stock(client, auth_headers, packs):
+    from app.models.stocktake import WarehouseStocktakeRow
+
+    first, second, retained = [start(client, auth_headers) for _ in range(3)]
+    scan(client, auth_headers, first, "COUNT-0")
+    assert client.post(f"{BASE}/{second}/complete", headers=auth_headers).status_code == 200
+    before = business_fingerprint()
+    assert client.post(f"{BASE}/delete-selected", headers=auth_headers,
+                       json={"count_ids": [first, 999999999]}).status_code == 404
+    assert detail(client, auth_headers, first)["summary"]["scanned"] == 1
+    response = client.post(f"{BASE}/delete-selected", headers=auth_headers,
+                           json={"count_ids": [first, second, first]})
+    assert response.status_code == 200, response.text
+    assert response.json()["deleted"] == [first, second]
+    assert client.get(f"{BASE}/{first}", headers=auth_headers).status_code == 404
+    assert client.get(f"{BASE}/{second}", headers=auth_headers).status_code == 404
+    assert detail(client, auth_headers, retained)["id"] == retained
+    assert business_fingerprint() == before
+    with SessionLocal() as db:
+        assert db.query(WarehouseStocktakeRow).filter(WarehouseStocktakeRow.stocktake_id.in_([first, second])).count() == 0
+        assert db.query(AuditLog).filter(AuditLog.entity_type == "WarehouseStocktake", AuditLog.action == "delete",
+                                        AuditLog.entity_id.in_([first, second])).count() == 2
 
 
 def test_stocktake_migration_roundtrip():

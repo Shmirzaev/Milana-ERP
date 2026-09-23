@@ -1,5 +1,7 @@
 export const stocktakeText = {
   en: {
+    selectPage: "Select this page", selectCount: "Select count", deleteSelected: "Delete selected",
+    deleteCountsConfirm: "Delete {count} selected inventory counts and their recorded scans? This cannot be undone. Warehouse packages and stock quantities will stay unchanged.",
     recovered: "Unsaved scans recovered for this count. Retry to save them; saved scans will not be counted twice.",
     storageError: "Browser storage is unavailable. Keep this page open and copy any unsaved codes before leaving.",
     scanHistory: "Scan history — newest first", historySaved: "Saved scans remain in this count when you reload or reopen it.",
@@ -23,6 +25,8 @@ export const stocktakeText = {
     current: "Current", deleted: "No longer in ERP", denied: "Warehouse package or shipment access is required.", leave: "Some scans have not been saved yet.",
   },
   ru: {
+    selectPage: "Выбрать страницу", selectCount: "Выбрать проверку", deleteSelected: "Удалить выбранные",
+    deleteCountsConfirm: "Удалить выбранные проверки ({count}) и их сканы? Это действие нельзя отменить. Упаковки и остатки склада не изменятся.",
     recovered: "Восстановлены несохранённые сканы этой проверки. Повторите сохранение; сохранённые сканы не будут учтены дважды.",
     storageError: "Хранилище браузера недоступно. Не закрывайте страницу и скопируйте несохранённые коды перед выходом.",
     scanHistory: "История сканов — новые сверху", historySaved: "Сохранённые сканы остаются в проверке после обновления или повторного открытия.",
@@ -46,6 +50,8 @@ export const stocktakeText = {
     current: "Сейчас", deleted: "Больше нет в ERP", denied: "Необходим доступ к упаковкам или отгрузкам склада.", leave: "Некоторые сканы ещё не сохранены.",
   },
   uz: {
+    selectPage: "Shu sahifani tanlash", selectCount: "Tekshiruvni tanlash", deleteSelected: "Tanlanganlarni o‘chirish",
+    deleteCountsConfirm: "Tanlangan {count} ta tekshiruv va ularning skanlari o‘chirilsinmi? Bu amalni bekor qilib bo‘lmaydi. Qadoqlar va ombor qoldig‘i o‘zgarmaydi.",
     recovered: "Bu tekshiruvning saqlanmagan skanlari tiklandi. Saqlashni qayta yuboring; saqlangan skanlar ikki marta hisoblanmaydi.",
     storageError: "Brauzer xotirasi mavjud emas. Sahifani ochiq qoldiring va chiqishdan oldin saqlanmagan kodlarni nusxalang.",
     scanHistory: "Skanlar tarixi — yangilari yuqorida", historySaved: "Saqlangan skanlar sahifani yangilaganda yoki qayta ochganda shu tekshiruvda qoladi.",
