@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, load_only
 
 from app.core.deps import user_permissions
 from app.services.user_access import access_configured, permission_denied
-from app.models import CuttingPassport, Notification, User
+from app.models import CuttingPassport, Department, Notification, Role, User
 from app.models.catalog import Model
 from app.models.price_calculation import PriceCalculationRequest
 from app.services.audit import log_action
@@ -137,6 +137,27 @@ def _stage_status(required_values: list[bool]) -> str:
     if completed == len(required_values):
         return "complete"
     return "in_progress"
+
+
+def _active_pricing_users(db: Session) -> list[User]:
+    return (
+        db.query(User)
+        .options(
+            load_only(
+                User.id,
+                User.is_active,
+                User.factory_code,
+                User.extra_permissions,
+                User.access_policy,
+                User.role_id,
+                User.department_id,
+            ),
+            joinedload(User.role).load_only(Role.id, Role.name, Role.permissions),
+            joinedload(User.department).load_only(Department.id, Department.code),
+        )
+        .filter(User.is_active.is_(True))
+        .all()
+    )
 
 
 def cutting_status(request: PriceCalculationRequest) -> str:
@@ -437,7 +458,7 @@ def update_accessories(db: Session, request: PriceCalculationRequest, rows: list
 
 def _notify_new_request(db: Session, request: PriceCalculationRequest) -> None:
     recipients = [
-        user for user in db.query(User).filter(User.is_active.is_(True)).all()
+        user for user in _active_pricing_users(db)
         if is_finance_pricing_user(user) or is_cutting_pricing_user(user) or is_price_purchaser(user) or is_accessory_pricing_user(user)
     ]
     seen: set[int] = set()
@@ -457,7 +478,7 @@ def _notify_new_request(db: Session, request: PriceCalculationRequest) -> None:
 
 
 def _notify_finance(db: Session, request: PriceCalculationRequest, title: str) -> None:
-    for recipient in db.query(User).filter(User.is_active.is_(True)).all():
+    for recipient in _active_pricing_users(db):
         if not is_finance_pricing_user(recipient) or "*" in user_permissions(recipient):
             continue
         db.add(Notification(user_id=recipient.id, title=title, message=f"Model {request.model.code} price request was updated.", link="/finance/price-calculation"))
