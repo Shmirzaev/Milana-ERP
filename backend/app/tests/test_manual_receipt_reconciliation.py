@@ -12,6 +12,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import package_workflows as routes
+from app.core.security import create_access_token
 from app.db.base import Base
 from app.db.session import SessionLocal
 from app.models import (
@@ -20,11 +21,12 @@ from app.models import (
     ManualPackageReceipt,
     Package,
     PackagePrintRun,
+    Role,
     User,
 )
 from app.schemas.package_workflows import ManualPackageReceiptIn
 from app.services import package_workflows as service
-from app.tests.test_package_workflows import manual_body, warehouse  # noqa: F401
+from app.tests.test_package_workflows import manual_body, packaging_order, warehouse  # noqa: F401
 
 
 BASE = "/api/packages/manual-receipt"
@@ -167,7 +169,7 @@ def test_reconcile_completed_manual_receipt_returns_exact_result(client, warehou
     assert conflict.status_code == 409, conflict.text
 
 
-def test_reconcile_inactive_completed_receipt_remains_unresolved(client, warehouse):
+def test_reconcile_inactive_completed_receipt_resolves_without_stale_result(client, warehouse):
     body = manual_body()
     created = client.post(BASE, headers=warehouse, json=body)
     assert created.status_code == 201, created.text
@@ -178,7 +180,10 @@ def test_reconcile_inactive_completed_receipt_remains_unresolved(client, warehou
 
     reconciled = client.post(f"{BASE}/reconcile", headers=warehouse, json=body)
 
-    assert reconciled.status_code == 410, reconciled.text
+    assert reconciled.status_code == 200, reconciled.text
+    assert reconciled.json() == {"status": "completed_unavailable"}
+    retry = client.post(BASE, headers=warehouse, json=body)
+    assert retry.status_code == 410, retry.text
 
 
 def test_reconcile_rejects_changed_payload_for_reserved_key(client, warehouse):
@@ -203,15 +208,106 @@ def test_manual_receipt_reconciliation_is_authorized_and_user_scoped(client, war
         data={"username": "planning@example.com", "password": "demo12345"},
     )
     planning = {"Authorization": f"Bearer {planning_login.json()['access_token']}"}
-    assert client.post(f"{BASE}/reconcile", headers=planning, json=body).status_code == 403
+    planning_resolution = client.post(f"{BASE}/reconcile", headers=planning, json=body)
+    assert planning_resolution.status_code == 200, planning_resolution.text
+    assert planning_resolution.json() == {"status": "cancelled"}
     assert _business_counts() == before
     with SessionLocal() as db:
-        assert db.query(IdempotencyRecord).filter(IdempotencyRecord.key == body["request_key"]).count() == 0
+        assert db.query(IdempotencyRecord).filter(IdempotencyRecord.key == body["request_key"]).count() == 1
     assert client.post(f"{BASE}/reconcile", headers=warehouse, json=body).status_code == 200
 
     other_user = client.post(BASE, headers=auth_headers, json=body)
 
     assert other_user.status_code == 201, other_user.text
+
+
+def test_reconcile_completed_manual_receipt_after_permission_revocation_exposes_no_result(client):
+    with SessionLocal() as db:
+        role = Role(name=f"UI03 warehouse {uuid4().hex}", permissions=["storage.packages"])
+        db.add(role)
+        db.flush()
+        user = User(
+            name="UI03 warehouse operator",
+            email=f"ui03-warehouse-{uuid4().hex}@example.invalid",
+            password_hash="unused",
+            role_id=role.id,
+            factory_code="MIL",
+            extra_permissions=[],
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        user_id = int(user.id)
+        role_id = int(role.id)
+    headers = {"Authorization": f"Bearer {create_access_token(user_id)}"}
+    body = manual_body()
+    created = client.post(BASE, headers=headers, json=body)
+    assert created.status_code == 201, created.text
+    before = _business_counts()
+
+    with SessionLocal() as db:
+        db.get(Role, role_id).permissions = []
+        db.commit()
+
+    denied_retry = client.post(BASE, headers=headers, json=body)
+    assert denied_retry.status_code == 403, denied_retry.text
+    reconciled = client.post(f"{BASE}/reconcile", headers=headers, json=body)
+    assert reconciled.status_code == 200, reconciled.text
+    assert reconciled.json() == {"status": "completed_unavailable"}
+    assert _business_counts() == before
+
+
+def test_generic_package_reconciliation_covers_completed_deleted_and_cancelled_results(
+    client,
+    auth_headers,
+    packaging_order,
+):
+    body = {"request_key": str(uuid4()), "packages": [packaging_order]}
+    created = client.post(
+        "/api/packages/print-runs/create-packages",
+        headers=auth_headers,
+        json=body,
+    )
+    assert created.status_code == 201, created.text
+    completed = client.post(
+        "/api/packages/print-runs/create-packages/reconcile",
+        headers=auth_headers,
+        json=body,
+    )
+    assert completed.status_code == 200, completed.text
+    assert completed.json() == {"status": "completed", "result": created.json()}
+
+    with SessionLocal() as db:
+        run = db.get(PackagePrintRun, created.json()["id"])
+        run.deleted_at = run.created_at
+        db.commit()
+    unavailable = client.post(
+        "/api/packages/print-runs/create-packages/reconcile",
+        headers=auth_headers,
+        json=body,
+    )
+    assert unavailable.status_code == 200, unavailable.text
+    assert unavailable.json() == {"status": "completed_unavailable"}
+    assert client.post(
+        "/api/packages/print-runs/create-packages",
+        headers=auth_headers,
+        json=body,
+    ).status_code == 410
+
+    cancelled_body = {"request_key": str(uuid4()), "package_ids": [2_147_483_647]}
+    cancelled = client.post(
+        "/api/packages/print-runs/reconcile",
+        headers=auth_headers,
+        json=cancelled_body,
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json() == {"status": "cancelled"}
+    delayed = client.post(
+        "/api/packages/print-runs",
+        headers=auth_headers,
+        json=cancelled_body,
+    )
+    assert delayed.status_code == 409, delayed.text
 
 
 def test_postgres_original_commit_wins_reconciliation_race(reconciliation_postgres_sessions):

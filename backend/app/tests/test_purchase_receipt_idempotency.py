@@ -260,6 +260,57 @@ def test_receipt_replay_rechecks_current_inventory_authorization(client, auth_he
     assert retry.status_code == 403, retry.text
     assert receipt_state(receipt_order) == before_retry
 
+    reconciled = client.post(
+        f"/api/purchasing/orders/{receipt_order['order_id']}/receive/reconcile",
+        headers={**auth_headers, "Idempotency-Key": "receipt-test"},
+        json=receipt_order["payload"],
+    )
+    assert reconciled.status_code == 200, reconciled.text
+    assert reconciled.json() == {"status": "completed_unavailable"}
+    assert receipt_state(receipt_order) == before_retry
+
+
+def test_receipt_reconciliation_after_permission_revocation_is_owner_only_and_result_free(
+    client,
+    receipt_order,
+):
+    with session_module.SessionLocal() as db:
+        role = Role(name=f"UI03 receipt {uuid4().hex}", permissions=["purchasing.receive"])
+        db.add(role)
+        db.flush()
+        user = User(
+            name="UI03 receipt operator",
+            email=f"ui03-receipt-{uuid4().hex}@example.invalid",
+            password_hash="unused",
+            role_id=role.id,
+            factory_code="MIL",
+            extra_permissions=[],
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        user_id = int(user.id)
+        role_id = int(role.id)
+    headers = {"Authorization": f"Bearer {create_access_token(user_id)}"}
+    key = f"receipt-revoked-{uuid4()}"
+    created = receive(client, headers, receipt_order, key=key)
+    assert created.status_code == 200, created.text
+    before = receipt_state(receipt_order)
+
+    with session_module.SessionLocal() as db:
+        db.get(Role, role_id).permissions = []
+        db.commit()
+
+    assert receive(client, headers, receipt_order, key=key).status_code == 403
+    resolved = client.post(
+        f"/api/purchasing/orders/{receipt_order['order_id']}/receive/reconcile",
+        headers={**headers, "Idempotency-Key": key},
+        json=receipt_order["payload"],
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json() == {"status": "completed_unavailable"}
+    assert receipt_state(receipt_order) == before
+
 
 def test_receipt_failure_rolls_back_stock_and_key_then_can_retry(client, auth_headers, receipt_order, monkeypatch):
     original_store = purchasing.store_idempotent_response
@@ -384,6 +435,7 @@ def test_postgres_reconciliation_waits_for_original_receipt_commit(
             email=f"receipt-reconcile-{uuid4().hex}@example.invalid",
             password_hash="unused",
             factory_code="MIL",
+            extra_permissions=["purchasing.receive"],
         )
         db.add(current)
         db.commit()

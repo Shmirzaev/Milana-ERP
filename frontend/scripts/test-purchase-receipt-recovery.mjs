@@ -5,7 +5,13 @@ import ts from "typescript";
 const source = fs.readFileSync(new URL("../src/lib/purchaseReceiptRecovery.ts", import.meta.url), "utf8");
 const exports = {};
 new Function("exports", ts.transpile(source, { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }))(exports);
-const { readPendingPurchaseReceipt: read, preparePurchaseReceipt: prepare, sendPreparedPurchaseReceipt: send, purchaseReceiptStorageKey: storageKey } = exports;
+const {
+  readPendingPurchaseReceipt: read,
+  preparePurchaseReceipt: prepare,
+  reconcilePendingPurchaseReceipt: reconcileReceipt,
+  sendPreparedPurchaseReceipt: send,
+  purchaseReceiptStorageKey: storageKey,
+} = exports;
 const scope = { userId: 12, factoryCode: "MIL" };
 const lockTails = new Map();
 const lockKeys = [];
@@ -131,6 +137,38 @@ const recovered = await send(
 );
 assert.deepEqual(recovered, { received: 5 });
 assert.equal(read(completedPendingStorage, scope), null, "committed reconciliation clears pending input without reposting");
+
+const unavailableStorage = storage();
+const unavailable = await prepare(unavailableStorage, scope, 20, payload);
+const unavailableResolution = await reconcileReceipt(
+  unavailableStorage,
+  scope,
+  unavailable.pending,
+  async () => ({ status: "completed_unavailable" }),
+);
+assert.deepEqual(unavailableResolution, { status: "completed_unavailable" });
+assert.equal(read(unavailableStorage, scope), null, "deleted/revoked result clears evidence without exposing a result");
+
+const revokedRetryStorage = storage();
+const revokedFirst = await prepare(revokedRetryStorage, scope, 20, payload);
+await assert.rejects(send(
+  revokedRetryStorage,
+  scope,
+  revokedFirst,
+  async () => { throw new Error("Network timeout"); },
+));
+const revokedRetry = await prepare(revokedRetryStorage, scope, 20, payload);
+await assert.rejects(
+  send(
+    revokedRetryStorage,
+    scope,
+    revokedRetry,
+    async () => { throw new Error("403: access revoked"); },
+    async () => ({ status: "completed_unavailable" }),
+  ),
+  error => error?.code === "completed_unavailable",
+);
+assert.equal(read(revokedRetryStorage, scope), null, "revoked retry reconciles without repeating stock");
 
 const isolated = storage();
 const originalPayload = structuredClone(payload);
@@ -259,7 +297,10 @@ const dependencies = {
   "@/components/PageHeader": { default: "header" },
   "@/components/DialogProvider": { useDialogs: () => ({ async ask() { confirmationCount++; return false; } }) },
   "@/components/StagePipeline": { statusLabel: value => value },
-  "@/lib/api": { api: { async postWithIdempotency(...args) { sent.push(args); return {}; } }, fetcher() {} },
+  "@/lib/api": { api: { async postWithIdempotency(...args) {
+    sent.push(args);
+    return { status: "completed_unavailable" };
+  } }, fetcher() {} },
   "@/lib/auth": { can: () => true, useMe: () => ({ me: { id: scope.userId, factory_code: scope.factoryCode } }) },
   "@/lib/i18n": { useT: () => ({ t }) },
   "@/lib/orderRef": { formatOrderReference: value => value },
@@ -292,21 +333,26 @@ function elements(tree, type) {
   return [...(tree.type === type ? [tree] : []), ...elements(tree.props?.children, type)];
 }
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 try {
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: browserStorage });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {
+    addEventListener() {}, removeEventListener() {},
+  } });
   let tree = render();
   const retryButton = elements(tree, "button").find(button => JSON.stringify(button.props.children).includes("common.retry"));
   assert.ok(retryButton, "closed orders must still expose pending-receipt recovery");
-  retryButton.props.onClick();
+  await retryButton.props.onClick();
   tree = render();
-  assert.equal(elements(tree, "fieldset")[0].props.disabled, true, "pending receipt fields must remain immutable");
-  await elements(tree, "form")[0].props.onSubmit({ preventDefault() {} });
   assert.equal(confirmationCount, 0, "retry must retain the original close-order decision");
-  assert.deepEqual(sent, [["/api/purchasing/orders/20/receive", closedPayload, closedPending.key]]);
+  assert.deepEqual(sent, [["/api/purchasing/orders/20/receive/reconcile", closedPayload, closedPending.key]]);
+  assert.ok(sent.every(([path]) => path.endsWith("/reconcile")), "recovery must not repost the receipt write");
   assert.equal(read(browserStorage, scope), null);
-  assert.equal(elements(render(), "form").length, 0);
+  assert.match(JSON.stringify(tree), /page\.purchasing\.receiptRecoveryResolved/);
 } finally {
   if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
   else delete globalThis.localStorage;
+  if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+  else delete globalThis.window;
 }
-console.log("Purchase receipts: replay/reload recovery, cross-tab preparation and awaited cleanup locks, late-completion key preservation, and definitive rejection recovery pass.");
+console.log("Purchase receipts: lost-response, deleted/revoked-result reconciliation, cross-tab locking, late-completion preservation, and actual page recovery pass.");

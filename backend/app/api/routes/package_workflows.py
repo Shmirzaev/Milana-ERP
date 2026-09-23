@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import load_only, selectinload
 from app.services.print_response import warehouse_print_response
 
-from app.core.deps import DbSession, require_permissions, user_permissions
+from app.core.deps import CurrentUser, DbSession, require_permissions, user_permissions
 from app.models import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
 from app.schemas.package_workflows import (
     ManualPackageReceiptIn,
@@ -36,6 +36,11 @@ from app.services.workflow import sync_production_order_status
 router = APIRouter()
 
 _PRINT_RUN_LABEL_LIMIT = 200
+_OPERATION_PERMISSIONS = {
+    "manual-receipt": {"storage.packages", "*"},
+    "print-run": {"packaging.packages", "storage.packages", "*"},
+    "create-packages-run": {"packaging.packages", "*"},
+}
 
 
 def _request_body(operation, payload):
@@ -49,10 +54,11 @@ def _validate_manual_receipt_replay(db, replay):
     if service.is_cancelled_request(replay):
         raise HTTPException(409, "This manual receipt request was cancelled; submit a corrected request with a new key")
     run = db.get(PackagePrintRun, replay["print_run"]["id"])
-    if run:
-        service.require_active_run(run)
-        if run.deleted_package_ids:
-            raise HTTPException(410, "Some labels in this manual receipt were deleted")
+    if not run:
+        raise HTTPException(410, "This manual receipt result is no longer available")
+    service.require_active_run(run)
+    if run.deleted_package_ids:
+        raise HTTPException(410, "Some labels in this manual receipt were deleted")
 
 
 def _write(db, current, operation, payload, action):
@@ -62,8 +68,7 @@ def _write(db, current, operation, payload, action):
     body = _request_body(operation, payload)
     replay = replay_idempotent_response(db, user=current, scope=scope, key=key, payload=body)
     if replay is not None:
-        if operation == "manual-receipt":
-            _validate_manual_receipt_replay(db, replay)
+        _validate_package_workflow_replay(db, current, operation, replay)
         return replay
     result = action()
     store_idempotent_response(db, scope=scope, key=key, payload=body, response=result, user=current)
@@ -92,16 +97,24 @@ def _run(db, current, rid):
     return run
 
 
-@router.post("/manual-receipt", status_code=201)
-def create_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
-                          current: User = Depends(require_permissions("storage.packages", "*"))):
-    return _write(db, current, "manual-receipt", payload, lambda: service.manual_receipt(db, current, payload))
+def _validate_package_workflow_replay(db, current, operation, replay):
+    if service.is_cancelled_request(replay):
+        raise HTTPException(409, "This package request was cancelled; submit corrected values with a new key")
+    if operation == "manual-receipt":
+        _validate_manual_receipt_replay(db, replay)
+        return
+    try:
+        run_id = int(replay["id"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(410, "This package request result is no longer available")
+    _run(db, current, run_id)
 
 
-@router.post("/manual-receipt/reconcile")
-def reconcile_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
-                             current: User = Depends(require_permissions("storage.packages", "*"))):
-    operation = "manual-receipt"
+def _can_expose_package_workflow_result(current, operation):
+    return bool(set(user_permissions(current)).intersection(_OPERATION_PERMISSIONS[operation]))
+
+
+def _reconcile_package_workflow(db, current, operation, payload):
     key = str(payload.request_key)
     scope = f"packages.{operation}.{current.id}"
     body = _request_body(operation, payload)
@@ -111,7 +124,16 @@ def reconcile_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
         if service.is_cancelled_request(replay):
             db.commit()
             return {"status": "cancelled"}
-        _validate_manual_receipt_replay(db, replay)
+        if not _can_expose_package_workflow_result(current, operation):
+            db.commit()
+            return {"status": "completed_unavailable"}
+        try:
+            _validate_package_workflow_replay(db, current, operation, replay)
+        except HTTPException as exc:
+            if exc.status_code not in {403, 404, 409, 410}:
+                raise
+            db.commit()
+            return {"status": "completed_unavailable"}
         db.commit()
         return {"status": "completed", "result": replay}
     store_idempotent_response(
@@ -125,6 +147,18 @@ def reconcile_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
     )
     db.commit()
     return {"status": "cancelled"}
+
+
+@router.post("/manual-receipt", status_code=201)
+def create_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
+                          current: User = Depends(require_permissions("storage.packages", "*"))):
+    return _write(db, current, "manual-receipt", payload, lambda: service.manual_receipt(db, current, payload))
+
+
+@router.post("/manual-receipt/reconcile")
+def reconcile_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
+                             current: CurrentUser):
+    return _reconcile_package_workflow(db, current, "manual-receipt", payload)
 
 
 @router.post("/print-runs", status_code=201)
@@ -141,6 +175,11 @@ def create_print_run(payload: PrintRunIn, db: DbSession,
             require_package_access(current, pkg)
         return service.run_payload(db, service.create_run(db, current, packages))
     return _write(db, current, "print-run", payload, action)
+
+
+@router.post("/print-runs/reconcile")
+def reconcile_print_run(payload: PrintRunIn, db: DbSession, current: CurrentUser):
+    return _reconcile_package_workflow(db, current, "print-run", payload)
 
 
 @router.post("/print-runs/create-packages", status_code=201)
@@ -214,6 +253,11 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
         sync_production_order_status(db, int(order.id))
         return service.run_payload(db, service.create_run(db, current, packages))
     return _write(db, current, "create-packages-run", payload, action)
+
+
+@router.post("/print-runs/create-packages/reconcile")
+def reconcile_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession, current: CurrentUser):
+    return _reconcile_package_workflow(db, current, "create-packages-run", payload)
 
 
 @router.get("/print-runs", response_model=list[PrintRunOut] | PrintRunPageOut)

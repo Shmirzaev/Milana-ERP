@@ -21,10 +21,15 @@ export type PendingPurchaseReceipt = {
 type ReceiptStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export class PurchaseReceiptRecoveryError extends Error {
-  constructor(public readonly code: "pending" | "storage") {
+  constructor(public readonly code: "pending" | "storage" | "completed_unavailable") {
     super(code);
   }
 }
+
+export type PurchaseReceiptReconciliation<T> =
+  | { status: "completed"; result: T }
+  | { status: "completed_unavailable" }
+  | { status: "cancelled" };
 
 export function purchaseReceiptStorageKey(scope: PurchaseReceiptScope): string {
   return `milana:purchase-receipt:v1:${scope.factoryCode}:${scope.userId}`;
@@ -99,14 +104,28 @@ async function clearPendingReceipt(storage: ReceiptStorage, scope: PurchaseRecei
   }
 }
 
+export async function reconcilePendingPurchaseReceipt<T>(
+  storage: ReceiptStorage,
+  scope: PurchaseReceiptScope,
+  pending: PendingPurchaseReceipt,
+  reconcile: (pending: PendingPurchaseReceipt) => Promise<PurchaseReceiptReconciliation<T>>,
+): Promise<PurchaseReceiptReconciliation<T>> {
+  const resolution = await reconcile(pending);
+  if (!resolution || !["completed", "completed_unavailable", "cancelled"].includes(resolution.status)
+    || (resolution.status === "completed" && resolution.result == null)
+    || (resolution.status === "completed_unavailable" && "result" in resolution)) {
+    throw new Error("Receipt reconciliation returned an invalid status");
+  }
+  await clearPendingReceipt(storage, scope, pending.key);
+  return resolution;
+}
+
 export async function sendPreparedPurchaseReceipt<T>(
   storage: ReceiptStorage,
   scope: PurchaseReceiptScope,
   prepared: { pending: PendingPurchaseReceipt; isNew: boolean },
   send: (pending: PendingPurchaseReceipt) => Promise<T>,
-  reconcile?: (pending: PendingPurchaseReceipt) => Promise<
-    { status: "completed"; result: T } | { status: "cancelled" }
-  >,
+  reconcile?: (pending: PendingPurchaseReceipt) => Promise<PurchaseReceiptReconciliation<T>>,
 ): Promise<T> {
   let response: T;
   try {
@@ -117,17 +136,20 @@ export async function sendPreparedPurchaseReceipt<T>(
     if (prepared.isNew && error instanceof Error && /^(400|404|409|422):/.test(error.message)) {
       await clearPendingReceipt(storage, scope, prepared.pending.key);
     } else if (!prepared.isNew && reconcile && error instanceof Error
-      && /^(400|404|409|422):/.test(error.message)) {
+      && /^(400|403|404|409|410|422):/.test(error.message)) {
       // The server serializes reconciliation with the original receipt. It
       // either replays the committed result or tombstones the unused key so a
       // delayed original cannot apply after corrected values are submitted.
-      const resolution = await reconcile(prepared.pending);
-      if (!resolution || (resolution.status !== "completed" && resolution.status !== "cancelled")
-        || (resolution.status === "completed" && resolution.result == null)) {
-        throw new Error("Receipt reconciliation returned an invalid status");
-      }
-      await clearPendingReceipt(storage, scope, prepared.pending.key);
+      const resolution = await reconcilePendingPurchaseReceipt(
+        storage,
+        scope,
+        prepared.pending,
+        reconcile,
+      );
       if (resolution.status === "completed") return resolution.result;
+      if (resolution.status === "completed_unavailable") {
+        throw new PurchaseReceiptRecoveryError("completed_unavailable");
+      }
     }
     throw error;
   }

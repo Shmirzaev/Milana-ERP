@@ -75,6 +75,8 @@ export default {
     "auth.connectionFailed": "Unable to check your session. Check your connection and retry.",
     "page.purchasing.pendingReceipt": "Retry the pending receipt to confirm its result before starting another receipt.",
     "page.purchasing.receiptRecoveryUnavailable": "The pending receipt cannot be reopened with your current access. Keep this browser data and contact an administrator.",
+    "page.purchasing.receiptRecoveryCancelled": "The uncommitted receipt request was safely cancelled. Correct the values and submit again.",
+    "page.purchasing.receiptRecoveryResolved": "The receipt was completed, but its result is deleted or unavailable with your current access. Saved retry data was cleared safely.",
     "page.purchasing.receiptStorageUnavailable": "The receipt could not be saved for safe retry. Enable browser storage and try again.",
     "auth.requiredFields": "Enter your email and password.",
     "auth.emailRequired": "Enter your email address.",

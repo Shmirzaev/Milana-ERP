@@ -7,7 +7,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import and_, func, exists, or_, select
 from sqlalchemy.orm import load_only, selectinload, aliased
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.models import (
     FinishedGoodsStock,
     Shipment,
@@ -73,6 +73,28 @@ _SHIPMENT_ORDER_STATUSES = {
     "ready",
     "reserved",
 }
+
+
+def _shipment_create_fingerprint(payload: ShipmentIn) -> dict:
+    fingerprint_payload = payload.model_dump(mode="json")
+    if not payload.manual:
+        fingerprint_payload.pop("manual", None)
+    if payload.request_key is None:
+        fingerprint_payload.pop("request_key", None)
+    return fingerprint_payload
+
+
+def _validate_shipment_create_replay(db: DbSession, replay: dict) -> None:
+    from app.services import package_workflows as package_workflow_service
+
+    if package_workflow_service.is_cancelled_request(replay):
+        raise HTTPException(409, "This shipment request was cancelled; submit corrected values with a new key")
+    try:
+        shipment_id = int(replay["id"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(410, "This shipment result is no longer available")
+    if not db.get(Shipment, shipment_id):
+        raise HTTPException(410, "This shipment result is no longer available")
 
 
 class EligibleOrderOut(BaseModel):
@@ -1224,11 +1246,7 @@ def create_shipment(
     current: User = Depends(require_permissions("storage.shipment", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    fingerprint_payload = payload.model_dump(mode="json")
-    if not payload.manual:
-        fingerprint_payload.pop("manual", None)
-    if payload.request_key is None:
-        fingerprint_payload.pop("request_key", None)
+    fingerprint_payload = _shipment_create_fingerprint(payload)
     if payload.manual and payload.request_key:
         from app.services.package_workflows import lock_request
         idempotency_key = str(payload.request_key)
@@ -1249,6 +1267,7 @@ def create_shipment(
         raise HTTPException(404, "Sales order not found")
     replay = replay_idempotent_response(db, user=current, scope="shipments.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
+        _validate_shipment_create_replay(db, replay)
         return replay
     if payload.manual:
         if payload.sales_order_id or not payload.customer_id:
@@ -1312,6 +1331,51 @@ def create_shipment(
     )
     db.commit()
     return response
+
+
+@router.post("/reconcile")
+def reconcile_manual_shipment(payload: ShipmentIn, db: DbSession, current: CurrentUser):
+    from app.services import package_workflows as package_workflow_service
+
+    if not payload.manual or payload.request_key is None or payload.sales_order_id is not None:
+        raise HTTPException(422, "Only manual shipment requests support reconciliation")
+    key = str(payload.request_key)
+    package_workflow_service.lock_request(db, current.id, "manual-shipment", key)
+    fingerprint_payload = _shipment_create_fingerprint(payload)
+    replay = replay_idempotent_response(
+        db,
+        user=current,
+        scope="shipments.create",
+        key=key,
+        payload=fingerprint_payload,
+    )
+    if replay is not None:
+        if package_workflow_service.is_cancelled_request(replay):
+            db.commit()
+            return {"status": "cancelled"}
+        if not set(user_permissions(current)).intersection({"storage.shipment", "*"}):
+            db.commit()
+            return {"status": "completed_unavailable"}
+        try:
+            _validate_shipment_create_replay(db, replay)
+        except HTTPException as exc:
+            if exc.status_code not in {404, 409, 410}:
+                raise
+            db.commit()
+            return {"status": "completed_unavailable"}
+        db.commit()
+        return {"status": "completed", "result": replay}
+    store_idempotent_response(
+        db,
+        scope="shipments.create",
+        key=key,
+        payload=fingerprint_payload,
+        response=package_workflow_service.cancelled_request_response(),
+        user=current,
+        status_code=409,
+    )
+    db.commit()
+    return {"status": "cancelled"}
 
 
 @router.patch("/{sid}", response_model=ShipmentOut)

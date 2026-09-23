@@ -1706,6 +1706,8 @@ export default {
     "auth.connectionFailed": "Seansni tekshirib bo‘lmadi. Internet aloqasini tekshirib, qayta urinib ko‘ring.",
     "page.purchasing.pendingReceipt": "Yangi kirimdan oldin kutilayotgan kirimni qayta yuborib, natijasini tasdiqlang.",
     "page.purchasing.receiptRecoveryUnavailable": "Joriy ruxsatlar bilan kutilayotgan kirimni ochib bo‘lmaydi. Brauzer ma’lumotlarini saqlang va administratorga murojaat qiling.",
+    "page.purchasing.receiptRecoveryCancelled": "Yakunlanmagan kirim so‘rovi xavfsiz bekor qilindi. Ma’lumotlarni tuzatib, qayta yuboring.",
+    "page.purchasing.receiptRecoveryResolved": "Kirim bajarilgan, ammo natija o‘chirilgan yoki joriy ruxsat bilan mavjud emas. Saqlangan takrorlash ma’lumotlari xavfsiz tozalandi.",
     "page.purchasing.receiptStorageUnavailable": "Kirimni xavfsiz takrorlash uchun saqlab bo‘lmadi. Brauzerda ma’lumot saqlashga ruxsat berib, qayta urinib ko‘ring.",
     "common.download": "Yuklab olish",
     "common.showingRange": "{total} tadan {start}-{end} ko'rsatilmoqda",

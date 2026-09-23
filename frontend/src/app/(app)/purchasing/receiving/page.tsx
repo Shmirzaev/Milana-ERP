@@ -14,7 +14,8 @@ import { statusLabel } from "@/components/StagePipeline";
 import { divideBatchQuantityByRollCount } from "@/lib/materialRollWeights";
 import {
   PendingPurchaseReceipt, PurchaseReceiptPayload, PurchaseReceiptRecoveryError,
-  preparePurchaseReceipt, readPendingPurchaseReceipt, sendPreparedPurchaseReceipt,
+  preparePurchaseReceipt, readPendingPurchaseReceipt, reconcilePendingPurchaseReceipt,
+  sendPreparedPurchaseReceipt,
 } from "@/lib/purchaseReceiptRecovery";
 
 type PurchaseOrderLine = {
@@ -121,6 +122,7 @@ export default function PurchaseReceivingPage() {
   const [receiveState, setReceiveState] = useState<ReceiveState | null>(null);
   const [pendingReceipt, setPendingReceipt] = useState<PendingPurchaseReceipt | null>(null);
   const [recoveryStorageError, setRecoveryStorageError] = useState(false);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const receiving = useRef(false);
   const receiptUserId = me?.id;
   const receiptFactory = me?.factory_code;
@@ -137,11 +139,16 @@ export default function PurchaseReceivingPage() {
     setPendingReceipt(null);
     setRecoveryStorageError(false);
     if (!receiptUserId || !receiptFactory) return;
-    try {
-      setPendingReceipt(readPendingPurchaseReceipt(localStorage, { userId: receiptUserId, factoryCode: receiptFactory }));
-    } catch {
-      setRecoveryStorageError(true);
-    }
+    const update = () => {
+      try {
+        setPendingReceipt(readPendingPurchaseReceipt(localStorage, { userId: receiptUserId, factoryCode: receiptFactory }));
+      } catch {
+        setRecoveryStorageError(true);
+      }
+    };
+    update();
+    window.addEventListener("storage", update);
+    return () => window.removeEventListener("storage", update);
   }, [receiptUserId, receiptFactory]);
 
   const pendingOrder = orders?.find((order) => order.id === pendingReceipt?.orderId);
@@ -328,11 +335,20 @@ export default function PurchaseReceivingPage() {
         setRecoveryStorageError(true);
       }
       const errorMessage = error instanceof PurchaseReceiptRecoveryError
-        ? t(error.code === "pending" ? "page.purchasing.pendingReceipt" : "page.purchasing.receiptStorageUnavailable")
+        ? t(error.code === "pending"
+          ? "page.purchasing.pendingReceipt"
+          : error.code === "completed_unavailable"
+            ? "page.purchasing.receiptRecoveryResolved"
+            : "page.purchasing.receiptStorageUnavailable")
         : error?.message || t("page.purchasing.actionFailed");
       if (error instanceof PurchaseReceiptRecoveryError && error.code === "pending") {
         setReceiveState(null);
         setMessage(errorMessage);
+      } else if (error instanceof PurchaseReceiptRecoveryError && error.code === "completed_unavailable") {
+        setPendingReceipt(null);
+        setReceiveState(null);
+        setMessage(errorMessage);
+        refreshOrders();
       } else {
         setReceiveState((prev) => prev ? { ...prev, saving: false, message: errorMessage } : prev);
       }
@@ -341,8 +357,62 @@ export default function PurchaseReceivingPage() {
     }
   }
 
+  async function recoverPendingReceipt() {
+    if (!me || !pendingReceipt || receiving.current || recoveryBusy) return;
+    receiving.current = true;
+    setRecoveryBusy(true);
+    const scope = { userId: me.id, factoryCode: me.factory_code };
+    setMessage("");
+    try {
+      const resolution = await reconcilePendingPurchaseReceipt(
+        localStorage,
+        scope,
+        pendingReceipt,
+        (pending) => api.postWithIdempotency(
+          `/api/purchasing/orders/${pending.orderId}/receive/reconcile`,
+          pending.payload,
+          pending.key,
+        ),
+      );
+      setPendingReceipt(null);
+      setReceiveState(null);
+      setMessage(t(resolution.status === "cancelled"
+        ? "page.purchasing.receiptRecoveryCancelled"
+        : resolution.status === "completed_unavailable"
+          ? "page.purchasing.receiptRecoveryResolved"
+          : "page.purchasing.received"));
+      refreshOrders();
+    } catch (error: any) {
+      try {
+        setPendingReceipt(readPendingPurchaseReceipt(localStorage, scope));
+      } catch {
+        setRecoveryStorageError(true);
+      }
+      setMessage(error?.message || t("page.purchasing.actionFailed"));
+    } finally {
+      receiving.current = false;
+      setRecoveryBusy(false);
+    }
+  }
+
+  const pendingRecovery = pendingReceipt ? (
+    <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
+      <p>{t("page.purchasing.pendingReceipt")}</p>
+      <button type="button" className="btn mt-2" disabled={recoveryBusy} onClick={recoverPendingReceipt}>
+        {t(recoveryBusy ? "common.saving" : "common.retry")}{pendingOrder && pendingLine
+          ? ` · ${formatOrderReference(pendingOrder.po_no)} · ${lineItemLabel(pendingLine)}`
+          : ""}
+      </button>
+    </div>
+  ) : null;
+
   if (!canView) {
-    return <PageHeader title={t("page.purchasing.receivingTitle")} subtitle={t("page.purchasing.noAccess")} />;
+    return <div>
+      <PageHeader title={t("page.purchasing.receivingTitle")} subtitle={t("page.purchasing.noAccess")} />
+      {message && <div className="mb-4 rounded-md border border-[#ded9ca] bg-[#fbfaf6] px-4 py-3 text-sm text-[#56503f]">{message}</div>}
+      {recoveryStorageError && <div role="alert" className="mb-4 text-sm text-red-600">{t("page.purchasing.receiptStorageUnavailable")}</div>}
+      {pendingRecovery}
+    </div>;
   }
 
   return (
@@ -359,16 +429,7 @@ export default function PurchaseReceivingPage() {
       />
       {message && <div className="mb-4 rounded-md border border-[#ded9ca] bg-[#fbfaf6] px-4 py-3 text-sm text-[#56503f]">{message}</div>}
       {recoveryStorageError && <div role="alert" className="mb-4 text-sm text-red-600">{t("page.purchasing.receiptStorageUnavailable")}</div>}
-      {pendingReceipt && (
-        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
-          <p>{t("page.purchasing.pendingReceipt")}</p>
-          {pendingOrder && pendingLine ? (
-            <button type="button" className="btn mt-2" disabled={!!receiveState || !canReceive} onClick={() => openReceive(pendingOrder, pendingLine)}>
-              {t("common.retry")} · {formatOrderReference(pendingOrder.po_no)} · {lineItemLabel(pendingLine)}
-            </button>
-          ) : orders ? <p role="alert">{t("page.purchasing.receiptRecoveryUnavailable")}</p> : null}
-        </div>
-      )}
+      {pendingRecovery}
 
       <section className="card overflow-hidden">
         <div className="border-b border-[#ecebe3] px-5 py-4">

@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from sqlalchemy.orm import joinedload, lazyload, load_only, selectinload
 
-from app.core.deps import DbSession, require_permissions
+from app.core.deps import CurrentUser, DbSession, require_permissions, user_permissions
 from app.core.config import settings
 from app.models import (
     Item,
@@ -351,20 +351,17 @@ def reconcile_order_receipt(
     order_id: int,
     payload: PurchaseOrderReceiveIn,
     db: DbSession,
-    current: User = Depends(require_permissions("purchasing.receive", "*")),
+    current: CurrentUser,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     if not idempotency_key:
         raise HTTPException(400, "Idempotency-Key is required for receipt reconciliation")
+    can_receive = bool(set(user_permissions(current)).intersection({"purchasing.receive", "*"}))
     order = (
-        db.query(PurchaseOrder).options(lazyload("*"), selectinload(PurchaseOrder.lines))
+        db.query(PurchaseOrder).options(lazyload("*"))
         .filter(PurchaseOrder.id == order_id).with_for_update(of=PurchaseOrder)
         .populate_existing().first()
     )
-    if not order:
-        raise HTTPException(404, "Purchase order not found")
-    for line in order.lines:
-        inventory_access.require_item(db, current, line.item_id)
     scope = f"purchasing.receive:{selected_factory_code(current)}:{current.id}:{order_id}"
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(
@@ -375,9 +372,21 @@ def reconcile_order_receipt(
         payload=fingerprint_payload,
     )
     if replay is not None:
-        db.commit()
         if replay.get("_purchase_receipt_request") == "cancelled":
+            db.commit()
             return {"status": "cancelled"}
+        if not can_receive or not order:
+            db.commit()
+            return {"status": "completed_unavailable"}
+        try:
+            for line in order.lines:
+                inventory_access.require_item(db, current, line.item_id)
+        except HTTPException as exc:
+            if exc.status_code not in {403, 404}:
+                raise
+            db.commit()
+            return {"status": "completed_unavailable"}
+        db.commit()
         return {"status": "completed", "result": replay}
     store_idempotent_response(
         db,

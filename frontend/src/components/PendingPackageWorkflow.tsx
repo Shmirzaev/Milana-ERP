@@ -3,23 +3,34 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { isPackagePrintRun, pendingPackageWorkflow, postPackageWorkflow, packageWorkflowCopy, restorePendingPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
+import { isPackagePrintRun, packageWorkflowChangedEvent, pendingPackageWorkflow, reconcilePendingPackageWorkflow, packageWorkflowCopy, type PackagePrintRun } from "@/lib/packageWorkflow";
 
 export default function PendingPackageWorkflow({ path, onResolved }: { path: string; onResolved: () => void | Promise<void> }) {
   const { me } = useMe();
   const { lang } = useT();
   const c = packageWorkflowCopy[lang];
-  const [pending, setPending] = useState<Record<string, any> | null>(() => me?.id ? pendingPackageWorkflow(path, me.id)?.body || null : null);
+  const [pending, setPending] = useState<Record<string, any> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [resolvedError, setResolvedError] = useState("");
   useEffect(() => {
-    const update = () => setPending(me?.id ? pendingPackageWorkflow(path, me.id)?.body || null : null);
+    const update = () => {
+      try {
+        setPending(me?.id ? pendingPackageWorkflow(path, me.id)?.body || null : null);
+      } catch (caught: any) {
+        setPending(null);
+        setError(caught?.message || "Package recovery storage is unavailable");
+      }
+    };
     update();
-    window.addEventListener("package-request-changed", update);
-    return () => window.removeEventListener("package-request-changed", update);
+    window.addEventListener(packageWorkflowChangedEvent, update);
+    window.addEventListener("storage", update);
+    return () => {
+      window.removeEventListener(packageWorkflowChangedEvent, update);
+      window.removeEventListener("storage", update);
+    };
   }, [me?.id, path]);
-  if (!me || (!pending && !resolvedError)) return null;
+  if (!me || (!pending && !resolvedError && !error)) return null;
   const count = pending?.packages?.length || pending?.package_ids?.length || 0;
   return <div className="my-3 border p-3">
     <p role="status">{resolvedError || `${c.pendingRequest} ${count} ${c.packages}`}</p>
@@ -28,13 +39,21 @@ export default function PendingPackageWorkflow({ path, onResolved }: { path: str
       setBusy(true); setError("");
       try {
         if (!pending) return;
-        const savedRequest = pendingPackageWorkflow(path, me.id);
-        const run = await postPackageWorkflow<PackagePrintRun>(path, pending, me.id);
-        if (!isPackagePrintRun(run)) {
-          if (savedRequest) restorePendingPackageWorkflow(path, me.id, savedRequest);
-          throw new Error("The package receipt response was incomplete; the saved request is ready to retry.");
+        const resolution = await reconcilePendingPackageWorkflow<PackagePrintRun>(path, me.id);
+        setPending(null);
+        if (resolution.status === "cancelled") {
+          setResolvedError(c.pendingCancelled);
+          return;
         }
-        setPending(null); setResolvedError(c.received);
+        if (resolution.status === "completed_unavailable") {
+          setResolvedError(c.resultUnavailable);
+          return;
+        }
+        const run = resolution.result;
+        if (!isPackagePrintRun(run)) {
+          throw new Error("The recovered package receipt response was incomplete.");
+        }
+        setResolvedError(c.received);
         try {
           await onResolved();
         } catch (e: any) {
@@ -50,6 +69,6 @@ export default function PendingPackageWorkflow({ path, onResolved }: { path: str
         }
       } catch (e: any) { setError(e.message); }
       finally { setBusy(false); }
-    }}>{busy ? c.loading : c.retry}</button>}
+    }}>{busy ? c.loading : c.recover}</button>}
   </div>;
 }

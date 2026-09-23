@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { can, useMe } from "@/lib/auth";
-import { packageWorkflowCopy, pendingPackageWorkflow, postPackageWorkflow, reconcilePendingPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
+import { packageWorkflowChangedEvent, packageWorkflowCopy, pendingPackageWorkflow, postPackageWorkflow, reconcilePendingPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import Modal from "@/components/Modal";
 
@@ -27,15 +27,59 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
   const [pendingBody, setPendingBody] = useState<Record<string, any> | null>(null);
   useEffect(() => {
     if (!me?.id) return;
-    const saved = pendingPackageWorkflow("/api/packages/manual-receipt", me.id);
-    if (!saved) return;
-    const body = saved.body;
-    setPendingBody(body); setModel(body.model_id); setColor(body.color);
-    setWeight(String(body.weight_kg)); setCount(String(body.count));
-    setQuantities(body.pack_quantities?.map(String) || Array(body.count).fill(String((body.sizes || []).reduce((sum: number, row: any) => sum + row.quantity, 0))));
-    setSizes((body.sizes || []).map((row: any) => row.size));
+    const update = () => {
+      try {
+        const saved = pendingPackageWorkflow("/api/packages/manual-receipt", me.id);
+        setPendingBody(saved?.body || null);
+        if (!saved) return;
+        const body = saved.body;
+        setModel(body.model_id); setColor(body.color);
+        setWeight(String(body.weight_kg)); setCount(String(body.count));
+        setQuantities(body.pack_quantities?.map(String) || Array(body.count).fill(String((body.sizes || []).reduce((sum: number, row: any) => sum + row.quantity, 0))));
+        setSizes((body.sizes || []).map((row: any) => row.size));
+      } catch (caught: any) {
+        setError(caught?.message || "Package recovery storage is unavailable");
+      }
+    };
+    update();
+    window.addEventListener(packageWorkflowChangedEvent, update);
+    window.addEventListener("storage", update);
+    return () => {
+      window.removeEventListener(packageWorkflowChangedEvent, update);
+      window.removeEventListener("storage", update);
+    };
   }, [me?.id]);
-  if (!can(me, "storage.packages")) return null;
+
+  async function recoverPendingReceipt() {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const reconciled = await reconcilePendingPackageWorkflow<{ receipt_no: string; print_run: PackagePrintRun }>("/api/packages/manual-receipt", me!.id);
+      setPendingBody(null);
+      if (reconciled.status === "completed") {
+        setResult(reconciled.result);
+        onCreated();
+      } else {
+        setNotice(reconciled.status === "cancelled" ? c.pendingCancelled : c.resultUnavailable);
+      }
+    } catch (caught: any) {
+      setError(caught?.message || "Package recovery failed");
+      try {
+        setPendingBody(pendingPackageWorkflow("/api/packages/manual-receipt", me!.id)?.body || null);
+      } catch {
+        setPendingBody(null);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const allowed = can(me, "storage.packages");
+  if (!allowed) return (pendingBody || notice || error) ? <div className="my-3 border p-3">
+    {pendingBody && <p role="status">{c.pendingRequest}</p>}
+    {error && <p role="alert" className="text-red-700">{error}</p>}
+    {notice && <p role="status">{notice}</p>}
+    {pendingBody && <button type="button" className="btn mt-2" disabled={busy} onClick={recoverPendingReceipt}>{busy ? c.loading : c.recover}</button>}
+  </div> : null;
   const total = quantities.reduce((sum, value) => sum + Number(value || 0), 0);
   return <>
     <button className="btn" type="button" onClick={() => { setOpen(true); setResult(null); }}>{c.manual}</button>
@@ -63,23 +107,7 @@ export default function ManualPackageReceipt({ onCreated }: { onCreated: () => v
             catch (e: any) { setError(e.message); }
           }}>{c.reprint}</button>
         </div> : <>
-          {pendingBody && <button type="button" className="btn" disabled={busy} onClick={async () => {
-            setBusy(true); setError(""); setNotice("");
-            try {
-              const reconciled = await reconcilePendingPackageWorkflow<{ receipt_no: string; print_run: PackagePrintRun }>("/api/packages/manual-receipt", me!.id);
-              setPendingBody(null);
-              if (reconciled.status === "completed") {
-                setResult(reconciled.result);
-                onCreated();
-              } else {
-                setNotice(c.pendingCancelled);
-              }
-            } catch (e: any) {
-              setError(e.message);
-              setPendingBody(pendingPackageWorkflow("/api/packages/manual-receipt", me!.id)?.body || null);
-            }
-            finally { setBusy(false); }
-          }}>{c.cancelPending}</button>}
+          {pendingBody && <button type="button" className="btn" disabled={busy} onClick={recoverPendingReceipt}>{c.cancelPending}</button>}
           <fieldset disabled={busy || !!pendingBody} className="space-y-4">
             <div><label className="label" htmlFor="manual-package-model">{c.model}</label>
               <ModelAsyncSelect value={model} status="approved" inputId="manual-package-model" required disabled={busy || !!pendingBody}
