@@ -9,10 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import joinedload, load_only
 
 from app.core.deps import DbSession, require_permissions
-from app.models import StockBatch, User
+from app.models import Item, StockBatch, User
 from app.models.fabric_scan import FabricScan
 from app.services.factory_scope import cutting_department_scope
 from app.services.inventory_access import MATERIAL_CATEGORIES
@@ -89,7 +89,17 @@ def scan(payload: ScanInput, db: DbSession, user: User = Depends(scan_access)):
     existing = db.query(FabricScan).options(_row_data_load_options()).filter_by(**identity).first()
     if existing:
         return {"duplicate": True, "row": row_data(existing)}
-    batch = db.get(StockBatch, batch_id)
+    batch = db.query(StockBatch).options(
+        load_only(
+            StockBatch.id,
+            StockBatch.item_id,
+            StockBatch.batch_no,
+            StockBatch.color,
+            StockBatch.piece_count,
+            StockBatch.roll_weights_kg,
+        ),
+        joinedload(StockBatch.item).load_only(Item.id, Item.name, Item.category),
+    ).filter(StockBatch.id == batch_id).first()
     if not batch or not batch.item or batch.item.category not in MATERIAL_CATEGORIES:
         raise HTTPException(404, "fabric_not_found")
     # Do not trust roll_total, weight, fabric names or other data inside the QR.
