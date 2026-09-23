@@ -67,10 +67,34 @@ def test_notification_page_is_user_scoped_bounded_and_matches_legacy_prefix(row_
     assert page["has_more"] is (row_count > 50)
     assert len(page["rows"]) <= 50
     assert len(legacy_statements) == 1
-    assert len(page_statements) == 2
+    assert len(page_statements) == 1
     row_statement = next(statement for statement in page_statements if " order by notifications.id desc" in statement)
     assert "notifications.user_id = ?" in row_statement
     assert " limit ? offset ?" in row_statement
+    assert "count(notifications.id) over ()" in row_statement
+
+
+def test_notification_past_end_page_keeps_total_with_count_fallback():
+    user_id, _ = _actor()
+    _seed_notifications(user_id, 1)
+    current = SimpleNamespace(id=user_id)
+
+    with SessionLocal() as db:
+        page, statements = _select_trace(
+            db,
+            lambda: list_my_notifications(db, current, page=4, page_size=10),
+        )
+
+    assert page == {
+        "rows": [],
+        "total": 1,
+        "page": 4,
+        "page_size": 10,
+        "has_more": False,
+    }
+    assert len(statements) == 2
+    assert "count(notifications.id) over ()" in statements[0]
+    assert statements[1].startswith("select count(*)")
 
 
 def test_notification_page_http_contract_preserves_legacy_filter_and_auth(client):

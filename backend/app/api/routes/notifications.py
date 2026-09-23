@@ -124,8 +124,20 @@ def list_my_notifications(
         page=page or 1,
         page_size=page_size if page_size is not None else limit,
     )
-    total = int(qry.count())
-    rows = ordered_qry.offset(offset).limit(effective_page_size).all()
+    rows_with_total = (
+        ordered_qry.add_columns(func.count(Notification.id).over().label("total"))
+        .offset(offset)
+        .limit(effective_page_size)
+        .all()
+    )
+    if rows_with_total:
+        rows = [row for row, _ in rows_with_total]
+        total = int(rows_with_total[0][1] or 0)
+    else:
+        # A window count is unavailable when an offset or empty filter returns
+        # no rows; retain the total for those edge pages with a scalar fallback.
+        rows = []
+        total = int(qry.count())
     return {
         "rows": rows,
         "total": total,
