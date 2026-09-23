@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, event, insert
 from sqlalchemy.orm import Session
 
-from app.api.routes.super_data import _table_directory, _table_row_counts
+from app.api.routes.super_data import _table_directory, _table_metadata_directory, _table_row_counts
 from app.tests.test_task_assignment_authorization import _actor
 
 
@@ -68,6 +68,10 @@ def test_super_data_table_page_bounds_count_enrichment_and_matches_legacy_prefix
             db,
             lambda: _table_directory(db, tables, page=1, page_size=50),
         )
+        directory, directory_statements = _statement_trace(
+            db,
+            lambda: _table_metadata_directory(tables),
+        )
 
     expected_size = min(table_count, 50)
     assert [row.model_dump() for row in page.rows] == [row.model_dump() for row in legacy[:50]]
@@ -78,6 +82,11 @@ def test_super_data_table_page_bounds_count_enrichment_and_matches_legacy_prefix
     assert len(page.rows) == expected_size
     assert len(legacy_statements) == 1
     assert len(page_statements) == 1
+    assert [row.model_dump() for row in directory] == [
+        {key: value for key, value in row.model_dump().items() if key != "row_count"}
+        for row in legacy
+    ]
+    assert directory_statements == []
     assert all(statement.startswith("select") for statement in [*legacy_statements, *page_statements])
     assert legacy_statements[0].count(" as table_name") == table_count
     assert page_statements[0].count(" as table_name") == expected_size
@@ -99,6 +108,16 @@ def test_super_data_table_page_http_contract_preserves_legacy_auth_and_no_writes
     assert body["page"] == 1
     assert body["page_size"] == 5
 
+    on_demand = client.get(
+        "/api/admin/super-data/tables/directory",
+        headers=auth_headers,
+    )
+    assert on_demand.status_code == 200
+    assert [
+        {key: value for key, value in table.items() if key != "row_count"}
+        for table in legacy.json()
+    ] == on_demand.json()
+
     _, regular_headers = _actor()
     assert client.get(
         "/api/admin/super-data/tables?page=1&page_size=5",
@@ -108,4 +127,9 @@ def test_super_data_table_page_http_contract_preserves_legacy_auth_and_no_writes
         "/api/admin/super-data/tables?page_size=201",
         headers=auth_headers,
     ).status_code == 422
+    assert client.get(
+        "/api/admin/super-data/tables/directory",
+        headers=regular_headers,
+    ).status_code == 403
+    assert client.get("/api/admin/super-data/tables/directory").status_code == 401
     assert client.get("/api/admin/super-data/tables?page=1&page_size=5").status_code == 401

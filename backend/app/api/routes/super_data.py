@@ -45,6 +45,12 @@ class SuperDataTableOut(BaseModel):
     columns: list[SuperDataColumnOut]
 
 
+class SuperDataTableDirectoryOut(BaseModel):
+    name: str
+    label: str
+    columns: list[SuperDataColumnOut]
+
+
 class SuperDataTablePageOut(BaseModel):
     rows: list[SuperDataTableOut]
     total: int
@@ -283,6 +289,17 @@ def _table_directory(
     )
 
 
+def _table_metadata_directory(tables: list[Table]) -> list[SuperDataTableDirectoryOut]:
+    return [
+        SuperDataTableDirectoryOut(
+            name=table.name,
+            label=_table_name_label(table.name),
+            columns=_table_columns(table),
+        )
+        for table in sorted(tables, key=lambda item: item.name)
+    ]
+
+
 @router.get("/tables", response_model=list[SuperDataTableOut] | SuperDataTablePageOut)
 def list_super_data_tables(
     db: DbSession,
@@ -296,6 +313,13 @@ def list_super_data_tables(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/tables/directory", response_model=list[SuperDataTableDirectoryOut])
+def list_super_data_table_directory(
+    _: User = Depends(require_super_admin),
+):
+    return _table_metadata_directory(list(Base.metadata.sorted_tables))
 
 
 @router.get("/tables/{table_name}", response_model=SuperDataRowsOut)

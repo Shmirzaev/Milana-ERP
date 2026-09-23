@@ -19,7 +19,6 @@ type Column = {
 type TableInfo = {
   name: string;
   label: string;
-  row_count: number;
   columns: Column[];
 };
 
@@ -104,7 +103,7 @@ function parseDraftValue(column: Column, value: any) {
 
 export default function SuperDataPage() {
   const { t } = useT();
-  const { data: tables, mutate: mutateTables } = useSWR<TableInfo[]>("/api/admin/super-data/tables", fetcher);
+  const { data: tables, mutate: mutateTables } = useSWR<TableInfo[]>("/api/admin/super-data/tables/directory", fetcher);
   const [selectedTable, setSelectedTable] = useState("");
   const [tableFilter, setTableFilter] = useState("");
   const [page, setPage] = useState(1);
@@ -233,9 +232,9 @@ export default function SuperDataPage() {
                     {table.name}
                   </span>
                 </span>
-                <span className={`mono shrink-0 text-xs ${selectedTable === table.name ? "text-[#d8d2c2]" : "text-[#8a8472]"}`}>
-                  {table.row_count}
-                </span>
+                {selectedTable === table.name && grid?.table === table.name ? (
+                  <span className="mono shrink-0 text-xs text-[#d8d2c2]">{grid.total}</span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -250,7 +249,7 @@ export default function SuperDataPage() {
                   <h2 className="app-card-title text-base">{grid?.label ?? activeTable?.label ?? t("page.superData.noTable")}</h2>
                 </div>
                 <p className="mt-1 text-sm text-[#8a8472]">
-                  {selectedTable ? t("page.superData.tableMeta", { columns: columns.length, rows: grid?.total ?? activeTable?.row_count ?? 0 }) : ""}
+                  {selectedTable ? t("page.superData.tableMeta", { columns: columns.length, rows: grid?.total ?? 0 }) : ""}
                 </p>
               </div>
               <form onSubmit={submitSearch} className="flex w-full gap-2 lg:max-w-md">

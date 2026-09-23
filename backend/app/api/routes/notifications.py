@@ -55,7 +55,12 @@ def _recipient_user_query(db: DbSession):
     )
 
 
-def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User]:
+def _resolve_recipients(
+    payload: NotificationSendIn,
+    db: DbSession,
+    *,
+    max_recipients: int | None = None,
+) -> list[User]:
     if payload.target_type == "user_id":
         if payload.user_id is None:
             raise HTTPException(400, "user_id is required for target_type=user_id")
@@ -77,12 +82,14 @@ def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User
         )
         if department_id is None:
             raise HTTPException(404, "Recipient department not found")
-        return (
+        query = (
             _recipient_user_query(db)
             .filter(User.department_id == department_id, User.is_active.is_(True))
             .order_by(User.id.asc())
-            .all()
         )
+        if max_recipients is not None:
+            query = query.limit(max_recipients + 1)
+        return query.all()
 
     if payload.target_type == "safe_group":
         group = payload.safe_group
@@ -92,13 +99,15 @@ def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User
             role_names = ["Admin", "Super Admin"]
         else:
             raise HTTPException(400, "safe_group must be management or admins")
-        return (
+        query = (
             _recipient_user_query(db)
             .join(Role, Role.id == User.role_id)
             .filter(Role.name.in_(role_names), User.is_active.is_(True))
             .order_by(User.id.asc())
-            .all()
         )
+        if max_recipients is not None:
+            query = query.limit(max_recipients + 1)
+        return query.all()
 
     raise HTTPException(400, "Unsupported recipient target")
 
@@ -182,14 +191,14 @@ def send_notification(
     db: DbSession,
     current: User = Depends(require_permissions("management.view", "*")),
 ):
-    recipients = _resolve_recipients(payload, db)
+    max_recipients = _max_bulk_recipients()
+    recipients = _resolve_recipients(payload, db, max_recipients=max_recipients)
     if not recipients:
         raise HTTPException(404, "No active recipients found")
-    max_recipients = _max_bulk_recipients()
     if len(recipients) > max_recipients:
         raise HTTPException(
             400,
-            f"Recipient count {len(recipients)} exceeds ERP_MCP_MAX_BULK_RECIPIENTS={max_recipients}",
+            f"Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS={max_recipients}",
         )
 
     title = payload.title.strip()

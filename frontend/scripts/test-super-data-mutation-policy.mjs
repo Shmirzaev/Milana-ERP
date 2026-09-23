@@ -17,10 +17,11 @@ const userColumns = [
   { name: "password_hash", type: "VARCHAR(255)", nullable: false, primary_key: false, foreign_key: null, editable: false },
 ];
 const tables = [
-  { name: "departments", label: "Departments", row_count: 1, columns: departmentColumns },
-  { name: "users", label: "Users", row_count: 1, columns: userColumns },
+  { name: "departments", label: "Departments", columns: departmentColumns },
+  { name: "users", label: "Users", columns: userColumns },
 ];
 const patches = [];
+const swrKeys = [];
 let state = [];
 let cursor = 0;
 const effects = [];
@@ -33,7 +34,8 @@ function useState(initial) {
 function useEffect(effect) { effects.push(effect); }
 function useMemo(factory) { return factory(); }
 function useSWR(key) {
-  if (key === "/api/admin/super-data/tables") {
+  swrKeys.push(key);
+  if (key === "/api/admin/super-data/tables/directory") {
     return { data: tables, mutate: async () => {} };
   }
   if (key?.includes("/departments?")) {
@@ -80,6 +82,7 @@ function render() {
 
 state = ["departments"];
 let tree = render();
+assert.ok(swrKeys.includes("/api/admin/super-data/tables/directory"), "table directory counts must be loaded only with the selected table");
 let editButtons = walkAll(tree, node => node.type === "button" && node.props?.title === "common.edit");
 assert.equal(editButtons.length, 1, "departments should expose the backend-approved name repair action");
 assert.equal(walkAll(tree, node => node.type === "button" && node.props?.title === "common.delete").length, 0, "hard delete must not be rendered");

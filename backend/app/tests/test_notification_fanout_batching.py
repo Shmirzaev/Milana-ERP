@@ -2,6 +2,7 @@ import os
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
@@ -179,6 +180,61 @@ def test_notification_fanout_audit_failure_rolls_back_delivery(
                 actor,
             )
         db.rollback()
+        assert db.query(Notification).filter(Notification.title == case["title"]).count() == 0
+        assert db.query(AuditLog).filter(
+            AuditLog.action == "mcp_send_notification",
+            AuditLog.new_value_json["title"].as_string() == case["title"],
+        ).count() == 0
+
+
+def test_notification_fanout_rejects_over_cap_after_bounded_recipient_read(
+    notification_sessions,
+    monkeypatch,
+):
+    case = _fanout_case(notification_sessions, 401)
+    monkeypatch.setenv("ERP_MCP_MAX_BULK_RECIPIENTS", "250")
+    with notification_sessions() as db:
+        actor = db.get(User, case["actor_id"])
+        flushes: list[int] = []
+        recipient_selects: list[tuple[str, object]] = []
+
+        def capture_flush(*_args):
+            flushes.append(1)
+
+        def capture_select(_connection, _cursor, statement, parameters, *_args):
+            normalized = " ".join(statement.lower().split())
+            if "from users" in normalized and "users.department_id" in normalized:
+                recipient_selects.append((normalized, parameters))
+
+        def fail_notify(*_args, **_kwargs):
+            raise AssertionError("oversized fan-out must reject before inserts")
+
+        monkeypatch.setattr(notification_routes, "notify_many", fail_notify)
+        event.listen(db, "before_flush", capture_flush)
+        event.listen(db.bind, "before_cursor_execute", capture_select)
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                notification_routes.send_notification(
+                    notification_routes.NotificationSendIn(
+                        target_type="department",
+                        department=case["department_code"],
+                        title=case["title"],
+                    ),
+                    db,
+                    actor,
+                )
+        finally:
+            event.remove(db, "before_flush", capture_flush)
+            event.remove(db.bind, "before_cursor_execute", capture_select)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == "Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS=250"
+        assert len(recipient_selects) == 1
+        assert " limit " in recipient_selects[0][0]
+        parameters = recipient_selects[0][1]
+        parameter_values = parameters.values() if isinstance(parameters, dict) else parameters
+        assert 251 in parameter_values
+        assert flushes == []
         assert db.query(Notification).filter(Notification.title == case["title"]).count() == 0
         assert db.query(AuditLog).filter(
             AuditLog.action == "mcp_send_notification",
