@@ -135,7 +135,13 @@ def get_customer_orders(
 ):
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
-    query = db.query(SalesOrder).filter(SalesOrder.customer_id == cid)
+    query = db.query(SalesOrder).options(load_only(
+        SalesOrder.id,
+        SalesOrder.order_no,
+        SalesOrder.created_at,
+        SalesOrder.total_amount,
+        SalesOrder.status,
+    )).filter(SalesOrder.customer_id == cid)
     if status:
         query = query.filter(SalesOrder.status == status)
     total = None
@@ -154,6 +160,15 @@ def get_customer_orders(
     if order_ids:
         invoices = (
             db.query(Invoice)
+            .options(load_only(
+                Invoice.id,
+                Invoice.sales_order_id,
+                Invoice.invoice_no,
+                Invoice.amount,
+                Invoice.status,
+                Invoice.issued_at,
+                Invoice.due_date,
+            ))
             .filter(Invoice.sales_order_id.in_(order_ids))
             .order_by(Invoice.id.asc())
             .all()
@@ -165,6 +180,14 @@ def get_customer_orders(
         if invoice_ids:
             payments = (
                 db.query(Payment)
+                .options(load_only(
+                    Payment.id,
+                    Payment.invoice_id,
+                    Payment.amount,
+                    Payment.payment_method,
+                    Payment.paid_at,
+                    Payment.notes,
+                ))
                 .filter(Payment.invoice_id.in_(invoice_ids))
                 .order_by(Payment.id.desc())
                 .all()
