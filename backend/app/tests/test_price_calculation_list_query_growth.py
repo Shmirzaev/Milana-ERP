@@ -154,6 +154,49 @@ def test_price_request_mutation_lookup_prefetches_serializer_assets():
     assert payload["model_image_url"] == f"/model/{suffix}.webp"
 
 
+def test_price_request_list_projects_cutting_passport_metadata():
+    suffix = uuid4().hex[:8]
+    passport_date = datetime(2026, 9, 21, tzinfo=timezone.utc)
+    with SessionLocal() as db:
+        admin = db.query(User).filter_by(email="admin@example.com").one()
+        model = Model(code=f"PERF23-PASSPORT-{suffix}", name="Passport projection model", status="approved")
+        db.add(model)
+        db.flush()
+        passport = CuttingPassport(
+            passport_no=f"PERF23-P-{suffix}",
+            date=passport_date,
+            materials=[{"name": "Bulky material payload", "rows": ["unused"] * 20}],
+            notes="unused passport notes",
+        )
+        db.add(passport)
+        db.flush()
+        request = PriceCalculationRequest(
+            model_id=model.id,
+            created_by_id=admin.id,
+            kroy_no=passport.passport_no,
+            cutting_passport_id=passport.id,
+        )
+        db.add(request)
+        db.commit()
+        admin_id, request_id = admin.id, request.id
+
+    with SessionLocal() as db:
+        payload, statements = _select_trace(
+            db,
+            lambda: price_calculation.list_requests(db, db.get(User, admin_id)),
+        )
+
+    row = next(row for row in payload if row["id"] == request_id)
+    assert row["date"].replace(tzinfo=timezone.utc) == passport_date
+    passport_selects = [
+        statement.lower() for statement in statements if "cutting_passports" in statement.lower()
+    ]
+    assert len(passport_selects) == 1
+    assert "cutting_passports_1.date" in passport_selects[0]
+    assert "cutting_passports_1.materials" not in passport_selects[0]
+    assert "cutting_passports_1.notes" not in passport_selects[0]
+
+
 def test_price_request_list_preserves_asset_fallbacks_and_calculated_payload():
     suffix = uuid4().hex[:8]
     with SessionLocal() as db:

@@ -1,10 +1,10 @@
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from app.core.deps import CurrentUser, DbSession
-from app.models import Item, ModelBOM, StockBatch
+from app.models import CuttingPassport, Item, ModelBOM, StockBatch
 from app.models.catalog import Model, ModelImage, ModelSize
 from app.models.price_calculation import PriceCalculationRequest
 from app.schemas.price_calculation import (
@@ -65,7 +65,12 @@ def _list_request_load_options():
                 joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
             ),
         ),
-        joinedload(PriceCalculationRequest.cutting_passport),
+        joinedload(PriceCalculationRequest.cutting_passport)
+        .load_only(CuttingPassport.id, CuttingPassport.date)
+        .options(
+            lazyload(CuttingPassport.production_order),
+            lazyload(CuttingPassport.operator),
+        ),
     )
 
 
