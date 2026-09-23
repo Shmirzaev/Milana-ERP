@@ -72,6 +72,15 @@ def test_sewing_flow_pages_bound_rows_preserve_legacy_payload_and_query_growth(c
     assert all(row.factory_code == "MIL" and row.is_active for row in page["rows"])
     assert all(row.active_work_orders == row.planned_units == row.completed_units == 0 for row in page["rows"])
     assert len(statements) == 5, statements
+    flow_reads = [statement for statement in statements if "from sewing_flows" in statement]
+    selected_columns = next(
+        statement.split(" from ", 1)[0]
+        for statement in flow_reads
+        if "capacity_per_day" in statement.split(" from ", 1)[0]
+    )
+    assert "sewing_flows.capacity_per_day" in selected_columns
+    assert "sewing_flows.created_at" not in selected_columns
+    assert "sewing_flows.updated_at" not in selected_columns
     supporting_queries = statements[2:]
     assert all(" in (" in statement for statement in supporting_queries), statements
 

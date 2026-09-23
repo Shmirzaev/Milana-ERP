@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import literal
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import Model, ModelBOM, ModelImage, SewingFlow, StockBatch, WorkOrder, User, SewingAssignment, ProductionOrder, ProductionBatch
@@ -225,7 +225,18 @@ def list_flows(
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     factory = sewing_line_factory_scope(current, factory_code)
-    qry = db.query(SewingFlow).filter(SewingFlow.factory_code == factory)
+    qry = db.query(SewingFlow).options(
+        load_only(
+            SewingFlow.id,
+            SewingFlow.factory_code,
+            SewingFlow.name,
+            SewingFlow.code,
+            SewingFlow.description,
+            SewingFlow.capacity_per_day,
+            SewingFlow.supervisor_id,
+            SewingFlow.is_active,
+        )
+    ).filter(SewingFlow.factory_code == factory)
     if only_active:
         qry = qry.filter(SewingFlow.is_active.is_(True))
     total = None
