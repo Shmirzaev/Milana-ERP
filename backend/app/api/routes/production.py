@@ -1040,7 +1040,15 @@ def _production_order_detail_payload(db: DbSession, pid: int) -> dict:
     model = (
         db.query(Model)
         .options(
-            joinedload(Model.images),
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
             joinedload(Model.bom).joinedload(ModelBOM.item),
             joinedload(Model.bom).joinedload(ModelBOM.stock_batch),
         )
