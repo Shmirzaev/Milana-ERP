@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import RedirectResponse, Response
+from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions
 from app.models import Bundle, Package, User
@@ -21,7 +22,15 @@ def bundle_qr_image(bundle_id: int, db: DbSession, _: CurrentUser):
     """Cookie-authenticated image for the same-origin bundle detail page."""
     if bundle_id > 2_147_483_647:
         raise HTTPException(404, "Bundle not found")
-    bundle = db.get(Bundle, bundle_id)
+    bundle = db.query(Bundle).options(
+        load_only(
+            Bundle.id,
+            Bundle.bundle_no,
+            Bundle.barcode,
+            Bundle.production_order_id,
+            Bundle.production_batch_id,
+        )
+    ).filter(Bundle.id == bundle_id).first()
     if bundle is None:
         raise HTTPException(404, "Bundle not found")
     return Response(

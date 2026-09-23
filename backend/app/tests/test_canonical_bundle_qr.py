@@ -152,6 +152,35 @@ def test_bundle_qr_payload_projects_live_order_and_batch_columns(client, auth_he
     assert "production_batches.notes" not in batch_reads[0]
 
 
+def test_bundle_image_loads_only_fields_used_for_canonical_qr_payload(client, auth_headers):
+    bundle = _create_bundle_for_scan(client, auth_headers)
+    with SessionLocal() as db:
+        engine = db.bind
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(f"/api/barcode/bundle-image/{bundle['id']}", headers=auth_headers)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    bundle_reads = [statement for statement in statements if " from bundles " in statement]
+    assert len(bundle_reads) == 1, statements
+    selected_columns = bundle_reads[0].split(" from ", 1)[0]
+    assert "bundles.bundle_no" in selected_columns
+    assert "bundles.barcode" in selected_columns
+    assert "bundles.production_order_id" in selected_columns
+    assert "bundles.production_batch_id" in selected_columns
+    assert "bundles.notes" not in selected_columns
+    assert "bundles.status" not in selected_columns
+
+
 def test_cutting_sheet_renders_current_canonical_reference(client, auth_headers):
     bundle = _create_bundle_for_scan(client, auth_headers)
     with SessionLocal() as db:
