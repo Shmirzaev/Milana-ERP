@@ -59,6 +59,18 @@ def _stocktake_rows(count: int) -> int:
         return int(stocktake.id)
 
 
+def _changed_stocktake_rows(count: int) -> int:
+    count_id = _stocktake_rows(count)
+    with TestSessionLocal() as db:
+        rows = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=count_id).order_by(
+            WarehouseStocktakeRow.id.asc(),
+        ).all()
+        for index, row in enumerate(rows):
+            row.package_id = 9_000_000 + index
+        db.commit()
+    return count_id
+
+
 @pytest.mark.parametrize("row_count", [1, 50, 401])
 def test_common_stocktake_page_serializes_only_requested_rows(monkeypatch, row_count):
     count_id = _stocktake_rows(row_count)
@@ -281,7 +293,7 @@ def test_common_stocktake_page_preserves_zero_and_past_end_totals(row_count, off
         }
 
 
-def test_search_and_changed_filters_keep_scalar_fallback(monkeypatch):
+def test_search_and_changed_filters_serialize_only_matching_page(monkeypatch):
     count_id = _stocktake_rows(31)
     calls = 0
     original = stocktake_routes.row_payload
@@ -317,8 +329,75 @@ def test_search_and_changed_filters_keep_scalar_fallback(monkeypatch):
     assert searched["total"] == 1
     assert searched["rows"][0]["scan_code"] == "SCAN-0001"
     assert changed["total"] == 0
-    # Search is filtered in SQL now; only the matching row is serialized.
-    assert calls == 1 + 31  # one search match, then all rows for changed fallback
+    assert calls == 1  # only the search match; unchanged rows never hydrate
+
+
+@pytest.mark.parametrize("row_count", [1, 50, 401])
+def test_changed_filter_matches_scalar_parity_and_bounds_hydration_queries(monkeypatch, row_count):
+    count_id = _changed_stocktake_rows(row_count)
+    needle = "PERF33-00"
+    offset = 3
+    limit = 7
+    with TestSessionLocal() as db:
+        count = db.get(WarehouseStocktake, count_id)
+        scalar_rows = stocktake_routes.results(db, count)
+        scalar_summary = {
+            key: sum(row["result"] == key for row in scalar_rows)
+            for key in ("found", "missing", "unknown", "unexpected", "ambiguous")
+        }
+        scalar_summary["expected"] = sum(row["expected"] for row in scalar_rows)
+        scalar_summary["changed"] = sum(row["changed"] for row in scalar_rows)
+        scalar_summary.update(stocktake_service.scan_summary(scalar_rows))
+        expected_rows = [
+            row for row in scalar_rows
+            if row["changed"]
+            and needle.casefold() in " ".join(
+                str(value or "")
+                for value in [
+                    row["scan_code"], *row["snapshot"].values(),
+                    *(row["scan_snapshot"] or {}).values(),
+                ]
+            ).casefold()
+        ]
+
+    calls = 0
+    original = stocktake_service.row_payload
+
+    def counted_payload(row, current):
+        nonlocal calls
+        calls += 1
+        return original(row, current)
+
+    monkeypatch.setattr(stocktake_routes, "row_payload", counted_payload)
+    monkeypatch.setattr(stocktake_service, "row_payload", counted_payload)
+    statements: list[str] = []
+
+    def capture_statement(conn, cursor, statement, params, context, executemany):
+        statements.append(statement)
+
+    with TestSessionLocal() as db:
+        current = db.query(User).filter(User.email == "admin@example.com").one()
+        event.listen(db.bind, "before_cursor_execute", capture_statement)
+        try:
+            actual = stocktake_routes.detail(
+                count_id,
+                db,
+                current,
+                result="changed",
+                q=needle,
+                offset=offset,
+                limit=limit,
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture_statement)
+
+    assert actual["summary"] == scalar_summary
+    assert actual["total"] == len(expected_rows)
+    assert actual["rows"] == expected_rows[offset : offset + limit]
+    assert calls == len(actual["rows"]) <= limit
+    select_count = sum(statement.lstrip().upper().startswith("SELECT") for statement in statements)
+    # Summary plus two 400-row scan/snapshot chunks and one page hydration stays constant-scale.
+    assert select_count <= 14
 
 
 def test_search_serializes_only_matching_rows_for_large_count(monkeypatch):
@@ -533,11 +612,24 @@ def test_completed_page_preserves_global_frozen_null_snapshot_semantics():
             offset=0,
             limit=1,
         )
+        changed = stocktake_routes.detail(
+            count_id,
+            db,
+            current,
+            result="changed",
+            q="",
+            offset=0,
+            limit=1,
+        )
 
     assert actual["summary"]["changed"] == 2
     assert actual["total"] == 2
     assert actual["rows"][0]["current"] is None
     assert actual["rows"][0]["changed"] is True
+    assert changed["summary"] == actual["summary"]
+    assert changed["total"] == 2
+    assert changed["rows"][0]["current"] is None
+    assert changed["rows"][0]["changed"] is True
 
 
 def test_live_page_preserves_deleted_package_current_snapshot_semantics():

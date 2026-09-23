@@ -113,6 +113,64 @@ def results(db, count):
     return [row_payload(row, current) for row in rows]
 
 
+def changed_detail_page(db, count, *, search: str, offset: int, limit: int):
+    """Filter changed evidence with narrow projections; hydrate only the requested page."""
+    last_row_id = 0
+    total = 0
+    page_ids: list[int] = []
+    page_current: dict[int, dict | None] = {}
+    while True:
+        chunk = db.query(
+            WarehouseStocktakeRow.id,
+            WarehouseStocktakeRow.package_id,
+            WarehouseStocktakeRow.snapshot,
+            WarehouseStocktakeRow.scan_snapshot,
+            WarehouseStocktakeRow.scan_code,
+            WarehouseStocktakeRow.scanned_at,
+        ).filter(
+            WarehouseStocktakeRow.stocktake_id == count.id,
+            WarehouseStocktakeRow.id > last_row_id,
+        ).order_by(WarehouseStocktakeRow.id.asc()).limit(_STOCKTAKE_EXPORT_CHUNK_SIZE).all()
+        if not chunk:
+            break
+        last_row_id = int(chunk[-1].id)
+        package_ids = sorted({int(row.package_id) for row in chunk if row.package_id is not None})
+        if count.completed_at and package_ids:
+            frozen_rows = db.query(
+                WarehouseStocktakeRow.package_id,
+                WarehouseStocktakeRow.final_snapshot,
+            ).filter(
+                WarehouseStocktakeRow.stocktake_id == count.id,
+                WarehouseStocktakeRow.package_id.in_(package_ids),
+            ).order_by(WarehouseStocktakeRow.id.desc()).all()
+            current = {}
+            for package_id, snapshot in frozen_rows:
+                current.setdefault(int(package_id), snapshot)
+        else:
+            current = package_snapshots(db, package_ids) if package_ids else {}
+
+        for row in chunk:
+            now = current.get(row.package_id, {}) if row.package_id is not None else None
+            if row.package_id is None or now == row.snapshot:
+                continue
+            if search:
+                scanned_snapshot = row.scan_snapshot if row.scanned_at else None
+                values = [row.scan_code, *row.snapshot.values(), *((scanned_snapshot or {}).values())]
+                if search not in " ".join(str(value or "") for value in values).casefold():
+                    continue
+            if total >= offset and len(page_ids) < limit:
+                page_ids.append(int(row.id))
+                page_current[int(row.id)] = now
+            total += 1
+
+    if not page_ids:
+        return total, []
+    page_rows = db.query(WarehouseStocktakeRow).filter(
+        WarehouseStocktakeRow.id.in_(page_ids),
+    ).order_by(WarehouseStocktakeRow.id.asc()).all()
+    return total, [row_payload(row, {row.package_id: page_current[row.id]}) for row in page_rows]
+
+
 @router.get("", response_model=StocktakePageOut | StocktakeListOut)
 def list_counts(
     db: DbSession,
@@ -212,32 +270,11 @@ def detail(
         )
         return {**count_info(count), "summary": summary, "total": total, "rows": page_rows}
 
-    rows = results(db, count)
-    summary = {
-        key: sum(row["result"] == key for row in rows)
-        for key in ("found", "missing", "unknown", "unexpected", "ambiguous")
-    }
-    summary["expected"] = sum(row["expected"] for row in rows)
-    summary["changed"] = sum(row["changed"] for row in rows)
-    summary.update(scan_summary(rows))
-    filtered = [
-        r
-        for r in rows
-        if r["changed"]
-        and (
-            not needle
-            or needle
-            in " ".join(
-                str(value or "")
-                for value in [
-                    r["scan_code"],
-                    *r["snapshot"].values(),
-                    *(r["scan_snapshot"] or {}).values(),
-                ]
-            ).casefold()
-        )
-    ]
-    return {**count_info(count), "summary": summary, "total": len(filtered), "rows": filtered[offset : offset + limit]}
+    summary = stocktake_summary(db, count)
+    total, page_rows = changed_detail_page(
+        db, count, search=needle, offset=offset, limit=limit,
+    )
+    return {**count_info(count), "summary": summary, "total": total, "rows": page_rows}
 
 
 @router.post("/{count_id}/scan")
