@@ -11,6 +11,7 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.utils import get_authorization_scheme_param
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +20,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.deps import CurrentUser, DbSession
+from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
@@ -112,6 +114,19 @@ app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
 
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _RATE_LIMIT_EXEMPT_PATHS = {"/health", "/ready"}
+_RATE_LIMIT_IP_ONLY_PATHS = {
+    "/api/auth/forgot-password",
+    "/api/auth/login",
+    "/api/auth/login-json",
+    "/api/auth/login-panel",
+    "/api/auth/reset-password",
+    "/api/auth/token",
+    "/api/session/forgot-password",
+    "/api/session/login",
+    "/api/session/login-json",
+    "/api/session/login-panel",
+    "/api/session/reset-password",
+}
 _READINESS_TIMEOUT_SECONDS = 2.0
 _READINESS_CHECK_SLOT = Lock()
 
@@ -172,6 +187,38 @@ def _rate_limit_client_key(request: Request) -> str:
     return peer
 
 
+def _rate_limit_identity_key(request: Request) -> str:
+    """Choose a rate-limit identity without changing route authentication.
+
+    Public authentication entry points always remain IP-scoped, even when a
+    caller supplies a valid session. Other requests with a cryptographically
+    valid, unexpired access token use its canonical user id so office users do
+    not consume one shared NAT budget. Invalid credentials fall back to the IP
+    bucket and are still rejected independently by the route dependency.
+    """
+    client_key = f"ip:{_rate_limit_client_key(request)}"
+    path = request.url.path.rstrip("/") or "/"
+    if path in _RATE_LIMIT_IP_ONLY_PATHS:
+        return client_key
+
+    authorization = request.headers.get("authorization")
+    scheme, parameter = get_authorization_scheme_param(authorization)
+    token = parameter if scheme.lower() == "bearer" else None
+    if not token:
+        token = request.cookies.get(settings.AUTH_COOKIE_NAME)
+    if not token:
+        return client_key
+
+    try:
+        payload = decode_token(token)
+        user_id = int(payload["sub"])
+        if user_id <= 0:
+            raise ValueError("invalid user id")
+    except (KeyError, OverflowError, TypeError, ValueError):
+        return client_key
+    return f"user:{user_id}"
+
+
 def _rate_limit_allowed(key: str) -> tuple[bool, int | None]:
     if not settings.GLOBAL_RATE_LIMIT_ENABLED:
         return True, None
@@ -186,6 +233,10 @@ def _rate_limit_allowed(key: str) -> tuple[bool, int | None]:
     if count > limit:
         return False, store.ttl(store_key) or window
     return True, None
+
+
+def _rate_limit_request_allowed(request: Request) -> tuple[bool, int | None]:
+    return _rate_limit_allowed(_rate_limit_identity_key(request))
 
 
 def _origin_from_url(value: str) -> str:
@@ -231,7 +282,7 @@ async def _global_rate_limit(request: Request, call_next):
     if request.method.upper() != "OPTIONS" and request.url.path not in _RATE_LIMIT_EXEMPT_PATHS:
         # SQLite/Redis counters use synchronous I/O. Starlette's bounded worker
         # pool keeps storage contention off the event loop.
-        allowed, retry_after = await run_in_threadpool(_rate_limit_allowed, _rate_limit_client_key(request))
+        allowed, retry_after = await run_in_threadpool(_rate_limit_request_allowed, request)
         if not allowed:
             return JSONResponse(
                 status_code=429,

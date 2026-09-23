@@ -71,6 +71,14 @@ class InMemorySharedCounterStore:
 
 
 class RedisSharedCounterStore:
+    _INCREMENT_WITH_TTL = """
+local count = redis.call('INCR', KEYS[1])
+if redis.call('TTL', KEYS[1]) < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return count
+"""
+
     def __init__(self, url: str, *, prefix: str) -> None:
         try:
             from redis import Redis
@@ -87,13 +95,7 @@ class RedisSharedCounterStore:
     def increment(self, key: str, ttl_seconds: int) -> int:
         ttl = max(1, int(ttl_seconds or 1))
         redis_key = self._key(key)
-        pipe = self._client.pipeline()
-        pipe.incr(redis_key)
-        pipe.ttl(redis_key)
-        count, current_ttl = pipe.execute()
-        if int(current_ttl) < 0:
-            self._client.expire(redis_key, ttl)
-        return int(count)
+        return int(self._client.eval(self._INCREMENT_WITH_TTL, 1, redis_key, ttl))
 
     def ttl(self, key: str) -> int | None:
         current_ttl = int(self._client.ttl(self._key(key)))
