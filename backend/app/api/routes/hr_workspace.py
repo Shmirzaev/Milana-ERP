@@ -683,7 +683,17 @@ def hr_attendance(db: DbSession, current: User = HrUser, day: date | None = None
     factory = _factory(current); selected = day or datetime.now(TASHKENT).date()
     start, end = _attendance_day_bounds(selected)
     default_hours = _load_hr_settings(db, factory).default_workday_hours
-    employees = db.query(Employee).filter(Employee.factory_code == factory, Employee.status == "active").all()
+    employees = (
+        db.query(Employee)
+        .options(load_only(
+            Employee.id,
+            Employee.employee_no,
+            Employee.full_name,
+            Employee.hr_profile_json,
+        ))
+        .filter(Employee.factory_code == factory, Employee.status == "active")
+        .all()
+    )
     employee_numbers = {
         str(employee.employee_no)
         for employee in employees

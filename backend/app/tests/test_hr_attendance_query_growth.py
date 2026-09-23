@@ -69,3 +69,20 @@ def test_hr_attendance_aggregates_scans_in_sql(client, auth_headers, scan_count)
     print(f"HR attendance {scan_count} scans: {len(event_reads)} event SELECT")
     assert len(event_reads) == 1
     assert "group by attendance_events.external_person_id" in event_reads[0]
+    employee_reads = [statement for statement in statements if " from employees " in statement]
+    assert len(employee_reads) == 1, statements
+    selected_columns = employee_reads[0].split(" from employees", 1)[0]
+    for needed in (
+        "employees.id",
+        "employees.employee_no",
+        "employees.full_name",
+        "employees.hr_profile_json",
+    ):
+        assert needed in selected_columns
+    for unrelated in (
+        "employees.salary",
+        "employees.phone",
+        "employees.user_id",
+        "employees.position",
+    ):
+        assert unrelated not in selected_columns
