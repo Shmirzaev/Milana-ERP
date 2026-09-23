@@ -344,7 +344,9 @@ def _estimated_material_composition(db: DbSession, material_code: str | None) ->
     code = str(material_code or "").strip()
     if not code:
         return []
-    item = db.query(Item).filter(Item.sku == code).first()
+    item = db.query(Item).options(
+        load_only(Item.id, Item.composition_json),
+    ).filter(Item.sku == code).first()
     return _item_composition(item)
 
 
