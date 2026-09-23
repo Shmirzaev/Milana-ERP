@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
@@ -88,7 +88,7 @@ def list_processes(
 
     page = page or 1
     page_size = page_size or 50
-    total = query.count()
+    total = query.order_by(None).with_entities(func.count(PaidProcess.id)).scalar()
     rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
     return {
         "items": [output(row) for row in rows],
