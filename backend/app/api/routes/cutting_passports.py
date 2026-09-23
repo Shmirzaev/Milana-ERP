@@ -3,7 +3,7 @@ from typing import Annotated
 from app.core.order_reference import canonical_business_order_reference, order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import or_
-from sqlalchemy.orm import joinedload, load_only, noload, selectinload
+from sqlalchemy.orm import joinedload, lazyload, load_only, noload, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
@@ -583,7 +583,28 @@ def list_passports(
 
 @router.get("/{pid}", response_model=CuttingPassportOut)
 def get_passport(pid: int, db: DbSession, current: CurrentUser):
-    p = db.get(CuttingPassport, pid)
+    p = (
+        db.query(CuttingPassport)
+        .options(
+            lazyload("*"),
+            joinedload(CuttingPassport.production_order).load_only(
+                ProductionOrder.id,
+                ProductionOrder.model_id,
+                ProductionOrder.production_no,
+                raiseload=True,
+            ),
+            joinedload(CuttingPassport.production_order)
+            .joinedload(ProductionOrder.sales_order)
+            .load_only(SalesOrder.id, SalesOrder.order_no, raiseload=True),
+            joinedload(CuttingPassport.operator).load_only(
+                User.id,
+                User.name,
+                raiseload=True,
+            ),
+        )
+        .filter(CuttingPassport.id == pid)
+        .one_or_none()
+    )
     if not p:
         raise HTTPException(404, "Cutting passport not found")
     if p.production_order_id:
