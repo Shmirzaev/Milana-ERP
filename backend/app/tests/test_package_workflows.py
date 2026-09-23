@@ -109,6 +109,27 @@ def create_run(client, headers, template, count):
     return result.json()
 
 
+def test_print_run_label_loads_package_rows_in_one_query(client, auth_headers, warehouse, packaging_order):
+    run = create_run(client, auth_headers, packaging_order, 4)
+    package_reads = []
+
+    def capture_package_reads(_connection, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from packages " in normalized:
+            package_reads.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture_package_reads)
+    try:
+        response = client.get(BASE + f"/print-runs/{run['id']}/label", headers=warehouse)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture_package_reads)
+
+    assert response.status_code == 200, response.text
+    assert response.text.count("class='label'") == 4
+    assert len(package_reads) == 1, package_reads
+    assert "packages.id in" in package_reads[0]
+
+
 def package_qr(pid):
     with SessionLocal() as db:
         p = db.get(Package, pid)

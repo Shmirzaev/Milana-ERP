@@ -254,10 +254,16 @@ def print_run_label(rid: int, db: DbSession,
     from app.api.routes.packages import _h, _package_label_card_html, _PACKAGE_LABEL_CSS
     run = _run(db, current, rid)
     members = service.active_run_members(db, run)
+    packages_by_id = {
+        int(pkg.id): pkg
+        for pkg in db.query(Package)
+        .filter(Package.id.in_([int(member.package_id) for member in members]))
+        .all()
+    } if members else {}
     cards = []
     current_quantity = 0
     for member in members:
-        pkg = db.get(Package, member.package_id)
+        pkg = packages_by_id.get(int(member.package_id))
         if not pkg:
             raise HTTPException(409, "Print run contains a missing package; review required")
         if not run.received_at and service.contents(pkg) != member.snapshot:
