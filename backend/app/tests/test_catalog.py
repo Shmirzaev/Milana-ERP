@@ -1519,6 +1519,11 @@ def test_rename_model_group_uses_bounded_family_queries_without_code_prefix_assu
     normalized_statements = [" ".join(sql.lower().split()) for sql in statements]
     assert all(" where " in f" {sql} " for sql in normalized_statements)
     assert "json_extract" in statements[0].lower()
+    group_read = normalized_statements[0]
+    for field in ("id", "code", "name", "details_json"):
+        assert f"models.{field}" in group_read
+    for field in ("description", "image_url", "created_at", "updated_at"):
+        assert f"models.{field}" not in group_read
     assert " in " in f" {normalized_statements[1]} "
     assert "models.name" not in normalized_statements[1]
     assert "models.details_json" not in normalized_statements[1]

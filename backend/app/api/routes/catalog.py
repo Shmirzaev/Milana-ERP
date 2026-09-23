@@ -1115,7 +1115,9 @@ def _rename_model_group(
         return []
 
     group_key = _model_group_key(source)
-    group_candidates = db.query(Model).filter(
+    group_candidates = db.query(Model).options(
+        load_only(Model.id, Model.code, Model.name, Model.details_json),
+    ).filter(
         Model.catalog_scope == _normalize_catalog_scope(catalog_scope),
         _model_family_predicate(db, group_key=group_key, model_no=old_model_no),
     ).all()
