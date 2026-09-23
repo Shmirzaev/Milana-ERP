@@ -948,9 +948,7 @@ def list_packages(db: DbSession, current: CurrentUser,
         for model in (
             db.query(Model)
             .options(
-                selectinload(Model.images),
-                selectinload(Model.bom).joinedload(ModelBOM.item),
-                selectinload(Model.bom).joinedload(ModelBOM.stock_batch),
+                *_model_display_load_options(),
             )
             .filter(Model.id.in_(model_ids))
             .all()
