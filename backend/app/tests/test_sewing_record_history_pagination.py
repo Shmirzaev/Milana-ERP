@@ -82,8 +82,11 @@ def test_sewing_history_pages_bound_dependent_reads_and_preserve_legacy_payload(
     assert page["has_more"] is (count > 50)
     assert [row["id"] for row in page["rows"]] == list(reversed(created_ids))[:returned_count]
     assert page["rows"] == legacy[:returned_count]
-    assert len(statements) == 4 + 3 * returned_count, statements
-    assert len(legacy_statements) == 3 + 3 * count, legacy_statements
+    assert len(statements) == 7, statements
+    assert len(legacy_statements) == 6, legacy_statements
+    assert sum("sewing_replacement_requests.production_batch_id" in sql for sql in statements) == 1
+    assert sum("packaging_receipts.production_batch_id" in sql for sql in statements) == 1
+    assert sum("packaging_records.production_batch_id" in sql for sql in statements) == 1
 
 
 def test_sewing_history_page_contract_scope_auth_and_no_writes(client, auth_headers):

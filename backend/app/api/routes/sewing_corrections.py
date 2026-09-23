@@ -84,6 +84,70 @@ def reason(db, wo, record):
     return None
 
 
+def _batch_match_filter(column, batch_ids):
+    conditions = []
+    non_null_ids = [batch_id for batch_id in batch_ids if batch_id is not None]
+    if non_null_ids:
+        conditions.append(column.in_(non_null_ids))
+    if None in batch_ids:
+        conditions.append(column.is_(None))
+    return or_(*conditions)
+
+
+def _reasons_for_records(db, wo, records):
+    if wo.status in ("cancelled", "rejected"):
+        return {record.id: "sewingEdit.closed" for record in records}
+
+    reasons = {
+        record.id: "sewingEdit.linkedReplacement"
+        for record in records
+        if record.failed_qty or record.rejected_qty or record.rework_qty
+    }
+    candidates = [record for record in records if record.id not in reasons]
+    if not candidates:
+        return reasons
+
+    batch_ids = {record.production_batch_id for record in candidates}
+    replacement_batches = {
+        batch_id
+        for (batch_id,) in db.query(SewingReplacementRequest.production_batch_id)
+        .filter(
+            SewingReplacementRequest.sewing_work_order_id == wo.id,
+            _batch_match_filter(SewingReplacementRequest.production_batch_id, batch_ids),
+        )
+        .distinct()
+        .all()
+    }
+    receipt_batches = {
+        batch_id
+        for (batch_id,) in db.query(PackagingReceipt.production_batch_id)
+        .filter(
+            PackagingReceipt.source_work_order_id == wo.id,
+            _batch_match_filter(PackagingReceipt.production_batch_id, batch_ids),
+        )
+        .distinct()
+        .all()
+    }
+    packaging_batches = {
+        batch_id
+        for (batch_id,) in db.query(PackagingRecord.production_batch_id)
+        .join(WorkOrder, WorkOrder.id == PackagingRecord.work_order_id)
+        .filter(
+            WorkOrder.production_order_id == wo.production_order_id,
+            _batch_match_filter(PackagingRecord.production_batch_id, batch_ids),
+        )
+        .distinct()
+        .all()
+    }
+    for record in candidates:
+        batch_id = record.production_batch_id
+        if batch_id in replacement_batches:
+            reasons[record.id] = "sewingEdit.linkedReplacement"
+        elif batch_id in receipt_batches or batch_id in packaging_batches:
+            reasons[record.id] = "sewingEdit.handedOff"
+    return reasons
+
+
 def assignment_for(db, wo, row):
     if row.sewing_assignment_id:
         assignment = db.query(SewingAssignment).filter_by(id=row.sewing_assignment_id).with_for_update().first()
@@ -152,14 +216,16 @@ def list_records(
     ordered_query = query.order_by(SewingRecord.id.desc())
     if page is None and page_size is None:
         rows = ordered_query.all()
-        return [{**snapshot(row), "locked_reason": reason(db, wo, row)} for row in rows]
+        reasons = _reasons_for_records(db, wo, rows)
+        return [{**snapshot(row), "locked_reason": reasons.get(row.id)} for row in rows]
 
     page = page or 1
     page_size = page_size or 50
     total = query.count()
     rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    reasons = _reasons_for_records(db, wo, rows)
     return {
-        "rows": [{**snapshot(row), "locked_reason": reason(db, wo, row)} for row in rows],
+        "rows": [{**snapshot(row), "locked_reason": reasons.get(row.id)} for row in rows],
         "total": total,
         "page": page,
         "page_size": page_size,
