@@ -284,9 +284,28 @@ SALARY_TEXT = {
 
 
 def salary_report_days(rows: list[dict], date_from: datetime | None, date_to: datetime | None) -> list[str]:
-    observed = sorted({day for row in rows for day in row.get("daily_amounts", {})})
-    first = as_utc(date_from).astimezone(REPORT_TIMEZONE).date() if date_from else (date.fromisoformat(observed[0]) if observed else None)
-    last = as_utc(date_to).astimezone(REPORT_TIMEZONE).date() if date_to else (date.fromisoformat(observed[-1]) if observed else first)
+    observed_first = min(
+        (day for row in rows for day in row.get("daily_amounts", {})),
+        default=None,
+    )
+    observed_last = max(
+        (day for row in rows for day in row.get("daily_amounts", {})),
+        default=None,
+    )
+    first = (
+        as_utc(date_from).astimezone(REPORT_TIMEZONE).date()
+        if date_from
+        else date.fromisoformat(observed_first)
+        if observed_first is not None
+        else None
+    )
+    last = (
+        as_utc(date_to).astimezone(REPORT_TIMEZONE).date()
+        if date_to
+        else date.fromisoformat(observed_last)
+        if observed_last is not None
+        else first
+    )
     first = first or last
     if first is None or last is None or first > last:
         return []
