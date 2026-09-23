@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import case, func, or_
+from sqlalchemy.orm import load_only
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
@@ -722,7 +723,17 @@ def hr_attendance(db: DbSession, current: User = HrUser, day: date | None = None
 
 @router.get("/analytics")
 def analytics(db: DbSession, current: User = HrUser):
-    factory = _factory(current); employees = db.query(Employee).filter(Employee.factory_code == factory).all()
+    factory = _factory(current); employees = (
+        db.query(Employee)
+        .options(load_only(
+            Employee.status,
+            Employee.salary,
+            Employee.joined_at,
+            Employee.hr_profile_json,
+        ))
+        .filter(Employee.factory_code == factory)
+        .all()
+    )
     active = [row for row in employees if row.status == "active"]
     salaries = [float(row.salary) for row in active if row.salary is not None]
     today = date.today(); tenures = [max(0, (today - row.joined_at.date()).days) for row in active if row.joined_at]
