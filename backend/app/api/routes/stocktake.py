@@ -333,7 +333,7 @@ def scan(count_id: int, body: ScanCount, db: DbSession, current: User = Depends(
     if pid is not None:
         # Package edits and shipment transitions lock/update this same row. Hold
         # it while reading parent quantity and item sizes into one scan record.
-        package = db.query(Package).filter(Package.id == pid).with_for_update().first()
+        package = db.query(Package.id).filter(Package.id == pid).with_for_update().first()
         if package is None:  # Deleted after resolution; do not count a stale ID.
             pid = None
     identity = f"package:{pid}" if pid else "code:" + hashlib.sha256(code.encode()).hexdigest()

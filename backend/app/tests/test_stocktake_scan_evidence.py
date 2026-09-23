@@ -40,6 +40,31 @@ def test_stocktake_package_snapshot_projects_only_evidence_fields(packs):
     assert "packages.qr_code_url" not in selected
 
 
+def test_stocktake_scan_locks_package_id_only(client, auth_headers, packs):
+    cid = start(client, auth_headers)
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and "from packages" in normalized:
+            statements.append(normalized)
+
+    event.listen(SessionLocal.kw["bind"], "before_cursor_execute", capture)
+    try:
+        result = scan(client, auth_headers, cid, "COUNT-0")
+    finally:
+        event.remove(SessionLocal.kw["bind"], "before_cursor_execute", capture)
+
+    assert result["row"]["result"] == "found"
+    locked_reads = [
+        statement for statement in statements
+        if "where packages.id = ?" in statement and " limit ? offset ?" in statement
+    ]
+    assert len(locked_reads) == 1
+    selected = locked_reads[0].split(" from packages", 1)[0]
+    assert selected.endswith("select packages.id as packages_id")
+
+
 def exported(client, headers, cid):
     response = client.get(f"{BASE}/{cid}/export.csv", headers=headers)
     assert response.status_code == 200
