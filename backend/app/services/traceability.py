@@ -5,7 +5,7 @@ from decimal import Decimal
 from html import escape
 from typing import Any
 
-from sqlalchemy import func, or_
+from sqlalchemy import Integer, func, literal, or_, select, union
 from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.models import (
@@ -103,6 +103,63 @@ def _work_orders_for_po(db: Session, po_id: int) -> list[WorkOrder]:
     )
 
 
+def _batch_work_order_context(
+    db: Session,
+    po_id: int,
+    production_batch_id: int,
+) -> tuple[list[Any], set[str]]:
+    """Load target work orders plus the parent route's operation set in one query."""
+    history_work_order_ids = union(
+        select(CuttingRecord.work_order_id.label("work_order_id")).where(
+            CuttingRecord.production_batch_id == production_batch_id
+        ),
+        select(PrintingRecord.work_order_id.label("work_order_id")).where(
+            PrintingRecord.production_batch_id == production_batch_id
+        ),
+        select(SewingRecord.work_order_id.label("work_order_id")).where(
+            SewingRecord.production_batch_id == production_batch_id
+        ),
+        select(PackagingRecord.work_order_id.label("work_order_id")).where(
+            PackagingRecord.production_batch_id == production_batch_id
+        ),
+    ).subquery()
+    target_rows = db.query(
+        WorkOrder.id.label("id"),
+        WorkOrder.production_batch_id.label("production_batch_id"),
+        WorkOrder.operation.label("operation"),
+        literal(False).label("operation_only"),
+    ).filter(
+        WorkOrder.production_order_id == po_id,
+        or_(
+            WorkOrder.production_batch_id == production_batch_id,
+            WorkOrder.production_batch_id.is_(None),
+            WorkOrder.id.in_(select(history_work_order_ids.c.work_order_id)),
+        ),
+    )
+    operation_rows = db.query(
+        literal(None, type_=Integer).label("id"),
+        literal(None, type_=Integer).label("production_batch_id"),
+        WorkOrder.operation.label("operation"),
+        literal(True).label("operation_only"),
+    ).filter(
+        WorkOrder.production_order_id == po_id,
+    ).group_by(WorkOrder.operation)
+    context = target_rows.union_all(operation_rows).subquery()
+    rows = (
+        db.query(
+            context.c.id,
+            context.c.production_batch_id,
+            context.c.operation,
+            context.c.operation_only,
+        )
+        .order_by(context.c.operation_only.asc(), context.c.id.asc(), context.c.operation.asc())
+        .all()
+    )
+    work_orders = [row for row in rows if not row.operation_only]
+    operations = {str(row.operation) for row in rows}
+    return work_orders, operations
+
+
 def _package_batch_ids(pkg: Package | None) -> set[int]:
     if not pkg:
         return set()
@@ -117,6 +174,24 @@ def _filter_records_for_package(records: list[Any], batch_ids: set[int], *, stri
         return records
     exact = [row for row in records if getattr(row, "production_batch_id", None) in batch_ids]
     return exact if strict or exact else records
+
+
+def _scoped_history_rows(
+    query: Any,
+    model_cls: Any,
+    batch_ids: set[int],
+    *,
+    strict: bool,
+) -> list[Any]:
+    """Push batch scope into SQL while preserving the legacy package fallback."""
+    def ordered(value: Any) -> Any:
+        return value.order_by(model_cls.created_at.asc(), model_cls.id.asc())
+
+    if batch_ids:
+        matched = ordered(query.filter(model_cls.production_batch_id.in_(batch_ids))).all()
+        if strict or matched:
+            return matched
+    return ordered(query).all()
 
 
 def _related_shipments_for_package(db: Session, pkg_id: int) -> list[Shipment]:
@@ -708,9 +783,12 @@ def build_traceability(
     }
     if wo_ids:
         cutting_query = db.query(CuttingRecord).filter(CuttingRecord.work_order_id.in_(wo_ids))
-        if strict_batch_scope and batch_ids:
-            cutting_query = cutting_query.filter(CuttingRecord.production_batch_id.in_(batch_ids))
-        all_cutting = cutting_query.order_by(CuttingRecord.created_at.asc(), CuttingRecord.id.asc()).all()
+        all_cutting = _scoped_history_rows(
+            cutting_query,
+            CuttingRecord,
+            batch_ids,
+            strict=strict_batch_scope,
+        )
         cutting_records = _filter_records_for_package(all_cutting, batch_ids, strict=strict_batch_scope)
         stock_batches, suppliers, warehouses = _cutting_reference_maps(db, cutting_records)
         for row in cutting_records:
@@ -771,12 +849,16 @@ def build_traceability(
             model_cls.created_at,
             *(getattr(model_cls, field) for field in fields),
         ]
-        rows = (
+        history_query = (
             db.query(model_cls)
             .options(load_only(*selected_fields))
             .filter(model_cls.work_order_id.in_(wo_ids))
-            .order_by(model_cls.created_at.asc(), model_cls.id.asc())
-            .all()
+        )
+        rows = _scoped_history_rows(
+            history_query,
+            model_cls,
+            batch_ids,
+            strict=strict_batch_scope,
         )
         return [
             _record_payload(row, fields)
@@ -1109,7 +1191,7 @@ def production_batch_traceability(db: Session, batch: ProductionBatch) -> dict:
     po = db.get(ProductionOrder, batch.production_order_id)
     if not po:
         raise ValueError("Production order not found for batch")
-    work_orders = _work_orders_for_po(db, int(po.id))
+    work_orders, available_operations = _batch_work_order_context(db, int(po.id), int(batch.id))
     data = build_traceability(
         db,
         subject_type="production_batch",
@@ -1169,7 +1251,6 @@ def production_batch_traceability(db: Session, batch: ProductionBatch) -> dict:
         ),
     }
 
-    available_operations = {str(row.operation) for row in work_orders}
     route = ["cutting"]
     if "printing" in available_operations:
         route.append("printing")

@@ -15,6 +15,7 @@ from app.models import (
     WorkOrder,
 )
 from app.services.traceability import (
+    _batch_work_order_context,
     _work_orders_for_po,
     build_traceability,
     production_batch_traceability,
@@ -96,6 +97,8 @@ def test_production_batch_graph_reuses_single_ordered_work_order_load(work_order
 
     work_order_queries = [statement for statement in statements if " from work_orders " in statement]
     assert len(work_order_queries) == 1, statements
+    assert "union all" in work_order_queries[0]
+    assert len(statements) == 17, statements
     assert [row["operation"] for row in payload["stage_summary"]] == [
         "cutting",
         "printing",
@@ -105,6 +108,77 @@ def test_production_batch_graph_reuses_single_ordered_work_order_load(work_order
         "shipment",
     ]
     assert payload["production_batch"]["id"] == case["target_batch_id"]
+
+
+@pytest.mark.parametrize("work_order_count", [1, 50, 401])
+def test_batch_work_order_context_bounds_rows_and_preserves_parent_operations(work_order_count):
+    with SessionLocal() as db:
+        case = _work_order_case(db, work_order_count)
+
+    with SessionLocal() as db:
+        (work_orders, operations), statements = _select_trace(
+            db,
+            lambda: _batch_work_order_context(
+                db,
+                case["order_id"],
+                case["target_batch_id"],
+            ),
+        )
+
+    assert [row.id for row in work_orders] == case["work_order_ids"][:1]
+    assert operations == {"printing"}
+    assert len(statements) == 1, statements
+    assert "union all" in statements[0]
+
+
+def test_batch_work_order_context_keeps_shared_cross_linked_and_parent_operations():
+    with SessionLocal() as db:
+        case = _work_order_case(db, 2)
+        second = db.get(WorkOrder, case["work_order_ids"][1])
+        second.operation = "sewing"
+        shared = WorkOrder(
+            production_order_id=case["order_id"],
+            production_batch_id=None,
+            department_id=second.department_id,
+            operation="cutting",
+            status="waiting",
+            planned_input_qty=1,
+            planned_output_qty=1,
+        )
+        cross_linked_history = PrintingRecord(
+            work_order_id=second.id,
+            production_batch_id=case["target_batch_id"],
+            input_qty=1,
+            printed_qty=1,
+            passed_qty=1,
+            rejected_qty=0,
+        )
+        db.add_all([shared, cross_linked_history])
+        db.commit()
+        shared_id = shared.id
+        cross_linked_history_id = cross_linked_history.id
+
+    with SessionLocal() as db:
+        work_orders, operations = _batch_work_order_context(
+            db,
+            case["order_id"],
+            case["target_batch_id"],
+        )
+
+    assert [row.id for row in work_orders] == [
+        case["work_order_ids"][0],
+        case["work_order_ids"][1],
+        shared_id,
+    ]
+    assert operations == {"cutting", "printing", "sewing"}
+
+    with SessionLocal() as db:
+        payload = production_batch_traceability(
+            db,
+            db.get(ProductionBatch, case["target_batch_id"]),
+        )
+
+    assert [row["id"] for row in payload["printing_records"]] == [cross_linked_history_id]
 
 
 def test_preloaded_work_orders_preserve_base_graph_response_and_order():

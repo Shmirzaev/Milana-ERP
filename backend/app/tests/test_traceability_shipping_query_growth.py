@@ -182,6 +182,10 @@ def test_shipment_traceability_reuses_package_warehouse_map(package_count):
 
     warehouse_queries = [statement for statement in statements if " from warehouses " in statement]
     assert len(warehouse_queries) == ceil(package_count / 400), statements
+    assert sum(" from package_items " in statement for statement in statements) == 1, statements
+    assert sum(" from package_scan_logs " in statement for statement in statements) == 1, statements
+    assert sum(" from package_batch_allocations " in statement for statement in statements) == 1, statements
+    assert len(payload["packages"]) == package_count
     assert [row["warehouse_name"] for row in payload["packages"]] == expected_names
     assert payload["shipment"]["shipment_no"].endswith(suffix)
 
