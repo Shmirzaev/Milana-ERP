@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
+from typing import Literal
 from app.services.print_response import warehouse_print_response
 from app.services.package_label_pages import label_document
 from sqlalchemy import func, or_
@@ -639,6 +640,21 @@ def create_pkg_bulk(
     )
     db.commit()
     return response
+
+
+@router.get("/warehouse-report.xlsx")
+def warehouse_report(
+    db: DbSession,
+    lang: Literal["en", "ru", "uz"] = "uz",
+    _=Depends(require_permissions("storage.packages", "storage.shipment")),
+):
+    from app.services.warehouse_report import export_warehouse_report
+
+    return Response(
+        export_warehouse_report(db, lang),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="warehouse-stock.xlsx"', "Cache-Control": "no-store"},
+    )
 
 
 @router.get("/storage-map")
