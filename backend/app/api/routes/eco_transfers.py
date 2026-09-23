@@ -41,7 +41,27 @@ class ReturnIn(ScanIn):
 
 
 def batch_lock(db, batch_id):
-    batch = db.query(StockBatch).options(lazyload(StockBatch.item)).filter_by(id=batch_id).with_for_update().first()
+    batch = db.query(StockBatch).options(
+        load_only(
+            StockBatch.id,
+            StockBatch.item_id,
+            StockBatch.batch_no,
+            StockBatch.color,
+            StockBatch.quantity,
+            StockBatch.piece_count,
+            StockBatch.roll_weights_kg,
+            StockBatch.unit,
+            StockBatch.warehouse_id,
+            StockBatch.archived_at,
+            StockBatch.archived_by,
+        ),
+        lazyload(StockBatch.item).load_only(
+            Item.id,
+            Item.category,
+            Item.name,
+            Item.is_active,
+        ),
+    ).filter_by(id=batch_id).with_for_update().first()
     if not batch or not batch.item or batch.item.category not in MATERIAL_CATEGORIES:
         raise HTTPException(404, "fabricScans.fabric_not_found")
     return batch

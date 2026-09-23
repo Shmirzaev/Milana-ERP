@@ -105,6 +105,61 @@ def test_dispatch_inventory_snapshot_projects_only_payload_columns(client, auth_
     assert "items.composition_json" in legacy_inventory_sql
 
 
+def test_scan_batch_lock_projects_required_inventory_and_item_fields(client, auth_headers, fabric_batch):
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        item = db.get(Item, batch.item_id)
+        item_name = item.name
+        legacy_batch_sql = str(
+            db.query(StockBatch)
+            .filter(StockBatch.id == fabric_batch)
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+        legacy_item_sql = str(
+            db.query(Item)
+            .filter(Item.id == batch.item_id)
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().lower().startswith("select"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.post(
+            "/api/eco-fabric-transfers/scan",
+            headers=auth_headers,
+            json={"code": f"B{fabric_batch}-R1"},
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "code": f"B{fabric_batch}-R1",
+        "status": "available",
+        "fabric_name": item_name,
+        "batch_no": "DAILY-ROLLS",
+        "color": "Blue",
+        "roll_number": 1,
+        "quantity": 10,
+        "unit": "kg",
+    }
+    batch_read = next(statement for statement in statements if " from stock_batches " in statement)
+    item_read = next(statement for statement in statements if " from items " in statement)
+    assert "stock_batches.roll_weights_kg" in batch_read
+    assert "stock_batches.quantity" in batch_read
+    assert "stock_batches.roll_lengths_m" not in batch_read
+    assert "stock_batches.image_url" not in batch_read
+    assert "items.name" in item_read and "items.category" in item_read
+    assert "items.composition_json" not in item_read
+    assert "stock_batches.roll_lengths_m" in legacy_batch_sql
+    assert "items.composition_json" in legacy_item_sql
+
+
 @pytest.mark.parametrize("rolls", [(1, 1), (1, 99)])
 def test_dispatch_validation_is_atomic(client, auth_headers, fabric_batch, rolls):
     assert send(client, auth_headers, fabric_batch, rolls).status_code in (400, 409)
