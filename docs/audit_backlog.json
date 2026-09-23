@@ -1045,10 +1045,10 @@
       "risk": "Single lookup can become expensive.",
       "proposed_fix": "Bound graph and bulk-load context.",
       "baseline_source": "backend/app/services/traceability.py:251",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "2f8f951, ae88bb5, 4447c97, a4f005a, 24bba90, 6acfa70, 16d9ec4, 403af90",
-      "evidence": "Bundle, cutting, shipping and material-origin references remain batched. Commit 24bba90 preloads production-batch Package.scan_logs on allocated/direct paths and reuses one ordered WorkOrder load; 6acfa70 records the 1/50/401 work-order regression. Allocated scan SELECTs fall from2+N to3 and WorkOrder reads from2 to1 while preserving graph parity. Commit 16d9ec4 pushes cutting batch scope into SQL with a focused regression, preventing unrelated batch history from being hydrated. Commit 403af90 reuses shipment warehouse references; test_traceability_shipping_query_growth.py adds the regression. Forty-five earlier traceability cases pass; other graph bounds remain open."
+      "commit": "2f8f951, ae88bb5, 4447c97, a4f005a, 24bba90, 6acfa70, 16d9ec4, 403af90, 873979a",
+      "evidence": "Bundle, cutting, shipping and material-origin references remain batched. Commit 873979a scopes production-batch work orders and cutting/printing/sewing/packaging histories in SQL while preserving batchless/cross-linked work orders and exact legacy package fallback. At1/50/401, production-batch graphs use17/17/17 SELECTs with one WorkOrder statement and one target row hydrated; populated package histories use21/21/21 and hydrate one matching row per family, while empty exact matches re-read and retain legacy PO history. Shipment package items, scans and allocations remain one SELECT each; warehouse references1/1/2. The focused traceability suite passes63 with one PostgreSQL-only skip, and a real PostgreSQL17 indexed UNION plan passes. Necessary response arrays remain O(N)."
     },
     {
       "number": 88,
