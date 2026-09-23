@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, load_only
 
 from app.models import Collection, CollectionModel, FinishedGoodsStock, Package, ProductionOrder, SalesOrderItem
@@ -49,17 +50,20 @@ def _model_collection_metadata(
     *,
     model_id: int,
 ) -> _SalesOrderMetadata:
-    rows = (
-        db.query(CollectionModel.collection_id, Collection.brand_id)
+    row = (
+        db.query(
+            func.count(func.distinct(CollectionModel.collection_id)),
+            func.min(CollectionModel.collection_id),
+            func.count(func.distinct(Collection.brand_id)),
+            func.min(Collection.brand_id),
+        )
         .join(Collection, Collection.id == CollectionModel.collection_id)
         .filter(CollectionModel.model_id == model_id)
-        .all()
+        .one()
     )
-    collection_ids = {int(row.collection_id) for row in rows if row.collection_id is not None}
-    brand_ids = {int(row.brand_id) for row in rows if row.brand_id is not None}
     return _SalesOrderMetadata(
-        brand_id=_unique_or_none(brand_ids),
-        collection_id=_unique_or_none(collection_ids),
+        brand_id=int(row[3]) if row[2] == 1 and row[3] is not None else None,
+        collection_id=int(row[1]) if row[0] == 1 and row[1] is not None else None,
     )
 
 
