@@ -57,6 +57,16 @@ def test_eco_history_query_count_does_not_grow_per_dispatch(client, auth_headers
         ]
         assert len(roll_reads) == 1
         assert "eco_fabric_rolls.return_key" not in roll_reads[0]
+        dispatch_reads = [
+            statement.lower()
+            for statement in statements
+            if "eco_fabric_dispatches.operator_name" in statement.lower()
+            and "count(" not in statement.lower()
+        ]
+        assert len(dispatch_reads) == 1
+        assert "eco_fabric_dispatches.request_key" not in dispatch_reads[0]
+        assert "eco_fabric_dispatches.created_by" not in dispatch_reads[0]
+        assert "eco_fabric_dispatches.remaining_inventory" not in dispatch_reads[0]
         counts.append(len(statements))
     print(f"Eco history SELECTs for 1/10/50 dispatches: {counts}")
     assert counts == [5, 5, 5], counts

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
-from sqlalchemy.orm import defer, lazyload, load_only
+from sqlalchemy.orm import lazyload, load_only
 from app.core.deps import DbSession, require_permissions
 from app.models import EcoFabricDispatch, EcoFabricRoll, Item, StockBatch, StockMovement, User
 from app.api.routes.fabric_scans import parse_roll, TASHKENT
@@ -198,7 +198,11 @@ def report(db: DbSession, user: User = Depends(access), report_date: date | None
         start = datetime.combine(report_date, time.min, TASHKENT).astimezone(timezone.utc)
         query = query.filter(EcoFabricDispatch.sent_at >= start, EcoFabricDispatch.sent_at < start + timedelta(days=1))
     outstanding = db.query(func.count(EcoFabricRoll.id), func.coalesce(func.sum(EcoFabricRoll.quantity), 0)).filter_by(returned_at=None).one()
-    rows = query.options(defer(EcoFabricDispatch.remaining_inventory)).order_by(
+    rows = query.options(load_only(
+        EcoFabricDispatch.id,
+        EcoFabricDispatch.sent_at,
+        EcoFabricDispatch.operator_name,
+    )).order_by(
         EcoFabricDispatch.sent_at.desc(), EcoFabricDispatch.id.desc(),
     ).offset((page-1)*page_size).limit(page_size).all()
     rolls_by_dispatch = {row.id: [] for row in rows}
