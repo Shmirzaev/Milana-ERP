@@ -23,6 +23,7 @@ from app.models import (
     SewingAssignment,
     SewingDailyReport,
     SewingFlow,
+    SalesOrder,
     StockBatch,
     User,
     WorkOrder,
@@ -477,11 +478,16 @@ def _work_order_context(
 
 
 def _line_context(db, flow: SewingFlow) -> SewingDailyLineContext:
-    order_ref_load = joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order)
+    order_ref_load = (
+        joinedload(WorkOrder.production_order)
+        .joinedload(ProductionOrder.sales_order)
+        .load_only(SalesOrder.id, SalesOrder.order_no)
+    )
     assignment_order_ref_load = (
         joinedload(SewingAssignment.work_order)
         .joinedload(WorkOrder.production_order)
         .joinedload(ProductionOrder.sales_order)
+        .load_only(SalesOrder.id, SalesOrder.order_no)
     )
     split_assignments = (
         db.query(SewingAssignment)

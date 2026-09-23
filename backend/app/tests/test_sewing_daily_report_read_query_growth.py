@@ -20,6 +20,7 @@ from app.models import (
     ModelBOM,
     ModelImage,
     ProductionOrder,
+    SalesOrder,
     SewingDailyReport,
     SewingFlow,
     StockBatch,
@@ -462,6 +463,68 @@ def test_daily_report_batched_reads_match_scalar_fallbacks_and_filters():
     assert listed_by_order[case["order_ids"][2]]["fabric_image_url"] == case["urls"]["batch"]
     assert set(context_by_order) == set(case["order_ids"])
     assert {row.work_order_id for row in context.active_work_orders} == set(case["work_order_ids"])
+
+
+def test_line_context_narrow_loads_sales_reference():
+    suffix = uuid4().hex[:8].upper()
+    with SessionLocal() as db:
+        department_id = db.query(Department.id).order_by(Department.id).first()[0]
+        flow = SewingFlow(
+            factory_code="MIL",
+            code=f"PERF17-REF-{suffix}",
+            name=f"PERF17 reference line {suffix}",
+            capacity_per_day=100,
+            is_active=True,
+        )
+        model = Model(
+            code=f"PERF17-REF-M-{suffix}",
+            name="Reference projection model",
+            status="approved",
+        )
+        sales_order = SalesOrder(
+            order_no=f"SO-PERF17-REF-{suffix}",
+            status="draft",
+            total_amount=0,
+        )
+        db.add_all([flow, model, sales_order])
+        db.flush()
+        production_order = ProductionOrder(
+            production_no=f"PERF17-REF-PO-{suffix}",
+            production_type="client_order",
+            model_id=model.id,
+            sales_order_id=sales_order.id,
+            status="sewing",
+            planned_quantity=1,
+        )
+        db.add(production_order)
+        db.flush()
+        work_order = WorkOrder(
+            production_order_id=production_order.id,
+            department_id=department_id,
+            sewing_flow_id=flow.id,
+            operation="sewing",
+            status="waiting",
+            planned_input_qty=1,
+            planned_output_qty=1,
+        )
+        db.add(work_order)
+        db.commit()
+        flow_id = int(flow.id)
+        sales_order_no = sales_order.order_no
+
+    with SessionLocal() as db:
+        flow = db.get(SewingFlow, flow_id)
+        context, statements = _select_trace(db, lambda: _line_context(db, flow))
+
+    assert len(context.active_work_orders) == 1
+    assert context.active_work_orders[0].sales_order_no == sales_order_no
+    assert context.active_work_orders[0].order_no == sales_order_no
+    reference_queries = [
+        statement for statement in statements
+        if "sales_orders_1.order_no" in statement
+    ]
+    assert reference_queries
+    assert all("sales_orders_1.total_amount" not in statement for statement in reference_queries)
 
 
 def test_daily_report_list_requires_authentication(client):
