@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
+import WarehouseReportDownload from "@/components/WarehouseReportDownload";
 import ShipmentItemLines from "@/components/ShipmentItemLines";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
@@ -28,7 +29,7 @@ export default function FinishedGoodsPage() {
         title={t("page.finishedGoods.title")}
         subtitle={t("page.finishedGoods.subtitle")}
         actions={(
-          <><StocktakeLink />
+          <><WarehouseReportDownload /><StocktakeLink />
           <Link className="btn" href="/warehouse-stock?stock_kind=first_grade">{firstGradeText[lang].title}</Link>
           <Link className="btn btn-primary" href="/shipments?mode=warehouse_exit">
             {warehouseExitLabel[lang]}

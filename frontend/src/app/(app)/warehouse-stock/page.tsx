@@ -7,6 +7,7 @@ import { Boxes, Grid2X2, ImageOff, PackageSearch, Search, Warehouse } from "luci
 
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
+import WarehouseReportDownload from "@/components/WarehouseReportDownload";
 import { statusLabel } from "@/components/StagePipeline";
 import { fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
@@ -264,7 +265,7 @@ export default function WarehouseStockPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<StocktakeLink />} />
+      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<><WarehouseReportDownload /><StocktakeLink /></>} />
 
       <div className="mb-4 flex flex-wrap gap-2">
         <button className={`btn ${stockKind === "standard" ? "btn-primary" : ""}`} onClick={() => setStockKind("standard")}>{copy.standard}</button>

@@ -1,6 +1,13 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-22
+Last updated: 2026-09-23
+
+## Ready product warehouse Excel report prepared (2026-09-23)
+
+- Added Download Excel report to Warehouse Stock and Finished Goods, with EN/RU/UZ labels and the existing storage.packages/storage.shipment permissions on both button and API.
+- The read-only workbook exports all ready warehouse packages, independent of page filters, using the same packed/received_in_storage/reserved statuses as Warehouse Stock. Standard and First Grade have separate sheets, one row per catalog model/variant, separate embedded model/variant pictures, business numbers, actual package counts and piece totals. First Grade packages represent singles. Shipped/delivered/damaged packages are excluded; missing pictures are labeled without dropping stock rows. No business data or schema changes.
+- Baseline verified on both VMs: blue 20260922_043845, manifest 3cdfffe32807a4815d39ada8afc5f43ec5807aa5da6c2da168de3aa776fa4b7d, database 0132_first_grade_singles. GitHub application source agrees; legacy checkout preserved. Worktree C:/ERP/.codex-work/warehouse-excel-20260923, branch codex/warehouse-excel-20260923.
+- User explicitly requested fast deployment without extra testing or monitoring. Standard immutable CI/build, source review, backup, candidate warm-up/runtime and four immediate health checks are retained. No extra local test suite, browser/performance exercise or extended observation is planned. Deployment outcome follows after cutover.
 
 ## Cutting passport stock check and nonblocking sheet deployed (2026-09-22)
 
