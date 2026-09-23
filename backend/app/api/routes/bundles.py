@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 import base64
 import hashlib
 from functools import lru_cache
@@ -55,7 +56,7 @@ from app.services.bundles import (
     resolve_sewing_factory_code,
 )
 from app.services.barcode import qr_png_data_uri
-from app.services.label_images import material_label_image_src
+from app.services.label_images import is_preview_model_image, material_label_image_src
 from app.services.model_images import material_preview_image_url
 from app.services.audit import log_action
 from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
@@ -396,20 +397,64 @@ def _label_context(db: DbSession, b: Bundle, reference_context: dict | None = No
         if reference_context is not None and b.model_id
         else (
         db.query(Model)
-        .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
+        .options(
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            selectinload(Model.bom).joinedload(ModelBOM.item),
+        )
         .filter(Model.id == b.model_id)
         .first()
         if b.model_id
         else None
         )
     )
+    material_image_src = None
+    if model:
+        images = sorted(
+            [image for image in (model.images or []) if is_preview_model_image(image)],
+            key=lambda image: int(image.id or 0),
+            reverse=True,
+        )
+        material_image = next(
+            (
+                image for image in images
+                if str(image.image_type or "").lower() == "material"
+            ),
+            None,
+        )
+
+        def load_image_data(image):
+            file_data = db.query(ModelImage.file_data).filter(
+                ModelImage.id == image.id,
+                ModelImage.file_data.isnot(None),
+            ).scalar()
+            if file_data is not None:
+                set_committed_value(image, "file_data", file_data)
+
+        if material_image is not None:
+            load_image_data(material_image)
+        material_image_src = material_label_image_src(model)
+        if material_image_src is None:
+            typed_model = next((image for image in images if str(image.image_type or "").lower() == "model"), None)
+            primary = next((image for image in images if image.is_primary), None)
+            fallback_image = typed_model or primary or (images[0] if images else None)
+            if fallback_image is not None and fallback_image is not material_image:
+                load_image_data(fallback_image)
+                material_image_src = material_label_image_src(model)
     return {
         "bundle_no": _h(b.bundle_no),
         "order_no": _h(row.get("order_no") or row.get("production_no") or b.production_order_id),
         "batch_label": _h(row.get("batch_label")),
         "tracking_passport_no": _h(row.get("tracking_passport_no")),
         "model_code": _h(row.get("model_code") or b.model_id),
-        "material_image_src": _h(material_label_image_src(model)),
+        "material_image_src": _h(material_image_src),
         "color": _h(b.color),
         "size": _h(b.size),
         "quantity": _h(b.quantity),
