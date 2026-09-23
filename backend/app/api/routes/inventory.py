@@ -1848,8 +1848,16 @@ def list_batches(
 ):
     group = inventory_access.scoped_group(_, group, category)
     inventory_access.require_item(db, _, item_id)
+    item_columns = [Item.id, Item.sku, Item.name, Item.category]
+    if archived:
+        item_columns.append(Item.image_url)
     qry = (
         db.query(StockBatch, Item, Warehouse, Supplier)
+        .options(
+            load_only(*item_columns),
+            load_only(Warehouse.id, Warehouse.name),
+            load_only(Supplier.id, Supplier.name),
+        )
         .join(Item, Item.id == StockBatch.item_id)
         .join(Warehouse, Warehouse.id == StockBatch.warehouse_id)
         .outerjoin(Supplier, Supplier.id == StockBatch.supplier_id)
