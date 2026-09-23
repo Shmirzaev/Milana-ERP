@@ -119,8 +119,8 @@ class BundleDetail(BundleOut):
 
 class PackageItemIn(SchemaModel):
     model_id: int
-    color: str
-    size: str
+    color: str = Field(max_length=64)
+    size: str = Field(max_length=32)
     quantity: int = Field(le=2_147_483_647)
 
 
@@ -197,8 +197,8 @@ class PackageBatchStoragePlacementIn(PackageStoragePlacementIn):
 
 class PackageEditItemIn(SchemaModel):
     model_id: Optional[int] = None
-    color: Optional[str] = None
-    size: str
+    color: Optional[str] = Field(default=None, max_length=64)
+    size: str = Field(max_length=32)
     quantity: int
 
 
