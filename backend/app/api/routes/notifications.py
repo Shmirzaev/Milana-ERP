@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func
+from sqlalchemy.orm import load_only, noload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.pagination import clamp_pagination
@@ -46,13 +47,21 @@ def _safe_link(link: str | None) -> str | None:
     return value
 
 
+def _recipient_user_query(db: DbSession):
+    return db.query(User).options(
+        load_only(User.id, User.name, User.is_active),
+        noload(User.role),
+        noload(User.department),
+    )
+
+
 def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User]:
     if payload.target_type == "user_id":
         if payload.user_id is None:
             raise HTTPException(400, "user_id is required for target_type=user_id")
         if payload.user_id > 2_147_483_647:
             raise HTTPException(404, "Recipient user not found")
-        user = db.get(User, payload.user_id)
+        user = _recipient_user_query(db).filter(User.id == payload.user_id).first()
         if not user or not user.is_active:
             raise HTTPException(404, "Recipient user not found")
         return [user]
@@ -69,7 +78,7 @@ def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User
         if not department:
             raise HTTPException(404, "Recipient department not found")
         return (
-            db.query(User)
+            _recipient_user_query(db)
             .filter(User.department_id == department.id, User.is_active.is_(True))
             .order_by(User.id.asc())
             .all()
@@ -84,7 +93,7 @@ def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User
         else:
             raise HTTPException(400, "safe_group must be management or admins")
         return (
-            db.query(User)
+            _recipient_user_query(db)
             .join(Role, Role.id == User.role_id)
             .filter(Role.name.in_(role_names), User.is_active.is_(True))
             .order_by(User.id.asc())

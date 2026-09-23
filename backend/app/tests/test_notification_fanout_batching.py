@@ -82,6 +82,7 @@ def test_notification_fanout_batches_flushes_and_preserves_response(
         flushes: list[int] = []
         notification_inserts: list[str] = []
         recipient_selects: list[str] = []
+        user_selects: list[str] = []
 
         def capture_flush(*_args):
             flushes.append(1)
@@ -99,6 +100,8 @@ def test_notification_fanout_batches_flushes_and_preserves_response(
                 and "users.is_active" in normalized
             ):
                 recipient_selects.append(statement)
+            if "from users" in normalized and "users.department_id" in normalized:
+                user_selects.append(normalized)
 
         event.listen(db, "before_flush", capture_flush)
         event.listen(db.bind, "before_cursor_execute", capture_insert)
@@ -128,6 +131,13 @@ def test_notification_fanout_batches_flushes_and_preserves_response(
 
         assert len(flushes) == 2
         assert len(recipient_selects) == 2
+        assert len(user_selects) == 1
+        user_projection = user_selects[0].split(" from users", 1)[0]
+        assert "users.password_hash" not in user_projection
+        assert "users.extra_permissions" not in user_projection
+        assert "users.access_policy" not in user_projection
+        assert "join roles" not in user_selects[0]
+        assert "join departments" not in user_selects[0]
         if db.bind.dialect.name == "postgresql":
             assert len(notification_inserts) == 1
         assert [row.user_id for row in rows] == case["user_ids"]
