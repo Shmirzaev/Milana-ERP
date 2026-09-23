@@ -937,10 +937,10 @@
       "risk": "Large print jobs slow.",
       "proposed_fix": "Share sheet-level context.",
       "baseline_source": "backend/app/api/routes/packages.py:1486",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "f27e240, 9fe1c14, 7f5b30d, d990aa6, 4fba5f1, f378278, 2f92465",
-      "evidence": "Bundle-label references remain batched with a 200-label output bound and no image BLOB selection. Commit 7f5b30d renders scoped label endpoints from their already-loaded bundle rows instead of re-entering the by-ID path, reducing bundle SELECTs from2 to1 at1/50/200 labels with byte-identical HTML; thirteen focused cases pass. Image BLOB projection was added to package and bundle label context; test_bundle_label_image_blob_projection.py covers the bundle projection. Commit f378278 caps package by-ID sheets at500; test_package_label_query_growth.py passes eight focused cases including 500 accepted and 501 rejected before package SELECT or card rendering. Other QR and large-output CPU paths remain."
+      "commit": "f27e240, 9fe1c14, 7f5b30d, d990aa6, 4fba5f1, f378278, 2f92465, 6277260",
+      "evidence": "Package by-ID sheets retain chunk-bounded12/12/14/14 SELECTs at1/50/401/500 and reject501 before reads/rendering. Bundle sheets are capped200 and now share canonical QR references, reducing8/57/207 to7/7/7 SELECTs at1/50/200. Print-run sheets are capped200 and share package label context, reducing14/504/2004 to14/14/14; legacy201-package runs reject before member/package/card/QR work. Twenty-nine focused and12 compatibility cases pass, including exact once-per-label card/QR generation, one cover QR per run, canonical/orphan bundle payload parity and image-BLOB projection. Remaining HTML/QR work is necessary capped O(labels)."
     },
     {
       "number": 79,
