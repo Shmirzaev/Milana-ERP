@@ -164,6 +164,19 @@ def list_recent_invoices(db: Session, limit: int = 50, offset: int = 0) -> list[
     safe_offset = max(0, int(offset or 0))
     rows = (
         db.query(Invoice, SalesOrder, Customer)
+        .options(
+            load_only(
+                Invoice.id,
+                Invoice.invoice_no,
+                Invoice.sales_order_id,
+                Invoice.amount,
+                Invoice.status,
+                Invoice.issued_at,
+                Invoice.created_at,
+            ),
+            load_only(SalesOrder.id, SalesOrder.order_no),
+            load_only(Customer.id, Customer.name),
+        )
         .join(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
         .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
         .order_by(Invoice.id.desc())
