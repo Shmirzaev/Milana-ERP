@@ -1,11 +1,20 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
-from sqlalchemy.orm import joinedload, lazyload, selectinload
+from sqlalchemy.orm import joinedload, lazyload, load_only, selectinload
 
 from app.core.deps import DbSession, require_permissions
 from app.core.config import settings
-from app.models import Item, PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, User
+from app.models import (
+    Item,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    PurchaseRequest,
+    PurchaseRequestLine,
+    Supplier,
+    User,
+    Warehouse,
+)
 from app.services import inventory_access
 from app.services.factory_scope import selected_factory_code
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
@@ -170,7 +179,57 @@ def list_purchase_orders(
         .filter(~PurchaseOrder.lines.any(PurchaseOrderLine.item_id.in_(
             db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
         )) if inventory_access.materials_only(_) else True)
-        .options(joinedload(PurchaseOrder.lines))
+        .options(
+            lazyload("*"),
+            load_only(
+                PurchaseOrder.id,
+                PurchaseOrder.po_no,
+                PurchaseOrder.purchase_request_id,
+                PurchaseOrder.supplier_id,
+                PurchaseOrder.status,
+                PurchaseOrder.ordered_by,
+                PurchaseOrder.expected_date,
+                PurchaseOrder.notes,
+                PurchaseOrder.created_at,
+                PurchaseOrder.updated_at,
+            ),
+            joinedload(PurchaseOrder.purchase_request).load_only(
+                PurchaseRequest.id,
+                PurchaseRequest.request_no,
+            ),
+            joinedload(PurchaseOrder.supplier).load_only(
+                Supplier.id,
+                Supplier.name,
+            ),
+            joinedload(PurchaseOrder.lines).load_only(
+                PurchaseOrderLine.id,
+                PurchaseOrderLine.purchase_order_id,
+                PurchaseOrderLine.item_id,
+                PurchaseOrderLine.ordered_quantity,
+                PurchaseOrderLine.received_quantity,
+                PurchaseOrderLine.unit,
+                PurchaseOrderLine.unit_cost,
+                PurchaseOrderLine.warehouse_id,
+                PurchaseOrderLine.supplier_id,
+                PurchaseOrderLine.material_name,
+                PurchaseOrderLine.photo_url,
+                PurchaseOrderLine.notes,
+            ).options(
+                joinedload(PurchaseOrderLine.item).load_only(
+                    Item.id,
+                    Item.sku,
+                    Item.name,
+                ),
+                joinedload(PurchaseOrderLine.warehouse).load_only(
+                    Warehouse.id,
+                    Warehouse.name,
+                ),
+                joinedload(PurchaseOrderLine.supplier).load_only(
+                    Supplier.id,
+                    Supplier.name,
+                ),
+            ),
+        )
         .order_by(PurchaseOrder.id.desc())
     )
     if page is None and page_size is None:

@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import event
+from sqlalchemy.orm import joinedload
 
 from app.api.routes.purchasing import list_purchase_orders
 from app.models import Item, PurchaseOrder, PurchaseOrderLine
@@ -71,6 +72,19 @@ def _dump(rows):
     return [PurchaseOrderOut.model_validate(row).model_dump(mode="json") for row in rows]
 
 
+def _legacy_select_column_count():
+    with TestSessionLocal() as db:
+        statement = (
+            db.query(PurchaseOrder)
+            .options(joinedload(PurchaseOrder.lines))
+            .order_by(PurchaseOrder.id.desc())
+            .limit(50)
+            .statement
+        )
+        sql = str(statement.compile(dialect=test_engine.dialect)).lower()
+        return sql.split(" from ", 1)[0].count(" as ")
+
+
 @pytest.mark.parametrize("count", [1, 50, 401])
 def test_purchase_order_pages_preserve_legacy_and_bound_joined_lines(count):
     order_ids, line_ids = _seed_orders(count)
@@ -94,6 +108,15 @@ def test_purchase_order_pages_preserve_legacy_and_bound_joined_lines(count):
     assert "left outer join purchase_order_lines" in row_query
     assert "left outer join items" in row_query
     assert " limit ? offset ?" in row_query
+    assert "request_no" in row_query
+    assert "name" in row_query
+    assert "sku" in row_query
+    assert "composition_json" not in row_query
+    assert "address" not in row_query
+    assert "warehouses_1.type" not in row_query
+    assert "purchase_requests_1.notes" not in row_query
+    selected_column_count = row_query.split(" from ", 1)[0].count(" as ")
+    assert selected_column_count < _legacy_select_column_count()
 
 
 def test_purchase_order_page_http_contract_and_bound(client, auth_headers):
