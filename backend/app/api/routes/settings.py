@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError
 from sqlalchemy import text
+from sqlalchemy.orm import load_only
 
 from app.core.config import settings as app_settings
 from app.core.deps import CurrentUser, DbSession, require_permissions
@@ -56,7 +57,14 @@ def _setting_for_update(db: DbSession, section: str) -> SystemSetting | None:
     if db.bind and db.bind.dialect.name == "postgresql":
         db.execute(text("SELECT pg_advisory_xact_lock(:namespace, :section)"),
                    {"namespace": 1_297_047_635, "section": _SETTING_LOCK_KEYS[section]})
-    return db.query(SystemSetting).filter(SystemSetting.key == section).with_for_update().populate_existing().first()
+    return (
+        db.query(SystemSetting)
+        .options(load_only(SystemSetting.id, SystemSetting.key, SystemSetting.value_json))
+        .filter(SystemSetting.key == section)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
 
 
 def _default_payload() -> dict:
