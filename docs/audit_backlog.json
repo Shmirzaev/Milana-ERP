@@ -1177,10 +1177,10 @@
       "risk": "Hidden query growth.",
       "proposed_fix": "Bounded reference maps.",
       "baseline_source": "backend/app/api/routes/inbox.py:689",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "f79d195, 6c2c5ac, b40cace, 491058b, 8574264, 3cc7e67, 7f0d085, 0e2bd6d",
-      "evidence": "Inbox production context and planned demand asset/reference reads remain batched without image BLOB hydration. Commit 491058b preloads forecast Model, Brand and Collection references into column maps, reducing reference SELECTs at1/50/401 rows from7/154/1207 to7/7/10; twenty-four focused cases pass. Commits 8574264, 3cc7e67, 7f0d085 and 0e2bd6d project Process Tracking model context, catalog/package image metadata and Super Data binary sizes; focused projection regressions are committed. Output/memory remains linear and other helpers remain unmeasured."
+      "commit": "f79d195, 6c2c5ac, b40cace, 491058b, 8574264, 3cc7e67, 7f0d085, 0e2bd6d, ed4be77",
+      "evidence": "Inbox production context, material payloads, planned BOM demand and branded forecast analysis now use narrow column projections and400-ID reference maps. At1/50/401, inbox material payloads use4/4/8 SELECTs, planned demand4/4/7, production context6/6/6, branded analysis7/7/10 and dashboard15/15/18. Captured SQL excludes ModelImage BLOBs, Item composition JSON, ProductionOrder attachments and StockBatch roll/image payloads while preserving URL precedence and stock-batch item fallback. Forty-four focused/adjacent cases pass; remaining map, BOM arithmetic and serialization work is necessary O(N)."
     },
     {
       "number": 99,
