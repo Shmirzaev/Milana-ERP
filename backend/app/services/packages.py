@@ -426,6 +426,7 @@ def create_package(
     _cost_cache: dict[int, float] | None = None,
     _batch_presence_cache: dict[int, bool] | None = None,
     _reference_metadata_cache: dict | None = None,
+    _locked_order_cache: dict[int, ProductionOrder] | None = None,
     _sync_production: bool = True,
 ) -> Package:
     if not items:
@@ -466,7 +467,17 @@ def create_package(
     if len(distinct_colors) > 1 and not (override_capacity and is_admin):
         raise HTTPException(400, "Package contains different colors — admin override required")
 
-    po = db.query(ProductionOrder).filter(ProductionOrder.id == production_order_id).with_for_update().populate_existing().first()
+    po = _locked_order_cache.get(int(production_order_id)) if _locked_order_cache is not None else None
+    if po is None:
+        po = (
+            db.query(ProductionOrder)
+            .filter(ProductionOrder.id == production_order_id)
+            .with_for_update()
+            .populate_existing()
+            .first()
+        )
+        if po is not None and _locked_order_cache is not None:
+            _locked_order_cache[int(production_order_id)] = po
     if not po:
         raise HTTPException(404, "Production order not found")
     if int(model_id) != int(po.model_id) or distinct_models != {int(po.model_id)}:
@@ -714,6 +725,7 @@ def create_packages_bulk(
     cost_cache: dict[int, float] = {}
     batch_presence_cache: dict[int, bool] = {}
     reference_metadata_cache: dict = {}
+    locked_order_cache: dict[int, ProductionOrder] = {}
     for index in range(count):
         package_weight = normalized_weights[index] if normalized_weights else weight_kg
         created.append(
@@ -740,6 +752,7 @@ def create_packages_bulk(
                 _cost_cache=cost_cache,
                 _batch_presence_cache=batch_presence_cache,
                 _reference_metadata_cache=reference_metadata_cache,
+                _locked_order_cache=locked_order_cache,
                 _sync_production=index in {0, count - 1},
             )
         )
