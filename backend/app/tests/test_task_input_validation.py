@@ -10,7 +10,10 @@ from app.schemas.tasks import TaskIn
 
 def _actor():
     with SessionLocal() as db:
-        role = Role(name=f"Task validation {uuid4().hex}", permissions=[])
+        role = Role(
+            name=f"Task validation {uuid4().hex}",
+            permissions=["planning.view", "finance.view"],
+        )
         user = User(
             name="Task validation actor",
             email=f"task-validation-{uuid4().hex}@example.com",

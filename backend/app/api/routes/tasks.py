@@ -1,15 +1,41 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
+from types import SimpleNamespace
+
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
 
-from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
+from app.core.deps import (
+    DbSession,
+    CurrentUser,
+    PRODUCTION_READ_PERMISSIONS,
+    is_admin,
+    user_permissions,
+)
 from app.models import (
-    Bundle, Invoice, Notification, Package, ProductionOrder, SalesOrder, Shipment, Task, User, WorkOrder,
+    Bundle,
+    Invoice,
+    Notification,
+    Package,
+    ProductionOrder,
+    SalesOrder,
+    Shipment,
+    Task,
+    User,
+    WorkOrder,
 )
 from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut
 from app.services.audit import log_action
 from app.services.notifications import notify
 from app.services.user_access import access_configured, permission_denied
+from app.services.factory_scope import (
+    available_factory_codes,
+    factory_for_department,
+    require_factory_access,
+    user_is_super_admin,
+)
+from app.services.packaging_scope import normalize_packaging_department_code, require_package_access
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -24,25 +50,178 @@ _TASK_REFERENCE_MODELS = {
     "invoice": Invoice,
 }
 
+_TASK_REFERENCE_ALIASES = {
+    **{key: key for key in _TASK_REFERENCE_MODELS},
+    "salesorders": "salesorder",
+    "productionorders": "productionorder",
+    "workorders": "workorder",
+    "bundles": "bundle",
+    "packages": "package",
+    "shipments": "shipment",
+    "invoices": "invoice",
+}
+_TASK_REFERENCE_PERMISSIONS = {
+    # Keep task references aligned with each target's actual read endpoint.
+    # Sales orders, bundles and shipments only require CurrentUser there.
+    "productionorder": PRODUCTION_READ_PERMISSIONS,
+    "workorder": PRODUCTION_READ_PERMISSIONS,
+    "invoice": ("finance.view", "*"),
+}
+
+
+@dataclass(frozen=True)
+class _TaskReferenceAccess:
+    key: str
+    entity_id: int
+    row: object
+    required_factory: str | None
+
 
 def _normalize_task_entity_type(entity_type: str) -> str:
-    return entity_type.strip().replace("_", "").casefold()
+    token = entity_type.strip().casefold()
+    if re.fullmatch(r"[a-z0-9_]+", token):
+        compact = token.replace("_", "")
+    elif re.fullmatch(r"[a-z0-9]+(?:[ -]+[a-z0-9]+)*", token):
+        compact = re.sub(r"[ -]+", "", token)
+    else:
+        return token
+    return _TASK_REFERENCE_ALIASES.get(compact, compact)
 
 
-def _validate_task_reference(entity_type: str | None, entity_id: int | None, db: DbSession) -> None:
-    """Reject new references that cannot resolve to a supported task target.
+def _require_task_reference_permission(user: User, key: str) -> None:
+    required = _TASK_REFERENCE_PERMISSIONS.get(key)
+    if required is None:
+        return
+    granted = set(user_permissions(user))
+    if granted.intersection(required):
+        return
+    raise HTTPException(403, "Not allowed to reference this task target")
 
-    Existing orphan rows are intentionally not checked when unrelated fields are
-    edited; this is only called when a complete reference is created/changed.
+
+def _task_reference_factory(key: str, row: object, db: DbSession) -> str | None:
+    if key == "productionorder":
+        order = row
+    elif key == "workorder":
+        order = _locked_task_reference(
+            db,
+            ProductionOrder,
+            getattr(row, "production_order_id", None),
+        )
+        if order is None:
+            raise HTTPException(409, "Task reference production order is missing")
+    else:
+        return None
+    return "ECO" if order.source_type == "usluga" else None
+
+
+def _locked_task_reference(db: DbSession, model, entity_id: int):
+    """Keep a validated target stable until the task transaction commits."""
+    return (
+        db.query(model)
+        .filter(model.id == entity_id)
+        .with_for_update(read=True, key_share=True, of=model)
+        .first()
+    )
+
+
+def _load_task_reference(
+    entity_type: str | None,
+    entity_id: int | None,
+    db: DbSession,
+    current: User,
+    *,
+    allow_legacy_missing: bool = False,
+) -> _TaskReferenceAccess | None:
+    """Resolve a new target and authorize the actor before it can be persisted.
+
+    Existing unsupported or deleted references remain editable when the target
+    fields themselves are unchanged. New and changed references are strict.
     """
     if entity_type is None or entity_id is None:
-        return
+        return None
     key = _normalize_task_entity_type(entity_type)
     model = _TASK_REFERENCE_MODELS.get(key)
     if model is None:
+        if allow_legacy_missing:
+            return None
         raise HTTPException(422, f"Unsupported task reference type: {entity_type}")
-    if db.get(model, entity_id) is None:
+    if not allow_legacy_missing:
+        _require_task_reference_permission(current, key)
+    row = _locked_task_reference(db, model, entity_id)
+    if row is None:
+        if allow_legacy_missing:
+            return None
         raise HTTPException(404, "Task reference target not found")
+    if allow_legacy_missing:
+        _require_task_reference_permission(current, key)
+    reference = _TaskReferenceAccess(
+        key=key,
+        entity_id=entity_id,
+        row=row,
+        required_factory=_task_reference_factory(key, row, db),
+    )
+    _require_actor_reference_access(current, reference)
+    return reference
+
+
+def _require_actor_reference_access(
+    user: User,
+    reference: _TaskReferenceAccess,
+) -> None:
+    if reference.key == "package":
+        require_package_access(user, reference.row)
+    elif reference.required_factory is not None:
+        require_factory_access(user, reference.required_factory)
+
+
+def _permissions_in_factory(user: User, factory: str) -> set[str]:
+    # Simulate the exact permission dependency after logging in to this
+    # factory. This matters for Super Admin: global role permissions continue
+    # to apply in secondary factories, while that factory's explicit denials
+    # still win.
+    scoped_user = SimpleNamespace(
+        role=user.role,
+        department=user.department,
+        factory_code=user.factory_code,
+        extra_permissions=user.extra_permissions,
+        access_policy=user.access_policy,
+        session_factory_code=factory,
+    )
+    return set(user_permissions(scoped_user))
+
+
+def _assignee_can_open_package(user: User, package: object) -> bool:
+    if user_is_super_admin(user):
+        return True
+    department = getattr(user, "department", None)
+    department_code = str(getattr(department, "code", "") or "").strip().upper()
+    if factory_for_department(department_code) is None:
+        # This is the intentional non-operational-department exception used by
+        # require_package_access on the package detail endpoint.
+        return True
+    owner_code = normalize_packaging_department_code(
+        getattr(package, "packaging_department_code", None)
+    )
+    owner_factory = factory_for_department(owner_code)
+    return owner_factory in available_factory_codes(user)
+
+
+def _require_assignee_reference_access(user: User, reference: _TaskReferenceAccess) -> None:
+    if not user.is_active:
+        raise HTTPException(422, "Assigned user cannot access the task reference")
+    if reference.key == "package":
+        if _assignee_can_open_package(user, reference.row):
+            return
+        raise HTTPException(422, "Assigned user cannot access the task reference")
+    required = _TASK_REFERENCE_PERMISSIONS.get(reference.key)
+    if required is None:
+        return
+    for factory in available_factory_codes(user):
+        if reference.required_factory is not None and factory != reference.required_factory:
+            continue
+        if _permissions_in_factory(user, factory).intersection(required):
+            return
+    raise HTTPException(422, "Assigned user cannot access the task reference")
 
 
 def _can_manage(user: User) -> bool:
@@ -57,24 +236,38 @@ def _can_manage(user: User) -> bool:
     return "tasks.manage" in perms or "management.approve" in perms
 
 
-def _require_single_assignee(assigned: int | None, db: DbSession, current: User, is_manager: bool) -> None:
+def _require_single_assignee(assigned: int | None, db: DbSession, current: User, is_manager: bool) -> User | None:
     if assigned != current.id and not is_manager:
         raise HTTPException(403, "Only managers can assign tasks to other users")
-    if assigned is not None and not db.get(User, assigned):
+    user = db.get(User, assigned) if assigned is not None else None
+    if assigned is not None and user is None:
         raise HTTPException(404, "Assigned user not found")
+    return user
 
 
-def _task_link(t: Task) -> str | None:
+def _task_link(
+    t: Task,
+    db: DbSession | None = None,
+    reference: _TaskReferenceAccess | None = None,
+) -> str | None:
     """Build a frontend URL for a task notification when the task references
     a concrete entity. Returns None when no mapping exists."""
     et = _normalize_task_entity_type(t.entity_type) if t.entity_type else ""
     eid = t.entity_id
     if not eid:
         return None
+    if et == "workorder":
+        work_order = reference.row if reference is not None and reference.key == "workorder" else None
+        if work_order is None and db is not None:
+            with db.no_autoflush:
+                work_order = db.get(WorkOrder, eid)
+        operation = str(getattr(work_order, "operation", "") or "").strip().lower()
+        if operation in {"cutting", "printing", "sewing", "packaging"}:
+            return f"/work-orders/{eid}/{operation}"
+        return None
     mapping = {
         "salesorder": f"/sales-orders/{eid}",
         "productionorder": f"/production-orders/{eid}",
-        "workorder": f"/work-orders/{eid}",
         "bundle": f"/bundles/{eid}",
         "package": f"/packages/{eid}",
         "shipment": "/shipments",
@@ -118,7 +311,7 @@ def open_task_count(db: DbSession, current: CurrentUser):
 
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
-    _validate_task_reference(payload.entity_type, payload.entity_id, db)
+    reference = _load_task_reference(payload.entity_type, payload.entity_id, db, current)
     is_manager = _can_manage(current)
     requested_assignee = payload.assigned_to
 
@@ -129,6 +322,18 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
         targets = db.query(User).filter(User.is_active.is_(True)).order_by(User.id).all()
         if not targets:
             raise HTTPException(404, "No active users found")
+        if reference is not None:
+            try:
+                for user in targets:
+                    if user.id == current.id:
+                        _require_actor_reference_access(current, reference)
+                    else:
+                        _require_assignee_reference_access(user, reference)
+            except HTTPException as exc:
+                raise HTTPException(
+                    422,
+                    "Task reference is not accessible to every broadcast recipient",
+                ) from exc
 
         created: list[Task] = []
         for user in targets:
@@ -149,7 +354,7 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
                 user_id=user.id,
                 title=f"New task: {t.title}",
                 message=(t.description or "")[:280],
-                link=_task_link(t),
+                link=_task_link(t, reference=reference),
             ))
 
         # No per-recipient generated ID is needed until the audit below.
@@ -174,7 +379,9 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
 
     # Non-managers can only assign tasks to themselves.
     assigned = requested_assignee or current.id
-    _require_single_assignee(assigned, db, current, is_manager)
+    assignee = _require_single_assignee(assigned, db, current, is_manager)
+    if reference is not None and assignee is not None and assignee.id != current.id:
+        _require_assignee_reference_access(assignee, reference)
 
     t = Task(
         title=payload.title,
@@ -196,7 +403,7 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
             db, user_id=assigned,
             title=f"New task: {t.title}",
             message=(t.description or "")[:280],
-            link=_task_link(t),
+            link=_task_link(t, reference=reference),
         )
 
     log_action(db, current, "create", "Task", t.id, new_value={"title": t.title, "assigned_to": assigned})
@@ -233,14 +440,45 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
             raise HTTPException(403, "Assignees can only change status")
 
     previous_assignee = t.assigned_to
+    next_assignee_user: User | None = None
     if "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
-        _require_single_assignee(changes["assigned_to"], db, current, is_manager)
+        next_assignee_user = _require_single_assignee(changes["assigned_to"], db, current, is_manager)
+    reference: _TaskReferenceAccess | None = None
     if "entity_type" in changes or "entity_id" in changes:
         next_entity_type = changes.get("entity_type", t.entity_type)
         next_entity_id = changes.get("entity_id", t.entity_id)
         if (next_entity_type is None) != (next_entity_id is None):
             raise HTTPException(422, "entity_id and entity_type must be provided together")
-        _validate_task_reference(next_entity_type, next_entity_id, db)
+        # Unchanged legacy orphan references remain editable; new/changed targets
+        # must pass the same access policy as their read endpoint.
+        reference_changed = (next_entity_type != t.entity_type or next_entity_id != t.entity_id)
+        if reference_changed:
+            reference = _load_task_reference(next_entity_type, next_entity_id, db, current)
+        elif "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
+            reference = _load_task_reference(
+                t.entity_type,
+                t.entity_id,
+                db,
+                current,
+                allow_legacy_missing=True,
+            )
+    elif "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
+        reference = _load_task_reference(
+            t.entity_type,
+            t.entity_id,
+            db,
+            current,
+            allow_legacy_missing=True,
+        )
+
+    if reference is not None:
+        next_assignee_id = changes.get("assigned_to", t.assigned_to)
+        if next_assignee_id is not None and next_assignee_id != current.id:
+            if next_assignee_user is None or next_assignee_user.id != next_assignee_id:
+                next_assignee_user = db.get(User, next_assignee_id)
+            if next_assignee_user is None:
+                raise HTTPException(409, "Task assignee no longer exists")
+            _require_assignee_reference_access(next_assignee_user, reference)
     for k, v in changes.items():
         setattr(t, k, v)
 
@@ -255,7 +493,7 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
             db, user_id=t.assigned_to,
             title=f"Task reassigned to you: {t.title}",
             message=(t.description or "")[:280],
-            link=_task_link(t),
+            link=_task_link(t, db=db, reference=reference),
         )
 
     log_action(db, current, "update", "Task", t.id, new_value=changes)
@@ -288,7 +526,7 @@ def complete_task(tid: int, db: DbSession, current: CurrentUser):
             db, user_id=t.created_by,
             title=f"Task completed: {t.title}",
             message=f"Completed by user #{current.id}",
-            link=_task_link(t),
+            link=_task_link(t, db=db),
         )
     log_action(db, current, "complete", "Task", t.id)
     db.commit(); db.refresh(t)

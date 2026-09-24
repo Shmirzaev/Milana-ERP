@@ -58,13 +58,16 @@ def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(broa
         db.commit()
         user_ids = [user.id for user in users]
         title = f"Broadcast {marker}"
-        flushes, inserts = [], []
+        flushes, inserts, selects = [], [], []
 
         def before_flush(*_):
             flushes.append(1)
 
         def before_execute(_conn, _cursor, statement, *_):
-            if statement.lstrip().upper().startswith("INSERT INTO TASKS") or statement.lstrip().upper().startswith("INSERT INTO NOTIFICATIONS"):
+            normalized = statement.lstrip().upper()
+            if normalized.startswith("SELECT"):
+                selects.append(statement)
+            if normalized.startswith("INSERT INTO TASKS") or normalized.startswith("INSERT INTO NOTIFICATIONS"):
                 inserts.append(statement)
 
         event.listen(db, "before_flush", before_flush)
@@ -88,6 +91,7 @@ def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(broa
         audit = db.query(AuditLog).filter(AuditLog.entity_type == "Task", AuditLog.entity_id == first.id).one()
         assert audit.new_value_json["created_count"] == recipients
         assert len(flushes) == 2  # One task/notification flush, one audit flush.
+        assert len(selects) <= 8  # Reference authorization stays constant at 1/50 recipients.
         if db.bind.dialect.name == "postgresql":
             assert len(inserts) == 2
 
