@@ -88,6 +88,12 @@ from app.services.payroll_reports import ReportLanguage, build_sewing_production
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
+# Payroll raw snapshots are retained and returned as open JSON objects. Keep
+# legacy keys, but cap each persisted snapshot to 16 KiB of compact UTF-8 JSON
+# and 16 nested object/array levels (counting the root object as level 1).
+MAX_PAYROLL_SNAPSHOT_BYTES = 16 * 1024
+MAX_PAYROLL_SNAPSHOT_DEPTH = 16
+
 PERIOD_STATUSES = {"draft", "open", "locked", "approved", "paid", "cancelled"}
 PERIOD_CREATE_STATUSES = {"draft", "open"}
 PERIOD_MANAGE_STATUS_TRANSITIONS = {
@@ -423,6 +429,47 @@ def _payload_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _validate_payroll_snapshot(value: dict[str, Any], field: str) -> dict[str, Any]:
+    """Bound persisted raw JSON without closing its legacy/open key space."""
+    minimum_size = 2  # The root object braces.
+    pending = [(value, 1)]
+    while pending:
+        current, depth = pending.pop()
+        if isinstance(current, dict):
+            if depth > MAX_PAYROLL_SNAPSHOT_DEPTH:
+                raise HTTPException(422, f"{field} snapshot exceeds maximum nesting depth")
+            if len(current) > MAX_PAYROLL_SNAPSHOT_BYTES // 4:
+                raise HTTPException(422, f"{field} snapshot exceeds maximum size of {MAX_PAYROLL_SNAPSHOT_BYTES} bytes")
+            for index, (key, child) in enumerate(current.items()):
+                child_minimum = len(child) + 2 if isinstance(child, str) else 2 if isinstance(child, (dict, list)) else 1
+                minimum_size += (1 if index else 0) + len(key) + 3 + child_minimum
+                if minimum_size > MAX_PAYROLL_SNAPSHOT_BYTES:
+                    raise HTTPException(422, f"{field} snapshot exceeds maximum size of {MAX_PAYROLL_SNAPSHOT_BYTES} bytes")
+                if isinstance(child, (dict, list)):
+                    pending.append((child, depth + 1))
+        elif isinstance(current, list):
+            if depth > MAX_PAYROLL_SNAPSHOT_DEPTH:
+                raise HTTPException(422, f"{field} snapshot exceeds maximum nesting depth")
+            if len(current) > MAX_PAYROLL_SNAPSHOT_BYTES // 2:
+                raise HTTPException(422, f"{field} snapshot exceeds maximum size of {MAX_PAYROLL_SNAPSHOT_BYTES} bytes")
+            for index, child in enumerate(current):
+                child_minimum = len(child) + 2 if isinstance(child, str) else 2 if isinstance(child, (dict, list)) else 1
+                minimum_size += (1 if index else 0) + child_minimum
+                if minimum_size > MAX_PAYROLL_SNAPSHOT_BYTES:
+                    raise HTTPException(422, f"{field} snapshot exceeds maximum size of {MAX_PAYROLL_SNAPSHOT_BYTES} bytes")
+                if isinstance(child, (dict, list)):
+                    pending.append((child, depth + 1))
+
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        size_bytes = len(encoded.encode("utf-8"))
+    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+        raise HTTPException(422, f"{field} snapshot must contain finite JSON values") from exc
+    if size_bytes > MAX_PAYROLL_SNAPSHOT_BYTES:
+        raise HTTPException(422, f"{field} snapshot exceeds maximum size of {MAX_PAYROLL_SNAPSHOT_BYTES} bytes")
+    return value
+
+
 def _extra(payload: PayrollRecordIn, key: str) -> Any:
     return (payload.model_extra or {}).get(key)
 
@@ -455,7 +502,7 @@ def _normalize_scan_uid(payload: PayrollRecordIn, work_payload: dict[str, Any]) 
 
 
 def _normalize_record_payload(payload: PayrollRecordIn) -> dict[str, Any]:
-    employee_payload = _payload_dict(
+    employee_payload = _validate_payroll_snapshot(_payload_dict(
         _first(
             payload.employee,
             _extra(payload, "raw_employee"),
@@ -463,8 +510,8 @@ def _normalize_record_payload(payload: PayrollRecordIn) -> dict[str, Any]:
             _extra(payload, "employee_payload"),
             _extra(payload, "employeePayload"),
         )
-    )
-    work_payload = _payload_dict(
+    ), "employee")
+    work_payload = _validate_payroll_snapshot(_payload_dict(
         _first(
             payload.work,
             _extra(payload, "raw_work"),
@@ -472,7 +519,7 @@ def _normalize_record_payload(payload: PayrollRecordIn) -> dict[str, Any]:
             _extra(payload, "work_payload"),
             _extra(payload, "workPayload"),
         )
-    )
+    ), "work")
 
     employee_id = _to_int(_first(payload.employee_id, _extra(payload, "employeeId"), _dget(employee_payload, "employee_id", "e")))
     employee_user_id = _to_int(
@@ -855,6 +902,11 @@ def _validate_and_enrich_record(
             "copy_index": issued_label.copy_index,
         })
         data["raw_work_json"] = raw_work
+
+    # Enrichment from the trusted issued label and reference canonicalization
+    # happen after request normalization; cap the exact snapshots that persist.
+    data["raw_employee_json"] = _validate_payroll_snapshot(data.get("raw_employee_json") or {}, "employee") or None
+    data["raw_work_json"] = _validate_payroll_snapshot(data.get("raw_work_json") or {}, "work") or None
 
     data["total_amount"] = _validated_record_total_amount(
         data["quantity"], data["rate_per_piece"],
