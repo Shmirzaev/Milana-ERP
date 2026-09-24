@@ -586,6 +586,7 @@ def test_clone_model_copies_full_plm_details(client, auth_headers):
     items = client.get("/api/inventory/items", headers=auth_headers).json()
     assert items
     item_id = items[0]["id"]
+    item_unit = items[0]["unit"]
 
     create = client.post(
         "/api/models",
@@ -620,7 +621,7 @@ def test_clone_model_copies_full_plm_details(client, auth_headers):
     ).status_code == 201
     assert client.post(
         f"/api/models/{model_id}/bom",
-        json={"item_id": item_id, "size": "M", "color": "Black", "quantity_per_piece": 1.25, "unit": "m", "waste_percent": 3},
+        json={"item_id": item_id, "size": "M", "color": "Black", "quantity_per_piece": 1.25, "unit": item_unit, "waste_percent": 3},
         headers=auth_headers,
     ).status_code == 201
     assert client.post(
@@ -651,6 +652,7 @@ def test_clone_model_copies_full_plm_details(client, auth_headers):
     assert data["colors"][0]["color_name"] == "Black"
     assert len(data["bom"]) == 1
     assert data["bom"][0]["item_id"] == item_id
+    assert data["bom"][0]["unit"] == item_unit
     assert len(data["images"]) == 1
     assert data["images"][0]["file_url"] == "https://example.com/model.png"
 
