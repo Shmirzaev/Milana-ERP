@@ -1763,10 +1763,11 @@ def _accessory_returnable_summary_page_sql(
     Keep this projection separate from the compatibility summary below: the
     picker only needs catalog-linked rows with a positive net return balance.
     """
+    movement_unit = func.coalesce(func.nullif(func.trim(StockMovement.unit), ""), Item.unit)
     movement_base = (
         db.query(
             StockMovement.item_id.label("item_id"),
-            func.coalesce(func.nullif(func.trim(StockMovement.unit), ""), Item.unit).label("unit"),
+            movement_unit.label("unit"),
             StockMovement.quantity.label("quantity"),
             StockMovement.created_at.label("created_at"),
             literal(1).label("is_stock"),
@@ -1792,7 +1793,7 @@ def _accessory_returnable_summary_page_sql(
             ),
         ).with_entities(
             WorkOrder.production_order_id.label("production_order_id"),
-            StockMovement.item_id.label("item_id"), StockMovement.unit.label("unit"),
+            StockMovement.item_id.label("item_id"), movement_unit.label("unit"),
             StockMovement.quantity.label("quantity"), StockMovement.created_at.label("created_at"),
             literal(1).label("is_stock"), literal(None, type_=String()).label("manual_item_sku"),
             literal(None, type_=String()).label("manual_item_name"),
@@ -1813,7 +1814,7 @@ def _accessory_returnable_summary_page_sql(
                 ),
             ).join(WorkOrder, WorkOrder.id == record_model.work_order_id).with_entities(
                 WorkOrder.production_order_id.label("production_order_id"),
-                StockMovement.item_id.label("item_id"), StockMovement.unit.label("unit"),
+                StockMovement.item_id.label("item_id"), movement_unit.label("unit"),
                 StockMovement.quantity.label("quantity"), StockMovement.created_at.label("created_at"),
                 literal(1).label("is_stock"), literal(None, type_=String()).label("manual_item_sku"),
                 literal(None, type_=String()).label("manual_item_name"),
@@ -1821,6 +1822,8 @@ def _accessory_returnable_summary_page_sql(
         )
 
     manual_unit = func.coalesce(func.nullif(func.trim(ManualAccessoryIssue.unit), ""), "pcs")
+    # This is an actionable return picker, not the compatibility issue ledger:
+    # the return route rejects catalog items outside these categories.
     manual_rows = (
         db.query(
             ManualAccessoryIssue.production_order_id.label("production_order_id"),
@@ -1956,7 +1959,13 @@ def _accessory_returnable_summary_page_sql(
                 return_totals.c.unit == grouped.c.unit,
             ),
         )
-        .filter(returnable > EPSILON)
+        # The return write requires the item's canonical unit; keep the legacy
+        # issue projection's historical alternate-unit groups untouched.
+        .filter(
+            Item.category.in_(ACCESSORY_CATEGORIES),
+            func.trim(grouped.c.unit) == Item.unit,
+            returnable > EPSILON,
+        )
     )
     if production_order_id is not None:
         rows_query = rows_query.filter(ProductionOrder.id == production_order_id)
@@ -1987,6 +1996,8 @@ def _accessory_returnable_summary_page_sql(
                 rows_subquery.c.last_issued_at.desc(),
                 rows_subquery.c.production_order_id.desc(),
                 rows_subquery.c.item_sku.desc(),
+                rows_subquery.c.item_id.desc(),
+                rows_subquery.c.unit.desc(),
             ),
         ).label("order_rank")
         ranked = db.query(rows_subquery, order_rank).subquery("accessory_return_order_choices")
@@ -2000,6 +2011,8 @@ def _accessory_returnable_summary_page_sql(
             rows_subquery.c.last_issued_at.desc(),
             rows_subquery.c.production_order_id.desc(),
             rows_subquery.c.item_sku.desc(),
+            rows_subquery.c.item_id.desc(),
+            rows_subquery.c.unit.desc(),
         )
         .offset(offset)
         .limit(safe_size)

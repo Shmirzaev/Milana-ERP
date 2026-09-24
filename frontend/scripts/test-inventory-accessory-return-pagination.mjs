@@ -15,6 +15,8 @@ assert.match(page, /asyncOrderHasMore=\{Boolean\(accessoryReturnOrderLastPage\?\
 assert.match(page, /asyncItemHasMore=\{Boolean\(accessoryReturnItemLastPage\?\.has_more\)\}/, "item picker should expose Load more");
 assert.match(page, /setSelectedAccessoryReturnOrder\(order\)/, "selected order identity should survive search/page changes");
 assert.match(page, /setSelectedAccessoryReturnItem\(item\)/, "selected item identity should survive search/page changes");
+assert.match(page, /value: JSON\.stringify\(\[item\.id, item\.unit \|\| ""\]\)/, "item choice keys must distinguish separate unit groups for the same catalog item");
+assert.match(page, /item_id: itemId, unit: item\.unit \|\| current\.unit/, "the composite choice must submit the selected catalog item and unit");
 assert.doesNotMatch(page, /\/api\/inventory\/accessory-issues\?page_size=500/, "Receive/Return must not fetch the old capped summary array");
 assert.match(route, /returnable_only: bool = False/, "route should expose opt-in returnable-only rows");
 assert.match(route, /orders_only: bool = False/, "route should expose exact unique-order paging for the order selector");

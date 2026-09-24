@@ -1,5 +1,6 @@
-import re
+from datetime import datetime
 from pathlib import Path
+import re
 from uuid import uuid4
 
 import pytest
@@ -165,19 +166,19 @@ def test_sql_return_picker_preserves_all_polymorphic_movement_references(accesso
         db.add_all([cutting, sewing, packaging])
         db.flush()
         refs = [
-            ("ProductionOrder", case["po_id"]),
-            ("ProductionOrderAccessoryIssue", case["po_id"]),
-            ("WorkOrder", work_orders[0].id),
-            ("CuttingRecord", cutting.id),
-            ("SewingRecord", sewing.id),
-            ("PackagingRecord", packaging.id),
+            ("ProductionOrder", case["po_id"], "pcs"),
+            ("ProductionOrderAccessoryIssue", case["po_id"], "pcs"),
+            ("WorkOrder", work_orders[0].id, ""),
+            ("CuttingRecord", cutting.id, " "),
+            ("SewingRecord", sewing.id, ""),
+            ("PackagingRecord", packaging.id, " "),
         ]
         db.add_all([
             StockMovement(
-                movement_type="consume", item_id=case["item_id"], quantity=2, unit="pcs",
+                movement_type="consume", item_id=case["item_id"], quantity=2, unit=unit,
                 reference_type=reference_type, reference_id=reference_id,
             )
-            for reference_type, reference_id in refs
+            for reference_type, reference_id, unit in refs
         ])
         db.add(StockMovement(
             movement_type="return", item_id=case["item_id"], quantity=1, unit="pcs",
@@ -201,6 +202,100 @@ def test_sql_return_picker_preserves_all_polymorphic_movement_references(accesso
         assert float(paged[0]["issued_quantity"]) == pytest.approx(12)
         assert float(paged[0]["returned_quantity"]) == pytest.approx(1)
         assert float(paged[0]["returnable_quantity"]) == pytest.approx(11)
+
+
+def test_return_picker_normalizes_units_and_hides_noncanonical_unit_groups(accessory_case, client, auth_headers):
+    case = accessory_case
+    timestamp = datetime(2026, 9, 25, 12, 0, 0)
+    with TestSessionLocal() as db:
+        db.add_all([
+            StockMovement(
+                movement_type="consume", item_id=case["item_id"], quantity=1,
+                unit=raw_unit, reference_type=reference_type, reference_id=reference_id,
+                created_at=timestamp,
+            )
+            for raw_unit, reference_type, reference_id in [
+                ("pcs", "ProductionOrder", case["po_id"]),
+            ]
+        ])
+        # Use real indirect source references too; their blank unit resolves to
+        # Item.unit exactly as it does in the legacy Python projection.
+        department = Department(name="Accessory unit test", code=f"AU{case['po_id']}")
+        db.add(department)
+        db.flush()
+        work_order = WorkOrder(
+            production_order_id=case["po_id"], department_id=department.id, operation="unit-test",
+        )
+        db.add(work_order)
+        db.flush()
+        db.add(StockMovement(
+            movement_type="consume", item_id=case["item_id"], quantity=1, unit=" ",
+            reference_type="WorkOrder", reference_id=work_order.id, created_at=timestamp,
+        ))
+        db.add_all([
+            ManualAccessoryIssue(
+                production_order_id=case["po_id"], item_id=case["item_id"],
+                item_sku="TIE-ITEM", item_name="Tie item", quantity=1, unit=unit, created_at=timestamp,
+            )
+            for unit in ("box", "set")
+        ])
+        db.commit()
+
+        legacy_rows = accessory_issue_summary(db, production_order_id=case["po_id"])
+        assert {row["unit"] for row in legacy_rows if row["item_id"] == case["item_id"]} == {"pcs", "box", "set"}
+        picker_rows, total = accessory_issue_summary(
+            db, production_order_id=case["po_id"], page=1, page_size=1,
+            include_total=True, returnable_only=True,
+        )
+        next_page, next_total = accessory_issue_summary(
+            db, production_order_id=case["po_id"], page=2, page_size=1,
+            include_total=True, returnable_only=True,
+        )
+        assert total == next_total == 1
+        assert len(picker_rows) == 1
+        assert next_page == []
+        assert picker_rows[0]["unit"] == "pcs"
+        assert float(picker_rows[0]["issued_quantity"]) == pytest.approx(2)
+
+    before = _state(case)
+    response = client.post("/api/inventory/accessory-returns", headers=auth_headers, json={
+        "production_order_id": case["po_id"], "item_id": case["item_id"], "batch_no": "NONCANONICAL-UNIT",
+        "quantity": 1, "unit": "box", "warehouse_id": case["destination_id"], "qc_status": "passed",
+    })
+    assert response.status_code == 409
+    assert "Return unit must match" in response.text
+    assert _state(case) == before
+
+
+def test_non_accessory_manual_rows_remain_legacy_visible_but_not_returnable(accessory_case, client, auth_headers):
+    case = accessory_case
+    with TestSessionLocal() as db:
+        item = Item(sku="NOT-RETURNABLE", name="Fabric historical item", category="fabric", unit="kg")
+        db.add(item)
+        db.flush()
+        item_id = item.id
+        db.add(ManualAccessoryIssue(
+            production_order_id=case["po_id"], item_id=item_id,
+            item_sku=item.sku, item_name=item.name, quantity=3, unit="kg",
+        ))
+        db.commit()
+        legacy_rows = accessory_issue_summary(db, production_order_id=case["po_id"])
+        assert any(row["item_id"] == item_id and row["returnable_quantity"] == 3 for row in legacy_rows)
+        picker_rows, picker_total = accessory_issue_summary(
+            db, production_order_id=case["po_id"], page=1, page_size=50,
+            include_total=True, returnable_only=True,
+        )
+        assert picker_total == 0
+        assert all(row["item_id"] != item_id for row in picker_rows)
+
+    before = _state(case)
+    response = client.post("/api/inventory/accessory-returns", headers=auth_headers, json={
+        "production_order_id": case["po_id"], "item_id": item_id, "batch_no": "NON-ACCESSORY-RETURN",
+        "quantity": 1, "unit": "kg", "warehouse_id": case["destination_id"], "qc_status": "passed",
+    })
+    assert response.status_code == 400
+    assert "Only accessory or packaging" in response.text
+    assert _state(case) == before
 
 
 def test_return_groups_keep_other_orders_items_units_and_itemless_labels_separate(accessory_case):

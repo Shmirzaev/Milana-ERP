@@ -97,12 +97,12 @@ type StockFormProps = {
   warehouses?: any[];
   suppliers?: any[];
   orderOptions?: OrderOption[];
-  asyncItemOptions?: { value: number; label: string; searchText?: string }[];
-  asyncItemValue?: number | null;
+  asyncItemOptions?: { value: string | number; label: string; searchText?: string }[];
+  asyncItemValue?: string | number | null;
   asyncItemLoading?: boolean;
   asyncItemHasMore?: boolean;
   asyncItemCount?: number;
-  onAsyncItemChange?: (value: number) => void;
+  onAsyncItemChange?: (value: string | number) => void;
   onAsyncItemSearchChange?: (query: string) => void;
   onAsyncItemLoadMore?: () => void;
   asyncOrderOptions?: { value: number; label: string; searchText?: string }[];
@@ -784,7 +784,9 @@ export default function ReceiveStockPage() {
       category: row.category,
       unit: row.unit,
     }));
-    if (selectedAccessoryReturnItem && !items.some((item) => item.id === selectedAccessoryReturnItem.id)) {
+    if (selectedAccessoryReturnItem && !items.some((item) => (
+      item.id === selectedAccessoryReturnItem.id && (item.unit || "") === (selectedAccessoryReturnItem.unit || "")
+    ))) {
       items.unshift(selectedAccessoryReturnItem);
     }
     return items;
@@ -1026,18 +1028,27 @@ export default function ReceiveStockPage() {
               setAccessoryReturnItemSearchInput("");
             }}
             asyncItemOptions={returnableAccessoryItems.map((item) => ({
-              value: item.id,
+              value: JSON.stringify([item.id, item.unit || ""]),
               label: item.name,
               searchText: item.category || "",
             }))}
-            asyncItemValue={accessoryReturnForm.item_id || null}
+            asyncItemValue={accessoryReturnForm.item_id
+              ? JSON.stringify([accessoryReturnForm.item_id, accessoryReturnForm.unit || ""])
+              : null}
             asyncItemLoading={accessoryReturnItemsValidating && Boolean(accessoryReturnItemPages?.length)}
             asyncItemHasMore={Boolean(accessoryReturnItemLastPage?.has_more)}
             asyncItemCount={accessoryReturnItemTotal}
             onAsyncItemSearchChange={setAccessoryReturnItemSearchInput}
             onAsyncItemLoadMore={() => void setAccessoryReturnItemPageCount((size) => size + 1)}
-            onAsyncItemChange={(itemId) => {
-              const item = returnableAccessoryItems.find((option) => option.id === itemId);
+            onAsyncItemChange={(value) => {
+              let selection: [number, string];
+              try {
+                selection = JSON.parse(String(value)) as [number, string];
+              } catch {
+                return;
+              }
+              const [itemId, unit] = selection;
+              const item = returnableAccessoryItems.find((option) => option.id === itemId && (option.unit || "") === unit);
               if (!item) return;
               setSelectedAccessoryReturnItem(item);
               setAccessoryReturnForm((current) => ({ ...current, item_id: itemId, unit: item.unit || current.unit }));
