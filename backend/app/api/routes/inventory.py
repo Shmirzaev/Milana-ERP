@@ -50,7 +50,11 @@ from app.services import inventory_access
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.material_rolls import normalize_material_roll_lengths, normalize_material_roll_weights
-from app.services.stock_batch_policy import normalize_stock_batch_qc_status, validate_stock_batch_warehouse
+from app.services.stock_batch_policy import (
+    normalize_stock_batch_qc_status,
+    validate_stock_batch_unit,
+    validate_stock_batch_warehouse,
+)
 from app.services.inventory import (
     accessory_issue_plan,
     accessory_issue_requests,
@@ -1574,8 +1578,7 @@ def update_batch(
         values["unit"] = str(values["unit"] or "").strip()
         if not values["unit"]:
             raise HTTPException(400, "Unit is required")
-        if values["unit"] != item.unit:
-            raise HTTPException(409, "Batch unit must match the material unit")
+        validate_stock_batch_unit(item, values["unit"])
         if values["unit"] != old_unit and reserved_quantity > EPSILON:
             raise HTTPException(409, "Cannot change unit while stock is reserved")
     if "warehouse_id" in values:
@@ -1612,8 +1615,11 @@ def update_batch(
             raise HTTPException(409, "Selected material is inactive")
         if target_item.category not in _item_name_group_categories(item.category):
             raise HTTPException(409, "Batch material must stay in the same inventory group")
-        if target_item.unit != target_unit:
-            raise HTTPException(409, "Batch unit must match the selected material unit")
+        validate_stock_batch_unit(
+            target_item,
+            target_unit,
+            detail="Batch unit must match the selected material unit",
+        )
         values["item_id"] = int(target_item.id)
         if target_item.id != item.id:
             linked = (
@@ -1866,6 +1872,7 @@ def restore_material_batch(
     item = db.get(Item, batch.item_id)
     if not item or item.category not in inventory_access.MATERIAL_CATEGORIES:
         raise HTTPException(400, "Only material batches can be restored")
+    validate_stock_batch_unit(item, batch.unit)
     if not item.is_active:
         raise HTTPException(409, "Reactivate or reassign the archived master material before restoring this batch")
     if batch.archived_at is None and float(batch.quantity) > EPSILON:

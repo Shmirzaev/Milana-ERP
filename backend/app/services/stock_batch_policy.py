@@ -29,3 +29,13 @@ def validate_stock_batch_warehouse(item: Item, warehouse: Warehouse) -> None:
     expected_type, expected_name = expected
     if str(warehouse.type or "").strip().lower() != expected_type:
         raise HTTPException(400, f"{item.name} must be received into {expected_name}")
+
+
+def validate_stock_batch_unit(
+    item: Item,
+    unit: str | None,
+    *,
+    detail: str = "Batch unit must match the material unit",
+) -> None:
+    if unit != item.unit:
+        raise HTTPException(409, detail)
