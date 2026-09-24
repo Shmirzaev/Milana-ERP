@@ -1089,13 +1089,27 @@ def analytics(db: DbSession, current: User = HrUser):
             Employee.hr_profile_json,
         ))
         .filter(Employee.factory_code == factory)
-        .all()
+        .yield_per(50)
     )
-    active = [row for row in employees if row.status == "active"]
-    salaries = [float(row.salary) for row in active if row.salary is not None]
-    today = date.today(); tenures = [max(0, (today - row.joined_at.date()).days) for row in active if row.joined_at]
+    employee_count = 0
+    active_count = 0
+    salary_total = 0.0
+    salary_count = 0
+    tenure_days_total = 0
+    tenure_count = 0
+    today = date.today()
     gender: dict[str, int] = {}; ages: dict[str, int] = {"under_25": 0, "25_34": 0, "35_44": 0, "45_plus": 0}
-    for row in active:
+    for row in employees:
+        employee_count += 1
+        if row.status != "active":
+            continue
+        active_count += 1
+        if row.salary is not None:
+            salary_total += float(row.salary)
+            salary_count += 1
+        if row.joined_at:
+            tenure_days_total += max(0, (today - row.joined_at.date()).days)
+            tenure_count += 1
         profile = row.hr_profile_json or {}; label = str(profile.get("gender") or "not_specified"); gender[label] = gender.get(label, 0) + 1
         dob = profile.get("date_of_birth")
         if dob:
@@ -1103,7 +1117,15 @@ def analytics(db: DbSession, current: User = HrUser):
                 age = (today - date.fromisoformat(str(dob))).days // 365
                 ages["under_25" if age < 25 else "25_34" if age < 35 else "35_44" if age < 45 else "45_plus"] += 1
             except ValueError: pass
-    return {"total_headcount": len(active), "inactive_headcount": len(employees) - len(active), "retention_rate": round((len(active) / len(employees) * 100), 1) if employees else 0, "average_tenure_years": round(sum(tenures) / len(tenures) / 365, 1) if tenures else 0, "average_salary": round(sum(salaries) / len(salaries), 2) if salaries else 0, "gender_distribution": gender, "age_distribution": ages}
+    return {
+        "total_headcount": active_count,
+        "inactive_headcount": employee_count - active_count,
+        "retention_rate": round(active_count / employee_count * 100, 1) if employee_count else 0,
+        "average_tenure_years": round(tenure_days_total / tenure_count / 365, 1) if tenure_count else 0,
+        "average_salary": round(salary_total / salary_count, 2) if salary_count else 0,
+        "gender_distribution": gender,
+        "age_distribution": ages,
+    }
 
 
 @router.get("/calendar")

@@ -11,37 +11,53 @@ def _seed_analytics_employees() -> None:
     marker = uuid4().hex[:12]
     today = date.today()
     with TestSessionLocal() as db:
-        db.add_all(
-            [
-                Employee(
-                    factory_code="MIL",
-                    employee_no=f"AN-{marker}-1",
-                    full_name=f"Analytics active {marker}",
-                    status="active",
-                    salary=1250.50,
-                    joined_at=datetime.combine(today - timedelta(days=730), datetime.min.time(), tzinfo=timezone.utc),
-                    hr_profile_json={"gender": "female", "date_of_birth": "1990-01-01"},
+        employees = [
+            Employee(
+                factory_code="MIL",
+                employee_no=f"AN-{marker}-1",
+                full_name=f"Analytics active {marker}",
+                status="active",
+                salary=1250.50,
+                joined_at=datetime.combine(today - timedelta(days=730), datetime.min.time(), tzinfo=timezone.utc),
+                hr_profile_json={"gender": "female", "date_of_birth": "1990-01-01"},
+            ),
+            Employee(
+                factory_code="MIL",
+                employee_no=f"AN-{marker}-2",
+                full_name=f"Analytics malformed profile {marker}",
+                status="active",
+                salary=None,
+                joined_at=None,
+                hr_profile_json={"gender": "male", "date_of_birth": "not-a-date"},
+            ),
+            Employee(
+                factory_code="MIL",
+                employee_no=f"AN-{marker}-3",
+                full_name=f"Analytics inactive {marker}",
+                status="inactive",
+                salary=9999,
+                joined_at=datetime.combine(today - timedelta(days=365), datetime.min.time(), tzinfo=timezone.utc),
+                hr_profile_json={"gender": "other", "date_of_birth": "2000-01-01"},
+            ),
+        ]
+        for index in range(55):
+            status = "inactive" if index % 5 == 0 else "active"
+            employees.append(Employee(
+                factory_code="MIL",
+                employee_no=f"AN-{marker}-batch-{index}",
+                full_name=f"Analytics batch {marker} {index}",
+                status=status,
+                salary=1000 + index if status == "active" else None,
+                joined_at=(
+                    datetime.combine(today - timedelta(days=index * 7), datetime.min.time(), tzinfo=timezone.utc)
+                    if index % 3 else None
                 ),
-                Employee(
-                    factory_code="MIL",
-                    employee_no=f"AN-{marker}-2",
-                    full_name=f"Analytics malformed profile {marker}",
-                    status="active",
-                    salary=None,
-                    joined_at=None,
-                    hr_profile_json={"gender": "male", "date_of_birth": "not-a-date"},
-                ),
-                Employee(
-                    factory_code="MIL",
-                    employee_no=f"AN-{marker}-3",
-                    full_name=f"Analytics inactive {marker}",
-                    status="inactive",
-                    salary=9999,
-                    joined_at=datetime.combine(today - timedelta(days=365), datetime.min.time(), tzinfo=timezone.utc),
-                    hr_profile_json={"gender": "other", "date_of_birth": "2000-01-01"},
-                ),
-            ]
-        )
+                hr_profile_json={
+                    "gender": ("female", "male", "other", None)[index % 4],
+                    "date_of_birth": (today - timedelta(days=(20 + index % 40) * 365)).isoformat(),
+                },
+            ))
+        db.add_all(employees)
         db.commit()
 
 
@@ -98,6 +114,7 @@ def test_hr_analytics_projects_consumed_columns_without_deferred_selects(client,
     assert response.json() == expected
     employee_reads = [statement for statement in statements if " from employees " in statement]
     assert len(employee_reads) == 1, statements
+    assert "employees.factory_code =" in employee_reads[0]
     selected_columns = employee_reads[0].split(" from employees", 1)[0]
     for needed in ("employees.status", "employees.salary", "employees.joined_at", "employees.hr_profile_json"):
         assert needed in selected_columns
