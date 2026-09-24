@@ -642,8 +642,8 @@ def list_usluga_orders(
     db: DbSession,
     current: User = Depends(require_permissions("usluga.view", "usluga.manage", "usluga.handover", "*")),
     status: Annotated[str | None, Query(max_length=32)] = None,
-    page: Annotated[int | None, Query(ge=1)] = None,
-    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 100,
 ):
     _require_eco(current)
     query = (
@@ -673,21 +673,11 @@ def list_usluga_orders(
     )
     if status:
         query = query.filter(ProductionOrder.status == status)
-    # Keep the historical list response for callers that do not opt into
-    # pagination. New callers can request a bounded page with metadata.
-    paginated = page is not None or page_size is not None
-    safe_page = page or 1
-    safe_page_size = page_size or 500
-    total = int(query.count()) if paginated else None
+    total = int(query.count())
     ordered_query = query.order_by(ProductionOrder.id.desc())
-    if paginated:
-        orders = ordered_query.offset((safe_page - 1) * safe_page_size).limit(safe_page_size).all()
-    else:
-        orders = ordered_query.all()
+    orders = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
     if not orders:
-        if paginated:
-            return {"rows": [], "total": total or 0, "page": safe_page, "page_size": safe_page_size}
-        return []
+        return {"rows": [], "total": total, "page": page, "page_size": page_size}
 
     order_ids = [int(order.id) for order in orders]
     model_ids = sorted({int(order.model_id) for order in orders})
@@ -764,9 +754,7 @@ def list_usluga_orders(
         )
         for order in orders
     ]
-    if paginated:
-        return {"rows": rows, "total": total or 0, "page": safe_page, "page_size": safe_page_size}
-    return rows
+    return {"rows": rows, "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/orders/{order_id}")

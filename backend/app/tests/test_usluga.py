@@ -152,13 +152,22 @@ def test_usluga_order_list_projects_response_columns_without_material_prefetch(c
         event.remove(test_engine, "before_cursor_execute", capture)
 
     assert response.status_code == 200, response.text
-    order_reads = [statement for statement in statements if " from production_orders " in statement]
+    page = response.json()
+    assert page["total"] == 1
+    assert page["page"] == 1
+    assert page["page_size"] == 100
+    assert len(page["rows"]) == 1
+    order_reads = [
+        statement for statement in statements
+        if " from production_orders " in statement and " limit " in statement
+    ]
     assert len(order_reads) == 1
     assert "production_orders.service_customer_name" in order_reads[0]
     assert "production_orders.handed_over_at" in order_reads[0]
     assert "production_orders.printing_attachments" not in order_reads[0]
     assert "production_orders.estimated_material_amount" not in order_reads[0]
     assert not any(" from production_order_materials " in statement for statement in statements)
+    assert client.get("/api/usluga/orders?page_size=101").status_code == 422
 
 
 def test_usluga_main_batch_size_counts_update_existing_bundles_only(client):

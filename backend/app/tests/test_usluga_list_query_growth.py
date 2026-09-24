@@ -144,7 +144,7 @@ def _order_set(db, count):
     return status, [order.id for order in orders]
 
 
-@pytest.mark.parametrize(("order_count", "expected_selects"), [(1, 8), (50, 8), (401, 11)])
+@pytest.mark.parametrize(("order_count", "expected_selects"), [(1, 9), (50, 9), (401, 9)])
 def test_usluga_order_list_preloads_are_chunk_bounded_without_image_blobs(order_count, expected_selects):
     with SessionLocal() as db:
         status, order_ids = _order_set(db, order_count)
@@ -155,15 +155,19 @@ def test_usluga_order_list_preloads_are_chunk_bounded_without_image_blobs(order_
         )
 
     assert len(statements) == expected_selects
-    assert [row["id"] for row in payload] == list(reversed(order_ids))
+    assert payload["total"] == order_count
+    assert payload["page"] == 1
+    assert payload["page_size"] == 100
+    rows = payload["rows"]
+    assert [row["id"] for row in rows] == list(reversed(order_ids))[:100]
     assert all(row["items"] == [{
         "id": row["items"][0]["id"],
         "color": "Natural",
         "size": "M",
         "planned_quantity": 1,
-    }] for row in payload)
-    assert all(row["work_orders"][0]["operation"] == "packaging" for row in payload)
-    assert all(row["package_count"] == 1 and row["package_quantity"] == 1 for row in payload)
+    }] for row in rows)
+    assert all(row["work_orders"][0]["operation"] == "packaging" for row in rows)
+    assert all(row["package_count"] == 1 and row["package_quantity"] == 1 for row in rows)
     assert "file_data" not in "\n".join(statements).lower()
     expected_projection = {
         "models": (
@@ -193,9 +197,9 @@ def test_usluga_order_list_preloads_are_chunk_bounded_without_image_blobs(order_
             for column in omitted_columns:
                 assert f"{table}.{column}" not in selected_columns
     if order_count == 401:
-        assert payload[0]["model"] is None
-        assert all(row["model"]["image_url"].endswith(".webp") for row in payload[1:])
-        assert len({row["model"]["id"] for row in payload[1:]}) == 2
+        assert rows[0]["model"] is None
+        assert all(row["model"]["image_url"].endswith(".webp") for row in rows[1:])
+        assert len({row["model"]["id"] for row in rows if row["model"] is not None}) == 2
 
 
 def test_usluga_order_list_preserves_status_filter_and_empty_result():
@@ -208,9 +212,9 @@ def test_usluga_order_list_preserves_status_filter_and_empty_result():
             lambda: usluga.list_usluga_orders(db, _eco_user(), status=f"missing-{status}"),
         )
 
-    assert [row["id"] for row in payload] == list(reversed(order_ids))
-    assert empty == []
-    assert len(statements) == 1
+    assert [row["id"] for row in payload["rows"]] == list(reversed(order_ids))
+    assert empty == {"rows": [], "total": 0, "page": 1, "page_size": 100}
+    assert len(statements) == 2  # Exact count plus bounded parent page.
 
 
 def test_usluga_order_list_chunks_distinct_models_and_assets_at_400():
@@ -264,11 +268,13 @@ def test_usluga_order_list_chunks_distinct_models_and_assets_at_400():
             lambda: usluga.list_usluga_orders(db, _eco_user(), status=status),
         )
 
-    assert len(statements) == 15
-    assert [row["id"] for row in payload] == list(reversed(order_ids))
-    assert all(row["model"]["sizes"] == ["L"] for row in payload)
-    assert all(row["model"]["colors"] == ["Blue"] for row in payload)
-    assert all(row["model"]["image_url"].endswith(".webp") for row in payload)
+    assert len(statements) == 9
+    assert payload["total"] == 401
+    rows = payload["rows"]
+    assert [row["id"] for row in rows] == list(reversed(order_ids))[:100]
+    assert all(row["model"]["sizes"] == ["L"] for row in rows)
+    assert all(row["model"]["colors"] == ["Blue"] for row in rows)
+    assert all(row["model"]["image_url"].endswith(".webp") for row in rows)
     assert "file_data" not in "\n".join(statements).lower()
 
 
@@ -332,9 +338,9 @@ def test_usluga_order_list_matches_scalar_payloads_for_mixed_rows():
             )
             expected = [usluga._order_payload(db, order) for order in scalar_orders]
         with SessionLocal() as db:
-            actual = usluga.list_usluga_orders(db, _eco_user(), status=status)
+            actual = usluga.list_usluga_orders(db, _eco_user(), status=status, page_size=100)
 
-        assert actual == expected
+        assert actual["rows"] == expected
 
 
 def test_usluga_order_list_pagination_has_total_and_preserves_order():
@@ -359,11 +365,13 @@ def test_usluga_order_list_pagination_has_total_and_preserves_order():
     assert parent and all(" limit " in statement for statement in parent if "count" not in statement)
 
 
-def test_usluga_order_list_legacy_response_remains_unpaged():
+def test_usluga_order_list_defaults_to_bounded_first_page():
     with SessionLocal() as db:
         status, _ = _order_set(db, 501)
     with SessionLocal() as db:
         payload = usluga.list_usluga_orders(db, _eco_user(), status=status)
 
-    assert isinstance(payload, list)
-    assert len(payload) == 501
+    assert payload["total"] == 501
+    assert payload["page"] == 1
+    assert payload["page_size"] == 100
+    assert len(payload["rows"]) == 100
