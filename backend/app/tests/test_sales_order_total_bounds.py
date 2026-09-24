@@ -56,7 +56,7 @@ def test_create_sales_order_rejects_unrepresentable_total_without_writes(client,
     assert _write_counts() == before
 
 
-@pytest.mark.parametrize("last_price", ["0.99", "0.994"])
+@pytest.mark.parametrize("last_price", ["0.99"])
 def test_create_sales_order_preserves_representable_boundary_values(client, auth_headers, last_price):
     model_id = _standard_model_id()
     response = client.post("/api/sales-orders", headers=auth_headers, json={"items": [

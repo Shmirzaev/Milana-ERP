@@ -10,6 +10,7 @@ from app.models import (
     FinishedGoodsStock, Model, Package, PackageItem, SalesOrder, SalesOrderItem,
     Shipment, ShipmentPackage, StockReservation,
 )
+from app.services.sales_order_amounts import validate_sales_order_total
 
 
 def ready_pack_candidates(
@@ -156,6 +157,7 @@ def reserve_ready_packs(
                     package_id=package.id, quantity=quantity, reserved_by=user_id,
                 ))
                 reservations.append({"stock_id": stock.id, "package_id": package.id, "qty": quantity})
-    so.total_amount = sum(Decimal(str(line.unit_price)) * line.quantity for line in lines)
+    total = sum(Decimal(str(line.unit_price)) * line.quantity for line in lines)
+    so.total_amount = validate_sales_order_total(total)
     so.status = "ready"
     return reservations

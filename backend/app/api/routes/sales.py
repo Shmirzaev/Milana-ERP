@@ -1,7 +1,7 @@
 from app.core.order_reference import order_reference_contains
 from collections import defaultdict
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import partial
 from pathlib import Path
 from uuid import uuid4
@@ -36,12 +36,13 @@ from app.models import (
     Package, Bundle, FinishedGoodsStock, AuditLog,
 )
 from app.schemas.sales import (
-    SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
+    SalesOrderIn, SalesOrderItemIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
 )
 from app.schemas.production import MaterialRequirement
 from app.services.audit import log_action
 from app.services.finished_goods import repair_missing_brand_metadata
 from app.services.ready_stock_sales import ready_pack_candidates, reserve_ready_packs
+from app.services.sales_order_amounts import validate_sales_order_total
 from app.services.numbering import next_sales_order_no
 from app.services.numbering import next_invoice_no
 from app.services.production import production_order_printing_attachments_for_storage
@@ -53,8 +54,8 @@ from app.services.planning import material_requirements_for_sales_order
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
 _STOCK_VARIANT_QUERY_CHUNK_SIZE = 200
-_MAX_SALES_ORDER_TOTAL = Decimal("999999999999.99")
-_SALES_ORDER_TOTAL_OVERFLOW_THRESHOLD = Decimal("999999999999.995")
+_MAX_SALES_ORDER_ITEM_PRICE = Decimal("9999999999.99")
+_SALES_ORDER_ITEM_PRICE_CENT = Decimal("0.01")
 _SALES_ORDER_ITEM_SOURCE_TYPES = frozenset({"produce_new", "from_stock"})
 
 
@@ -67,6 +68,24 @@ def _validate_sales_order_item_source_type(value: str) -> str:
     if value not in _SALES_ORDER_ITEM_SOURCE_TYPES:
         raise HTTPException(400, "Invalid sales order item source_type")
     return value
+
+
+def _sales_order_item_price(value: object, *, round_catalog_price: bool = False) -> Decimal:
+    try:
+        price = Decimal(str(value))
+        if not price.is_finite() or price < 0:
+            raise ValueError
+        if round_catalog_price:
+            # Model.selling_price is NUMERIC(14,4); match PostgreSQL's positive
+            # NUMERIC scale-2 rounding before both line storage and total math.
+            price = price.quantize(_SALES_ORDER_ITEM_PRICE_CENT, rounding=ROUND_HALF_UP)
+        elif price != price.quantize(_SALES_ORDER_ITEM_PRICE_CENT):
+            raise HTTPException(422, "Sales order item unit_price must be representable in cents")
+        if price > _MAX_SALES_ORDER_ITEM_PRICE:
+            raise HTTPException(422, "Sales order item unit_price exceeds the supported maximum")
+    except (InvalidOperation, ValueError):
+        raise HTTPException(422, "Sales order item unit_price must be finite and representable") from None
+    return price
 
 
 def _sign_attachment_urls(payload: dict) -> dict:
@@ -1960,6 +1979,35 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
     printing_attachments = production_order_printing_attachments_for_storage(
         payload.printing_attachments,
     )
+    selected_model_ids = {int(item.model_id) for item in payload.items}
+    selected_models = {
+        model.id: model
+        for model in db.query(Model).filter(
+            Model.id.in_(selected_model_ids),
+            Model.catalog_scope == "standard",
+        ).all()
+    } if selected_model_ids else {}
+    for item in payload.items:
+        if item.model_id not in selected_models:
+            raise HTTPException(404, f"Model {item.model_id} not found")
+
+    prepared_lines: list[tuple[SalesOrderItemIn, Decimal, str]] = []
+    total = Decimal("0")
+    for item in payload.items:
+        model = selected_models.get(item.model_id)
+        source_type = "from_stock" if pack_order else _validate_sales_order_item_source_type(item.source_type)
+        if item.unit_price is None:
+            catalog_price = model.selling_price if model.selling_price is not None else Decimal("0")
+            unit_price = _sales_order_item_price(catalog_price, round_catalog_price=True)
+        else:
+            unit_price = _sales_order_item_price(item.unit_price)
+        prepared_lines.append((item, unit_price, source_type))
+        total += unit_price * (0 if pack_order else item.quantity)
+
+    # Unit prices are cent-precise here, so reject an unrepresentable order
+    # total before allocating its business number or flushing any rows.
+    total = validate_sales_order_total(total)
+
     so = SalesOrder(
         order_no=next_sales_order_no(db),
         customer_id=payload.customer_id,
@@ -1972,23 +2020,8 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         created_by=current.id,
     )
     db.add(so); db.flush()
-    total = Decimal("0")
     created_lines: list[SalesOrderItem] = []
-    selected_model_ids = {int(item.model_id) for item in payload.items}
-    selected_models = {
-        model.id: model
-        for model in db.query(Model).filter(
-            Model.id.in_(selected_model_ids),
-            Model.catalog_scope == "standard",
-        ).all()
-    } if selected_model_ids else {}
-    for item in payload.items:
-        model = selected_models.get(item.model_id)
-        if not model:
-            raise HTTPException(404, f"Model {item.model_id} not found")
-        unit_price = item.unit_price
-        if unit_price is None:
-            unit_price = float(model.selling_price) if model.selling_price is not None else 0.0
+    for item, unit_price, source_type in prepared_lines:
         line = SalesOrderItem(
             sales_order_id=so.id,
             unit_price=unit_price,
@@ -1996,20 +2029,10 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
             quantity=0 if pack_order else item.quantity,
             color="mixed" if pack_order else item.color,
             size="any" if pack_order else item.size,
-            source_type=(
-                "from_stock"
-                if pack_order
-                else _validate_sales_order_item_source_type(item.source_type)
-            ),
+            source_type=source_type,
         )
         db.add(line)
         created_lines.append(line)
-        total += Decimal(str(unit_price)) * line.quantity
-    # NUMERIC(14, 2) accepts positive sub-cent input up to (but not including)
-    # this rounding threshold. Keep that historical behavior while preventing
-    # a value that would round to the unrepresentable 1,000,000,000,000.00.
-    if total >= _SALES_ORDER_TOTAL_OVERFLOW_THRESHOLD:
-        raise HTTPException(422, f"Order total exceeds the supported maximum of {_MAX_SALES_ORDER_TOTAL}")
     so.total_amount = total
     if payload.order_type == "branded_stock_sale":
         reservations, shortages = _reserve_branded_stock(
@@ -2021,6 +2044,7 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
             notify_shortage=False,
             notify_storage_when_ready=True,
         )
+        validate_sales_order_total(Decimal(str(so.total_amount)))
         log_action(
             db,
             current,
@@ -2129,6 +2153,7 @@ def reserve_stock(
         notify_shortage=True,
         notify_storage_when_ready=True,
     )
+    validate_sales_order_total(Decimal(str(so.total_amount)))
     log_action(db, current, "reserve_stock", "SalesOrder", so.id, new_value={"reservations": reservations, "shortages": shortages})
     response = {"reservations": reservations, "shortages": shortages}
     store_idempotent_response(
