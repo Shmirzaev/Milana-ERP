@@ -526,6 +526,8 @@ def _incoming_work_items(
     dept_code: str,
     department_ids: list[int],
     textile_filter: str | None = None,
+    *,
+    work_order_ids: set[int] | None = None,
 ) -> list[dict]:
     target_operation = _DEPT_OPERATION.get(dept_code)
     if not target_operation:
@@ -542,7 +544,14 @@ def _incoming_work_items(
     )
     if department_ids:
         qry = qry.filter(WorkOrder.department_id.in_(department_ids))
-    target_rows = qry.order_by(WorkOrder.id.desc()).limit(500).all()
+    if work_order_ids is not None:
+        if not work_order_ids:
+            return []
+        qry = qry.filter(WorkOrder.id.in_(sorted(work_order_ids)))
+    target_rows = qry.order_by(WorkOrder.id.desc())
+    if work_order_ids is None:
+        target_rows = target_rows.limit(500)
+    target_rows = target_rows.all()
     textile_by_work_order_id = _textile_codes_for_work_orders(db, target_rows)
     if textile_filter:
         target_rows = [
@@ -602,7 +611,8 @@ def _incoming_work_items(
                 **_production_context_for_po(production_context_by_po, int(target.production_order_id or 0)),
             }
         )
-    return sorted(incoming, key=lambda row: (0 if int(row["ready_qty"] or 0) > 0 else 1, -int(row["work_order_id"])))[:200]
+    incoming.sort(key=lambda row: (0 if int(row["ready_qty"] or 0) > 0 else 1, -int(row["work_order_id"])))
+    return incoming[:200] if work_order_ids is None else incoming
 
 
 def _incoming_bundle_groups(db: DbSession, bundles: list[Bundle]) -> list[dict]:
@@ -673,6 +683,462 @@ def _incoming_bundle_groups(db: DbSession, bundles: list[Bundle]) -> list[dict]:
         grouped.values(),
         key=lambda row: (-int(row["ready_qty"] or 0), str(row.get("order_no") or row.get("production_no") or ""), -int(row["production_order_id"])),
     )[:200]
+
+
+def _core_inbox_identity_key(row: dict) -> str:
+    work_order_id = row.get("work_order_id") or row.get("id")
+    if work_order_id:
+        return f"wo-{int(work_order_id)}"
+    operation = row.get("target_operation") or row.get("operation") or "sewing"
+    textile_code = row.get("textile_code") or "all"
+    return f"po-{int(row['production_order_id'])}-{operation}-{textile_code}"
+
+
+def _ids_in_chunks(values: set[int]):
+    ordered = sorted(values)
+    for start in range(0, len(ordered), _REFERENCE_BATCH_SIZE):
+        yield ordered[start:start + _REFERENCE_BATCH_SIZE]
+
+
+def _core_inbox_identity_sources(
+    db: DbSession,
+    department: Department,
+    inbox_department_ids: list[int],
+    textile_filter: str | None,
+    *,
+    now: datetime,
+    client_tz,
+) -> list[dict]:
+    """Discover all eligible canonical identities without hydrating card data.
+
+    This intentionally omits the legacy queue caps. It records each source row
+    in merge order so page hydration can retain both Map insertion order and
+    the later-source-wins field semantics used by DepartmentOrderList.
+    """
+    department_code = str(department.code)
+    sources: list[dict] = []
+
+    # Incoming work order candidates retain the predecessor and quantity checks
+    # used by _incoming_work_items, followed by its ready-first/id-desc order.
+    incoming_po_ids: set[int] = set()
+    incoming_work_rows: list[WorkOrder] = []
+    incoming_work_textile: dict[int, str | None] = {}
+    target_operation = _DEPT_OPERATION.get(department_code)
+    eligible_incoming_work_po_ids: set[int] = set()
+    if target_operation:
+        incoming_query = (
+            db.query(WorkOrder)
+            .join(ProductionOrder, ProductionOrder.id == WorkOrder.production_order_id)
+            .filter(
+                WorkOrder.operation == target_operation,
+                WorkOrder.status.notin_(("completed", "rejected", "cancelled")),
+                ProductionOrder.status.notin_(_CANCELLED_PRODUCTION_STATUSES),
+            )
+        )
+        if inbox_department_ids:
+            incoming_query = incoming_query.filter(WorkOrder.department_id.in_(inbox_department_ids))
+        incoming_work_rows = incoming_query.order_by(WorkOrder.id.desc()).all()
+        incoming_work_textile = _textile_codes_for_work_orders(db, incoming_work_rows)
+        if textile_filter:
+            incoming_work_rows = [
+                row for row in incoming_work_rows
+                if incoming_work_textile.get(int(row.id)) == textile_filter
+            ]
+        incoming_po_ids = {
+            int(row.production_order_id)
+            for row in incoming_work_rows
+            if row.production_order_id
+        }
+        by_po: dict[int, dict[str, WorkOrder]] = {}
+        for ids in _ids_in_chunks(incoming_po_ids):
+            for row in db.query(WorkOrder).filter(WorkOrder.production_order_id.in_(ids)).all():
+                by_po.setdefault(int(row.production_order_id), {})[str(row.operation)] = row
+        incoming_rows: list[tuple[WorkOrder, int]] = []
+        for target in incoming_work_rows:
+            source = _previous_work_order(by_po.get(int(target.production_order_id), {}), target_operation)
+            if not source:
+                continue
+            source_ready_qty = int(source.passed_qty or source.actual_output_qty or 0)
+            target_received_qty = int(target.actual_input_qty or 0)
+            ready_qty = max(0, source_ready_qty - target_received_qty)
+            expected_qty = max(
+                ready_qty,
+                int(target.planned_input_qty or target.planned_output_qty or 0) - target_received_qty,
+            )
+            if ready_qty <= 0 and expected_qty <= 0:
+                continue
+            po_id = int(target.production_order_id)
+            eligible_incoming_work_po_ids.add(po_id)
+            incoming_rows.append((target, ready_qty))
+        incoming_rows.sort(key=lambda item: (0 if item[1] > 0 else 1, -int(item[0].id)))
+        for target, ready_qty in incoming_rows:
+            identity_row = {
+                "work_order_id": int(target.id),
+                "production_order_id": int(target.production_order_id),
+                "target_operation": target.operation,
+                "textile_code": (
+                    incoming_work_textile.get(int(target.id))
+                    if target_operation == "sewing" else None
+                ),
+            }
+            sources.append({
+                "key": _core_inbox_identity_key(identity_row),
+                "queue_kind": "incoming",
+                "descriptor": {"source": "incoming_work", "work_order_id": int(target.id)},
+                "sort": (0 if ready_qty > 0 else 1, -int(target.id)),
+            })
+
+    # Bundle groups are suppressed globally by PO when at least one valid
+    # incoming-work row exists, matching the frontend's PO-wide suppression.
+    incoming_bundle_statuses = ["sent_to_printing", "sent_to_sewing"]
+    if department_code in _SEWING_LOGISTICS_DEPTS:
+        incoming_bundle_statuses.append("created")
+    bundle_rows = (
+        db.query(Bundle, ProductionOrder.order_no, ProductionOrder.production_no)
+        .join(ProductionOrder, ProductionOrder.id == Bundle.production_order_id)
+        .filter(
+            Bundle.next_department_id.in_(inbox_department_ids),
+            Bundle.status.in_(incoming_bundle_statuses),
+            ProductionOrder.status.notin_(_CANCELLED_PRODUCTION_STATUSES),
+        )
+        .order_by(Bundle.id.desc())
+        .all()
+    )
+    if textile_filter:
+        bundle_rows = [row for row in bundle_rows if _bundle_textile_code(row[0]) == textile_filter]
+    bundle_po_ids = {int(bundle.production_order_id) for bundle, _, _ in bundle_rows}
+    bundle_work_by_po: dict[int, dict[str, WorkOrder]] = {}
+    for ids in _ids_in_chunks(bundle_po_ids):
+        for row in db.query(WorkOrder).filter(WorkOrder.production_order_id.in_(ids)).all():
+            bundle_work_by_po.setdefault(int(row.production_order_id), {})[str(row.operation)] = row
+    grouped_bundles: dict[tuple[int, str], dict] = {}
+    for bundle, order_no, production_no in bundle_rows:
+        po_id = int(bundle.production_order_id)
+        textile_code = _bundle_textile_code(bundle)
+        group = grouped_bundles.setdefault((po_id, textile_code), {
+            "po_id": po_id,
+            "textile_code": textile_code,
+            "order_no": order_no,
+            "production_no": production_no,
+            "ready_qty": 0,
+            "sewing_work_order_id": (
+                int(bundle_work_by_po[po_id]["sewing"].id)
+                if "sewing" in bundle_work_by_po.get(po_id, {}) else None
+            ),
+        })
+        group["ready_qty"] += int(bundle.quantity or 0)
+    grouped_rows = sorted(
+        grouped_bundles.values(),
+        key=lambda row: (
+            -int(row["ready_qty"] or 0),
+            str(row.get("order_no") or row.get("production_no") or ""),
+            -int(row["po_id"]),
+        ),
+    )
+    for group in grouped_rows:
+        if int(group["po_id"]) in eligible_incoming_work_po_ids:
+            continue
+        identity_row = {
+            "work_order_id": group["sewing_work_order_id"],
+            "production_order_id": group["po_id"],
+            "target_operation": "sewing",
+            "textile_code": group["textile_code"],
+        }
+        sources.append({
+            "key": _core_inbox_identity_key(identity_row),
+            "queue_kind": "incoming",
+            "descriptor": {
+                "source": "incoming_bundle_group",
+                "production_order_id": int(group["po_id"]),
+                "textile_code": group["textile_code"],
+            },
+            "sort": (
+                -int(group["ready_qty"] or 0),
+                str(group.get("order_no") or group.get("production_no") or ""),
+                -int(group["po_id"]),
+            ),
+        })
+
+    # Active/completed candidates use the same department and factory filters
+    # as the legacy work_orders list, but without its 500-row fetch ceiling.
+    work_query = (
+        db.query(WorkOrder)
+        .join(ProductionOrder, ProductionOrder.id == WorkOrder.production_order_id)
+        .filter(ProductionOrder.status.notin_(_CANCELLED_PRODUCTION_STATUSES))
+    )
+    if department_code in _SEWING_LOGISTICS_DEPTS:
+        work_query = work_query.filter(
+            WorkOrder.operation == "sewing",
+            WorkOrder.department_id.in_(inbox_department_ids),
+        )
+    else:
+        work_query = work_query.filter(WorkOrder.department_id == int(department.id))
+    work_orders = work_query.order_by(WorkOrder.id.desc()).all()
+    textile_by_work_order_id = _textile_codes_for_work_orders(db, work_orders)
+    if textile_filter:
+        work_orders = [
+            row for row in work_orders
+            if textile_by_work_order_id.get(int(row.id)) == textile_filter
+        ]
+
+    replacement_work_order_ids: set[int] = set()
+    if department_code in {"CUT", DEPT_ECO_COTTON_CUTTING}:
+        replacement_query = (
+            db.query(SewingReplacementRequest.cutting_work_order_id)
+            .join(WorkOrder, WorkOrder.id == SewingReplacementRequest.cutting_work_order_id)
+            .join(ProductionOrder, ProductionOrder.id == SewingReplacementRequest.production_order_id)
+            .filter(
+                WorkOrder.department_id == int(department.id),
+                SewingReplacementRequest.status == "waiting_cutting",
+                SewingReplacementRequest.cut_qty < SewingReplacementRequest.requested_qty,
+                ProductionOrder.status.notin_(_CANCELLED_PRODUCTION_STATUSES),
+            )
+            .distinct()
+        )
+        replacement_work_order_ids = {
+            int(value) for (value,) in replacement_query.all() if value is not None
+        }
+
+    progressed_order_ids: set[int] = set()
+    if department_code in {"CUT", DEPT_ECO_COTTON_CUTTING}:
+        scoped_po_ids = {int(row.production_order_id) for row in work_orders if row.production_order_id}
+        for ids in _ids_in_chunks(scoped_po_ids):
+            progressed_order_ids.update(_orders_progressed_beyond_cutting(db, ids))
+        if department_code == DEPT_ECO_COTTON_CUTTING:
+            for ids in _ids_in_chunks(scoped_po_ids):
+                progressed_order_ids.difference_update(_open_usluga_cutting_order_ids(db, ids))
+
+    today_client = now.astimezone(client_tz).date()
+    for work_order in work_orders:
+        status = str(work_order.status or "")
+        po_id = int(work_order.production_order_id or 0)
+        if status in _PENDING_WO_STATUSES:
+            if (
+                department_code in {"CUT", DEPT_ECO_COTTON_CUTTING}
+                and po_id in progressed_order_ids
+            ) or int(work_order.id) in replacement_work_order_ids:
+                continue
+            queue_kind = "pending"
+        elif status in _IN_PROGRESS_WO_STATUSES:
+            if (
+                department_code in {"CUT", DEPT_ECO_COTTON_CUTTING}
+                and po_id in progressed_order_ids
+            ) or int(work_order.id) in replacement_work_order_ids:
+                continue
+            queue_kind = "in_progress"
+        elif (
+            status == "completed"
+            and work_order.end_time
+            and as_utc(work_order.end_time)
+            and as_utc(work_order.end_time).astimezone(client_tz).date() == today_client
+        ):
+            queue_kind = "completed"
+        else:
+            continue
+        identity_row = {
+            "id": int(work_order.id),
+            "production_order_id": po_id,
+            "operation": work_order.operation,
+            "textile_code": textile_by_work_order_id.get(int(work_order.id)),
+        }
+        sources.append({
+            "key": _core_inbox_identity_key(identity_row),
+            "queue_kind": queue_kind,
+            "descriptor": {
+                "source": "work_order",
+                "work_order_id": int(work_order.id),
+                "queue_kind": queue_kind,
+            },
+            "sort": -int(work_order.id),
+        })
+
+    # A Python dict preserves the first insertion position while appending each
+    # later contributing row so the final page can reproduce spread semantics.
+    merged: dict[str, dict] = {}
+    incoming_work_sources = [row for row in sources if row["descriptor"]["source"] == "incoming_work"]
+    incoming_bundle_sources = [row for row in sources if row["descriptor"]["source"] == "incoming_bundle_group"]
+    incoming_work_sources.sort(key=lambda row: row["sort"])
+    incoming_bundle_sources.sort(key=lambda row: row["sort"])
+    ordered_sources = incoming_work_sources + incoming_bundle_sources
+    for queue_kind in ("pending", "in_progress", "completed"):
+        queue_sources = [row for row in sources if row["queue_kind"] == queue_kind]
+        queue_sources.sort(key=lambda row: row["sort"], reverse=True)
+        ordered_sources.extend(queue_sources)
+    for source in ordered_sources:
+        entry = merged.setdefault(source["key"], {"key": source["key"], "sources": []})
+        entry["sources"].append(source["descriptor"])
+        entry["queue_kind"] = source["queue_kind"]
+    return list(merged.values())
+
+
+def _hydrate_core_inbox_page(
+    db: DbSession,
+    page: list[dict],
+    dept_code: str,
+    inbox_department_ids: list[int],
+    textile_filter: str | None,
+) -> list[dict]:
+    incoming_work_ids = {
+        int(source["work_order_id"])
+        for entry in page for source in entry["sources"]
+        if source["source"] == "incoming_work"
+    }
+    bundle_groups = {
+        (int(source["production_order_id"]), str(source["textile_code"]))
+        for entry in page for source in entry["sources"]
+        if source["source"] == "incoming_bundle_group"
+    }
+    work_order_ids = {
+        int(source["work_order_id"])
+        for entry in page for source in entry["sources"]
+        if source["source"] == "work_order"
+    }
+
+    hydrated: dict[tuple, dict] = {}
+    for row in _incoming_work_items(
+        db,
+        dept_code,
+        inbox_department_ids,
+        textile_filter,
+        work_order_ids=incoming_work_ids,
+    ):
+        hydrated[("incoming_work", int(row["work_order_id"]))] = row
+
+    if bundle_groups:
+        bundle_po_ids = {po_id for po_id, _textile in bundle_groups}
+        bundle_statuses = ["sent_to_printing", "sent_to_sewing"]
+        if dept_code in _SEWING_LOGISTICS_DEPTS:
+            bundle_statuses.append("created")
+        matching_bundles = (
+            db.query(Bundle)
+            .join(ProductionOrder, ProductionOrder.id == Bundle.production_order_id)
+            .filter(
+                Bundle.production_order_id.in_(sorted(bundle_po_ids)),
+                Bundle.next_department_id.in_(inbox_department_ids),
+                Bundle.status.in_(bundle_statuses),
+                ProductionOrder.status.notin_(_CANCELLED_PRODUCTION_STATUSES),
+            )
+            .order_by(Bundle.id.desc())
+            .all()
+        )
+        matching_bundles = [
+            bundle for bundle in matching_bundles
+            if (int(bundle.production_order_id), _bundle_textile_code(bundle)) in bundle_groups
+        ]
+        for row in _incoming_bundle_groups(db, matching_bundles):
+            hydrated[("incoming_bundle_group", int(row["production_order_id"]), str(row["textile_code"]))] = row
+
+    work_orders: list[WorkOrder] = []
+    if work_order_ids:
+        work_orders = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.id.in_(sorted(work_order_ids)))
+            .order_by(WorkOrder.id.desc())
+            .all()
+        )
+    textile_by_work_order_id = _textile_codes_for_work_orders(db, work_orders)
+    work_order_po_ids = [int(row.production_order_id) for row in work_orders if row.production_order_id]
+    received_by_po = _received_bundle_totals_by_po(db, work_order_po_ids)
+    material_by_po = _material_payload_by_production_order(db, work_order_po_ids)
+    production_context_by_po = _production_context_by_production_order(db, work_order_po_ids)
+    work_order_by_id = {int(row.id): row for row in work_orders}
+    for source in (
+        source
+        for entry in page for source in entry["sources"]
+        if source["source"] == "work_order"
+    ):
+        work_order_id = int(source["work_order_id"])
+        work_order = work_order_by_id.get(work_order_id)
+        if not work_order:
+            continue
+        row = _work_order_card_payload(
+            work_order,
+            received_by_po,
+            textile_by_work_order_id.get(work_order_id),
+            material_by_po,
+            production_context_by_po,
+        )
+        if source["queue_kind"] == "completed":
+            row["end_time"] = work_order.end_time
+        hydrated[("work_order", work_order_id)] = row
+
+    output: list[dict] = []
+    for entry in page:
+        merged_row: dict = {}
+        for source in entry["sources"]:
+            key = (source["source"], int(source["work_order_id"])) if source["source"] in {"incoming_work", "work_order"} else (
+                source["source"],
+                int(source["production_order_id"]),
+                str(source["textile_code"]),
+            )
+            payload = hydrated.get(key)
+            if payload:
+                merged_row.update(payload)
+        merged_row["queue_kind"] = entry["queue_kind"]
+        output.append(merged_row)
+    return output
+
+
+@router.get("/department-orders")
+def department_order_page(
+    db: DbSession,
+    current: CurrentUser,
+    dept: str | None = None,
+    tz: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    """Return a bounded page of canonical DepartmentOrderList identities.
+
+    The legacy /api/inbox response remains unchanged. This opt-in route counts
+    the complete eligible merged identity set before it hydrates only the rows
+    needed for the requested page.
+    """
+    department = _resolve_department(db, current, dept)
+    _require_inbox_department_permission(department, current)
+    now = datetime.now(timezone.utc)
+    try:
+        client_tz = ZoneInfo(tz) if tz else timezone.utc
+    except Exception:
+        client_tz = timezone.utc
+
+    textile_filter = (
+        department.code
+        if department.code in {DEPT_MILANA, DEPT_BESTTEX, DEPT_ECO_COTTON}
+        else None
+    )
+    sewing_department_ids = _sewing_work_order_department_ids(db)
+    if department.code in _SEWING_LOGISTICS_DEPTS and not sewing_department_ids:
+        sewing_department_ids = [int(department.id)]
+    inbox_department_ids = (
+        sewing_department_ids
+        if department.code in _SEWING_LOGISTICS_DEPTS
+        else [int(department.id)]
+    )
+    identities = _core_inbox_identity_sources(
+        db,
+        department,
+        inbox_department_ids,
+        textile_filter,
+        now=now,
+        client_tz=client_tz,
+    )
+    total = len(identities)
+    page = identities[offset:offset + limit]
+    rows = _hydrate_core_inbox_page(
+        db,
+        page,
+        department.code,
+        inbox_department_ids,
+        textile_filter,
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(rows) < total,
+    }
 
 
 def _received_bundle_totals_by_po(db: DbSession, po_ids: list[int]) -> dict[int, dict[str, int]]:
