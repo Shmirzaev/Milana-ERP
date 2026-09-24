@@ -358,7 +358,7 @@ function StockForm({
       <div>
         <label className="label">{itemLabel}</label>
         {asyncItemOptions ? (
-          <SearchableSelect<number>
+          <SearchableSelect<string | number>
             value={asyncItemValue ?? null}
             options={asyncItemOptions}
             onChange={(value) => onAsyncItemChange?.(value)}
@@ -778,7 +778,7 @@ export default function ReceiveStockPage() {
     return [...byOrder.values()];
   }, [returnableAccessoryIssueRows, selectedAccessoryReturnOrder]);
   const returnableAccessoryItems = useMemo<ReceiveItem[]>(() => {
-    const items = returnableAccessoryItemRows.map((row) => ({
+    const items: ReceiveItem[] = returnableAccessoryItemRows.map((row) => ({
       id: row.item_id,
       name: `${row.item_name} (${fmtQty(row.returnable_quantity ?? row.issued_quantity)} ${row.unit})`,
       category: row.category,
