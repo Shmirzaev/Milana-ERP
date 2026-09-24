@@ -3,8 +3,8 @@ from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import case, func, or_
-from sqlalchemy.orm import load_only, selectinload
+from sqlalchemy import and_, case, exists, func, or_
+from sqlalchemy.orm import aliased, load_only, selectinload
 
 from app.core.deps import CurrentUser, DbSession, user_permissions
 from app.core.dt import as_utc
@@ -41,6 +41,8 @@ from app.services.bundles import (
     DEPT_ECO_COTTON_PACKAGING,
     DEPT_MILANA,
     DEPT_SEW,
+    SEWING_FACTORY_ALIASES,
+    SEWING_FACTORY_CODES,
     resolve_sewing_factory_code,
 )
 from app.services.model_images import model_display_image_url
@@ -1150,8 +1152,12 @@ def _replacement_sewing_work_payload(
     db: DbSession,
     department_ids: list[int],
     textile_filter: str | None,
-) -> list[dict]:
-    rows = (
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    if not department_ids:
+        return [], 0
+    query = (
         db.query(SewingReplacementRequest, WorkOrder, ProductionOrder)
         .join(WorkOrder, WorkOrder.id == SewingReplacementRequest.sewing_work_order_id)
         .join(ProductionOrder, ProductionOrder.id == SewingReplacementRequest.production_order_id)
@@ -1161,22 +1167,72 @@ def _replacement_sewing_work_payload(
             SewingReplacementRequest.replaced_qty < SewingReplacementRequest.cut_qty,
             ProductionOrder.status.notin_(_CANCELLED_PRODUCTION_STATUSES),
         )
-        .order_by(SewingReplacementRequest.created_at.asc(), SewingReplacementRequest.id.asc())
-        .all()
     )
+    if department_ids:
+        query = query.filter(WorkOrder.department_id.in_(department_ids))
+    if textile_filter:
+        query = query.join(Department, Department.id == WorkOrder.department_id).filter(
+            WorkOrder.operation == "sewing"
+        )
+        aliases_by_code = {
+            code: tuple(alias for alias, resolved in SEWING_FACTORY_ALIASES.items() if resolved == code)
+            for code in SEWING_FACTORY_CODES
+        }
+
+        def resolved_bundle_code(bundle):
+            normalized = func.upper(func.trim(func.coalesce(bundle.sewing_factory_code, "")))
+            return case(
+                *((normalized.in_(aliases), code) for code, aliases in aliases_by_code.items()),
+                else_=DEPT_MILANA,
+            )
+
+        batch_bundle = aliased(Bundle)
+        order_bundle = aliased(Bundle)
+        batch_scope = and_(
+            batch_bundle.production_order_id == WorkOrder.production_order_id,
+            batch_bundle.production_batch_id == WorkOrder.production_batch_id,
+        )
+        order_scope = order_bundle.production_order_id == WorkOrder.production_order_id
+        has_batch_scope = WorkOrder.production_batch_id.is_not(None) & exists().where(batch_scope)
+        has_order_scope = exists().where(order_scope)
+        batch_other_code = exists().where(
+            batch_scope & (resolved_bundle_code(batch_bundle) != textile_filter)
+        )
+        order_other_code = exists().where(
+            order_scope & (resolved_bundle_code(order_bundle) != textile_filter)
+        )
+        department_fallback = case(
+            (Department.code.in_(SEWING_FACTORY_CODES), Department.code),
+            else_=DEPT_MILANA,
+        )
+        query = query.filter(
+            (
+                WorkOrder.production_batch_id.is_not(None)
+                & has_batch_scope
+                & ~batch_other_code
+            )
+            | (~has_batch_scope & has_order_scope & ~order_other_code)
+            | (~has_batch_scope & ~has_order_scope & (department_fallback == textile_filter))
+        )
+
+    query = query.order_by(SewingReplacementRequest.created_at.asc(), SewingReplacementRequest.id.asc())
+    if limit is None:
+        rows = query.all()
+        total = len(rows)
+    else:
+        total = int(
+            query.order_by(None)
+            .with_entities(func.count(SewingReplacementRequest.id))
+            .scalar()
+            or 0
+        )
+        query = query.offset(offset).limit(limit)
+        rows = query.all()
     if not rows:
-        return []
+        return [], total
 
     sewing_work_orders = [sewing_work_order for _, sewing_work_order, _ in rows]
     textile_by_work_order_id = _textile_codes_for_work_orders(db, sewing_work_orders)
-    if textile_filter:
-        rows = [
-            row
-            for row in rows
-            if textile_by_work_order_id.get(int(row[1].id)) == textile_filter
-        ]
-    if not rows:
-        return []
 
     production_order_ids = sorted({int(request.production_order_id) for request, _, _ in rows})
     material_by_po = _material_payload_by_production_order(db, production_order_ids)
@@ -1202,7 +1258,33 @@ def _replacement_sewing_work_payload(
             **_production_context_for_po(production_context_by_po, int(request.production_order_id)),
         }
         for request, sewing_work_order, production_order in rows
-    ]
+    ], total
+
+
+@router.get("/replacement-sewing")
+def replacement_sewing_page(
+    db: DbSession,
+    current: CurrentUser,
+    dept: Annotated[str, Query()],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    department = _resolve_department(db, current, dept)
+    if department.code not in _SEWING_LOGISTICS_DEPTS:
+        raise HTTPException(404, "Replacement sewing queue not found")
+    _require_inbox_department_permission(department, current)
+    department_ids = _sewing_work_order_department_ids(db) or [int(department.id)]
+    textile_filter = department.code if department.code in SEWING_FACTORY_CODES else None
+    rows, total = _replacement_sewing_work_payload(
+        db, department_ids, textile_filter, limit=limit, offset=offset,
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(rows) < total,
+    }
 
 
 @router.get("/replacement-cutting")
@@ -1244,6 +1326,7 @@ def department_inbox(
     ready_to_ship_offset: Annotated[int, Query(ge=0)] = 0,
     replacement_cutting_limit: Annotated[int | None, Query(ge=1, le=100)] = None,
     replacement_cutting_offset: Annotated[int, Query(ge=0)] = 0,
+    include_replacement_sewing: bool = True,
 ):
     d = _resolve_department(db, current, dept)
     operation = _DEPT_OPERATION.get(d.code)
@@ -1407,11 +1490,13 @@ def department_inbox(
         replacement_cutting_work = []
         replacement_cutting_total = 0
         replacement_work_order_ids = set()
-    replacement_sewing_work = (
-        _replacement_sewing_work_payload(db, inbox_department_ids, textile_filter)
-        if d.code in _SEWING_LOGISTICS_DEPTS
-        else []
-    )
+    if include_replacement_sewing and d.code in _SEWING_LOGISTICS_DEPTS:
+        replacement_sewing_work, replacement_sewing_total = _replacement_sewing_work_payload(
+            db, inbox_department_ids, textile_filter,
+        )
+    else:
+        replacement_sewing_work = []
+        replacement_sewing_total = None
     if replacement_work_order_ids:
         pending_work_orders = [w for w in pending_work_orders if int(w.id) not in replacement_work_order_ids]
         in_progress_work_orders = [w for w in in_progress_work_orders if int(w.id) not in replacement_work_order_ids]
@@ -1732,6 +1817,7 @@ def department_inbox(
             and replacement_cutting_offset + len(replacement_cutting_work) < replacement_cutting_total
         ),
         "replacement_sewing_work": replacement_sewing_work,
+        "replacement_sewing_work_total": replacement_sewing_total,
         "cutting_work_orders": [
             _work_order_card_payload(w, received_by_po, None, material_by_po, production_context_by_po)
             for w in work_orders

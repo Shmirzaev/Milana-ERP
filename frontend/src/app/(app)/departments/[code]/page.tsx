@@ -48,6 +48,14 @@ type InboxAwaitingPackagingPage = {
   has_more: boolean;
 };
 
+type InboxReplacementSewingPage = {
+  rows: any[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+};
+
 function MaterialThumb({ row }: { row: any }) {
   const imageUrl = row?.material_image_url || row?.model_image_url;
   const src = storageThumbnailUrl(imageUrl, 160);
@@ -97,6 +105,7 @@ export default function DepartmentInboxPage() {
   const router = useRouter();
   const code = String(params.code || "").toUpperCase();
   const isPackagingDepartment = code === "PKG" || code === "BPK" || code === "ECP";
+  const isSewingDepartment = code === "SEW" || code === "MIL" || code === "BST" || code === "ECO";
   const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
   const [clientTz, setClientTz] = useState("UTC");
   const [startingWoId, setStartingWoId] = useState<number | null>(null);
@@ -125,7 +134,7 @@ export default function DepartmentInboxPage() {
       code === "CUT" || code === "ECT"
         ? "&replacement_cutting_limit=50&replacement_cutting_offset=0"
         : ""
-    }${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}`
+    }${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${isSewingDepartment ? "&include_replacement_sewing=false" : ""}`
     : null;
   const { data, isLoading, mutate } = useSWR<any>(inboxUrl, fetcher, { refreshInterval: 10_000 });
   useEffect(() => {
@@ -176,10 +185,27 @@ export default function DepartmentInboxPage() {
     fetcher,
     { refreshInterval: 10_000 },
   );
+  const {
+    data: replacementSewingPages,
+    setSize: setReplacementSewingPageCount,
+    isValidating: replacementSewingValidating,
+    error: replacementSewingError,
+  } = useSWRInfinite<InboxReplacementSewingPage>(
+    (index, previous) => isSewingDepartment && !(previous && !previous.has_more)
+      ? `/api/inbox/replacement-sewing?dept=${code}&limit=50&offset=${index * 50}`
+      : null,
+    fetcher,
+    { refreshInterval: 10_000 },
+  );
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
   const replacementCuttingTotal = Number(data?.replacement_cutting_work_total ?? replacementCuttingRows.length);
-  const replacementSewingWork = Array.isArray(data?.replacement_sewing_work) ? data.replacement_sewing_work : [];
+  const replacementSewingWork = useMemo(
+    () => replacementSewingPages?.flatMap((page) => page.rows) || [],
+    [replacementSewingPages],
+  );
+  const replacementSewingTotal = replacementSewingPages?.[0]?.total ?? 0;
+  const replacementSewingHasMore = replacementSewingPages?.[replacementSewingPages.length - 1]?.has_more ?? false;
   const cuttingWorkOrders = Array.isArray(data?.cutting_work_orders) ? data.cutting_work_orders : [];
   const incomingWorkOrders = useMemo(
     () => (Array.isArray(data?.incoming_work_orders) ? data.incoming_work_orders : []),
@@ -425,11 +451,12 @@ export default function DepartmentInboxPage() {
           ) : null}
         </section>
       )}
-      {!isLoading && replacementSewingWork.length > 0 && (
+      {!isLoading && isSewingDepartment && (replacementSewingWork.length > 0 || replacementSewingError) && (
         <section className="card mb-4 p-4">
           <h2 className="mb-3 text-sm font-semibold text-slate-700">
-            {t("replacement.sewingSection", { count: replacementSewingWork.length })}
+            {t("replacement.sewingSection", { count: replacementSewingTotal })}
           </h2>
+          {replacementSewingError ? <div role="alert" className="mb-2 text-sm text-red-700">{String(replacementSewingError.message || replacementSewingError)}</div> : null}
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
             {replacementSewingWork.map((row: any) => (
               <div key={row.id} className="rounded border border-amber-200 bg-amber-50/60 p-2 text-sm">
@@ -457,6 +484,16 @@ export default function DepartmentInboxPage() {
               </div>
             ))}
           </div>
+          {replacementSewingHasMore ? (
+            <button
+              type="button"
+              className="btn mt-3 h-9 px-3 text-xs"
+              disabled={replacementSewingValidating}
+              onClick={() => void setReplacementSewingPageCount((size) => size + 1)}
+            >
+              {replacementSewingValidating ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
         </section>
       )}
       {!isLoading && (code === "CUT" || code === "ECT") ? (
