@@ -1,8 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import ORMModel
 
@@ -472,10 +472,20 @@ class PayrollSummaryOut(BaseModel):
 class PayrollAdjustmentIn(BaseModel):
     payroll_period_id: int | None = None
     employee_id: int
-    adjustment_type: str | None = None
+    adjustment_type: Literal["bonus", "deduction"] | None = None
     amount: Decimal | float | int | str
     currency: str = "UZS"
     reason: str = Field(max_length=255)
+
+    @field_validator("adjustment_type", mode="before")
+    @classmethod
+    def normalize_adjustment_type(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            return normalized or None
+        return value
 
 
 class PayrollRecordReversalIn(BaseModel):
