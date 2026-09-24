@@ -90,6 +90,8 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 EPSILON = 1e-9
 MAX_STORED_STOCK_QUANTITY = Decimal("9999999999.9999")
+MAX_ITEM_COMPOSITION_ROWS = 100
+MAX_ITEM_COMPOSITION_NAME_LENGTH = 255
 
 
 @router.get("/cutting-fabric-usage")
@@ -193,22 +195,57 @@ def _validate_item_image_url(image_url: str | None) -> str | None:
     raise HTTPException(400, "Image URL must be an uploaded file path or an http(s) URL")
 
 
-def _item_payload(payload: ItemIn) -> dict:
+def _normalized_item_composition(value: object) -> list[dict[str, float | str]]:
+    if not isinstance(value, list):
+        return []
+    rows = []
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            percentage = float(row.get("percentage") or 0)
+        except (TypeError, ValueError):
+            percentage = 0.0
+        rows.append({"name": name, "percentage": percentage})
+    return rows
+
+
+def _item_payload(payload: ItemIn, *, existing_composition: object = None) -> dict:
     data = payload.model_dump()
     data["name"] = str(data.get("name") or "").strip()
     data["image_url"] = _validate_item_image_url(data.get("image_url"))
     composition = []
     total_pct = 0.0
+    has_oversized_name = False
     for row in data.pop("composition", []) or []:
         name = str(row.get("name") or "").strip()
         if not name:
             continue
+        if len(name) > MAX_ITEM_COMPOSITION_NAME_LENGTH:
+            has_oversized_name = True
         percentage = float(row.get("percentage") or 0)
         composition.append({"name": name, "percentage": percentage})
         total_pct += percentage
-    if total_pct > 100.0001:
+    unchanged_existing = (
+        existing_composition is not None
+        and composition == _normalized_item_composition(existing_composition)
+    )
+    if total_pct > 100.0001 and not unchanged_existing:
         raise HTTPException(400, "Composition total cannot exceed 100%")
-    data["composition_json"] = composition
+    if not unchanged_existing and has_oversized_name:
+        raise HTTPException(
+            422,
+            f"Composition names cannot exceed {MAX_ITEM_COMPOSITION_NAME_LENGTH} characters",
+        )
+    if not unchanged_existing and len(composition) > MAX_ITEM_COMPOSITION_ROWS:
+        raise HTTPException(
+            422,
+            f"Composition cannot contain more than {MAX_ITEM_COMPOSITION_ROWS} nonblank rows",
+        )
+    data["composition_json"] = existing_composition if unchanged_existing else composition
     return data
 
 
@@ -416,7 +453,7 @@ def update_item(
     duplicate = db.query(Item.id).filter(Item.sku == payload.sku, Item.id != item_id).first()
     if duplicate:
         raise HTTPException(400, "SKU already exists")
-    data = _item_payload(payload)
+    data = _item_payload(payload, existing_composition=it.composition_json)
     _ensure_unique_active_item_name(db, data, item_id=item_id)
     if data["unit"] != it.unit:
         unit_referenced = (
