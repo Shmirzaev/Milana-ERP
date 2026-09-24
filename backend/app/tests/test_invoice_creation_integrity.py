@@ -2,6 +2,7 @@
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 from queue import Queue
 from threading import Event
 from time import monotonic, sleep
@@ -116,6 +117,8 @@ def test_manual_invoice_accepts_exact_decimal_cents_without_float_conversion(cli
     )
     assert response.status_code == 201, response.text
     assert response.json()["amount"] == 999999999999.99
+    with SessionLocal() as db:
+        assert db.get(Invoice, response.json()["id"]).amount == Decimal("999999999999.99")
 
 
 def test_sales_invoice_creation_replays_via_both_endpoints(client, auth_headers):
