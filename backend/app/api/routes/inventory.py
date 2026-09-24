@@ -801,6 +801,22 @@ def set_stock_quantity(
 
     movement_type = "adjustment" if delta > 0 else "issue"
     if item.track_batch:
+        mismatched_active_batch = (
+            db.query(StockBatch.id)
+            .filter(
+                StockBatch.item_id == item.id,
+                StockBatch.archived_at.is_(None),
+                StockBatch.quantity > EPSILON,
+                StockBatch.unit != item.unit,
+            )
+            .order_by(StockBatch.id.asc())
+            .first()
+        )
+        if mismatched_active_batch:
+            raise HTTPException(
+                409,
+                "Batch-tracked stock has active batches whose unit differs from the item; reconcile before adjusting stock",
+            )
         active_batch_count = (
             db.query(StockBatch.id)
             .filter(

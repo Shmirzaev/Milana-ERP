@@ -120,6 +120,56 @@ def test_batch_tracked_adjustment_uses_matching_category_storage(client, auth_he
         assert movement.quantity == batch.quantity == Decimal("3")
 
 
+def test_batch_tracked_adjustment_rejects_active_legacy_unit_drift_without_writes(client, auth_headers):
+    suffix = uuid4().hex[:10].upper()
+    item_response = client.post("/api/inventory/items", headers=auth_headers, json={
+        "sku": f"ADJ-DRIFT-{suffix}", "name": f"Adjustment drift {suffix}",
+        "category": "accessory", "unit": "pcs", "default_cost": 1,
+        "reorder_level": 0, "track_batch": True,
+    })
+    assert item_response.status_code == 201, item_response.text
+    item_id = int(item_response.json()["id"])
+
+    with SessionLocal() as db:
+        warehouse = db.query(Warehouse).filter_by(type="accessory_storage").first()
+        assert warehouse is not None
+        batch = StockBatch(
+            item_id=item_id,
+            batch_no=f"LEGACY-DRIFT-{suffix}",
+            quantity=5,
+            unit="kg",
+            cost_per_unit=1,
+            warehouse_id=warehouse.id,
+            qc_status="passed",
+        )
+        db.add(batch)
+        db.commit()
+        batch_id = int(batch.id)
+    with SessionLocal() as db:
+        before = (
+            db.query(StockBatch).filter_by(item_id=item_id).count(),
+            db.query(StockMovement).filter_by(item_id=item_id).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}",
+        headers=auth_headers,
+        json={"quantity": 6, "unit": "pcs"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "unit differs from the item" in response.text
+    with SessionLocal() as db:
+        after = (
+            db.query(StockBatch).filter_by(item_id=item_id).count(),
+            db.query(StockMovement).filter_by(item_id=item_id).count(),
+            db.query(AuditLog).count(),
+        )
+        assert db.get(StockBatch, batch_id).quantity == Decimal("5")
+    assert after == before
+
+
 def test_stock_adjustment_rejects_derived_delta_overflow_without_writes(client, auth_headers):
     item_id = _create_item(client, auth_headers)
     with SessionLocal() as db:
