@@ -2,6 +2,8 @@
 
 Last updated: 2026-09-25
 
+- Continued 2026-09-25 (OPS10 recovery drill preparation): `docs/OPS10_NONPRODUCTION_RESTORE_DRILL.md` adds a non-production isolation checklist and evidence template for paired database/storage recovery. Business/IT owners still need to approve RTO, RPO, backup cadence, retention, off-host copy, drill scope/frequency and recovery roles; no restore, live environment check or witnessed drill was performed. OPS10 remains open; no production contact, migration, push, merge or deployment.
+
 - Continued 2026-09-25 (PERF35 Purchasing Receiving): `59a86c5d` pages the real receiving queue in searchable 50-order slices and keeps direct-ID recovery for a pending idempotent receipt. `b3239284` bounds supplier-total summaries to groups visible on each page while computing each group's exact global ordered-kg total; the UI merges summaries across loaded pages. Legacy bare orders remain an array. The integrated backend selection passes 13 tests; four Bun receiving/supplier/roll-weight contracts, TypeScript and targeted lint pass. Other large graphs and live load evidence keep PERF35 partial. Local only; no push, deployment or merge.
 
 - Continued 2026-09-25 (FN07 one-cent 1C/status verification): `720b924e` uses Decimal for 1C invoice-status recomputation; the integrated 1C/revenue selection passes 28 tests with six expected PostgreSQL-only skips. Customer one-cent settlement passes 28 tests with six expected skips, and order-history projection passes 18. FN07 remains partial pending the full financial-writer/state/list audit and production-data review; no external write or merge occurred.

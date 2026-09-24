@@ -58,6 +58,11 @@ Before launch, perform a restore into a non-production environment and record:
 - failed steps
 - owner approval
 
+Use the [OPS10 non-production drill record](OPS10_NONPRODUCTION_RESTORE_DRILL.md)
+to check isolation and retain timestamps, artifact identities, validation
+results, and owner assessment. The checklist does not set the RTO, RPO,
+retention schedule, or backup provider.
+
 ## Incident Roles
 
 Fill this in before launch:
