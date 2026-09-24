@@ -71,6 +71,8 @@ def _snapshot(wid, session_factory=SessionLocal):
 
 
 def _sell(client, headers, wid, *, quantity, unit_price=2.5, buyer_name="Synthetic buyer", key=None):
+    if key is None:
+        key = f"waste-sale-test-{uuid4().hex}"
     request_headers = {**headers, **({"Idempotency-Key": key} if key else {})}
     return client.post(
         f"/api/waste/{wid}/sell",
@@ -162,7 +164,7 @@ def test_sale_preserves_decimal_input_precision_when_validating(client, field, v
 
     response = client.post(
         f"/api/waste/{wid}/sell",
-        headers=headers,
+        headers={**headers, "Idempotency-Key": f"waste-sale-test-{uuid4().hex}"},
         json={"buyer_name": "Synthetic buyer", "quantity": 1, "unit_price": 2, field: value},
     )
     assert response.status_code == 400, response.text
@@ -185,7 +187,11 @@ def test_sale_rejects_invalid_payload_values_without_writes(client, field, value
     before = _snapshot(wid)
     payload = {"buyer_name": "Synthetic buyer", "quantity": 1, "unit_price": 2.5, field: value}
 
-    response = client.post(f"/api/waste/{wid}/sell", headers=headers, json=payload)
+    response = client.post(
+        f"/api/waste/{wid}/sell",
+        headers={**headers, "Idempotency-Key": f"waste-sale-test-{uuid4().hex}"},
+        json=payload,
+    )
 
     assert response.status_code == 400, response.text
     assert response.json() == {"detail": detail}
@@ -209,7 +215,7 @@ def test_sale_rejects_nonfinite_direct_values_without_writes(quantity, unit_pric
                 waste.WasteSaleIn(buyer_name="Synthetic buyer", quantity=quantity, unit_price=unit_price),
                 db,
                 db.get(User, actor_id),
-                None,
+                f"waste-sale-unit-{uuid4().hex}",
             )
     assert rejected.value.status_code == 400 and rejected.value.detail == detail
     assert _snapshot(wid) == before
@@ -238,7 +244,11 @@ def test_sale_requires_sellable_stock_and_permission(client):
 
     assert client.post(path, json=payload).status_code == 401
     assert client.post(path, headers=restricted, json=payload).status_code == 403
-    denied = client.post(path, headers=permitted, json=payload)
+    denied = client.post(
+        path,
+        headers={**permitted, "Idempotency-Key": f"waste-sale-test-{uuid4().hex}"},
+        json=payload,
+    )
     assert denied.status_code == 400 and denied.json() == {"detail": "Waste is not marked sellable"}
     assert client.post("/api/waste/2000000000/sell", headers=permitted, json=payload).status_code == 404
     assert _snapshot(wid) == before
@@ -411,18 +421,29 @@ def test_partial_sale_cannot_double_dispose_original_quantity(client):
     assert _snapshot(wid) == before
 
 
-def test_sale_without_idempotency_key_treats_identical_partials_as_distinct_sales(client):
+def test_sale_requires_idempotency_key_before_business_or_audit_writes(client):
     _, headers = _actor()
     wid = _fixture(quantity=5)
+    before = _snapshot(wid)
 
-    first = _sell(client, headers, wid, quantity=2)
-    second = _sell(client, headers, wid, quantity=2)
+    response = _sell(client, headers, wid, quantity=2, key="")
 
-    assert first.status_code == second.status_code == 200
-    assert first.json()["id"] != second.json()["id"]
-    snapshot = _snapshot(wid)
-    assert len(snapshot["sales"]) == 2
-    assert snapshot["record"]["status"] == "received_by_waste_department"
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Idempotency-Key is required for waste sale"}
+    assert _snapshot(wid) == before
+
+
+def test_sale_missing_key_preserves_authentication_and_resource_precedence(client):
+    _, permitted = _actor()
+    _, restricted = _actor(())
+    wid = _fixture()
+    payload = {"buyer_name": "Synthetic buyer", "quantity": 1, "unit_price": 2.5}
+
+    assert client.post(f"/api/waste/{wid}/sell", json=payload).status_code == 401
+    assert client.post(f"/api/waste/{wid}/sell", headers=restricted, json=payload).status_code == 403
+    missing = client.post("/api/waste/2000000000/sell", headers=permitted, json=payload)
+    assert missing.status_code == 404
+    assert missing.json() == {"detail": "Waste record not found"}
 
 
 def test_sale_audit_failure_rolls_back_sale_status_and_idempotency(client, monkeypatch):
@@ -501,13 +522,14 @@ def test_postgres_concurrent_sales_serialize_capacity_and_keyed_retry(
             actor = db.get(User, actor_id)
             ready.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
             assert start.wait(10), "Sale workers were not started"
+            request_key = shared_key or f"waste-sale-concurrent-{actor_id}"
             try:
                 result = waste.sell_waste(
                     wid,
                     waste.WasteSaleIn(buyer_name=f"Buyer {actor_id}", quantity=6, unit_price=2),
                     db,
                     actor,
-                    shared_key,
+                    request_key,
                 )
                 return 200, result["id"]
             except HTTPException as rejected:
@@ -546,7 +568,7 @@ def test_postgres_concurrent_sales_serialize_capacity_and_keyed_retry(
     assert sum(float(row["quantity"]) for row in after["sales"]) == 6
     assert after["record"]["status"] == "received_by_waste_department"
     assert len(after["audits"]) == len(before["audits"]) + 1
-    assert after["idempotency_count"] == (1 if shared_key else 0)
+    assert after["idempotency_count"] == before["idempotency_count"] + 1
 
 
 def test_postgres_sale_and_disposal_serialize_on_same_parent(sale_postgres_engine):
@@ -570,7 +592,7 @@ def test_postgres_sale_and_disposal_serialize_on_same_parent(sale_postgres_engin
                         waste.WasteSaleIn(buyer_name=f"Buyer {actor_id}", quantity=4, unit_price=2),
                         db,
                         actor,
-                        None,
+                        f"waste-sale-disposal-race-{actor_id}",
                     )
                 else:
                     waste.request_disposal(

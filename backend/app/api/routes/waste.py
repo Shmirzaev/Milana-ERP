@@ -167,6 +167,14 @@ def sell_waste(
     current: User = Depends(require_permissions("waste.sell", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    if not idempotency_key or not idempotency_key.strip():
+        # Keep authentication and resource-existence errors authoritative for
+        # older clients while refusing an unkeyed financial write.
+        waste_exists = db.query(WasteRecord.id).filter(WasteRecord.id == wid).first()
+        if not waste_exists:
+            raise HTTPException(404, "Waste record not found")
+        raise HTTPException(400, "Idempotency-Key is required for waste sale")
+
     idempotency_scope = f"waste.sales.{current.id}.{wid}"
     fingerprint_payload = {"waste_record_id": wid, **payload.model_dump(mode="json")}
     replay = replay_idempotent_response(
