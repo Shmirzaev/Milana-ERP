@@ -399,6 +399,17 @@ class SewingProductionReportOptions(BaseModel):
     sizes: list[SewingProductionReportOption] = Field(default_factory=list)
 
 
+class SewingProductionReportOrderOptionPage(BaseModel):
+    items: list[SewingProductionReportOption]
+    total: int
+    offset: int
+    limit: int
+    factory_code: str
+    search: str
+    selected_value: str
+    selected_option: SewingProductionReportOption | None = None
+
+
 class SewingSalarySummaryRow(BaseModel):
     employee_id: int
     employee_no: str | None = None

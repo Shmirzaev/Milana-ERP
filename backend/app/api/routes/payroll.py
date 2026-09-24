@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from sqlalchemy import Date, String, and_, case, cast, func, or_
+from sqlalchemy import Date, String, and_, case, cast, func, literal, or_, union_all
 from sqlalchemy.orm import load_only, object_session
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
@@ -73,6 +73,7 @@ from app.schemas.payroll import (
     PayrollSummaryOperationOut,
     PayrollSummaryOut,
     SewingProductionReportOut,
+    SewingProductionReportOrderOptionPage,
     SewingProductionReportOptions,
 )
 from app.models.order_reference import BusinessOrderAlias
@@ -1886,7 +1887,195 @@ def _sewing_report_factory_code(value: str | None) -> str | None:
     return normalized
 
 
-def _sewing_report_options(db: DbSession, factory_code: str) -> dict[str, list[dict[str, str]]]:
+def _sewing_report_order_option_page(
+    db: DbSession,
+    factory_code: str,
+    *,
+    search: str | None,
+    offset: int,
+    limit: int,
+    selected_value: str | None,
+) -> dict[str, Any]:
+    """Build an exact, factory-scoped directory page without hydrating history."""
+    factory_code = _sewing_report_factory_code(factory_code)
+    assert factory_code is not None
+
+    pattern = None
+    if search and search.strip():
+        escaped = (
+            search.strip()
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        pattern = f"%{escaped}%"
+
+    def order_label(first, second, model_code):
+        first_text = func.trim(cast(first, String))
+        second_text = func.trim(cast(second, String))
+        model_text = func.trim(cast(model_code, String))
+        return (
+            first_text
+            + case((second_text != "", literal(" | ") + second_text), else_=literal(""))
+            + case((model_text != "", literal(" | ") + model_text), else_=literal(""))
+        )
+
+    candidate_queries = []
+
+    def add_candidates(
+        source,
+        production_no,
+        sales_order_no,
+        model_code,
+        priority: int,
+        *,
+        queries=None,
+        search_pattern=pattern,
+        selected=None,
+    ):
+        target_queries = candidate_queries if queries is None else queries
+        match = None
+        if search_pattern:
+            match = or_(
+                production_no.ilike(search_pattern, escape="\\"),
+                sales_order_no.ilike(search_pattern, escape="\\"),
+                model_code.ilike(search_pattern, escape="\\"),
+            )
+        for value, other in (
+            (production_no, sales_order_no),
+            (sales_order_no, production_no),
+        ):
+            query = source.filter(value.isnot(None), func.trim(cast(value, String)) != "")
+            if value is sales_order_no:
+                query = query.filter(or_(other.is_(None), value != other))
+            if match is not None:
+                query = query.filter(match)
+            if selected is not None:
+                query = query.filter(value == selected)
+            target_queries.append(query.with_entities(
+                cast(value, String).label("value"),
+                order_label(value, other, model_code).label("label"),
+                literal(priority).label("priority"),
+                cast(production_no, String).label("production_no"),
+                cast(sales_order_no, String).label("sales_order_no"),
+            ))
+
+    payroll_source = db.query(PayrollRecord).filter(PayrollRecord.factory_code == factory_code)
+    add_candidates(
+        payroll_source,
+        PayrollRecord.production_no,
+        PayrollRecord.sales_order_no,
+        PayrollRecord.model_code,
+        0,
+    )
+
+    routed_order_ids = db.query(Bundle.production_order_id).distinct()
+    if factory_code == "MIL":
+        bundle_condition = or_(
+            Bundle.sewing_factory_code.in_(("MIL", "SEW")),
+            Bundle.sewing_factory_code.is_(None),
+        )
+    else:
+        bundle_condition = Bundle.sewing_factory_code == factory_code
+    routed_order_ids = routed_order_ids.filter(bundle_condition)
+    production_source = (
+        db.query(ProductionOrder)
+        .filter(ProductionOrder.id.in_(routed_order_ids))
+        .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
+        .join(Model, Model.id == ProductionOrder.model_id)
+    )
+    add_candidates(
+        production_source,
+        ProductionOrder.production_no,
+        SalesOrder.order_no,
+        Model.code,
+        1,
+    )
+
+    candidates = union_all(*candidate_queries).subquery("order_option_candidates")
+    ranked = db.query(
+        candidates.c.value,
+        candidates.c.label,
+        func.row_number().over(
+            partition_by=candidates.c.value,
+            order_by=(
+                candidates.c.priority.asc(),
+                candidates.c.production_no.asc(),
+                candidates.c.sales_order_no.asc(),
+            ),
+        ).label("option_rank"),
+    ).subquery("ranked_order_options")
+    directory = db.query(ranked.c.value, ranked.c.label).filter(ranked.c.option_rank == 1).subquery()
+
+    total = int(db.query(func.count()).select_from(directory).scalar() or 0)
+    page_rows = (
+        db.query(directory.c.value, directory.c.label)
+        .order_by(directory.c.value.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    selected_option = None
+    if selected_value:
+        selected_candidates = []
+        add_candidates(
+            payroll_source,
+            PayrollRecord.production_no,
+            PayrollRecord.sales_order_no,
+            PayrollRecord.model_code,
+            0,
+            queries=selected_candidates,
+            search_pattern=None,
+            selected=selected_value,
+        )
+        add_candidates(
+            production_source,
+            ProductionOrder.production_no,
+            SalesOrder.order_no,
+            Model.code,
+            1,
+            queries=selected_candidates,
+            search_pattern=None,
+            selected=selected_value,
+        )
+        selected_rows = union_all(*selected_candidates).subquery("selected_order_candidates")
+        selected_ranked = db.query(
+            selected_rows.c.value,
+            selected_rows.c.label,
+            func.row_number().over(
+                partition_by=selected_rows.c.value,
+                order_by=(
+                    selected_rows.c.priority.asc(),
+                    selected_rows.c.production_no.asc(),
+                    selected_rows.c.sales_order_no.asc(),
+                ),
+            ).label("option_rank"),
+        ).subquery("selected_ranked_order_options")
+        selected_row = db.query(
+            selected_ranked.c.value,
+            selected_ranked.c.label,
+        ).filter(selected_ranked.c.option_rank == 1).first()
+        if selected_row:
+            selected_option = {"value": str(selected_row.value), "label": str(selected_row.label)}
+
+    return {
+        "items": [{"value": str(value), "label": str(label)} for value, label in page_rows],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "factory_code": factory_code,
+        "search": search.strip() if search else "",
+        "selected_value": selected_value or "",
+        "selected_option": selected_option,
+    }
+
+
+def _sewing_report_options(
+    db: DbSession,
+    factory_code: str,
+    *,
+    include_orders: bool = True,
+) -> dict[str, list[dict[str, str]]]:
     factory_code = _sewing_report_factory_code(factory_code)
 
     def bundle_factory_condition():
@@ -2007,30 +2196,30 @@ def _sewing_report_options(db: DbSession, factory_code: str) -> dict[str, list[d
         production_model_qry = production_model_qry.filter(ProductionOrder.id.in_(routed_order_ids))
     production_models = production_model_qry.distinct().order_by(Model.code.asc()).all()
 
-    order_qry = (
-        db.query(PayrollRecord.production_no, PayrollRecord.sales_order_no, PayrollRecord.model_code)
-        .select_from(PayrollRecord)
-        .outerjoin(PayrollQrLabel, PayrollQrLabel.payroll_record_id == PayrollRecord.id)
-        .outerjoin(SewingFlow, SewingFlow.id == PayrollQrLabel.sewing_flow_id)
-        .filter(
-            PayrollRecord.factory_code == factory_code,
-            or_(PayrollRecord.production_no.isnot(None), PayrollRecord.sales_order_no.isnot(None)),
+    orders = []
+    production_orders = []
+    if include_orders:
+        order_qry = (
+            db.query(PayrollRecord.production_no, PayrollRecord.sales_order_no, PayrollRecord.model_code)
+            .filter(
+                PayrollRecord.factory_code == factory_code,
+                or_(PayrollRecord.production_no.isnot(None), PayrollRecord.sales_order_no.isnot(None)),
+            )
         )
-    )
-    orders = order_qry.distinct().order_by(
-        PayrollRecord.production_no.asc(),
-        PayrollRecord.sales_order_no.asc(),
-    ).all()
+        orders = order_qry.distinct().order_by(
+            PayrollRecord.production_no.asc(),
+            PayrollRecord.sales_order_no.asc(),
+        ).all()
 
-    production_order_qry = (
-        db.query(ProductionOrder.production_no, SalesOrder.order_no, Model.code)
-        .select_from(ProductionOrder)
-        .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
-        .join(Model, Model.id == ProductionOrder.model_id)
-    )
-    if factory_code:
-        production_order_qry = production_order_qry.filter(ProductionOrder.id.in_(routed_order_ids))
-    production_orders = production_order_qry.order_by(ProductionOrder.production_no.asc()).all()
+        production_order_qry = (
+            db.query(ProductionOrder.production_no, SalesOrder.order_no, Model.code)
+            .select_from(ProductionOrder)
+            .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
+            .join(Model, Model.id == ProductionOrder.model_id)
+        )
+        if factory_code:
+            production_order_qry = production_order_qry.filter(ProductionOrder.id.in_(routed_order_ids))
+        production_orders = production_order_qry.order_by(ProductionOrder.production_no.asc()).all()
 
     cutting_qry = (
         db.query(
@@ -2165,11 +2354,40 @@ def sewing_production_report_options(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.pay", "*")),
     factory_code: str | None = None,
+    include_orders: Annotated[bool, Query()] = True,
 ):
     scoped_factory = selected_factory_code(current)
     if factory_code:
         require_factory_access(current, factory_code)
-    return _sewing_report_options(db, scoped_factory)
+        scoped_factory = _sewing_report_factory_code(factory_code)
+    return _sewing_report_options(db, scoped_factory, include_orders=include_orders)
+
+
+@router.get(
+    "/reports/sewing-production/orders",
+    response_model=SewingProductionReportOrderOptionPage,
+)
+def sewing_production_report_orders(
+    db: DbSession,
+    current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.pay", "*")),
+    factory_code: Annotated[str | None, Query()] = None,
+    search: Annotated[str | None, Query(max_length=120)] = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 50,
+    offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
+    selected_value: Annotated[str | None, Query(max_length=255)] = None,
+):
+    scoped_factory = selected_factory_code(current)
+    if factory_code:
+        require_factory_access(current, factory_code)
+        scoped_factory = _sewing_report_factory_code(factory_code)
+    return _sewing_report_order_option_page(
+        db,
+        scoped_factory,
+        search=search,
+        offset=offset,
+        limit=limit,
+        selected_value=selected_value,
+    )
 
 
 def _filtered_sewing_production_report_query(
@@ -2331,6 +2549,7 @@ def sewing_production_report(
     scoped_factory = selected_factory_code(current)
     if factory_code:
         require_factory_access(current, factory_code)
+        scoped_factory = _sewing_report_factory_code(factory_code)
     qry, factory_code = _filtered_sewing_production_report_query(
         db,
         date_from=date_from,
@@ -2409,6 +2628,7 @@ def sewing_production_report_excel(
     scoped_factory = selected_factory_code(current)
     if factory_code:
         require_factory_access(current, factory_code)
+        scoped_factory = _sewing_report_factory_code(factory_code)
     qry, _ = _filtered_sewing_production_report_query(
         db,
         date_from=date_from,
