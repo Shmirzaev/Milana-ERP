@@ -1,3 +1,5 @@
+import re
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -7,6 +9,7 @@ from app.models import (
     AuditLog, IdempotencyRecord, Item, ManualAccessoryIssue, Model, ModelBOM,
     ProductionOrder, StockBatch, StockMovement, Warehouse,
 )
+from app.schemas.inventory import AccessoryReturnIn
 from app.services.inventory import accessory_issue_plan, accessory_issue_summary, current_stock_for_item
 from app.tests.conftest import TestSessionLocal
 
@@ -260,4 +263,89 @@ def test_accessory_return_rejects_wrong_storage_and_unit_without_writes(
     assert "Accessory Storage" in crossed_storage.text
     assert wrong_unit.status_code == 409, wrong_unit.text
     assert "unit" in wrong_unit.text.lower()
+    assert _state(case) == before
+
+
+@pytest.mark.parametrize(("submitted_condition", "canonical_condition"), [
+    ("new", "new"), ("used", "used"), (" New ", "new"), (" USED ", "used"),
+])
+def test_accessory_return_accepts_ui_condition_codes_and_persists_label(
+    client, auth_headers, accessory_case, submitted_condition, canonical_condition,
+):
+    case = accessory_case
+    with TestSessionLocal() as db:
+        _seed_issues(db, case, stock=1, manual=(), returned=0)
+        db.commit()
+
+    response = client.post("/api/inventory/accessory-returns", headers=auth_headers, json={
+        "production_order_id": case["po_id"], "item_id": case["item_id"],
+        "batch_no": f"RETURN-CONDITION-{canonical_condition.upper()}", "quantity": 1, "unit": "pcs",
+        "warehouse_id": case["destination_id"], "qc_status": "passed",
+        "return_condition": submitted_condition,
+    })
+    assert response.status_code == 201, response.text
+    assert response.json()["processes"] == f"Accessory condition: {canonical_condition}"
+
+
+def test_accessory_return_condition_keeps_none_and_default():
+    base_payload = {
+        "production_order_id": 1, "item_id": 1, "batch_no": "RETURN-SCHEMA",
+        "quantity": 1, "unit": "pcs", "warehouse_id": 1,
+    }
+    assert AccessoryReturnIn.model_validate(base_payload).return_condition == "used"
+    assert AccessoryReturnIn.model_validate({**base_payload, "return_condition": None}).return_condition is None
+
+
+def test_accessory_return_with_none_condition_preserves_process_note(client, auth_headers, accessory_case):
+    case = accessory_case
+    with TestSessionLocal() as db:
+        _seed_issues(db, case, stock=1, manual=(), returned=0)
+        db.commit()
+
+    response = client.post("/api/inventory/accessory-returns", headers=auth_headers, json={
+        "production_order_id": case["po_id"], "item_id": case["item_id"],
+        "batch_no": "RETURN-FREE-PROCESS-NOTE", "quantity": 1, "unit": "pcs",
+        "warehouse_id": case["destination_id"], "qc_status": "passed",
+        "return_condition": None, "processes": "Operator supplied process note",
+    })
+    assert response.status_code == 201, response.text
+    assert response.json()["processes"] == "Operator supplied process note"
+
+
+def test_accessory_return_ui_codes_match_openapi_enum(client):
+    repo_root = Path(__file__).resolve().parents[3]
+    ui_source = (
+        repo_root / "frontend" / "src" / "app" / "(app)" / "inventory" / "receive" / "page.tsx"
+    ).read_text(encoding="utf-8")
+    ui_codes = set(re.findall(r'<option value="([^"]+)">\{t\("accessoryCondition\.', ui_source))
+
+    openapi = client.get("/openapi.json")
+    assert openapi.status_code == 200, openapi.text
+    condition_schema = openapi.json()["components"]["schemas"]["AccessoryReturnIn"]["properties"]["return_condition"]
+    schema_codes = {
+        code
+        for branch in condition_schema.get("anyOf", [condition_schema])
+        for code in branch.get("enum", [])
+    }
+    assert ui_codes == schema_codes == {"new", "used"}
+    assert condition_schema["default"] == "used"
+
+
+def test_invalid_accessory_return_condition_rejects_without_writes_and_auth_still_precedes(
+    client, auth_headers, accessory_case,
+):
+    case = accessory_case
+    payload = {
+        "production_order_id": case["po_id"], "item_id": case["item_id"],
+        "batch_no": "RETURN-INVALID-CONDITION", "quantity": 1, "unit": "pcs",
+        "warehouse_id": case["destination_id"], "qc_status": "passed",
+        "return_condition": "damaged",
+    }
+    before = _state(case)
+    invalid = client.post("/api/inventory/accessory-returns", headers=auth_headers, json=payload)
+    assert invalid.status_code == 422, invalid.text
+    assert _state(case) == before
+
+    unauthenticated = client.post("/api/inventory/accessory-returns", json=payload)
+    assert unauthenticated.status_code == 401, unauthenticated.text
     assert _state(case) == before

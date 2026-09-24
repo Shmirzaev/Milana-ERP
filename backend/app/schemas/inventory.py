@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import ORMModel
 
@@ -155,7 +155,14 @@ class StockBatchRollWeightsIn(BaseModel):
 
 class AccessoryReturnIn(StockBatchIn):
     production_order_id: int
-    return_condition: Optional[str] = "used"
+    return_condition: Optional[Literal["new", "used"]] = "used"
+
+    @field_validator("return_condition", mode="before")
+    @classmethod
+    def normalize_return_condition(cls, value):
+        if isinstance(value, str):
+            return value.strip().casefold()
+        return value
 
 
 class StockBatchOut(ORMModel):
