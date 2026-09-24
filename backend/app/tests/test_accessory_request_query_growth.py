@@ -79,6 +79,7 @@ def test_accessory_request_page_has_bounded_query_growth(order_count):
             event.remove(db.bind, "before_cursor_execute", capture)
 
     assert len(rows) == min(order_count, 10)
+    print(f"Accessory request service {order_count}: {len(statements)} SELECTs")
     assert len(statements) <= 30, f"{order_count} orders issued {len(statements)} SELECTs"
 
 
@@ -597,3 +598,42 @@ def test_accessory_request_endpoint_denies_missing_and_unrelated_permissions(cli
     assert denied.status_code == 403
     with TestSessionLocal() as db:
         assert db.query(ProductionOrder).filter(ProductionOrder.model_id == model_id).count() == 1
+
+
+def test_accessory_request_postgres_errors_are_not_hidden_by_legacy_fallback(monkeypatch):
+    class _PostgresDialect:
+        name = "postgresql"
+
+    class _PostgresBind:
+        dialect = _PostgresDialect()
+
+    class _PostgresSession:
+        @staticmethod
+        def get_bind():
+            return _PostgresBind()
+
+    def fail_postgres_path(*_args, **_kwargs):
+        raise RuntimeError("derived query failed")
+
+    legacy_called = False
+
+    def observe_legacy(*_args, **_kwargs):
+        nonlocal legacy_called
+        legacy_called = True
+        return []
+
+    monkeypatch.setattr(
+        inventory_service,
+        "_postgresql_accessory_issue_requests",
+        fail_postgres_path,
+    )
+    monkeypatch.setattr(inventory_service, "_accessory_request_rows", observe_legacy)
+
+    with pytest.raises(RuntimeError, match="derived query failed"):
+        accessory_issue_requests(
+            _PostgresSession(),
+            page=1,
+            page_size=10,
+        )
+
+    assert legacy_called is False

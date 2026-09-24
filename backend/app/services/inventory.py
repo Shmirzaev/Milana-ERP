@@ -2491,6 +2491,544 @@ def _filter_accessory_request_rows(
     ]
 
 
+_POSTGRESQL_ACCESSORY_REQUEST_SQL = """
+WITH eligible_orders AS MATERIALIZED (
+    SELECT
+        po.id AS production_order_id,
+        po.production_no,
+        COALESCE(so.order_no, NULLIF(BTRIM(po.production_no), ''), po.production_no) AS order_no,
+        po.model_id,
+        po.planned_quantity,
+        model.code AS model_code,
+        model.name AS model_name
+    FROM production_orders AS po
+    LEFT JOIN sales_orders AS so ON so.id = po.sales_order_id
+    JOIN models AS model ON model.id = po.model_id
+    WHERE
+        (
+            (:production_order_id IS NOT NULL AND po.id = :production_order_id)
+            OR (
+                :production_order_id IS NULL
+                AND po.status NOT IN ('finished_storage', 'cancelled', 'rejected')
+            )
+        )
+        AND (:model_id IS NULL OR po.model_id = :model_id)
+),
+planning_rows AS MATERIALIZED (
+    SELECT
+        eligible.production_order_id,
+        eligible.production_no,
+        eligible.order_no,
+        eligible.model_id,
+        eligible.model_code,
+        eligible.model_name,
+        eligible.planned_quantity AS order_planned_quantity,
+        item.id AS planning_position,
+        item.model_id AS planning_model_id,
+        item.size,
+        item.color,
+        item.planned_quantity,
+        TRUE AS has_order_items
+    FROM eligible_orders AS eligible
+    JOIN production_order_items AS item
+      ON item.production_order_id = eligible.production_order_id
+
+    UNION ALL
+
+    SELECT
+        eligible.production_order_id,
+        eligible.production_no,
+        eligible.order_no,
+        eligible.model_id,
+        eligible.model_code,
+        eligible.model_name,
+        eligible.planned_quantity AS order_planned_quantity,
+        0::bigint AS planning_position,
+        eligible.model_id AS planning_model_id,
+        NULL::varchar AS size,
+        NULL::varchar AS color,
+        eligible.planned_quantity,
+        FALSE AS has_order_items
+    FROM eligible_orders AS eligible
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM production_order_items AS item
+        WHERE item.production_order_id = eligible.production_order_id
+    )
+),
+raw_requirements AS MATERIALIZED (
+    SELECT
+        planning.production_order_id,
+        planning.production_no,
+        planning.order_no,
+        planning.model_id,
+        planning.model_code,
+        planning.model_name,
+        planning.order_planned_quantity,
+        planning.planning_position,
+        bom.id AS bom_position,
+        catalog_item.id AS item_id,
+        catalog_item.sku AS item_sku,
+        catalog_item.name AS item_name,
+        catalog_item.image_url AS item_image_url,
+        catalog_item.category,
+        COALESCE(NULLIF(BTRIM(bom.unit), ''), catalog_item.unit, '') AS unit,
+        bom.stock_batch_id,
+        (
+            bom.quantity_per_piece::double precision
+            * GREATEST(planning.planned_quantity, 0)
+            * (1.0 + bom.waste_percent::double precision / 100.0)
+        ) AS required_quantity
+    FROM planning_rows AS planning
+    JOIN model_bom AS bom ON bom.model_id = planning.planning_model_id
+    JOIN items AS catalog_item ON catalog_item.id = bom.item_id
+    WHERE
+        catalog_item.category IN ('accessory', 'packaging')
+        AND (
+            NOT planning.has_order_items
+            OR bom.size IS NULL
+            OR bom.size = planning.size
+        )
+        AND (
+            NOT planning.has_order_items
+            OR bom.color IS NULL
+            OR bom.color = planning.color
+        )
+        AND (
+            bom.quantity_per_piece::double precision
+            * GREATEST(planning.planned_quantity, 0)
+            * (1.0 + bom.waste_percent::double precision / 100.0)
+        ) > 0
+),
+requirements AS MATERIALIZED (
+    SELECT
+        production_order_id,
+        production_no,
+        order_no,
+        model_id,
+        model_code,
+        model_name,
+        order_planned_quantity,
+        item_id,
+        item_sku,
+        item_name,
+        item_image_url,
+        category,
+        unit,
+        stock_batch_id,
+        MIN(ARRAY[planning_position::bigint, bom_position::bigint]) AS source_position,
+        SUM(required_quantity) AS required_quantity
+    FROM raw_requirements
+    GROUP BY
+        production_order_id,
+        production_no,
+        order_no,
+        model_id,
+        model_code,
+        model_name,
+        order_planned_quantity,
+        item_id,
+        item_sku,
+        item_name,
+        item_image_url,
+        category,
+        unit,
+        stock_batch_id
+),
+required_items AS MATERIALIZED (
+    SELECT DISTINCT item_id FROM requirements
+),
+movement_references AS MATERIALIZED (
+    SELECT
+        eligible.production_order_id,
+        reference_kind.reference_type,
+        eligible.production_order_id AS reference_id
+    FROM eligible_orders AS eligible
+    CROSS JOIN (
+        VALUES ('ProductionOrder'), ('ProductionOrderAccessoryIssue')
+    ) AS reference_kind(reference_type)
+
+    UNION ALL
+
+    SELECT eligible.production_order_id, 'WorkOrder', work_order.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+
+    UNION ALL
+
+    SELECT eligible.production_order_id, 'CuttingRecord', record.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    JOIN cutting_records AS record ON record.work_order_id = work_order.id
+
+    UNION ALL
+
+    SELECT eligible.production_order_id, 'SewingRecord', record.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    JOIN sewing_records AS record ON record.work_order_id = work_order.id
+
+    UNION ALL
+
+    SELECT eligible.production_order_id, 'PackagingRecord', record.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    JOIN packaging_records AS record ON record.work_order_id = work_order.id
+),
+movement_issues AS MATERIALIZED (
+    SELECT
+        reference.production_order_id,
+        movement.item_id,
+        COALESCE(NULLIF(BTRIM(movement.unit), ''), catalog_item.unit, '') AS unit,
+        SUM(movement.quantity) AS quantity
+    FROM movement_references AS reference
+    JOIN stock_movements AS movement
+      ON movement.reference_type = reference.reference_type
+     AND movement.reference_id = reference.reference_id
+    JOIN items AS catalog_item ON catalog_item.id = movement.item_id
+    WHERE
+        catalog_item.category IN ('accessory', 'packaging')
+        AND movement.movement_type IN ('consume', 'issue')
+    GROUP BY
+        reference.production_order_id,
+        movement.item_id,
+        COALESCE(NULLIF(BTRIM(movement.unit), ''), catalog_item.unit, '')
+),
+linked_manual_issues AS MATERIALIZED (
+    SELECT
+        manual.production_order_id,
+        manual.item_id,
+        COALESCE(NULLIF(BTRIM(manual.unit), ''), 'pcs') AS unit,
+        SUM(manual.quantity) AS quantity
+    FROM manual_accessory_issues AS manual
+    JOIN eligible_orders AS eligible
+      ON eligible.production_order_id = manual.production_order_id
+    WHERE manual.item_id IS NOT NULL
+    GROUP BY
+        manual.production_order_id,
+        manual.item_id,
+        COALESCE(NULLIF(BTRIM(manual.unit), ''), 'pcs')
+),
+item_issues AS MATERIALIZED (
+    SELECT production_order_id, item_id, unit, SUM(quantity) AS quantity
+    FROM (
+        SELECT production_order_id, item_id, unit, quantity FROM movement_issues
+        UNION ALL
+        SELECT production_order_id, item_id, unit, quantity FROM linked_manual_issues
+    ) AS issue_source
+    GROUP BY production_order_id, item_id, unit
+),
+itemless_manual_source AS MATERIALIZED (
+    SELECT
+        manual.production_order_id,
+        manual.id,
+        manual.created_at,
+        COALESCE(NULLIF(BTRIM(manual.unit), ''), 'pcs') AS unit,
+        COALESCE(NULLIF(BTRIM(manual.item_sku), ''), NULLIF(BTRIM(manual.item_name), ''), 'Manual accessory') AS item_sku,
+        COALESCE(NULLIF(BTRIM(manual.item_name), ''), NULLIF(BTRIM(manual.item_sku), ''), 'Manual accessory') AS item_name,
+        REGEXP_REPLACE(
+            LOWER(BTRIM(COALESCE(NULLIF(BTRIM(manual.item_sku), ''), NULLIF(BTRIM(manual.item_name), ''), 'Manual accessory'))),
+            '\\s+', ' ', 'g'
+        ) AS group_key,
+        manual.quantity
+    FROM manual_accessory_issues AS manual
+    JOIN eligible_orders AS eligible
+      ON eligible.production_order_id = manual.production_order_id
+    WHERE manual.item_id IS NULL
+),
+itemless_manual_grouped AS MATERIALIZED (
+    SELECT
+        production_order_id,
+        unit,
+        group_key,
+        (ARRAY_AGG(item_sku ORDER BY created_at DESC, id DESC))[1] AS item_sku,
+        (ARRAY_AGG(item_name ORDER BY created_at DESC, id DESC))[1] AS item_name,
+        SUM(quantity) AS quantity
+    FROM itemless_manual_source
+    GROUP BY production_order_id, unit, group_key
+),
+manual_alias_contributions AS MATERIALIZED (
+    SELECT
+        production_order_id,
+        unit,
+        REGEXP_REPLACE(LOWER(BTRIM(COALESCE(item_sku, ''))), '\\s+', ' ', 'g') AS match_key,
+        quantity
+    FROM itemless_manual_grouped
+
+    UNION ALL
+
+    SELECT
+        production_order_id,
+        unit,
+        REGEXP_REPLACE(LOWER(BTRIM(COALESCE(item_name, ''))), '\\s+', ' ', 'g') AS match_key,
+        quantity
+    FROM itemless_manual_grouped
+),
+requirement_aliases AS MATERIALIZED (
+    SELECT
+        production_order_id,
+        item_id,
+        unit,
+        stock_batch_id,
+        REGEXP_REPLACE(LOWER(BTRIM(COALESCE(item_sku, ''))), '\\s+', ' ', 'g') AS match_key
+    FROM requirements
+
+    UNION ALL
+
+    SELECT
+        production_order_id,
+        item_id,
+        unit,
+        stock_batch_id,
+        REGEXP_REPLACE(LOWER(BTRIM(COALESCE(item_name, ''))), '\\s+', ' ', 'g') AS match_key
+    FROM requirements
+),
+manual_alias_issues AS MATERIALIZED (
+    SELECT
+        requirement.production_order_id,
+        requirement.item_id,
+        requirement.unit,
+        requirement.stock_batch_id,
+        SUM(manual.quantity) AS quantity
+    FROM requirement_aliases AS requirement
+    JOIN manual_alias_contributions AS manual
+      ON manual.production_order_id = requirement.production_order_id
+     AND manual.unit = requirement.unit
+     AND manual.match_key = requirement.match_key
+    WHERE requirement.match_key <> ''
+    GROUP BY
+        requirement.production_order_id,
+        requirement.item_id,
+        requirement.unit,
+        requirement.stock_batch_id
+),
+batch_stock AS MATERIALIZED (
+    SELECT batch.item_id, SUM(batch.quantity) AS quantity
+    FROM stock_batches AS batch
+    JOIN required_items AS required ON required.item_id = batch.item_id
+    GROUP BY batch.item_id
+),
+batchless_stock AS MATERIALIZED (
+    SELECT
+        movement.item_id,
+        SUM(CASE
+            WHEN movement.movement_type IN ('produce', 'return', 'adjustment') THEN movement.quantity
+            ELSE 0
+        END) AS incoming,
+        SUM(CASE
+            WHEN movement.movement_type IN ('issue', 'consume', 'waste', 'shipment') THEN movement.quantity
+            ELSE 0
+        END) AS outgoing
+    FROM stock_movements AS movement
+    JOIN required_items AS required ON required.item_id = movement.item_id
+    WHERE movement.batch_id IS NULL
+    GROUP BY movement.item_id
+),
+active_reservations AS MATERIALIZED (
+    SELECT
+        reservation.item_id,
+        GREATEST(
+            0,
+            SUM(
+                reservation.reserved_quantity
+                - reservation.consumed_quantity
+                - reservation.released_quantity
+            )
+        ) AS quantity
+    FROM material_reservations AS reservation
+    JOIN required_items AS required ON required.item_id = reservation.item_id
+    WHERE reservation.status IN ('reserved', 'partially_consumed')
+    GROUP BY reservation.item_id
+),
+quantities AS MATERIALIZED (
+    SELECT
+        requirement.production_order_id,
+        requirement.production_no,
+        requirement.order_no,
+        requirement.model_id,
+        requirement.model_code,
+        requirement.model_name,
+        requirement.order_planned_quantity AS planned_quantity,
+        requirement.item_id,
+        requirement.item_sku,
+        requirement.item_name,
+        requirement.item_image_url,
+        requirement.category,
+        requirement.unit,
+        requirement.stock_batch_id,
+        requirement.source_position,
+        requirement.required_quantity,
+        COALESCE(item_issue.quantity, 0) + COALESCE(alias_issue.quantity, 0) AS issued_quantity,
+        GREATEST(
+            0,
+            requirement.required_quantity
+            - COALESCE(item_issue.quantity, 0)
+            - COALESCE(alias_issue.quantity, 0)
+        ) AS remaining_quantity,
+        (
+            COALESCE(batch.quantity, 0)
+            + COALESCE(batchless.incoming, 0)
+            - COALESCE(batchless.outgoing, 0)
+            - COALESCE(reserved.quantity, 0)
+        ) AS available_quantity
+    FROM requirements AS requirement
+    LEFT JOIN item_issues AS item_issue
+      ON item_issue.production_order_id = requirement.production_order_id
+     AND item_issue.item_id = requirement.item_id
+     AND item_issue.unit = requirement.unit
+    LEFT JOIN manual_alias_issues AS alias_issue
+      ON alias_issue.production_order_id = requirement.production_order_id
+     AND alias_issue.item_id = requirement.item_id
+     AND alias_issue.unit = requirement.unit
+     AND alias_issue.stock_batch_id IS NOT DISTINCT FROM requirement.stock_batch_id
+    LEFT JOIN batch_stock AS batch ON batch.item_id = requirement.item_id
+    LEFT JOIN batchless_stock AS batchless ON batchless.item_id = requirement.item_id
+    LEFT JOIN active_reservations AS reserved ON reserved.item_id = requirement.item_id
+),
+classified AS MATERIALIZED (
+    SELECT
+        quantities.*,
+        GREATEST(0, remaining_quantity - available_quantity) AS shortage,
+        CASE
+            WHEN remaining_quantity <= 0.000000001 THEN 'ready'
+            WHEN GREATEST(0, remaining_quantity - available_quantity) > 0.000000001 THEN 'shortage'
+            ELSE 'partial'
+        END AS status
+    FROM quantities
+),
+filtered AS MATERIALIZED (
+    SELECT *
+    FROM classified
+    WHERE
+        (:include_complete OR remaining_quantity > 0.000000001)
+        AND (
+            :search = ''
+            OR POSITION(:search IN LOWER(COALESCE(order_no, ''))) > 0
+            OR POSITION(:search IN LOWER(COALESCE(production_no, ''))) > 0
+            OR POSITION(:search IN LOWER(COALESCE(model_name, ''))) > 0
+            OR POSITION(:search IN LOWER(COALESCE(item_sku, ''))) > 0
+            OR POSITION(:search IN LOWER(COALESCE(item_name, ''))) > 0
+            OR POSITION(:search IN LOWER(COALESCE(unit, ''))) > 0
+            OR (
+                :normalized_search <> ''
+                AND POSITION(
+                    :normalized_search IN REPLACE(
+                        TRANSLATE(
+                            REGEXP_REPLACE(LOWER(BTRIM(COALESCE(model_code, ''))), '\\s+', ' ', 'g'),
+                            'авекмнорстху',
+                            'abekmhopctxy'
+                        ),
+                        '-',
+                        ''
+                    )
+                ) > 0
+            )
+        )
+),
+page_rows AS MATERIALIZED (
+    SELECT *
+    FROM filtered
+    ORDER BY
+        CASE status WHEN 'shortage' THEN 0 WHEN 'partial' THEN 1 ELSE 2 END,
+        production_order_id,
+        item_sku COLLATE "C",
+        category COLLATE "C",
+        unit COLLATE "C",
+        source_position
+    LIMIT :page_size OFFSET :offset
+),
+totals AS (
+    SELECT COUNT(*)::bigint AS total FROM filtered
+)
+SELECT
+    page.production_order_id,
+    page.production_no,
+    page.order_no,
+    page.model_id,
+    page.model_code,
+    page.model_name,
+    page.planned_quantity,
+    page.item_id,
+    page.item_sku,
+    page.item_name,
+    page.item_image_url,
+    page.category,
+    page.unit,
+    page.required_quantity,
+    page.issued_quantity,
+    page.remaining_quantity,
+    page.available_quantity,
+    page.shortage,
+    page.status,
+    totals.total
+FROM totals
+LEFT JOIN page_rows AS page ON TRUE
+ORDER BY
+    CASE page.status WHEN 'shortage' THEN 0 WHEN 'partial' THEN 1 ELSE 2 END,
+    page.production_order_id,
+    page.item_sku COLLATE "C",
+    page.category COLLATE "C",
+    page.unit COLLATE "C",
+    page.source_position
+"""
+
+
+def _postgresql_accessory_issue_requests(
+    db: Session,
+    *,
+    production_order_id: int | None,
+    model_id: int | None,
+    q: str | None,
+    include_complete: bool,
+    offset: int,
+    page_size: int,
+) -> tuple[list[dict], int]:
+    search = (q or "").strip().lower()
+    result = db.execute(
+        text(_POSTGRESQL_ACCESSORY_REQUEST_SQL),
+        {
+            "production_order_id": production_order_id,
+            "model_id": model_id,
+            "include_complete": include_complete,
+            "search": search,
+            "normalized_search": normalized_model_code_key(search),
+            "offset": offset,
+            "page_size": page_size,
+        },
+    ).mappings().all()
+    total = int(result[0]["total"] or 0) if result else 0
+    rows: list[dict] = []
+    for raw in result:
+        if raw["production_order_id"] is None:
+            continue
+        rows.append({
+            "production_order_id": int(raw["production_order_id"]),
+            "production_no": raw["production_no"],
+            "order_no": raw["order_no"],
+            "model_id": int(raw["model_id"]),
+            "model_code": raw["model_code"],
+            "model_name": raw["model_name"],
+            "planned_quantity": int(raw["planned_quantity"] or 0),
+            "item_id": int(raw["item_id"]),
+            "item_sku": raw["item_sku"],
+            "item_name": raw["item_name"],
+            "item_image_url": raw["item_image_url"],
+            "category": raw["category"],
+            "unit": raw["unit"],
+            "required_quantity": float(raw["required_quantity"] or 0),
+            "issued_quantity": float(raw["issued_quantity"] or 0),
+            "remaining_quantity": float(raw["remaining_quantity"] or 0),
+            "available_quantity": float(raw["available_quantity"] or 0),
+            "shortage": float(raw["shortage"] or 0),
+            "status": raw["status"],
+        })
+    return rows, total
+
+
 def accessory_issue_requests(
     db: Session,
     *,
@@ -2519,6 +3057,21 @@ def accessory_issue_requests(
         return (filtered_rows, len(filtered_rows)) if include_total else filtered_rows
 
     safe_page, safe_size, offset = clamp_pagination(page or 1, page_size or 50)
+    if db.get_bind().dialect.name == "postgresql":
+        # Rows and the exact total intentionally come from one statement so
+        # they share a PostgreSQL snapshot. SQL failures must propagate; the
+        # legacy path is a dialect fallback, not an error fallback.
+        rows, total = _postgresql_accessory_issue_requests(
+            db,
+            production_order_id=production_order_id,
+            model_id=model_id,
+            q=q,
+            include_complete=include_complete,
+            offset=offset,
+            page_size=safe_size,
+        )
+        return (rows, total) if include_total else rows
+
     retained_limit = offset + safe_size
     candidate_offset = 0
     total = 0
