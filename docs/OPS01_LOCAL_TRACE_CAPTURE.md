@@ -11,7 +11,7 @@ query-plan report.
 - `LOCAL_TRACE_CAPTURE_ENABLED` defaults to `false` and application startup
   rejects it in production, staging, or other public runtimes.
 - The trace records a generated request ID, HTTP method, matched route
-  template, status, app duration, count of successful SQL executions, and
+  template, status, app duration, count of attempted SQL executions, and
   aggregate SQL execution duration. It does not record SQL text, bind values,
   headers, query strings, cookies, request/response bodies, or user identifiers.
 - Browser HAR files can still contain credentials, cookies, URLs, and business
@@ -26,14 +26,14 @@ query-plan report.
    migration/seed path to create synthetic rows; do not reuse a shared or
    production database URL.
 2. Start the backend and the frontend against that local backend. Keep the
-   terminal containing backend logs visible so each `request_trace` line is
-   retained with its UTC capture time.
+   terminal containing backend logs visible, and note the UTC capture time
+   alongside the retained `request_trace` lines.
 3. In browser DevTools Network, enable Preserve log, clear prior requests, and
    perform one bounded read-only page load. Record the wall-clock time and
    inspect the matching API response's `X-Request-ID` and `Server-Timing`
    headers. For a HAR, save to the restricted directory described above.
 4. Find the backend `request_trace` line with the same request ID. It reports
-   the route template, status, total application time, successful SQL execute
+   the route template, status, total application time, attempted SQL execute
    count, and aggregate database execution time. Match the browser waterfall
    by request URL/method and compare its waiting/transfer timing with
    `Server-Timing`.
