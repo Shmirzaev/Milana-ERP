@@ -5837,6 +5837,20 @@ def test_cutting_edits_after_sewing_start_reconcile_the_whole_workflow(client, a
     cutting_wo = next(row for row in po["work_orders"] if row["operation"] == "cutting")
     sewing_wo = next(row for row in po["work_orders"] if row["operation"] == "sewing")
 
+    reduced = client.patch(
+        f"/api/work-orders/{cutting_wo['id']}/batches/{batch['id']}",
+        json={"planned_quantity": 325},
+        headers=auth_headers,
+    )
+    assert reduced.status_code == 200, reduced.text
+    assert int(reduced.json()["planned_quantity"]) == 325
+    revised = client.get(f"/api/production-orders/{po_id}", headers=auth_headers).json()
+    assert int(revised["planned_quantity"]) == 600
+    assert int(revised["batches"][0]["planned_quantity"]) == 325
+    for row in revised["work_orders"]:
+        assert int(row["planned_output_qty"]) == 325
+        assert int(row["actual_output_qty"] or 0) == 0
+
     r = client.post(
         "/api/cutting/records",
         json={
