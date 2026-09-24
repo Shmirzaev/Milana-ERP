@@ -702,6 +702,7 @@ def _add_passport_materials(db, order, work_order, payload, current):
         raise HTTPException(400, "Each additional material must appear once in the passport")
     existing = {row.stock_batch_id: row for row in order.materials}
     # Preserve the explicitly selected primary batch on legacy single-material orders.
+    primary = None
     if not existing and order.fabric_batch_id:
         amount = float(order.estimated_material_amount or 0)
         if amount <= 0:
@@ -710,7 +711,6 @@ def _add_passport_materials(db, order, work_order, payload, current):
             production_order_id=order.id, stock_batch_id=order.fabric_batch_id,
             estimated_quantity=amount, unit=order.estimated_material_unit or "kg", position=1,
         )
-        db.add(primary)
         existing[primary.stock_batch_id] = primary
     expected = set(existing) | set(ids)
     if len(passport_ids) != len(set(passport_ids)) or set(passport_ids) != expected:
@@ -720,16 +720,26 @@ def _add_passport_materials(db, order, work_order, payload, current):
     # per-addition reservation call can retain the numbering lock while waiting
     # for an item held by another request that is itself waiting for numbering.
     db.flush()
+    new_batch_ids = set(ids) - set(existing)
+    locked_batch_ids = new_batch_ids | ({int(primary.stock_batch_id)} if primary else set())
     batches = {
         batch.id: batch for batch in db.query(StockBatch)
-        .filter(StockBatch.id.in_(sorted(set(ids) - set(existing))))
+        .filter(StockBatch.id.in_(sorted(locked_batch_ids)))
         .order_by(StockBatch.id).with_for_update(of=StockBatch).populate_existing().all()
     }
-    new_batch_ids = set(batches)
     items = {
         item.id: item
         for item in db.query(Item).filter(Item.id.in_(sorted({batch.item_id for batch in batches.values()}))).all()
     } if batches else {}
+    if primary:
+        primary_batch = batches.get(primary.stock_batch_id)
+        primary_item = items.get(primary_batch.item_id) if primary_batch else None
+        if not primary_batch or not primary_item:
+            raise HTTPException(409, "The primary fabric batch is missing")
+        if primary.unit != primary_batch.unit:
+            raise HTTPException(409, "Primary fabric unit must match the selected stock batch")
+        validate_stock_batch_unit(primary_item, primary_batch.unit)
+        db.add(primary)
     active_reservations = (
         db.query(MaterialReservation)
         .filter(

@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import event
 
 from app.tests.conftest import test_engine
@@ -269,6 +270,74 @@ def test_cutting_passport_rejects_legacy_batch_unit_drift_with_existing_reservat
             db.query(MaterialReservation).count(), db.query(AuditLog).count(),
         ) == before
         assert db.get(StockBatch, extra["id"]).unit == "m"
+
+
+@pytest.mark.parametrize("drift", [None, "batch", "item", "planned"])
+def test_cutting_passport_validates_synthesized_legacy_primary_unit(client, auth_headers, drift):
+    from app.db.session import SessionLocal
+    from app.models import AuditLog, Item, MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch
+    from app.models.cutting_passport import CuttingPassport
+    from app.tests.test_sewing_workspace_permissions import _create_user_headers
+
+    cutting_headers = _create_user_headers(client, auth_headers, role="Cutting", department="CUT")
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    primary_item = _fabric_item(client, auth_headers)
+    extra_item = _fabric_item(client, auth_headers)
+    primary = _receive_batch(
+        client, auth_headers, item_id=primary_item["id"], warehouse_id=warehouse["id"],
+        quantity=20, unit="kg",
+    )
+    extra = _receive_batch(
+        client, auth_headers, item_id=extra_item["id"], warehouse_id=warehouse["id"],
+        quantity=20, unit="kg",
+    )
+    created = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "materials": [{"stock_batch_id": primary["id"], "estimated_quantity": 5, "unit": "kg"}],
+        "items": [{"model_id": 1, "color": "white", "size": "46", "planned_quantity": 10}],
+    })
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+    with SessionLocal() as db:
+        db.query(ProductionOrderMaterial).filter_by(production_order_id=order_id).delete()
+        if drift == "batch":
+            db.get(StockBatch, primary["id"]).unit = "m"
+        elif drift == "item":
+            db.get(Item, primary_item["id"]).unit = "m"
+        elif drift == "planned":
+            db.get(ProductionOrder, order_id).estimated_material_unit = "m"
+        db.commit()
+        before = (
+            db.query(CuttingPassport).count(), db.query(ProductionOrderMaterial).count(),
+            db.query(MaterialReservation).count(), db.query(AuditLog).count(),
+        )
+
+    response = client.post("/api/cutting-passports", headers=cutting_headers, json={
+        "passport_no": f"LEGACY-PRIMARY-{uuid4().hex[:8]}", "date": "2026-09-10T00:00:00Z",
+        "production_order_id": order_id,
+        "materials": [
+            {"stock_batch_id": primary["id"], "planned_kg": 5, "pieces": 10},
+            {"stock_batch_id": extra["id"], "planned_kg": 5, "pieces": 10},
+        ],
+        "additional_materials": [{"stock_batch_id": extra["id"], "estimated_quantity": 5, "unit": "kg"}],
+    })
+
+    if drift is None:
+        assert response.status_code == 201, response.text
+        with SessionLocal() as db:
+            rows = db.query(ProductionOrderMaterial).filter_by(production_order_id=order_id).order_by(
+                ProductionOrderMaterial.position,
+            ).all()
+            assert [(row.stock_batch_id, row.unit) for row in rows] == [
+                (primary["id"], "kg"), (extra["id"], "kg"),
+            ]
+    else:
+        assert response.status_code == 409, response.text
+        with SessionLocal() as db:
+            assert (
+                db.query(CuttingPassport).count(), db.query(ProductionOrderMaterial).count(),
+                db.query(MaterialReservation).count(), db.query(AuditLog).count(),
+            ) == before
 
 
 def _planning_headers(client) -> dict[str, str]:
