@@ -26,8 +26,11 @@ const compiled = ts.transpileModule(source, {
   },
 }).outputText;
 
-function createHarness({ lookupResult, lookupError }) {
+function createHarness({ lookupResult, lookupError, scope = "all" }) {
   const requests = [];
+  const manualOptionKeys = [];
+  let manualOptionPageCount = 1;
+  let previousManualOptionKey = null;
   const states = [];
   const refs = [];
   let stateCursor = 0;
@@ -68,6 +71,35 @@ function createHarness({ lookupResult, lookupError }) {
         };
       },
     },
+    "swr/infinite": {
+      default: (getKey) => {
+        const firstKey = getKey(0, null);
+        if (previousManualOptionKey !== null && previousManualOptionKey !== firstKey) {
+          manualOptionPageCount = 1;
+        }
+        previousManualOptionKey = firstKey;
+        manualOptionKeys.push(firstKey);
+        const firstPage = {
+          rows: [{ production_order_id: 10, production_batch_id: 20, model_id: 30,
+            order_no: "PO-10", bundle_count: 3, quantity: 30 }],
+          total: 51, page: 1, page_size: 50, has_more: true,
+        };
+        const secondPage = {
+          rows: [{ production_order_id: 9, production_batch_id: 19, model_id: 29,
+            order_no: "PO-9", bundle_count: 2, quantity: 20 }],
+          total: 51, page: 2, page_size: 50, has_more: true,
+        };
+        if (manualOptionPageCount > 1) manualOptionKeys.push(getKey(1, firstPage));
+        return {
+          data: manualOptionPageCount > 1 ? [firstPage, secondPage] : [firstPage],
+          size: manualOptionPageCount,
+          setSize(value) { manualOptionPageCount = value; },
+          mutate: async () => {},
+          isLoading: false,
+          isValidating: false,
+        };
+      },
+    },
     "next/navigation": { useSearchParams: () => new URLSearchParams() },
     "lucide-react": Object.fromEntries([
       "AlertCircle", "ArrowRight", "CheckCircle2", "Keyboard", "Loader2", "Printer", "QrCode",
@@ -103,10 +135,11 @@ function createHarness({ lookupResult, lookupError }) {
 
   return {
     requests,
+    manualOptionKeys,
     render() {
       stateCursor = 0;
       refCursor = 0;
-      return loadedModule.exports.default({ scope: "all" });
+      return loadedModule.exports.default({ scope });
     },
   };
 }
@@ -185,4 +218,40 @@ assert.equal(denied.requests.filter((key) => key === departmentKey).length, 0);
 assert.match(textContent(deniedTree), /403 forbidden/);
 assert.doesNotMatch(textContent(deniedTree), /CUT - Cutting|PRT - Printing/);
 
-console.log("Bundle scan departments: empty/denied key 1 -> 0; scanned referenced-department key remains exactly 1.");
+const manualReceive = createHarness({ scope: "sewing" });
+let manualTree = manualReceive.render();
+assert.equal(
+  manualReceive.manualOptionKeys.at(-1),
+  "/api/bundles/sewing-receive-options?page=1&page_size=50&factory_code=MIL",
+  "manual receive must load a bounded first page in the selected factory",
+);
+assert.match(textContent(manualTree), /PO-10/);
+assert.match(textContent(manualTree), /common\.showingRange/);
+const loadMoreOptions = find(manualTree, (node) => node.type === "button" &&
+  textContent(node.props.children).includes("common.loadMore"));
+assert.ok(loadMoreOptions, "manual receive must expose Load more for remaining eligible options");
+loadMoreOptions.props.onClick();
+manualTree = manualReceive.render();
+assert.equal(
+  manualReceive.manualOptionKeys.at(-1),
+  "/api/bundles/sewing-receive-options?page=2&page_size=50&factory_code=MIL",
+  "Load more must request the next server page",
+);
+assert.match(textContent(manualTree), /PO-9/, "the next page must append a newly loaded receive option");
+const manualSearch = find(manualTree, (node) => node.type === "input" &&
+  node.props.placeholder === "page.bundleScan.manualSearchPlaceholder");
+assert.ok(manualSearch);
+manualSearch.props.onChange({ target: { value: "needle" } });
+manualTree = manualReceive.render();
+const searchForm = find(manualTree, (node) => node.type === "form" &&
+  textContent(node.props.children).includes("common.search"));
+assert.ok(searchForm);
+searchForm.props.onSubmit({ preventDefault() {} });
+manualTree = manualReceive.render();
+assert.equal(
+  manualReceive.manualOptionKeys.at(-1),
+  "/api/bundles/sewing-receive-options?page=1&page_size=50&factory_code=MIL&q=needle",
+  "manual search must restart at page one with the selected factory",
+);
+
+console.log("Bundle scan: department directory stays deferred; sewing receive options use exact-total 50-row search/Load more pages.");

@@ -3,6 +3,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -58,6 +59,13 @@ type ManualReceiveOption = {
   material_image_url?: string | null;
   bundle_count: number;
   quantity: number;
+};
+type ManualReceiveOptionPage = {
+  rows: ManualReceiveOption[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
 };
 type ManualReceiveResult = {
   received_count: number;
@@ -154,17 +162,26 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     () => new Map(departments.map((d) => [Number(d.id), d])),
     [departments],
   );
-  const manualReceiveUrl = useMemo(() => {
-    const params = new URLSearchParams({ limit: "20" });
-    params.set("factory_code", factoryCode);
-    if (manualSearch) params.set("q", manualSearch);
-    return `/api/bundles/sewing-receive-options?${params.toString()}`;
-  }, [manualSearch, factoryCode]);
   const {
-    data: manualOptions = [],
+    data: manualOptionPages,
+    size: manualOptionPageCount,
+    setSize: setManualOptionPageCount,
     mutate: mutateManualOptions,
     isLoading: manualLoading,
-  } = useSWR<ManualReceiveOption[]>(showManualReceive ? manualReceiveUrl : null, fetcher);
+    isValidating: manualOptionsValidating,
+  } = useSWRInfinite<ManualReceiveOptionPage>(
+    (index, previousPage) => !showManualReceive || (previousPage && !previousPage.has_more)
+      ? null
+      : `/api/bundles/sewing-receive-options?page=${index + 1}&page_size=50&factory_code=${factoryCode}${manualSearch ? `&q=${encodeURIComponent(manualSearch)}` : ""}`,
+    fetcher,
+    { persistSize: false },
+  );
+  const manualOptions = useMemo(
+    () => manualOptionPages?.flatMap((page) => page.rows) ?? [],
+    [manualOptionPages],
+  );
+  const manualOptionTotal = manualOptionPages?.[0]?.total ?? 0;
+  const hasMoreManualOptions = manualOptionPages?.at(-1)?.has_more ?? false;
 
   const loadSewingBatch = useCallback(async (batchId: number) => {
     setMsg("");
@@ -737,6 +754,21 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               </tbody>
             </table>
           </div>
+          {manualOptionTotal > 0 && (
+            <div className="mt-3 flex flex-col items-start justify-between gap-3 text-sm text-slate-500 sm:flex-row sm:items-center">
+              <span>{t("common.showingRange", { start: 1, end: manualOptions.length, total: manualOptionTotal })}</span>
+              {hasMoreManualOptions && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={manualOptionsValidating}
+                  onClick={() => void setManualOptionPageCount(manualOptionPageCount + 1)}
+                >
+                  {manualOptionsValidating ? t("common.loading") : t("common.loadMore")}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

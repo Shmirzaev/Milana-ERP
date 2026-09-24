@@ -150,6 +150,32 @@ def test_sewing_receive_option_page_preserves_auth_scope_validation_and_no_write
     assert after == before
 
 
+def test_sewing_receive_option_pages_are_disjoint_and_search_total_is_exact():
+    order_ids = _seed_receive_options(51)
+    with TestSessionLocal() as db:
+        target_order_no = db.query(ProductionOrder.production_no).filter(
+            ProductionOrder.id == order_ids[0]
+        ).scalar()
+    assert target_order_no
+    marker_prefix = target_order_no[:-4]
+
+    first, _ = _read(page=1, page_size=50, q=marker_prefix)
+    second, _ = _read(page=2, page_size=50, q=marker_prefix)
+    searched, _ = _read(page=1, page_size=50, q=target_order_no)
+    first_ids = {row["production_order_id"] for row in first["rows"]}
+    second_ids = {row["production_order_id"] for row in second["rows"]}
+
+    assert first["total"] == second["total"] == 51
+    assert first["has_more"] is True
+    assert second["has_more"] is False
+    assert len(first_ids) == 50
+    assert len(second_ids) == 1
+    assert first_ids.isdisjoint(second_ids)
+    assert first_ids | second_ids == set(order_ids)
+    assert searched["total"] == 1
+    assert [row["production_order_id"] for row in searched["rows"]] == [order_ids[0]]
+
+
 def test_sewing_receive_option_sqlite_plan_has_no_correlated_subplan():
     _seed_receive_options(50)
 
