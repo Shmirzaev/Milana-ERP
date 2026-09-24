@@ -273,3 +273,7 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 - **Readiness:** other slow endpoints, full workflow/load tests and backup-restore proof still need work. Other pre-existing lock-order risks remain. **Not a production-readiness sign-off.**
 
 Recorded production application code matches the base; live servers/manifests were intentionally not queried. Revalidate deployment state before any release.
+
+### Latest DB01 follow-up (local only)
+
+`df14ad6` locks the sewing work order and assignment before deletion and reuses the return workflow's output/report guard. Progressed or historical assignments reject deletion without mutation; direct assignment-linked sewing records block return even when their line name differs. Fifty-eight focused sewing cases and Ruff pass. Other alternate writer/reference rules remain, so DB01 stays partial and the count stays **105 fixed, 16 partial, 6 open; 22 remaining**. No production contact, deployment or push occurred.

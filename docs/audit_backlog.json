@@ -1299,8 +1299,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "3d15874, 287fab2, 1610d50",
-      "evidence": "Purchase receipts and inventory adjustment/accessory-return/transfer/batch-edit writers now reuse the item-category warehouse contract; returns enforce item units and transfers enforce paired valid references. The inventory slice passes72 focused cases independently, including no-write failures and ledger parity. Sewing-assignment creation/update, acceptance/output, cutting-driven resizing and correction writers now share positive assigned quantity and 0<=completed<=assigned invariants; 40 focused/adjacent cases pass, including no-write failures at the resize minimum. Other alternate references and assignment deletion/return state rules remain, so DB01 is partial."
+      "commit": "3d15874, 287fab2, 1610d50, df14ad6",
+      "evidence": "Purchase receipts and inventory adjustment/accessory-return/transfer/batch-edit writers now reuse the item-category warehouse contract; returns enforce item units and transfers enforce paired valid references. The inventory slice passes72 focused cases independently, including no-write failures and ledger parity. Sewing-assignment creation/update, acceptance/output, cutting-driven resizing and correction writers share positive assigned quantity and 0<=completed<=assigned invariants, with40 focused/adjacent passes. Commit df14ad6 makes deletion lock the work order/assignment and reject output, linked reports/records and historical statuses before a write; return also detects directly linked records with a different line name. Fifty-eight focused sewing tests and Ruff pass. Other alternate references and writer/state rules remain, so DB01 is partial."
     },
     {
       "number": 109,
