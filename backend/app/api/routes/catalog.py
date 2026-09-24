@@ -63,6 +63,7 @@ from app.services.paid_operations import (
     sewing_master_factory_scope,
     validate_paid_operations_details_structure,
 )
+from app.services.stock_batch_policy import validate_stock_batch_unit
 
 router = APIRouter(tags=["catalog"])
 COLLECTION_STATUSES = frozenset({"draft", "approved", "archived"})
@@ -1138,6 +1139,39 @@ def _validate_bom_numeric_fields(data: dict) -> dict:
             raise HTTPException(422, f"{field} exceeds supported precision")
         data[field] = stored_value
     return data
+
+
+def _validate_effective_bom_item_unit(
+    db: DbSession,
+    data: dict,
+    *,
+    previous: dict | None = None,
+) -> None:
+    """Validate changed inventory-linked BOM quantities without rewriting legacy rows."""
+    item_id = int(data.get("item_id") or 0)
+    batch_id = int(data.get("stock_batch_id") or 0)
+    unit = data.get("unit")
+    current = (item_id or None, batch_id or None, unit)
+    if previous is not None and current == (
+        previous.get("item_id"), previous.get("stock_batch_id"), previous.get("unit"),
+    ):
+        return
+    if not item_id:
+        # Usluga descriptive fabrics intentionally have no inventory item/unit.
+        return
+
+    item = db.get(Item, item_id)
+    if not item:
+        raise HTTPException(404, "Inventory master item not found")
+    if batch_id:
+        batch = db.get(StockBatch, batch_id)
+        if not batch:
+            raise HTTPException(404, "Stock batch not found")
+        if int(batch.item_id) != int(item.id):
+            raise HTTPException(400, "Stock batch does not belong to selected item")
+        validate_stock_batch_unit(item, batch.unit)
+    if unit != item.unit:
+        raise HTTPException(409, "BOM unit must match inventory item unit")
 
 
 def _ensure_unique_usluga_main_material(
@@ -2924,6 +2958,7 @@ def add_bom(
     if data.get("photo_url"):
         data["photo_url"] = _validate_file_url(data["photo_url"])
     _validate_bom_numeric_fields(data)
+    _validate_effective_bom_item_unit(db, data)
     b = ModelBOM(model_id=mid, **data)
     db.add(b); db.flush()
     log_action(db, current, "create", "ModelBOM", b.id, new_value={"model_id": mid})
@@ -3023,6 +3058,17 @@ def update_bom(
     if "photo_url" in data and data["photo_url"]:
         data["photo_url"] = _validate_file_url(data["photo_url"])
     _validate_bom_numeric_fields(data)
+    effective_data = {
+        "item_id": b.item_id,
+        "stock_batch_id": b.stock_batch_id,
+        "unit": b.unit,
+    }
+    effective_data.update(data)
+    _validate_effective_bom_item_unit(
+        db,
+        effective_data,
+        previous={"item_id": b.item_id, "stock_batch_id": b.stock_batch_id, "unit": b.unit},
+    )
     for key, value in data.items():
         setattr(b, key, value)
     log_action(db, current, "update", "ModelBOM", b.id, new_value={"model_id": mid, **data})
