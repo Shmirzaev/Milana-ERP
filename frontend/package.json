@@ -62,6 +62,7 @@
     "test:finished-goods-pagination": "node scripts/test-finished-goods-pagination.mjs && node scripts/check-finished-goods-stock-pagination.mjs",
     "test:hr-organization-pagination": "node scripts/test-hr-organization-pagination.mjs",
     "test:payroll-order-option-pagination": "node scripts/check-payroll-order-option-pagination.mjs",
+    "test:payroll-adjustment-pagination": "bun scripts/test-payroll-adjustment-pagination.mjs",
     "test:inbox-package-pagination": "node scripts/check-inbox-package-pagination.mjs",
     "test:hr-attendance-pagination": "node scripts/test-hr-attendance-pagination.mjs",
     "test:department-order-pagination": "node scripts/test-department-order-pagination.mjs"

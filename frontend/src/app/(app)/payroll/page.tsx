@@ -114,6 +114,14 @@ type PayrollAdjustment = {
   created_at: string;
 };
 
+type PayrollAdjustmentPage = {
+  rows: PayrollAdjustment[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
 type Employee = {
   id: number;
   full_name: string;
@@ -266,10 +274,26 @@ export default function PayrollPage() {
   );
   const summaryHasMore = Boolean(summaryPages?.[summaryPages.length - 1]?.employees_has_more);
   const summaryIsLoadingMore = summaryIsValidating && Boolean(summaryPages?.length);
-  const { data: adjustments = [], mutate: mutateAdjustments } = useSWR<PayrollAdjustment[]>(
-    `/api/payroll/adjustments${summaryQuery ? `?${summaryQuery}` : ""}`,
-    fetcher,
+  const {
+    data: adjustmentPages,
+    mutate: mutateAdjustmentPages,
+    setSize: setAdjustmentSize,
+    isValidating: adjustmentsIsValidating,
+    isLoading: adjustmentsIsLoading,
+  } = useSWRInfinite<PayrollAdjustmentPage>((index, previousPage) => {
+    if (previousPage && !previousPage.has_more) return null;
+    const params = new URLSearchParams(summaryQuery);
+    params.set("page", String(index + 1));
+    params.set("page_size", "50");
+    return `/api/payroll/adjustments?${params.toString()}`;
+  }, fetcher);
+  const adjustments = useMemo(
+    () => adjustmentPages?.flatMap((page) => page.rows) || [],
+    [adjustmentPages],
   );
+  const adjustmentsTotal = adjustmentPages?.[0]?.total || 0;
+  const adjustmentsHasMore = Boolean(adjustmentPages?.[adjustmentPages.length - 1]?.has_more);
+  const adjustmentsIsLoadingMore = adjustmentsIsValidating && adjustments.length > 0;
 
   const periodById = useMemo(() => new Map(periods.map((period) => [Number(period.id), period])), [periods]);
   const employeeById = useMemo(() => new Map(employees.map((employee) => [Number(employee.id), employee])), [employees]);
@@ -309,7 +333,15 @@ export default function PayrollPage() {
   }
 
   async function refreshAll() {
-    await Promise.all([mutatePeriods(), mutateRecords(), mutateSummary(), mutateAdjustments()]);
+    await Promise.all([
+      mutatePeriods(),
+      mutateRecords(),
+      mutateSummary(),
+      (async () => {
+        await setAdjustmentSize(1);
+        await mutateAdjustmentPages();
+      })(),
+    ]);
   }
 
   async function createPeriod(event: React.FormEvent) {
@@ -706,7 +738,12 @@ export default function PayrollPage() {
 
         <section className="card overflow-hidden">
           <div className="border-b border-[#ecebe3] p-4">
-            <h2 className="app-card-title">{t("page.payroll.adjustments")}</h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="app-card-title">{t("page.payroll.adjustments")}</h2>
+              <span className="text-xs text-[#8a8472]">
+                {adjustments.length.toLocaleString()} / {adjustmentsTotal.toLocaleString()}
+              </span>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="table min-w-[840px]">
@@ -722,7 +759,10 @@ export default function PayrollPage() {
                 </tr>
               </thead>
               <tbody>
-                {adjustments.length === 0 && (
+                {adjustments.length === 0 && adjustmentsIsLoading && (
+                  <tr><td colSpan={7} className="text-sm text-[#8a8472]">{t("common.loading")}</td></tr>
+                )}
+                {adjustments.length === 0 && !adjustmentsIsLoading && (
                   <tr><td colSpan={7} className="text-sm text-[#8a8472]">{t("page.payroll.noAdjustments")}</td></tr>
                 )}
                 {adjustments.map((adjustment) => {
@@ -758,6 +798,18 @@ export default function PayrollPage() {
               </tbody>
             </table>
           </div>
+          {adjustmentsHasMore && (
+            <div className="border-t border-[#ecebe3] p-3 text-center">
+              <button
+                type="button"
+                className="btn"
+                disabled={adjustmentsIsLoadingMore}
+                onClick={() => void setAdjustmentSize((size) => size + 1)}
+              >
+                {adjustmentsIsLoadingMore ? t("common.loading") : t("common.loadMore")}
+              </button>
+            </div>
+          )}
         </section>
       </div>
 
