@@ -2,10 +2,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { api, fetcher } from "@/lib/api";
 import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import MaterialRollWeightFields, { rollWeightsTotal, validRollWeights } from "@/components/MaterialRollWeightFields";
 import PageHeader from "@/components/PageHeader";
+import SearchableSelect from "@/components/SearchableSelect";
 import { useT } from "@/lib/i18n";
 import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
@@ -48,6 +50,21 @@ type OrderOption = {
   id: number;
   label: string;
   orderNo: string;
+};
+
+type ProductionOrderOption = {
+  id: number;
+  production_no: string;
+  order_no?: string | null;
+  model_id: number;
+};
+
+type ProductionOrderPage = {
+  rows: ProductionOrderOption[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
 };
 
 type StockFormProps = {
@@ -546,9 +563,36 @@ export default function ReceiveStockPage() {
   const { data: receiveItems } = useSWR<ReceiveItem[]>(`/api/inventory/items?group=${receiveGroup}`, fetcher);
   const { data: warehouses } = useSWR<any[]>("/api/inventory/warehouses", fetcher);
   const { data: suppliers } = useSWR<any[]>("/api/suppliers", fetcher);
-  const { data: productionOrders } = useSWR<any[]>(isAccessoryReceiving ? "/api/production-orders?page_size=500" : null, fetcher);
+  const [productionOrderSearchInput, setProductionOrderSearchInput] = useState("");
+  const [productionOrderSearch, setProductionOrderSearch] = useState("");
+  const [selectedProductionOrder, setSelectedProductionOrder] = useState<ProductionOrderOption | null>(null);
+  const {
+    data: productionOrderPages,
+    setSize: setProductionOrderPageCount,
+    isValidating: productionOrdersValidating,
+  } = useSWRInfinite<ProductionOrderPage>(
+    (index, previousPage) => isAccessoryReceiving && !(previousPage && !previousPage.has_more)
+      ? `/api/production-orders?page=${index + 1}&page_size=50&include_total=true&q=${encodeURIComponent(productionOrderSearch)}`
+      : null,
+    fetcher,
+  );
+  useEffect(() => {
+    void setProductionOrderPageCount(1);
+    const timer = window.setTimeout(() => setProductionOrderSearch(productionOrderSearchInput.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [productionOrderSearchInput, setProductionOrderPageCount]);
+  const productionOrders = useMemo(
+    () => productionOrderPages?.flatMap((page) => page.rows) || [],
+    [productionOrderPages],
+  );
+  const productionOrderTotal = productionOrderPages?.[0]?.total || 0;
+  const lastProductionOrderPage = productionOrderPages?.[productionOrderPages.length - 1];
+  const hasMoreProductionOrders = Boolean(lastProductionOrderPage?.has_more);
   const { data: savedColors, mutate: refreshColors } = useSWR<string[]>(isFabricReceiving ? "/api/inventory/colors" : null, fetcher);
-  const receiveModelOptionsKey = modelOptionsByIdsKey((productionOrders || []).map((row) => row.model_id));
+  const receiveModelOptionsKey = modelOptionsByIdsKey([
+    ...productionOrders.map((row) => row.model_id),
+    ...(selectedProductionOrder ? [selectedProductionOrder.model_id] : []),
+  ]);
   const { data: models } = useSWR<any[]>(receiveModelOptionsKey, modelOptionsByIdsFetcher);
   const { data: batches, mutate: refreshBatches } = useSWR<any[]>(`/api/inventory/batches?group=${receiveGroup}`, fetcher);
   const { data: accessoryIssueRows, mutate: refreshAccessoryIssues } = useSWR<AccessoryIssueSummaryRow[]>(
@@ -745,8 +789,32 @@ export default function ReceiveStockPage() {
     }
   }
 
-  const selectedPo = productionOrders?.find((po) => Number(po.id) === Number(issueProductionOrderId));
+  const issuePlanOrder: ProductionOrderOption | null = issuePlan && Number(issuePlan.production_order_id) === issueProductionOrderId
+    ? {
+      id: Number(issuePlan.production_order_id),
+      production_no: issuePlan.production_no,
+      order_no: issuePlan.order_no,
+      model_id: Number(issuePlan.model_id),
+    }
+    : null;
+  const selectedPo = selectedProductionOrder?.id === issueProductionOrderId
+    ? selectedProductionOrder
+    : productionOrders.find((po) => Number(po.id) === Number(issueProductionOrderId)) || issuePlanOrder;
   const selectedPoModel = selectedPo ? modelById.get(Number(selectedPo.model_id)) : null;
+  const productionOrderOptionRows = [...productionOrders];
+  const selectedOrderOption = selectedProductionOrder || issuePlanOrder;
+  if (selectedOrderOption && !productionOrderOptionRows.some((row) => Number(row.id) === Number(selectedOrderOption.id))) {
+    productionOrderOptionRows.unshift(selectedOrderOption);
+  }
+  const productionOrderOptions = productionOrderOptionRows.map((po) => {
+    const model = modelById.get(Number(po.model_id));
+    const modelValue = model?.code || (Number(po.id) === issueProductionOrderId ? issuePlan?.model_code : null) || po.model_id;
+    const modelText = modelValue ? `Model ${modelValue}` : "";
+    return {
+      value: Number(po.id),
+      label: [orderReference(po, `#${po.id}`), modelText].filter(Boolean).join(" - "),
+    };
+  });
 
   function addCustomColor(color: string) {
     setPendingColors((current) => (
@@ -815,23 +883,29 @@ export default function ReceiveStockPage() {
             </div>
             <div>
               <label className="label">{t("field.orderNo")}</label>
-              <select
-                className="input"
-                value={issueProductionOrderId}
-                onChange={(e) => { setIssueProductionOrderId(Number(e.target.value)); setIssueMsg(""); }}
-              >
-                <option value={0}>{t("page.receiveStock.selectProductionOrder")}</option>
-                {productionOrders?.map((po) => {
-                  const model = modelById.get(Number(po.model_id));
-                  const modelValue = model?.code || po.model_id;
-                  const modelText = modelValue ? `Model ${modelValue}` : "";
-                  const label = [
-                    orderReference(po, `#${po.id}`),
-                    modelText,
-                  ].filter(Boolean).join(" - ");
-                  return <option key={po.id} value={po.id}>{label}</option>;
-                })}
-              </select>
+              <SearchableSelect<number>
+                value={issueProductionOrderId || null}
+                options={productionOrderOptions}
+                onChange={(id) => {
+                  const order = productionOrders.find((row) => Number(row.id) === Number(id))
+                    || (Number(selectedProductionOrder?.id) === Number(id) ? selectedProductionOrder : null)
+                    || (Number(issuePlanOrder?.id) === Number(id) ? issuePlanOrder : null);
+                  if (!order) return;
+                  setSelectedProductionOrder(order);
+                  setIssueProductionOrderId(Number(id));
+                  setProductionOrderSearchInput("");
+                  setIssueMsg("");
+                }}
+                placeholder={t("page.receiveStock.selectProductionOrder")}
+                noResultsText={t("page.search.noMatches")}
+                serverFilter
+                loading={productionOrdersValidating && Boolean(productionOrderPages?.length)}
+                loadingText={t("common.loading")}
+                hasMore={hasMoreProductionOrders}
+                loadMoreText={`${t("common.loadMore")} (${productionOrders.length} / ${productionOrderTotal})`}
+                onSearchChange={setProductionOrderSearchInput}
+                onLoadMore={() => void setProductionOrderPageCount((size) => size + 1)}
+              />
             </div>
           </div>
           {issuePlan && (
