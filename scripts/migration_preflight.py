@@ -5,6 +5,7 @@ Set MIGRATION_PREFLIGHT_DATABASE_URL to a restricted connection URL and run:
     python scripts/migration_preflight.py --revision 0055
     python scripts/migration_preflight.py --revision 0091
     python scripts/migration_preflight.py --revision 0092
+    python scripts/migration_preflight.py --revision 0101
     python scripts/migration_preflight.py --revision 0107
     python scripts/migration_preflight.py --revision both
 """
@@ -27,12 +28,13 @@ from app.migrations.preflight import (  # noqa: E402
     read_only_preflight_0091_0092,
     read_only_preflight_0130,
 )
+from app.migrations.preflight_0101 import read_only_preflight_0101  # noqa: E402
 from app.migrations.preflight_0107 import read_only_preflight_0107  # noqa: E402
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only migration impact preview")
-    parser.add_argument("--revision", choices=("0055", "0091", "0092", "0107", "0130", "both"), default="0130")
+    parser.add_argument("--revision", choices=("0055", "0091", "0092", "0101", "0107", "0130", "both"), default="0130")
     args = parser.parse_args()
     database_url = os.environ.get("MIGRATION_PREFLIGHT_DATABASE_URL")
     if not database_url:
@@ -46,6 +48,8 @@ def main() -> int:
                 engine,
                 revision=None if args.revision == "both" else args.revision,
             )
+        elif args.revision == "0101":
+            report = read_only_preflight_0101(engine)
         elif args.revision == "0107":
             report = read_only_preflight_0107(engine)
         else:

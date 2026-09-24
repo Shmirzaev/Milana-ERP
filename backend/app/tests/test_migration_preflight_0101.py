@@ -194,5 +194,6 @@ def test_0101_snapshot_hashes_are_repeatable_and_report_never_says_safe():
         "factory_code_predictions"]["payroll_records"]["snapshot_sha256"]
     assert first["mixed_payroll_periods"]["snapshot_sha256"] == second[
         "mixed_payroll_periods"]["snapshot_sha256"]
-    assert "safe" not in json.dumps(first).lower()
+    assert first["applicability"] != "safe"
+    assert "not evidence that the migration is safe" in first["limitations"]
     engine.dispose()
