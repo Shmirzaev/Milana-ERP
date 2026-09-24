@@ -1,17 +1,26 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import Annotated, Literal, Optional
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.common import ORMModel, SchemaModel
 from app.schemas.inventory import ItemComposition
+
+
+def _reject_boolean_quantity(value: object) -> object:
+    if isinstance(value, bool):
+        raise ValueError("Quantity must be an integer")
+    return value
+
+
+PlannedQuantity = Annotated[int, BeforeValidator(_reject_boolean_quantity)]
 
 
 class ProductionOrderItemIn(SchemaModel):
     model_id: int
     color: str
     size: str
-    planned_quantity: int = Field(strict=True, ge=0, le=2_147_483_647)
+    planned_quantity: PlannedQuantity = Field(ge=0, le=2_147_483_647)
     printing_required: bool = False
 
 
@@ -65,7 +74,7 @@ class ProductionOrderUpdateIn(BaseModel):
     ] | None = None
     model_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
     sales_order_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
-    planned_quantity: int | None = Field(default=None, strict=True, ge=0, le=2_147_483_647)
+    planned_quantity: PlannedQuantity | None = Field(default=None, ge=0, le=2_147_483_647)
     deadline: datetime | None = None
     estimated_material_code: str | None = Field(default=None, max_length=128)
     estimated_material_amount: Decimal | None = Field(
@@ -132,7 +141,7 @@ class ProductionOrderIn(SchemaModel):
     model_id: int
     brand_id: Optional[int] = None
     fabric_batch_id: Optional[int] = None
-    planned_quantity: int = Field(default=0, strict=True, ge=0, le=2_147_483_647)
+    planned_quantity: PlannedQuantity = Field(default=0, ge=0, le=2_147_483_647)
     start_date: Optional[datetime] = None
     deadline: Optional[datetime] = None
     estimated_material_code: Optional[str] = None

@@ -23,21 +23,21 @@ def _write_counts() -> tuple[int, int, int]:
 
 
 @pytest.mark.parametrize(
-    "value",
-    [0, MAX_SQL_INTEGER],
+    ("value", "expected"),
+    [(0, 0), (MAX_SQL_INTEGER, MAX_SQL_INTEGER), ("42", 42), (42.0, 42)],
 )
-def test_production_order_quantities_accept_nonnegative_sql_integer_bounds(value):
-    assert ProductionOrderIn(production_type="branded_stock", model_id=1, planned_quantity=value).planned_quantity == value
+def test_production_order_quantities_accept_nonnegative_sql_integer_bounds(value, expected):
+    assert ProductionOrderIn(production_type="branded_stock", model_id=1, planned_quantity=value).planned_quantity == expected
     assert ProductionOrderItemIn(
         model_id=1,
         color="navy",
         size="M",
         planned_quantity=value,
-    ).planned_quantity == value
-    assert ProductionOrderUpdateIn(planned_quantity=value).planned_quantity == value
+    ).planned_quantity == expected
+    assert ProductionOrderUpdateIn(planned_quantity=value).planned_quantity == expected
 
 
-@pytest.mark.parametrize("value", [-1, MAX_SQL_INTEGER + 1, 1.5, True])
+@pytest.mark.parametrize("value", [-1, MAX_SQL_INTEGER + 1, 1.5, "1.5", True])
 def test_production_order_quantities_reject_invalid_integer_storage_values(value):
     with pytest.raises(ValidationError):
         ProductionOrderIn(
