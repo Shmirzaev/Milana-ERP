@@ -1,4 +1,5 @@
 from uuid import uuid4
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import event
@@ -159,3 +160,37 @@ def test_customer_order_history_projects_response_fields_without_changing_totals
     assert "sales_orders.notes" in legacy_sql["sales_orders"]
     assert "invoices.external_id" in legacy_sql["invoices"]
     assert "payments.customer_id" in legacy_sql["payments"]
+
+
+@pytest.mark.parametrize(("payment_amount", "invoice_status", "expected_status", "balance_due"), [
+    (Decimal("99.99"), "partially_paid", "partial", 0.01),
+    (Decimal("100.00"), "paid", "paid", 0.0),
+])
+def test_customer_order_history_status_uses_exact_invoice_cents(
+    payment_amount, invoice_status, expected_status, balance_due,
+):
+    marker = uuid4().hex[:8].upper()
+    with SessionLocal() as db:
+        customer = Customer(name=f"Exact cent history {marker}")
+        db.add(customer)
+        db.flush()
+        order = SalesOrder(
+            order_no=f"CENT-HISTORY-{marker}", customer_id=customer.id,
+            status="confirmed", total_amount=100,
+        )
+        db.add(order)
+        db.flush()
+        invoice = Invoice(
+            sales_order_id=order.id, invoice_no=f"CENT-INVOICE-{marker}",
+            amount=100, status=invoice_status,
+        )
+        db.add(invoice)
+        db.flush()
+        db.add(Payment(invoice_id=invoice.id, customer_id=customer.id, amount=payment_amount))
+        db.commit()
+        customer_id = int(customer.id)
+
+    result, _ = _read(customer_id, page=1, page_size=10)
+    row = result["rows"][0]
+    assert row["payment_status"] == expected_status
+    assert row["balance_due"] == balance_due

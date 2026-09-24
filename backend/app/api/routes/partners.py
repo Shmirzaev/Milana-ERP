@@ -447,58 +447,59 @@ def _serialize_customer_order(
     payments_by_invoice: dict[int, list[Payment]],
 ) -> dict:
     invoice_payloads: list[dict] = []
-    invoice_total = 0.0
-    paid_total = 0.0
+    invoice_total = Decimal("0")
+    paid_total = Decimal("0")
     last_payment_at = None
 
     for inv in invoices:
         payments = payments_by_invoice.get(int(inv.id), [])
         payment_payloads = []
-        raw_paid_amount = 0.0
+        raw_paid_amount = Decimal("0")
         for payment in payments:
-            amount = float(payment.amount or 0)
+            amount = Decimal(str(payment.amount or 0))
             raw_paid_amount += amount
             if payment.paid_at and (last_payment_at is None or payment.paid_at > last_payment_at):
                 last_payment_at = payment.paid_at
             payment_payloads.append(
                 {
                     "id": payment.id,
-                    "amount": amount,
+                    "amount": float(amount),
                     "payment_method": payment.payment_method,
                     "paid_at": payment.paid_at,
                     "notes": payment.notes,
                 }
             )
 
-        amount = float(inv.amount or 0)
+        amount = Decimal(str(inv.amount or 0))
         paid_amount = min(raw_paid_amount, amount)
-        advance_amount = max(raw_paid_amount - amount, 0)
+        advance_amount = max(raw_paid_amount - amount, Decimal("0"))
         invoice_total += amount
         paid_total += paid_amount
         invoice_payloads.append(
             {
                 "id": inv.id,
                 "invoice_no": inv.invoice_no,
-                "amount": amount,
+                "amount": float(amount),
                 "status": inv.status,
                 "issued_at": inv.issued_at,
                 "due_date": inv.due_date,
-                "paid_amount": round(paid_amount, 2),
-                "raw_paid_amount": round(raw_paid_amount, 2),
-                "advance_amount": round(advance_amount, 2),
-                "balance_due": round(max(amount - paid_amount, 0), 2),
+                "paid_amount": float(paid_amount),
+                "raw_paid_amount": float(raw_paid_amount),
+                "advance_amount": float(advance_amount),
+                "balance_due": float(max(amount - paid_amount, Decimal("0"))),
                 "payments": payment_payloads,
             }
         )
 
-    balance_due = max((invoice_total if invoices else float(so.total_amount or 0)) - paid_total, 0)
+    order_total = invoice_total if invoices else Decimal(str(so.total_amount or 0))
+    balance_due = max(order_total - paid_total, Decimal("0"))
 
     def payment_status() -> str:
         if not invoices:
             return "no_invoice"
-        if invoice_total <= 0 or paid_total >= invoice_total - 0.01:
+        if invoice_total <= 0 or paid_total >= invoice_total:
             return "paid"
-        if paid_total > 0.01:
+        if paid_total > Decimal("0.01"):
             return "partial"
         if any(str(inv.status or "").lower() in {"partial", "partially_paid"} for inv in invoices):
             return "partial"
@@ -512,9 +513,9 @@ def _serialize_customer_order(
         "date": so.created_at,
         "total": float(so.total_amount or 0),
         "status": so.status,
-        "invoice_total": round(invoice_total, 2),
-        "paid_total": round(paid_total, 2),
-        "balance_due": round(balance_due, 2),
+        "invoice_total": float(invoice_total),
+        "paid_total": float(paid_total),
+        "balance_due": float(balance_due),
         "payment_status": payment_status(),
         "last_payment_at": last_payment_at,
         "invoices": invoice_payloads,
