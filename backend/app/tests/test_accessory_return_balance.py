@@ -153,6 +153,78 @@ def test_return_groups_keep_other_orders_items_units_and_itemless_labels_separat
         assert all(row["returned_quantity"] == 0 for row in untracked)
 
 
+def test_return_picker_pages_exact_returnable_groups_beyond_legacy_cap(client, auth_headers, accessory_case):
+    case = accessory_case
+    with TestSessionLocal() as db:
+        orders = [
+            ProductionOrder(
+                production_no=f"RETURN-PAGE-{index:04d}", production_type="branded_stock",
+                model_id=case["model_id"], planned_quantity=10,
+            )
+            for index in range(401)
+        ]
+        db.add_all(orders)
+        db.flush()
+        first_order_id = orders[0].id
+        db.add_all([
+            ManualAccessoryIssue(
+                production_order_id=order.id, item_id=case["item_id"], item_sku="PAGE-ACCESSORY",
+                item_name="Paged return accessory", quantity=2, unit="pcs",
+            )
+            for order in orders
+        ])
+        db.add(ManualAccessoryIssue(
+            production_order_id=first_order_id, item_id=case["other_item_id"], item_sku="SECOND-PAGE-ITEM",
+            item_name="Second returnable group", quantity=1, unit="pcs",
+        ))
+        db.add(ManualAccessoryIssue(
+            production_order_id=orders[0].id, item_name="Untracked cannot-return", quantity=4, unit="pcs",
+        ))
+        db.commit()
+
+    first = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+        "page": 1, "page_size": 50, "include_total": "true", "returnable_only": "true",
+    })
+    last = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+        "page": 9, "page_size": 50, "include_total": "true", "returnable_only": "true",
+    })
+    assert first.status_code == last.status_code == 200
+    assert first.json()["total"] == 402
+    assert len(first.json()["rows"]) == 50
+    assert first.json()["has_more"] is True
+    assert len(last.json()["rows"]) == 2
+    assert last.json()["has_more"] is False
+    assert not ({row["production_order_id"] for row in first.json()["rows"]}
+                & {row["production_order_id"] for row in last.json()["rows"]})
+    assert all(row["item_id"] > 0 and row["returnable_quantity"] > 0 for row in first.json()["rows"])
+
+    order_page = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+        "page": 1, "page_size": 50, "include_total": "true", "returnable_only": "true", "orders_only": "true",
+    })
+    final_order_page = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+        "page": 9, "page_size": 50, "include_total": "true", "returnable_only": "true", "orders_only": "true",
+    })
+    assert order_page.status_code == final_order_page.status_code == 200
+    assert order_page.json()["total"] == 401
+    assert len(order_page.json()["rows"]) == 50
+    assert len({row["production_order_id"] for row in order_page.json()["rows"]}) == 50
+    assert len(final_order_page.json()["rows"]) == 1
+
+    filtered = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+        "page": 1, "page_size": 50, "include_total": "true", "returnable_only": "true", "q": "PAGE-ACCESSORY",
+    })
+    assert filtered.status_code == 200
+    assert filtered.json()["total"] == 401
+    assert len(filtered.json()["rows"]) == 50
+
+    legacy = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+        "production_order_id": first_order_id,
+    })
+    assert legacy.status_code == 200
+    assert isinstance(legacy.json(), list)
+    assert any(row["item_id"] == 0 for row in legacy.json())
+
+
 def test_issue_plan_keeps_gross_issue_semantics_and_combines_linked_sources(accessory_case):
     case = accessory_case
     with TestSessionLocal() as db:

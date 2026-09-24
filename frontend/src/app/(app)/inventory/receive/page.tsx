@@ -67,6 +67,26 @@ type ProductionOrderPage = {
   has_more: boolean;
 };
 
+type AccessoryIssueSummaryPage = {
+  rows: AccessoryIssueSummaryRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
+type AccessoryReturnOrderRow = Pick<AccessoryIssueSummaryRow,
+  "production_order_id" | "production_no" | "order_no" | "model_id" | "model_code" | "model_name"
+>;
+
+type AccessoryReturnOrderPage = {
+  rows: AccessoryReturnOrderRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
 type StockFormProps = {
   title: string;
   subtitle?: string;
@@ -77,6 +97,22 @@ type StockFormProps = {
   warehouses?: any[];
   suppliers?: any[];
   orderOptions?: OrderOption[];
+  asyncItemOptions?: { value: number; label: string; searchText?: string }[];
+  asyncItemValue?: number | null;
+  asyncItemLoading?: boolean;
+  asyncItemHasMore?: boolean;
+  asyncItemCount?: number;
+  onAsyncItemChange?: (value: number) => void;
+  onAsyncItemSearchChange?: (query: string) => void;
+  onAsyncItemLoadMore?: () => void;
+  asyncOrderOptions?: { value: number; label: string; searchText?: string }[];
+  asyncOrderValue?: number | null;
+  asyncOrderLoading?: boolean;
+  asyncOrderHasMore?: boolean;
+  asyncOrderCount?: number;
+  onAsyncOrderChange?: (value: number) => void;
+  onAsyncOrderSearchChange?: (query: string) => void;
+  onAsyncOrderLoadMore?: () => void;
   message: string;
   requireOrder?: boolean;
   showOrder?: boolean;
@@ -260,6 +296,22 @@ function StockForm({
   warehouses,
   suppliers,
   orderOptions,
+  asyncItemOptions,
+  asyncItemValue,
+  asyncItemLoading = false,
+  asyncItemHasMore = false,
+  asyncItemCount = 0,
+  onAsyncItemChange,
+  onAsyncItemSearchChange,
+  onAsyncItemLoadMore,
+  asyncOrderOptions,
+  asyncOrderValue,
+  asyncOrderLoading = false,
+  asyncOrderHasMore = false,
+  asyncOrderCount = 0,
+  onAsyncOrderChange,
+  onAsyncOrderSearchChange,
+  onAsyncOrderLoadMore,
   message,
   requireOrder = false,
   showOrder = true,
@@ -305,7 +357,22 @@ function StockForm({
 
       <div>
         <label className="label">{itemLabel}</label>
-        <select
+        {asyncItemOptions ? (
+          <SearchableSelect<number>
+            value={asyncItemValue ?? null}
+            options={asyncItemOptions}
+            onChange={(value) => onAsyncItemChange?.(value)}
+            placeholder={itemLabel}
+            noResultsText={t("page.search.noMatches")}
+            serverFilter
+            loading={asyncItemLoading}
+            loadingText={t("common.loading")}
+            hasMore={asyncItemHasMore}
+            loadMoreText={`${t("common.loadMore")} (${asyncItemOptions.length} / ${asyncItemCount})`}
+            onSearchChange={onAsyncItemSearchChange}
+            onLoadMore={onAsyncItemLoadMore}
+          />
+        ) : <select
           className="input"
           value={form.item_id}
           onChange={(e) => {
@@ -317,7 +384,7 @@ function StockForm({
         >
           <option value={0}>{itemLabel}</option>
           {items?.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
-        </select>
+        </select>}
       </div>
       {showItemImage && (
         <div className={spanClass}>
@@ -426,7 +493,23 @@ function StockForm({
       {showOrder && (
         <div>
           <label className="label">{t("field.orderNo")}</label>
-          {orderOptions ? (
+          {asyncOrderOptions ? (
+            <SearchableSelect<number>
+              value={asyncOrderValue ?? null}
+              options={asyncOrderOptions}
+              onChange={(value) => onAsyncOrderChange?.(value)}
+              placeholder={t("ph.orderNo")}
+              noResultsText={t("page.search.noMatches")}
+              serverFilter
+              loading={asyncOrderLoading}
+              loadingText={t("common.loading")}
+              hasMore={asyncOrderHasMore}
+              loadMoreText={`${t("common.loadMore")} (${asyncOrderOptions.length} / ${asyncOrderCount})`}
+              onSearchChange={onAsyncOrderSearchChange}
+              onLoadMore={onAsyncOrderLoadMore}
+              required={requireOrder}
+            />
+          ) : orderOptions ? (
             <select
               className="input"
               value={selectedOrderId}
@@ -448,7 +531,7 @@ function StockForm({
           ) : (
             <input className="input" placeholder={t("field.orderNo")} value={form.order_no} onChange={(e) => onChange({ ...form, order_no: e.target.value })} required={requireOrder} />
           )}
-          {orderOptions && orderOptions.length === 0 && noOrderOptionsMessage && (
+          {(orderOptions || asyncOrderOptions)?.length === 0 && noOrderOptionsMessage && (
             <div className="mt-1 text-xs text-[#8a8472]">{noOrderOptionsMessage}</div>
           )}
         </div>
@@ -581,6 +664,46 @@ export default function ReceiveStockPage() {
     const timer = window.setTimeout(() => setProductionOrderSearch(productionOrderSearchInput.trim()), 250);
     return () => window.clearTimeout(timer);
   }, [productionOrderSearchInput, setProductionOrderPageCount]);
+  const [accessoryReturnOrderSearchInput, setAccessoryReturnOrderSearchInput] = useState("");
+  const [accessoryReturnOrderSearch, setAccessoryReturnOrderSearch] = useState("");
+  const [accessoryReturnItemSearchInput, setAccessoryReturnItemSearchInput] = useState("");
+  const [accessoryReturnItemSearch, setAccessoryReturnItemSearch] = useState("");
+  const [accessoryReturnSelectedOrderId, setAccessoryReturnSelectedOrderId] = useState(0);
+  const [selectedAccessoryReturnOrder, setSelectedAccessoryReturnOrder] = useState<OrderOption | null>(null);
+  const [selectedAccessoryReturnItem, setSelectedAccessoryReturnItem] = useState<ReceiveItem | null>(null);
+  const {
+    data: accessoryReturnOrderPages,
+    setSize: setAccessoryReturnOrderPageCount,
+    isValidating: accessoryReturnOrdersValidating,
+    mutate: refreshAccessoryReturnOrders,
+  } = useSWRInfinite<AccessoryReturnOrderPage>(
+    (index, previousPage) => isAccessoryReceiving && !(previousPage && !previousPage.has_more)
+      ? `/api/inventory/accessory-issues?page=${index + 1}&page_size=50&include_total=true&returnable_only=true&orders_only=true&q=${encodeURIComponent(accessoryReturnOrderSearch)}`
+      : null,
+    fetcher,
+  );
+  useEffect(() => {
+    void setAccessoryReturnOrderPageCount(1);
+    const timer = window.setTimeout(() => setAccessoryReturnOrderSearch(accessoryReturnOrderSearchInput.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [accessoryReturnOrderSearchInput, setAccessoryReturnOrderPageCount]);
+  const {
+    data: accessoryReturnItemPages,
+    setSize: setAccessoryReturnItemPageCount,
+    isValidating: accessoryReturnItemsValidating,
+    mutate: refreshAccessoryReturnItems,
+  } = useSWRInfinite<AccessoryIssueSummaryPage>(
+    (index, previousPage) => isAccessoryReceiving && accessoryReturnSelectedOrderId > 0
+      && !(previousPage && !previousPage.has_more)
+      ? `/api/inventory/accessory-issues?page=${index + 1}&page_size=50&include_total=true&returnable_only=true&production_order_id=${accessoryReturnSelectedOrderId}&q=${encodeURIComponent(accessoryReturnItemSearch)}`
+      : null,
+    fetcher,
+  );
+  useEffect(() => {
+    void setAccessoryReturnItemPageCount(1);
+    const timer = window.setTimeout(() => setAccessoryReturnItemSearch(accessoryReturnItemSearchInput.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [accessoryReturnItemSearchInput, accessoryReturnSelectedOrderId, setAccessoryReturnItemPageCount]);
   const productionOrders = useMemo(
     () => productionOrderPages?.flatMap((page) => page.rows) || [],
     [productionOrderPages],
@@ -595,10 +718,6 @@ export default function ReceiveStockPage() {
   ]);
   const { data: models } = useSWR<any[]>(receiveModelOptionsKey, modelOptionsByIdsFetcher);
   const { data: batches, mutate: refreshBatches } = useSWR<any[]>(`/api/inventory/batches?group=${receiveGroup}`, fetcher);
-  const { data: accessoryIssueRows, mutate: refreshAccessoryIssues } = useSWR<AccessoryIssueSummaryRow[]>(
-    isAccessoryReceiving ? "/api/inventory/accessory-issues?page_size=500" : null,
-    fetcher,
-  );
   const [receiveForm, setReceiveForm] = useState(DEFAULT_RECEIVE_FORM);
   const [accessoryReturnForm, setAccessoryReturnForm] = useState(DEFAULT_ACCESSORY_RETURN_FORM);
   const [issueProductionOrderId, setIssueProductionOrderId] = useState(0);
@@ -629,9 +748,18 @@ export default function ReceiveStockPage() {
     )),
     [isFabricReceiving, warehouses],
   );
-  const returnableAccessoryIssueRows = useMemo(() => {
-    return (accessoryIssueRows || []).filter((row) => Number(row.returnable_quantity ?? row.issued_quantity ?? 0) > 0);
-  }, [accessoryIssueRows]);
+  const returnableAccessoryIssueRows = useMemo(
+    () => accessoryReturnOrderPages?.flatMap((page) => page.rows) || [],
+    [accessoryReturnOrderPages],
+  );
+  const returnableAccessoryItemRows = useMemo(
+    () => accessoryReturnItemPages?.flatMap((page) => page.rows) || [],
+    [accessoryReturnItemPages],
+  );
+  const accessoryReturnOrderTotal = accessoryReturnOrderPages?.[0]?.total || 0;
+  const accessoryReturnOrderLastPage = accessoryReturnOrderPages?.[accessoryReturnOrderPages.length - 1];
+  const accessoryReturnItemTotal = accessoryReturnItemPages?.[0]?.total || 0;
+  const accessoryReturnItemLastPage = accessoryReturnItemPages?.[accessoryReturnItemPages.length - 1];
   const accessoryReturnOrderOptions = useMemo<OrderOption[]>(() => {
     const byOrder = new Map<number, OrderOption>();
     for (const row of returnableAccessoryIssueRows) {
@@ -644,21 +772,23 @@ export default function ReceiveStockPage() {
         label: [orderReference(row, row.production_no), modelText].filter(Boolean).join(" - "),
       });
     }
+    if (selectedAccessoryReturnOrder && !byOrder.has(selectedAccessoryReturnOrder.id)) {
+      byOrder.set(selectedAccessoryReturnOrder.id, selectedAccessoryReturnOrder);
+    }
     return [...byOrder.values()];
-  }, [returnableAccessoryIssueRows]);
-  const selectedAccessoryReturnRows = useMemo(() => {
-    return returnableAccessoryIssueRows.filter(
-      (row) => Number(row.production_order_id) === Number(accessoryReturnForm.production_order_id),
-    );
-  }, [accessoryReturnForm.production_order_id, returnableAccessoryIssueRows]);
+  }, [returnableAccessoryIssueRows, selectedAccessoryReturnOrder]);
   const returnableAccessoryItems = useMemo<ReceiveItem[]>(() => {
-    return selectedAccessoryReturnRows.map((row) => ({
+    const items = returnableAccessoryItemRows.map((row) => ({
       id: row.item_id,
       name: `${row.item_name} (${fmtQty(row.returnable_quantity ?? row.issued_quantity)} ${row.unit})`,
       category: row.category,
       unit: row.unit,
     }));
-  }, [selectedAccessoryReturnRows]);
+    if (selectedAccessoryReturnItem && !items.some((item) => item.id === selectedAccessoryReturnItem.id)) {
+      items.unshift(selectedAccessoryReturnItem);
+    }
+    return items;
+  }, [returnableAccessoryItemRows, selectedAccessoryReturnItem]);
   const customColors = useMemo(() => {
     const colorsByKey = new Map<string, string>();
     for (const rawColor of [...(savedColors || []), ...pendingColors]) {
@@ -748,8 +878,12 @@ export default function ReceiveStockPage() {
       await api.post("/api/inventory/accessory-returns", toAccessoryReturnPayload(accessoryReturnForm));
       setAccessoryMsg(t("msg.recorded"));
       setAccessoryReturnForm(DEFAULT_ACCESSORY_RETURN_FORM);
+      setAccessoryReturnSelectedOrderId(0);
+      setSelectedAccessoryReturnItem(null);
+      setSelectedAccessoryReturnOrder(null);
       refreshBatches();
-      refreshAccessoryIssues();
+      void refreshAccessoryReturnOrders();
+      void refreshAccessoryReturnItems();
     } catch (e: any) {
       setAccessoryMsg(e.message);
     }
@@ -860,13 +994,54 @@ export default function ReceiveStockPage() {
             items={returnableAccessoryItems}
             warehouses={receiveWarehouses}
             suppliers={suppliers}
-            orderOptions={accessoryReturnOrderOptions}
             message={accessoryMsg}
             requireOrder
             showReturnCondition
             noOrderOptionsMessage={t("page.receiveStock.noReturnableAccessories")}
             customColors={customColors}
             onChange={setAccessoryReturnForm}
+            asyncOrderOptions={accessoryReturnOrderOptions.map((option) => ({
+              value: option.id,
+              label: option.label,
+              searchText: option.orderNo,
+            }))}
+            asyncOrderValue={accessoryReturnForm.production_order_id || null}
+            asyncOrderLoading={accessoryReturnOrdersValidating && Boolean(accessoryReturnOrderPages?.length)}
+            asyncOrderHasMore={Boolean(accessoryReturnOrderLastPage?.has_more)}
+            asyncOrderCount={accessoryReturnOrderTotal}
+            onAsyncOrderSearchChange={setAccessoryReturnOrderSearchInput}
+            onAsyncOrderLoadMore={() => void setAccessoryReturnOrderPageCount((size) => size + 1)}
+            onAsyncOrderChange={(orderId) => {
+              const order = accessoryReturnOrderOptions.find((option) => option.id === orderId);
+              if (!order) return;
+              setSelectedAccessoryReturnOrder(order);
+              setAccessoryReturnSelectedOrderId(orderId);
+              setAccessoryReturnForm((current) => ({
+                ...current,
+                production_order_id: orderId,
+                order_no: order.orderNo,
+                item_id: 0,
+              }));
+              setSelectedAccessoryReturnItem(null);
+              setAccessoryReturnItemSearchInput("");
+            }}
+            asyncItemOptions={returnableAccessoryItems.map((item) => ({
+              value: item.id,
+              label: item.name,
+              searchText: item.category || "",
+            }))}
+            asyncItemValue={accessoryReturnForm.item_id || null}
+            asyncItemLoading={accessoryReturnItemsValidating && Boolean(accessoryReturnItemPages?.length)}
+            asyncItemHasMore={Boolean(accessoryReturnItemLastPage?.has_more)}
+            asyncItemCount={accessoryReturnItemTotal}
+            onAsyncItemSearchChange={setAccessoryReturnItemSearchInput}
+            onAsyncItemLoadMore={() => void setAccessoryReturnItemPageCount((size) => size + 1)}
+            onAsyncItemChange={(itemId) => {
+              const item = returnableAccessoryItems.find((option) => option.id === itemId);
+              if (!item) return;
+              setSelectedAccessoryReturnItem(item);
+              setAccessoryReturnForm((current) => ({ ...current, item_id: itemId, unit: item.unit || current.unit }));
+            }}
             onAddColor={addCustomColor}
             onSubmit={submitAccessoryReturn}
           />

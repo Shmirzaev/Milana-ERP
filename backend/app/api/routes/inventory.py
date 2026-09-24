@@ -1153,30 +1153,48 @@ def list_accessory_issues(
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     production_order_id: int | None = None,
     model_id: int | None = None,
-    q: str | None = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
     page: int = 1,
     page_size: int = 500,
     include_total: bool = False,
+    returnable_only: bool = False,
+    orders_only: bool = False,
 ):
     inventory_access.require_accessories(_)
     safe_page, safe_size, _ = clamp_pagination(page, page_size)
-    rows = accessory_issue_summary(
+    result = accessory_issue_summary(
         db,
         production_order_id=production_order_id,
         model_id=model_id,
         q=q,
         page=safe_page,
         page_size=safe_size,
+        include_total=include_total,
+        returnable_only=returnable_only,
+        orders_only=orders_only,
     )
-    total = len(rows)
     if include_total:
+        rows, total = result
+        projected_rows = [
+            {
+                "production_order_id": row["production_order_id"],
+                "production_no": row["production_no"],
+                "order_no": row["order_no"],
+                "model_id": row["model_id"],
+                "model_code": row["model_code"],
+                "model_name": row["model_name"],
+            }
+            if orders_only else AccessoryIssueSummaryRow(**row).model_dump()
+            for row in rows
+        ]
         return {
-            "rows": [AccessoryIssueSummaryRow(**row).model_dump() for row in rows],
+            "rows": projected_rows,
             "total": total,
             "page": safe_page,
             "page_size": safe_size,
+            "has_more": safe_page * safe_size < total,
         }
-    return [AccessoryIssueSummaryRow(**row).model_dump() for row in rows]
+    return [AccessoryIssueSummaryRow(**row).model_dump() for row in result]
 
 
 @router.get("/accessory-issue-requests")

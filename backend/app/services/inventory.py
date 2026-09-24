@@ -1756,7 +1756,11 @@ def accessory_issue_summary(
     q: str | None = None,
     page: int | None = None,
     page_size: int | None = None,
-) -> list[dict]:
+    include_total: bool = False,
+    returnable_only: bool = False,
+    orders_only: bool = False,
+) -> list[dict] | tuple[list[dict], int]:
+    exact_page = include_total or returnable_only or orders_only
     query = (
         db.query(StockMovement, Item)
         .options(
@@ -1777,7 +1781,7 @@ def accessory_issue_summary(
         )
         .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
     )
-    if page is not None or page_size is not None:
+    if not exact_page and (page is not None or page_size is not None):
         safe_page, safe_size, _ = clamp_pagination(page or 1, page_size or 50)
         query = query.limit(max(safe_page * safe_size * 20, safe_size))
     movements_with_items = query.all()
@@ -1790,7 +1794,7 @@ def accessory_issue_summary(
     )
     if production_order_id is not None:
         manual_query = manual_query.filter(ManualAccessoryIssue.production_order_id == production_order_id)
-    if page is not None or page_size is not None:
+    if not exact_page and (page is not None or page_size is not None):
         safe_page, safe_size, _ = clamp_pagination(page or 1, page_size or 50)
         manual_query = manual_query.limit(max(safe_page * safe_size * 20, safe_size))
     manual_issues = manual_query.all()
@@ -1799,7 +1803,7 @@ def accessory_issue_summary(
         int(issue.production_order_id) for issue in manual_issues if issue.production_order_id
     }
     if not all_po_ids:
-        return []
+        return ([], 0) if include_total else []
     po_rows = (
         db.query(ProductionOrder)
         .options(
@@ -1983,9 +1987,29 @@ def accessory_issue_summary(
         return (timestamp, int(row.get("production_order_id") or 0), str(row.get("item_sku") or ""))
 
     sorted_rows = sorted(rows, key=sort_key, reverse=True)
+    if returnable_only:
+        # A return requires a catalog item. Itemless historical manual issues
+        # remain visible in the legacy summary, but cannot be received back.
+        sorted_rows = [
+            row for row in sorted_rows
+            if int(row.get("item_id") or 0) > 0
+            and float(row.get("returnable_quantity") or 0) > EPSILON
+        ]
+    if orders_only:
+        # The Receive/Return order selector displays unique orders, not issue
+        # item groups, so its total and page boundaries must use that identity.
+        first_row_by_order: dict[int, dict] = {}
+        for row in sorted_rows:
+            first_row_by_order.setdefault(int(row.get("production_order_id") or 0), row)
+        sorted_rows = list(first_row_by_order.values())
     if page is not None or page_size is not None:
         safe_page, safe_size, offset = clamp_pagination(page or 1, page_size or 50)
-        return sorted_rows[offset: offset + safe_size]
+        page_rows = sorted_rows[offset: offset + safe_size]
+        if include_total:
+            return page_rows, len(sorted_rows)
+        return page_rows
+    if include_total:
+        return sorted_rows, len(sorted_rows)
     return sorted_rows
 
 
