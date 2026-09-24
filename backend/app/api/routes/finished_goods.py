@@ -71,6 +71,24 @@ def _stock_list_projection():
     )
 
 
+def _search_stock_rows(query, term: str | None, brand_name):
+    normalized = (term or "").strip()
+    if not normalized:
+        return query
+    escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
+    return query.filter(
+        or_(
+            Model.code.ilike(pattern, escape="\\"),
+            Model.name.ilike(pattern, escape="\\"),
+            brand_name.ilike(pattern, escape="\\"),
+            FinishedGoodsStock.color.ilike(pattern, escape="\\"),
+            FinishedGoodsStock.size.ilike(pattern, escape="\\"),
+            FinishedGoodsStock.status.ilike(pattern, escape="\\"),
+        )
+    )
+
+
 def _require_storable_sales_order_id(sales_order_id: int) -> None:
     if sales_order_id < 1 or sales_order_id > _DB_INTEGER_MAX:
         raise HTTPException(404, "Sales order not found")
@@ -81,7 +99,8 @@ def list_stock(db: DbSession, _: CurrentUser,
                model_id: int | None = None, status: str | None = None, brand_id: int | None = None,
                limit: int = 500, offset: int = 0,
                page: Annotated[int | None, Query(ge=1)] = None,
-               page_size: Annotated[int | None, Query(ge=1, le=500)] = None):
+               page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+               q: Annotated[str | None, Query(max_length=100)] = None):
     limit = max(0, min(limit, 500))
     offset = max(0, offset)
     if any(value is not None and not _DB_INTEGER_MIN <= value <= _DB_INTEGER_MAX for value in (model_id, brand_id)):
@@ -110,6 +129,7 @@ def list_stock(db: DbSession, _: CurrentUser,
     if model_id: qry = qry.filter(FinishedGoodsStock.model_id == model_id)
     if status: qry = qry.filter(FinishedGoodsStock.status == status)
     if brand_id: qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
+    qry = _search_stock_rows(qry, q, Brand.name)
     total = None
     if page is not None or page_size is not None:
         page = page or 1
@@ -145,6 +165,7 @@ def list_branded(
     offset: int = 0,
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
 ):
     limit = max(0, min(limit, 500))
     offset = max(0, offset)
@@ -173,6 +194,7 @@ def list_branded(
             ),
         )
     )
+    qry = _search_stock_rows(qry, q, func.coalesce(Brand.name, PackageBrand.name))
     total = None
     if page is not None or page_size is not None:
         page = page or 1

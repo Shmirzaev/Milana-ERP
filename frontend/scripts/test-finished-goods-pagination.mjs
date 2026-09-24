@@ -11,12 +11,22 @@ let stockSize = 1;
 let brandedSize = 1;
 let readyToShipSize = 1;
 const setSizeCalls = [];
+const requestKeys = [];
 const readyToShip = { sales_order_id: 9, sales_order_no: "SO-9" };
 const readyToShipPages = [[{ ...readyToShip }], [{ sales_order_id: 10, sales_order_no: "SO-10" }]];
-const stockPages = [[{ id: 2, model_code: "A" }, ...Array.from({ length: 499 }, (_, i) => ({ id: 100 + i, model_code: `S${i}` }))], [{ id: 1, model_code: "B" }]];
-const brandedPages = [[{ id: 4, brand_name: "X" }, ...Array.from({ length: 499 }, (_, i) => ({ id: 1000 + i, brand_name: `BR${i}` }))], [{ id: 3, brand_name: "Y" }]];
+const stockPages = [
+  { rows: [{ id: 2, model_code: "A" }, ...Array.from({ length: 49 }, (_, i) => ({ id: 100 + i, model_code: `S${i}` }))], total: 51, page: 1, page_size: 50, has_more: true },
+  { rows: [{ id: 1, model_code: "B" }], total: 51, page: 2, page_size: 50, has_more: false },
+];
+const brandedPages = [
+  { rows: [{ id: 4, brand_name: "X" }, ...Array.from({ length: 49 }, (_, i) => ({ id: 1000 + i, brand_name: `BR${i}` }))], total: 51, page: 1, page_size: 50, has_more: true },
+  { rows: [{ id: 3, brand_name: "Y" }], total: 51, page: 2, page_size: 50, has_more: false },
+];
+const stateValues = [];
+let stateCursor = 0;
 function useSWRInfinite(keyFactory) {
   const first = keyFactory(0);
+  requestKeys.push(first);
   const branded = first.includes("branded-stock");
   const ready = first.includes("ready_to_ship_limit");
   const size = ready ? readyToShipSize : branded ? brandedSize : stockSize;
@@ -37,7 +47,14 @@ function jsx(type, props) { return { type, props: props || {} }; }
 const noop = () => null;
 const testModule = { exports: {} };
 new Function("require", "exports", "module", output)(name => {
-  if (name === "react") return {};
+  if (name === "react") return {
+    useDeferredValue: value => value,
+    useState: initial => {
+      const index = stateCursor++;
+      if (!(index in stateValues)) stateValues[index] = initial;
+      return [stateValues[index], value => { stateValues[index] = value; }];
+    },
+  };
   if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
   if (name === "swr") return Object.assign(noop, { useSWRInfinite });
   if (name === "next/link") return noop;
@@ -65,10 +82,14 @@ function containsText(value, text) {
   if (Array.isArray(value)) return value.some(item => containsText(item, text));
   return Boolean(value && typeof value === "object" && containsText(value.props?.children, text));
 }
-function render() { return Page(); }
+function render() { stateCursor = 0; return Page(); }
 
 let tree = render();
-assert.equal(stockPages[0].length, 500);
+assert.equal(stockPages[0].rows.length, 50);
+assert(requestKeys.includes("/api/finished-goods?page=1&page_size=50&q="), "stock should fetch a 50-row exact-total page");
+assert(requestKeys.includes("/api/finished-goods/branded-stock?page=1&page_size=50&q="), "branded stock should fetch a 50-row exact-total page");
+assert.match(source, /\{branded\.length\} \/ \{brandedTotal\}/, "branded table shows loaded rows against the exact total");
+assert.match(source, /\{data\.length\} \/ \{stockTotal\}/, "stock table shows loaded rows against the exact total");
 const buttons = walk(tree, node => node.type === "button" && (
   containsText(node.props.children, "Load more") || containsText(node.props.children, "common.loadMore")
 ));
@@ -81,4 +102,14 @@ tree = render();
 assert(containsText(tree, "A") && containsText(tree, "B"), "stock pages aggregate into one table");
 assert(containsText(tree, "X") && containsText(tree, "Y"), "branded pages aggregate into one table");
 assert(containsText(tree, "SO-9") && containsText(tree, "SO-10"), "reservation-backed orders aggregate across bounded inbox pages");
-console.log("PASS: Finished Goods stock, branded, and reservation-backed order pages load more and aggregate.");
+assert.equal(walk(tree, node => node.type === "button" && (
+  containsText(node.props.children, "Load more") || containsText(node.props.children, "common.loadMore")
+)).length, 0, "exact has_more flags hide each Load more button at the final page");
+const inputs = walk(tree, node => node.type === "input" && node.props.onChange);
+assert.equal(inputs.length, 2, "both stock tables expose their own search input");
+inputs[0].props.onChange({ target: { value: "brand needle" } });
+inputs[1].props.onChange({ target: { value: "model needle" } });
+tree = render();
+assert(requestKeys.includes("/api/finished-goods/branded-stock?page=1&page_size=50&q=brand%20needle"), "branded search updates the server page key");
+assert(requestKeys.includes("/api/finished-goods?page=1&page_size=50&q=model%20needle"), "stock search updates the server page key");
+console.log("PASS: Finished Goods stock and branded tables use 50-row exact-total pages, search and Load more.");
