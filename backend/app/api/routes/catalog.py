@@ -84,6 +84,8 @@ _MAX_MODEL_SAM_MINUTES = Decimal("999999.99")
 _MODEL_SAM_QUANTUM = Decimal("0.01")
 _MODEL_COPY_CODE_BATCH_SIZE = 400
 _MODEL_COPY_CODE_MAX_INDEX = 9_999
+_MAX_MODEL_DETAILS_JSON_BYTES = 64 * 1024
+_MAX_MODEL_DETAILS_JSON_DEPTH = 16
 
 
 def _validate_model_sam_minutes(data: dict) -> None:
@@ -134,6 +136,73 @@ def _is_finite_json_number(value: object) -> bool:
         return isfinite(float(value))
     except (OverflowError, ValueError):
         return False
+
+
+def _json_values_equal(left: object, right: object) -> bool:
+    """Compare JSON-shaped values without recursion or Python's bool/int aliasing."""
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _validate_model_details_json_bounds(details: object, *, existing_details: object = None) -> None:
+    """Bound changed model-detail documents while keeping exact legacy values editable."""
+    if _json_values_equal(details, existing_details):
+        return
+    if details is None:
+        return
+
+    pending = [(details, 0)]
+    while pending:
+        value, parent_depth = pending.pop()
+        if isinstance(value, dict):
+            depth = parent_depth + 1
+            if depth > _MAX_MODEL_DETAILS_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"details_json cannot exceed {_MAX_MODEL_DETAILS_JSON_DEPTH} nested container levels",
+                )
+            if any(not isinstance(key, str) for key in value):
+                raise HTTPException(422, "details_json must contain JSON-compatible values")
+            pending.extend((child, depth) for child in value.values())
+        elif isinstance(value, list):
+            depth = parent_depth + 1
+            if depth > _MAX_MODEL_DETAILS_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"details_json cannot exceed {_MAX_MODEL_DETAILS_JSON_DEPTH} nested container levels",
+                )
+            pending.extend((child, depth) for child in value)
+        elif value is not None and type(value) not in (str, bool, int, float):
+            raise HTTPException(422, "details_json must contain JSON-compatible values")
+
+    try:
+        serialized = json.dumps(
+            details,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise HTTPException(422, "details_json must contain finite JSON-compatible values") from None
+    if len(serialized) > _MAX_MODEL_DETAILS_JSON_BYTES:
+        raise HTTPException(
+            422,
+            f"details_json cannot exceed {_MAX_MODEL_DETAILS_JSON_BYTES} UTF-8 bytes",
+        )
 
 
 def _validate_model_details_structure(
@@ -194,9 +263,7 @@ def _validate_model_details_structure(
             unchanged_legacy_translation = (
                 isinstance(existing_details, dict)
                 and "translation" in existing_details
-                and type(translation) is type(existing_translation)
-                and json.dumps(translation, sort_keys=True, ensure_ascii=False)
-                == json.dumps(existing_translation, sort_keys=True, ensure_ascii=False)
+                and _json_values_equal(translation, existing_translation)
             )
             if not unchanged_legacy_translation:
                 raise HTTPException(422, "details_json.translation must be a string-to-string object")
@@ -1308,6 +1375,20 @@ def _rename_model_group(
                 f"Model number change conflicts with existing variant {variant_no or next_code}",
             )
 
+    for model, variant_no, _ in planned:
+        _validate_model_details_json_bounds(model.details_json)
+        details = deepcopy(model.details_json) if isinstance(model.details_json, dict) else {}
+        general = details.get("general")
+        general = deepcopy(general) if isinstance(general, dict) else {}
+        general["model_no"] = clean_new_model_no
+        if variant_no:
+            general["variant_no"] = variant_no
+        else:
+            general.pop("variant_no", None)
+            general.pop("variantNo", None)
+        details["general"] = general
+        _validate_model_details_json_bounds(details, existing_details=model.details_json)
+
     renamed: list[tuple[Model, str]] = []
     for model, variant_no, _ in planned:
         old_code = model.code
@@ -1961,7 +2042,7 @@ def create_model(
 ):
     catalog_scope = _normalize_catalog_scope(catalog_scope)
     model_data = payload.model_dump()
-    details = deepcopy(model_data.get("details_json")) if isinstance(model_data.get("details_json"), dict) else {}
+    details = model_data.get("details_json") if isinstance(model_data.get("details_json"), dict) else {}
     model_data["code"] = (
         _clean_text(model_data.get("code"))
         if details.get("legacy_import") is True
@@ -1991,6 +2072,7 @@ def create_model(
     _validate_model_sam_minutes(model_data)
     if model_data["status"] not in MODEL_STATUSES:
         raise HTTPException(400, "Invalid model status")
+    _validate_model_details_json_bounds(model_data.get("details_json"))
 
     m = Model(
         **model_data,
@@ -2128,6 +2210,7 @@ def clone_model(
     # before creating the copy so a legacy unit mismatch is not propagated;
     # itemless Usluga description rows remain untouched.
     _preflight_copied_bom_item_units(db, source.bom)
+    _validate_model_details_json_bounds(source.details_json)
 
     new_code = _unique_model_copy_code(db, source.code)
     cloned = Model(
@@ -2148,6 +2231,8 @@ def clone_model(
         catalog_scope=catalog_scope,
         factory_code="ECO" if catalog_scope == "usluga" else source.factory_code,
     )
+    _validate_model_details_structure(cloned.details_json, existing_details=source.details_json)
+    _validate_model_details_json_bounds(cloned.details_json, existing_details=source.details_json)
     db.add(cloned)
     db.flush()
 
@@ -2295,6 +2380,7 @@ def create_model_variant(
         replaced_row_ids=replaced_bom_ids,
     )
 
+    _validate_model_details_json_bounds(source.details_json)
     details = deepcopy(source.details_json or {})
     general = details.get("general")
     if not isinstance(general, dict):
@@ -2316,6 +2402,9 @@ def create_model_variant(
         general.pop("variant_color", None)
     general.pop("variant_stock_batch_id", None)
     details["general"] = general
+
+    _validate_model_details_structure(details, existing_details=source.details_json)
+    _validate_model_details_json_bounds(details, existing_details=source.details_json)
 
     approval = next((row for row in _approval_family(db, source) if row.status == "approved"), None)
     cloned = Model(
@@ -2473,6 +2562,8 @@ def update_model_variant(
         "fabric_item_id": _variant_fabric_item_id_for_model(target),
         "color": getattr(_primary_material_bom_row(target), "color", None),
     }
+    _validate_model_details_json_bounds(target.details_json)
+    original_details = deepcopy(target.details_json)
     target.code = new_code
     _set_variant_general_details(
         target,
@@ -2489,6 +2580,8 @@ def update_model_variant(
             general.pop("variant_color", None)
         details["general"] = general
         target.details_json = details
+    _validate_model_details_structure(target.details_json, existing_details=original_details)
+    _validate_model_details_json_bounds(target.details_json, existing_details=original_details)
     fabric_row = _primary_material_bom_row(target)
     if fabric_row and parent_fabric_item:
         _apply_variant_fabric_item(
@@ -2615,6 +2708,7 @@ def update_model(
             existing_details=m.details_json,
             allow_oversized_unchanged=unchanged_paid_operations,
         )
+        _validate_model_details_json_bounds(update_data["details_json"], existing_details=m.details_json)
     if "code" in update_data:
         update_data["code"] = _normalize_model_number(update_data.get("code"))
     incoming_details = update_data.get("details_json")
@@ -2700,6 +2794,7 @@ def update_model_paid_operations(
         existing_details=model.details_json,
         allow_oversized_unchanged=unchanged_paid_operations,
     )
+    _validate_model_details_json_bounds(next_details, existing_details=model.details_json)
 
     old_count = len(paid_operations_from_details(filter_paid_operations_for_factory(model.details_json, factory_scope)))
     model.details_json = next_details
