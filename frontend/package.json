@@ -63,7 +63,8 @@
     "test:hr-organization-pagination": "node scripts/test-hr-organization-pagination.mjs",
     "test:payroll-order-option-pagination": "node scripts/check-payroll-order-option-pagination.mjs",
     "test:inbox-package-pagination": "node scripts/check-inbox-package-pagination.mjs",
-    "test:hr-attendance-pagination": "node scripts/test-hr-attendance-pagination.mjs"
+    "test:hr-attendance-pagination": "node scripts/test-hr-attendance-pagination.mjs",
+    "test:department-order-pagination": "node scripts/test-department-order-pagination.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

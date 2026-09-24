@@ -9,7 +9,7 @@ import useSWRInfinite from "swr/infinite";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
 import CuttingOrderList from "@/components/CuttingOrderList";
-import DepartmentOrderList, { mergeDepartmentOrders } from "@/components/DepartmentOrderList";
+import DepartmentOrderList from "@/components/DepartmentOrderList";
 import ShipmentItemLines from "@/components/ShipmentItemLines";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
@@ -49,6 +49,14 @@ type InboxAwaitingPackagingPage = {
 };
 
 type InboxReplacementSewingPage = {
+  rows: any[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+};
+
+type DepartmentOrderPage = {
   rows: any[];
   total: number;
   offset: number;
@@ -134,9 +142,23 @@ export default function DepartmentInboxPage() {
       code === "CUT" || code === "ECT"
         ? "&replacement_cutting_limit=50&replacement_cutting_offset=0"
         : ""
-    }${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${isSewingDepartment ? "&include_replacement_sewing=false" : ""}`
+    }${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${isSewingDepartment ? "&include_replacement_sewing=false" : ""}${code !== "CUT" && code !== "ECT" ? "&include_core_orders=false" : ""}`
     : null;
   const { data, isLoading, mutate } = useSWR<any>(inboxUrl, fetcher, { refreshInterval: 10_000 });
+  const {
+    data: departmentOrderPages,
+    mutate: mutateDepartmentOrderPages,
+    setSize: setDepartmentOrderPageCount,
+    isValidating: departmentOrdersValidating,
+    isLoading: departmentOrdersLoading,
+    error: departmentOrdersError,
+  } = useSWRInfinite<DepartmentOrderPage>(
+    (index, previous) => code && code !== "CUT" && code !== "ECT" && !(previous && !previous.has_more)
+      ? `/api/inbox/department-orders?dept=${code}&tz=${encodeURIComponent(clientTz)}&limit=50&offset=${index * 50}`
+      : null,
+    fetcher,
+    { refreshInterval: 10_000 },
+  );
   useEffect(() => {
     const firstPage = Array.isArray(data?.replacement_cutting_work) ? data.replacement_cutting_work : [];
     setReplacementCuttingRows((current) => {
@@ -197,8 +219,6 @@ export default function DepartmentInboxPage() {
     fetcher,
     { refreshInterval: 10_000 },
   );
-  const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
-  const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
   const replacementCuttingTotal = Number(data?.replacement_cutting_work_total ?? replacementCuttingRows.length);
   const replacementSewingWork = useMemo(
     () => replacementSewingPages?.flatMap((page) => page.rows) || [],
@@ -207,25 +227,12 @@ export default function DepartmentInboxPage() {
   const replacementSewingTotal = replacementSewingPages?.[0]?.total ?? 0;
   const replacementSewingHasMore = replacementSewingPages?.[replacementSewingPages.length - 1]?.has_more ?? false;
   const cuttingWorkOrders = Array.isArray(data?.cutting_work_orders) ? data.cutting_work_orders : [];
-  const incomingWorkOrders = useMemo(
-    () => (Array.isArray(data?.incoming_work_orders) ? data.incoming_work_orders : []),
-    [data?.incoming_work_orders],
+  const departmentOrders = useMemo(
+    () => departmentOrderPages?.flatMap((page) => page.rows.map((row) => ({ ...row, queueKind: row.queue_kind }))) || [],
+    [departmentOrderPages],
   );
-  const incomingWorkOrderPoIds = useMemo(
-    () => new Set(incomingWorkOrders.map((row: any) => Number(row.production_order_id || 0)).filter((poId: number) => poId > 0)),
-    [incomingWorkOrders],
-  );
-  const incomingBundleGroups = useMemo(
-    () => (Array.isArray(data?.incoming_bundle_groups) ? data.incoming_bundle_groups : [])
-      .filter((row: any) => !incomingWorkOrderPoIds.has(Number(row.production_order_id || 0))),
-    [data?.incoming_bundle_groups, incomingWorkOrderPoIds],
-  );
-  const departmentOrders = mergeDepartmentOrders([
-    { kind: "incoming", rows: [...incomingWorkOrders, ...incomingBundleGroups] },
-    { kind: "pending", rows: pendingWorkOrders },
-    { kind: "in_progress", rows: inProgressWorkOrders },
-    { kind: "completed", rows: Array.isArray(data?.done_today) ? data.done_today : [] },
-  ]);
+  const departmentOrdersTotal = departmentOrderPages?.[0]?.total ?? 0;
+  const departmentOrdersHasMore = departmentOrderPages?.[departmentOrderPages.length - 1]?.has_more ?? false;
   const pendingPackages = useMemo(() => pendingPackagePages?.flatMap((page) => page.rows) || [], [pendingPackagePages]);
   const readyPackages = useMemo(() => readyPackagePages?.flatMap((page) => page.rows) || [], [readyPackagePages]);
   const awaitingPackagingRows = useMemo(
@@ -334,7 +341,7 @@ export default function DepartmentInboxPage() {
     setStartError("");
     try {
       await api.post(`/api/work-orders/${workOrderId}/start`, {});
-      await mutate();
+      await Promise.all([mutate(), mutateDepartmentOrderPages()]);
     } catch (e: any) {
       setStartError(e?.message || "Failed to move work order to in progress");
     } finally {
@@ -398,7 +405,7 @@ export default function DepartmentInboxPage() {
         subtitle={t("page.deptInbox.subtitle")}
         actions={code === "FGS" ? <StocktakeLink /> : undefined}
       />
-      {isLoading && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
+      {(isLoading || departmentOrdersLoading) && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
       {!isLoading && (code === "CUT" || code === "ECT") && (
         <section className="card mb-4 p-4">
           <h2 className="mb-3 text-sm font-semibold text-slate-700">
@@ -504,17 +511,28 @@ export default function DepartmentInboxPage() {
           onMoveToInProgress={movePendingToInProgress}
           t={t}
         />
-      ) : !isLoading ? (
+      ) : !isLoading && !departmentOrdersLoading ? (
         <div className="min-w-0 space-y-2">
           {startError ? <div role="alert" className="text-sm text-red-700">{startError}</div> : null}
+          {departmentOrdersError ? <div role="alert" className="text-sm text-red-700">{String(departmentOrdersError.message || departmentOrdersError)}</div> : null}
           <DepartmentOrderList
             rows={departmentOrders}
-            title={t("page.deptInbox.orders", { count: departmentOrders.length })}
+            title={t("page.deptInbox.orders", { count: departmentOrdersTotal })}
             emptyLabel={t("page.deptInbox.noOrders")}
             startingWorkOrderId={startingWoId}
             onMoveToInProgress={movePendingToInProgress}
             t={t}
           />
+          {departmentOrdersHasMore ? (
+            <button
+              type="button"
+              className="btn mt-3 h-9 px-3 text-xs"
+              disabled={departmentOrdersValidating}
+              onClick={() => void setDepartmentOrderPageCount((size) => size + 1)}
+            >
+              {departmentOrdersValidating ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

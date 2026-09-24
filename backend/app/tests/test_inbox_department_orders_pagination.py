@@ -107,6 +107,16 @@ def _read_all_core_pages(db, dept: str, *, tz="UTC", page_size=37):
     return rows
 
 
+def test_department_order_page_requires_auth_and_bounded_limit(client, auth_headers):
+    url = "/api/inbox/department-orders?dept=SEW"
+    assert client.get(url).status_code == 401
+    assert client.get(f"{url}&limit=101", headers=auth_headers).status_code == 422
+    assert client.get(f"{url}&limit=0", headers=auth_headers).status_code == 422
+    page = client.get(f"{url}&limit=1", headers=auth_headers)
+    assert page.status_code == 200, page.text
+    assert page.json()["limit"] == 1
+
+
 def test_department_order_pages_match_legacy_merge_and_keep_later_winner_and_po_suppression(monkeypatch):
     _enable_inbox_access(monkeypatch)
     suffix = uuid4().hex[:8]

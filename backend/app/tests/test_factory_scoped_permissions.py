@@ -71,6 +71,7 @@ def test_secondary_factory_uses_only_its_scoped_permissions(client):
     assert "*" not in eco.json()["permissions"]
 
     assert client.get("/api/inbox?dept=ECT").status_code == 200
+    assert client.get("/api/inbox/department-orders?dept=ECT").status_code == 200
     assert client.get("/api/usluga/models").status_code == 200
     assert client.get("/api/usluga/orders").status_code == 200
     operators = client.get("/api/cutting-passports/operators")
@@ -79,6 +80,8 @@ def test_secondary_factory_uses_only_its_scoped_permissions(client):
     assert all(set(row) == {"id", "name"} for row in operators.json())
     assert client.get("/api/inbox?dept=ECO").status_code == 403
     assert client.get("/api/inbox?dept=ECP").status_code == 403
+    assert client.get("/api/inbox/department-orders?dept=ECO").status_code == 403
+    assert client.get("/api/inbox/department-orders?dept=ECP").status_code == 403
     assert client.get("/api/attendance/overview").status_code == 403
     assert client.get("/api/users").status_code == 403
 
