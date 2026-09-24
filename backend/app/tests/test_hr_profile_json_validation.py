@@ -80,6 +80,12 @@ def test_employee_profile_accepts_complete_established_shape(client, auth_header
         {"unsupported_profile_key": "value"},
         {"nationality": {"nested": "value"}},
         {"scheduled_daily_hours": [8]},
+        {"scheduled_daily_hours": "not-a-number"},
+        {"scheduled_daily_hours": True},
+        {"scheduled_daily_hours": 0},
+        {"scheduled_daily_hours": 24.25},
+        {"scheduled_daily_hours": float("inf")},
+        {"scheduled_daily_hours": 10**400},
     ],
 )
 def test_employee_profile_rejects_malformed_shape_without_side_effects(
@@ -207,3 +213,88 @@ def test_employee_profile_legacy_shape_remains_readable_and_unrelated_edits_pres
     )
     assert edited.status_code == 200, edited.text
     assert edited.json()["hr_profile_json"] == legacy_profile
+
+
+def test_employee_profile_accepts_numeric_string_daily_hours(client, auth_headers):
+    response = client.post(
+        "/api/employees",
+        headers=auth_headers,
+        json={
+            "employee_no": "81234007",
+            "full_name": "Numeric Hours String",
+            "hr_profile_json": {"scheduled_daily_hours": "7.5"},
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["hr_profile_json"]["scheduled_daily_hours"] == "7.5"
+
+
+def test_employee_profile_update_rejects_changed_invalid_daily_hours_without_mutation(
+    client,
+    auth_headers,
+):
+    created = client.post(
+        "/api/employees",
+        headers=auth_headers,
+        json={
+            "employee_no": "81234008",
+            "full_name": "Valid Hours Before Update",
+            "hr_profile_json": {"scheduled_daily_hours": 8},
+        },
+    )
+    assert created.status_code == 201, created.text
+    before = _employee_counts()
+
+    response = client.patch(
+        f"/api/employees/{created.json()['id']}",
+        headers=auth_headers,
+        json={
+            "full_name": "Must Not Persist",
+            "hr_profile_json": {"scheduled_daily_hours": 25},
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert _employee_counts() == before
+    with SessionLocal() as db:
+        saved = db.get(Employee, created.json()["id"])
+        assert saved.full_name == "Valid Hours Before Update"
+        assert saved.hr_profile_json == {"scheduled_daily_hours": 8}
+
+
+def test_employee_profile_round_trip_preserves_unchanged_legacy_numeric_and_extension(
+    client,
+    auth_headers,
+):
+    legacy_profile = {
+        "scheduled_daily_hours": "legacy-hours",
+        "legacy_extension": {"nested": [1, "two"]},
+    }
+    with SessionLocal.begin() as db:
+        employee = Employee(
+            factory_code="MIL",
+            employee_no="81234009",
+            full_name="Legacy Numeric Profile",
+            status="active",
+            hr_profile_json=legacy_profile,
+        )
+        db.add(employee)
+        db.flush()
+        employee_id = employee.id
+
+    loaded = client.get(f"/api/employees/{employee_id}", headers=auth_headers)
+    assert loaded.status_code == 200, loaded.text
+    profile = loaded.json()["hr_profile_json"]
+
+    edited = client.patch(
+        f"/api/employees/{employee_id}",
+        headers=auth_headers,
+        json={"full_name": "Legacy Numeric Profile Renamed", "hr_profile_json": profile},
+    )
+
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["hr_profile_json"] == legacy_profile
+    with SessionLocal() as db:
+        assert db.get(Employee, employee_id).hr_profile_json == legacy_profile
+

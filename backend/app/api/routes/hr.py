@@ -1,5 +1,6 @@
 from typing import Annotated
 from decimal import Decimal, InvalidOperation
+from math import isfinite
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.exceptions import RequestValidationError
@@ -101,14 +102,67 @@ def _normalize_employee_no(value) -> str | None:
     return normalized or None
 
 
-def _validate_hr_profile_json(value: dict) -> dict:
+def _same_json_value(left: object, right: object) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return (
+            left.keys() == right.keys()
+            and all(_same_json_value(left[key], right[key]) for key in left)
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _same_json_value(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
+def _validate_hr_profile_json(
+    value: dict,
+    *,
+    existing_profile: object = None,
+) -> dict:
+    existing = existing_profile if isinstance(existing_profile, dict) else {}
+    known_fields = EmployeeProfileJson.model_fields.keys()
+    unknown_keys = set(value) - known_fields
+    unchanged_unknown = bool(unknown_keys) and all(
+        key in existing and _same_json_value(value[key], existing[key])
+        for key in unknown_keys
+    )
+    schema_value = (
+        {key: item for key, item in value.items() if key in known_fields}
+        if unchanged_unknown
+        else value
+    )
     try:
-        EmployeeProfileJson.model_validate(value)
+        EmployeeProfileJson.model_validate(schema_value)
     except ValidationError as exc:
         raise RequestValidationError([
             {**error, "loc": ("body", "hr_profile_json", *error["loc"])}
             for error in exc.errors()
         ]) from exc
+    if "scheduled_daily_hours" in value:
+        raw_hours = value["scheduled_daily_hours"]
+        valid_hours = raw_hours is None or (type(raw_hours) is str and raw_hours == "")
+        if not valid_hours:
+            if type(raw_hours) not in (str, int, float):
+                hours = float("nan")
+            else:
+                try:
+                    hours = float(raw_hours)
+                except (OverflowError, TypeError, ValueError):
+                    hours = float("nan")
+            valid_hours = isfinite(hours) and 0 < hours <= 24
+        if not valid_hours:
+            old_hours = existing.get("scheduled_daily_hours")
+            if not (
+                "scheduled_daily_hours" in existing
+                and _same_json_value(raw_hours, old_hours)
+            ):
+                raise HTTPException(
+                    422,
+                    "scheduled_daily_hours must be finite and greater than 0 and no more than 24",
+                )
     # Validation is intentionally write-only. Keep the caller's scalar types
     # and sparse keys unchanged so existing API responses remain compatible.
     return value
@@ -367,7 +421,10 @@ def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: U
     if "employee_no" in changes:
         _ensure_employee_no_available(db, factory_code, changes["employee_no"], exclude_id=e.id)
     if "hr_profile_json" in changes:
-        changes["hr_profile_json"] = _validate_hr_profile_json(changes["hr_profile_json"])
+        changes["hr_profile_json"] = _validate_hr_profile_json(
+            changes["hr_profile_json"],
+            existing_profile=e.hr_profile_json,
+        )
     if "salary" in changes:
         changes["salary"] = _validated_employee_salary(changes["salary"])
     _validate_employee_text_storage(changes)
