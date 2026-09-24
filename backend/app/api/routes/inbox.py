@@ -1882,6 +1882,7 @@ def department_inbox(
     include_awaiting_packaging: bool = True,
     ready_to_ship_limit: Annotated[int | None, Query(ge=1, le=100)] = None,
     ready_to_ship_offset: Annotated[int, Query(ge=0)] = 0,
+    ready_to_ship_q: Annotated[str | None, Query(max_length=100)] = None,
     replacement_cutting_limit: Annotated[int | None, Query(ge=1, le=100)] = None,
     replacement_cutting_offset: Annotated[int, Query(ge=0)] = 0,
     include_replacement_sewing: bool = True,
@@ -2128,6 +2129,15 @@ def department_inbox(
         selected_order_ids: list[int] | None = None
         if ready_to_ship_limit is not None:
             ready_package_statuses = ("received_in_storage", "reserved")
+            ready_to_ship_needle = (ready_to_ship_q or "").strip()
+            search_pattern = None
+            if ready_to_ship_needle:
+                escaped_needle = (
+                    ready_to_ship_needle.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
+                )
+                search_pattern = f"%{escaped_needle}%"
             eligible_order_totals = (
                 db.query(
                     StockReservation.sales_order_id.label("sales_order_id"),
@@ -2151,10 +2161,20 @@ def department_inbox(
                     ).label("pending_qty"),
                 )
                 .join(SalesOrder, SalesOrder.id == StockReservation.sales_order_id)
+                .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
                 .outerjoin(Package, Package.id == StockReservation.package_id)
                 .filter(
                     SalesOrder.order_type == "branded_stock_sale",
                     SalesOrder.status.in_(["ready", "reserved"]),
+                )
+                .filter(
+                    or_(
+                        SalesOrder.order_no.ilike(search_pattern, escape="\\"),
+                        Customer.name.ilike(search_pattern, escape="\\"),
+                        Customer.address.ilike(search_pattern, escape="\\"),
+                    )
+                    if search_pattern is not None
+                    else True
                 )
                 .group_by(StockReservation.sales_order_id)
                 .having(

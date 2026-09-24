@@ -152,9 +152,35 @@ def test_ready_to_ship_orders_page_with_exact_total_and_complete_selected_detail
             ready_to_ship_limit=50,
             ready_to_ship_offset=baseline_total + 50,
         )
+        searched = inbox.department_inbox(
+            db,
+            SimpleNamespace(department_id=None),
+            dept="FGS",
+            ready_to_ship_limit=50,
+            ready_to_ship_q=suffix.lower(),
+        )
+        unmatched = inbox.department_inbox(
+            db,
+            SimpleNamespace(department_id=None),
+            dept="FGS",
+            ready_to_ship_limit=50,
+            ready_to_ship_q="no matching order or customer",
+        )
+        wildcard = inbox.department_inbox(
+            db,
+            SimpleNamespace(department_id=None),
+            dept="FGS",
+            ready_to_ship_limit=50,
+            ready_to_ship_q=f"%{suffix[:5]}%",
+        )
         legacy = inbox.department_inbox(db, SimpleNamespace(department_id=None), dept="FGS")
 
     assert first["ready_to_ship_total"] == baseline_total + order_count
+    assert searched["ready_to_ship_total"] == order_count
+    assert [row["sales_order_id"] for row in searched["ready_to_ship"]] == order_ids[:50]
+    assert unmatched["ready_to_ship_total"] == 0
+    assert unmatched["ready_to_ship"] == []
+    assert wildcard["ready_to_ship_total"] == 0
     assert last["ready_to_ship_total"] == baseline_total + order_count
     assert [row["sales_order_id"] for row in legacy["ready_to_ship"]] == baseline_ids + order_ids
     assert legacy["ready_to_ship_total"] == baseline_total + order_count
@@ -189,6 +215,10 @@ def test_ready_to_ship_page_requires_auth_and_rejects_oversized_page(client, aut
     assert client.get("/api/inbox?dept=FGS&ready_to_ship_limit=1").status_code == 401
     assert client.get(
         "/api/inbox?dept=FGS&ready_to_ship_limit=101",
+        headers=auth_headers,
+    ).status_code == 422
+    assert client.get(
+        "/api/inbox?dept=FGS&ready_to_ship_limit=50&ready_to_ship_q=" + "x" * 101,
         headers=auth_headers,
     ).status_code == 422
 

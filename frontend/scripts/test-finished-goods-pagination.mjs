@@ -107,10 +107,13 @@ assert.equal(walk(tree, node => node.type === "button" && (
   containsText(node.props.children, "Load more") || containsText(node.props.children, "common.loadMore")
 )).length, 0, "exact has_more flags hide each Load more button at the final page");
 const inputs = walk(tree, node => node.type === "input" && node.props.onChange);
-assert.equal(inputs.length, 2, "both stock tables expose their own search input");
+assert.equal(inputs.length, 3, "stock, branded stock and ready-to-ship lists expose their own search input");
 inputs[0].props.onChange({ target: { value: "brand needle" } });
 inputs[1].props.onChange({ target: { value: "model needle" } });
+inputs[2].props.onChange({ target: { value: "ready needle" } });
 tree = render();
 assert(requestKeys.includes("/api/finished-goods/branded-stock?page=1&page_size=50&q=brand%20needle"), "branded search updates the server page key");
 assert(requestKeys.includes("/api/finished-goods?page=1&page_size=50&q=model%20needle"), "stock search updates the server page key");
-console.log("PASS: Finished Goods stock and branded tables use 50-row exact-total pages, search and Load more.");
+assert(requestKeys.includes("/api/inbox?dept=FGS&ready_to_ship_limit=50&ready_to_ship_offset=0&ready_to_ship_q=ready%20needle&include_core_orders=false"), "ready-to-ship search updates the exact-total server page key");
+assert.match(source, /\{readyToShip\.length\} \/ \{readyToShipTotal\}/, "ready-to-ship table shows loaded rows against the exact filtered total");
+console.log("PASS: Finished Goods stock, branded stock and ready-to-ship tables use 50-row exact-total pages, search and Load more.");

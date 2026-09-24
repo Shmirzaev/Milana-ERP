@@ -28,8 +28,10 @@ export default function FinishedGoodsPage() {
   const { lang, t } = useT();
   const [stockSearch, setStockSearch] = useState("");
   const [brandedSearch, setBrandedSearch] = useState("");
+  const [readyToShipSearch, setReadyToShipSearch] = useState("");
   const deferredStockSearch = useDeferredValue(stockSearch.trim());
   const deferredBrandedSearch = useDeferredValue(brandedSearch.trim());
+  const deferredReadyToShipSearch = useDeferredValue(readyToShipSearch.trim());
   const {
     data: stockPages,
     size: stockSize,
@@ -64,8 +66,9 @@ export default function FinishedGoodsPage() {
     setSize: setReadyToShipSize,
     isValidating: readyToShipValidating,
   } = useSWRInfinite<any>(
-    (index) => `/api/inbox?dept=FGS&ready_to_ship_limit=50&ready_to_ship_offset=${index * 50}&include_core_orders=false`,
+    (index) => `/api/inbox?dept=FGS&ready_to_ship_limit=50&ready_to_ship_offset=${index * 50}${deferredReadyToShipSearch ? `&ready_to_ship_q=${encodeURIComponent(deferredReadyToShipSearch)}` : ""}&include_core_orders=false`,
     fetcher,
+    { persistSize: false },
   );
   const readyToShip = readyToShipPages?.flatMap((page) => page?.ready_to_ship ?? []) ?? [];
   const readyToShipTotal = Number(readyToShipPages?.[0]?.ready_to_ship_total ?? 0);
@@ -131,6 +134,17 @@ export default function FinishedGoodsPage() {
       </div>
       {hasMoreStock && <button className="btn btn-secondary mt-3" disabled={stockValidating} onClick={() => setStockSize(stockSize + 1)}>{stockValidating ? t("common.loading") : t("common.loadMore")}</button>}
       <h2 className="text-lg font-medium mt-6 mb-2">{t("page.finishedGoods.readyToShip")}</h2>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <input
+          className="input h-8 min-w-48 flex-1"
+          aria-label={`${t("common.search")} ${t("page.finishedGoods.readyToShip")}`}
+          placeholder={t("common.search")}
+          maxLength={100}
+          value={readyToShipSearch}
+          onChange={(event) => setReadyToShipSearch(event.target.value)}
+        />
+        <span className="text-xs text-slate-500">{readyToShip.length} / {readyToShipTotal}</span>
+      </div>
       <div className="card overflow-x-auto">
         <table className="table">
           <thead>
