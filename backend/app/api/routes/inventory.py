@@ -1738,6 +1738,15 @@ def update_batch(
         validate_stock_batch_warehouse(target_item, target_warehouse)
     if abs(delta) > EPSILON or (target_warehouse_id != old_warehouse_id and target_quantity > EPSILON):
         validate_stock_batch_unit(target_item, target_unit)
+    if target_unit != old_unit:
+        if old_quantity > EPSILON:
+            raise HTTPException(
+                409,
+                "Cannot change batch unit while stock quantity remains; reconcile under an approved unit policy",
+            )
+        _validate_stock_batch_relink_units(db, batch_id, target_unit)
+        if db.query(WasteRecord.id).filter(WasteRecord.batch_id == batch_id).first():
+            raise HTTPException(409, "Cannot change batch unit while linked waste records exist")
 
     old_value = {
         "item_id": batch.item_id,

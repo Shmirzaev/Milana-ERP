@@ -445,6 +445,43 @@ def test_batch_edit_allows_metadata_only_change_on_legacy_unit_drift(
         assert db.query(StockMovement).count() == before_movements
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [{"unit": "pcs"}, {"unit": "pcs", "quantity": 0}],
+)
+def test_batch_edit_cannot_relabel_quantity_or_ledger_history(
+    client, auth_headers, movement_stock, payload,
+):
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        batch.unit = "kg"
+        db.commit()
+        before_movements = [
+            (row.id, row.movement_type, row.quantity, row.unit)
+            for row in db.query(StockMovement).filter_by(batch_id=batch.id).all()
+        ]
+        before_audits = db.query(AuditLog).count()
+    before_stock = stock_state(movement_stock)
+
+    response = client.patch(
+        f"/api/inventory/batches/{movement_stock['batch_id']}",
+        headers=auth_headers,
+        json=payload,
+    )
+
+    assert response.status_code == 409, response.text
+    assert "Cannot change batch unit" in response.json()["detail"]
+    assert stock_state(movement_stock) == before_stock
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        assert batch.unit == "kg"
+        assert [
+            (row.id, row.movement_type, row.quantity, row.unit)
+            for row in db.query(StockMovement).filter_by(batch_id=batch.id).all()
+        ] == before_movements
+        assert db.query(AuditLog).count() == before_audits
+
+
 def test_batch_archive_rejects_legacy_unit_drift_before_issue_or_reservation_release(
     client, auth_headers, movement_stock,
 ):
