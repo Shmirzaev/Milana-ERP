@@ -277,6 +277,12 @@ def test_super_data_console_requires_true_super_admin(client, auth_headers):
     )
     assert r.status_code == 403, r.text
 
+    r = client.post(
+        f"/api/admin/super-data/repairs/departments/{hr_dept}/deactivate",
+        headers=regular_admin_headers,
+    )
+    assert r.status_code == 403, r.text
+
 
 def test_super_data_mutations_are_allowlisted_audited_and_delete_fails_closed(client, auth_headers):
     r = client.post(
@@ -453,6 +459,129 @@ def test_super_data_named_department_repair_validates_and_keeps_legacy_patch(cli
             .filter_by(action="update", entity_type="SuperData:departments", entity_id=department_id)
             .count()
             == 2
+        )
+
+
+def test_super_data_department_deactivation_is_named_audited_and_idempotent(client, auth_headers):
+    created = client.post(
+        "/api/departments",
+        json={"name": "Soft Delete Target", "code": "SDT"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    department_id = created.json()["id"]
+    user = client.post(
+        "/api/users",
+        json={
+            "name": "Soft Delete Reference",
+            "email": "soft.delete.reference@example.com",
+            "password": "SoftDeleteUser!2026",
+            "role_id": _role_id(client, auth_headers, "Admin"),
+            "department_id": department_id,
+        },
+        headers=auth_headers,
+    )
+    assert user.status_code == 201, user.text
+    user_id = user.json()["id"]
+    candidate = client.post(
+        "/api/hr/recruitment",
+        json={"full_name": "Historical Candidate", "department_id": department_id},
+        headers=auth_headers,
+    )
+    assert candidate.status_code == 201, candidate.text
+
+    response = client.post(
+        f"/api/admin/super-data/repairs/departments/{department_id}/deactivate",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["is_active"] is False
+    listed = client.get("/api/departments", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    assert any(row["id"] == department_id and row["is_active"] is False for row in listed.json())
+
+    reassignment = client.post(
+        "/api/users",
+        json={
+            "name": "New Soft Delete Assignment",
+            "email": "soft.delete.new.assignment@example.com",
+            "password": "SoftDeleteUser!2026",
+            "role_id": _role_id(client, auth_headers, "Admin"),
+            "department_id": department_id,
+        },
+        headers=auth_headers,
+    )
+    assert reassignment.status_code == 422, reassignment.text
+    retained_candidate = client.patch(
+        f"/api/hr/recruitment/{candidate.json()['id']}",
+        json={"full_name": "Renamed Historical Candidate", "department_id": department_id},
+        headers=auth_headers,
+    )
+    assert retained_candidate.status_code == 200, retained_candidate.text
+    new_candidate = client.post(
+        "/api/hr/recruitment",
+        json={"full_name": "New Candidate", "department_id": department_id},
+        headers=auth_headers,
+    )
+    assert new_candidate.status_code == 422, new_candidate.text
+
+    with SessionLocal() as db:
+        department = db.get(Department, department_id)
+        assert department is not None
+        assert department.name == "Soft Delete Target"
+        assert department.is_active is False
+        assert db.get(User, user_id).department.name == "Soft Delete Target"
+        audit = (
+            db.query(AuditLog)
+            .filter_by(action="deactivate", entity_type="SuperData:departments", entity_id=department_id)
+            .one()
+        )
+        assert audit.old_value_json["is_active"] is True
+        assert audit.new_value_json["is_active"] is False
+
+    repeated = client.post(
+        f"/api/admin/super-data/repairs/departments/{department_id}/deactivate",
+        headers=auth_headers,
+    )
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["is_active"] is False
+    with SessionLocal() as db:
+        assert (
+            db.query(AuditLog)
+            .filter_by(action="deactivate", entity_type="SuperData:departments", entity_id=department_id)
+            .count()
+            == 1
+        )
+
+
+def test_super_data_department_deactivation_rolls_back_when_audit_fails(client, auth_headers, monkeypatch):
+    from app.api.routes import super_data
+
+    created = client.post(
+        "/api/departments",
+        json={"name": "Soft Delete Rollback", "code": "SDR2"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    department_id = created.json()["id"]
+
+    def fail_audit(*args, **kwargs):
+        raise SQLAlchemyError("synthetic audit failure")
+
+    monkeypatch.setattr(super_data, "log_action", fail_audit)
+    response = client.post(
+        f"/api/admin/super-data/repairs/departments/{department_id}/deactivate",
+        headers=auth_headers,
+    )
+    assert response.status_code == 400, response.text
+
+    with SessionLocal() as db:
+        assert db.get(Department, department_id).is_active is True
+        assert (
+            db.query(AuditLog)
+            .filter_by(action="deactivate", entity_type="SuperData:departments", entity_id=department_id)
+            .count()
+            == 0
         )
 
 

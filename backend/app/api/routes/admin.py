@@ -308,13 +308,15 @@ def _parse_date(value: str | None, end_of_day: bool = False) -> datetime | None:
 
 
 # ===== Users =====
-def _access_subject(db, values):
+def _access_subject(db, values, *, allow_inactive_department: bool = False):
     role = db.get(Role, values.get("role_id")) if values.get("role_id") else None
     department = db.get(Department, values.get("department_id")) if values.get("department_id") else None
     if values.get("role_id") and role is None:
         raise HTTPException(404, "Role not found")
     if values.get("department_id") and department is None:
         raise HTTPException(404, "Department not found")
+    if department is not None and not department.is_active and not allow_inactive_department:
+        raise HTTPException(422, "Inactive departments cannot be newly assigned")
     return SimpleNamespace(
         role=role, department=department, name=values.get("name", ""), email=values.get("email", ""),
         factory_code=values.get("factory_code") or "MIL",
@@ -329,14 +331,15 @@ def _user_access_values(user):
 
 
 def _assert_policy_change(db, actor, values, old=None):
-    proposed = _access_subject(db, values)
+    keeps_department = old is not None and values.get("department_id") == old.get("department_id")
+    proposed = _access_subject(db, values, allow_inactive_department=keeps_department)
     for factory, policy in proposed.access_policy.items():
         if factory != proposed.factory_code and SUPER_ADMIN_PERMISSION in set(policy.get("allow", [])) | set(policy.get("deny", [])):
             raise HTTPException(400, "Super Admin access is configured in the primary factory only")
     if is_super_admin(actor):
         return proposed
     own = set(user_permissions(actor))
-    previous = _access_subject(db, old) if old else None
+    previous = _access_subject(db, old, allow_inactive_department=True) if old else None
     old_policy = (old or {}).get("access_policy") or {}
     for factory in FACTORY_CODES:
         policy = proposed.access_policy.get(factory, {})
@@ -861,6 +864,7 @@ def list_departments(
         Department.id,
         Department.name,
         Department.code,
+        Department.is_active,
     )).order_by(Department.id)
     if page is None and page_size is None:
         return ordered_query.all()

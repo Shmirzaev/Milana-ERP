@@ -1,7 +1,7 @@
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 
-export type PositionDepartment = { id: number; name: string };
+export type PositionDepartment = { id: number; name: string; is_active?: boolean };
 
 export function positionDepartmentsKey(editing: unknown) {
   return editing === null ? null : "/api/departments";

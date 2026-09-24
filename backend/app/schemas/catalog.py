@@ -29,6 +29,7 @@ class DepartmentOut(ORMModel):
     id: int
     name: str
     code: str
+    is_active: bool = True
 
 
 class UserIn(BaseModel):

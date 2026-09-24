@@ -16,7 +16,7 @@ from app.core.deps import DbSession, require_super_admin
 from app.db.base import Base
 from app.models import User
 from app.services.audit import log_action
-from app.services.department_repairs import repair_department_name
+from app.services.department_repairs import deactivate_department, repair_department_name
 
 router = APIRouter(prefix="/admin/super-data", tags=["super-admin-data"])
 
@@ -367,6 +367,33 @@ def _repair_department_name(row_id: int, raw_name: object, db: Session, current:
     return _serialize_row(_row_for(db, _table_for("departments"), row_id))
 
 
+@router.post("/repairs/departments/{row_id}/deactivate")
+def deactivate_department_repair(
+    row_id: int,
+    db: DbSession,
+    current: User = Depends(require_super_admin),
+):
+    """Deactivate a department while preserving its row and existing references."""
+    try:
+        department, changed = deactivate_department(db, row_id)
+        if changed:
+            db.flush()
+            log_action(
+                db,
+                current,
+                "deactivate",
+                "SuperData:departments",
+                row_id,
+                old_value={"id": row_id, "name": department.name, "code": department.code, "is_active": True},
+                new_value={"id": row_id, "name": department.name, "code": department.code, "is_active": False},
+            )
+    except SQLAlchemyError as exc:
+        _rollback_and_raise(db, exc, "Could not deactivate department")
+    if changed:
+        _commit_or_409(db, "Could not deactivate department")
+    return _serialize_row(_row_for(db, _table_for("departments"), row_id))
+
+
 @router.delete("/tables/{table_name}/rows/{row_id}", status_code=204)
 def delete_super_data_row(
     table_name: str,
@@ -377,5 +404,5 @@ def delete_super_data_row(
     _table_for(table_name)
     raise HTTPException(
         409,
-        "Data Console delete is unavailable because no approved soft-delete field is configured",
+        "Data Console delete is unavailable; use an approved named soft-delete operation",
     )

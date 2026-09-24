@@ -7,7 +7,7 @@ import Modal from "@/components/Modal";
 import { HrHeader, LoadState, MetricGrid } from "@/components/hr/HrUi";
 import { useT } from "@/lib/i18n";
 
-type Dept = { id: number; name: string };
+type Dept = { id: number; name: string; is_active?: boolean };
 type Position = { id: number; name: string };
 type Employee = {
   id: number; factory_code: string; employee_no: string | null; full_name: string;
@@ -122,7 +122,7 @@ export default function EmployeesPage() {
           <label><span className="label">{t("field.employeeNo")}</span><input className="input" inputMode="numeric" pattern="[0-9]+" value={form.employee_no} onChange={(e) => setForm({ ...form, employee_no: e.target.value })} /></label>
           <label className="lg:col-span-2"><span className="label">Full name</span><input className="input" required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></label>
           <label><span className="label">Phone</span><input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
-          <label><span className="label">Department</span><select className="input" value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })}><option value="">Unassigned</option>{departments?.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+          <label><span className="label">Department</span><select className="input" value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })}><option value="">Unassigned</option>{departments?.filter((row) => row.is_active !== false || row.id === Number(form.department_id)).map((row) => <option key={row.id} value={row.id}>{row.name}{row.is_active === false ? " (Inactive)" : ""}</option>)}</select></label>
           <label><span className="label">Staffing position</span><select className="input" value={form.hr_position_id} onChange={(e) => setForm({ ...form, hr_position_id: e.target.value })}><option value="">Unassigned</option>{positions?.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
           <label><span className="label">Position label</span><input className="input" value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} /></label>
           <label><span className="label">Manager</span><select className="input" value={form.manager_employee_id} onChange={(e) => setForm({ ...form, manager_employee_id: e.target.value })}><option value="">No manager</option>{data?.filter((row) => row.id !== (editing === "new" ? -1 : editing?.id)).map((row) => <option key={row.id} value={row.id}>{row.full_name}</option>)}</select></label>

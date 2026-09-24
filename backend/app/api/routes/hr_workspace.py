@@ -236,10 +236,18 @@ def _employee(db: DbSession, factory: str, employee_id: int) -> Employee:
     return row
 
 
-def _department(db: DbSession, factory: str, department_id: int) -> Department:
+def _department(
+    db: DbSession,
+    factory: str,
+    department_id: int,
+    *,
+    allow_inactive: bool = False,
+) -> Department:
     row = db.get(Department, department_id)
     if not row:
         raise HTTPException(404, "Department not found")
+    if not row.is_active and not allow_inactive:
+        raise HTTPException(422, "Inactive departments cannot be newly assigned")
     department_factory = factory_for_department(row.code)
     if department_factory and department_factory != factory:
         raise HTTPException(409, "Department belongs to another factory")
@@ -262,11 +270,22 @@ def _validate_org_unit_links(payload: OrgUnitIn, db: DbSession, factory: str) ->
         _employee(db, factory, payload.manager_employee_id)
 
 
-def _validate_position_links(payload: PositionIn, db: DbSession, factory: str) -> None:
+def _validate_position_links(
+    payload: PositionIn,
+    db: DbSession,
+    factory: str,
+    *,
+    existing_department_id: int | None = None,
+) -> None:
     if payload.org_unit_id is not None:
         _org_unit(db, factory, payload.org_unit_id)
     if payload.department_id is not None:
-        _department(db, factory, payload.department_id)
+        _department(
+            db,
+            factory,
+            payload.department_id,
+            allow_inactive=payload.department_id == existing_department_id,
+        )
 
 
 def _validate_position_approved_count(payload: PositionIn) -> None:
@@ -450,7 +469,7 @@ def update_position(position_id: int, payload: PositionIn, db: DbSession, curren
     factory = _factory(current)
     row = db.query(HrPosition).filter(HrPosition.id == position_id, HrPosition.factory_code == factory).first()
     if not row: raise HTTPException(404, "Position not found")
-    _validate_position_links(payload, db, factory)
+    _validate_position_links(payload, db, factory, existing_department_id=row.department_id)
     _validate_position_approved_count(payload)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     for key, value in values.items(): setattr(row, key, value)
@@ -531,13 +550,20 @@ def list_candidates(
     }
 
 
-def _validate_candidate_links(payload: CandidateIn, db: DbSession, factory: str, candidate_id: int | None = None) -> None:
+def _validate_candidate_links(
+    payload: CandidateIn,
+    db: DbSession,
+    factory: str,
+    candidate_id: int | None = None,
+    *,
+    existing_department_id: int | None = None,
+) -> None:
     if payload.position_id is not None and not db.query(HrPosition).filter(
         HrPosition.id == payload.position_id, HrPosition.factory_code == factory,
     ).first():
         raise HTTPException(404, "Staffing position not found")
     if payload.department_id is not None:
-        _department(db, factory, payload.department_id)
+        _department(db, factory, payload.department_id, allow_inactive=payload.department_id == existing_department_id)
     if payload.pinfl:
         duplicate = db.query(HrRecruitmentCandidate).filter(
             HrRecruitmentCandidate.factory_code == factory,
@@ -563,7 +589,7 @@ def update_candidate(candidate_id: int, payload: CandidateIn, db: DbSession, cur
     factory = _factory(current)
     row = db.query(HrRecruitmentCandidate).filter(HrRecruitmentCandidate.id == candidate_id, HrRecruitmentCandidate.factory_code == factory).first()
     if not row: raise HTTPException(404, "Candidate not found")
-    _validate_candidate_links(payload, db, factory, candidate_id)
+    _validate_candidate_links(payload, db, factory, candidate_id, existing_department_id=row.department_id)
     for key, value in payload.model_dump().items(): setattr(row, key, value)
     log_action(db, current, "update", "HrRecruitmentCandidate", row.id, new_value={"stage": row.stage}); db.commit()
     return {"id": row.id}

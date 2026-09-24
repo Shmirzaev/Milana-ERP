@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
-import { Database, Pencil, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { Ban, Database, Pencil, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import Modal from "@/components/Modal";
 import PageHeader from "@/components/PageHeader";
@@ -112,6 +112,7 @@ export default function SuperDataPage() {
   const [editing, setEditing] = useState<Record<string, any> | null>(null);
   const [draft, setDraft] = useState<Record<string, any>>({});
   const [editMsg, setEditMsg] = useState("");
+  const [actionMsg, setActionMsg] = useState("");
 
   useEffect(() => {
     if (!selectedTable && tables?.length) setSelectedTable(tables[0].name);
@@ -148,6 +149,19 @@ export default function SuperDataPage() {
     e.preventDefault();
     setPage(1);
     setQuery(search.trim());
+  }
+
+  async function deactivateDepartment(row: Record<string, any>) {
+    const label = rowTitle(row, "departments");
+    if (!window.confirm(t("page.superData.deactivateConfirm", { row: label }))) return;
+    setActionMsg("");
+    try {
+      await api.post(`/api/admin/super-data/repairs/departments/${row.id}/deactivate`, {});
+      mutateRows();
+      mutateTables();
+    } catch (err: any) {
+      setActionMsg(err?.message || t("page.superData.deactivateFailed"));
+    }
   }
 
   function openEdit(row: Record<string, any>) {
@@ -275,6 +289,7 @@ export default function SuperDataPage() {
           {error ? (
             <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{String(error.message || error)}</div>
           ) : null}
+          {actionMsg ? <div className="mb-3 rounded-md bg-red-50 p-3 text-sm text-red-700">{actionMsg}</div> : null}
 
           <div className="card overflow-x-auto">
             <table className="table">
@@ -294,7 +309,7 @@ export default function SuperDataPage() {
                   <tr><td colSpan={columns.length + 1}>{t("common.loading")}</td></tr>
                 ) : (grid?.rows ?? []).length ? (
                   grid?.rows.map((row) => (
-                    <tr key={row.id}>
+                    <tr key={row.id} className={selectedTable === "departments" && row.is_active === false ? "opacity-60" : undefined}>
                       <td>
                         <div className="flex items-center gap-2">
                           {editableColumns.length ? (
@@ -302,12 +317,23 @@ export default function SuperDataPage() {
                               <Pencil />
                             </button>
                           ) : <span className="text-[#8a8472]">—</span>}
+                          {selectedTable === "departments" && row.is_active ? (
+                            <button
+                              type="button"
+                              className="icon-btn text-red-700"
+                              title={t("page.superData.deactivateDepartment")}
+                              aria-label={t("page.superData.deactivateDepartment")}
+                              onClick={() => deactivateDepartment(row)}
+                            >
+                              <Ban />
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                       {columns.map((column) => (
                         <td key={`${row.id}-${column.name}`} className="max-w-[280px]">
-                          <span className={row[column.name] === null || row[column.name] === undefined ? "text-[#8a8472]" : ""} title={toCellText(row[column.name])}>
-                            {compactCell(row[column.name])}
+                          <span className={row[column.name] === null || row[column.name] === undefined ? "text-[#8a8472]" : ""} title={column.name === "is_active" ? (row.is_active ? t("field.active") : t("field.inactive")) : toCellText(row[column.name])}>
+                            {column.name === "is_active" ? (row.is_active ? t("field.active") : t("field.inactive")) : compactCell(row[column.name])}
                           </span>
                         </td>
                       ))}

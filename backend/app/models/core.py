@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric, UniqueConstraint, func
+from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric, UniqueConstraint, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -16,6 +16,7 @@ class Department(Base, PkMixin, TimestampMixin):
     __tablename__ = "departments"
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
 
 
 class User(Base, PkMixin, TimestampMixin):

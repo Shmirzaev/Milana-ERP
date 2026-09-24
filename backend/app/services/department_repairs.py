@@ -28,3 +28,14 @@ def repair_department_name(db: Session, department_id: int, raw_name: object) ->
     previous_name = department.name
     department.name = name
     return department, previous_name
+
+
+def deactivate_department(db: Session, department_id: int) -> tuple[Department, bool]:
+    """Mark a department inactive without removing its historical references."""
+    department = db.get(Department, department_id)
+    if department is None:
+        raise HTTPException(404, "Department not found")
+    if not department.is_active:
+        return department, False
+    department.is_active = False
+    return department, True

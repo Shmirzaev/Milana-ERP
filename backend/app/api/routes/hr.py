@@ -362,6 +362,7 @@ def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: U
         changes.get("manager_employee_id", e.manager_employee_id),
         changes.get("hr_position_id", e.hr_position_id),
         employee_id=e.id,
+        allow_inactive_department_id=e.department_id,
     )
     if "employee_no" in changes:
         _ensure_employee_no_available(db, factory_code, changes["employee_no"], exclude_id=e.id)
@@ -403,6 +404,7 @@ def _validate_employee_references(
     hr_position_id: int | None = None,
     *,
     employee_id: int | None = None,
+    allow_inactive_department_id: int | None = None,
 ) -> None:
     if user_id is not None:
         if not -2_147_483_648 <= user_id <= 2_147_483_647:
@@ -418,6 +420,8 @@ def _validate_employee_references(
         department = db.get(Department, department_id)
         if not department:
             raise HTTPException(404, "Employee department not found")
+        if not department.is_active and department_id != allow_inactive_department_id:
+            raise HTTPException(422, "Inactive departments cannot be newly assigned")
         department_factory = factory_for_department(department.code)
         if department_factory and department_factory != factory_code:
             raise HTTPException(409, "Employee department belongs to another factory")

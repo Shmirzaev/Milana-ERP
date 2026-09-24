@@ -343,7 +343,7 @@ def test_postgres_fresh_head_rerun_and_known_drift_baseline(postgres_migrations)
 
     command.upgrade(config, "head")
 
-    assert _current_revision(engine) == ScriptDirectory.from_config(config).get_current_head() == "0131_sewing_corrections"
+    assert _current_revision(engine) == ScriptDirectory.from_config(config).get_current_head() == "0132_department_soft_delete"
     inspector = sa.inspect(engine)
     tables = set(inspector.get_table_names())
     assert {"manual_accessory_issues", "eco_fabric_dispatches", "sewing_records"} <= tables
@@ -390,10 +390,16 @@ def test_postgres_upgrade_from_0130_preserves_existing_rows(postgres_migrations)
 
     command.upgrade(config, "head")
 
-    assert _current_revision(engine) == "0131_sewing_corrections"
+    assert _current_revision(engine) == "0132_department_soft_delete"
     with engine.connect() as connection:
         current = sa.Table("sewing_records", sa.MetaData(), autoload_with=connection)
         after = dict(connection.execute(sa.select(current).where(current.c.id == record_id)).mappings().one())
+        departments = sa.Table("departments", sa.MetaData(), autoload_with=connection)
+        migrated_department = connection.execute(
+            sa.select(departments).where(departments.c.id == department_id)
+        ).mappings().one()
     assert {key: after[key] for key in before} == before
     assert after["correction_version"] == 0
     assert after["sewing_assignment_id"] is None and after["assignment_applied_qty"] is None
+    assert migrated_department["name"] == "Synthetic migration department"
+    assert migrated_department["is_active"] is True

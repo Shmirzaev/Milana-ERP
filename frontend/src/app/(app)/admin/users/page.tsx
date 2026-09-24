@@ -13,7 +13,7 @@ import UserAccessEditor from "@/components/UserAccessEditor";
 import { type AccessPolicy } from "@/lib/userAccess";
 
 type Role = { id: number; name: string; permissions: string[] };
-type Dept = { id: number; name: string };
+type Dept = { id: number; name: string; is_active?: boolean };
 type User = {
   id: number;
   name: string;
@@ -261,7 +261,7 @@ export default function AdminUsersPage() {
         </select>
         <select className="input" value={f.department_id} onChange={(e) => setF({ ...f, department_id: Number(e.target.value) })}>
           <option value={0}>{t("ph.dept")}</option>
-          {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          {depts?.filter((d) => d.is_active !== false).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
         <select className="input" value={f.factory_code} onChange={(e) => setF({ ...f, factory_code: e.target.value as "MIL" | "BST" | "ECO" })}>
           <option value="MIL">Milana</option><option value="BST">Besttex</option><option value="ECO">Eco Cotton</option>
@@ -390,7 +390,7 @@ export default function AdminUsersPage() {
               <label className="label">{t("field.department")}</label>
               <select className="input" value={edit.department_id} onChange={(e) => setEdit({ ...edit, department_id: Number(e.target.value) })}>
                 <option value={0}>-</option>
-                {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                {depts?.filter((d) => d.is_active !== false || d.id === edit.department_id).map((d) => <option key={d.id} value={d.id}>{d.name}{d.is_active === false ? ` (${t("field.inactive")})` : ""}</option>)}
               </select>
             </div>
             <div>
