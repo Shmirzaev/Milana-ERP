@@ -27,6 +27,7 @@ from app.services.bundles import resolve_sewing_factory_code
 from app.services.factory_scope import require_factory_access, require_work_order_factory_access
 from app.services.payroll_factory_scope import production_order_factory_condition
 from app.services.sewing_scope import require_sewing_flow_access
+from app.services.sewing_assignment_policy import validate_assignment_progress
 
 router = APIRouter(tags=["production_extra"])
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
@@ -253,6 +254,7 @@ def create_assignment(
     # Soft capacity warning — append to response, do not block.
     capacity_warning = None
     _require_storable_assignment_integer("quantity", payload.quantity)
+    validate_assignment_progress(payload.quantity, 0)
 
     a = SewingAssignment(
         work_order_id=wid,
@@ -297,6 +299,8 @@ def update_assignment(
     require_sewing_flow_access(current, previous_flow)
 
     next_flow_id = changes.get("sewing_flow_id", a.sewing_flow_id)
+    if changes.get("quantity", a.quantity) is None:
+        raise HTTPException(400, "Quantity is required")
     next_qty = int(changes.get("quantity", a.quantity))
     next_start = changes.get("planned_start", a.planned_start)
     next_end = changes.get("planned_end", a.planned_end)
@@ -345,7 +349,11 @@ def update_assignment(
 
     _require_storable_assignment_integer("quantity", next_qty)
     if "completed_qty" in changes:
+        if changes["completed_qty"] is None:
+            raise HTTPException(400, "Completed quantity is required")
         _require_storable_assignment_integer("completed_qty", int(changes["completed_qty"]))
+    next_completed_qty = int(changes.get("completed_qty", a.completed_qty) or 0)
+    validate_assignment_progress(next_qty, next_completed_qty)
 
     previous_flow_id = int(a.sewing_flow_id)
     for k, v in changes.items():

@@ -63,6 +63,7 @@ from app.services.label_images import is_preview_model_image, material_label_ima
 from app.services.model_images import material_preview_image_url
 from app.services.audit import log_action
 from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
+from app.services.sewing_assignment_policy import validate_assignment_progress
 
 router = APIRouter(prefix="/bundles", tags=["bundles"])
 
@@ -1115,6 +1116,7 @@ def accept_sewing_batch(
         assignment.status = "in_progress"
     if assignment.actual_start is None:
         assignment.actual_start = datetime.now(timezone.utc)
+    validate_assignment_progress(int(assignment.quantity or 0), int(assignment.completed_qty or 0))
     if not wo.sewing_flow_id:
         wo.sewing_flow_id = flow.id
 

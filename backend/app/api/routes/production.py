@@ -90,6 +90,7 @@ from app.services.bundles import (
     sync_packaging_department_for_bundle_route,
 )
 from app.services.sewing_scope import sewing_line_factory_scope
+from app.services.sewing_assignment_policy import validate_assignment_progress
 from app.services.workflow import (
     WORKFLOW_SEQUENCE,
     advance_workflow,
@@ -5031,6 +5032,11 @@ def _sync_sewing_assignments_to_bundle_total(
     if not assignments:
         return
 
+    for assignment in assignments:
+        validate_assignment_progress(
+            int(assignment.quantity or 0), int(assignment.completed_qty or 0),
+        )
+
     current_total = sum(int(row.quantity or 0) for row in assignments)
     target = max(0, int(target_quantity or 0))
     if current_total == target:
@@ -5040,6 +5046,12 @@ def _sync_sewing_assignments_to_bundle_total(
     completed_total = sum(int(row.completed_qty or 0) for row in assignments)
     if target < completed_total:
         raise HTTPException(409, f"Bundle total cannot be lower than completed sewing quantity ({completed_total})")
+    minimum_assignment_total = sum(max(1, int(row.completed_qty or 0)) for row in assignments)
+    if target < minimum_assignment_total:
+        raise HTTPException(
+            409,
+            f"Bundle total cannot be lower than the minimum active sewing assignment quantity ({minimum_assignment_total})",
+        )
 
     delta = target - current_total
     if delta > 0:
@@ -5048,7 +5060,8 @@ def _sync_sewing_assignments_to_bundle_total(
 
     remaining = -delta
     for assignment in reversed(assignments):
-        reducible = max(0, int(assignment.quantity or 0) - int(assignment.completed_qty or 0))
+        minimum_quantity = max(1, int(assignment.completed_qty or 0))
+        reducible = max(0, int(assignment.quantity or 0) - minimum_quantity)
         take = min(reducible, remaining)
         assignment.quantity = int(assignment.quantity or 0) - take
         remaining -= take
@@ -5056,6 +5069,8 @@ def _sync_sewing_assignments_to_bundle_total(
             break
     if remaining > 0:
         raise HTTPException(409, "Sewing assignment progress prevents this bundle reduction")
+    for assignment in assignments:
+        validate_assignment_progress(int(assignment.quantity or 0), int(assignment.completed_qty or 0))
 
 
 @router.patch("/cutting/records/{rid}/bundle-quantities")
@@ -5497,6 +5512,8 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
         operation_name="sewing",
     )
     size_quantities = _validated_sewing_size_quantities(db, wo, batch_id, payload)
+    if assignment:
+        validate_assignment_progress(int(assignment.quantity or 0), int(assignment.completed_qty or 0))
 
     # Rule: sewing cannot receive more than cutting/printing passed
     upstream_passed = 0
@@ -5581,6 +5598,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
             if not assignment.actual_start:
                 assignment.actual_start = datetime.now(timezone.utc)
             assignment.actual_end = datetime.now(timezone.utc)
+        validate_assignment_progress(int(assignment.quantity or 0), int(assignment.completed_qty or 0))
     replacement_request = None
     if failed_replacement_qty > 0:
         cutting_wo = _context_work_order(db, wo, "cutting")

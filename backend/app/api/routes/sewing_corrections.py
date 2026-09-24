@@ -12,6 +12,7 @@ from app.models import (User, WorkOrder, SewingRecord, SewingAssignment, SewingF
 from app.services.factory_scope import require_work_order_factory_access
 from app.services.audit import log_action
 from app.services.workflow import advance_workflow
+from app.services.sewing_assignment_policy import validate_assignment_progress
 
 router = APIRouter(tags=["sewing_corrections"])
 
@@ -177,6 +178,7 @@ def assignment_for(db, wo, row):
         applied = row.passed_qty
     if not assignment or assignment.status not in ("planned", "in_progress", "completed") or applied is None:
         raise HTTPException(409, "sewingEdit.assignmentAmbiguous")
+    validate_assignment_progress(int(assignment.quantity or 0), int(assignment.completed_qty or 0))
     return assignment, applied
 
 
@@ -290,6 +292,7 @@ def apply(db, wo, row, user, payload=None):
         next_completed = assignment.completed_qty - applied + new_passed
         if next_completed < 0 or next_completed > assignment.quantity:
             raise HTTPException(409, "sewingEdit.assignmentLimit")
+        validate_assignment_progress(int(assignment.quantity or 0), int(next_completed))
         assignment.completed_qty = next_completed
         assignment.status = "completed" if next_completed == assignment.quantity else "in_progress" if next_completed else "planned"
         assignment.actual_end = datetime.now(timezone.utc) if assignment.status == "completed" else None
