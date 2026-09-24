@@ -991,7 +991,7 @@ export default function PayrollScanPage() {
       showSessionRecord(nextRecord, session);
       await saveRecordsToPayroll([nextRecord], true);
     } catch (error: any) {
-      if (session === employeeSessionRef.current) setNotice(error?.message || t("page.payrollScan.readFailed"), "error");
+      setNotice(error?.message || t("page.payrollScan.readFailed"), "error");
     }
   }
 
