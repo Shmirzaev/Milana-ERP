@@ -3,6 +3,17 @@
 Last updated: 2026-09-24
 
 
+## Inline shipment review and Storage customers deployed (2026-09-24)
+
+- LIVE: backend/frontend green release `20260924_055207`, exact application commit `2d37248f98c9d0b17488635768ff7dee2e0ad1dd`, merged through PR #202. Both source manifests, symlinks, images and slot states agree. Blue `20260924_051514` remains running for rollback. Frontend activated `2026-09-24T06:25:29.101291+00:00`.
+- Quantity review opens directly beneath the selected scanned pack. Existing save, reason, removal and extra-receipt controls remain. Amount review stays beside the totals. Storage and ReadyStorage can access Customers and create, edit and delete customers. Customer buttons now follow the same `sales.customers` permission as the API; linked-order/shipment deletion protection and per-user permission overrides remain.
+- Additive migration `0133_storage_customers` granted only `sales.customers` to the two existing storage roles. Before/after snapshots verified all other grants and roles unchanged. No customer, shipment, stock or other operational business record was created, changed or deleted by deployment. Startup seeding remained disabled. Database is `0133_storage_customers`. Migration downgrade deliberately preserves grants; restarting the old image at the newer migration head requires a compatible rollback procedure.
+- Scoped Ruff/whitespace checks and required immutable release CI [35961850801](https://github.com/Shmirzaev/Milana-ERP/actions/runs/35961850801) passed, including Storage/ReadyStorage customer CRUD and migration preservation/idempotency. Sidebar/route permission definitions were reviewed against the API permission. Verified backup, candidate startup/runtime and all four immediate health/login checks passed. Extra local suites, browser/performance exercises and extended monitoring were omitted at the user's explicit request.
+- Two workers per backend slot, zero restarts/OOM/error markers; PostgreSQL 24/100 connections and zero invalid indexes. Disk 76% backend / 68% frontend. Historical unrelated security/audit risks remain.
+- Manifest `f872f21a30052a21dbdf7dc06fff51805afa9f2369d4dc1382376cf0282cbdb1`, archive SHA-256 `79740382cebc8fbd044f4df604243dbda7242513b13872c4b70be85e6aec0b4c`, 891 source files matched the exact commit. Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:84d87d99547dfd81eb3d802bbe73ec212683126e9f5b7aca3817966eadee2fba`; frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:3ceab90881d3a790a5b8207d41180fca33009f9c0c3a9e61bf144a3645b8cd10`.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260924_055207.dump`: mode 0600, 54281611 bytes, 1203 restore objects, SHA-256 `de96e29af6cb64c80e09bddcb02169aa7c3c729bffe7e1210921d24daf1163ff`, restore-list SHA-256 `e5186760c4bda792eed7f2b6018c183319806c7661c1a9c30d0f5275854e058c`.
+- Worktree `C:/ERP/.codex-work/shipment-inline-customers-20260924`; application branch `codex/shipment-inline-customers-20260924` pushed/merged/deployed. Evidence `outputs/deployment/evidence.json`. Deployment record committed separately and mirrored to Obsidian; legacy checkout preserved.
+
 ## Inline shipment quantity review and Storage customers prepared (2026-09-24)
 
 - Quantity review now opens immediately beneath the selected scanned pack, retaining quantity, receipt, reason, save and removal rules. Amount review stays beside shipment totals.
