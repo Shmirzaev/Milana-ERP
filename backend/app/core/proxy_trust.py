@@ -16,7 +16,10 @@ def _parse_trusted_proxy_cidrs(raw_value: str) -> tuple[ipaddress.IPv4Network | 
         value = value.strip()
         if not value:
             continue
-        networks.append(ipaddress.ip_network(value, strict=False))
+        network = ipaddress.ip_network(value, strict=True)
+        if network.prefixlen == 0:
+            raise ValueError("proxy trust must not include every IPv4 or IPv6 address")
+        networks.append(network)
     return tuple(networks)
 
 
@@ -42,7 +45,9 @@ def validate_proxy_runtime_configuration(*, strict_security_required: bool) -> N
     try:
         networks = _parse_trusted_proxy_cidrs(raw_cidrs)
     except ValueError as exc:
-        raise RuntimeError(f"{TRUSTED_PROXY_CIDRS_ENV} must contain valid IP networks") from exc
+        raise RuntimeError(
+            f"{TRUSTED_PROXY_CIDRS_ENV} must contain valid, non-default IP networks"
+        ) from exc
 
     if not strict_security_required:
         return

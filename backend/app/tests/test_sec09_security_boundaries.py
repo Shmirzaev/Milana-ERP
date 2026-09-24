@@ -127,6 +127,15 @@ def test_hosted_proxy_configuration_requires_one_explicit_owner(monkeypatch):
     proxy_trust.validate_proxy_runtime_configuration(strict_security_required=True)
 
 
+@pytest.mark.parametrize("cidr", ["0.0.0.0/0", "::/0", "10.20.30.40/16"])
+def test_hosted_proxy_configuration_rejects_unbounded_or_noncanonical_networks(monkeypatch, cidr):
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", cidr)
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "")
+
+    with pytest.raises(RuntimeError, match="must contain valid, non-default IP networks"):
+        proxy_trust.validate_proxy_runtime_configuration(strict_security_required=True)
+
+
 def test_hosted_runtime_rejects_weak_configured_or_demo_credentials(monkeypatch):
     monkeypatch.setattr(settings, "INITIAL_ADMIN_PASSWORD", WEAK_PASSWORD)
     monkeypatch.setattr(settings, "AI_MONITOR_PASSWORD", "")
