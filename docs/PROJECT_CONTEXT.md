@@ -3,6 +3,13 @@
 Last updated: 2026-09-24
 
 
+## Shipment return to preparation prepared (2026-09-24)
+
+- Shipment History now offers an actual Return to preparation action for shipped and delivered shipments, with EN/RU/UZ text, required reason and physical-return confirmation. It restores existing stock rows, clears dispatch/delivery timestamps, preserves package links and audit history, and opens the shipment in Shipments. Previous matched scans are invalidated; packages must be rescanned before another dispatch. Any manually agreed total must be entered again after reviewing contents.
+- The transaction locks shipment/packages/stock/reservations/order/invoices, validates complete receipt-backed stock and ownership, and rejects stale requests, foreign reservations, other active package links, paid/external invoices and orders shared by other shipments. Unpaid invoices are voided with zero balance. Generated manual accounting orders are cancelled/zeroed and detached; ordinary sales orders remain linked and return to ready_to_ship with reservations restored. A subsequent dispatch/delivery creates a fresh invoice; original snapshots and amounts remain in audit evidence. The payment service locks and rejects void/cancelled invoices.
+- Worktree `C:/ERP/.codex-work/shipment-reopen-20260924`, branch `codex/shipment-reopen-20260924`, based on verified origin/main `1c6d6542` and active blue `20260924_100322` (manifest `dd684de6696e4678d351e2d257bb68f452051ef90c63009ce3369182d6365ef0`). No schema change; revision `0133_storage_customers`. Legacy checkout preserved.
+- Nine focused return/rescan/redispatch, unpriced/priced, shipped/delivered, stock identity, reservation/invoice, stale retry, authorization and atomic rejection checks passed. User requests fast deployment without extra tests/monitoring; standard immutable CI, backup and immediate deployment health checks retained. Deployment does not itself reopen or alter any business shipment.
+
 ## Polished invoices, Excel export and compact shipments deployed (2026-09-24)
 
 - LIVE: backend/frontend blue release `20260924_100322`, exact application commit `9bc551833b55e10ca55ce1ac27daa306f1772328`, merged through PR #204. Both source manifests, symlinks, images and slot states agree. Green `20260924_055207` remains running for rollback. Frontend activated `2026-09-24T10:40:11.114586+00:00`.

@@ -356,7 +356,8 @@ def invoice_for_frozen_delivery(db: Session, shipment: Shipment, user: User) -> 
         amount += Decimal(document["amount"])
     if not amount.is_finite() or amount < 0 or amount > Decimal("999999999999.99"):
         raise HTTPException(409, "Finance reconciliation required: combined shipment amount is outside invoice limits")
-    invoices = db.query(Invoice).filter_by(sales_order_id=shipment.sales_order_id).with_for_update().all()
+    invoices = db.query(Invoice).filter(Invoice.sales_order_id == shipment.sales_order_id,
+                                        Invoice.status.notin_(["void", "cancelled"])).with_for_update().all()
     if len(invoices) > 1:
         raise HTTPException(409, "Finance reconciliation required: order has multiple ledger invoices")
     existing = invoices[0] if invoices else None

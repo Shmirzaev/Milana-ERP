@@ -27,7 +27,8 @@ from app.models import (
 )
 from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut
 from app.schemas.catalog import PartyIn
-from app.schemas.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails
+from app.schemas.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails, ShipmentReopen
+from app.services.shipment_reopen import reopen_shipment
 from app.services.shipment_review import (
     correct_received_quantity, detach_shipment_package, freeze_dispatch_document, locked_shipment,
     invoice_for_frozen_delivery, review_shipment_amount, shipment_document,
@@ -1616,6 +1617,19 @@ def scan_package(
         fingerprint_payload=fingerprint_payload,
         response=response,
     )
+
+
+@router.post("/{sid}/reopen", response_model=ShipmentOut)
+def return_to_preparation(
+    sid: int,
+    payload: ShipmentReopen,
+    db: DbSession,
+    current: User = Depends(require_permissions("storage.shipment", "*")),
+):
+    shipment = reopen_shipment(db, sid, payload, current)
+    response = _shipment_payload(db, shipment)
+    db.commit()
+    return response
 
 
 @router.post("/{sid}/ship", response_model=ShipmentOut)

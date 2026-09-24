@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -39,3 +40,10 @@ class ShipmentAmountReview(BaseModel):
 class ShipmentPackageRemoval(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: str = Field(min_length=3, max_length=1000)
+
+
+class ShipmentReopen(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=3, max_length=1000)
+    expected_shipped_at: datetime | None
+    packages_returned: bool = Field(strict=True)

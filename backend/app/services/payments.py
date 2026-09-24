@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from fastapi import HTTPException
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -32,6 +33,9 @@ def create_invoice_payment(
     paid_at: datetime | None = None,
     notes: str | None = None,
 ) -> Payment:
+    invoice = db.query(Invoice).filter_by(id=invoice.id).populate_existing().with_for_update().one()
+    if invoice.status in {"void", "cancelled"}:
+        raise HTTPException(409, "Cannot pay a reversed or cancelled invoice")
     if customer_id is None and invoice.sales_order_id:
         customer_id = db.query(SalesOrder.customer_id).filter(SalesOrder.id == invoice.sales_order_id).scalar()
     payment = Payment(
