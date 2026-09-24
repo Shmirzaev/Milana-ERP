@@ -65,8 +65,8 @@ def test_bulk_oversized_work_snapshot_rejects_without_partial_writes(client, aut
         "/api/payroll/records/bulk",
         headers=auth_headers,
         json={"records": [
+            {"employee_id": 1, "quantity": 1, "rate_per_piece": 1, "work": {"label_id": "valid-looking-first-row"}},
             {"work": {"legacy_extension": "x" * MAX_PAYROLL_SNAPSHOT_BYTES}},
-            {"work": {"label_id": "valid-looking-second-row"}},
         ]},
     )
 
@@ -88,7 +88,9 @@ def test_compact_mw2_normalization_preserves_reference_fields_and_open_keys():
 
 
 def test_nonobject_legacy_snapshot_still_normalizes_to_absent():
-    normalized = _normalize_record_payload(PayrollRecordIn(employee=["legacy"], work="[1,2,3]"))
+    normalized = _normalize_record_payload(
+        PayrollRecordIn(employee=["legacy"], work="[1,2,3]", employee_id=1, quantity=1, rate_per_piece=1)
+    )
 
     assert normalized["raw_employee_json"] is None
     assert normalized["raw_work_json"] is None
