@@ -358,6 +358,10 @@ def test_department_order_pages_include_bundle_groups_beyond_legacy_two_hundred_
     assert len(actual_rows) == baseline + 201
     assert len(actual_group_rows) == 201
     assert len(legacy_group_rows) == 200
+    assert [row["production_order_id"] for row in actual_group_rows[1:]] == [
+        row["production_order_id"] for row in legacy_group_rows
+    ]
+    assert set(row["production_order_id"] for row in actual_group_rows) == set(po_ids)
 
 
 def test_single_page_hydrates_all_bundle_groups_for_merged_work_order_identities(monkeypatch):
@@ -473,10 +477,6 @@ def test_legacy_inbox_can_skip_core_orders_without_skipping_fgs_package_widgets(
         "replacement_sewing_work",
     ):
         assert actual[key] == expected[key]
-    assert [row["production_order_id"] for row in actual_group_rows[1:]] == [
-        row["production_order_id"] for row in legacy_group_rows
-    ]
-    assert set(row["production_order_id"] for row in actual_group_rows) == set(po_ids)
 
 
 def test_department_order_pages_apply_factory_alias_before_counting(monkeypatch):
