@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.common import ORMModel
+from app.schemas.common import ORMModel, reject_cost_fractional_precision
 
 
 class ItemComposition(BaseModel):
@@ -112,6 +112,11 @@ class StockBatchIn(BaseModel):
     warehouse_id: int
     qc_status: str = "pending"
 
+    @field_validator("cost_per_unit", mode="before")
+    @classmethod
+    def validate_cost_precision(cls, value):
+        return reject_cost_fractional_precision(value, minimum=Decimal("0"))
+
 
 class StockBatchRestoreIn(BaseModel):
     quantity: Decimal = Field(gt=0, max_digits=14, decimal_places=4, allow_inf_nan=False)
@@ -147,6 +152,11 @@ class StockBatchUpdate(BaseModel):
     received_date: Optional[datetime] = None
     warehouse_id: Optional[int] = None
     qc_status: Optional[str] = None
+
+    @field_validator("cost_per_unit", mode="before")
+    @classmethod
+    def validate_cost_precision(cls, value):
+        return reject_cost_fractional_precision(value, minimum=Decimal("0"))
 
 
 class StockBatchRollWeightsIn(BaseModel):

@@ -4,7 +4,7 @@ from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.common import ORMModel
+from app.schemas.common import ORMModel, reject_cost_fractional_precision
 
 
 PurchaseOrderQuantity = Annotated[
@@ -113,6 +113,11 @@ class PurchaseOrderLineIn(BaseModel):
     photo_url: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 500})
     notes: Optional[str] = None
 
+    @field_validator("unit_cost", mode="before")
+    @classmethod
+    def validate_unit_cost_precision(cls, value):
+        return reject_cost_fractional_precision(value, minimum=Decimal("-99999999.9999"))
+
 
 class PurchaseOrderIn(BaseModel):
     purchase_request_id: Optional[int] = None
@@ -185,6 +190,11 @@ class PurchaseOrderReceiveLineIn(BaseModel):
     roll_weights_kg: list[float] = Field(default_factory=list, max_length=1000)
     processes: Optional[str] = None
     qc_status: str = "passed"
+
+    @field_validator("cost_per_unit", mode="before")
+    @classmethod
+    def validate_cost_precision(cls, value):
+        return reject_cost_fractional_precision(value, minimum=Decimal("0"))
 
 
 class PurchaseOrderReceiveIn(BaseModel):
