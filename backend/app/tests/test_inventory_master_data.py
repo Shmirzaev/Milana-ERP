@@ -949,8 +949,18 @@ def test_stock_batch_editor_updates_receipt_fields_and_exact_quantity(client, au
     warehouses_response = client.get("/api/inventory/warehouses", headers=auth_headers)
     assert warehouses_response.status_code == 200, warehouses_response.text
     warehouses = warehouses_response.json()
-    source_warehouse = warehouses[0]
-    target_warehouse = warehouses[1]
+    source_warehouse = next(row for row in warehouses if row["type"] == "fabric_storage")
+    target_response = client.post(
+        "/api/inventory/warehouses",
+        json={
+            "name": f"Editable batch fabric storage {uuid4().hex[:8]}",
+            "type": "fabric_storage",
+            "department_id": source_warehouse["department_id"],
+        },
+        headers=auth_headers,
+    )
+    assert target_response.status_code == 201, target_response.text
+    target_warehouse = target_response.json()
     suppliers_response = client.get("/api/suppliers", headers=auth_headers)
     assert suppliers_response.status_code == 200, suppliers_response.text
     supplier = suppliers_response.json()[0]
