@@ -285,3 +285,60 @@ def test_scoped_branded_sales_can_resolve_factory_through_finished_stock_referen
     finally:
         db.close()
 
+
+def test_scoped_branded_sales_skip_conflicting_item_and_stock_models():
+    db = TestSessionLocal()
+    try:
+        marker = uuid4().hex[:8].upper()
+        mil_model = Model(
+            code=f"FC-FORECAST-MISMATCH-MIL-{marker}",
+            name=f"Forecast mismatch MIL {marker}",
+            factory_code="MIL",
+            status="approved",
+        )
+        bst_model = Model(
+            code=f"FC-FORECAST-MISMATCH-BST-{marker}",
+            name=f"Forecast mismatch BST {marker}",
+            factory_code="BST",
+            status="approved",
+        )
+        db.add_all([mil_model, bst_model])
+        db.flush()
+        stock = FinishedGoodsStock(
+            model_id=mil_model.id,
+            color=f"MISMATCH-{marker}",
+            size="L",
+            quantity=0,
+            available_qty=0,
+            reserved_qty=0,
+            sold_qty=0,
+            cost_per_piece=0,
+            selling_price=0,
+            status="available",
+        )
+        order = SalesOrder(
+            order_no=f"FC-FORECAST-MISMATCH-{marker}",
+            order_type="branded_stock_sale",
+            status="ready",
+            total_amount=75,
+        )
+        db.add_all([stock, order])
+        db.flush()
+        db.add(SalesOrderItem(
+            sales_order_id=order.id,
+            model_id=bst_model.id,
+            finished_goods_stock_id=stock.id,
+            color=stock.color,
+            size=stock.size,
+            quantity=75,
+            unit_price=1,
+            source_type="from_stock",
+        ))
+        db.commit()
+
+        for factory_code in ("MIL", "BST"):
+            groups = _branded_demand_groups(db, factory_codes=(factory_code,))
+            assert not any(key[3] == f"MISMATCH-{marker}" for key in groups)
+    finally:
+        db.close()
+

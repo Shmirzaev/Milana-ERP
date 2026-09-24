@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, load_only
 
 from app.models import (
@@ -175,7 +175,14 @@ def _branded_demand_groups(
                 Model,
                 Model.id == sales_model_id,
             )
-            .filter(Model.factory_code.in_(factory_codes))
+            .filter(
+                Model.factory_code.in_(factory_codes),
+                or_(
+                    SalesOrderItem.model_id.is_(None),
+                    FinishedGoodsStock.model_id.is_(None),
+                    SalesOrderItem.model_id == FinishedGoodsStock.model_id,
+                ),
+            )
             .add_columns(sales_model_id.label("forecast_model_id"))
         )
     sales_rows = sales_query.order_by(SalesOrder.created_at.asc(), SalesOrderItem.id.asc()).all()

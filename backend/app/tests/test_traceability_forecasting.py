@@ -689,6 +689,12 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
     try:
         suffix = uuid4().hex[:8].upper()
         color = f"bom-forecast-{suffix}"
+        model = Model(
+            code=f"FC-BOM-MODEL-{suffix}",
+            name=f"Forecast BOM model {suffix}",
+            factory_code="MIL",
+            status="approved",
+        )
         item = Item(
             sku=f"FC-BOM-{suffix}",
             name=f"Forecast BOM {suffix}",
@@ -699,13 +705,13 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
             track_batch=True,
             is_active=True,
         )
-        db.add(item)
+        db.add_all([model, item])
         db.flush()
-        db.add(ModelBOM(model_id=1, item_id=None, material_name="Unlinked fabric",
+        db.add(ModelBOM(model_id=model.id, item_id=None, material_name="Unlinked fabric",
                         color=color, quantity_per_piece=0.3, unit="kg", waste_percent=0))
         db.add(
             ModelBOM(
-                model_id=1,
+                model_id=model.id,
                 item_id=item.id,
                 color=color,
                 quantity_per_piece=0.5,
@@ -716,7 +722,7 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
         po = ProductionOrder(
             production_no=f"PO-FC-BOM-{suffix}",
             production_type="branded_stock",
-            model_id=1,
+            model_id=model.id,
             status="planning",
             planned_quantity=20,
         )
@@ -725,7 +731,7 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
         db.add(
             ProductionOrderItem(
                 production_order_id=po.id,
-                model_id=1,
+                model_id=model.id,
                 color=color,
                 size="M",
                 planned_quantity=20,
