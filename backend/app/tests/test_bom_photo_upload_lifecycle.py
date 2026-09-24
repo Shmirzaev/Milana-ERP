@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from anyio import CancelScope
 from fastapi import UploadFile
 from PIL import Image
 
@@ -13,6 +12,7 @@ from app.api.routes import catalog
 from app.models import AuditLog, Model, User
 from app.services import image_storage
 from app.tests.conftest import TestSessionLocal
+from app.tests.upload_test_support import failing_upload_session_factory
 
 
 def _png_bytes() -> bytes:
@@ -43,10 +43,14 @@ def test_bom_photo_commit_failure_rolls_back_and_removes_only_new_files(tmp_path
         with TestSessionLocal() as db:
             current = db.get(User, user_id)
 
-            def fail_commit():
-                raise RuntimeError("Synthetic BOM photo commit failure")
-
-            monkeypatch.setattr(db, "commit", fail_commit)
+            monkeypatch.setattr(
+                catalog,
+                "upload_session_factory",
+                lambda _db: failing_upload_session_factory(
+                    db,
+                    "Synthetic BOM photo commit failure",
+                ),
+            )
             with pytest.raises(RuntimeError, match="Synthetic BOM photo commit failure"):
                 asyncio.run(catalog.upload_bom_photo(model_id, db, upload, current, "standard"))
     finally:
@@ -68,15 +72,12 @@ def test_bom_photo_cancellation_shields_new_file_cleanup(tmp_path, monkeypatch):
     async def run():
         with TestSessionLocal() as db:
             current = db.get(User, user_id)
-            with CancelScope() as scope:
-                def cancel_after_file_write(*_args, **_kwargs):
-                    scope.cancel()
-                    raise asyncio.CancelledError
+            def cancel_after_file_write(*_args, **_kwargs):
+                raise asyncio.CancelledError
 
-                monkeypatch.setattr(catalog, "log_action", cancel_after_file_write)
-                with pytest.raises(asyncio.CancelledError):
-                    await catalog.upload_bom_photo(model_id, db, upload, current, "standard")
-                assert scope.cancel_called
+            monkeypatch.setattr(catalog, "log_action", cancel_after_file_write)
+            with pytest.raises(asyncio.CancelledError):
+                await catalog.upload_bom_photo(model_id, db, upload, current, "standard")
 
     try:
         asyncio.run(run())
@@ -115,10 +116,14 @@ def test_bom_photo_collision_and_failed_commit_preserve_preexisting_files(tmp_pa
         with TestSessionLocal() as db:
             current = db.get(User, user_id)
 
-            def fail_commit():
-                raise RuntimeError("Synthetic collision commit failure")
-
-            monkeypatch.setattr(db, "commit", fail_commit)
+            monkeypatch.setattr(
+                catalog,
+                "upload_session_factory",
+                lambda _db: failing_upload_session_factory(
+                    db,
+                    "Synthetic collision commit failure",
+                ),
+            )
             with pytest.raises(RuntimeError, match="Synthetic collision commit failure"):
                 asyncio.run(catalog.upload_bom_photo(model_id, db, upload, current, "standard"))
     finally:

@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import os
+from collections.abc import Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
+from typing import TypeVar
 
+from anyio import CapacityLimiter, to_thread
 from fastapi import HTTPException, UploadFile
+from sqlalchemy.orm import Session, sessionmaker
 
 
 SAFE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
@@ -21,6 +30,140 @@ _CONTENT_TYPES = {
     ".dxf": "application/dxf",
     ".ai": "application/postscript",
 }
+
+_MAX_UPLOAD_CONCURRENCY = 32
+_ResultT = TypeVar("_ResultT")
+
+
+@dataclass
+class UploadCommitState:
+    committed: bool = False
+
+
+@dataclass
+class UploadFileWriteState:
+    created: bool = False
+
+
+def _upload_concurrency_from_environment() -> int:
+    raw = os.environ.get("UPLOAD_MAX_CONCURRENCY_PER_PROCESS", "1")
+    try:
+        capacity = int(raw)
+    except ValueError as exc:
+        raise RuntimeError("UPLOAD_MAX_CONCURRENCY_PER_PROCESS must be an integer") from exc
+    if capacity < 1 or capacity > _MAX_UPLOAD_CONCURRENCY:
+        raise RuntimeError(
+            f"UPLOAD_MAX_CONCURRENCY_PER_PROCESS must be between 1 and {_MAX_UPLOAD_CONCURRENCY}"
+        )
+    return capacity
+
+
+# This is deliberately process-local. A shared/global admission budget requires
+# deployment-specific infrastructure (for example Redis) and cannot be inferred
+# safely by the application.
+UPLOAD_PROCESSING_LIMITER = CapacityLimiter(_upload_concurrency_from_environment())
+
+
+@asynccontextmanager
+async def upload_processing_slot():
+    """Bound full-file buffering and storage work within this API process."""
+    async with UPLOAD_PROCESSING_LIMITER:
+        yield
+
+
+def upload_session_factory(request_db: Session) -> sessionmaker[Session]:
+    """Create fresh Sessions on the request's engine for blocking upload work."""
+    return sessionmaker(
+        bind=request_db.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        info=dict(request_db.info),
+    )
+
+
+def _run_upload_db_work(
+    factory: sessionmaker[Session],
+    work: Callable[[Session], _ResultT],
+    *,
+    commit: bool,
+    commit_state: UploadCommitState,
+    failure_cleanup: Callable[[], None] | None,
+) -> _ResultT:
+    with factory() as worker_db:
+        try:
+            result = work(worker_db)
+            if commit:
+                worker_db.commit()
+                commit_state.committed = True
+            return result
+        except BaseException:
+            try:
+                if failure_cleanup is not None:
+                    failure_cleanup()
+            finally:
+                worker_db.rollback()
+            raise
+
+
+async def run_upload_db_work(
+    factory: sessionmaker[Session],
+    work: Callable[[Session], _ResultT],
+    *,
+    commit: bool = False,
+    commit_state: UploadCommitState | None = None,
+    failure_cleanup: Callable[[], None] | None = None,
+) -> _ResultT:
+    """Run synchronous SQL in one worker-owned Session/transaction.
+
+    Cancellation never abandons the worker: the transaction either rolls back
+    or completes before the caller decides whether file cleanup is necessary.
+    """
+    state = commit_state or UploadCommitState()
+    return await run_sync_to_completion(partial(
+        _run_upload_db_work,
+        factory,
+        work,
+        commit=commit,
+        commit_state=state,
+        failure_cleanup=failure_cleanup,
+    ))
+
+
+async def run_sync_to_completion(work: Callable[[], _ResultT]) -> _ResultT:
+    """Run blocking work without abandoning it on raw asyncio cancellation."""
+    worker = asyncio.create_task(
+        to_thread.run_sync(work, abandon_on_cancel=False)
+    )
+    pending_cancellation: asyncio.CancelledError | None = None
+    while not worker.done():
+        try:
+            result = await asyncio.shield(worker)
+        except asyncio.CancelledError as exc:
+            # Raw task cancellation bypasses AnyIO cancellation scopes. Keep
+            # waiting until the transaction outcome and ownership marker are
+            # known before the route decides whether to remove its file.
+            pending_cancellation = exc
+            continue
+        else:
+            if pending_cancellation is not None:
+                raise pending_cancellation
+            return result
+    result = worker.result()
+    if pending_cancellation is not None:
+        raise pending_cancellation
+    return result
+
+
+async def run_upload_file_write(
+    work: Callable[[], object],
+    state: UploadFileWriteState,
+) -> None:
+    def write_and_mark_created() -> None:
+        work()
+        state.created = True
+
+    await run_sync_to_completion(write_and_mark_created)
 
 
 def extension_for_upload(file: UploadFile, allowed_extensions: set[str]) -> str:
@@ -65,7 +208,7 @@ async def read_validated_image_upload(
     chunk_size: int = 1024 * 1024,
 ) -> tuple[bytes, str]:
     extension_for_upload(file, SAFE_IMAGE_EXTENSIONS)
-    content = await _read_bounded_upload_content(file, max_bytes, chunk_size)
+    content = await read_bounded_upload_content(file, max_bytes, chunk_size)
     actual_ext = detected_image_extension(content)
     if not actual_ext:
         raise HTTPException(400, "File content is not a supported image")
@@ -74,11 +217,15 @@ async def read_validated_image_upload(
 
 async def read_validated_upload_content(file, ext: str, max_bytes: int, chunk_size: int = 1024 * 1024) -> bytes:
     """Read and validate an UploadFile without ever issuing an unbounded read()."""
-    content = await _read_bounded_upload_content(file, max_bytes, chunk_size)
+    content = await read_bounded_upload_content(file, max_bytes, chunk_size)
     return validated_upload_content(content, ext, max_bytes)
 
 
-async def _read_bounded_upload_content(file, max_bytes: int, chunk_size: int) -> bytes:
+async def read_bounded_upload_content(
+    file: UploadFile,
+    max_bytes: int,
+    chunk_size: int = 1024 * 1024,
+) -> bytes:
     chunks: list[bytes] = []
     total = 0
     while True:

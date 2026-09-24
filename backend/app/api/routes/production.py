@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import uuid4
@@ -25,9 +26,12 @@ from app.core.signing import sign_path
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
+    UploadFileWriteState,
     extension_for_upload,
     read_validated_upload_content,
+    run_upload_file_write,
     safe_content_type,
+    upload_processing_slot,
 )
 from app.models import (
     CuttingPassport,
@@ -1225,7 +1229,7 @@ def _write_new_production_attachment(target: Path, content: bytes) -> None:
 
 async def _discard_production_attachment(target: Path) -> None:
     with CancelScope(shield=True):
-        await to_thread.run_sync(target.unlink, True)
+        await to_thread.run_sync(target.unlink, True, abandon_on_cancel=False)
 
 
 @router.post("/production-orders/printing-attachments/upload", status_code=201)
@@ -1237,7 +1241,7 @@ async def upload_production_printing_attachment(
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     stored_image = None
     document_target = None
-    document_created = False
+    document_state = UploadFileWriteState()
     try:
         if ext in SAFE_IMAGE_EXTENSIONS:
             from app.services.image_storage import store_uploaded_image
@@ -1254,9 +1258,12 @@ async def upload_production_printing_attachment(
         else:
             safe_name = f"po_print_{uuid4().hex}{ext}"
             document_target = Path(settings.SALES_ORDER_FILES_DIR) / safe_name
-            content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-            await to_thread.run_sync(_write_new_production_attachment, document_target, content)
-            document_created = True
+            async with upload_processing_slot():
+                content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+                await run_upload_file_write(
+                    partial(_write_new_production_attachment, document_target, content),
+                    document_state,
+                )
             content_type = safe_content_type(ext)
         file_url = f"/storage/sales-order-files/{safe_name}"
         return {
@@ -1269,7 +1276,7 @@ async def upload_production_printing_attachment(
             from app.services.image_storage import discard_stored_image
 
             await discard_stored_image(stored_image)
-        elif document_created and document_target is not None:
+        elif document_state.created and document_target is not None:
             await _discard_production_attachment(document_target)
         raise
 

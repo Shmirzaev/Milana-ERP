@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from functools import partial
 import os
 from pathlib import Path
 import re
@@ -12,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi import UploadFile, File, Form
 from pydantic import ValidationError
 from sqlalchemy import and_, case, func, literal_column, or_, select
-from sqlalchemy.orm import lazyload, load_only, selectinload
+from sqlalchemy.orm import Session, lazyload, load_only, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.core.config import settings
@@ -24,9 +25,15 @@ from app.core.model_search import (
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
+    UploadCommitState,
+    UploadFileWriteState,
     extension_for_upload,
+    run_upload_db_work,
+    run_upload_file_write,
     safe_content_type,
     read_validated_upload_content,
+    upload_processing_slot,
+    upload_session_factory,
 )
 from app.models import (
     Brand, Collection, CollectionModel, Model, ModelImage, ModelSize, ModelColor, ModelBOM, User,
@@ -2573,7 +2580,77 @@ def _write_new_model_document(target: Path, content: bytes) -> None:
 
 async def _discard_model_document(target: Path) -> None:
     with CancelScope(shield=True):
-        await to_thread.run_sync(target.unlink, True)
+        await to_thread.run_sync(target.unlink, True, abandon_on_cancel=False)
+
+
+def _require_catalog_upload_model(db: Session, model_id: int, catalog_scope: str) -> None:
+    if not _catalog_model(db, model_id, catalog_scope):
+        raise HTTPException(404, "Model not found")
+
+
+def _create_uploaded_model_image(
+    db: Session,
+    *,
+    model_id: int,
+    catalog_scope: str,
+    actor_id: int,
+    file_url: str,
+    original_name: str,
+    stored_content_type: str,
+    image_type: str | None,
+) -> int:
+    _require_catalog_upload_model(db, model_id, catalog_scope)
+    actor = db.get(User, actor_id)
+    if not actor:
+        raise HTTPException(401, "Inactive or unknown user")
+    is_primary = image_type == "model"
+    if is_primary:
+        db.query(ModelImage).filter(
+            ModelImage.model_id == model_id,
+            ModelImage.is_primary.is_(True),
+        ).update({"is_primary": False}, synchronize_session=False)
+    image = ModelImage(
+        model_id=model_id,
+        file_url=file_url,
+        file_name=original_name,
+        content_type=stored_content_type,
+        file_data=None,
+        image_type=image_type,
+        is_primary=is_primary,
+    )
+    db.add(image)
+    db.flush()
+    log_action(
+        db,
+        actor,
+        "create",
+        "ModelImage",
+        image.id,
+        new_value={"model_id": model_id, "file_url": file_url},
+    )
+    return int(image.id)
+
+
+def _audit_uploaded_bom_photo(
+    db: Session,
+    *,
+    model_id: int,
+    catalog_scope: str,
+    actor_id: int,
+    file_url: str,
+) -> None:
+    _require_catalog_upload_model(db, model_id, catalog_scope)
+    actor = db.get(User, actor_id)
+    if not actor:
+        raise HTTPException(401, "Inactive or unknown user")
+    log_action(
+        db,
+        actor,
+        "upload",
+        "ModelBOM",
+        model_id,
+        new_value={"model_id": model_id, "file_url": file_url},
+    )
 
 
 @router.post("/models/{mid}/images/upload", status_code=201)
@@ -2585,13 +2662,18 @@ async def upload_image(
     current: User = Depends(require_permissions("modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    if not _catalog_model(db, mid, catalog_scope):
-        raise HTTPException(404, "Model not found")
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
+    await run_upload_db_work(
+        worker_sessions,
+        partial(_require_catalog_upload_model, model_id=mid, catalog_scope=catalog_scope),
+    )
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     normalized_image_type = _normalize_image_type(image_type)
     stored_image = None
     document_target = None
-    document_created = False
+    document_state = UploadFileWriteState()
+    commit_state = UploadCommitState()
     try:
         if ext in SAFE_IMAGE_EXTENSIONS:
             from app.services.image_storage import store_uploaded_image
@@ -2610,44 +2692,40 @@ async def upload_image(
         else:
             safe_name = f"model_{mid}_{uuid4().hex}{ext}"
             document_target = Path(settings.MODEL_FILES_DIR) / safe_name
-            content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-            await to_thread.run_sync(_write_new_model_document, document_target, content)
-            document_created = True
+            async with upload_processing_slot():
+                content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+                await run_upload_file_write(
+                    partial(_write_new_model_document, document_target, content),
+                    document_state,
+                )
             file_url = f"/storage/model-files/{safe_name}"
             stored_content_type = safe_content_type(ext)
-        is_primary = normalized_image_type == "model"
-        if is_primary:
-            db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
-                {"is_primary": False},
-                synchronize_session=False,
-            )
-        img = ModelImage(
-            model_id=mid,
-            file_url=file_url,
-            file_name=file.filename or safe_name,
-            content_type=stored_content_type,
-            # The file is already persisted in MODEL_FILES_DIR. Keeping another
-            # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
-            file_data=None,
-            image_type=normalized_image_type,
-            is_primary=is_primary,
+        image_id = await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _create_uploaded_model_image,
+                model_id=mid,
+                catalog_scope=catalog_scope,
+                actor_id=actor_id,
+                file_url=file_url,
+                original_name=file.filename or safe_name,
+                stored_content_type=stored_content_type,
+                image_type=normalized_image_type,
+            ),
+            commit=True,
+            commit_state=commit_state,
         )
-        db.add(img)
-        db.flush()
-        log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": file_url})
-        db.commit()
     except BaseException:
-        try:
-            db.rollback()
-        finally:
-            if stored_image is not None:
-                from app.services.image_storage import discard_stored_image
+        if commit_state.committed:
+            raise
+        if stored_image is not None:
+            from app.services.image_storage import discard_stored_image
 
-                await discard_stored_image(stored_image)
-            elif document_created and document_target is not None:
-                await _discard_model_document(document_target)
+            await discard_stored_image(stored_image)
+        elif document_state.created and document_target is not None:
+            await _discard_model_document(document_target)
         raise
-    return {"id": img.id, "file_url": file_url}
+    return {"id": image_id, "file_url": file_url}
 
 
 @router.delete("/models/{mid}/images/{image_id}", status_code=204)
@@ -2763,8 +2841,12 @@ async def upload_bom_photo(
     current: User = Depends(require_permissions("modeling.bom", "modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    if not _catalog_model(db, mid, catalog_scope):
-        raise HTTPException(404, "Model not found")
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
+    await run_upload_db_work(
+        worker_sessions,
+        partial(_require_catalog_upload_model, model_id=mid, catalog_scope=catalog_scope),
+    )
     from app.services.image_storage import discard_stored_image, store_uploaded_image
 
     stored = await store_uploaded_image(
@@ -2776,13 +2858,22 @@ async def upload_bom_photo(
         prebuild_thumbnails=True,
     )
     file_url = stored.file_url
+    commit_state = UploadCommitState()
     try:
-        log_action(db, current, "upload", "ModelBOM", mid, new_value={"model_id": mid, "file_url": file_url})
-        db.commit()
+        await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _audit_uploaded_bom_photo,
+                model_id=mid,
+                catalog_scope=catalog_scope,
+                actor_id=actor_id,
+                file_url=file_url,
+            ),
+            commit=True,
+            commit_state=commit_state,
+        )
     except BaseException:
-        try:
-            db.rollback()
-        finally:
+        if not commit_state.committed:
             await discard_stored_image(stored)
         raise
     return {"file_url": file_url}

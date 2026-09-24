@@ -5,7 +5,6 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-from anyio import CancelScope, CapacityLimiter
 from fastapi import HTTPException
 from PIL import Image
 from sqlalchemy import event
@@ -14,6 +13,7 @@ from app.api.routes import attendance
 from app.models import AttendanceDevice, AttendancePerson
 from app.services.image_storage import convert_image_to_webp
 from app.tests.conftest import TestSessionLocal, test_engine
+from app.tests.upload_test_support import failing_upload_session_factory
 
 
 INTEGRATION_HEADERS = {"X-Attendance-Token": "test-attendance-token"}
@@ -108,6 +108,44 @@ def test_attendance_person_photo_read_projects_only_photo_fields(client, auth_he
     assert "attendance_people.external_person_id" not in statements[0]
 
 
+def test_attendance_photo_wrong_managed_device_is_rejected_before_body_read(
+    client, tmp_path, monkeypatch
+):
+    _device_id, person_id = _seed_person(client)
+    before = _photo_state(person_id)
+    monkeypatch.setattr(attendance.settings, "ATTENDANCE_PHOTOS_DIR", str(tmp_path))
+
+    class _UnreadRequest:
+        headers = {}
+
+        async def stream(self):
+            pytest.fail("An unauthorized upload must not read its request body")
+            yield b""
+
+    with TestSessionLocal() as db:
+        wrong_identity = AttendanceDevice(
+            factory_code="MIL",
+            device_key="other-managed-device",
+            name="Other managed device",
+            vendor="Hikvision",
+        )
+        db.add(wrong_identity)
+        db.commit()
+        db.refresh(wrong_identity)
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(attendance.import_person_photo(
+                "main-turnstile",
+                "735",
+                _UnreadRequest(),
+                db,
+                wrong_identity,
+            ))
+
+    assert raised.value.status_code == 403
+    assert _photo_state(person_id) == before
+    assert _stored_files(tmp_path) == set()
+
+
 def test_attendance_photo_commit_failure_removes_only_new_file(client, tmp_path, monkeypatch):
     device_id, person_id = _seed_person(client)
     before = _photo_state(person_id)
@@ -117,11 +155,13 @@ def test_attendance_photo_commit_failure_removes_only_new_file(client, tmp_path,
 
     with TestSessionLocal() as db:
         identity = db.get(AttendanceDevice, device_id)
-
-        def fail_commit():
-            raise RuntimeError("Synthetic attendance photo commit failure")
-
-        monkeypatch.setattr(db, "commit", fail_commit)
+        monkeypatch.setattr(
+            attendance,
+            "upload_session_factory",
+            lambda _db: failing_upload_session_factory(
+                db, "Synthetic attendance photo commit failure"
+            ),
+        )
         with pytest.raises(RuntimeError, match="Synthetic attendance photo commit failure"):
             asyncio.run(attendance.import_person_photo(
                 "main-turnstile",
@@ -136,33 +176,30 @@ def test_attendance_photo_commit_failure_removes_only_new_file(client, tmp_path,
     assert _photo_state(person_id) == before
 
 
-def test_attendance_photo_cancellation_shields_new_file_cleanup(client, tmp_path, monkeypatch):
+def test_attendance_photo_worker_cancellation_removes_new_file_before_unlock(
+    client, tmp_path, monkeypatch
+):
     device_id, person_id = _seed_person(client)
     before = _photo_state(person_id)
     existing = tmp_path / "existing-photo.webp"
     existing.write_bytes(b"keep existing photo")
     monkeypatch.setattr(attendance.settings, "ATTENDANCE_PHOTOS_DIR", str(tmp_path))
 
-    async def run():
-        with TestSessionLocal() as db:
-            identity = db.get(AttendanceDevice, device_id)
-            with CancelScope() as scope:
-                def cancel_after_file_write():
-                    scope.cancel()
-                    raise asyncio.CancelledError
-
-                monkeypatch.setattr(db, "commit", cancel_after_file_write)
-                with pytest.raises(asyncio.CancelledError):
-                    await attendance.import_person_photo(
-                        "main-turnstile",
-                        "735",
-                        _RequestBody(_png_bytes()),
-                        db,
-                        identity,
-                    )
-                assert scope.cancel_called
-
-    asyncio.run(run())
+    monkeypatch.setattr(
+        attendance,
+        "_set_attendance_photo",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(asyncio.CancelledError()),
+    )
+    with TestSessionLocal() as db:
+        identity = db.get(AttendanceDevice, device_id)
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(attendance.import_person_photo(
+                "main-turnstile",
+                "735",
+                _RequestBody(_png_bytes()),
+                db,
+                identity,
+            ))
 
     assert existing.read_bytes() == b"keep existing photo"
     assert _stored_files(tmp_path) == {Path(existing.name)}
@@ -181,11 +218,13 @@ def test_attendance_photo_failed_commit_preserves_preexisting_digest_file(client
 
     with TestSessionLocal() as db:
         identity = db.get(AttendanceDevice, device_id)
-
-        def fail_commit():
-            raise RuntimeError("Synthetic preexisting photo commit failure")
-
-        monkeypatch.setattr(db, "commit", fail_commit)
+        monkeypatch.setattr(
+            attendance,
+            "upload_session_factory",
+            lambda _db: failing_upload_session_factory(
+                db, "Synthetic preexisting photo commit failure"
+            ),
+        )
         with pytest.raises(RuntimeError, match="Synthetic preexisting photo commit failure"):
             asyncio.run(attendance.import_person_photo(
                 "main-turnstile",
@@ -203,15 +242,16 @@ def test_attendance_photo_failed_commit_preserves_preexisting_digest_file(client
 def test_attendance_photo_upload_limiter_bounds_body_read_and_conversion(client, tmp_path, monkeypatch):
     device_id, _ = _seed_person(client)
     monkeypatch.setattr(attendance.settings, "ATTENDANCE_PHOTOS_DIR", str(tmp_path))
-    monkeypatch.setattr(attendance, "ATTENDANCE_PHOTO_UPLOAD_LIMITER", CapacityLimiter(1))
     content = _png_bytes()
     first_body_read = asyncio.Event()
     second_body_read = asyncio.Event()
     conversion_started = threading.Event()
     release_conversion = threading.Event()
     original_convert = attendance.convert_image_to_webp
+    event_loop_thread = threading.get_ident()
 
     def block_conversion(data: bytes):
+        assert threading.get_ident() != event_loop_thread
         conversion_started.set()
         if not release_conversion.wait(timeout=5):
             raise TimeoutError("Timed out waiting to release photo conversion")
@@ -250,6 +290,49 @@ def test_attendance_photo_upload_limiter_bounds_body_read_and_conversion(client,
         assert all(result["photo_sha256"] for result in results)
 
     asyncio.run(run_concurrent_uploads())
+
+
+def test_attendance_photo_raw_task_cancellation_waits_for_worker_commit(
+    client, tmp_path, monkeypatch
+):
+    device_id, person_id = _seed_person(client)
+    monkeypatch.setattr(attendance.settings, "ATTENDANCE_PHOTOS_DIR", str(tmp_path))
+    mutation_started = threading.Event()
+    release_mutation = threading.Event()
+    original_set_photo = attendance._set_attendance_photo
+
+    def block_after_mutation(person, *, file_name: str, digest: str):
+        original_set_photo(person, file_name=file_name, digest=digest)
+        mutation_started.set()
+        if not release_mutation.wait(timeout=5):
+            raise TimeoutError("Timed out waiting to release attendance photo transaction")
+
+    monkeypatch.setattr(attendance, "_set_attendance_photo", block_after_mutation)
+
+    async def run():
+        with TestSessionLocal() as db:
+            identity = db.get(AttendanceDevice, device_id)
+            task = asyncio.create_task(attendance.import_person_photo(
+                "main-turnstile",
+                "735",
+                _RequestBody(_png_bytes()),
+                db,
+                identity,
+            ))
+            await asyncio.wait_for(asyncio.to_thread(mutation_started.wait, 2), timeout=3)
+            task.cancel()
+            release_mutation.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    asyncio.run(run())
+
+    file_name, digest = _photo_state(person_id)
+    assert file_name is not None
+    assert digest is not None
+    stored = tmp_path / file_name
+    assert stored.is_file()
+    assert hashlib.sha256(stored.read_bytes()).hexdigest() == digest
 
 
 def test_attendance_photo_rejects_oversize_stream_before_buffering_or_decoding(client, tmp_path, monkeypatch):

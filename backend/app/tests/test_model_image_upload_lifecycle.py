@@ -1,16 +1,17 @@
 import asyncio
 from io import BytesIO
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
-from anyio import CancelScope
 from fastapi import UploadFile
 from PIL import Image
 
 from app.api.routes import catalog
 from app.models import AuditLog, Model, ModelImage, User
 from app.tests.conftest import TestSessionLocal
+from app.tests.upload_test_support import failing_upload_session_factory
 
 
 def _png_bytes() -> bytes:
@@ -53,10 +54,14 @@ def test_model_image_commit_failure_removes_new_files_and_rolls_back(tmp_path, m
         with TestSessionLocal() as db:
             current = db.get(User, user_id)
 
-            def fail_commit():
-                raise RuntimeError("Synthetic model image commit failure")
-
-            monkeypatch.setattr(db, "commit", fail_commit)
+            monkeypatch.setattr(
+                catalog,
+                "upload_session_factory",
+                lambda _db: failing_upload_session_factory(
+                    db,
+                    "Synthetic model image commit failure",
+                ),
+            )
             with pytest.raises(RuntimeError, match="Synthetic model image commit failure"):
                 asyncio.run(catalog.upload_image(model_id, db, upload, "model", current, "standard"))
     finally:
@@ -81,10 +86,14 @@ def test_model_document_commit_failure_removes_new_file_and_rolls_back(tmp_path,
         with TestSessionLocal() as db:
             current = db.get(User, user_id)
 
-            def fail_commit():
-                raise RuntimeError("Synthetic model document commit failure")
-
-            monkeypatch.setattr(db, "commit", fail_commit)
+            monkeypatch.setattr(
+                catalog,
+                "upload_session_factory",
+                lambda _db: failing_upload_session_factory(
+                    db,
+                    "Synthetic model document commit failure",
+                ),
+            )
             with pytest.raises(RuntimeError, match="Synthetic model document commit failure"):
                 asyncio.run(catalog.upload_image(model_id, db, upload, None, current, "standard"))
     finally:
@@ -107,15 +116,12 @@ def test_model_image_cancellation_shields_new_file_cleanup(tmp_path, monkeypatch
     async def run():
         with TestSessionLocal() as db:
             current = db.get(User, user_id)
-            with CancelScope() as scope:
-                def cancel_after_file_write(*_args, **_kwargs):
-                    scope.cancel()
-                    raise asyncio.CancelledError
+            def cancel_after_file_write(*_args, **_kwargs):
+                raise asyncio.CancelledError
 
-                monkeypatch.setattr(catalog, "log_action", cancel_after_file_write)
-                with pytest.raises(asyncio.CancelledError):
-                    await catalog.upload_image(model_id, db, upload, "model", current, "standard")
-                assert scope.cancel_called
+            monkeypatch.setattr(catalog, "log_action", cancel_after_file_write)
+            with pytest.raises(asyncio.CancelledError):
+                await catalog.upload_image(model_id, db, upload, "model", current, "standard")
 
     try:
         asyncio.run(run())
@@ -128,6 +134,52 @@ def test_model_image_cancellation_shields_new_file_cleanup(tmp_path, monkeypatch
         assert db.query(ModelImage).count() == image_count
         assert db.get(ModelImage, primary_id).is_primary is True
         assert db.query(AuditLog).count() == audit_count
+
+
+def test_model_image_external_cancellation_cannot_commit_after_file_cleanup(tmp_path, monkeypatch):
+    model_id, user_id, _primary_id, image_count, audit_count = _references()
+    monkeypatch.setattr(catalog.settings, "MODEL_FILES_DIR", str(tmp_path))
+    upload = UploadFile(file=BytesIO(_png_bytes()), filename="cancel-during-commit.png")
+    worker_started = Event()
+    release_worker = Event()
+    original_create = catalog._create_uploaded_model_image
+
+    def delayed_create(db, **kwargs):
+        worker_started.set()
+        assert release_worker.wait(5), "Upload transaction worker was not released"
+        return original_create(db, **kwargs)
+
+    monkeypatch.setattr(catalog, "_create_uploaded_model_image", delayed_create)
+
+    async def run():
+        with TestSessionLocal() as db:
+            current = db.get(User, user_id)
+            task = asyncio.create_task(
+                catalog.upload_image(model_id, db, upload, "model", current, "standard")
+            )
+            assert await asyncio.to_thread(worker_started.wait, 5)
+            task.cancel()
+            release_worker.set()
+            try:
+                return await task
+            except asyncio.CancelledError:
+                return None
+
+    try:
+        response = asyncio.run(run())
+    finally:
+        release_worker.set()
+        asyncio.run(upload.close())
+
+    with TestSessionLocal() as db:
+        assert db.query(ModelImage).count() == image_count + 1
+        assert db.query(AuditLog).count() == audit_count + 1
+        uploaded = db.query(ModelImage).order_by(ModelImage.id.desc()).first()
+        stored_name = Path(uploaded.file_url).name
+    assert (tmp_path / stored_name).is_file()
+    assert len(list((tmp_path / "_thumbs").glob(f"*{stored_name}.webp"))) == 2
+    if response is not None:
+        assert response["id"] == uploaded.id
 
 
 def test_model_document_collision_preserves_preexisting_file(tmp_path, monkeypatch):

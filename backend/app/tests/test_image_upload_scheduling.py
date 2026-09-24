@@ -8,6 +8,7 @@ from fastapi import UploadFile
 from PIL import Image
 import pytest
 
+from app.core import uploads
 from app.services import image_storage
 
 
@@ -17,6 +18,18 @@ def _upload():
         image.save(stream, format="PNG")
     stream.seek(0)
     return UploadFile(file=stream, filename="synthetic.png")
+
+
+def test_image_and_document_uploads_share_configurable_process_capacity(monkeypatch):
+    assert image_storage._image_upload_slot is uploads.UPLOAD_PROCESSING_LIMITER
+    monkeypatch.setenv("UPLOAD_MAX_CONCURRENCY_PER_PROCESS", "4")
+    assert uploads._upload_concurrency_from_environment() == 4
+    monkeypatch.setenv("UPLOAD_MAX_CONCURRENCY_PER_PROCESS", "0")
+    with pytest.raises(RuntimeError, match="must be between 1 and 32"):
+        uploads._upload_concurrency_from_environment()
+    monkeypatch.setenv("UPLOAD_MAX_CONCURRENCY_PER_PROCESS", "not-an-integer")
+    with pytest.raises(RuntimeError, match="must be an integer"):
+        uploads._upload_concurrency_from_environment()
 
 
 def test_upload_conversion_and_disk_work_leave_event_loop_and_are_bounded(tmp_path, monkeypatch):

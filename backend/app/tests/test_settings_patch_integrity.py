@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from anyio import CancelScope
 from PIL import Image
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import create_engine, text
@@ -22,6 +21,7 @@ from app.api.routes import settings as settings_routes
 from app.db.base import Base
 from app.models import AuditLog, SystemSetting, User
 from app.tests.conftest import TestSessionLocal
+from app.tests.upload_test_support import failing_upload_session_factory
 
 
 def _seed(section, value):
@@ -170,10 +170,14 @@ def test_logo_transaction_failure_removes_new_files_and_preserves_existing_logo(
         with TestSessionLocal() as db:
             current = db.query(User).filter(User.email == "admin@example.com").one()
 
-            def fail_commit():
-                raise RuntimeError("Synthetic logo commit failure")
-
-            monkeypatch.setattr(db, "commit", fail_commit)
+            monkeypatch.setattr(
+                settings_routes,
+                "upload_session_factory",
+                lambda _db: failing_upload_session_factory(
+                    db,
+                    "Synthetic logo commit failure",
+                ),
+            )
             with pytest.raises(RuntimeError, match="Synthetic logo commit failure"):
                 asyncio.run(settings_routes.upload_company_logo(db, file=upload, current=current))
     finally:
@@ -207,15 +211,12 @@ def test_logo_cancellation_shields_new_file_cleanup(tmp_path, monkeypatch):
     async def run():
         with TestSessionLocal() as db:
             current = db.query(User).filter(User.email == "admin@example.com").one()
-            with CancelScope() as scope:
-                def cancel_after_file_write(_db, _section):
-                    scope.cancel()
-                    raise asyncio.CancelledError
+            def cancel_after_file_write(_db, _section):
+                raise asyncio.CancelledError
 
-                monkeypatch.setattr(settings_routes, "_setting_for_update", cancel_after_file_write)
-                with pytest.raises(asyncio.CancelledError):
-                    await settings_routes.upload_company_logo(db, file=upload, current=current)
-                assert scope.cancel_called
+            monkeypatch.setattr(settings_routes, "_setting_for_update", cancel_after_file_write)
+            with pytest.raises(asyncio.CancelledError):
+                await settings_routes.upload_company_logo(db, file=upload, current=current)
 
     try:
         asyncio.run(run())
@@ -279,7 +280,9 @@ def test_postgres_partial_updates_merge_after_waiting(settings_postgres, monkeyp
         monkeypatch.setattr(image_storage, "store_uploaded_image", fake_store)
     held, release = Event(), Event()
     ready = Queue()
+    upload_ready = Queue()
     original_audit = settings_routes.log_action
+    original_upload_factory = settings_routes.upload_session_factory
 
     def hold_first_audit(db, *args, **kwargs):
         original_audit(db, *args, **kwargs)
@@ -290,6 +293,21 @@ def test_postgres_partial_updates_merge_after_waiting(settings_postgres, monkeyp
                 raise HTTPException(503, "Synthetic settings rollback")
 
     monkeypatch.setattr(settings_routes, "log_action", hold_first_audit)
+
+    if case == "logo":
+        def tracked_upload_factory(request_db):
+            factory = original_upload_factory(request_db)
+            if request_db.info.get("settings_worker") != "second":
+                return factory
+
+            def create_worker_session():
+                worker_db = factory()
+                upload_ready.put(worker_db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+                return worker_db
+
+            return create_worker_session
+
+        monkeypatch.setattr(settings_routes, "upload_session_factory", tracked_upload_factory)
 
     def worker(name):
         with sessions() as db:
@@ -318,7 +336,7 @@ def test_postgres_partial_updates_merge_after_waiting(settings_postgres, monkeyp
         try:
             assert held.wait(10), "First settings patch did not reach its audit"
             second = workers.submit(worker, "second")
-            pid = ready.get(timeout=10)
+            pid = (upload_ready if case == "logo" else ready).get(timeout=10)
             with engine.connect() as observer:
                 deadline = monotonic() + 10
                 while monotonic() < deadline:

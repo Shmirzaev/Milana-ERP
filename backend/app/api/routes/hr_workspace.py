@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import secrets
 from datetime import date, datetime, time, timedelta, timezone
+from functools import partial
 from math import isfinite
 from pathlib import Path
 from typing import Annotated
@@ -12,10 +13,19 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import case, func, or_
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import Session, load_only
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
+from app.core.uploads import (
+    UploadCommitState,
+    UploadFileWriteState,
+    read_bounded_upload_content,
+    run_upload_db_work,
+    run_upload_file_write,
+    upload_processing_slot,
+    upload_session_factory,
+)
 from app.models import (
     AttendanceEvent,
     Department,
@@ -646,7 +656,55 @@ def _write_new_hr_document(target: Path, content: bytes) -> None:
 
 async def _discard_hr_document(target: Path) -> None:
     with CancelScope(shield=True):
-        await to_thread.run_sync(target.unlink, True)
+        await to_thread.run_sync(target.unlink, True, abandon_on_cancel=False)
+
+
+def _require_hr_upload_employee(db: Session, factory: str, employee_id: int) -> None:
+    _employee(db, factory, employee_id)
+
+
+def _create_hr_upload_document(
+    db: Session,
+    *,
+    factory: str,
+    employee_id: int,
+    category: str,
+    title: str,
+    original_name: str,
+    stored_name: str,
+    content_type: str | None,
+    size_bytes: int,
+    expires_on: date | None,
+    actor_id: int,
+) -> dict:
+    _employee(db, factory, employee_id)
+    actor = db.get(User, actor_id)
+    if not actor:
+        raise HTTPException(401, "Inactive or unknown user")
+    row = HrEmployeeDocument(
+        factory_code=factory,
+        employee_id=employee_id,
+        category=category,
+        title=title,
+        original_name=original_name,
+        stored_name=stored_name,
+        content_type=content_type,
+        size_bytes=size_bytes,
+        expires_on=expires_on,
+        uploaded_by=actor_id,
+    )
+    db.add(row)
+    db.flush()
+    log_action(
+        db,
+        actor,
+        "create",
+        "HrEmployeeDocument",
+        row.id,
+        new_value={"employee_id": employee_id, "category": category, "title": title},
+    )
+    db.refresh(row)
+    return _document_dict(row)
 
 
 @router.post("/documents", status_code=201)
@@ -659,32 +717,61 @@ async def upload_document(
     expires_on: date | None = Form(default=None),
     file: UploadFile = File(...),
 ):
-    factory = _factory(current); _employee(db, factory, employee_id)
+    factory = _factory(current)
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
+    await run_upload_db_work(
+        worker_sessions,
+        partial(_require_hr_upload_employee, factory=factory, employee_id=employee_id),
+    )
     allowed_categories = {"employment_contract", "passport_id", "diploma", "certificate", "employment_order", "salary_amendment", "leave", "disciplinary", "training", "resignation", "other"}
     if category not in allowed_categories: raise HTTPException(422, "Unsupported HR document category")
     title = title.strip()
     if not title: raise HTTPException(422, "Document title is required")
     if len(title) > 255: raise HTTPException(422, "Document title is too long")
-    content = await file.read(settings.HR_DOCUMENT_MAX_BYTES + 1)
-    if not content or len(content) > settings.HR_DOCUMENT_MAX_BYTES: raise HTTPException(413, "Document is empty or too large")
     safe_original = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(file.filename or "document").name)[:255]
     stored = f"{factory.lower()}_{employee_id}_{secrets.token_hex(16)}{Path(safe_original).suffix.lower()[:12]}"
     target = Path(settings.HR_DOCUMENTS_DIR) / stored
-    created = False
+    write_state = UploadFileWriteState()
+    commit_state = UploadCommitState()
     try:
-        await to_thread.run_sync(_write_new_hr_document, target, content)
-        created = True
-        row = HrEmployeeDocument(factory_code=factory, employee_id=employee_id, category=category, title=title, original_name=safe_original, stored_name=stored, content_type=file.content_type, size_bytes=len(content), expires_on=expires_on, uploaded_by=current.id)
-        db.add(row); db.flush(); log_action(db, current, "create", "HrEmployeeDocument", row.id, new_value={"employee_id": employee_id, "category": category, "title": title}); db.commit()
+        async with upload_processing_slot():
+            try:
+                content = await read_bounded_upload_content(file, settings.HR_DOCUMENT_MAX_BYTES)
+            except HTTPException as exc:
+                if exc.status_code == 400 and exc.detail in {
+                    "Empty file",
+                    f"File too large (max {settings.HR_DOCUMENT_MAX_BYTES // (1024 * 1024)}MB)",
+                }:
+                    raise HTTPException(413, "Document is empty or too large") from exc
+                raise
+            await run_upload_file_write(
+                partial(_write_new_hr_document, target, content),
+                write_state,
+            )
+        document = await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _create_hr_upload_document,
+                factory=factory,
+                employee_id=employee_id,
+                category=category,
+                title=title,
+                original_name=safe_original,
+                stored_name=stored,
+                content_type=file.content_type,
+                size_bytes=len(content),
+                expires_on=expires_on,
+                actor_id=actor_id,
+            ),
+            commit=True,
+            commit_state=commit_state,
+        )
     except BaseException:
-        try:
-            db.rollback()
-        finally:
-            if created:
-                await _discard_hr_document(target)
+        if write_state.created and not commit_state.committed:
+            await _discard_hr_document(target)
         raise
-    db.refresh(row)
-    return _document_dict(row)
+    return document
 
 
 @router.get("/documents/{document_id}/download")

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from functools import partial
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError
 from sqlalchemy import text
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import Session, load_only
 
 from app.core.config import settings as app_settings
 from app.core.deps import CurrentUser, DbSession, require_permissions
+from app.core.uploads import UploadCommitState, run_upload_db_work, upload_session_factory
 from app.models import SystemSetting, User
 from app.services.audit import log_action
 
@@ -131,6 +133,8 @@ async def upload_company_logo(
 ):
     from app.services.image_storage import discard_stored_image, store_uploaded_image
 
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
     stored = await store_uploaded_image(
         file,
         target_dir=app_settings.MODEL_FILES_DIR,
@@ -140,23 +144,50 @@ async def upload_company_logo(
         prebuild_thumbnails=True,
     )
     logo_url = stored.file_url
+    commit_state = UploadCommitState()
 
     try:
-        row = _setting_for_update(db, "company_info")
-        company = CompanyInfo(**(row.value_json if row and isinstance(row.value_json, dict) else {})).model_dump()
-        company["logo_url"] = logo_url
-        if row:
-            row.value_json = CompanyInfo(**company).model_dump()
-        else:
-            row = SystemSetting(key="company_info", value_json=CompanyInfo(**company).model_dump())
-            db.add(row)
-            db.flush()
-        log_action(db, current, "upload_logo", "SystemSetting", row.id, new_value={"logo_url": logo_url})
-        db.commit()
+        await run_upload_db_work(
+            worker_sessions,
+            partial(_save_uploaded_company_logo, actor_id=actor_id, logo_url=logo_url),
+            commit=True,
+            commit_state=commit_state,
+        )
     except BaseException:
-        try:
-            db.rollback()
-        finally:
+        if not commit_state.committed:
             await discard_stored_image(stored)
         raise
     return {"logo_url": logo_url}
+
+
+def _save_uploaded_company_logo(
+    db: Session,
+    *,
+    actor_id: int,
+    logo_url: str,
+) -> None:
+    actor = db.get(User, actor_id)
+    if not actor:
+        raise HTTPException(401, "Inactive or unknown user")
+    row = _setting_for_update(db, "company_info")
+    company = CompanyInfo(
+        **(row.value_json if row and isinstance(row.value_json, dict) else {})
+    ).model_dump()
+    company["logo_url"] = logo_url
+    if row:
+        row.value_json = CompanyInfo(**company).model_dump()
+    else:
+        row = SystemSetting(
+            key="company_info",
+            value_json=CompanyInfo(**company).model_dump(),
+        )
+        db.add(row)
+        db.flush()
+    log_action(
+        db,
+        actor,
+        "upload_logo",
+        "SystemSetting",
+        row.id,
+        new_value={"logo_url": logo_url},
+    )

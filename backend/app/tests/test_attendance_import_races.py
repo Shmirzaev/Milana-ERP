@@ -1,17 +1,22 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from functools import partial
+from io import BytesIO
 import os
+from pathlib import Path
 from queue import Queue
 from threading import Barrier, BrokenBarrierError, Event, current_thread
 from time import monotonic, sleep
 from uuid import uuid4
 
 import pytest
+from PIL import Image
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import attendance
+from app.core.uploads import UploadCommitState, _run_upload_db_work
 from app.db.base import Base
 from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting
 
@@ -104,6 +109,97 @@ def _call(session_factory, function, payload):
         except Exception as exc:  # Returned so both concurrent outcomes remain observable.
             db.rollback()
             return exc
+
+
+def _photo_bytes() -> bytes:
+    stream = BytesIO()
+    Image.new("RGB", (12, 12), (40, 50, 60)).save(stream, format="PNG")
+    return stream.getvalue()
+
+
+def test_postgres_concurrent_photo_retries_serialize_before_file_assignment(
+    attendance_postgres_sessions, tmp_path
+):
+    sessions, engine = attendance_postgres_sessions
+    device_key = f"photo-race-{uuid4().hex}"
+    external_person_id = "photo-race-person"
+    with sessions() as db:
+        device = AttendanceDevice(
+            factory_code="MIL",
+            device_key=device_key,
+            name="Photo race device",
+            vendor="Hikvision",
+        )
+        db.add(device)
+        db.flush()
+        person = AttendancePerson(
+            factory_code="MIL",
+            device_id=device.id,
+            external_person_id=external_person_id,
+            full_name="Photo race person",
+            last_synced_at=datetime.now(timezone.utc),
+        )
+        db.add(person)
+        db.commit()
+        device_id = int(device.id)
+        person_id = int(person.id)
+
+    lock_barrier = Barrier(2)
+    lock_statements = []
+
+    def align_person_locks(_connection, _cursor, statement, _parameters, _context, _many):
+        normalized = " ".join(statement.upper().split())
+        if "FROM ATTENDANCE_PEOPLE" not in normalized or "FOR UPDATE" not in normalized:
+            return
+        lock_statements.append(normalized)
+        try:
+            lock_barrier.wait(timeout=2)
+        except BrokenBarrierError:
+            pass
+
+    event.listen(engine, "before_cursor_execute", align_person_locks)
+
+    def worker():
+        file_state = attendance._AttendancePhotoFileState()
+        commit_state = UploadCommitState()
+        try:
+            return _run_upload_db_work(
+                sessions,
+                partial(
+                    attendance._store_attendance_photo,
+                    factory_code="MIL",
+                    device_key=device_key,
+                    external_person_id=external_person_id,
+                    identity_device_id=device_id,
+                    content=_photo_bytes(),
+                    photo_root=tmp_path,
+                    file_state=file_state,
+                ),
+                commit=True,
+                commit_state=commit_state,
+                failure_cleanup=partial(attendance._discard_attendance_photo, file_state),
+            )
+        except Exception as exc:
+            return exc
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            results = [future.result(timeout=10) for future in [
+                workers.submit(worker),
+                workers.submit(worker),
+            ]]
+    finally:
+        event.remove(engine, "before_cursor_execute", align_person_locks)
+
+    assert not [result for result in results if isinstance(result, Exception)], results
+    assert sorted(result["updated"] for result in results) == [False, True]
+    assert len(lock_statements) == 2
+    stored_files = [path for path in Path(tmp_path).iterdir() if path.is_file()]
+    assert len(stored_files) == 1
+    with sessions() as db:
+        person = db.get(AttendancePerson, person_id)
+        assert person.photo_file_name == stored_files[0].name
+        assert person.photo_sha256 == results[0]["photo_sha256"] == results[1]["photo_sha256"]
 
 
 def _align_queries(engine, fragment: str):

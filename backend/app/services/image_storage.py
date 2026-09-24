@@ -12,11 +12,15 @@ from pathlib import Path
 from threading import BoundedSemaphore
 from uuid import uuid4
 
-from anyio import CancelScope, CapacityLimiter, to_thread
+from anyio import CancelScope
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from app.core.uploads import read_validated_image_upload
+from app.core.uploads import (
+    UPLOAD_PROCESSING_LIMITER,
+    read_validated_image_upload,
+    run_sync_to_completion,
+)
 
 
 FULL_IMAGE_QUALITY = 93
@@ -28,7 +32,7 @@ MAX_IMAGE_PIXELS = 50_000_000
 _thumbnail_generation_slot = BoundedSemaphore(1)
 # Bound upload decoding per worker process without blocking the event loop or
 # occupying a thread while waiting. Acquire before buffering the upload too.
-_image_upload_slot = CapacityLimiter(1)
+_image_upload_slot = UPLOAD_PROCESSING_LIMITER
 
 
 @dataclass(frozen=True)
@@ -237,19 +241,30 @@ async def store_uploaded_image(
 ) -> StoredImage:
     async with _image_upload_slot:
         content, _ = await read_validated_image_upload(file, max_bytes)
-        return await to_thread.run_sync(partial(
-            _store_image_content,
-            content,
-            target_dir=target_dir,
-            file_url_base=file_url_base,
-            name_prefix=name_prefix,
-            prebuild_thumbnails=prebuild_thumbnails,
-        ))
+        completed: list[StoredImage] = []
+
+        def store_and_record() -> StoredImage:
+            stored = _store_image_content(
+                content,
+                target_dir=target_dir,
+                file_url_base=file_url_base,
+                name_prefix=name_prefix,
+                prebuild_thumbnails=prebuild_thumbnails,
+            )
+            completed.append(stored)
+            return stored
+
+        try:
+            return await run_sync_to_completion(store_and_record)
+        except BaseException:
+            if completed:
+                await discard_stored_image(completed[0])
+            raise
 
 
 async def discard_stored_image(stored: StoredImage) -> None:
     with CancelScope(shield=True):
-        await to_thread.run_sync(partial(_discard_stored_image_files, stored))
+        await run_sync_to_completion(partial(_discard_stored_image_files, stored))
 
 
 def _discard_stored_image_files(stored: StoredImage) -> None:
@@ -294,7 +309,7 @@ def _store_image_content(
                 thumbnail_root=Path(target_dir) / "_thumbs",
                 source_file_name=file_name,
             )
-        except Exception:
+        except BaseException:
             absolute_path.unlink(missing_ok=True)
             raise
     return StoredImage(

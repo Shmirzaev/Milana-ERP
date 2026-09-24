@@ -4,12 +4,13 @@ import hashlib
 import hmac
 import os
 import secrets
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from zoneinfo import ZoneInfo
 
-from anyio import CapacityLimiter, CancelScope, to_thread
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
@@ -19,6 +20,12 @@ from sqlalchemy.orm import Session, load_only
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.core.dt import as_utc, utcnow
+from app.core.uploads import (
+    UploadCommitState,
+    run_upload_db_work,
+    upload_processing_slot,
+    upload_session_factory,
+)
 from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting, User
 from app.services.attendance_event_policy import accepted_attendance_result
 from app.services.factory_scope import normalize_factory_code, selected_factory_code
@@ -31,7 +38,6 @@ router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
 ATTENDANCE_IMPORT_LOCK_NAMESPACE = 1096043342
 ATTENDANCE_DEVICE_VENDORS = frozenset({"Hikvision", "Dahua"})
-ATTENDANCE_PHOTO_UPLOAD_LIMITER = CapacityLimiter(2)
 ATTENDANCE_SOURCE_SETTING_PREFIX = "att_src:"
 
 
@@ -588,9 +594,87 @@ def _write_new_attendance_photo(destination: Path, content: bytes) -> bool:
     return True
 
 
-async def _discard_attendance_photo(destination: Path) -> None:
-    with CancelScope(shield=True):
-        await to_thread.run_sync(destination.unlink, True)
+@dataclass
+class _AttendancePhotoFileState:
+    created_path: Path | None = None
+
+
+def _discard_attendance_photo(state: _AttendancePhotoFileState) -> None:
+    if state.created_path is None:
+        return
+    state.created_path.unlink(missing_ok=True)
+    state.created_path = None
+
+
+def _attendance_photo_target(
+    db: Session,
+    *,
+    factory_code: str,
+    device_key: str,
+    external_person_id: str,
+    identity_device_id: int | None,
+    lock: bool,
+) -> tuple[AttendanceDevice, AttendancePerson]:
+    device_query = db.query(AttendanceDevice).filter(
+        AttendanceDevice.factory_code == factory_code,
+        AttendanceDevice.device_key == device_key,
+    )
+    device = device_query.one_or_none()
+    if not device:
+        raise HTTPException(404, "Attendance device not found")
+    if identity_device_id is not None and device.id != identity_device_id:
+        raise HTTPException(403, "Connector token does not belong to this attendance device")
+    person_query = db.query(AttendancePerson).filter(
+        AttendancePerson.device_id == device.id,
+        AttendancePerson.external_person_id == external_person_id,
+    )
+    if lock:
+        person_query = person_query.with_for_update()
+    person = person_query.one_or_none()
+    if not person:
+        raise HTTPException(404, "Attendance person not found")
+    return device, person
+
+
+def _set_attendance_photo(
+    person: AttendancePerson,
+    *,
+    file_name: str,
+    digest: str,
+) -> None:
+    person.photo_file_name = file_name
+    person.photo_sha256 = digest
+
+
+def _store_attendance_photo(
+    db: Session,
+    *,
+    factory_code: str,
+    device_key: str,
+    external_person_id: str,
+    identity_device_id: int | None,
+    content: bytes,
+    photo_root: Path,
+    file_state: _AttendancePhotoFileState,
+) -> dict[str, bool | str]:
+    converted = convert_image_to_webp(content)
+    digest = hashlib.sha256(converted.data).hexdigest()
+    device, person = _attendance_photo_target(
+        db,
+        factory_code=factory_code,
+        device_key=device_key,
+        external_person_id=external_person_id,
+        identity_device_id=identity_device_id,
+        lock=True,
+    )
+    if person.photo_sha256 == digest and person.photo_file_name:
+        return {"updated": False, "photo_sha256": digest}
+    file_name = f"{device.id}_{person.id}_{digest[:20]}.webp"
+    destination = photo_root / file_name
+    if _write_new_attendance_photo(destination, converted.data):
+        file_state.created_path = destination
+    _set_attendance_photo(person, file_name=file_name, digest=digest)
+    return {"updated": True, "photo_sha256": digest}
 
 
 async def _read_bounded_attendance_photo(request: Request, max_bytes: int) -> bytes:
@@ -610,46 +694,42 @@ async def import_person_photo(
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    device = db.query(AttendanceDevice).filter(
-        AttendanceDevice.factory_code == (identity.factory_code if identity else _integration_factory()),
-        AttendanceDevice.device_key == device_key,
-    ).one_or_none()
-    if not device:
-        raise HTTPException(404, "Attendance device not found")
-    if identity is not None and device.id != identity.id:
-        raise HTTPException(403, "Connector token does not belong to this attendance device")
-    person = db.query(AttendancePerson).filter(
-        AttendancePerson.device_id == device.id,
-        AttendancePerson.external_person_id == external_person_id,
-    ).one_or_none()
-    if not person:
-        raise HTTPException(404, "Attendance person not found")
-    async with ATTENDANCE_PHOTO_UPLOAD_LIMITER:
+    identity_device_id = int(identity.id) if identity is not None else None
+    factory_code = identity.factory_code if identity is not None else _integration_factory()
+    worker_sessions = upload_session_factory(db)
+    target = partial(
+        _attendance_photo_target,
+        factory_code=factory_code,
+        device_key=device_key,
+        external_person_id=external_person_id,
+        identity_device_id=identity_device_id,
+    )
+    await run_upload_db_work(worker_sessions, partial(target, lock=False))
+    async with upload_processing_slot():
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
             raise HTTPException(413, "Photo is too large")
         content = await _read_bounded_attendance_photo(request, settings.ATTENDANCE_PHOTO_MAX_BYTES)
         if not content:
             raise HTTPException(400, "Photo body is empty")
-        converted = await to_thread.run_sync(convert_image_to_webp, content)
-        digest = hashlib.sha256(converted.data).hexdigest()
-        if person.photo_sha256 == digest and person.photo_file_name:
-            return {"updated": False, "photo_sha256": digest}
-        file_name = f"{device.id}_{person.id}_{digest[:20]}.webp"
-        destination = Path(settings.ATTENDANCE_PHOTOS_DIR) / file_name
-        created = await to_thread.run_sync(_write_new_attendance_photo, destination, converted.data)
-        try:
-            person.photo_file_name = file_name
-            person.photo_sha256 = digest
-            db.commit()
-        except BaseException:
-            try:
-                db.rollback()
-            finally:
-                if created:
-                    await _discard_attendance_photo(destination)
-            raise
-        return {"updated": True, "photo_sha256": digest}
+        file_state = _AttendancePhotoFileState()
+        commit_state = UploadCommitState()
+        return await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _store_attendance_photo,
+                factory_code=factory_code,
+                device_key=device_key,
+                external_person_id=external_person_id,
+                identity_device_id=identity_device_id,
+                content=content,
+                photo_root=Path(settings.ATTENDANCE_PHOTOS_DIR),
+                file_state=file_state,
+            ),
+            commit=True,
+            commit_state=commit_state,
+            failure_cleanup=partial(_discard_attendance_photo, file_state),
+        )
 
 
 def _day_bounds(day: date) -> tuple[datetime, datetime]:

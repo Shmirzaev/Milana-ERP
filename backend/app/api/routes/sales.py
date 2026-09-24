@@ -2,6 +2,7 @@ from app.core.order_reference import order_reference_contains
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,9 +21,12 @@ from app.core.signing import sign_path, strip_signature
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
+    UploadFileWriteState,
     extension_for_upload,
+    run_upload_file_write,
     safe_content_type,
     read_validated_upload_content,
+    upload_processing_slot,
 )
 from app.models import (
     SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation, ModelImage,
@@ -1640,7 +1644,7 @@ def _write_new_sales_attachment(target: Path, content: bytes) -> None:
 
 async def _discard_sales_attachment(target: Path) -> None:
     with CancelScope(shield=True):
-        await to_thread.run_sync(target.unlink, True)
+        await to_thread.run_sync(target.unlink, True, abandon_on_cancel=False)
 
 
 @router.post("/printing-attachments/upload", status_code=201)
@@ -1652,7 +1656,7 @@ async def upload_printing_attachment(
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     stored_image = None
     document_target = None
-    document_created = False
+    document_state = UploadFileWriteState()
     try:
         if ext in SAFE_IMAGE_EXTENSIONS:
             from app.services.image_storage import store_uploaded_image
@@ -1669,9 +1673,12 @@ async def upload_printing_attachment(
         else:
             safe_name = f"so_print_{uuid4().hex}{ext}"
             document_target = Path(settings.SALES_ORDER_FILES_DIR) / safe_name
-            content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-            await to_thread.run_sync(_write_new_sales_attachment, document_target, content)
-            document_created = True
+            async with upload_processing_slot():
+                content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+                await run_upload_file_write(
+                    partial(_write_new_sales_attachment, document_target, content),
+                    document_state,
+                )
             content_type = safe_content_type(ext)
         file_url = f"/storage/sales-order-files/{safe_name}"
         return {
@@ -1686,7 +1693,7 @@ async def upload_printing_attachment(
             from app.services.image_storage import discard_stored_image
 
             await discard_stored_image(stored_image)
-        elif document_created and document_target is not None:
+        elif document_state.created and document_target is not None:
             await _discard_sales_attachment(document_target)
         raise
 
