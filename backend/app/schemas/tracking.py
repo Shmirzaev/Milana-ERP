@@ -281,6 +281,37 @@ class PackageDetail(PackageOut):
     legacy_source: Optional[dict] = None
 
 
+class PackageReceivingQueueItemOut(ORMModel):
+    id: int
+    package_no: str
+    barcode: str
+    packaging_department_code: str = "PKG"
+    color: str
+    package_type: str
+    total_quantity: int
+    capacity: int
+    weight_kg: Optional[float] = None
+    status: str
+    packed_at: Optional[datetime] = None
+
+
+class PackageReceivingQueuePageOut(BaseModel):
+    rows: list[PackageReceivingQueueItemOut]
+    total: int
+    offset: int
+    limit: int
+    has_more: bool
+
+
+class PackageReceivingQueueRemoveOut(BaseModel):
+    count: int
+    packages: list[PackageReceivingQueueItemOut]
+    total: int
+    offset: int
+    limit: int
+    has_more: bool
+
+
 class PackageChangeRequestOut(ORMModel):
     id: int
     package_id: int

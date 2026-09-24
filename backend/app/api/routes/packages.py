@@ -47,6 +47,9 @@ from app.schemas.tracking import (
     PackageOut,
     PackageDetail,
     PackageBatchReceiveStorageIn,
+    PackageReceivingQueueItemOut,
+    PackageReceivingQueuePageOut,
+    PackageReceivingQueueRemoveOut,
     PackageReceivingQueueRemoveIn,
     PackageReceivingQueueScanIn,
     PackageBatchStoragePlacementIn,
@@ -91,7 +94,8 @@ from app.services.packaging_scope import (
 
 router = APIRouter(prefix="/packages", tags=["packages"])
 _LABEL_CONTEXT_CHUNK_SIZE = 400
-_RECEIVING_QUEUE_MAX_PAGE_SIZE = 500
+_RECEIVING_QUEUE_DEFAULT_PAGE_SIZE = 50
+_RECEIVING_QUEUE_MAX_PAGE_SIZE = 100
 _RECEIVING_QUEUE_EVENTS = (
     "queued_storage",
     "removed_storage_queue",
@@ -462,7 +466,6 @@ def _receiving_queue_query(db: DbSession):
     latest_event = _receiving_queue_latest_event_subquery(db)
     return (
         db.query(Package)
-        .options(*_package_detail_relationship_options())
         .join(latest_event, latest_event.c.package_id == Package.id)
         .join(PackageScanLog, PackageScanLog.id == latest_event.c.event_id)
         .filter(
@@ -500,6 +503,22 @@ def _receiving_queue_count(db: DbSession) -> int:
         .scalar()
         or 0
     )
+
+
+def _receiving_queue_page_payload(db: DbSession, *, offset: int, limit: int) -> dict:
+    total = _receiving_queue_count(db)
+    packages = _receiving_queue_packages(db, offset=offset, limit=limit)
+    rows = [
+        PackageReceivingQueueItemOut.model_validate(package).model_dump(mode="json")
+        for package in packages
+    ]
+    return {
+        "rows": rows,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(rows) < total,
+    }
 
 
 def _package_for_receiving_scan(db: DbSession, raw_code: str) -> Package | None:
@@ -1610,20 +1629,20 @@ def reject_package_change(
     return req
 
 
-@router.get("/receiving-queue", response_model=list[PackageDetail])
+@router.get("/receiving-queue", response_model=PackageReceivingQueuePageOut)
 def receiving_queue(
     db: DbSession,
     response: Response,
     _: User = Depends(require_permissions("storage.packages", "*")),
     offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
-    limit: Annotated[int, Query(ge=1, le=_RECEIVING_QUEUE_MAX_PAGE_SIZE)] = _RECEIVING_QUEUE_MAX_PAGE_SIZE,
+    limit: Annotated[int, Query(ge=1, le=_RECEIVING_QUEUE_MAX_PAGE_SIZE)] = _RECEIVING_QUEUE_DEFAULT_PAGE_SIZE,
 ):
-    total = _receiving_queue_count(db)
+    page = _receiving_queue_page_payload(db, offset=offset, limit=limit)
     if response is not None:
-        response.headers["X-Total-Count"] = str(total)
+        response.headers["X-Total-Count"] = str(page["total"])
         response.headers["X-Page-Offset"] = str(offset)
         response.headers["X-Page-Limit"] = str(limit)
-    return _package_detail_payloads(db, _receiving_queue_packages(db, offset=offset, limit=limit))
+    return page
 
 
 @router.post("/receiving-queue/scan", response_model=PackageDetail)
@@ -1677,7 +1696,7 @@ def scan_into_receiving_queue(
     return _package_detail_payload(db, pkg)
 
 
-@router.post("/receiving-queue/remove")
+@router.post("/receiving-queue/remove", response_model=PackageReceivingQueueRemoveOut)
 def remove_from_receiving_queue(
     payload: PackageReceivingQueueRemoveIn,
     db: DbSession,
@@ -1690,12 +1709,15 @@ def remove_from_receiving_queue(
         )
     requested_ids = {int(package_id) for package_id in payload.package_ids if int(package_id or 0) > 0}
     if not requested_ids:
+        page = _receiving_queue_page_payload(
+            db,
+            offset=0,
+            limit=_RECEIVING_QUEUE_DEFAULT_PAGE_SIZE,
+        )
         return {
             "count": 0,
-            "packages": _package_detail_payloads(
-                db,
-                _receiving_queue_packages(db, limit=500),
-            ),
+            "packages": page.pop("rows"),
+            **page,
         }
 
     # Resolve only the requested active packages.  Loading the entire queue
@@ -1728,12 +1750,15 @@ def remove_from_receiving_queue(
         )
         removed += 1
     db.commit()
+    page = _receiving_queue_page_payload(
+        db,
+        offset=0,
+        limit=_RECEIVING_QUEUE_DEFAULT_PAGE_SIZE,
+    )
     return {
         "count": removed,
-        "packages": _package_detail_payloads(
-            db,
-            _receiving_queue_packages(db, limit=500),
-        ),
+        "packages": page.pop("rows"),
+        **page,
     }
 
 

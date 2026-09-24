@@ -1,9 +1,7 @@
 import base64
-from math import ceil
 from uuid import uuid4
 
 import pytest
-from fastapi.encoders import jsonable_encoder
 from sqlalchemy import event
 from sqlalchemy.orm import selectinload
 
@@ -171,8 +169,8 @@ def _receiving_queue_case(package_count: int) -> list[int]:
         return [int(package.id) for package in packages]
 
 
-@pytest.mark.parametrize("package_count,expected_selects", [(1, 14), (50, 14), (401, 22)])
-def test_receiving_queue_batches_full_detail_payload(client, auth_headers, package_count, expected_selects):
+@pytest.mark.parametrize("package_count", [1, 50, 401])
+def test_receiving_queue_returns_bounded_minimal_pages_without_child_reads(client, auth_headers, package_count):
     package_ids = _receiving_queue_case(package_count)
     with SessionLocal() as db:
         bind = db.bind
@@ -184,48 +182,28 @@ def test_receiving_queue_batches_full_detail_payload(client, auth_headers, packa
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert [row["id"] for row in payload] == list(reversed(package_ids))
-    assert all(len(row["items"]) == 1 for row in payload)
-    assert all(len(row["batch_allocations"]) == 1 for row in payload)
-    assert all(len(row["scan_logs"]) == 2 for row in payload)
-    expected_chunks = ceil(package_count / 400)
-    assert _table_selects(statements, "models") == expected_chunks
-    assert _table_selects(statements, "production_orders") == expected_chunks
-    assert _table_selects(statements, "sales_orders") == expected_chunks
-    assert _table_selects(statements, "customers") == expected_chunks
-    assert _table_selects(statements, "package_print_run_members") == expected_chunks
-    assert len(statements) == expected_selects, statements
-    image_selects = [statement for statement in statements if " from model_images " in statement]
-    assert len(image_selects) == expected_chunks
-    assert all("file_data" not in statement for statement in image_selects)
-    expected_detail_columns = {
-        "package_items": (
-            ("id", "package_id", "model_id", "color", "size", "quantity"),
-            ("created_at", "updated_at"),
-        ),
-        "package_batch_allocations": (
-            ("id", "package_id", "production_batch_id", "quantity"),
-            ("created_at", "updated_at"),
-        ),
-        "package_scan_logs": (
-            ("id", "package_id", "scanned_by", "scan_type", "location", "scanned_at"),
-            ("created_at", "updated_at"),
-        ),
+    rows = payload["rows"]
+    expected_page_ids = list(reversed(package_ids))[:50]
+    assert [row["id"] for row in rows] == expected_page_ids
+    assert payload == {
+        "rows": rows,
+        "total": package_count,
+        "offset": 0,
+        "limit": 50,
+        "has_more": package_count > 50,
     }
-    for table, (required_columns, omitted_columns) in expected_detail_columns.items():
-        reads = [
-            statement
-            for statement in statements
-            if "select count(*)" not in statement
-            and f"{table}.{required_columns[-1]}" in statement
-        ]
-        assert reads
-        for statement in reads:
-            selected_columns = statement.split(" from ", maxsplit=1)[0]
-            for column in required_columns:
-                assert f"{table}.{column}" in selected_columns
-            for column in omitted_columns:
-                assert f"{table}.{column}" not in selected_columns
+    assert all(set(row) == {
+        "id", "package_no", "barcode", "packaging_department_code", "color",
+        "package_type", "total_quantity", "capacity", "weight_kg", "status", "packed_at",
+    } for row in rows)
+    assert len(statements) == 3, statements  # Authorization lookup plus count and page reads.
+    assert _table_selects(statements, "package_items") == 0
+    assert _table_selects(statements, "package_batch_allocations") == 0
+    assert _table_selects(statements, "package_scan_logs") == 2  # One total and one selected page query.
+    assert all(f" from {table} " not in " ".join(statements) for table in (
+        "models", "model_images", "production_orders", "sales_orders", "customers",
+        "package_print_run_members", "manual_package_receipts", "legacy_stock_receipts",
+    ))
 
 
 def test_receiving_queue_preserves_scalar_payload_and_event_membership(client, auth_headers):
@@ -244,8 +222,6 @@ def test_receiving_queue_preserves_scalar_payload_and_event_membership(client, a
             scan_type="received_storage",
         ))
         packages[2].status = "received_in_storage"
-        production_order = db.get(ProductionOrder, packages[3].production_order_id)
-        fallback_order_no = db.get(SalesOrder, production_order.sales_order_id).order_no
         packages[3].sales_order_id = None
         manual_receipt_no = f"PERF08-MR-{uuid4().hex}"
         manual = ManualPackageReceipt(
@@ -286,24 +262,20 @@ def test_receiving_queue_preserves_scalar_payload_and_event_membership(client, a
         manual_package_id = int(manual_package.id)
         db.commit()
 
-    with SessionLocal() as db:
-        scalar_packages = package_routes._receiving_queue_packages(db)
-        scalar_payload = [package_routes._package_detail_payload(db, package) for package in scalar_packages]
-    with SessionLocal() as db:
-        batched_packages = package_routes._receiving_queue_packages(db)
-        batched_payload = package_routes._package_detail_payloads(db, batched_packages)
-
     response = client.get("/api/packages/receiving-queue", headers=auth_headers)
     assert response.status_code == 200, response.text
     actual = response.json()
-    assert batched_payload == scalar_payload
-    assert actual == jsonable_encoder(scalar_payload)
-    assert [row["id"] for row in actual] == [manual_package_id, package_ids[4], package_ids[3]]
-    assert actual[0]["manual_source"]["receipt_no"] == manual_receipt_no
-    assert actual[1]["legacy_source"]["legacy"] is True
-    assert actual[2]["order_no"] == fallback_order_no
-    assert actual[2]["sales_order_no"] is None
-    assert actual[2]["customer_name"] is None
+    rows = actual["rows"]
+    assert [row["id"] for row in rows] == [manual_package_id, package_ids[4], package_ids[3]]
+    assert all("items" not in row and "scan_logs" not in row and "legacy_source" not in row for row in rows)
+
+    # Detailed child and source evidence remains available on the package detail route.
+    detail = client.get(f"/api/packages/{manual_package_id}", headers=auth_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["manual_source"]["receipt_no"] == manual_receipt_no
+    legacy_detail = client.get(f"/api/packages/{package_ids[4]}", headers=auth_headers)
+    assert legacy_detail.status_code == 200, legacy_detail.text
+    assert legacy_detail.json()["legacy_source"]["legacy"] is True
 
     unauthorized = client.get("/api/packages/receiving-queue")
     assert unauthorized.status_code in {401, 403}
@@ -325,14 +297,33 @@ def test_receiving_queue_bounds_page_and_reports_total(client, auth_headers):
     )
 
     assert response.status_code == 200, response.text
-    assert [row["id"] for row in response.json()] == list(reversed(package_ids))[1:3]
+    payload = response.json()
+    assert [row["id"] for row in payload["rows"]] == list(reversed(package_ids))[1:3]
+    assert payload["total"] == 5
+    assert payload["offset"] == 1
+    assert payload["limit"] == 2
+    assert payload["has_more"] is True
     assert response.headers["x-total-count"] == "5"
     assert response.headers["x-page-offset"] == "1"
     assert response.headers["x-page-limit"] == "2"
 
 
+def test_receiving_queue_enforces_maximum_page_size(client, auth_headers):
+    package_ids = _receiving_queue_case(105)
+
+    response = client.get("/api/packages/receiving-queue?limit=100", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert len(response.json()["rows"]) == 100
+    assert response.json()["total"] == 105
+    assert response.json()["has_more"] is True
+    assert [row["id"] for row in response.json()["rows"]] == list(reversed(package_ids))[:100]
+
+    rejected = client.get("/api/packages/receiving-queue?limit=101", headers=auth_headers)
+    assert rejected.status_code == 422, rejected.text
+
+
 @pytest.mark.parametrize("package_count", [1, 50, 401])
-def test_receiving_queue_page_scopes_detail_and_reference_loads_to_returned_packages(
+def test_receiving_queue_page_reads_only_selected_package_scalars(
     client, auth_headers, package_count,
 ):
     package_ids = _receiving_queue_case(package_count)
@@ -352,10 +343,10 @@ def test_receiving_queue_page_scopes_detail_and_reference_loads_to_returned_pack
     assert response.status_code == 200, response.text
     expected_ids = list(reversed(package_ids))[offset:offset + limit]
     payload = response.json()
-    assert [row["id"] for row in payload] == expected_ids
-    assert all(len(row["items"]) == 1 for row in payload)
-    assert all(len(row["batch_allocations"]) == 1 for row in payload)
-    assert all(len(row["scan_logs"]) == 2 for row in payload)
+    assert [row["id"] for row in payload["rows"]] == expected_ids
+    assert payload["offset"] == offset
+    assert payload["limit"] == limit
+    assert payload["has_more"] is (offset + limit < package_count)
     assert response.headers["x-total-count"] == str(package_count)
 
     count_queries = [statement for statement in statements if "count(" in statement]
@@ -363,29 +354,13 @@ def test_receiving_queue_page_scopes_detail_and_reference_loads_to_returned_pack
     assert "count(packages.id)" in count_queries[0]
     assert " from (select packages." not in count_queries[0]
 
-    for table in ("package_items", "package_batch_allocations", "package_scan_logs"):
-        child_reads = [
-            statement for statement in statements
-            if f" from {table} " in statement and f"{table}.package_id in (" in statement
-        ]
-        assert len(child_reads) == 1, statements
-        marker = f"{table}.package_id in ("
-        start = child_reads[0].find(marker)
-        assert start >= 0, child_reads[0]
-        end = child_reads[0].find(")", start)
-        assert child_reads[0][start:end].count("?") == limit, child_reads[0]
-
     for table in (
-        "models",
-        "production_orders",
-        "sales_orders",
-        "customers",
-        "package_print_run_members",
+        "package_items", "package_batch_allocations", "models", "model_images", "production_orders",
+        "sales_orders", "customers", "package_print_run_members", "manual_package_receipts",
+        "legacy_stock_receipts",
     ):
-        reference_reads = [statement for statement in statements if f" from {table} " in statement]
-        assert len(reference_reads) == 1, statements
-        assert " in (" in reference_reads[0], reference_reads[0]
-        assert reference_reads[0].split(" in (", 1)[1].split(")", 1)[0].count("?") == limit
+        assert _table_selects(statements, table) == 0, statements
+    assert _table_selects(statements, "package_scan_logs") == 2
 
 
 def test_receiving_queue_remove_returns_same_batched_list_contract(client, auth_headers):
@@ -400,11 +375,15 @@ def test_receiving_queue_remove_returns_same_batched_list_contract(client, auth_
     payload = removed.json()
     assert payload["count"] == 1
     assert [row["id"] for row in payload["packages"]] == [package_ids[2], package_ids[0]]
-    assert all(len(row["items"]) == 1 for row in payload["packages"])
+    assert payload["total"] == 2
+    assert payload["offset"] == 0
+    assert payload["limit"] == 50
+    assert payload["has_more"] is False
+    assert all("items" not in row and "scan_logs" not in row for row in payload["packages"])
 
     current = client.get("/api/packages/receiving-queue", headers=auth_headers)
     assert current.status_code == 200, current.text
-    assert current.json() == payload["packages"]
+    assert current.json()["rows"] == payload["packages"]
 
     unchanged = client.post(
         "/api/packages/receiving-queue/remove",
@@ -412,7 +391,14 @@ def test_receiving_queue_remove_returns_same_batched_list_contract(client, auth_
         json={"package_ids": []},
     )
     assert unchanged.status_code == 200, unchanged.text
-    assert unchanged.json() == {"count": 0, "packages": payload["packages"]}
+    assert unchanged.json() == {
+        "count": 0,
+        "packages": payload["packages"],
+        "total": payload["total"],
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
 
 
 def test_receiving_queue_remove_bounds_requested_packages_before_mutation(client, auth_headers):
@@ -423,7 +409,7 @@ def test_receiving_queue_remove_bounds_requested_packages_before_mutation(client
     response = client.post(
         "/api/packages/receiving-queue/remove",
         headers=auth_headers,
-        json={"package_ids": [-1] * 501},
+        json={"package_ids": [-1] * 101},
     )
 
     assert response.status_code == 422, response.text
@@ -485,8 +471,9 @@ def test_shared_model_context_preserves_bom_stock_batch_image_fallback(client, a
         lambda: client.get("/api/packages/receiving-queue", headers=auth_headers),
     )
     assert response.status_code == 200, response.text
-    assert [row["model_image_url"] for row in response.json()] == list(reversed(image_urls))
+    assert [row["id"] for row in response.json()["rows"]] == list(reversed(package_ids))
     assert _table_selects(queue_statements, "stock_batches") == 0
+    assert _table_selects(queue_statements, "model_images") == 0
 
     monkeypatch.setattr(
         package_routes,
