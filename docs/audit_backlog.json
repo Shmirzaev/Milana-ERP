@@ -711,8 +711,8 @@
       "baseline_source": "backend/app/schemas/sales.py",
       "status": "partial",
       "owner": null,
-      "commit": "5a68d12, 41ae782, 5c08c2c, a66321b, 26a4e73, 77205c9, 652f754, 47f0411, 37527f4, 7e4d055, 3e75ca6, 8f48bce, 5bd112b, ac6c3d6, 0b3950b, 5638b8a, 3e50527, 50cbbe8, 41700e6, e27c514, 9d368e9, ee75b88, 3de6182",
-      "evidence": "Existing numeric bounds remain. Commit 47f0411 computes the complete sales-order line aggregate with Decimal and rejects totals that would round beyond NUMERIC(14,2) before reservations, audit or commit while retaining valid sub-cent input. Follow-up commits add finite/representable purchase request, unit-cost, order/receipt and purchasing/finance input checks plus Decimal-safe customer-payment and waste-sale amounts; see test_purchase_request_quantity_bounds.py, test_purchase_cost_bounds.py, test_purchase_order_quantity_bounds.py, test_purchase_receipt_quantity_bounds.py, test_purchase_receipt_piece_count_bounds.py, test_price_calculation_purchasing_bounds.py, test_price_calculation_finance_bounds.py and test_customer_payment_amount_bounds.py. Commits 3e50527, 50cbbe8, 41700e6, e27c514 and 9d368e9 add HR approved-count, payroll, cutting, stock-batch cost/dimension/quantity guards with focused regressions. Existing business/error precedence is retained; other derived prices, states and list bounds remain open."
+      "commit": "5a68d12, 41ae782, 5c08c2c, a66321b, 26a4e73, 77205c9, 652f754, 47f0411, 37527f4, 7e4d055, 3e75ca6, 8f48bce, 5bd112b, ac6c3d6, 0b3950b, 5638b8a, 3e50527, 50cbbe8, 41700e6, e27c514, 9d368e9, ee75b88, 3de6182, f7ff339",
+      "evidence": "Existing numeric bounds remain. Commit 47f0411 computes sales-order line totals with Decimal and rejects totals that would round beyond NUMERIC(14,2) before writes. Follow-up commits add finite/representable purchase request, unit-cost, order/receipt, purchasing/finance, customer-payment, waste, HR, payroll, cutting and stock-batch checks. Commit f7ff339 rejects sub-cent 1C invoice/payment amounts without losing NaN/Inf per-row isolation; 18 focused cases pass independently. Existing business/error precedence is retained; other derived prices, states and list bounds remain open."
     },
     {
       "number": 60,
@@ -1299,8 +1299,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "3d15874",
-      "evidence": "Partial: purchase receipts now reuse a shared category-to-storage contract after existing auth/reference checks and before any batch, movement, audit or idempotency write. Crossed storage rejects without changing order status, received quantity or persistence counts; valid receipts preserve batch/movement item, warehouse, quantity and reference parity. Twelve focused cases pass independently; the broader purchasing selection passes69 with3 expected PostgreSQL skips and 1/50/401 receipt reference reads remain4/4/8. Remaining alternate-writer gaps are stock adjustment/accessory return/transfer/batch edit in inventory.py and sewing-assignment quantity/state mutations across production_extra.py, bundles.py, production.py and sewing_corrections.py."
+      "commit": "3d15874, 287fab2, 1610d50",
+      "evidence": "Purchase receipts and inventory adjustment/accessory-return/transfer/batch-edit writers now reuse the item-category warehouse contract; returns enforce item units and transfers enforce paired valid references. The inventory slice passes72 focused cases independently, including no-write failures and ledger parity. Sewing-assignment creation/update, acceptance/output, cutting-driven resizing and correction writers now share positive assigned quantity and 0<=completed<=assigned invariants; 40 focused/adjacent cases pass, including no-write failures at the resize minimum. Other alternate references and assignment deletion/return state rules remain, so DB01 is partial."
     },
     {
       "number": 109,
@@ -1323,8 +1323,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "8d386cf, ada93f8, 30119aa",
-      "evidence": "Incoming writes now shape-check model paid-operation envelopes, the established 21-field HR employee profile object and finite numeric model-size measurements. Sparse supported objects remain unchanged; invalid writes preserve authorization/resource/conflict precedence and create no business or audit side effects. Legacy JSON rows remain readable and unrelated edits preserve them. Other editable JSON structures remain, so DB03 is partial."
+      "commit": "8d386cf, ada93f8, 30119aa, 4def8fb",
+      "evidence": "Incoming writes now shape-check model paid-operation envelopes, established general/costing model-detail objects, the 21-field HR employee profile and finite numeric model-size measurements. Sparse/unknown legacy fields remain readable; unrelated edits preserve stored legacy shapes. Five new model-detail cases pass independently with no-write failures. Other editable JSON structures remain, so DB03 is partial."
     },
     {
       "number": 111,
@@ -1333,10 +1333,10 @@
       "risk": "Upgrade can change access or business records.",
       "proposed_fix": "Review affected rows and recovery",
       "baseline_source": null,
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "d23738c",
+      "evidence": "Read-only preflight for revision 0130 previews exact before/after grants for the targeted account, reports malformed inputs that would block the historical migration, omits the email from output and records snapshot hashes. Four focused cases pass independently. Other historical permission/data-changing migrations (including 0055, 0091/0092, 0101/0107) and actual affected-row/operator recovery review remain open; no migration was applied."
     },
     {
       "number": 112,
@@ -1430,10 +1430,10 @@
       "risk": "Database-only restore or extra hosts can miss files.",
       "proposed_fix": "Coordinated file/database recovery",
       "baseline_source": null,
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "13f5994",
+      "evidence": "Deployment guidance now pairs a quiesced PostgreSQL dump with a storage snapshot using an exclusive-create SHA-256 manifest; verification rejects missing, extra or changed files and mismatched dumps. Seven local fixture tests pass independently and three symlink cases skip on this Windows host without link privileges. No actual backup/restore, off-host replica, retention, failover or witnessed RTO/RPO evidence exists, so OPS06 remains partial."
     },
     {
       "number": 120,
