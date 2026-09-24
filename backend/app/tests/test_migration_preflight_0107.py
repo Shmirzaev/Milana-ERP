@@ -48,6 +48,8 @@ def _engine(revision: str = PREDECESSOR_0107):
              "material_name": "Manual fabric"},
             {"id": 12, "model_id": 1, "item_id": 2, "stock_batch_id": 45, "material_name": None},
             {"id": 13, "model_id": 2, "item_id": 3, "stock_batch_id": None, "material_name": None},
+            {"id": 14, "model_id": 2, "item_id": None, "stock_batch_id": None,
+             "material_name": "Legacy named material"},
         ])
         bundles = metadata.tables["bundles"]
         work_orders = metadata.tables["work_orders"]
@@ -95,6 +97,7 @@ def test_0107_preflight_snapshots_only_matching_rows_and_keeps_ambiguous_links_u
     assert [(row["id"], row["material_role_after"]) for row in ranked["rows"]] == [
         (10, "main"), (11, "secondary"), (12, "secondary"),
     ]
+    assert report["constraint_blockers"]["model_bom_named_rows_outside_usluga"]["ids"] == [14]
     links = report["bundle_cutting_record_links"]
     assert links["auto_links"] == [{
         "bundle_id": 100, "production_order_id": 1, "production_batch_id": 3,

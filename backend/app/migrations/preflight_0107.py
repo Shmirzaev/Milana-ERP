@@ -166,6 +166,18 @@ def preview_0107(connection: sa.Connection) -> dict[str, Any]:
             ranked_rows.append({**row, "position": position,
                                 "material_role_after": "main" if position == 1 else "secondary"})
 
+    # This check constraint is global, while the role backfill is Usluga-only.
+    # A named BOM row outside that scope retains NULL role and blocks upgrade.
+    out_of_scope_named_rows = [dict(row) for row in connection.execute(
+        sa.select(bom.c.id, bom.c.model_id, models.c.catalog_scope)
+        .select_from(bom.join(models, bom.c.model_id == models.c.id))
+        .where(
+            bom.c.material_name.is_not(None),
+            sa.or_(models.c.catalog_scope.is_(None), models.c.catalog_scope != "usluga"),
+        )
+        .order_by(bom.c.id)
+    ).mappings().all()]
+
     # Recreate the one-match-only bundle link rule; multi-match bundles remain
     # unlinked and are explicitly identified for operator review.
     join_rows = connection.execute(
@@ -245,7 +257,9 @@ def preview_0107(connection: sa.Connection) -> dict[str, Any]:
         "database_revisions": current_revisions,
         "migration_pending": True,
         "applicability": (
-            "manual_review_required" if ambiguous_rows or len(role_snapshots) > 1
+            "manual_review_required" if (
+                ambiguous_rows or len(role_snapshots) > 1 or out_of_scope_named_rows
+            )
             else "ready_for_operator_review"
         ),
         "affected_rows_inspected": True,
@@ -261,6 +275,14 @@ def preview_0107(connection: sa.Connection) -> dict[str, Any]:
             "secondary_count": sum(row["position"] > 1 for row in ranked_rows),
             "rows": ranked_rows,
             "snapshot_sha256": _snapshot_hash(ranked_rows),
+        },
+        "constraint_blockers": {
+            "model_bom_named_rows_outside_usluga": {
+                "count": len(out_of_scope_named_rows),
+                "ids": [int(row["id"]) for row in out_of_scope_named_rows],
+                "snapshot_sha256": _snapshot_hash(out_of_scope_named_rows),
+                "effect": "These rows keep a NULL role but fail 0107's global named-material check constraint.",
+            },
         },
         "existing_cutting_records_defaulted_approved": {
             "count": len(cutting_record_ids),
