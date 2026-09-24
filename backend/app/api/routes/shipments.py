@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse, Response
 from app.services.print_response import warehouse_print_response
@@ -1333,7 +1334,7 @@ def export_shipment_invoice(sid: int, db: DbSession, lang: str = "en",
         raise HTTPException(404, "Shipment not found")
     return Response(shipment_invoice_workbook(_printed_document(db, shipment), lang),
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f'attachment; filename="shipment-{sid}-invoice.xlsx"', "Cache-Control": "no-store"})
+                    headers={"Content-Disposition": 'attachment; filename="shipment-invoice.xlsx"; filename*=UTF-8\'\'' + quote(shipment.shipment_no + "-invoice.xlsx", safe=""), "Cache-Control": "no-store"})
 
 
 @router.get("/{sid}/scan-status", response_model=ShipmentScanOut)
