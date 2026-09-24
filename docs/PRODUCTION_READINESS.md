@@ -36,6 +36,7 @@ Use this checklist before exposing Milana ERP to real users or customer data.
    - Define backup frequency.
    - Define retention period.
    - Test restore into a separate environment.
+   - Verify shared-host owners, effective resource limits and backup-window impact with the [OPS03 read-only review procedure](OPS03_SHARED_INFRASTRUCTURE_REVIEW.md).
 
 3. Decide RTO and RPO.
    - RTO: maximum acceptable downtime.
