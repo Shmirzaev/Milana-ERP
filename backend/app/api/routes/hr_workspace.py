@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from functools import partial
 from math import isfinite
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -182,6 +182,30 @@ class HrSettingsIn(BaseModel):
         if isinstance(value, float) and not isfinite(value):
             raise HTTPException(422, "Scheduled hours must be finite")
         return value
+
+
+class HrSettingsWriteIn(HrSettingsIn):
+    # Keep the raw JSON types here so the route can grandfather an unchanged
+    # legacy list returned by GET while validating any new value strictly.
+    weekend_days: list[Any] = Field(default_factory=lambda: [6, 7])
+
+
+def _valid_weekend_days(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) <= 7
+        and all(type(day) is int and 1 <= day <= 7 for day in value)
+        and len(value) == len(set(value))
+    )
+
+
+def _same_legacy_weekend_days(submitted: object, stored: object) -> bool:
+    return (
+        isinstance(submitted, list)
+        and isinstance(stored, list)
+        and len(submitted) == len(stored)
+        and all(type(new) is type(old) and new == old for new, old in zip(submitted, stored))
+    )
 
 
 def _required_text(value: str, label: str) -> str:
@@ -1143,8 +1167,20 @@ def get_hr_settings(db: DbSession, current: User = HrUser):
 
 
 @router.put("/settings")
-def put_hr_settings(payload: HrSettingsIn, db: DbSession, current: User = HrUser):
+def put_hr_settings(payload: HrSettingsWriteIn, db: DbSession, current: User = HrUser):
     key = _settings_key(_factory(current)); row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-    if not row: row = SystemSetting(key=key, value_json={}); db.add(row)
-    row.value_json = payload.model_dump(); log_action(db, current, "update", "HrSettings", row.id, new_value=row.value_json); db.commit()
+    stored_value = row.value_json if row and isinstance(row.value_json, dict) else {}
+    weekend_days = payload.weekend_days
+    stored_weekend_days = stored_value.get("weekend_days")
+    if not _valid_weekend_days(weekend_days) and not _same_legacy_weekend_days(
+        weekend_days,
+        stored_weekend_days,
+    ):
+        raise HTTPException(422, "Weekend days must be unique ISO weekdays from 1 through 7")
+
+    values = payload.model_dump()
+    if not row:
+        row = SystemSetting(key=key, value_json={}); db.add(row)
+    row.value_json = values
+    log_action(db, current, "update", "HrSettings", row.id, new_value=row.value_json); db.commit()
     return row.value_json
