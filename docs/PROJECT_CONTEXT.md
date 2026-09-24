@@ -2,6 +2,8 @@
 
 Last updated: 2026-09-25
 
+- Continued 2026-09-25 (DB03 system settings JSON): `e798c94a` bounds changed shared SystemSetting sections to 16 KiB compact UTF-8 and 16 nested containers, preserving semantically unchanged legacy field values. The check runs after existing section, authorization and schema validation and before settings/audit persistence; company-logo updates use the same stored-document guard. The focused settings/security selection passes 51 tests with four expected PostgreSQL-only skips; Ruff and diff checks pass. Factory HR settings, attendance checkpoints, and other writable JSON domains remain outside this slice, so DB03 stays partial and the official ledger is unchanged. Local only; no production contact, push, deployment or merge.
+
 - Continued 2026-09-25 (OPS11 credential custody checklist): added a value-free owner/vault/consumer inventory and rotation evidence procedure linked from the security runbook. It does not establish actual vault ownership, locate historic handover copies, inventory production/third-party consumers, or prove any rotation; OPS11 remains open pending owner-approved external reconciliation and rotation/revocation. No credential values were inspected or changed, and no production contact occurred.
 
 - Continued 2026-09-25 (OPS10 recovery drill preparation): `docs/OPS10_NONPRODUCTION_RESTORE_DRILL.md` adds a non-production isolation checklist and evidence template for paired database/storage recovery. Business/IT owners still need to approve RTO, RPO, backup cadence, retention, off-host copy, drill scope/frequency and recovery roles; no restore, live environment check or witnessed drill was performed. OPS10 remains open; no production contact, migration, push, merge or deployment.
