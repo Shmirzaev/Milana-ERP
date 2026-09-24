@@ -113,8 +113,8 @@ def _resolve_invoice(
 
 def _refresh_invoice_status(db: Session, invoice: Invoice) -> None:
     total_paid = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(Payment.invoice_id == invoice.id).scalar() or 0
-    total_paid = float(total_paid)
-    amount = float(invoice.amount)
+    total_paid = Decimal(str(total_paid))
+    amount = Decimal(str(invoice.amount or 0))
     if total_paid >= amount:
         invoice.status = "paid"
     elif total_paid > 0:
@@ -338,8 +338,8 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
         if affected_invoices:
             _refresh_invoice_status(db, min(affected_invoices, key=lambda row: int(row.id)))
         for invoice in affected_invoices:
-            total_paid = float(paid_totals.get(invoice.id, 0) or 0)
-            amount = float(invoice.amount or 0)
+            total_paid = Decimal(str(paid_totals.get(invoice.id, 0) or 0))
+            amount = Decimal(str(invoice.amount or 0))
             invoice.status = "paid" if total_paid >= amount else "partially_paid" if total_paid > 0 else "unpaid"
 
     return summary

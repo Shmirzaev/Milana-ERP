@@ -128,6 +128,36 @@ def test_1c_payment_lock_projects_fields_used_by_reassignment():
     assert "payments.created_at" in legacy_sql
 
 
+def test_1c_invoice_status_uses_exact_payment_cents():
+    marker = uuid4().hex[:12]
+    with TestSessionLocal() as db:
+        customer = Customer(name=f"1C exact cents {marker}")
+        db.add(customer)
+        db.flush()
+        order = SalesOrder(order_no=f"1C-CENTS-{marker}", customer_id=customer.id, total_amount=100)
+        db.add(order)
+        db.flush()
+        invoice = Invoice(
+            sales_order_id=order.id, invoice_no=f"1C-CENTS-{marker}", amount=100,
+            status="unpaid", external_source="1c", external_id=f"1c-invoice-{marker}",
+        )
+        db.add(invoice)
+        db.commit()
+        invoice_id = int(invoice.id)
+
+    for payment_id, amount, expected in (("first", "99.99", "partially_paid"), ("last-cent", "0.01", "paid")):
+        with TestSessionLocal() as db:
+            result = sync_from_1c(db, OneCSyncIn(payments=[{
+                "external_id": f"1c-payment-{marker}-{payment_id}",
+                "invoice_id": invoice_id,
+                "amount": amount,
+            }]))
+            assert result["errors"] == []
+            db.commit()
+        with TestSessionLocal() as db:
+            assert db.get(Invoice, invoice_id).status == expected
+
+
 @pytest.mark.parametrize("reference", ["invoice_id", "invoice_no", "invoice_external_id"])
 def test_1c_payment_move_refreshes_both_invoice_statuses(client, reference):
     ids = _invoices(TestSessionLocal)
