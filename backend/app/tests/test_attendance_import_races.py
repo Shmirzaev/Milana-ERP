@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import attendance
 from app.db.base import Base
-from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson
+from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting
 
 
 @pytest.fixture(scope="module")
@@ -65,15 +65,26 @@ def _person(employee_no: str, name: str) -> dict:
     }
 
 
-def _people_payload(device_key: str, employee_no: str, name: str):
+def _people_payload(
+    device_key: str,
+    employee_no: str,
+    name: str,
+    source_snapshot_at: datetime | None = None,
+):
     return attendance.PeopleSnapshotIn(
         device=_device(device_key),
         people=[_person(employee_no, name)],
         full_snapshot=True,
+        source_snapshot_at=source_snapshot_at,
     )
 
 
-def _event_payload(device_key: str, event_uid: str, employee_no: str):
+def _event_payload(
+    device_key: str,
+    event_uid: str,
+    employee_no: str,
+    source_snapshot_at: datetime | None = None,
+):
     return attendance.EventBatchIn(
         device=_device(device_key),
         events=[{
@@ -82,6 +93,7 @@ def _event_payload(device_key: str, event_uid: str, employee_no: str):
             "occurred_at": "2026-08-17T08:00:00+05:00",
             "result": "success",
         }],
+        source_snapshot_at=source_snapshot_at,
     )
 
 
@@ -318,6 +330,122 @@ def test_postgres_older_blocked_events_keep_newer_device_metadata(
             event_uid
             for (event_uid,) in db.query(AttendanceEvent.event_uid).filter_by(device_id=device.id)
         } == {"newer-event", "older-event"}
+
+
+def test_postgres_late_older_source_roster_cannot_regress_newer_snapshot(
+    attendance_postgres_sessions,
+    monkeypatch,
+):
+    sessions, _engine = attendance_postgres_sessions
+    device_key = f"versioned-roster-{uuid4().hex}"
+    older_waiting = Event()
+    release_older = Event()
+    original_lock = attendance._lock_attendance_import
+
+    def pause_older_before_lock(db, factory_code, key):
+        if current_thread().name.startswith("source-old-roster"):
+            older_waiting.set()
+            assert release_older.wait(10), "Older source roster was not released"
+        return original_lock(db, factory_code, key)
+
+    monkeypatch.setattr(attendance, "_lock_attendance_import", pause_older_before_lock)
+    older_payload = _people_payload(
+        device_key,
+        "880009",
+        "Old source profile",
+        datetime(2026, 9, 20, 11, tzinfo=timezone.utc),
+    )
+    newer_payload = _people_payload(
+        device_key,
+        "880010",
+        "Current source profile",
+        datetime(2026, 9, 20, 12, tzinfo=timezone.utc),
+    )
+    older_payload.device.name = "Old source turnstile"
+    newer_payload.device.name = "Current source turnstile"
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="source-old-roster") as worker:
+        older_future = worker.submit(_call, sessions, attendance.import_people_snapshot, older_payload)
+        assert older_waiting.wait(10), "Older source roster did not reach the pre-lock pause"
+        winning = _call(sessions, attendance.import_people_snapshot, newer_payload)
+        release_older.set()
+        overtaken = older_future.result(timeout=10)
+
+    assert not isinstance(winning, Exception)
+    assert not isinstance(overtaken, Exception)
+    assert winning["ignored"] is False
+    assert overtaken["ignored_reason"] == "stale_source_version"
+    with sessions() as db:
+        device = db.query(AttendanceDevice).filter_by(device_key=device_key).one()
+        people = db.query(AttendancePerson).filter_by(device_id=device.id).all()
+        checkpoint = db.query(SystemSetting).filter_by(
+            key=attendance._source_setting_key("MIL", device_key),
+        ).one()
+
+    assert device.name == "Current source turnstile"
+    assert [(person.external_person_id, person.full_name) for person in people] == [
+        ("880010", "Current source profile"),
+    ]
+    assert checkpoint.value_json["people_snapshot_at"] == "2026-09-20T12:00:00+00:00"
+
+
+def test_postgres_late_older_source_events_insert_without_metadata_regression(
+    attendance_postgres_sessions,
+    monkeypatch,
+):
+    sessions, _engine = attendance_postgres_sessions
+    device_key = f"versioned-events-{uuid4().hex}"
+    older_waiting = Event()
+    release_older = Event()
+    original_lock = attendance._lock_attendance_import
+
+    def pause_older_before_lock(db, factory_code, key):
+        if current_thread().name.startswith("source-old-events"):
+            older_waiting.set()
+            assert release_older.wait(10), "Older source events were not released"
+        return original_lock(db, factory_code, key)
+
+    monkeypatch.setattr(attendance, "_lock_attendance_import", pause_older_before_lock)
+    older_payload = _event_payload(
+        device_key,
+        "source-old-event",
+        "880011",
+        datetime(2026, 9, 20, 11, tzinfo=timezone.utc),
+    )
+    newer_payload = _event_payload(
+        device_key,
+        "source-new-event",
+        "880011",
+        datetime(2026, 9, 20, 12, tzinfo=timezone.utc),
+    )
+    older_payload.device.name = "Old event metadata"
+    older_payload.device.source_host = "10.100.50.21"
+    newer_payload.device.name = "Current event metadata"
+    newer_payload.device.source_host = "10.100.50.22"
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="source-old-events") as worker:
+        older_future = worker.submit(_call, sessions, attendance.import_events, older_payload)
+        assert older_waiting.wait(10), "Older source events did not reach the pre-lock pause"
+        winning = _call(sessions, attendance.import_events, newer_payload)
+        release_older.set()
+        overtaken = older_future.result(timeout=10)
+
+    assert not isinstance(winning, Exception)
+    assert not isinstance(overtaken, Exception)
+    assert winning["inserted"] == 1
+    assert overtaken["inserted"] == 1
+    assert overtaken["metadata_ignored_reason"] == "stale_source_version"
+    with sessions() as db:
+        device = db.query(AttendanceDevice).filter_by(device_key=device_key).one()
+        event_uids = {
+            uid for (uid,) in db.query(AttendanceEvent.event_uid).filter_by(device_id=device.id)
+        }
+        checkpoint = db.query(SystemSetting).filter_by(
+            key=attendance._source_setting_key("MIL", device_key),
+        ).one()
+
+    assert (device.name, device.source_host) == ("Current event metadata", "10.100.50.22")
+    assert event_uids == {"source-old-event", "source-new-event"}
+    assert checkpoint.value_json["metadata_snapshot_at"] == "2026-09-20T12:00:00+00:00"
+    assert checkpoint.value_json["event_snapshot_at"] == "2026-09-20T12:00:00+00:00"
 
 
 def test_postgres_concurrent_roster_and_events_create_one_device(attendance_postgres_sessions):

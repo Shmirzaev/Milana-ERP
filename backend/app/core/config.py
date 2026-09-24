@@ -1,7 +1,7 @@
 import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     ATTENDANCE_INTEGRATION_FACTORY_CODE: str = "MIL"
     ATTENDANCE_PHOTOS_DIR: str = "/app/storage/attendance_photos"
     ATTENDANCE_PHOTO_MAX_BYTES: int = 8 * 1024 * 1024
+    ATTENDANCE_SOURCE_MAX_FUTURE_SECONDS: int = Field(default=300, ge=0, le=86_400)
     HR_DOCUMENTS_DIR: str = "/app/storage/hr_documents"
     HR_DOCUMENT_MAX_BYTES: int = 20 * 1024 * 1024
     STARTUP_SCHEMA_SYNC: bool = False

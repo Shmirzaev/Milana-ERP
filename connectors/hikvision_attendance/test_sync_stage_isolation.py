@@ -92,9 +92,9 @@ def test_optional_roster_count_failure_does_not_block_events(run_case, monkeypat
     device_payloads = []
     original = case.erp.events
 
-    def capture(device, events):
+    def capture(device, events, *, source_snapshot_at):
         device_payloads.append(device)
-        return original(device, events)
+        return original(device, events, source_snapshot_at=source_snapshot_at)
 
     monkeypatch.setattr(case.erp, "events", capture)
     connector.run_sync(case.config, "events")
