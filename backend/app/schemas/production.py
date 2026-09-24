@@ -488,9 +488,9 @@ class SewingRecordIn(BaseModel):
 class PackagingRecordIn(BaseModel):
     work_order_id: int
     production_batch_id: Optional[int] = None
-    input_qty: int = Field(ge=0, le=2_147_483_647)
-    packed_qty: int = Field(ge=0, le=2_147_483_647)
-    damaged_qty: int = Field(default=0, ge=0, le=2_147_483_647)
+    input_qty: PlannedQuantity = Field(ge=0, le=2_147_483_647)
+    packed_qty: PlannedQuantity = Field(ge=0, le=2_147_483_647)
+    damaged_qty: PlannedQuantity = Field(default=0, ge=0, le=2_147_483_647)
     packaging_material_used: Optional[str] = None
     operator_id: Optional[int] = None
     notes: Optional[str] = None
