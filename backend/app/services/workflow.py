@@ -459,6 +459,33 @@ def notify_department(
     return created
 
 
+def _stock_consumption_unit(
+    db: Session,
+    *,
+    item_id: int,
+    unit: str | None,
+    item_cache: dict[int, Item] | None,
+) -> str:
+    item = item_cache.get(item_id) if item_cache is not None else None
+    if item is None:
+        item = db.get(Item, item_id)
+        if item is not None and item_cache is not None:
+            item_cache[item_id] = item
+    if item is None:
+        raise HTTPException(404, f"Item {item_id} not found")
+    expected_unit = str(item.unit or "").strip()
+    requested_unit = str(unit or "").strip() or expected_unit
+    if requested_unit != expected_unit:
+        raise HTTPException(409, f"Consumption unit must match item unit ({expected_unit})")
+    return requested_unit
+
+
+def _require_batch_consumption_unit(batch: StockBatch, unit: str) -> None:
+    batch_unit = str(batch.unit or "").strip()
+    if unit != batch_unit:
+        raise HTTPException(409, f"Consumption unit must match stock batch unit ({batch_unit})")
+
+
 def consume_stock_batch(
     db: Session,
     *,
@@ -482,6 +509,10 @@ def consume_stock_batch(
         batch = batch_cache.get(batch_id)
     if not batch:
         raise HTTPException(404, f"Stock batch {batch_id} not found")
+    effective_unit = _stock_consumption_unit(
+        db, item_id=int(batch.item_id), unit=unit or batch.unit, item_cache=item_cache,
+    )
+    _require_batch_consumption_unit(batch, effective_unit)
     available = float(batch.quantity or 0)
     if available < quantity:
         raise HTTPException(
@@ -497,7 +528,7 @@ def consume_stock_batch(
             from_warehouse_id=batch.warehouse_id,
             to_warehouse_id=None,
             quantity=quantity,
-            unit=unit or batch.unit,
+            unit=effective_unit,
             reference_type=reference_type,
             reference_id=reference_id,
             created_by=user_id,
@@ -541,6 +572,10 @@ def consume_item_from_batches(
             if warehouse_id is None or batch.warehouse_id == warehouse_id
         ]
 
+    effective_unit = _stock_consumption_unit(
+        db, item_id=int(item_id), unit=unit, item_cache=item_cache,
+    )
+
     if require_available:
         available = sum(float(row.quantity or 0) for row in batches)
         if available + 1e-9 < quantity:
@@ -548,12 +583,21 @@ def consume_item_from_batches(
                 409,
                 f"Insufficient stock for item #{item_id}: available {available}, requested {quantity}",
             )
-    for b in batches:
-        if left <= 0:
+    planned_batches: list[tuple[StockBatch, float]] = []
+    planned_left = left
+    for batch in batches:
+        if planned_left <= 0:
             break
-        take = min(left, float(b.quantity or 0))
+        take = min(planned_left, float(batch.quantity or 0))
         if take <= 0:
             continue
+        _require_batch_consumption_unit(batch, effective_unit)
+        planned_batches.append((batch, take))
+        planned_left -= take
+
+    for b, take in planned_batches:
+        if left <= 0:
+            break
         b.quantity = float(b.quantity or 0) - take
         db.add(
             StockMovement(
@@ -563,7 +607,7 @@ def consume_item_from_batches(
                 from_warehouse_id=b.warehouse_id,
                 to_warehouse_id=None,
                 quantity=take,
-                unit=unit or b.unit,
+                unit=effective_unit,
                 reference_type=reference_type,
                 reference_id=reference_id,
                 created_by=user_id,
@@ -583,7 +627,7 @@ def consume_item_from_batches(
                 from_warehouse_id=None,
                 to_warehouse_id=None,
                 quantity=quantity,
-                unit=unit,
+                unit=effective_unit,
                 reference_type=reference_type,
                 reference_id=reference_id,
                 created_by=user_id,

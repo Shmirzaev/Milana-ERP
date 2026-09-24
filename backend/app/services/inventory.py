@@ -1012,6 +1012,11 @@ def _consume_loaded_material_reservation(
     if quantity > remaining + EPSILON:
         raise HTTPException(409, f"Consume quantity exceeds remaining reserved quantity ({remaining:g})")
 
+    if item_cache is None:
+        reservation_item = reservation.item
+        if reservation_item is not None:
+            item_cache = {int(reservation_item.id): reservation_item}
+
     movement_reference_id = int(reference_id) if reference_id is not None else int(reservation.id)
     if reservation.stock_batch_id:
         consume_stock_batch(
@@ -3248,6 +3253,7 @@ def issue_accessories_to_production_order(
             reference_id=po.id,
             user_id=user_id,
             require_available=True,
+            item_cache={int(item.id): item},
         )
         issued.append({
             "item_id": int(item.id),
