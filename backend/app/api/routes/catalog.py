@@ -2091,6 +2091,26 @@ def clone_model(
     if not source:
         raise HTTPException(404, "Model not found")
 
+    # Cloning duplicates the effective BOM rows. Check inventory-linked rows
+    # before creating the copy so a legacy unit mismatch is not propagated.
+    # Some legacy rows only carry a batch reference; resolve that batch's item
+    # for validation, while itemless Usluga description rows remain untouched.
+    for row in source.bom or []:
+        item_id = row.item_id
+        if not item_id and row.stock_batch_id:
+            batch = db.get(StockBatch, row.stock_batch_id)
+            if not batch:
+                raise HTTPException(404, "Stock batch not found")
+            item_id = batch.item_id
+        _validate_effective_bom_item_unit(
+            db,
+            {
+                "item_id": item_id,
+                "stock_batch_id": row.stock_batch_id,
+                "unit": row.unit,
+            },
+        )
+
     new_code = _unique_model_copy_code(db, source.code)
     cloned = Model(
         code=new_code,

@@ -769,6 +769,42 @@ def test_usluga_model_fabric_name_is_manual_and_inventory_independent(client):
     assert accessory_response.status_code == 201, accessory_response.text
 
 
+def test_usluga_model_clone_preserves_itemless_descriptive_bom(client):
+    _login_eco(client)
+    suffix = uuid4().hex[:8].upper()
+    model_response = client.post(
+        "/api/usluga/models",
+        json={
+            "code": f"USL-CLONE-MANUAL-{suffix}",
+            "name": "Manual fabric clone source",
+            "category": "hoodie",
+            "status": "draft",
+        },
+    )
+    assert model_response.status_code == 201, model_response.text
+    source_id = model_response.json()["id"]
+    bom_response = client.post(
+        f"/api/usluga/models/{source_id}/bom",
+        json={
+            "material_name": "Customer-owned rib knit",
+            "material_role": "main",
+            "quantity_per_piece": 0.42,
+            "unit": "kg",
+        },
+    )
+    assert bom_response.status_code == 201, bom_response.text
+
+    clone_response = client.post(f"/api/usluga/models/{source_id}/clone")
+    assert clone_response.status_code == 201, clone_response.text
+    cloned = client.get(f"/api/usluga/models/{clone_response.json()['id']}")
+    assert cloned.status_code == 200, cloned.text
+    row = cloned.json()["bom"][0]
+    assert row["item_id"] is None
+    assert row["stock_batch_id"] is None
+    assert row["material_name"] == "Customer-owned rib knit"
+    assert row["unit"] == "kg"
+
+
 def test_usluga_variant_uses_main_fabric_for_color_and_variant_summary(client):
     _login_eco(client)
     suffix = uuid4().hex[:8].upper()

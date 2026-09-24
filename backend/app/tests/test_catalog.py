@@ -661,6 +661,112 @@ def test_clone_model_copies_full_plm_details(client, auth_headers):
     assert second_clone.json()["code"] == "CLONE-BASE-1001-COPY-2"
 
 
+def test_clone_model_rejects_legacy_bom_unit_mismatch_without_writes(client, auth_headers):
+    from app.models import AuditLog, Model, ModelBOM
+    from app.tests.conftest import TestSessionLocal
+
+    item = client.get("/api/inventory/items", headers=auth_headers).json()[0]
+    created = client.post(
+        "/api/models",
+        json={"code": "CLONE-UNIT-BASE", "name": "Clone unit base", "category": "dress"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    model_id = created.json()["id"]
+    bom = client.post(
+        f"/api/models/{model_id}/bom",
+        json={"item_id": item["id"], "quantity_per_piece": 1, "unit": item["unit"]},
+        headers=auth_headers,
+    )
+    assert bom.status_code == 201, bom.text
+
+    with TestSessionLocal() as db:
+        db.query(ModelBOM).filter(ModelBOM.id == bom.json()["id"]).update(
+            {ModelBOM.unit: "legacy-unit-mismatch"}
+        )
+        db.commit()
+        before = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.post(f"/api/models/{model_id}/clone", headers=auth_headers)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "BOM unit must match inventory item unit"
+
+    with TestSessionLocal() as db:
+        after = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+        persisted_bom = db.query(ModelBOM).filter(ModelBOM.id == bom.json()["id"]).one()
+        assert persisted_bom.unit == "legacy-unit-mismatch"
+    assert after == before
+
+
+def test_clone_model_rejects_batch_only_bom_unit_mismatch_without_writes(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import AuditLog, Item, Model, ModelBOM, StockBatch, Warehouse
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:10]
+    with TestSessionLocal() as db:
+        item = Item(sku=f"CLONE-BATCH-{marker}", name="Clone batch item", category="accessory", unit="pcs")
+        warehouse = Warehouse(name=f"Clone batch warehouse {marker}", type="accessory_storage")
+        source = Model(
+            code=f"CLONE-BATCH-{marker}",
+            name="Clone batch source",
+            catalog_scope="standard",
+        )
+        db.add_all([item, warehouse, source])
+        db.flush()
+        batch = StockBatch(
+            item_id=item.id,
+            batch_no=f"CLONE-BATCH-{marker}",
+            quantity=10,
+            unit="pcs",
+            warehouse_id=warehouse.id,
+            qc_status="passed",
+        )
+        db.add(batch)
+        db.flush()
+        bom = ModelBOM(
+            model_id=source.id,
+            item_id=None,
+            stock_batch_id=batch.id,
+            material_name="Legacy batch-only row",
+            quantity_per_piece=1,
+            unit="kg",
+        )
+        db.add(bom)
+        db.commit()
+        source_id = int(source.id)
+        bom_id = int(bom.id)
+        before = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.post(f"/api/models/{source_id}/clone", headers=auth_headers)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "BOM unit must match inventory item unit"
+
+    with TestSessionLocal() as db:
+        after = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+        row = db.query(ModelBOM).filter(ModelBOM.id == bom_id).one()
+        assert row.item_id is None
+        assert row.unit == "kg"
+    assert after == before
+
+
 def test_model_payloads_include_material_composition(client, auth_headers):
     item = client.post(
         "/api/inventory/items",
