@@ -2,6 +2,7 @@ import os
 import logging
 from threading import Event, Lock, Thread
 from time import perf_counter
+from uuid import uuid4
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -22,6 +23,12 @@ from app.core.config import settings
 from app.core.deps import CurrentUser, DbSession
 from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
 from app.core.request_body_limit import AuthRequestBodyLimitMiddleware, validate_request_body_runtime_configuration
+from app.core.request_trace import (
+    RequestTrace,
+    bind_request_trace,
+    install_sql_timing_listeners,
+    reset_request_trace,
+)
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.services.credentials import validate_credential_runtime_configuration
@@ -31,6 +38,7 @@ import app.models  # noqa: F401 — register models with metadata
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("milana")
+trace_log = logging.getLogger("milana.request_trace")
 
 
 def _alembic_config() -> AlembicConfig:
@@ -342,9 +350,53 @@ async def _security_headers(request: Request, call_next):
 @app.middleware("http")
 async def _request_timing(request: Request, call_next):
     started = perf_counter()
-    response = await call_next(request)
+    trace = RequestTrace(request_id=uuid4().hex) if settings.LOCAL_TRACE_CAPTURE_ENABLED else None
+    if trace is not None:
+        install_sql_timing_listeners()
+    trace_token = bind_request_trace(trace) if trace is not None else None
+    try:
+        response = await call_next(request)
+    except Exception:
+        if trace is not None:
+            duration_ms = (perf_counter() - started) * 1000
+            route = request.scope.get("route")
+            route_template = getattr(route, "path", "<unmatched>")
+            trace_log.error(
+                "request_trace request_id=%s method=%s route=%s status=500 "
+                "duration_ms=%.1f sql_count=%d sql_duration_ms=%.1f",
+                trace.request_id,
+                request.method,
+                route_template,
+                duration_ms,
+                trace.sql_count,
+                trace.sql_duration_ms,
+            )
+        raise
+    finally:
+        if trace_token is not None:
+            reset_request_trace(trace_token)
     duration_ms = (perf_counter() - started) * 1000
-    response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
+    if trace is not None:
+        response.headers["X-Request-ID"] = trace.request_id
+        response.headers["Server-Timing"] = (
+            f"app;dur={duration_ms:.1f}, db;dur={trace.sql_duration_ms:.1f}, "
+            f'dbq;desc="{trace.sql_count}"'
+        )
+        route = request.scope.get("route")
+        route_template = getattr(route, "path", "<unmatched>")
+        trace_log.info(
+            "request_trace request_id=%s method=%s route=%s status=%d "
+            "duration_ms=%.1f sql_count=%d sql_duration_ms=%.1f",
+            trace.request_id,
+            request.method,
+            route_template,
+            response.status_code,
+            duration_ms,
+            trace.sql_count,
+            trace.sql_duration_ms,
+        )
+    else:
+        response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
     if duration_ms >= 1000:
         log.warning(
             "slow_request method=%s path=%s status=%s duration_ms=%.1f",
@@ -390,6 +442,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "Server-Timing"],
 )
 
 # Most authenticated ERP list endpoints return highly compressible JSON. Keep

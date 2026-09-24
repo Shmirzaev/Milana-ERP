@@ -2,6 +2,8 @@
 
 Last updated: 2026-09-25
 
+- Continued 2026-09-25 (OPS01 local correlated trace): an opt-in local-only backend trace correlates a generated `X-Request-ID` visible in the browser with the backend route/status log and aggregate SQL count/duration, including failed executions. SQL text, bind values, headers, query strings and bodies are not logged; production/staging/public runtimes reject the flag. `docs/OPS01_LOCAL_TRACE_CAPTURE.md` documents synthetic-data local capture and plan follow-up. Four focused tests and Ruff pass. No shared peak-time window was captured, so OPS01 remains open; no production contact, push, merge or deployment.
+
 - Continued 2026-09-25 (OPS05 release-observer readiness coverage): release observation now probes internal and public backend `/ready` every 30 seconds alongside `/health` and frontend login, so dependency readiness is monitored during the observation window rather than only at cutover. Deterministic observer tests verify all six endpoints; OPS05 remains partial until reviewed config is released/applied and active candidate, stable listener and public dependency health are verified. Local only; no production access, deployment, push, merge or schema change.
 
 - Continued 2026-09-25 (DB05 revision 0126 preview): `87c16a05` adds a predecessor-gated, read-only review of every case-insensitive Payroll-role permission append in migration 0126, with before/after snapshots, hashes, malformed-value blockers and CLI dispatch. The new and adjacent preflight tests pass **25** in integration; Ruff, CLI help and diff checks pass. DB05 stays partial until affected rows, backup/recovery approval and migration rehearsal are reviewed; no migration or production database was touched.

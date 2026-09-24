@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Milana ERP"
     ENV: str = "development"
     DEBUG: bool = False
+    LOCAL_TRACE_CAPTURE_ENABLED: bool = False
     DATABASE_URL: str = "postgresql+psycopg2://erp:erp@db:5432/erp"
     DB_POOL_SIZE: int | None = None
     DB_MAX_OVERFLOW: int | None = None
@@ -147,6 +148,8 @@ class Settings(BaseSettings):
         return self.FILE_SIGNING_SECRET.strip() or self.JWT_SECRET.strip()
 
     def validate_runtime_security(self) -> None:
+        if self.strict_security_required and self.LOCAL_TRACE_CAPTURE_ENABLED:
+            raise RuntimeError("LOCAL_TRACE_CAPTURE_ENABLED must be false in production/public environments")
         from app.core.integration_auth import parse_onec_client_credentials
 
         try:
