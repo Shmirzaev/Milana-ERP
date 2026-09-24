@@ -20,6 +20,15 @@ from alembic.script import ScriptDirectory
 
 VERSIONS = Path(__file__).resolve().parents[2] / "alembic" / "versions"
 KNOWN_DRIFT = VERSIONS.parents[2] / "docs" / "audit-evidence" / "fresh-migration-schema-drift.json"
+DB08_MODEL_ALIGNED_CLASSIFICATIONS = {
+    "equivalent_index_name",
+    "preexisting_default_contract",
+    "preexisting_fk_contract",
+    "preexisting_missing_hr_index",
+    "preexisting_nullable_contract",
+    "preexisting_type_contract",
+    "preexisting_unmapped_legacy_schema",
+}
 
 
 def load_migration(name):
@@ -191,6 +200,16 @@ def _known_drift_baseline():
     return [entry["difference"] for entry in report["differences"]]
 
 
+def _current_known_drift_baseline():
+    """Historical evidence remains immutable; DB08 removes model-aligned entries."""
+    report = json.loads(KNOWN_DRIFT.read_text(encoding="utf-8"))
+    return [
+        entry["difference"]
+        for entry in report["differences"]
+        if entry["classification"] not in DB08_MODEL_ALIGNED_CLASSIFICATIONS
+    ]
+
+
 def _assert_known_drift_baseline(actual, expected):
     """Require exact reviewed drift, independent only of top-level/key order."""
     def canonical(differences):
@@ -206,6 +225,15 @@ def test_known_drift_baseline_ignores_only_order():
     expected = _known_drift_baseline()
     assert len(expected) == 126
     _assert_known_drift_baseline(list(reversed(expected)), expected)
+
+
+def test_db08_current_baseline_excludes_only_model_aligned_historical_drift():
+    historical = _known_drift_baseline()
+    current = _current_known_drift_baseline()
+
+    assert len(historical) == 126
+    assert len(current) == 86
+    assert len(historical) - len(current) == 40
 
 
 @pytest.mark.parametrize("change", ["added", "changed", "disappeared", "duplicated"])
@@ -228,9 +256,10 @@ def _assert_schema_contract_with_known_drift(engine):
     """Check mapped storage and the exact reviewed known-drift baseline.
 
     Generated model lookup columns are deliberately migration-owned (0084);
-    they are queried as SQL and have no ORM Columns. All 126 remaining diffs,
-    including defaults, must match the reviewed report exactly. Thirty entries
-    remain unresolved under DB08; passing this check does not claim ORM parity.
+    they are queried as SQL and have no ORM Columns. DB08 aligns the 30
+    previously unresolved model contracts plus ten equivalent index names.
+    The remaining migration-owned/representation differences must continue to
+    match the immutable reviewed report exactly.
     """
     from app.db.base import Base
     import app.models  # noqa: F401 - register model metadata for comparison
@@ -260,7 +289,7 @@ def _assert_schema_contract_with_known_drift(engine):
         assert generated_keys_seen == {"model_group_key", "is_legacy_import"}, "0084 must preserve its generated lookup columns"
         normalized = _describe_difference(known_drift)
         print("KNOWN_SCHEMA_DRIFT=" + json.dumps(normalized, sort_keys=True))
-        _assert_known_drift_baseline(normalized, _known_drift_baseline())
+        _assert_known_drift_baseline(normalized, _current_known_drift_baseline())
 
 
 def test_postgres_fresh_head_rerun_and_known_drift_baseline(postgres_migrations):

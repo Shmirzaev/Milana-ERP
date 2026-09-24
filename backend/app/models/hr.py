@@ -16,8 +16,8 @@ class HrOrgUnit(Base, PkMixin, TimestampMixin):
 
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False, index=True)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("hr_org_units.id", ondelete="CASCADE"), index=True)
-    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), index=True)
-    manager_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"), index=True)
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"))
+    manager_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"))
     unit_type: Mapped[str] = mapped_column(String(24), nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     code: Mapped[str | None] = mapped_column(String(48))
@@ -28,8 +28,8 @@ class HrPosition(Base, PkMixin, TimestampMixin):
     __tablename__ = "hr_positions"
 
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False, index=True)
-    org_unit_id: Mapped[int | None] = mapped_column(ForeignKey("hr_org_units.id", ondelete="SET NULL"), index=True)
-    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), index=True)
+    org_unit_id: Mapped[int | None] = mapped_column(ForeignKey("hr_org_units.id", ondelete="SET NULL"))
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"))
     name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     job_description: Mapped[str | None] = mapped_column(Text)
     required_skills_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
@@ -46,7 +46,7 @@ class HrEmployeeDocument(Base, PkMixin):
 
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False, index=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"), nullable=False, index=True)
-    category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     original_name: Mapped[str] = mapped_column(String(255), nullable=False)
     stored_name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
@@ -61,7 +61,7 @@ class HrRecruitmentCandidate(Base, PkMixin, TimestampMixin):
     __tablename__ = "hr_recruitment_candidates"
 
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False, index=True)
-    position_id: Mapped[int | None] = mapped_column(ForeignKey("hr_positions.id", ondelete="SET NULL"), index=True)
+    position_id: Mapped[int | None] = mapped_column(ForeignKey("hr_positions.id", ondelete="SET NULL"))
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id", ondelete="SET NULL"), index=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     first_name: Mapped[str | None] = mapped_column(String(100))
@@ -82,7 +82,7 @@ class HrRecruitmentCandidate(Base, PkMixin, TimestampMixin):
     phone: Mapped[str | None] = mapped_column(String(64))
     email: Mapped[str | None] = mapped_column(String(255))
     source: Mapped[str | None] = mapped_column(String(80))
-    stage: Mapped[str] = mapped_column(String(32), nullable=False, default="applied", server_default="applied", index=True)
+    stage: Mapped[str] = mapped_column(String(32), nullable=False, default="applied", server_default="applied")
     applied_on: Mapped[date | None] = mapped_column(Date)
     interview_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)
@@ -92,8 +92,8 @@ class HrCalendarEvent(Base, PkMixin, TimestampMixin):
     __tablename__ = "hr_calendar_events"
 
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False, index=True)
-    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"), index=True)
-    event_type: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"))
+    event_type: Mapped[str] = mapped_column(String(48), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

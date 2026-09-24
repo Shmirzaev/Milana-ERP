@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
-from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric, JSON, UniqueConstraint
+from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric, JSON, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -322,6 +322,41 @@ class CuttingMaterialUsage(Base, PkMixin, TimestampMixin):
     stock_batch = relationship("StockBatch")
 
 
+class CuttingBeikaMaterialUsage(Base, PkMixin, TimestampMixin):
+    """Migration-owned legacy Beyka batch evidence retained in ORM test schemas."""
+
+    __tablename__ = "cutting_beika_material_usages"
+    __table_args__ = (
+        CheckConstraint(
+            "quantity > 0",
+            name="ck_cutting_beika_material_usages_quantity_positive",
+        ),
+        CheckConstraint(
+            "position > 0",
+            name="ck_cutting_beika_material_usages_position_positive",
+        ),
+        UniqueConstraint(
+            "cutting_record_id",
+            "stock_batch_id",
+            name="uq_cutting_beika_material_usages_record_batch",
+        ),
+        UniqueConstraint(
+            "cutting_record_id",
+            "position",
+            name="uq_cutting_beika_material_usages_record_position",
+        ),
+    )
+    cutting_record_id: Mapped[int] = mapped_column(
+        ForeignKey("cutting_records.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    stock_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("stock_batches.id"), nullable=False, index=True,
+    )
+    quantity: Mapped[float] = mapped_column(Numeric(14, 4), nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False, default="kg", server_default="kg")
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class PrintingRecord(Base, PkMixin, TimestampMixin):
     __tablename__ = "printing_records"
     __table_args__ = (
@@ -379,20 +414,56 @@ class SewingReplacementRequest(Base, PkMixin, TimestampMixin):
         CheckConstraint("cut_qty <= requested_qty", name="ck_sewing_replacements_cut_lte_requested"),
         CheckConstraint("replaced_qty <= requested_qty", name="ck_sewing_replacements_replaced_lte_requested"),
         CheckConstraint(
+            "accepted_defect_qty >= 0",
+            name="ck_sewing_replacements_accepted_nonnegative",
+        ),
+        CheckConstraint(
+            "cut_qty + accepted_defect_qty <= requested_qty",
+            name="ck_sewing_replacements_cut_accepted_lte_requested",
+        ),
+        CheckConstraint(
             "status IN ('waiting_cutting', 'waiting_sewing', 'completed')",
             name="ck_sewing_replacements_status",
         ),
         UniqueConstraint("sewing_record_id", name="uq_sewing_replacements_sewing_record"),
+        Index(
+            "ix_sewing_replacements_production_order_id",
+            "production_order_id",
+        ),
+        Index(
+            "ix_sewing_replacements_sewing_work_order_id",
+            "sewing_work_order_id",
+        ),
+        Index(
+            "ix_sewing_replacements_cutting_work_order_id",
+            "cutting_work_order_id",
+        ),
+        Index(
+            "ix_sewing_replacements_production_batch_id",
+            "production_batch_id",
+        ),
+        Index("ix_sewing_replacements_status", "status"),
     )
-    production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False, index=True)
-    sewing_work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False, index=True)
-    cutting_work_order_id: Mapped[int | None] = mapped_column(ForeignKey("work_orders.id"), index=True)
-    production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"), index=True)
+    production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False)
+    sewing_work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False)
+    cutting_work_order_id: Mapped[int | None] = mapped_column(ForeignKey("work_orders.id"))
+    production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"))
     sewing_record_id: Mapped[int] = mapped_column(ForeignKey("sewing_records.id"), nullable=False)
     requested_qty: Mapped[int] = mapped_column(Integer, nullable=False)
     cut_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     replaced_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="waiting_cutting", nullable=False, index=True)
+    accepted_defect_qty: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False,
+    )
+    accepted_defect_reason: Mapped[str | None] = mapped_column(String(64))
+    accepted_defect_by: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "users.id",
+            name="fk_sewing_replacements_accepted_defect_by_users",
+        ),
+    )
+    accepted_defect_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), default="waiting_cutting", nullable=False)
     defect_reason: Mapped[str | None] = mapped_column(String(255))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
