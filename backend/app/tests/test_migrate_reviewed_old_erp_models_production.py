@@ -891,6 +891,64 @@ def test_existing_update_is_idempotent_after_receipt() -> None:
     assert len(same_receipt[migration.RECEIPTS_KEY]) == 1
 
 
+def test_receipt_write_bounds_changed_details_and_preserves_unchanged_legacy() -> None:
+    plan = {
+        "source_key": "reviewed-final",
+        "package_sha256": "a" * 64,
+        "plan_sha256": "b" * 64,
+        "actions": [{"identity": "TEST"}],
+        "active_release": {"active_release": "20260727_062443"},
+    }
+    receipt_args = {
+        "plan": plan,
+        "identity": "TEST",
+        "action": "update_existing",
+        "action_index": 1,
+    }
+    existing = migration._append_receipt({"general": {}}, **receipt_args)
+    existing["legacy_extension"] = "x" * (70 * 1024)
+    planned = copy.deepcopy(existing)
+    planned["general"]["legacy_product"] = "Tunic"
+    before = copy.deepcopy(planned)
+
+    with pytest.raises(migration.MigrationError, match="Imported Model.details_json is invalid"):
+        migration._append_receipt(planned, existing_details=existing, **receipt_args)
+
+    assert planned == before
+    assert migration._append_receipt(
+        existing, existing_details=existing, **receipt_args,
+    ) == existing
+
+
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep"])
+def test_new_model_receipt_rejects_unbounded_details(invalid_kind: str) -> None:
+    extension: object = "x" * (70 * 1024)
+    if invalid_kind == "deep":
+        extension = {"leaf": True}
+        for _ in range(20):
+            extension = {"next": extension}
+    details = {"general": {}, "legacy_extension": extension}
+    before = copy.deepcopy(details)
+    plan = {
+        "source_key": "reviewed-final",
+        "package_sha256": "a" * 64,
+        "plan_sha256": "b" * 64,
+        "actions": [{"identity": "TEST"}],
+        "active_release": {"active_release": "20260727_062443"},
+    }
+
+    with pytest.raises(migration.MigrationError, match="Imported Model.details_json is invalid"):
+        migration._append_receipt(
+            details,
+            plan=plan,
+            identity="TEST",
+            action="create_model",
+            action_index=1,
+        )
+
+    assert details == before
+
+
 def test_new_image_rows_preserve_reviewed_metadata() -> None:
     image = {
         "kind": "source",

@@ -1580,6 +1580,7 @@ def _append_receipt(
     identity: str,
     action: str,
     action_index: int,
+    existing_details: object = None,
 ) -> dict[str, Any]:
     result = copy.deepcopy(details)
     current = result.get(RECEIPTS_KEY)
@@ -1607,6 +1608,13 @@ def _append_receipt(
     ):
         receipts.append(receipt)
     result[RECEIPTS_KEY] = receipts
+    try:
+        local_import.validate_imported_details_bounds(
+            result,
+            existing_details=details if existing_details is None else existing_details,
+        )
+    except local_import.MigrationError as exc:
+        raise MigrationError(str(exc)) from exc
     return result
 
 
@@ -1784,6 +1792,7 @@ def apply_plan(
                     identity=action["identity"],
                     action="update_existing",
                     action_index=action_index,
+                    existing_details=model.details_json,
                 )
                 flag_modified(model, "details_json")
                 result["added_sizes"] += _add_sizes(db, model, action["add_sizes"])
