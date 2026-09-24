@@ -2,6 +2,7 @@
 import { createPortal } from "react-dom";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { api, fetcher } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -19,6 +20,13 @@ type Task = {
 };
 
 type User = { id: number; name: string; email: string };
+type TaskPage = {
+  rows: Task[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
 
 // Warm-palette priority colors — replace the rainbow Tailwind badges.
 const PRIORITY_COLOR: Record<Task["priority"], string> = {
@@ -44,8 +52,22 @@ export default function TasksDrawer() {
 
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<"mine" | "all">("mine");
-  const url = `/api/tasks?scope=${isManager ? scope : "mine"}`;
-  const { data: tasks, mutate } = useSWR<Task[]>(open ? url : null, fetcher);
+  const taskScope = isManager ? scope : "mine";
+  const {
+    data: taskPages,
+    mutate: mutateTasks,
+    setSize: setTaskPageCount,
+    size: taskPageCount,
+    isValidating: tasksValidating,
+  } = useSWRInfinite<TaskPage>(
+    (index, previous) => {
+      if (!open || (previous && !previous.has_more)) return null;
+      return `/api/tasks?scope=${taskScope}&page=${index + 1}&page_size=50`;
+    },
+    fetcher,
+  );
+  const tasks = taskPages?.flatMap((taskPage) => taskPage.rows);
+  const hasMoreTasks = Boolean(taskPages?.[taskPages.length - 1]?.has_more);
   const { data: users } = useSWR<User[]>(open && isManager ? "/api/users" : null, fetcher);
 
   const { data: counts, mutate: mutateCount } = useSWR<{ count: number }>(
@@ -81,7 +103,7 @@ export default function TasksDrawer() {
         due_date: draft.due_date || null,
       });
       setDraft({ title: "", description: "", assigned_to: 0, priority: "medium", due_date: "" });
-      mutate();
+      mutateTasks();
       mutateCount();
     } catch (e: any) {
       setCreateMsg(e.message);
@@ -91,7 +113,7 @@ export default function TasksDrawer() {
   async function setStatus(tk: Task, status: Task["status"]) {
     try {
       await api.patch(`/api/tasks/${tk.id}`, { status });
-      mutate();
+      mutateTasks();
       mutateCount();
     } catch (e: any) {
       await dialogs.notify(e.message);
@@ -102,7 +124,7 @@ export default function TasksDrawer() {
     if (!(await dialogs.ask({ message: t("tasks.deleteConfirm", { title: tk.title }), tone: "danger" }))) return;
     try {
       await api.del(`/api/tasks/${tk.id}`);
-      mutate();
+      mutateTasks();
       mutateCount();
     } catch (e: any) {
       await dialogs.notify(e.message);
@@ -335,6 +357,16 @@ export default function TasksDrawer() {
                 del={del}
               />
             ))}
+            {hasMoreTasks && (
+              <button
+                type="button"
+                className="btn m-4 w-[calc(100%-2rem)] justify-center"
+                disabled={tasksValidating}
+                onClick={() => void setTaskPageCount(taskPageCount + 1)}
+              >
+                {tasksValidating ? t("common.loading") : t("common.loadMore")}
+              </button>
+            )}
           </div>
 
           {/* New entry form */}

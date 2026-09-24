@@ -73,6 +73,14 @@ class WarehousePageOut(BaseModel):
     has_more: bool
 
 
+class InventoryColorPageOut(BaseModel):
+    rows: list[str]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class StockBatchIn(BaseModel):
     roll_lengths_m: list[Annotated[float, Field(ge=0.001, lt=100000000000, allow_inf_nan=False)] | None] = Field(default_factory=list, max_length=1000)
     length_m: Optional[float] = Field(default=None, gt=0, lt=100000000000, allow_inf_nan=False)

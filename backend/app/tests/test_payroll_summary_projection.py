@@ -98,10 +98,12 @@ def test_payroll_summary_projects_aggregate_fields_only(count):
             .statement.compile(dialect=test_engine.dialect)
         ).lower()
         statements = []
+        execution_options = []
 
-        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        def capture(_connection, _cursor, statement, _parameters, context, _executemany):
             if statement.lstrip().lower().startswith("select"):
                 statements.append(" ".join(statement.lower().split()))
+                execution_options.append(dict(context.execution_options))
 
         event.listen(test_engine, "before_cursor_execute", capture)
         try:
@@ -117,6 +119,15 @@ def test_payroll_summary_projects_aggregate_fields_only(count):
     assert "payroll_records.notes" not in record_reads[0]
     assert "source_payroll_record_id" not in adjustment_reads[0]
     assert "reason" not in adjustment_reads[0]
+    streamed_reads = [
+        options
+        for statement, options in zip(statements, execution_options, strict=True)
+        if " from payroll_records " in statement
+        or " from payroll_adjustments " in statement
+    ]
+    assert len(streamed_reads) == 2
+    assert all(options.get("yield_per") == 400 for options in streamed_reads)
+    assert all(options.get("stream_results") is True for options in streamed_reads)
     assert "raw_work_json" in legacy_record_sql
     assert "raw_employee_json" in legacy_record_sql
     assert "payroll_records.notes" in legacy_record_sql

@@ -4095,8 +4095,7 @@ def payroll_summary(
         PayrollRecord.operation_name,
     ))
 
-    rows = base_qry.all()
-    adjustments = _filtered_adjustment_query(
+    adjustment_qry = _filtered_adjustment_query(
         db,
         factory_code=factory_code,
         period_id=period_id,
@@ -4109,31 +4108,24 @@ def payroll_summary(
         PayrollAdjustment.currency,
         PayrollAdjustment.adjustment_type,
         PayrollAdjustment.amount,
-    )).all()
-    employees, departments = _load_employee_maps(db, {int(r.employee_id) for r in rows} | {int(a.employee_id) for a in adjustments})
-    currencies = {str(r.currency or "UZS") for r in rows} | {str(a.currency or "UZS") for a in adjustments}
-    summary_currency = next(iter(currencies)) if len(currencies) == 1 else ("MIXED" if currencies else "UZS")
-
-    total_quantity = sum((r.quantity or Decimal("0")) for r in rows) if rows else Decimal("0")
-    piecework_amount = sum((r.total_amount or Decimal("0")) for r in rows) if rows else Decimal("0")
-    bonus_amount = sum((a.amount or Decimal("0")) for a in adjustments if a.adjustment_type == "bonus") if adjustments else Decimal("0")
-    deduction_amount = sum((a.amount or Decimal("0")) for a in adjustments if a.adjustment_type == "deduction") if adjustments else Decimal("0")
-    adjustment_amount = bonus_amount - deduction_amount
-    total_amount = piecework_amount + adjustment_amount
+    ))
 
     employee_groups: dict[tuple[int, str], dict[str, Any]] = {}
     operation_groups: dict[tuple[int, str, str | None, str | None, str | None], dict[str, Any]] = {}
+    employee_ids: set[int] = set()
+    currencies: set[str] = set()
+    records_count = 0
+    adjustment_count = 0
+    total_quantity = Decimal("0")
+    piecework_amount = Decimal("0")
+    bonus_amount = Decimal("0")
+    deduction_amount = Decimal("0")
 
     def employee_group(employee_id_value: int, currency_value: str) -> dict[str, Any]:
-        employee = employees.get(int(employee_id_value))
-        department = departments.get(int(employee.department_id)) if employee and employee.department_id else None
         return employee_groups.setdefault(
             (int(employee_id_value), currency_value),
             {
                 "employee_id": int(employee_id_value),
-                "employee_name": employee.full_name if employee else f"Employee {employee_id_value}",
-                "department_id": employee.department_id if employee else None,
-                "department_name": department.name if department else None,
                 "currency": currency_value,
                 "records_count": 0,
                 "adjustment_count": 0,
@@ -4147,8 +4139,17 @@ def payroll_summary(
             },
         )
 
-    for record in rows:
-        current = employee_group(int(record.employee_id), str(record.currency or "UZS"))
+    # These reports can cover years of scans. Iterate in fixed-size fetch
+    # batches and retain only the response's employee/operation aggregates.
+    for record in base_qry.yield_per(400):
+        record_employee_id = int(record.employee_id)
+        record_currency = str(record.currency or "UZS")
+        employee_ids.add(record_employee_id)
+        currencies.add(record_currency)
+        records_count += 1
+        total_quantity += record.quantity or Decimal("0")
+        piecework_amount += record.total_amount or Decimal("0")
+        current = employee_group(record_employee_id, record_currency)
         current["records_count"] += 1
         current["quantity"] += record.quantity or Decimal("0")
         current["piecework_amount"] += record.total_amount or Decimal("0")
@@ -4156,8 +4157,8 @@ def payroll_summary(
 
         if group_by_operation:
             operation_key = (
-                int(record.employee_id),
-                str(record.currency or "UZS"),
+                record_employee_id,
+                record_currency,
                 record.operation_section,
                 record.operation_code,
                 record.operation_name,
@@ -4165,11 +4166,11 @@ def payroll_summary(
             op = operation_groups.setdefault(
                 operation_key,
                 {
-                    "employee_id": int(record.employee_id),
+                    "employee_id": record_employee_id,
                     "operation_section": record.operation_section,
                     "operation_code": record.operation_code,
                     "operation_name": record.operation_name,
-                    "currency": str(record.currency or "UZS"),
+                    "currency": record_currency,
                     "records_count": 0,
                     "quantity": Decimal("0"),
                     "total_amount": Decimal("0"),
@@ -4179,16 +4180,39 @@ def payroll_summary(
             op["quantity"] += record.quantity or Decimal("0")
             op["total_amount"] += record.total_amount or Decimal("0")
 
-    for adjustment in adjustments:
-        current = employee_group(int(adjustment.employee_id), str(adjustment.currency or "UZS"))
+    for adjustment in adjustment_qry.yield_per(400):
+        adjustment_employee_id = int(adjustment.employee_id)
+        adjustment_currency = str(adjustment.currency or "UZS")
+        employee_ids.add(adjustment_employee_id)
+        currencies.add(adjustment_currency)
+        adjustment_count += 1
+        current = employee_group(adjustment_employee_id, adjustment_currency)
         signed_amount = _adjustment_signed_amount(adjustment)
         current["adjustment_count"] += 1
         current["adjustment_amount"] += signed_amount
         current["total_amount"] += signed_amount
         if adjustment.adjustment_type == "deduction":
-            current["deduction_amount"] += adjustment.amount or Decimal("0")
+            amount = adjustment.amount or Decimal("0")
+            deduction_amount += amount
+            current["deduction_amount"] += amount
         else:
-            current["bonus_amount"] += adjustment.amount or Decimal("0")
+            amount = adjustment.amount or Decimal("0")
+            bonus_amount += amount
+            current["bonus_amount"] += amount
+
+    employees, departments = _load_employee_maps(db, employee_ids)
+    for (group_employee_id, _currency), group in employee_groups.items():
+        employee = employees.get(group_employee_id)
+        department = (
+            departments.get(int(employee.department_id))
+            if employee and employee.department_id
+            else None
+        )
+        group["employee_name"] = (
+            employee.full_name if employee else f"Employee {group_employee_id}"
+        )
+        group["department_id"] = employee.department_id if employee else None
+        group["department_name"] = department.name if department else None
 
     if group_by_operation:
         for key, op in operation_groups.items():
@@ -4197,9 +4221,16 @@ def payroll_summary(
 
     employees_out = [PayrollSummaryEmployeeOut(**row) for row in employee_groups.values()]
     employees_out.sort(key=lambda row: (str(row.employee_name).lower(), row.employee_id))
+    summary_currency = (
+        next(iter(currencies))
+        if len(currencies) == 1
+        else ("MIXED" if currencies else "UZS")
+    )
+    adjustment_amount = bonus_amount - deduction_amount
+    total_amount = piecework_amount + adjustment_amount
     return PayrollSummaryOut(
-        records_count=len(rows),
-        adjustment_count=len(adjustments),
+        records_count=records_count,
+        adjustment_count=adjustment_count,
         quantity=total_quantity,
         piecework_amount=piecework_amount,
         adjustment_amount=adjustment_amount,

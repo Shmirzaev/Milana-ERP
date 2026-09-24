@@ -15,6 +15,7 @@ from app.services.inventory import create_material_reservations
 from app.services.factory_scope import require_operational_department_access
 from app.schemas.cutting_passport import (
     CuttingOperatorOut,
+    CuttingOperatorPageOut,
     CuttingPassportIn,
     CuttingPassportOut,
     CuttingPassportPageOut,
@@ -482,10 +483,16 @@ def material_defaults(
     return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch)
 
 
-@router.get("/operators", response_model=list[CuttingOperatorOut])
+@router.get(
+    "/operators",
+    response_model=list[CuttingOperatorOut] | CuttingOperatorPageOut,
+)
 def cutting_operator_options(
     db: DbSession,
     current: User = Depends(require_permissions("cutting.records", "*")),
+    q: Annotated[str | None, Query(max_length=128)] = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     """Return only active operator names available in the selected factory.
 
@@ -494,7 +501,7 @@ def cutting_operator_options(
     permission details).
     """
     factory_code = selected_factory_code(current)
-    users = (
+    query = (
         db.query(User)
         .options(
             load_only(
@@ -505,9 +512,36 @@ def cutting_operator_options(
         )
         .filter(User.is_active.is_(True))
         .order_by(User.name.asc(), User.id.asc())
-        .all()
     )
-    return [user for user in users if factory_code in available_factory_codes(user)]
+    needle = str(q or "").strip()
+    if needle:
+        query = query.filter(User.name.ilike(f"%{needle}%"))
+    if page is None and page_size is None:
+        return [
+            user
+            for user in query.all()
+            if factory_code in available_factory_codes(user)
+        ]
+
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    start = (effective_page - 1) * effective_page_size
+    stop = start + effective_page_size
+    rows: list[User] = []
+    total = 0
+    for user in query.yield_per(400):
+        if factory_code not in available_factory_codes(user):
+            continue
+        if start <= total < stop:
+            rows.append(user)
+        total += 1
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("", response_model=list[CuttingPassportOut] | CuttingPassportPageOut)

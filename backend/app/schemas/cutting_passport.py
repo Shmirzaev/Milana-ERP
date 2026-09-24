@@ -11,6 +11,14 @@ class CuttingOperatorOut(ORMModel):
     name: str
 
 
+class CuttingOperatorPageOut(BaseModel):
+    rows: list[CuttingOperatorOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class PassportAdditionalMaterial(BaseModel):
     stock_batch_id: int = Field(gt=0)
     estimated_quantity: float = Field(

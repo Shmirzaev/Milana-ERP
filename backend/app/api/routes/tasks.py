@@ -2,8 +2,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
 from types import SimpleNamespace
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, load_only
 
@@ -29,7 +30,7 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut
+from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut, TaskPageOut
 from app.services.audit import log_action
 from app.services.notifications import notify
 from app.services.user_access import access_configured, permission_denied
@@ -295,11 +296,13 @@ def _task_link(
     return mapping.get(et)
 
 
-@router.get("", response_model=list[TaskOut])
+@router.get("", response_model=list[TaskOut] | TaskPageOut)
 def list_tasks(
     db: DbSession, current: CurrentUser,
     scope: str = "mine",  # mine | created | all (manager/admin only)
     status: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = db.query(Task)
     if scope == "all":
@@ -311,7 +314,25 @@ def list_tasks(
         qry = qry.filter(Task.assigned_to == current.id)
     if status:
         qry = qry.filter(Task.status == status)
-    return qry.order_by(Task.id.desc()).all()
+    ordered = qry.order_by(Task.id.desc())
+    if page is None and page_size is None:
+        return ordered.all()
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    total = int(qry.order_by(None).count())
+    rows = (
+        ordered
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/open-count")

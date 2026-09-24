@@ -105,6 +105,14 @@ class TaskOut(ORMModel):
     updated_at: datetime
 
 
+class TaskPageOut(BaseModel):
+    rows: list[TaskOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class NotificationOut(ORMModel):
     id: int
     user_id: int

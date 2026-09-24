@@ -38,6 +38,7 @@ from app.models import (
 )
 from app.schemas.inventory import (
     ItemImageIn, ItemIn, ItemOut, WarehouseIn, WarehouseOut, WarehousePageOut,
+    InventoryColorPageOut,
     AccessoryReturnIn, StockBatchIn, StockBatchOut, StockBatchRestoreIn, StockBatchRollWeightsIn, StockBatchUpdate, StockMovementIn, StockMovementOut, StockLine,
     AccessoryIssueIn, AccessoryIssueOut, AccessoryIssuePlanOut, AccessoryIssueRequestRow, AccessoryIssueSummaryRow,
     MaterialReservationAutoIn, MaterialReservationConsumeIn, MaterialReservationIn,
@@ -759,22 +760,62 @@ def set_stock_quantity(
 
 
 # ===== Receive (creates a batch + movement) =====
-@router.get("/colors", response_model=list[str])
+@router.get("/colors", response_model=list[str] | InventoryColorPageOut)
 def list_received_stock_colors(
     db: DbSession,
     _: User = Depends(require_permissions(*INVENTORY_READ_PERMISSIONS)),
+    q: Annotated[str | None, Query(max_length=128)] = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     color_expr = func.trim(StockBatch.color)
-    rows = (
-        db.query(color_expr)
-        .filter(StockBatch.item_id.in_(db.query(Item.id).filter(Item.category.in_(inventory_access.MATERIAL_CATEGORIES))) if inventory_access.materials_only(_) else True)
-        .filter(
-            StockBatch.color.isnot(None),
-            func.length(color_expr) > 0,
+    material_filter = (
+        StockBatch.item_id.in_(
+            db.query(Item.id).filter(
+                Item.category.in_(inventory_access.MATERIAL_CATEGORIES)
+            )
         )
-        .distinct()
-        .all()
+        if inventory_access.materials_only(_)
+        else True
     )
+    base = db.query(color_expr).filter(
+        material_filter,
+        StockBatch.color.isnot(None),
+        func.length(color_expr) > 0,
+    )
+    needle = str(q or "").strip()
+    if needle:
+        base = base.filter(func.lower(color_expr).contains(needle.casefold()))
+    if page is not None or page_size is not None:
+        color_key = func.lower(color_expr).label("color_key")
+        grouped = (
+            base
+            .with_entities(
+                color_key,
+                func.min(color_expr).label("display_color"),
+            )
+            .group_by(color_key)
+        )
+        effective_page = page or 1
+        effective_page_size = page_size or 50
+        total = int(grouped.order_by(None).count())
+        rows = (
+            grouped
+            .order_by(color_key.asc())
+            .offset((effective_page - 1) * effective_page_size)
+            .limit(effective_page_size)
+            .all()
+        )
+        colors = [str(display_color) for _key, display_color in rows]
+        return {
+            "rows": colors,
+            "total": total,
+            "page": effective_page,
+            "page_size": effective_page_size,
+            "has_more": effective_page * effective_page_size < total,
+        }
+
+    rows = base.distinct().all()
     colors_by_key: dict[str, str] = {}
     for (raw_color,) in rows:
         color = str(raw_color or "").strip()
