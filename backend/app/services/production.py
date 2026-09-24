@@ -12,6 +12,7 @@ from app.models import (
 from app.core.signing import strip_signature
 from app.services.numbering import next_production_order_no, next_usluga_order_no
 from app.services.inventory import available_stock_for_batch, missing_material_reservation_for_cutting
+from app.services.stock_batch_policy import validate_stock_batch_unit
 
 
 # Department code -> operation
@@ -192,9 +193,15 @@ def create_production_order(
             raise HTTPException(400, f"Material #{index} is not a fabric inventory batch")
         if available_stock_for_batch(db, int(batch.id)) <= 0:
             raise HTTPException(400, f"Material #{index} batch has no available stock")
+        validate_stock_batch_unit(item, batch.unit)
         unit = str(row.get("unit") or batch.unit or item.unit or "kg").strip()
         if not unit:
             raise HTTPException(400, f"Material #{index} requires a unit")
+        validate_stock_batch_unit(
+            item,
+            unit,
+            detail=f"Material #{index} unit must match the material unit",
+        )
         seen_batch_ids.add(batch_id)
         normalized_materials.append({
             "stock_batch_id": batch_id,
@@ -224,6 +231,7 @@ def create_production_order(
                 raise HTTPException(400, "Selected inventory batch is not fabric")
             if available_stock_for_batch(db, int(selected_fabric_batch.id)) <= 0:
                 raise HTTPException(400, "Selected fabric batch has no available stock")
+            validate_stock_batch_unit(selected_fabric_item, selected_fabric_batch.unit)
             material_code = selected_fabric_item.sku
             material_unit = selected_fabric_batch.unit or selected_fabric_item.unit
         else:

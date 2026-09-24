@@ -272,6 +272,120 @@ def test_cutting_passport_rejects_legacy_batch_unit_drift_with_existing_reservat
         assert db.get(StockBatch, extra["id"]).unit == "m"
 
 
+def _production_order_write_counts(db):
+    from app.models import AuditLog, BrandedPlanningOrder, ProductionOrder, ProductionOrderMaterial, WorkOrder
+
+    return (
+        db.query(BrandedPlanningOrder).count(),
+        db.query(ProductionOrder).count(),
+        db.query(ProductionOrderMaterial).count(),
+        db.query(WorkOrder).count(),
+        db.query(AuditLog).count(),
+    )
+
+
+@pytest.mark.parametrize("material_mode", ["materials", "legacy"])
+def test_production_order_rejects_catalog_batch_unit_drift_without_writes(
+    client, auth_headers, material_mode,
+):
+    from app.db.session import SessionLocal
+    from app.models import Item
+
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"],
+        quantity=20, unit="kg",
+    )
+    with SessionLocal() as db:
+        db.get(Item, item["id"]).unit = "m"
+        db.commit()
+        before = _production_order_write_counts(db)
+
+    payload = {
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "items": [],
+    }
+    if material_mode == "materials":
+        payload["materials"] = [{
+            "stock_batch_id": batch["id"], "estimated_quantity": 5, "unit": "kg",
+        }]
+    else:
+        payload["fabric_batch_id"] = batch["id"]
+        payload["estimated_material_amount"] = 5
+
+    response = client.post(
+        "/api/planning/create-branded-production", headers=auth_headers, json=payload,
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Batch unit must match the material unit"
+    with SessionLocal() as db:
+        assert _production_order_write_counts(db) == before
+
+
+def test_production_order_material_rejects_submitted_unit_mismatch_without_writes(client, auth_headers):
+    from app.db.session import SessionLocal
+
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"],
+        quantity=20, unit="kg",
+    )
+    with SessionLocal() as db:
+        before = _production_order_write_counts(db)
+
+    response = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "materials": [{"stock_batch_id": batch["id"], "estimated_quantity": 5, "unit": "m"}],
+        "items": [],
+    })
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Material #1 unit must match the material unit"
+    with SessionLocal() as db:
+        assert _production_order_write_counts(db) == before
+
+
+@pytest.mark.parametrize("material_mode", ["materials", "legacy"])
+def test_production_order_accepts_matching_catalog_batch_units(client, auth_headers, material_mode):
+    from app.db.session import SessionLocal
+    from app.models import ProductionOrder, ProductionOrderMaterial
+
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"],
+        quantity=20, unit="kg",
+    )
+    payload = {
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "items": [],
+    }
+    if material_mode == "materials":
+        payload["materials"] = [{
+            "stock_batch_id": batch["id"], "estimated_quantity": 5, "unit": "kg",
+        }]
+    else:
+        payload["fabric_batch_id"] = batch["id"]
+        payload["estimated_material_amount"] = 5
+
+    response = client.post(
+        "/api/planning/create-branded-production", headers=auth_headers, json=payload,
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["estimated_material_unit"] == "kg"
+    with SessionLocal() as db:
+        order = db.get(ProductionOrder, response.json()["id"])
+        rows = db.query(ProductionOrderMaterial).filter_by(production_order_id=order.id).all()
+        if material_mode == "materials":
+            assert [(row.stock_batch_id, row.unit) for row in rows] == [(batch["id"], "kg")]
+        else:
+            assert rows == []
+
+
 @pytest.mark.parametrize("drift", [None, "batch", "item", "planned"])
 def test_cutting_passport_validates_synthesized_legacy_primary_unit(client, auth_headers, drift):
     from app.db.session import SessionLocal
