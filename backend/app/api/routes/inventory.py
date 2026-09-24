@@ -62,6 +62,7 @@ from app.services.inventory import (
     auto_reserve_materials_for_production_order,
     available_stock_for_batch,
     categories_for_group,
+    ITEM_CATEGORIES,
     consume_material_reservation,
     create_material_reservations,
     issue_accessories_to_production_order,
@@ -240,6 +241,12 @@ def _ensure_unique_active_item_name(db: DbSession, data: dict, item_id: int | No
         raise HTTPException(400, f"{label} name already exists")
 
 
+def _validate_item_category(category: str, existing_category: str | None = None) -> None:
+    if category in ITEM_CATEGORIES or category == existing_category:
+        return
+    raise HTTPException(400, "Invalid item category")
+
+
 def _material_report_timestamp() -> tuple[str, str]:
     timestamp = datetime.now(ZoneInfo("Asia/Tashkent"))
     return timestamp.strftime("%Y-%m-%d %H:%M"), timestamp.strftime("%Y%m%d_%H%M")
@@ -386,6 +393,7 @@ def create_item(payload: ItemIn, db: DbSession, current: User = Depends(require_
         raise HTTPException(400, "SKU already exists")
     data = _item_payload(payload)
     _ensure_unique_active_item_name(db, data)
+    _validate_item_category(data["category"])
     it = Item(**data)
     db.add(it); db.flush()
     log_action(db, current, "create", "Item", it.id, new_value={"sku": it.sku})
@@ -423,6 +431,7 @@ def update_item(
         )
         if unit_referenced:
             raise HTTPException(409, "Cannot change material unit while quantity records exist")
+    _validate_item_category(data["category"], existing_category=it.category)
     old_value = {
         "sku": it.sku,
         "name": it.name,

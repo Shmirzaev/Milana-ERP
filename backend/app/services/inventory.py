@@ -34,6 +34,9 @@ from app.services.workflow import consume_item_from_batches, consume_stock_batch
 MATERIAL_CATEGORIES = ("fabric", "semi_finished")
 ACCESSORY_CATEGORIES = ("accessory", "packaging")
 RESERVABLE_CATEGORIES = MATERIAL_CATEGORIES + ACCESSORY_CATEGORIES
+# Canonical item kinds documented by Item.category. Keep waste and finished
+# goods writable even though they are not part of the reservation UI groups.
+ITEM_CATEGORIES = RESERVABLE_CATEGORIES + ("finished", "waste")
 ACTIVE_RESERVATION_STATUSES = ("reserved", "partially_consumed")
 RESERVATION_STATUSES = ("reserved", "partially_consumed", "consumed", "released", "cancelled")
 RESERVATION_TYPES = ("material", "accessory", "packaging")
