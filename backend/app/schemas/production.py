@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.common import ORMModel, SchemaModel
 from app.schemas.inventory import ItemComposition
@@ -200,10 +200,20 @@ class ProductionOrderPageOut(SchemaModel):
     has_more: bool
 
 
+BrandedPlanningOrderType = Literal["milana", "eco_cotton", "besttex", "customer"]
+
+
 class BrandedPlanningOrderIn(SchemaModel):
-    ordered_for_type: str = "milana"
+    ordered_for_type: BrandedPlanningOrderType = "milana"
     customer_id: Optional[int] = None
     notes: Optional[str] = None
+
+    @field_validator("ordered_for_type", mode="before")
+    @classmethod
+    def normalize_ordered_for_type(cls, value):
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
 
 
 class BrandedPlanningOrderOut(ORMModel):
