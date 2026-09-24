@@ -1,6 +1,7 @@
 "use client";
 import { useDeferredValue, useState } from "react";
 import Link from "next/link";
+import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { api, fetcher } from "@/lib/api";
 import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
