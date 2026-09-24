@@ -191,7 +191,6 @@ def _validate_stock_batch_relink_units(db: DbSession, batch_id: int, target_unit
         (CuttingMaterialUsage, CuttingMaterialUsage.stock_batch_id, CuttingMaterialUsage.unit, None),
         (CuttingBeikaMaterialUsage, CuttingBeikaMaterialUsage.stock_batch_id, CuttingBeikaMaterialUsage.unit, None),
         (EcoFabricRoll, EcoFabricRoll.batch_id, EcoFabricRoll.unit, None),
-        (WasteRecord, WasteRecord.batch_id, WasteRecord.unit, None),
         (
             ProductionOrder, ProductionOrder.fabric_batch_id,
             ProductionOrder.estimated_material_unit, ProductionOrder.estimated_material_amount,
