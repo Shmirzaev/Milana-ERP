@@ -1,7 +1,26 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 
+
+## Fresh payroll employee scan sessions deployed (2026-09-25)
+
+- LIVE: backend/frontend blue release `20260924_202614`, exact application commit `def99fa463cfc8bdd6d1e40c1dcf9b9cdb261aa1`, merged through PR #208. Both source manifests, symlinks, images and slot states agree. Green `20260924_120531` remains running for rollback. Frontend activated `2026-09-24T21:00:25.322555+00:00`.
+- Every employee selection by worker number, QR or name search starts a fresh visible Payroll Scan session, including A/B/A and same-employee reselection. Old saved/restored/cross-tab history stays hidden. History, employee/piece/pay totals, operation totals, saved/waiting counters and CSV contain only the current session's new scans. Clear resets the visible session.
+- Persistent history and payroll records remain intact for duplicate prevention and save recovery. Earlier unsaved scans retain a compact localized count and Retry action. Late successful numeric save responses keep their original employee and recovery record but do not repopulate newer sessions or replace their feedback; stale unresolved work is never assigned to the new employee. Failed scan requests still display their error for recovery. Existing Control confirmation lock remains.
+- Frontend-only change: no permissions, schema, backend business logic or operational records changed by deployment. Database stays `0133_storage_customers`; startup seeding disabled and migration startup is a no-op.
+- Focused scanner handler/race and autosave checks, strict TypeScript, scoped ESLint and whitespace review passed. Required immutable release CI [36054856582](https://github.com/Shmirzaev/Milana-ERP/actions/runs/36054856582) passed. Verified backup, candidate startup/runtime and all four immediate health/login checks passed. Extra local suites, browser/performance exercises and extended monitoring omitted at the user's explicit request.
+- Two workers per backend slot, zero restarts/OOM/error markers; PostgreSQL 21/100 connections and zero invalid indexes. Disk 77% backend / 68% frontend. Historical unrelated security/audit risks remain.
+- Manifest `f79384be6ad4ac292f4448b9e17972400278e200fff7fbcdbbb658571bb6dcb3`, archive SHA-256 `4b3b5064172d6239762413cb9ebe05af87762aebd2a0bac1e8b3102e16256dce`, 899 source files matched the exact commit. Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:9e9529789da8c7f033b36fb91f0c55a2e672c293dafbc5bfc68a7eec68667b1c`; frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:a96593c058a713c24683a17708fea0bdb85e3c7162bb895a800d927e200be369`.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260924_202614.dump`: mode 0600, 54475363 bytes, 1203 restore objects, SHA-256 `4521c6bbf15197bcf1857d203eeb701e49690bcd6564a219ced151839308cb3d`, restore-list SHA-256 `ef9a33875538b6780d312ee70f7549179c99803f9ea60685a7085af1b3359e92`. Rollback uses the same database revision.
+- Worktree `C:/ERP/.codex-work/payroll-scan-session-20260925`; application branch `codex/payroll-scan-session-20260925` pushed/merged/deployed. Evidence `outputs/deployment/evidence.json`. Deployment record committed separately and mirrored to Obsidian; legacy checkout preserved.
+
+## Fresh payroll employee scanning sessions prepared (2026-09-25)
+
+- Selecting an employee through worker number, QR or search starts an empty visible Payroll Scan session, including A/B/A switching and same-employee reselection. History, employee/piece/pay totals, operation totals, saved/waiting counters and CSV use only scans from that selection. Old browser history never populates the new view, including after reload or cross-tab history updates.
+- The persistent history remains available internally for duplicate protection and pending-save recovery; selection does not delete or alter payroll records. Earlier unsaved work has a compact EN/RU/UZ count and Retry action without displaying old history. Clear resets only the current view. In-flight numeric saves retain their original employee and update recovery history without adding rows or notices to a later session; stale unresolved work cannot be assigned to the next employee. Control confirmation retains its existing employee lock.
+- Clean worktree `C:/ERP/.codex-work/payroll-scan-session-20260925`, branch `codex/payroll-scan-session-20260925`, from verified origin/main `9701b7b9`. Both production VMs match green `20260924_120531`, manifest `703f9bfe527c5857e92d1d84aeece76c5e7b647158d366a1e36d71745565729f`; database `0133_storage_customers`. Legacy 481-entry working tree preserved.
+- Existing scanner handler/race checks extended for fresh selections and delayed saved responses; focused handler and autosave contracts, strict TypeScript, scoped ESLint and whitespace review passed. User authorized fast deployment without extra testing or monitoring; required immutable CI, backup and immediate health checks retained. Frontend-only change; no schema, permission or business-record mutation.
 
 ## Shipment return to preparation deployed (2026-09-24)
 
