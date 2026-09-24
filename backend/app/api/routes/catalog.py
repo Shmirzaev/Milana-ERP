@@ -2,6 +2,7 @@ from copy import deepcopy
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import partial
+from math import isfinite
 import os
 from pathlib import Path
 import re
@@ -64,6 +65,7 @@ from app.services.paid_operations import (
 
 router = APIRouter(tags=["catalog"])
 COLLECTION_STATUSES = frozenset({"draft", "approved", "archived"})
+MODEL_STATUSES = frozenset({"draft", "sample", "approved", "archived"})
 
 
 def _validate_brand_name_storage_length(name: str) -> None:
@@ -114,7 +116,28 @@ def _catalog_paid_operation_factory_scope(user: User, catalog_scope: str) -> str
     return _model_paid_operation_factory_scope(user)
 
 
-def _validate_model_details_structure(details: object) -> None:
+_MODEL_COSTING_PERCENT_FIELDS = (
+    "labor_pct",
+    "electricity_pct",
+    "other_pct",
+    "target_margin_pct",
+)
+
+
+def _is_finite_json_number(value: object) -> bool:
+    if type(value) not in (int, float):
+        return False
+    try:
+        return isfinite(float(value))
+    except (OverflowError, ValueError):
+        return False
+
+
+def _validate_model_details_structure(
+    details: object,
+    *,
+    existing_details: object = None,
+) -> None:
     """Check established model-detail containers without constraining legacy keys."""
     if details is None:
         return
@@ -124,6 +147,28 @@ def _validate_model_details_structure(details: object) -> None:
     for key in ("general", "costing"):
         if key in details and not isinstance(details[key], dict):
             raise HTTPException(422, f"details_json.{key} must be an object")
+    costing = details.get("costing")
+    existing_costing = (
+        existing_details.get("costing")
+        if isinstance(existing_details, dict)
+        and isinstance(existing_details.get("costing"), dict)
+        else {}
+    )
+    if isinstance(costing, dict):
+        for key in _MODEL_COSTING_PERCENT_FIELDS:
+            if key not in costing:
+                continue
+            value = costing[key]
+            if _is_finite_json_number(value):
+                continue
+            old_value = existing_costing.get(key)
+            if (
+                key in existing_costing
+                and type(value) is type(old_value)
+                and value == old_value
+            ):
+                continue
+            raise HTTPException(422, f"details_json.costing.{key} must be a finite number")
 
 
 def _model_paid_operation_factory_scope(user: User) -> str | None:
@@ -1853,6 +1898,8 @@ def create_model(
     details["general"] = general
     model_data["details_json"] = details
     _validate_model_sam_minutes(model_data)
+    if model_data["status"] not in MODEL_STATUSES:
+        raise HTTPException(400, "Invalid model status")
 
     m = Model(
         **model_data,
@@ -2429,7 +2476,16 @@ def update_model(
     m = _catalog_model(db, mid, catalog_scope)
     if not m: raise HTTPException(404, "Model not found")
     update_data = payload.model_dump(exclude_unset=True)
-    _validate_model_details_structure(update_data.get("details_json"))
+    _validate_model_details_structure(
+        update_data.get("details_json"),
+        existing_details=m.details_json,
+    )
+    if (
+        "status" in update_data
+        and update_data["status"] != m.status
+        and update_data["status"] not in MODEL_STATUSES
+    ):
+        raise HTTPException(400, "Invalid model status")
     factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
     if factory_scope and "details_json" in update_data:
         update_data["details_json"] = merge_scoped_paid_operations(
