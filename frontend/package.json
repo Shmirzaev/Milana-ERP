@@ -59,7 +59,8 @@
     "test:hr-calendar-hidden-fetch": "node scripts/test-hr-calendar-hidden-fetch.mjs",
     "test:hr-positions-hidden-fetch": "node scripts/test-hr-positions-hidden-fetch.mjs",
     "test:hr-positions-component": "node scripts/test-hr-positions-component.mjs",
-    "test:finished-goods-pagination": "node scripts/test-finished-goods-pagination.mjs"
+    "test:finished-goods-pagination": "node scripts/test-finished-goods-pagination.mjs",
+    "test:hr-organization-pagination": "node scripts/test-hr-organization-pagination.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

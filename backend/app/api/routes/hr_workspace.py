@@ -357,21 +357,91 @@ def dashboard(db: DbSession, current: User = HrUser):
 
 
 @router.get("/organization")
-def list_organization(db: DbSession, current: User = HrUser):
+def list_organization(
+    db: DbSession,
+    current: User = HrUser,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    search: Annotated[str | None, Query(max_length=100)] = None,
+):
     factory = _factory(current)
-    units = db.query(HrOrgUnit).filter(HrOrgUnit.factory_code == factory).order_by(HrOrgUnit.sort_order, HrOrgUnit.name).all()
-    employees = db.query(Employee).filter(Employee.factory_code == factory).all()
+    search = search.strip() if search else ""
+    escaped_search = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped_search}%"
+
+    unit_query = db.query(HrOrgUnit).filter(HrOrgUnit.factory_code == factory)
+    employee_query = db.query(Employee).filter(Employee.factory_code == factory)
+    if search:
+        unit_query = unit_query.filter(or_(
+            HrOrgUnit.name.ilike(pattern, escape="\\"),
+            HrOrgUnit.code.ilike(pattern, escape="\\"),
+            HrOrgUnit.unit_type.ilike(pattern, escape="\\"),
+        ))
+        employee_query = employee_query.filter(or_(
+            Employee.full_name.ilike(pattern, escape="\\"),
+            Employee.employee_no.ilike(pattern, escape="\\"),
+            Employee.position.ilike(pattern, escape="\\"),
+        ))
+
+    unit_total = unit_query.count()
+    employee_total = employee_query.count()
+    offset = (page - 1) * page_size
+    selected_units = unit_query.order_by(HrOrgUnit.sort_order, HrOrgUnit.name, HrOrgUnit.id).offset(offset).limit(page_size + 1).all()
+    units_have_more = len(selected_units) > page_size
+    selected_units = selected_units[:page_size]
+
+    employees = employee_query.order_by(Employee.id).offset(offset).limit(page_size + 1).all()
+    employees_have_more = len(employees) > page_size
+    employees = employees[:page_size]
+
+    metric_row = db.query(
+        func.count(Employee.id).label("employee_total"),
+        func.sum(case((Employee.status == "active", 1), else_=0)).label("active_total"),
+        func.sum(case((Employee.status == "active", case((Employee.hr_position_id.is_(None), 1), else_=0)), else_=0)).label("vacant_total"),
+    ).filter(Employee.factory_code == factory).one()
+    manager_unit_total = db.query(func.count(HrOrgUnit.id)).filter(
+        HrOrgUnit.factory_code == factory,
+        HrOrgUnit.manager_employee_id.is_not(None),
+    ).scalar() or 0
+    manager_ids = {row.manager_employee_id for row in selected_units if row.manager_employee_id is not None}
+    manager_names = {
+        row.id: row.full_name
+        for row in db.query(Employee.id, Employee.full_name).filter(
+            Employee.factory_code == factory,
+            Employee.id.in_(manager_ids),
+        ).all()
+    } if manager_ids else {}
+    parent_ids = {row.parent_id for row in selected_units if row.parent_id is not None}
+    parent_names = {
+        row.id: row.name
+        for row in db.query(HrOrgUnit.id, HrOrgUnit.name).filter(
+            HrOrgUnit.factory_code == factory,
+            HrOrgUnit.id.in_(parent_ids),
+        ).all()
+    } if parent_ids else {}
     return {
         "units": [{
             "id": row.id, "parent_id": row.parent_id, "department_id": row.department_id,
             "manager_employee_id": row.manager_employee_id, "unit_type": row.unit_type,
             "name": row.name, "code": row.code, "sort_order": row.sort_order,
-        } for row in units],
+            "manager_name": manager_names.get(row.manager_employee_id),
+            "parent_name": parent_names.get(row.parent_id),
+        } for row in selected_units],
         "employees": [{
             "id": row.id, "employee_no": row.employee_no, "full_name": row.full_name,
             "department_id": row.department_id, "manager_employee_id": row.manager_employee_id,
             "hr_position_id": row.hr_position_id, "position": row.position, "status": row.status,
         } for row in employees],
+        "page": page,
+        "page_size": page_size,
+        "search": search,
+        "unit_total": unit_total,
+        "employee_total": employee_total,
+        "units_have_more": units_have_more,
+        "employees_have_more": employees_have_more,
+        "active_employee_total": int(metric_row.active_total or 0),
+        "vacant_employee_total": int(metric_row.vacant_total or 0),
+        "manager_unit_total": int(manager_unit_total),
     }
 
 
