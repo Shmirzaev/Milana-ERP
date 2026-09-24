@@ -53,7 +53,10 @@ def test_hr_attendance_aggregates_scans_in_sql(client, auth_headers, scan_count)
 
     event.listen(test_engine, "before_cursor_execute", capture)
     try:
-        response = client.get("/api/hr/attendance?day=2026-08-17", headers=auth_headers)
+        response = client.get(
+            f"/api/hr/attendance?day=2026-08-17&search={marker}",
+            headers=auth_headers,
+        )
     finally:
         event.remove(test_engine, "before_cursor_execute", capture)
 
@@ -65,13 +68,15 @@ def test_hr_attendance_aggregates_scans_in_sql(client, auth_headers, scan_count)
         expected_departure.replace(tzinfo=None).isoformat() if expected_departure else None
     )
     assert row["worked_minutes"] == max(0, scan_count - 1)
-    event_reads = [statement for statement in statements if " from attendance_events " in statement]
+    event_reads = [statement for statement in statements if "attendance_events" in statement]
     print(f"HR attendance {scan_count} scans: {len(event_reads)} event SELECT")
-    assert len(event_reads) == 1
-    assert "group by attendance_events.external_person_id" in event_reads[0]
+    assert len(event_reads) == 2
+    assert any("group by attendance_events.external_person_id" in statement for statement in event_reads)
+    assert any("group by employees.id" in statement for statement in event_reads)
     employee_reads = [statement for statement in statements if " from employees " in statement]
-    assert len(employee_reads) == 1, statements
-    selected_columns = employee_reads[0].split(" from employees", 1)[0]
+    assert len(employee_reads) == 4, statements
+    page_read = next(statement for statement in employee_reads if " limit " in statement)
+    selected_columns = page_read.split(" from employees", 1)[0]
     for needed in (
         "employees.id",
         "employees.employee_no",

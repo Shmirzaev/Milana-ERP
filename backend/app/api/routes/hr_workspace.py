@@ -889,57 +889,150 @@ def delete_document(document_id: int, db: DbSession, current: User = HrUser):
     except OSError: pass
 
 
+def _attendance_scan_summary_query(db: Session, factory: str, start: datetime, end: datetime):
+    return (
+        db.query(
+            AttendanceEvent.external_person_id.label("external_person_id"),
+            func.min(AttendanceEvent.occurred_at).label("first_scan"),
+            func.max(AttendanceEvent.occurred_at).label("last_scan"),
+            func.count(AttendanceEvent.id).label("scan_count"),
+        )
+        .filter(
+            AttendanceEvent.factory_code == factory,
+            AttendanceEvent.occurred_at >= start,
+            AttendanceEvent.occurred_at < end,
+            accepted_attendance_result(AttendanceEvent.result),
+        )
+        .group_by(AttendanceEvent.external_person_id)
+    )
+
+
+def _attendance_worked_minutes(first: datetime | None, last: datetime | None) -> int:
+    return max(0, int((last - first).total_seconds() // 60)) if first and last else 0
+
+
 @router.get("/attendance")
-def hr_attendance(db: DbSession, current: User = HrUser, day: date | None = None):
-    factory = _factory(current); selected = day or datetime.now(TASHKENT).date()
+def hr_attendance(
+    db: DbSession,
+    current: User = HrUser,
+    day: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    search: Annotated[str | None, Query(max_length=100)] = None,
+):
+    factory = _factory(current)
+    selected = day or datetime.now(TASHKENT).date()
     start, end = _attendance_day_bounds(selected)
     default_hours = _load_hr_settings(db, factory).default_workday_hours
+
+    active_employees = db.query(Employee).filter(
+        Employee.factory_code == factory,
+        Employee.status == "active",
+    )
+    summary_employee_count = int(
+        active_employees.with_entities(func.count(Employee.id)).scalar() or 0
+    )
+
+    # Attendance cards describe the whole factory/day, independent of the
+    # visible search or current page. Only employees with an accepted scan
+    # need per-person math for present/overtime; absent is count - present.
+    present_rows = (
+        db.query(
+            Employee.id,
+            Employee.hr_profile_json,
+            func.min(AttendanceEvent.occurred_at).label("first_scan"),
+            func.max(AttendanceEvent.occurred_at).label("last_scan"),
+            func.count(AttendanceEvent.id).label("scan_count"),
+        )
+        .join(AttendanceEvent, Employee.employee_no == AttendanceEvent.external_person_id)
+        .filter(
+            Employee.factory_code == factory,
+            Employee.status == "active",
+            AttendanceEvent.factory_code == factory,
+            AttendanceEvent.occurred_at >= start,
+            AttendanceEvent.occurred_at < end,
+            accepted_attendance_result(AttendanceEvent.result),
+        )
+        .group_by(Employee.id)
+        .yield_per(1000)
+    )
+    present_count = 0
+    overtime_minutes = 0
+    for _employee_id, profile, first, last, scan_count in present_rows:
+        present_count += 1
+        departure = last if scan_count > 1 else None
+        worked = _attendance_worked_minutes(first, departure)
+        scheduled = _scheduled_minutes(profile, default_hours)
+        overtime_minutes += max(0, worked - scheduled)
+
+    employee_query = active_employees
+    normalized_search = search.strip() if search else ""
+    if normalized_search:
+        escaped_search = normalized_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped_search}%"
+        employee_query = employee_query.filter(or_(
+            Employee.full_name.ilike(pattern, escape="\\"),
+            Employee.employee_no.ilike(pattern, escape="\\"),
+        ))
+    total = int(employee_query.with_entities(func.count(Employee.id)).scalar() or 0)
     employees = (
-        db.query(Employee)
+        employee_query
         .options(load_only(
             Employee.id,
             Employee.employee_no,
             Employee.full_name,
             Employee.hr_profile_json,
         ))
-        .filter(Employee.factory_code == factory, Employee.status == "active")
+        .order_by(Employee.full_name, Employee.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
-    employee_numbers = {
-        str(employee.employee_no)
-        for employee in employees
-        if employee.employee_no
-    }
+    employee_numbers = {str(employee.employee_no) for employee in employees if employee.employee_no}
     scans_by_employee: dict[str, tuple[datetime, datetime | None]] = {}
     if employee_numbers:
-        scan_summaries = (
-            db.query(
-                AttendanceEvent.external_person_id,
-                func.min(AttendanceEvent.occurred_at),
-                func.max(AttendanceEvent.occurred_at),
-                func.count(AttendanceEvent.id),
-            )
-            .filter(
-                AttendanceEvent.factory_code == factory,
-                AttendanceEvent.occurred_at >= start,
-                AttendanceEvent.occurred_at < end,
-                AttendanceEvent.external_person_id.in_(employee_numbers),
-                accepted_attendance_result(AttendanceEvent.result),
-            )
-            .group_by(AttendanceEvent.external_person_id)
-            .all()
-        )
+        scan_summaries = _attendance_scan_summary_query(db, factory, start, end).filter(
+            AttendanceEvent.external_person_id.in_(employee_numbers),
+        ).all()
         scans_by_employee = {
-            external_person_id: (first, last if count > 1 else None)
-            for external_person_id, first, last, count in scan_summaries
+            row.external_person_id: (
+                row.first_scan,
+                row.last_scan if row.scan_count > 1 else None,
+            )
+            for row in scan_summaries
         }
+
     rows = []
     for employee in employees:
         first, last = scans_by_employee.get(str(employee.employee_no or ""), (None, None))
-        worked = max(0, int((last - first).total_seconds() // 60)) if first and last else 0
+        worked = _attendance_worked_minutes(first, last)
         scheduled = _scheduled_minutes(employee.hr_profile_json, default_hours)
-        rows.append({"employee_id": employee.id, "employee_no": employee.employee_no, "full_name": employee.full_name, "arrival_at": first, "departure_at": last, "worked_minutes": worked, "scheduled_minutes": scheduled, "variance_minutes": worked - scheduled, "status": "present" if first else "absent"})
-    return {"day": selected, "summary": {"employees": len(rows), "present": sum(1 for row in rows if row["status"] == "present"), "absent": sum(1 for row in rows if row["status"] == "absent"), "overtime_minutes": sum(max(0, row["variance_minutes"]) for row in rows)}, "rows": rows}
+        rows.append({
+            "employee_id": employee.id,
+            "employee_no": employee.employee_no,
+            "full_name": employee.full_name,
+            "arrival_at": first,
+            "departure_at": last,
+            "worked_minutes": worked,
+            "scheduled_minutes": scheduled,
+            "variance_minutes": worked - scheduled,
+            "status": "present" if first else "absent",
+        })
+    return {
+        "day": selected,
+        "summary": {
+            "employees": summary_employee_count,
+            "present": present_count,
+            "absent": summary_employee_count - present_count,
+            "overtime_minutes": overtime_minutes,
+        },
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+        "search": normalized_search,
+    }
 
 
 @router.get("/analytics")

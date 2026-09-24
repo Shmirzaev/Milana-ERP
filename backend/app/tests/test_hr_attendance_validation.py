@@ -71,7 +71,10 @@ def test_hr_attendance_uses_tashkent_day_boundaries(client, auth_headers):
         datetime(2026, 8, 17, 19, 30, tzinfo=timezone.utc),
     )
 
-    response = client.get("/api/hr/attendance?day=2026-08-17", headers=auth_headers)
+    response = client.get(
+        "/api/hr/attendance?day=2026-08-17&search=810001",
+        headers=auth_headers,
+    )
 
     assert response.status_code == 200, response.text
     row = next(item for item in response.json()["rows"] if item["employee_no"] == "810001")
@@ -122,7 +125,10 @@ def test_hr_attendance_uses_one_factory_setting_and_safe_employee_overrides(clie
 
     event.listen(test_engine, "before_cursor_execute", capture)
     try:
-        response = client.get("/api/hr/attendance?day=2026-08-17", headers=auth_headers)
+        response = client.get(
+            "/api/hr/attendance?day=2026-08-17&search=8100",
+            headers=auth_headers,
+        )
     finally:
         event.remove(test_engine, "before_cursor_execute", capture)
 

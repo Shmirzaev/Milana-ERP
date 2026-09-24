@@ -133,7 +133,10 @@ def test_hr_attendance_uses_only_accepted_event_results(client, auth_headers):
         ],
     )
 
-    response = client.get(f"/api/hr/attendance?day={DAY}", headers=auth_headers)
+    response = client.get(
+        f"/api/hr/attendance?day={DAY}&search=990004",
+        headers=auth_headers,
+    )
 
     assert response.status_code == 200, response.text
     row = next(item for item in response.json()["rows"] if item["employee_no"] == "990004")
