@@ -48,6 +48,7 @@ from app.services.paid_operations import (
 )
 
 router = APIRouter(tags=["catalog"])
+COLLECTION_STATUSES = frozenset({"draft", "approved", "archived"})
 
 
 def _standard_catalog_scope() -> str:
@@ -1139,6 +1140,8 @@ def list_collections(
 def create_collection(payload: CollectionIn, db: DbSession, current: User = Depends(require_permissions("modeling.collections", "*"))):
     if not payload.year:
         raise HTTPException(400, "Year is required")
+    if payload.status not in COLLECTION_STATUSES:
+        raise HTTPException(400, "Invalid collection status")
     c = Collection(**payload.model_dump())
     db.add(c); db.flush()
     log_action(db, current, "create", "Collection", c.id)
@@ -1172,6 +1175,8 @@ def update_collection(cid: int, payload: CollectionIn, db: DbSession, current: U
     data = payload.model_dump(exclude_unset=True)
     if "year" in data and not data["year"]:
         raise HTTPException(400, "Year is required")
+    if "status" in data and data["status"] != c.status and data["status"] not in COLLECTION_STATUSES:
+        raise HTTPException(400, "Invalid collection status")
     for k, v in data.items():
         setattr(c, k, v)
     log_action(db, current, "update", "Collection", c.id)
