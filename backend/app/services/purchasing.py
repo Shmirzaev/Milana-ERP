@@ -26,7 +26,10 @@ from app.services.audit import log_action
 from app.services.material_rolls import normalize_material_roll_weights
 from app.services.numbering import next_purchase_order_no, next_purchase_request_no
 from app.services.planning import material_requirements_for_sales_order
-from app.services.stock_batch_policy import normalize_stock_batch_qc_status
+from app.services.stock_batch_policy import (
+    normalize_stock_batch_qc_status,
+    validate_stock_batch_warehouse,
+)
 from app.services.workflow import notify_department
 
 REQUEST_CREATE_STATUSES = {"draft", "pending_approval"}
@@ -593,6 +596,8 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
         item = items.get(int(line.item_id))
         if not item:
             raise HTTPException(404, f"Item {int(line.item_id)} not found")
+        warehouse = warehouses[int(warehouse_id)]
+        validate_stock_batch_warehouse(item, warehouse)
         piece_count = raw.get("piece_count")
         if piece_count is not None and not 0 <= piece_count <= MAX_STOCK_BATCH_PIECE_COUNT:
             raise HTTPException(422, "piece_count must be between 0 and 2147483647")
