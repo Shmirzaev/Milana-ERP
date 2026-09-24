@@ -153,6 +153,10 @@ def test_batch_reassignment_rejects_linked_unit_mismatch_without_writes(
         db.add(target)
         db.commit()
         target_item_id = target.id
+        # Model a legacy batch already corrected to the target catalog unit,
+        # while its receipt movement still carries the original unit.
+        db.get(StockBatch, movement_stock["batch_id"]).unit = "kg"
+        db.commit()
         before_audits = db.query(AuditLog).count()
         before_movements = [
             (row.id, row.item_id, row.batch_id, row.quantity, row.unit)
@@ -162,7 +166,7 @@ def test_batch_reassignment_rejects_linked_unit_mismatch_without_writes(
     response = client.patch(
         f"/api/inventory/batches/{movement_stock['batch_id']}",
         headers=auth_headers,
-        json={"item_id": target_item_id, "unit": "kg"},
+        json={"item_id": target_item_id},
     )
 
     assert response.status_code == 409, response.text
@@ -170,7 +174,7 @@ def test_batch_reassignment_rejects_linked_unit_mismatch_without_writes(
     with session_module.SessionLocal() as db:
         batch = db.get(StockBatch, movement_stock["batch_id"])
         assert (batch.item_id, batch.unit, batch.quantity) == (
-            movement_stock["item_id"], "pcs", Decimal("10.0000"),
+            movement_stock["item_id"], "kg", Decimal("10.0000"),
         )
         assert [
             (row.id, row.item_id, row.batch_id, row.quantity, row.unit)

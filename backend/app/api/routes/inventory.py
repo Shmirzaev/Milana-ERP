@@ -23,6 +23,7 @@ from app.models import (
     Item,
     CuttingRecord,
     CuttingMaterialUsage,
+    CuttingBeikaMaterialUsage,
     MaterialReservation,
     ModelBOM,
     ProductionOrder,
