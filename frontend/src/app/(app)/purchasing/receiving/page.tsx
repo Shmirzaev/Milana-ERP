@@ -2,8 +2,9 @@
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { ArrowLeft, ChevronDown, ChevronRight, PackageCheck, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
@@ -46,6 +47,16 @@ type PurchaseOrder = {
   expected_date?: string | null;
   lines: PurchaseOrderLine[];
 };
+
+type PurchaseOrderPage = {
+  rows: PurchaseOrder[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+  supplier_totals: { key: string; total_ordered_kg: number }[];
+};
+const EMPTY_PURCHASE_ORDERS: PurchaseOrder[] = [];
 
 type Warehouse = {
   id: number;
@@ -121,16 +132,46 @@ export default function PurchaseReceivingPage() {
   const [message, setMessage] = useState("");
   const [receiveState, setReceiveState] = useState<ReceiveState | null>(null);
   const [pendingReceipt, setPendingReceipt] = useState<PendingPurchaseReceipt | null>(null);
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search.trim());
   const [recoveryStorageError, setRecoveryStorageError] = useState(false);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const receiving = useRef(false);
   const receiptUserId = me?.id;
   const receiptFactory = me?.factory_code;
   const [collapsedSuppliers, setCollapsedSuppliers] = useState<Set<string>>(() => new Set());
-  const { data: orders, mutate: refreshOrders } = useSWR<PurchaseOrder[]>(
-    canView ? "/api/purchasing/orders" : null,
+  const {
+    data: orderPages,
+    size,
+    setSize,
+    mutate: refreshOrders,
+    isValidating: ordersValidating,
+  } = useSWRInfinite<PurchaseOrderPage>(
+    (index, previousPage) => !canView || (previousPage && !previousPage.has_more)
+      ? null
+      : `/api/purchasing/orders?page=${index + 1}&page_size=50&receivable_only=true&q=${encodeURIComponent(deferredSearch)}`,
+    fetcher,
+    { persistSize: false },
+  );
+  const orders = useMemo(
+    () => orderPages?.flatMap((page) => page.rows) ?? EMPTY_PURCHASE_ORDERS,
+    [orderPages],
+  );
+  const totalOrders = orderPages?.[0]?.total ?? 0;
+  const hasMoreOrders = orderPages?.at(-1)?.has_more ?? false;
+  const supplierTotals = useMemo(
+    () => new Map((orderPages?.[0]?.supplier_totals ?? []).map((entry) => [entry.key, entry.total_ordered_kg])),
+    [orderPages],
+  );
+  const loadedPendingOrder = orders.find((order) => order.id === pendingReceipt?.orderId);
+  const { data: targetedPendingOrders } = useSWR<PurchaseOrder[]>(
+    canView && pendingReceipt && !loadedPendingOrder
+      ? `/api/purchasing/orders?order_id=${pendingReceipt.orderId}`
+      : null,
     fetcher,
   );
+  const pendingOrder = loadedPendingOrder || targetedPendingOrders?.[0];
+  const pendingLine = pendingOrder?.lines.find((line) => line.id === pendingReceipt?.payload.lines[0].purchase_order_line_id);
   const { data: warehouses } = useSWR<Warehouse[]>(canReceive ? "/api/inventory/warehouses" : null, fetcher);
   const { data: suppliers } = useSWR<Supplier[]>(canReceive ? "/api/suppliers" : null, fetcher);
 
@@ -151,11 +192,8 @@ export default function PurchaseReceivingPage() {
     return () => window.removeEventListener("storage", update);
   }, [receiptUserId, receiptFactory]);
 
-  const pendingOrder = orders?.find((order) => order.id === pendingReceipt?.orderId);
-  const pendingLine = pendingOrder?.lines.find((line) => line.id === pendingReceipt?.payload.lines[0].purchase_order_line_id);
-
   const openOrders = useMemo(
-    () => (orders || []).filter((order) => RECEIVABLE_ORDER_STATUSES.has(order.status) && order.lines.some((line) => Number(line.remaining_quantity || 0) > 0)),
+    () => orders.filter((order) => RECEIVABLE_ORDER_STATUSES.has(order.status) && order.lines.some((line) => Number(line.remaining_quantity || 0) > 0)),
     [orders],
   );
   const supplierOrderGroups = useMemo(() => {
@@ -166,8 +204,9 @@ export default function PurchaseReceivingPage() {
         if (Number(line.remaining_quantity || 0) <= 0) continue;
 
         const supplierId = Number(line.supplier_id || order.supplier_id || 0);
-        const supplierName = line.supplier_name || order.supplier_name || t("page.purchasing.unassignedSupplier");
-        const key = supplierId > 0 ? `supplier:${supplierId}` : `supplier-name:${supplierName.trim().toLocaleLowerCase()}`;
+        const rawSupplierName = line.supplier_name || order.supplier_name || "";
+        const supplierName = rawSupplierName || t("page.purchasing.unassignedSupplier");
+        const key = supplierId > 0 ? `supplier:${supplierId}` : `supplier-name:${rawSupplierName.trim().toLocaleLowerCase()}`;
         const group = groups.get(key) || {
           key,
           supplierName,
@@ -183,8 +222,11 @@ export default function PurchaseReceivingPage() {
       }
     }
 
+    for (const group of groups.values()) {
+      group.totalOrderedKg = supplierTotals.get(group.key) ?? group.totalOrderedKg;
+    }
     return Array.from(groups.values()).sort((left, right) => left.supplierName.localeCompare(right.supplierName));
-  }, [openOrders, t]);
+  }, [openOrders, supplierTotals, t]);
   const storageWarehouses = useMemo(
     () => (warehouses || []).filter((warehouse) => ["fabric_storage", "accessory_storage", "packaging"].includes(String(warehouse.type || ""))),
     [warehouses],
@@ -434,6 +476,17 @@ export default function PurchaseReceivingPage() {
       <section className="card overflow-hidden">
         <div className="border-b border-[#ecebe3] px-5 py-4">
           <h2 className="app-card-title">{t("page.purchasing.pendingOrders")}</h2>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              className="input h-9 min-w-48 flex-1"
+              aria-label={`${t("common.search")} ${t("page.purchasing.pendingOrders")}`}
+              placeholder={t("common.search")}
+              maxLength={100}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <span className="text-xs text-slate-500">{orders.length} / {totalOrders}</span>
+          </div>
         </div>
         <div className="overflow-x-auto px-5 py-4">
           <table className="table">
@@ -527,6 +580,13 @@ export default function PurchaseReceivingPage() {
           </table>
         </div>
       </section>
+      {hasMoreOrders && (
+        <div className="mt-3 flex justify-center">
+          <button className="btn btn-secondary" disabled={ordersValidating} onClick={() => setSize(size + 1)}>
+            {ordersValidating ? t("common.loading") : t("common.loadMore")}
+          </button>
+        </div>
+      )}
 
       {receiveState && (
         <div className="fixed inset-0 z-40 bg-black/40">

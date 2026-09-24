@@ -164,6 +164,7 @@ class PurchaseOrderPageOut(BaseModel):
     page: int
     page_size: int
     has_more: bool
+    supplier_totals: list[dict[str, float | str]] = Field(default_factory=list)
 
 
 class PurchaseOrderReceiveLineIn(BaseModel):

@@ -261,12 +261,20 @@ let cursor = 0;
 let dirty = false;
 let effects = [];
 let confirmationCount = 0;
+const orderListKeys = [];
+const targetedOrderKeys = [];
+let requestedOrderPageCount = null;
 const sent = [];
 const closedOrder = {
   id: 20, po_no: "PO-TEST", status: "received",
   // Current master data changed since the uncertain request. Replay its original payload.
   lines: [{ id: 9, item_id: 1, item_sku: "TEST", unit: "kg", ordered_quantity: 5,
     received_quantity: 5, remaining_quantity: 0, unit_cost: 4 }],
+};
+const visibleOrder = {
+  id: 10, po_no: "PO-needle-10", status: "sent",
+  lines: [{ id: 11, item_id: 1, item_sku: "FAB", item_name: "Fabric", ordered_quantity: 1,
+    received_quantity: 0, remaining_quantity: 1, unit: "kg", unit_cost: 1 }],
 };
 const t = (key) => key;
 const jsx = (type, props) => ({ type, props });
@@ -285,13 +293,23 @@ const dependencies = {
     },
     useRef(initial) { const index = cursor++; return hooks[index] ??= { current: initial }; },
     useMemo: (calculate) => calculate(),
+    useDeferredValue: value => value,
     useEffect(effect, deps) {
       const index = cursor++;
       if (!hooks[index] || deps.some((value, i) => value !== hooks[index][i])) effects.push(effect);
       hooks[index] = deps;
     },
   },
-  swr: { default: (key) => ({ data: key === "/api/purchasing/orders" ? [closedOrder] : [], mutate() {} }) },
+  swr: { default: (key) => {
+    if (!key) return { data: undefined, mutate() {} };
+    targetedOrderKeys.push(key);
+    return { data: key === "/api/purchasing/orders?order_id=20" ? [closedOrder] : [], mutate() {} };
+  } },
+  "swr/infinite": { default: (getKey) => {
+    orderListKeys.push(getKey(0, null));
+    return { data: [{ rows: [visibleOrder], total: 401, page: 1, page_size: 50, has_more: true,
+      supplier_totals: [{ key: "supplier-name:", total_ordered_kg: 999 }] }], size: 1, setSize(value) { requestedOrderPageCount = value; }, isValidating: false, mutate() {} };
+  } },
   "next/link": { default: "a" },
   "lucide-react": Object.fromEntries(["ArrowLeft", "ChevronDown", "ChevronRight", "PackageCheck", "X"].map(name => [name, name])),
   "@/components/PageHeader": { default: "header" },
@@ -340,8 +358,26 @@ try {
     addEventListener() {}, removeEventListener() {},
   } });
   let tree = render();
+  assert.equal(orderListKeys.at(-1), "/api/purchasing/orders?page=1&page_size=50&receivable_only=true&q=",
+    "receiving screen must request a bounded first page with server-eligible rows");
+  assert.ok(JSON.stringify(tree).includes('"999.00"'),
+    "supplier grouping must display the exact aggregate total beyond the loaded page");
+  assert.ok(targetedOrderKeys.includes("/api/purchasing/orders?order_id=20"),
+    "pending receipt recovery must fetch its order directly if it is outside loaded pages");
+  const searchInput = elements(tree, "input").find(input => input.props.placeholder === "common.search");
+  assert.ok(searchInput, "receiving order search must be visible");
+  searchInput.props.onChange({ target: { value: "needle" } });
+  tree = render();
+  assert.equal(orderListKeys.at(-1), "/api/purchasing/orders?page=1&page_size=50&receivable_only=true&q=needle",
+    "search must restart at page one with an exact server-side query");
+  const loadMore = elements(tree, "button").find(button => JSON.stringify(button.props.children).includes("common.loadMore"));
+  assert.ok(loadMore, "a 401-order result must expose Load more");
+  loadMore.props.onClick();
+  assert.equal(requestedOrderPageCount, 2, "Load more must request the next bounded page");
   const retryButton = elements(tree, "button").find(button => JSON.stringify(button.props.children).includes("common.retry"));
   assert.ok(retryButton, "closed orders must still expose pending-receipt recovery");
+  assert.match(JSON.stringify(retryButton.props.children), /PO-TEST/,
+    "direct recovery lookup must retain the order reference label");
   await retryButton.props.onClick();
   tree = render();
   assert.equal(confirmationCount, 0, "retry must retain the original close-order decision");

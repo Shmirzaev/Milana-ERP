@@ -29,7 +29,7 @@ def _seed_orders(count):
         orders = [
             PurchaseOrder(
                 po_no=f"PERF35-PO-{marker}-{index:04d}",
-                status="draft",
+                status="sent",
             )
             for index in range(count)
         ]
@@ -41,9 +41,9 @@ def _seed_orders(count):
                 item_id=item.id,
                 ordered_quantity=index + 1,
                 received_quantity=0,
-                unit=item.unit,
+                unit="kg",
                 unit_cost=1,
-                material_name=f"Bounded material {index}",
+                material_name=f"Bounded material {marker} {index}",
             )
             for index, order in enumerate(orders)
         ]
@@ -55,17 +55,20 @@ def _seed_orders(count):
 def _read(**kwargs):
     with TestSessionLocal() as db:
         statements = []
+        writes = []
 
         def capture(_conn, _cursor, statement, _parameters, _context, _many):
             if statement.lstrip().lower().startswith("select"):
                 statements.append(" ".join(statement.lower().split()))
+            else:
+                writes.append(" ".join(statement.lower().split()))
 
         event.listen(test_engine, "before_cursor_execute", capture)
         try:
             payload = list_purchase_orders(db, _current_user(), **kwargs)
         finally:
             event.remove(test_engine, "before_cursor_execute", capture)
-        return payload, statements
+        return payload, statements, writes
 
 
 def _dump(rows):
@@ -90,8 +93,14 @@ def test_purchase_order_pages_preserve_legacy_and_bound_joined_lines(count):
     order_ids, line_ids = _seed_orders(count)
     returned_count = min(count, 50)
 
-    page, statements = _read(page=1, page_size=50)
-    legacy, _ = _read()
+    page, statements, writes = _read(page=1, page_size=50)
+    page_two, _, page_two_writes = _read(page=2, page_size=50)
+    legacy, _, legacy_writes = _read()
+    marker = legacy[0].po_no.split("-")[2]
+    searched, _, search_writes = _read(page=1, page_size=50, receivable_only=True, q=f"Bounded material {marker}")
+    wildcard, _, wildcard_writes = _read(page=1, page_size=50, receivable_only=True, q=f"%Bounded material {marker}%")
+    oldest_id = order_ids[0]
+    targeted, target_statements, target_writes = _read(order_id=oldest_id)
     page_rows = _dump(page["rows"])
     legacy_rows = _dump(legacy)
 
@@ -101,6 +110,20 @@ def test_purchase_order_pages_preserve_legacy_and_bound_joined_lines(count):
     assert page["has_more"] is (count > 50)
     assert [row["id"] for row in page_rows] == list(reversed(order_ids))[:returned_count]
     assert page_rows == legacy_rows[:returned_count]
+    page_two_rows = _dump(page_two["rows"])
+    assert page_two["total"] == count
+    assert len(page_two_rows) == min(max(0, count - 50), 50)
+    assert {row["id"] for row in page_rows}.isdisjoint({row["id"] for row in page_two_rows})
+    assert searched["total"] == count
+    assert [row.id for row in searched["rows"]] == list(reversed(order_ids))[:returned_count]
+    assert wildcard["total"] == 0 and wildcard["rows"] == []
+    assert searched["supplier_totals"] == [{
+        "key": "supplier-name:",
+        "total_ordered_kg": float(count * (count + 1) / 2),
+    }]
+    assert [row.id for row in targeted] == [oldest_id], "recovery lookup must not depend on the visible page"
+    assert len(target_statements) == 1
+    assert writes == page_two_writes == legacy_writes == search_writes == wildcard_writes == target_writes == []
     assert [row["lines"][0]["id"] for row in page_rows] == list(reversed(line_ids))[:returned_count]
     assert all(row["lines"][0]["item_sku"] for row in page_rows)
     assert len(statements) == 2, statements
@@ -120,10 +143,11 @@ def test_purchase_order_pages_preserve_legacy_and_bound_joined_lines(count):
 
 
 def test_purchase_order_page_http_contract_and_bound(client, auth_headers):
-    [order_id], _ = _seed_orders(1)
+    order_ids, _ = _seed_orders(1)
+    [order_id] = order_ids
 
     response = client.get(
-        "/api/purchasing/orders?page=1&page_size=50",
+        "/api/purchasing/orders?page=1&page_size=50&receivable_only=true",
         headers=auth_headers,
     )
 
@@ -135,7 +159,30 @@ def test_purchase_order_page_http_contract_and_bound(client, auth_headers):
     assert page["page"] == 1
     assert page["page_size"] == 50
     assert page["has_more"] is False
+    assert page["supplier_totals"] == [{"key": "supplier-name:", "total_ordered_kg": 1.0}]
+    targeted = client.get(f"/api/purchasing/orders?order_id={order_id}", headers=auth_headers)
+    assert targeted.status_code == 200, targeted.text
+    assert [row["id"] for row in targeted.json()] == [order_id]
+    assert client.get("/api/purchasing/orders?page=1").status_code in (401, 403)
     assert client.get(
         "/api/purchasing/orders?page_size=501",
         headers=auth_headers,
     ).status_code == 422
+    assert client.get(
+        "/api/purchasing/orders?q=" + "x" * 101,
+        headers=auth_headers,
+    ).status_code == 422
+
+
+def test_receiving_orders_filter_status_and_search_before_count():
+    order_ids, _ = _seed_orders(2)
+    with TestSessionLocal() as db:
+        db.query(PurchaseOrder).filter(PurchaseOrder.id == order_ids[0]).update({"status": "draft"})
+        db.commit()
+
+    page, _, writes = _read(page=1, page_size=50, receivable_only=True, q="Bounded material")
+
+    assert page["total"] == 1
+    assert [row.id for row in page["rows"]] == [order_ids[1]]
+    assert page["supplier_totals"] == [{"key": "supplier-name:", "total_ordered_kg": 2.0}]
+    assert writes == []

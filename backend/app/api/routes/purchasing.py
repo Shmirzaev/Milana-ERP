@@ -1,7 +1,8 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
-from sqlalchemy.orm import joinedload, lazyload, load_only, selectinload
+from sqlalchemy import and_, case, func, or_
+from sqlalchemy.orm import aliased, joinedload, lazyload, load_only, selectinload
 
 from app.core.deps import CurrentUser, DbSession, require_permissions, user_permissions
 from app.core.config import settings
@@ -222,12 +223,50 @@ def list_purchase_orders(
     _: User = Depends(require_permissions("purchasing.view", "*")),
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    order_id: Annotated[int | None, Query(ge=1)] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    receivable_only: bool = False,
 ):
+    filters = []
+    if inventory_access.materials_only(_):
+        filters.append(~PurchaseOrder.lines.any(PurchaseOrderLine.item_id.in_(
+            db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
+        )))
+    if order_id is not None:
+        filters.append(PurchaseOrder.id == order_id)
+    if receivable_only:
+        filters.extend((
+            PurchaseOrder.status.in_(("sent", "approved", "partially_received")),
+            PurchaseOrder.lines.any(
+                PurchaseOrderLine.ordered_quantity > PurchaseOrderLine.received_quantity
+            ),
+        ))
+    needle = (q or "").strip()
+    if needle:
+        escaped_needle = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped_needle}%"
+        line_search = or_(
+            PurchaseOrderLine.material_name.ilike(pattern, escape="\\"),
+            PurchaseOrderLine.item.has(or_(
+                Item.name.ilike(pattern, escape="\\"),
+                Item.sku.ilike(pattern, escape="\\"),
+            )),
+            PurchaseOrderLine.supplier.has(Supplier.name.ilike(pattern, escape="\\")),
+        )
+        if receivable_only:
+            line_search = and_(
+                PurchaseOrderLine.ordered_quantity > PurchaseOrderLine.received_quantity,
+                line_search,
+            )
+        filters.append(or_(
+            PurchaseOrder.po_no.ilike(pattern, escape="\\"),
+            PurchaseOrder.supplier.has(Supplier.name.ilike(pattern, escape="\\")),
+            PurchaseOrder.purchase_request.has(PurchaseRequest.request_no.ilike(pattern, escape="\\")),
+            PurchaseOrder.lines.any(line_search),
+        ))
     query = (
         db.query(PurchaseOrder)
-        .filter(~PurchaseOrder.lines.any(PurchaseOrderLine.item_id.in_(
-            db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
-        )) if inventory_access.materials_only(_) else True)
+        .filter(*filters)
         .options(
             lazyload("*"),
             load_only(
@@ -287,12 +326,47 @@ def list_purchase_orders(
     safe_page_size = page_size or 100
     total = query.order_by(None).count()
     rows = query.offset((current_page - 1) * safe_page_size).limit(safe_page_size).all()
+    supplier_totals = []
+    if receivable_only:
+        line_supplier = aliased(Supplier)
+        order_supplier = aliased(Supplier)
+        supplier_id_expr = func.coalesce(PurchaseOrderLine.supplier_id, PurchaseOrder.supplier_id)
+        supplier_name_expr = func.lower(func.trim(func.coalesce(
+            line_supplier.name, order_supplier.name, "",
+        )))
+        normalized_unit = func.lower(func.trim(func.replace(PurchaseOrderLine.unit, ".", "")))
+        aggregate_rows = db.query(
+            supplier_id_expr,
+            supplier_name_expr,
+            func.coalesce(func.sum(case(
+                (normalized_unit.in_(("kg", "kgs", "kilogram", "kilograms", "кг")), PurchaseOrderLine.ordered_quantity),
+                else_=0,
+            )), 0),
+        ).select_from(PurchaseOrder).join(
+            PurchaseOrderLine, PurchaseOrderLine.purchase_order_id == PurchaseOrder.id,
+        ).outerjoin(
+            line_supplier, line_supplier.id == PurchaseOrderLine.supplier_id,
+        ).outerjoin(
+            order_supplier, order_supplier.id == PurchaseOrder.supplier_id,
+        ).filter(
+            *filters,
+            PurchaseOrder.status.in_(("sent", "approved", "partially_received")),
+            PurchaseOrderLine.ordered_quantity > PurchaseOrderLine.received_quantity,
+        ).group_by(supplier_id_expr, supplier_name_expr).all()
+        supplier_totals = [
+            {
+                "key": f"supplier:{int(row[0])}" if row[0] else f"supplier-name:{row[1]}",
+                "total_ordered_kg": float(row[2] or 0),
+            }
+            for row in aggregate_rows
+        ]
     return {
         "rows": rows,
         "total": total,
         "page": current_page,
         "page_size": safe_page_size,
         "has_more": current_page * safe_page_size < total,
+        "supplier_totals": supplier_totals,
     }
 
 
