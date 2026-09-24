@@ -49,6 +49,7 @@ PACKAGE_CHANGE_PENDING_STATUS = "pending"
 PACKAGE_TYPES = frozenset({"bag", "box", "legacy_stock"})
 _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE = 400
 _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE = 400
+_PACKAGE_EDIT_ROW_LIMIT = 200
 
 
 @dataclass
@@ -932,6 +933,8 @@ def _normalize_package_items(pkg: Package, payload: dict, target_color: str) -> 
     raw_items = payload.get("items") or []
     if not isinstance(raw_items, list) or not raw_items:
         raise HTTPException(400, "Package must contain at least one size line")
+    if len(raw_items) > _PACKAGE_EDIT_ROW_LIMIT:
+        raise HTTPException(400, f"Package edit cannot contain more than {_PACKAGE_EDIT_ROW_LIMIT} size lines")
 
     merged: dict[tuple[int, str, str], int] = {}
     for raw in raw_items:
@@ -969,6 +972,8 @@ def _validate_batch_allocations(
 ) -> list[dict]:
     if not raw_allocations:
         raise HTTPException(400, "Batch allocation is required for this production order")
+    if len(raw_allocations) > _PACKAGE_EDIT_ROW_LIMIT:
+        raise HTTPException(400, f"Package edit cannot contain more than {_PACKAGE_EDIT_ROW_LIMIT} batch allocations")
 
     batch_totals: dict[int, int] = {}
     for raw in raw_allocations:

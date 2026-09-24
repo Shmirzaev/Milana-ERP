@@ -212,8 +212,8 @@ class PackageEditPayload(BaseModel):
     warehouse_id: Optional[int] = None
     storage_cell: Optional[str] = None
     storage_shelf: Optional[str] = None
-    items: Optional[list[PackageEditItemIn]] = None
-    batch_allocations: Optional[list[PackageBatchAllocationIn]] = None
+    items: Optional[list[PackageEditItemIn]] = Field(default=None, max_length=200)
+    batch_allocations: Optional[list[PackageBatchAllocationIn]] = Field(default=None, max_length=200)
     notes: Optional[str] = None
 
 
