@@ -14,6 +14,7 @@ from app.services.audit import log_action
 from app.services.factory_scope import selected_factory_code
 from app.services.inventory import reserved_stock_for_batch, available_stock_for_item
 from app.services.inventory_access import MATERIAL_CATEGORIES
+from app.services.stock_batch_policy import validate_stock_batch_unit
 
 router = APIRouter(prefix="/eco-fabric-transfers", tags=["eco_fabric_transfers"])
 
@@ -60,6 +61,7 @@ def batch_lock(db, batch_id):
             Item.category,
             Item.name,
             Item.is_active,
+            Item.unit,
         ),
     ).filter_by(id=batch_id).with_for_update().first()
     if not batch or not batch.item or batch.item.category not in MATERIAL_CATEGORIES:
@@ -115,6 +117,7 @@ def scan(payload: ScanIn, db: DbSession, user: User = Depends(access)):
     outstanding = db.query(EcoFabricRoll).filter_by(batch_id=batch_id, roll_number=roll, returned_at=None).first()
     if outstanding:
         return {**roll_data(outstanding), "status": "sent"}
+    validate_stock_batch_unit(batch.item, batch.unit)
     amount, _ = quantity(db, batch, roll)
     if batch.archived_at or Decimal(batch.quantity) < amount:
         raise HTTPException(409, "ecoTransfers.unavailable")
@@ -136,6 +139,8 @@ def send(payload: SendIn, db: DbSession, user: User = Depends(access)):
         if sorted((r.batch_id, r.roll_number) for r in old) != identities:
             raise HTTPException(409, "ecoTransfers.changedRequest")
         return dispatch_data(db, previous)
+    for batch in batches.values():
+        validate_stock_batch_unit(batch.item, batch.unit)
     dispatch = EcoFabricDispatch(request_key=key, created_by=user.id, operator_name=user.name,
                                   sent_at=datetime.now(timezone.utc), remaining_inventory=[])
     db.add(dispatch)
@@ -202,6 +207,7 @@ def receive(payload: ReturnIn, db: DbSession, user: User = Depends(access)):
         raise HTTPException(409, "ecoTransfers.notSent")
     if batch.unit != row.unit or not batch.item.is_active:
         raise HTTPException(409, "ecoTransfers.batchChanged")
+    validate_stock_batch_unit(batch.item, batch.unit)
     before = roll_data(row)
     row.returned_at = datetime.now(timezone.utc)
     row.returned_by = user.id

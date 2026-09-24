@@ -169,6 +169,57 @@ def test_dispatch_validation_is_atomic(client, auth_headers, fabric_batch, rolls
         assert db.query(EcoFabricRoll).count() == 0
 
 
+def test_legacy_batch_unit_drift_blocks_scan_and_send_without_writes(client, auth_headers, fabric_batch):
+    with TestSessionLocal() as db:
+        db.get(StockBatch, fabric_batch).unit = "kilogram"
+        db.commit()
+        before_movements = db.query(StockMovement).count()
+
+    scanned = client.post(
+        "/api/eco-fabric-transfers/scan", headers=auth_headers,
+        json={"code": f"B{fabric_batch}-R1"},
+    )
+    sent = send(client, auth_headers, fabric_batch)
+
+    assert scanned.status_code == 409, scanned.text
+    assert sent.status_code == 409, sent.text
+    assert scanned.json()["detail"] == sent.json()["detail"] == "Batch unit must match the material unit"
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        assert batch.quantity == 45
+        assert batch.unit == "kilogram"
+        assert db.query(StockMovement).count() == before_movements
+        assert db.query(EcoFabricDispatch).count() == 0
+        assert db.query(EcoFabricRoll).count() == 0
+
+
+def test_legacy_item_unit_drift_blocks_return_without_writes(client, auth_headers, fabric_batch):
+    sent = send(client, auth_headers, fabric_batch)
+    assert sent.status_code == 200, sent.text
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        db.get(Item, batch.item_id).unit = "kilogram"
+        db.commit()
+        before_movements = db.query(StockMovement).count()
+
+    returned = client.post(
+        "/api/eco-fabric-transfers/return", headers=auth_headers,
+        json={
+            "code": f"B{fabric_batch}-R1", "dispatch_id": sent.json()["id"],
+            "request_key": str(uuid4()),
+        },
+    )
+
+    assert returned.status_code == 409, returned.text
+    assert returned.json()["detail"] == "Batch unit must match the material unit"
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        roll = db.query(EcoFabricRoll).one()
+        assert batch.quantity == 35
+        assert roll.returned_at is None
+        assert db.query(StockMovement).count() == before_movements
+
+
 def test_scan_is_read_only_and_return_requires_dispatch(client, auth_headers, fabric_batch):
     response = client.post("/api/eco-fabric-transfers/scan", headers=auth_headers, json={"code": f"B{fabric_batch}-R1"})
     assert response.status_code == 200 and float(response.json()["quantity"]) == 10
