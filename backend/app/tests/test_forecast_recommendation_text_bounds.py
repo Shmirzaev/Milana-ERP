@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, ForecastRecommendation
+from app.models import AuditLog, ForecastRecommendation, Item
 from app.schemas.forecasting import ForecastRecommendationIn
 
 
@@ -14,10 +14,10 @@ TEXT_LIMITS = {
 }
 
 
-def _payload(**values) -> dict:
+def _payload(*, item_id: int = 1, **values) -> dict:
     return {
         "recommendation_type": "item_reorder",
-        "item_id": 1,
+        "item_id": item_id,
         "suggested_quantity": "12.3456",
         **values,
     }
@@ -41,11 +41,26 @@ def test_forecast_recommendation_text_overflow_is_rejected_before_writes_and_kee
     client, auth_headers
 ):
     with SessionLocal() as db:
+        item = Item(
+            sku="FORECAST-TEXT-BOUND-UNIT",
+            name="Forecast text-bound unit",
+            category="fabric",
+            unit="u" * TEXT_LIMITS["unit"],
+        )
+        db.add(item)
+        db.commit()
+        item_id = int(item.id)
         before = (db.query(ForecastRecommendation).count(), db.query(AuditLog).count())
 
     valid = client.post(
         "/api/forecasting/recommendations",
-        json=_payload(color="c" * 64, size="s" * 32, unit="u" * 32, confidence="f" * 16),
+        json=_payload(
+            item_id=item_id,
+            color="c" * 64,
+            size="s" * 32,
+            unit="u" * 32,
+            confidence="f" * 16,
+        ),
         headers=auth_headers,
     )
     assert valid.status_code == 201, valid.text
@@ -57,14 +72,14 @@ def test_forecast_recommendation_text_overflow_is_rejected_before_writes_and_kee
     for field, limit in TEXT_LIMITS.items():
         response = client.post(
             "/api/forecasting/recommendations",
-            json=_payload(**{field: "x" * (limit + 1)}),
+            json=_payload(item_id=item_id, **{field: "x" * (limit + 1)}),
             headers=auth_headers,
         )
         assert response.status_code == 422, (field, response.text)
 
     assert client.post(
         "/api/forecasting/recommendations",
-        json=_payload(color="x" * 65),
+        json=_payload(item_id=item_id, color="x" * 65),
     ).status_code == 401
 
     with SessionLocal() as db:
