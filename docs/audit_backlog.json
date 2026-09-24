@@ -819,7 +819,8 @@
       "baseline_source": "backend/app/services/forecasting.py",
       "status": "partial",
       "owner": null,
-      "commit": "289e809, 064be49",
+      "commit": "289e809, 064be49, fc450a5",
+      "followup_2026_09_24": "Effective per-factory permission helper now evaluates forecasting.view/manage grants and denials for each available factory; 35 adjacent permission tests pass. It is not wired into public forecasting routes pending the unattributed-data policy, so API05 remains partial.",
       "latest_evidence": "Owner chose to restrict forecasting to authorized factories. Commit 064be49 adds optional model-attributed branded demand, stock, pipeline and trend filtering at the service layer; 36 focused/adjacent forecasting tests and Ruff pass. Routes still use global reads until effective per-factory permission and unattributed item/inventory policy are resolved; API05 remains partial and is not yet a security fix.",
       "evidence": "Commit 289e809 validates the existence of optional model, item, brand and collection references before forecasting recommendation insertion; all four dangling-reference cases return400 with no write and19 focused forecasting cases pass. Visibility, cross-entity relationships and global report scope still require explicit business policy, so API05 is partial rather than fixed."
     },
@@ -1279,7 +1280,8 @@
       "baseline_source": "backend/app/services/image_storage.py:180",
       "status": "partial",
       "owner": null,
-      "commit": "170200f,503d068,940acd5,056009d,81887a1,64f98a5,3452166,31a3a3c,ad5b278,623c169,b2958f0,b607eda",
+      "commit": "170200f,503d068,940acd5,056009d,81887a1,64f98a5,3452166,31a3a3c,ad5b278,623c169,b2958f0,b607eda,359df00",
+      "latest_evidence": "Company-logo replacement now removes only the prior generated logo and its prebuilt thumbnails after the new setting commits, with a current-reference recheck under lock. It preserves unrelated files and leaves the new logo intact; 21 settings integrity cases pass with 4 expected PostgreSQL skips, plus independent focused regression and Ruff. Global cross-process admission/proxy spooling remain, so PERF40 stays partial.",
       "evidence": "All11 inventoried upload handlers now share one validated process-local admission limiter; image/document buffering, conversion, file writes and blocking SQL run off the event loop. Catalog, BOM, HR, logo and attendance database work uses fresh worker-owned sessions with authorization/scope rechecks, row locks and cancellation-safe transaction/file ownership. Attendance uses the shared limiter and a locked retry cannot commit a reference to a subsequently deleted file. The consolidated suite passes60 with4 expected skips, attendance lifecycle passes8 and all9 disposable-PostgreSQL attendance races pass; independent review reruns16 focused upload/cancellation cases and all9 PostgreSQL races. No inventoried route code gap remains. A global budget across multiple API processes still requires deployment-selected shared admission/topology; multipart spooling before handler entry also belongs at the proxy/server boundary, so PERF40 remains partial."
     },
     {
@@ -1303,7 +1305,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "3d15874, 287fab2, 1610d50, df14ad6, 794f213, 5b4ac7c, 59ea70b",
+      "commit": "3d15874, 287fab2, 1610d50, df14ad6, 794f213, 5b4ac7c, 59ea70b, f691900",
+      "followup_2026_09_24": "Archived material-batch restore now rejects a legacy batch/item unit mismatch before changing stock or writing a movement; 50 adjacent inventory tests and Ruff pass. Other writer/state invariants remain, so DB01 stays partial.",
       "latest_evidence": "Catalog item unit edits now reject changes when stock, movement, reservation, BOM, purchasing, waste or forecast quantity references exist, while same-unit metadata edits and unreferenced corrections remain allowed. Eighty-two adjacent inventory tests and Ruff pass. Other writer/state invariants remain; DB01 stays partial.",
       "evidence": "Purchase receipts and inventory adjustment/accessory-return/transfer/batch-edit writers now reuse the item-category warehouse contract; returns enforce item units and transfers enforce paired valid references. The inventory slice passes72 focused cases independently, including no-write failures and ledger parity. Sewing-assignment creation/update, acceptance/output, cutting-driven resizing and correction writers share positive assigned quantity and 0<=completed<=assigned invariants, with40 focused/adjacent passes. Commit df14ad6 makes deletion lock the work order/assignment and reject output, linked reports/records and historical statuses before a write; return also detects directly linked records with a different line name. Fifty-eight focused sewing tests and Ruff pass. Commit 794f213 rejects stock-backed accessory issues whose requested unit differs from the catalog item unit while preserving manual custom-unit issues; 29 focused/adjacent cases pass, including rollback after an earlier valid line. Other alternate references and writer/state rules remain, so DB01 is partial. Commit 5b4ac7c checks catalog, reservation and batch units in shared stock-consumption paths before mutation, including a FIFO preflight and batchless ledger unit; 73 adjacent local tests pass. Legacy mismatched records need correction, and other writer/state invariants remain."
     },
@@ -1316,7 +1319,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "bf36441, 3f1633f, 7fdc2cb, f03259b, f2ff6e8, 28bd3c4, bed96e7, b0e9e71, 2de9bf7, 57cb07f, 8711c96, 54cfe39",
+      "commit": "bf36441, 3f1633f, 7fdc2cb, f03259b, f2ff6e8, 28bd3c4, bed96e7, b0e9e71, 2de9bf7, 57cb07f, 8711c96, 54cfe39, 9748ead",
+      "followup_2026_09_24": "Model create/update now accepts only draft, sample, approved and archived as new status values while preserving unchanged legacy status on unrelated edits. Combined model status/costing/adjacent suite passes 50; other open vocabularies keep DB02 partial.",
       "latest_evidence": "Collection create/update now accepts only draft, approved and archived as new status values, preserving an unchanged legacy status on unrelated edits; invalid writes fail before any change. Sixty-two combined collection/HR tests pass. Other open vocabularies keep DB02 partial.",
       "evidence": "Finite write vocabularies cover HR employee status, direct/purchase stock-batch QC, 1C invoice status, manual payment method, sewing-assignment status, sales-line source type, package type, attendance-device vendor and system default language. Commit 8711c96 also makes purchase-request creation status an explicit draft/pending_approval Literal while preserving existing whitespace/null normalization; unknown values fail before writes and unauthenticated requests retain 401 precedence. Forty-one focused/adjacent purchase-request tests and Ruff pass. Open external/free-text and policy fields keep DB02 partial."
     },
@@ -1329,7 +1333,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "8d386cf, ada93f8, 30119aa, 4def8fb, 7453b9b, d034a12",
+      "commit": "8d386cf, ada93f8, 30119aa, 4def8fb, 7453b9b, d034a12, 9748ead",
+      "followup_2026_09_24": "Known model costing percentages now require finite numeric JSON for new/changed writes, reject null and booleans, and preserve unchanged invalid legacy values on unrelated edits; combined model suite passes 50. Other editable JSON remains, so DB03 stays partial.",
       "latest_evidence": "New HR weekend-day JSON writes require unique strict integer ISO weekdays 1–7, while unchanged legacy lists can round-trip on unrelated edits. Sixty-two combined collection/HR tests pass. Other editable JSON remains; DB03 stays partial.",
       "evidence": "Incoming writes now shape-check model paid-operation envelopes, established general/costing model-detail objects, the 21-field HR employee profile and finite numeric model-size measurements. Sparse/unknown legacy fields remain readable; unrelated edits preserve stored legacy shapes. Five new model-detail cases pass independently with no-write failures. Commit 7453b9b bounds permission JSON writes to 150 grants of at most 128 characters each for roles, user extras and factory allow/deny policy, while existing oversized records remain readable; 51 adjacent cases pass independently. Other editable JSON structures remain, so DB03 is partial."
     },
