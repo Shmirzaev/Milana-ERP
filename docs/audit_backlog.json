@@ -1305,7 +1305,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "3d15874, 287fab2, 1610d50, df14ad6, 794f213, 5b4ac7c, 59ea70b, f691900, 91fb323, 5d031ca, 88c22c6, 0e117fe",
+      "commit": "3d15874, 287fab2, 1610d50, df14ad6, 794f213, 5b4ac7c, 59ea70b, f691900, 91fb323, 5d031ca, 88c22c6, 0e117fe, 5904c4b, db3a94c",
+      "followup_unit_history_audit": "A read-only, explicitly targeted unit-history audit compares catalog Item.unit against six direct quantity-history tables, separates mismatches, missing labels and orphan item references, and omits item names/business notes. Five synthetic SQLite tests and Ruff pass. It does not infer conversions or correct historical data; DB01 remains partial pending reviewed correction and broader writer-state closure.",
       "followup_purchasing_units": "Purchase requests and purchase orders now enforce the catalog item unit after existing reference/quantity/length validation, covering manual, sales-order-derived, direct-order and legacy-request conversion paths. The independent adjacent suite passes 68 with 2 PostgreSQL-only skips, and the isolated full purchasing suite passes 145 with 5 skips; DB01 remains partial for historical mismatches and other writers.",
       "followup_direct_reservation": "Direct inventory receipts and both item-only/batch-backed material reservations now reject catalog-item unit mismatches before stock writes. Direct movement suite passes 55 and the reservation module passes 20; historical mismatched records and other writers remain, so DB01 stays partial.",
       "followup_purchase_receipt": "Purchase receipts now reject a persisted order-line unit that differs from its item before creating a stock batch or movement; 58 adjacent local tests pass with 3 expected PostgreSQL skips. DB01 remains partial pending a complete alternate-writer audit.",
@@ -1353,8 +1354,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "d23738c, 0df2c17",
-      "evidence": "Read-only preflight for revision 0130 previews exact before/after grants for the targeted account, reports malformed inputs that would block the historical migration, omits the email from output and records snapshot hashes. Revision 0055 now has a separate read-only, consistent-snapshot preview of exact direct-delete IDs/hashes, its activity guard and null ambiguities, and declared foreign-key references. Eight combined preflight tests, Ruff and CLI help pass. The 0055 report explicitly requires operator review and a verified backup; undeclared application references are not proven absent. Other historical permission/data-changing migrations (0091/0092, 0101/0107) and actual affected-row/operator recovery review remain open; no migration was applied."
+      "commit": "d23738c, 0df2c17, 2901212, f81cb47",
+      "evidence": "Read-only preflight for revision 0130 previews exact before/after grants for the targeted account, reports malformed inputs that would block the historical migration, omits the email from output and records snapshot hashes. Revision 0055 has a consistent-snapshot preview of exact direct-delete IDs/hashes, its activity guard and null ambiguities, and declared foreign-key references; unexpected revisions stop before reflecting business tables. Revisions 0091/0092 now preview every case-insensitive Payroll/Sewing role grant overwrite, current restoration snapshots, both-stage/second-stage applicability and applied-history status under one read-only snapshot. Twelve combined preflight tests, Ruff and CLI help pass. These reports require operator review and a verified backup; 0055 undeclared application references and already-overwritten historical role grants cannot be reconstructed. Data-changing migrations 0101/0107 and actual affected-row/operator recovery review remain open; no migration was applied."
     },
     {
       "number": 112,
