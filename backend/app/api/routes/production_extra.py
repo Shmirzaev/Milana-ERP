@@ -390,6 +390,27 @@ class SewingAssignmentReturnIn(BaseModel):
     sewing_flow_id: int
 
 
+def _assignment_has_output(db: DbSession, assignment: SewingAssignment, wo: WorkOrder, flow: SewingFlow) -> bool:
+    if assignment.completed_qty or assignment.actual_start or assignment.actual_end:
+        return True
+    reports = db.query(SewingDailyReport.id).filter(or_(
+        SewingDailyReport.sewing_assignment_id == assignment.id,
+        (SewingDailyReport.work_order_id == wo.id)
+        & (SewingDailyReport.sewing_flow_id == flow.id)
+        & (SewingDailyReport.production_batch_id == assignment.production_batch_id),
+    )).first()
+    if reports:
+        return True
+    records = db.query(SewingRecord.id).filter(or_(
+        SewingRecord.sewing_assignment_id == assignment.id,
+        (SewingRecord.work_order_id == wo.id)
+        & (SewingRecord.production_batch_id == assignment.production_batch_id)
+        & or_(SewingRecord.line_name.is_(None), SewingRecord.line_name == "",
+              func.lower(SewingRecord.line_name).in_((flow.name.lower(), flow.code.lower()))),
+    )).first()
+    return bool(records)
+
+
 @router.post("/sewing-assignments/{aid}/return", response_model=SewingAssignmentOut)
 def return_assignment(
     aid: int, payload: SewingAssignmentReturnIn, db: DbSession,
@@ -414,19 +435,7 @@ def return_assignment(
         return a
     if a.status not in ("planned", "in_progress") or wo.status not in _ACTIVE_WO_STATUSES:
         raise HTTPException(409, "SEWING_RETURN_INACTIVE")
-    reports = db.query(SewingDailyReport.id).filter(or_(
-        SewingDailyReport.sewing_assignment_id == aid,
-        (SewingDailyReport.work_order_id == wo.id)
-        & (SewingDailyReport.sewing_flow_id == flow.id)
-        & (SewingDailyReport.production_batch_id == a.production_batch_id),
-    )).first()
-    records = db.query(SewingRecord.id).filter(
-        SewingRecord.work_order_id == wo.id,
-        SewingRecord.production_batch_id == a.production_batch_id,
-        or_(SewingRecord.line_name.is_(None), SewingRecord.line_name == "",
-            func.lower(SewingRecord.line_name).in_((flow.name.lower(), flow.code.lower()))),
-    ).first()
-    if a.completed_qty or a.actual_start or a.actual_end or reports or records:
+    if _assignment_has_output(db, a, wo, flow):
         raise HTTPException(409, "SEWING_RETURN_HAS_OUTPUT")
     old = {"status": a.status, "sewing_flow_id": a.sewing_flow_id, "quantity": a.quantity,
            "work_order_id": wo.id, "production_batch_id": a.production_batch_id,
@@ -458,6 +467,15 @@ def delete_assignment(
     if not flow:
         raise HTTPException(404, "Sewing flow not found")
     require_sewing_flow_access(current, flow)
+    wo = db.query(WorkOrder).filter(WorkOrder.id == a.work_order_id).with_for_update().first()
+    if not wo or wo.operation != "sewing":
+        raise HTTPException(404, "Sewing work order not found")
+    db.refresh(a, with_for_update=True)
+    require_work_order_factory_access(current, db, wo)
+    if a.status not in ("planned", "in_progress") or wo.status not in _ACTIVE_WO_STATUSES:
+        raise HTTPException(409, "SEWING_DELETE_INACTIVE")
+    if _assignment_has_output(db, a, wo, flow):
+        raise HTTPException(409, "SEWING_DELETE_HAS_OUTPUT")
     db.delete(a)
     log_action(db, current, "delete", "SewingAssignment", aid)
     db.commit()
