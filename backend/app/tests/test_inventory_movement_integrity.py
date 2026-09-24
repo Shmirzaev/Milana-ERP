@@ -103,6 +103,7 @@ def test_invalid_movement_quantity_rejected_without_writes(client, auth_headers,
     ({"unit": "kg"}, 409), ({"from_warehouse_id": -1}, 404),
     ({"batch_id": -1}, 404), ({"item_id": -1}, 404),
     ({"quantity": 11}, 409), ({"movement_type": "invalid"}, 400),
+    ({"reference_type": "ProductionOrder"}, 400), ({"reference_id": -1}, 400),
 ])
 def test_invalid_batch_movement_rejected_without_writes(client, auth_headers, movement_stock, overrides, expected_status):
     before = stock_state(movement_stock)
@@ -168,6 +169,46 @@ def test_same_warehouse_transfer_rejected(client, auth_headers, movement_stock):
         movement_stock, "transfer", quantity=10, to_warehouse_id=movement_stock["source_id"],
     ))
     assert response.status_code == 400, response.text
+    assert stock_state(movement_stock) == before
+
+
+def test_transfer_rejects_destination_for_wrong_item_category_without_writes(
+    client, auth_headers, movement_stock,
+):
+    with session_module.SessionLocal() as db:
+        wrong_destination = Warehouse(name="Movement fabric destination", type="fabric_storage")
+        db.add(wrong_destination)
+        db.commit()
+        wrong_destination_id = wrong_destination.id
+    before = stock_state(movement_stock)
+
+    response = client.post("/api/inventory/transfer", headers=auth_headers, json=movement_payload(
+        movement_stock, "transfer", quantity=10, to_warehouse_id=wrong_destination_id,
+    ))
+
+    assert response.status_code == 400, response.text
+    assert "Accessory Storage" in response.text
+    assert stock_state(movement_stock) == before
+
+
+def test_batch_edit_rejects_wrong_category_warehouse_without_writes(
+    client, auth_headers, movement_stock,
+):
+    with session_module.SessionLocal() as db:
+        wrong_destination = Warehouse(name="Batch edit fabric destination", type="fabric_storage")
+        db.add(wrong_destination)
+        db.commit()
+        wrong_destination_id = wrong_destination.id
+    before = stock_state(movement_stock)
+
+    response = client.patch(
+        f"/api/inventory/batches/{movement_stock['batch_id']}",
+        headers=auth_headers,
+        json={"warehouse_id": wrong_destination_id},
+    )
+
+    assert response.status_code == 400, response.text
+    assert "Accessory Storage" in response.text
     assert stock_state(movement_stock) == before
 
 

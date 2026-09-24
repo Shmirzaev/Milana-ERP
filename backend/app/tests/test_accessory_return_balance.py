@@ -228,3 +228,36 @@ def test_partial_returns_use_combined_allowance_and_conserve_stock(client, auth_
     })
     assert rejected.status_code == 409, rejected.text
     assert _state(case) == before_rejection
+
+
+def test_accessory_return_rejects_wrong_storage_and_unit_without_writes(
+    client, auth_headers, accessory_case,
+):
+    case = accessory_case
+    with TestSessionLocal() as db:
+        wrong_storage = Warehouse(name="Return fabric storage", type="fabric_storage")
+        db.add(wrong_storage)
+        db.flush()
+        _seed_issues(db, case, stock=5, manual=(), returned=0)
+        wrong_storage_id = wrong_storage.id
+        db.commit()
+
+    payload = {
+        "production_order_id": case["po_id"], "item_id": case["item_id"],
+        "batch_no": "RETURN-WRONG-STORAGE", "quantity": 1, "unit": "pcs",
+        "warehouse_id": wrong_storage_id, "qc_status": "passed",
+    }
+    before = _state(case)
+    crossed_storage = client.post(
+        "/api/inventory/accessory-returns", headers=auth_headers, json=payload,
+    )
+    wrong_unit = client.post(
+        "/api/inventory/accessory-returns", headers=auth_headers,
+        json={**payload, "batch_no": "RETURN-WRONG-UNIT", "warehouse_id": case["source_id"], "unit": "box"},
+    )
+
+    assert crossed_storage.status_code == 400, crossed_storage.text
+    assert "Accessory Storage" in crossed_storage.text
+    assert wrong_unit.status_code == 409, wrong_unit.text
+    assert "unit" in wrong_unit.text.lower()
+    assert _state(case) == before

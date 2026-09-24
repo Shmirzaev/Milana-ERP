@@ -22,7 +22,7 @@ def normalize_stock_batch_qc_status(value: str | None) -> str:
 
 
 def validate_stock_batch_warehouse(item: Item, warehouse: Warehouse) -> None:
-    """Require category-specific storage for every stock-batch receipt writer."""
+    """Require category-specific storage for every stock-batch writer."""
     expected = STOCK_BATCH_WAREHOUSE_TYPES.get(str(item.category or "").strip().lower())
     if expected is None:
         return

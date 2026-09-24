@@ -49,7 +49,7 @@ from app.services import inventory_access
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.material_rolls import normalize_material_roll_lengths, normalize_material_roll_weights
-from app.services.stock_batch_policy import normalize_stock_batch_qc_status
+from app.services.stock_batch_policy import normalize_stock_batch_qc_status, validate_stock_batch_warehouse
 from app.services.inventory import (
     accessory_issue_plan,
     accessory_issue_requests,
@@ -108,18 +108,7 @@ def get_cutting_fabric_usage(
 
 
 def _validate_receiving_warehouse(item: Item, warehouse: Warehouse) -> None:
-    material_categories = categories_for_group("materials") or ()
-    accessory_categories = categories_for_group("accessories") or ()
-    expected_type = None
-    expected_name = None
-    if item.category in material_categories:
-        expected_type = "fabric_storage"
-        expected_name = "Fabric Storage"
-    elif item.category in accessory_categories:
-        expected_type = "accessory_storage"
-        expected_name = "Accessory Storage"
-    if expected_type and warehouse.type != expected_type:
-        raise HTTPException(400, f"{item.name} must be received into {expected_name}")
+    validate_stock_batch_warehouse(item, warehouse)
 
 
 def _require_admin_force(current: User, force: bool) -> None:
@@ -573,10 +562,12 @@ def _stock_adjustment_warehouse_id(db: DbSession, item: Item, batches: list[Stoc
     for warehouse_type in preferred_types:
         warehouse = db.query(Warehouse).filter(Warehouse.type == warehouse_type).order_by(Warehouse.id).first()
         if warehouse:
+            validate_stock_batch_warehouse(item, warehouse)
             return int(warehouse.id)
     warehouse = db.query(Warehouse).order_by(Warehouse.id).first()
     if not warehouse:
         raise HTTPException(400, "Create a warehouse before setting batch-tracked stock")
+    validate_stock_batch_warehouse(item, warehouse)
     return int(warehouse.id)
 
 
@@ -610,6 +601,14 @@ def _apply_batch_tracked_stock_adjustment(
         .order_by(StockBatch.id.desc())
         .all()
     )
+    warehouses_by_id: dict[int, Warehouse] = {}
+    if delta < 0 and batches:
+        warehouses_by_id = {
+            int(warehouse.id): warehouse
+            for warehouse in db.query(Warehouse).filter(
+                Warehouse.id.in_({int(batch.warehouse_id) for batch in batches})
+            ).all()
+        }
     movements: list[StockMovement] = []
     if delta > 0:
         batch = batches[0] if batches else None
@@ -625,6 +624,11 @@ def _apply_batch_tracked_stock_adjustment(
             )
             db.add(batch)
             db.flush()
+        else:
+            warehouse = db.get(Warehouse, batch.warehouse_id)
+            if not warehouse:
+                raise HTTPException(409, "Batch warehouse no longer exists")
+            validate_stock_batch_warehouse(item, warehouse)
         batch.quantity = float(batch.quantity or 0) + delta
         movement = StockMovement(
             movement_type=movement_type,
@@ -647,6 +651,10 @@ def _apply_batch_tracked_stock_adjustment(
         available = float(batch.quantity or 0)
         if available <= EPSILON:
             continue
+        warehouse = warehouses_by_id.get(int(batch.warehouse_id))
+        if not warehouse:
+            raise HTTPException(409, "Batch warehouse no longer exists")
+        validate_stock_batch_warehouse(item, warehouse)
         qty = min(available, left)
         batch.quantity = available - qty
         movement = StockMovement(
@@ -945,6 +953,8 @@ def collect_back_accessory(
     _validate_receiving_warehouse(item, warehouse)
 
     unit = str(payload.unit or item.unit or "").strip() or item.unit
+    if unit != item.unit:
+        raise HTTPException(409, "Return unit must match the item unit")
     issued_rows = accessory_issue_summary(db, production_order_id=int(po.id))
     issued_row = next(
         (
@@ -1375,6 +1385,12 @@ def transfer_stock(
         return replay
     if payload.movement_type not in ("transfer", "issue", "consume", "adjustment", "return"):
         raise HTTPException(400, "Invalid movement_type")
+    if (payload.reference_type is None) != (payload.reference_id is None):
+        raise HTTPException(400, "Movement reference type and ID must be provided together")
+    if payload.reference_type is not None and not str(payload.reference_type).strip():
+        raise HTTPException(400, "Movement reference type is required")
+    if payload.reference_id is not None and payload.reference_id <= 0:
+        raise HTTPException(400, "Movement reference ID must be positive")
     quantity = Decimal(str(payload.quantity))
     if not quantity.is_finite() or quantity <= 0 or quantity >= Decimal("10000000000"):
         raise HTTPException(400, "Quantity must be finite, positive and less than 10000000000")
@@ -1420,6 +1436,8 @@ def transfer_stock(
                     raise HTTPException(400, "Destination warehouse is required")
                 if payload.to_warehouse_id == batch.warehouse_id:
                     raise HTTPException(400, "Destination warehouse must differ from the source")
+                destination = db.get(Warehouse, payload.to_warehouse_id)
+                validate_stock_batch_warehouse(item, destination)
                 # A batch has one location. A partial relocation needs a separate
                 # batch identity, which this endpoint does not create.
                 if quantity != batch.quantity:
@@ -1602,6 +1620,12 @@ def update_batch(
             )
             if (reserved_quantity > EPSILON or linked or has_downstream_movement) and not force:
                 raise HTTPException(409, "Stock batch is already reserved or used and cannot change material")
+
+    if "warehouse_id" in values or "quantity" in values or target_item.id != item.id:
+        target_warehouse = db.get(Warehouse, target_warehouse_id)
+        if not target_warehouse:
+            raise HTTPException(404, "Warehouse not found")
+        validate_stock_batch_warehouse(target_item, target_warehouse)
 
     old_value = {
         "item_id": batch.item_id,

@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, StockMovement
+from app.models import AuditLog, StockBatch, StockMovement, Warehouse
 from app.schemas.inventory import StockQuantityAdjustmentIn
 
 
@@ -92,6 +92,32 @@ def test_stock_adjustment_storage_maximum_persists_exactly(client, auth_headers)
             .one()
         )
         assert movement.quantity == MAX_STOCK_QUANTITY
+
+
+def test_batch_tracked_adjustment_uses_matching_category_storage(client, auth_headers):
+    suffix = uuid4().hex[:10].upper()
+    item_response = client.post("/api/inventory/items", headers=auth_headers, json={
+        "sku": f"ADJ-BATCH-{suffix}", "name": f"Adjustment batch {suffix}",
+        "category": "accessory", "unit": "pcs", "default_cost": 1,
+        "reorder_level": 0, "track_batch": True,
+    })
+    assert item_response.status_code == 201, item_response.text
+    item_id = int(item_response.json()["id"])
+
+    adjusted = client.patch(
+        f"/api/inventory/stock/{item_id}", headers=auth_headers,
+        json={"quantity": 3, "unit": "pcs"},
+    )
+
+    assert adjusted.status_code == 200, adjusted.text
+    with SessionLocal() as db:
+        batch = db.query(StockBatch).filter_by(item_id=item_id).one()
+        warehouse = db.get(Warehouse, batch.warehouse_id)
+        movement = db.query(StockMovement).filter_by(batch_id=batch.id).one()
+        assert warehouse.type == "accessory_storage"
+        assert movement.item_id == batch.item_id == item_id
+        assert movement.to_warehouse_id == batch.warehouse_id
+        assert movement.quantity == batch.quantity == Decimal("3")
 
 
 def test_stock_adjustment_rejects_derived_delta_overflow_without_writes(client, auth_headers):
