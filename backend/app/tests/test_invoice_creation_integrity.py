@@ -66,6 +66,58 @@ def test_invoice_creation_unknown_order_keeps_404(client, auth_headers):
     assert response.json()["detail"] == "Sales order not found"
 
 
+@pytest.mark.parametrize("amount", ["1.001", "0.009", "1.2301", "1.00000000000000001"])
+def test_manual_invoice_rejects_subcent_amount_without_writes(client, auth_headers, amount):
+    order_id = _create_order(SessionLocal)
+    with SessionLocal() as db:
+        audit_count = db.query(AuditLog).filter_by(entity_type="Invoice").count()
+
+    response = client.post(
+        "/api/finance/invoices",
+        json={"sales_order_id": order_id, "amount": amount},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    with SessionLocal() as db:
+        assert db.query(Invoice).filter_by(sales_order_id=order_id).count() == 0
+        assert db.query(AuditLog).filter_by(entity_type="Invoice").count() == audit_count
+
+
+def test_manual_invoice_subcent_check_preserves_auth_order_and_replay_precedence(client, auth_headers):
+    order_id = _create_order(SessionLocal)
+    rejected_without_auth = client.post(
+        "/api/finance/invoices", json={"sales_order_id": order_id, "amount": "1.001"}
+    )
+    missing_order = client.post(
+        "/api/finance/invoices",
+        json={"sales_order_id": 2_000_000_000, "amount": "1.001"},
+        headers=auth_headers,
+    )
+    assert rejected_without_auth.status_code == 401
+    assert missing_order.status_code == 404
+
+    first = client.post(
+        "/api/finance/invoices", json={"sales_order_id": order_id, "amount": "4.25"}, headers=auth_headers
+    )
+    replay = client.post(
+        "/api/finance/invoices", json={"sales_order_id": order_id, "amount": "1.001"}, headers=auth_headers
+    )
+    assert first.status_code == replay.status_code == 201
+    assert replay.json() == first.json()
+
+
+def test_manual_invoice_accepts_exact_decimal_cents_without_float_conversion(client, auth_headers):
+    order_id = _create_order(SessionLocal)
+    response = client.post(
+        "/api/finance/invoices",
+        json={"sales_order_id": order_id, "amount": "999999999999.99"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["amount"] == 999999999999.99
+
+
 def test_sales_invoice_creation_replays_via_both_endpoints(client, auth_headers):
     order_id = _create_order(SessionLocal)
     with SessionLocal() as db:

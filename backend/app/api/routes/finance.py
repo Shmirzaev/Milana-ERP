@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel
@@ -22,6 +23,23 @@ from app.services.finance import (
 )
 
 router = APIRouter(prefix="/finance", tags=["finance"])
+_INVOICE_AMOUNT_MAX = Decimal("999999999999.99")
+_INVOICE_AMOUNT_CENT = Decimal("0.01")
+
+
+def _validated_invoice_amount(value: object) -> Decimal:
+    try:
+        amount = Decimal(str(value))
+        if (
+            not amount.is_finite()
+            or amount < 0
+            or amount > _INVOICE_AMOUNT_MAX
+            or amount != amount.quantize(_INVOICE_AMOUNT_CENT)
+        ):
+            raise ValueError
+    except (InvalidOperation, ValueError):
+        raise HTTPException(422, "Invoice amount must be finite and representable in cents") from None
+    return amount
 
 
 class RevenuePeriodOut(BaseModel):
@@ -135,10 +153,11 @@ def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(re
     existing = db.query(Invoice).filter(Invoice.sales_order_id == payload.sales_order_id).order_by(Invoice.id.desc()).first()
     if existing:
         return existing
+    amount = _validated_invoice_amount(payload.amount if payload.amount is not None else so.total_amount or 0)
     inv = Invoice(
         sales_order_id=payload.sales_order_id,
         invoice_no=next_invoice_no(db),
-        amount=float(payload.amount if payload.amount is not None else so.total_amount or 0),
+        amount=amount,
         status="unpaid",
         issued_at=datetime.now(timezone.utc),
     )

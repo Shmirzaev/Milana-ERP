@@ -1,5 +1,6 @@
 from uuid import UUID
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -205,8 +206,8 @@ class ShipmentScanOut(BaseModel):
 
 class InvoiceIn(BaseModel):
     sales_order_id: int = Field(gt=0, le=2_147_483_647)
-    amount: Optional[float] = Field(
-        default=None, ge=0, le=999_999_999_999.99, allow_inf_nan=False
+    amount: Optional[Decimal] = Field(
+        default=None, ge=0, le=Decimal("999999999999.99"), allow_inf_nan=False
     )
 
 
