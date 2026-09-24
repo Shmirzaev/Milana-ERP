@@ -6,6 +6,7 @@ Create Date: 2026-07-17
 """
 
 from copy import deepcopy
+import json
 
 from alembic import op
 import sqlalchemy as sa
@@ -15,6 +16,57 @@ revision = "0062_planning_fabric_batch"
 down_revision = "0061_production_order_brand"
 branch_labels = None
 depends_on = None
+
+
+def _validate_changed_details(details: dict, *, model_id: int) -> None:
+    # Frozen migration-local copy of the live 64 KiB/16-container write bound.
+    pending = [(details, 0)]
+    while pending:
+        value, parent_depth = pending.pop()
+        if isinstance(value, (dict, list)):
+            depth = parent_depth + 1
+            if depth > 16:
+                raise ValueError(f"Model {model_id} details_json cannot exceed 16 nested container levels")
+            if isinstance(value, dict):
+                if any(not isinstance(key, str) for key in value):
+                    raise ValueError(f"Model {model_id} details_json must contain JSON-compatible values")
+                pending.extend((child, depth) for child in value.values())
+            else:
+                pending.extend((child, depth) for child in value)
+        elif value is not None and type(value) not in (str, bool, int, float):
+            raise ValueError(f"Model {model_id} details_json must contain JSON-compatible values")
+    try:
+        serialized = json.dumps(details, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise ValueError(f"Model {model_id} details_json must contain finite JSON-compatible values") from exc
+    if len(serialized) > 64 * 1024:
+        raise ValueError(f"Model {model_id} details_json cannot exceed 65536 UTF-8 bytes")
+
+
+def _updated_model_details(existing: object, fabric_row: object, *, model_id: int) -> dict | None:
+    details = deepcopy(existing or {})
+    if not isinstance(details, dict):
+        return None
+    general = details.get("general")
+    if not isinstance(general, dict):
+        general = {}
+    changed = general.pop("variant_stock_batch_id", None) is not None
+    if fabric_row:
+        item_id = int(fabric_row["item_id"])
+        label = str(fabric_row["name"] or fabric_row["sku"] or "").strip()
+        if str(fabric_row["name"] or "").strip() and str(fabric_row["sku"] or "").strip():
+            label = f"{fabric_row['name']} ({fabric_row['sku']})"
+        if general.get("variant_fabric_item_id") != item_id:
+            general["variant_fabric_item_id"] = item_id
+            changed = True
+        if label and general.get("variant_fabric") != label:
+            general["variant_fabric"] = label
+            changed = True
+    if not changed:
+        return None
+    details["general"] = general
+    _validate_changed_details(details, model_id=model_id)
+    return details
 
 
 def upgrade():
@@ -57,26 +109,8 @@ def upgrade():
     ).mappings().all()
     for model_row in model_rows:
         fabric_row = first_fabric_by_model.get(int(model_row["id"]))
-        details = deepcopy(model_row["details_json"] or {})
-        if not isinstance(details, dict):
-            continue
-        general = details.get("general")
-        if not isinstance(general, dict):
-            general = {}
-        changed = general.pop("variant_stock_batch_id", None) is not None
-        if fabric_row:
-            item_id = int(fabric_row["item_id"])
-            label = str(fabric_row["name"] or fabric_row["sku"] or "").strip()
-            if str(fabric_row["name"] or "").strip() and str(fabric_row["sku"] or "").strip():
-                label = f"{fabric_row['name']} ({fabric_row['sku']})"
-            if general.get("variant_fabric_item_id") != item_id:
-                general["variant_fabric_item_id"] = item_id
-                changed = True
-            if label and general.get("variant_fabric") != label:
-                general["variant_fabric"] = label
-                changed = True
-        if changed:
-            details["general"] = general
+        details = _updated_model_details(model_row["details_json"], fabric_row, model_id=int(model_row["id"]))
+        if details is not None:
             connection.execute(
                 models_table.update()
                 .where(models_table.c.id == int(model_row["id"]))

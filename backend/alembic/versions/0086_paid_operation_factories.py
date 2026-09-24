@@ -5,6 +5,7 @@ Revises: 0085_supplier_archiving
 """
 
 from copy import deepcopy
+import json
 
 from alembic import op
 import sqlalchemy as sa
@@ -31,6 +32,32 @@ FACTORY_ALIASES = {
 }
 
 
+def _validate_changed_details(details: dict, *, model_id: int | None) -> None:
+    # Frozen migration-local copy of the live 64 KiB/16-container write bound.
+    label = f"Model {model_id}" if model_id is not None else "Model"
+    pending = [(details, 0)]
+    while pending:
+        value, parent_depth = pending.pop()
+        if isinstance(value, (dict, list)):
+            depth = parent_depth + 1
+            if depth > 16:
+                raise ValueError(f"{label} details_json cannot exceed 16 nested container levels")
+            if isinstance(value, dict):
+                if any(not isinstance(key, str) for key in value):
+                    raise ValueError(f"{label} details_json must contain JSON-compatible values")
+                pending.extend((child, depth) for child in value.values())
+            else:
+                pending.extend((child, depth) for child in value)
+        elif value is not None and type(value) not in (str, bool, int, float):
+            raise ValueError(f"{label} details_json must contain JSON-compatible values")
+    try:
+        serialized = json.dumps(details, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise ValueError(f"{label} details_json must contain finite JSON-compatible values") from exc
+    if len(serialized) > 64 * 1024:
+        raise ValueError(f"{label} details_json cannot exceed 65536 UTF-8 bytes")
+
+
 def _factory(row: object) -> str | None:
     if not isinstance(row, dict):
         return None
@@ -49,7 +76,7 @@ def _unique_id(base: str, used_ids: set[str]) -> str:
     return candidate
 
 
-def _expand_details(details: object) -> dict | None:
+def _expand_details(details: object, *, model_id: int | None = None) -> dict | None:
     if not isinstance(details, dict):
         return None
     key = "paid_operations" if "paid_operations" in details else "paidOperations" if "paidOperations" in details else None
@@ -84,10 +111,11 @@ def _expand_details(details: object) -> dict | None:
     migrated = deepcopy(details)
     migrated["paid_operations"] = expanded
     migrated.pop("paidOperations", None)
+    _validate_changed_details(migrated, model_id=model_id)
     return migrated
 
 
-def _collapse_details(details: object) -> dict | None:
+def _collapse_details(details: object, *, model_id: int | None = None) -> dict | None:
     if not isinstance(details, dict):
         return None
     rows = details.get("paid_operations")
@@ -121,6 +149,7 @@ def _collapse_details(details: object) -> dict | None:
         return None
     reverted = deepcopy(details)
     reverted["paid_operations"] = collapsed
+    _validate_changed_details(reverted, model_id=model_id)
     return reverted
 
 
@@ -132,7 +161,7 @@ def _rewrite_models(transform) -> None:
     )
     bind = op.get_bind()
     for model_id, details in bind.execute(sa.select(models.c.id, models.c.details_json)):
-        updated = transform(details)
+        updated = transform(details, model_id=int(model_id))
         if updated is not None:
             bind.execute(models.update().where(models.c.id == model_id).values(details_json=updated))
 
