@@ -1634,13 +1634,15 @@ def order_qr_status_orders(
 
     effective_page = page or 1
     effective_page_size = page_size or safe_limit
-    limited_rows = grouped_query.limit(500).subquery()
+    # The legacy unpaged response remains capped for compatibility, but paged
+    # callers need totals and rows from the complete factory-scoped directory.
+    option_rows = grouped_query.order_by(None).subquery()
     raw_order_key = case(
-        (limited_rows.c.sales_order_no != "", limited_rows.c.sales_order_no),
-        else_=limited_rows.c.production_no,
+        (option_rows.c.sales_order_no != "", option_rows.c.sales_order_no),
+        else_=option_rows.c.production_no,
     )
     order_key = func.trim(raw_order_key)
-    latest_at = func.max(limited_rows.c.latest_at)
+    latest_at = func.max(option_rows.c.latest_at)
     directory = (
         db.query(order_key.label("order_key"), latest_at.label("latest_at"))
         .filter(order_key != "")
@@ -1648,7 +1650,7 @@ def order_qr_status_orders(
     )
     total = int(directory.count())
     key_rows = (
-        directory.order_by(latest_at.desc())
+        directory.order_by(latest_at.desc(), order_key.asc())
         .offset((effective_page - 1) * effective_page_size)
         .limit(effective_page_size)
         .all()
@@ -1657,11 +1659,11 @@ def order_qr_status_orders(
     detail_rows = []
     if selected_keys:
         detail_rows = db.query(
-            limited_rows.c.sales_order_no,
-            limited_rows.c.production_no,
-            limited_rows.c.model_code,
-            limited_rows.c.label_count,
-            limited_rows.c.latest_at,
+            option_rows.c.sales_order_no,
+            option_rows.c.production_no,
+            option_rows.c.model_code,
+            option_rows.c.label_count,
+            option_rows.c.latest_at,
         ).filter(order_key.in_(selected_keys)).all()
     grouped = _group_order_qr_status_options(detail_rows)
     return {

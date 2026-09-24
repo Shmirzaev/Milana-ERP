@@ -90,6 +90,24 @@ def test_order_option_page_bounds_sql_and_preserves_legacy_payload(row_count):
     assert page["rows"][0]["label_count"] == 2
 
 
+def test_order_option_page_total_is_exact_beyond_legacy_directory_cap():
+    marker, expected_order = _seed_options(501)
+
+    page, statements = _read(marker, page=11, page_size=50)
+
+    assert page["rows"] == [{
+        "order_no": expected_order[-1],
+        "sales_order_nos": [expected_order[-1]],
+        "production_nos": [f"{marker}-PO-0000"],
+        "model_codes": ["MODEL-0"],
+        "label_count": 1,
+    }]
+    assert page["total"] == 501
+    assert page["page"] == 11
+    assert page["has_more"] is False
+    assert all(statement.startswith("select") for statement in statements)
+
+
 def test_order_option_page_contract_factory_auth_and_no_writes(client, auth_headers):
     marker, expected_order = _seed_options(3)
     other_marker, _ = _seed_options(1, factory_code="ECO")
