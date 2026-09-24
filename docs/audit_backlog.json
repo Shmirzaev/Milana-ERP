@@ -495,8 +495,8 @@
       "baseline_source": "backend/app/api/routes/waste.py:85",
       "status": "partial",
       "owner": null,
-      "commit": "6cb2d3a,2948674,c13d638",
-      "evidence": "Backend validates/locks remaining capacity. Keyed uncertain sales now reconcile or tombstone under the same lock hierarchy without re-executing the physical sale; cross-tab localStorage/Web Locks/storage events preserve one exact request and the UI displays current balance. The broad waste suite passes115 with9 expected PostgreSQL skips, valuation/history passes3, all5 PostgreSQL races pass and the frontend handler contract passes; independent review reruns33 local cases with5 expected skips, both new PostgreSQL ordering races and the frontend contract successfully. Identical unkeyed legacy requests remain inherently ambiguous until the owner requires Idempotency-Key; historical duplicate repair needs authoritative evidence, and finance must choose live versus stored valuation/backfill. Old sessionStorage in an unopened different tab can migrate only when that tab runs. No visual QA claim."
+      "commit": "6cb2d3a,2948674,c13d638,01e0ee1",
+      "evidence": "Backend validates/locks remaining capacity and now requires Idempotency-Key for every sale request; missing-key requests fail closed. Keyed uncertain sales reconcile or tombstone under the same lock hierarchy without re-executing the physical sale; cross-tab localStorage/Web Locks/storage events preserve one exact request and the UI displays current balance. The broad waste suite passes115 with9 expected PostgreSQL skips, valuation/history passes3, all5 PostgreSQL races and the frontend handler contract pass; independent review of the required-key change passes39 disposable-PostgreSQL cases and the frontend recovery contract. Historical duplicate repair needs authoritative evidence, and finance must choose live versus stored valuation/backfill. Old sessionStorage in an unopened different tab can migrate only when that tab runs. No visual QA claim."
     },
     {
       "number": 42,
@@ -745,10 +745,10 @@
       "risk": "Authorized repair can corrupt business data.",
       "proposed_fix": "Use explicit repair operations.",
       "baseline_source": "backend/app/api/routes/super_data.py:269",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "e7782ec",
-      "evidence": "Exact allowlist advertises and accepts only departments.name; every other PATCH returns 403. DELETE returns 409 without mutation or delete audit, successful rename is audited, and audit failure rolls back. Three focused backend cases plus executable frontend component/handler coverage, stabilization, strict TypeScript and targeted ESLint pass. Requested department soft delete remains blocked because the model has no inactive/deleted field and migrations require explicit approval, so SEC08 stays partial."
+      "commit": "e7782ec,297d808,df1d08f",
+      "evidence": "Raw Data Console PATCH accepts only a named, audited department-name repair; every other field/table write is forbidden and generic DELETE remains 409. Approved local-only revision 0132 adds a non-null active marker with a true default; named Super Admin deactivation audits atomically and is idempotent, while historical references remain readable and new department assignments are rejected. Eighty-four focused backend tests, 16 disposable-PostgreSQL migration tests, the Data Console component/handler contract, one explicit regular-admin denial and strict TypeScript pass. No production migration, deployment or push."
     },
     {
       "number": 63,
