@@ -1,6 +1,6 @@
 {
-  "release": "20260924_202614",
-  "source_manifest_sha256": "f79384be6ad4ac292f4448b9e17972400278e200fff7fbcdbbb658571bb6dcb3",
+  "release": "20260924_210134",
+  "source_manifest_sha256": "2113bdd81ca4a8e561ff7c76260ef4e9bceb6f1d73eb8164a8062735397c1dad",
   "database_revision": "0133_storage_customers",
-  "git_baseline_commit": "def99fa463cfc8bdd6d1e40c1dcf9b9cdb261aa1"
+  "git_baseline_commit": "025d3c612020d07be992fd5ab0cdb93af857f4e2"
 }
