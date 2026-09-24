@@ -118,7 +118,7 @@ class MaterialReservation(Base, PkMixin, TimestampMixin):
         ),
     )
 
-    reservation_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    reservation_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False, index=True)
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), index=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), nullable=False, index=True)

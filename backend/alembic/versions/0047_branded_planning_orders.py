@@ -46,7 +46,6 @@ def upgrade():
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("order_no"),
         )
-        op.create_index("ix_branded_planning_orders_order_no", "branded_planning_orders", ["order_no"], unique=True)
         op.create_index("ix_branded_planning_orders_customer_id", "branded_planning_orders", ["customer_id"])
 
     inspector = sa.inspect(bind)

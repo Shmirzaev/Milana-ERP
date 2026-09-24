@@ -1,5 +1,6 @@
 """Frozen bootstrap and opt-in PostgreSQL QA against reviewed known schema drift."""
 
+from collections import Counter
 import importlib.util
 import json
 import os
@@ -29,6 +30,7 @@ DB08_MODEL_ALIGNED_CLASSIFICATIONS = {
     "preexisting_type_contract",
     "preexisting_unmapped_legacy_schema",
 }
+DB06_ALIGNED_DIFFERENCE_NUMBERS = {7, 39}
 
 
 def load_migration(name):
@@ -131,6 +133,48 @@ def _current_revision(engine):
         return MigrationContext.configure(connection).get_current_revision()
 
 
+def _duplicate_foreign_key_groups(inspector):
+    duplicates = {}
+    for table in inspector.get_table_names():
+        signatures = Counter(
+            (
+                tuple(foreign_key.get("constrained_columns") or ()),
+                foreign_key.get("referred_schema"),
+                foreign_key.get("referred_table"),
+                tuple(foreign_key.get("referred_columns") or ()),
+                (foreign_key.get("options") or {}).get("ondelete"),
+                (foreign_key.get("options") or {}).get("onupdate"),
+            )
+            for foreign_key in inspector.get_foreign_keys(table)
+        )
+        repeated = {signature: count for signature, count in signatures.items() if count > 1}
+        if repeated:
+            duplicates[table] = repeated
+    return duplicates
+
+
+def _duplicate_unique_index_groups(inspector):
+    duplicates = {}
+    for table in inspector.get_table_names():
+        unique_constraints = Counter(
+            tuple(constraint.get("column_names") or ())
+            for constraint in inspector.get_unique_constraints(table)
+        )
+        standalone_unique_indexes = Counter(
+            tuple(index.get("column_names") or ())
+            for index in inspector.get_indexes(table)
+            if index.get("unique") and not index.get("duplicates_constraint")
+        )
+        repeated = {
+            columns: constraint_count + standalone_unique_indexes[columns]
+            for columns, constraint_count in unique_constraints.items()
+            if constraint_count + standalone_unique_indexes[columns] > 1
+        }
+        if repeated:
+            duplicates[table] = repeated
+    return duplicates
+
+
 def _compare_json_server_default(context, inspected, model, inspected_default, _model_default, model_default):
     """PostgreSQL JSON has no equality operator; retain actual default checks."""
     if not isinstance(model.type, sa.JSON):
@@ -201,12 +245,13 @@ def _known_drift_baseline():
 
 
 def _current_known_drift_baseline():
-    """Historical evidence remains immutable; DB08 removes model-aligned entries."""
+    """Historical evidence remains immutable; later fixes remove reviewed entries."""
     report = json.loads(KNOWN_DRIFT.read_text(encoding="utf-8"))
     return [
         entry["difference"]
         for entry in report["differences"]
         if entry["classification"] not in DB08_MODEL_ALIGNED_CLASSIFICATIONS
+        and entry["number"] not in DB06_ALIGNED_DIFFERENCE_NUMBERS
     ]
 
 
@@ -227,13 +272,13 @@ def test_known_drift_baseline_ignores_only_order():
     _assert_known_drift_baseline(list(reversed(expected)), expected)
 
 
-def test_db08_current_baseline_excludes_only_model_aligned_historical_drift():
+def test_current_baseline_excludes_only_reviewed_historical_drift():
     historical = _known_drift_baseline()
     current = _current_known_drift_baseline()
 
     assert len(historical) == 126
-    assert len(current) == 86
-    assert len(historical) - len(current) == 40
+    assert len(current) == 84
+    assert len(historical) - len(current) == 42
 
 
 @pytest.mark.parametrize("change", ["added", "changed", "disappeared", "duplicated"])
@@ -299,8 +344,11 @@ def test_postgres_fresh_head_rerun_and_known_drift_baseline(postgres_migrations)
     command.upgrade(config, "head")
 
     assert _current_revision(engine) == ScriptDirectory.from_config(config).get_current_head() == "0131_sewing_corrections"
-    tables = set(sa.inspect(engine).get_table_names())
+    inspector = sa.inspect(engine)
+    tables = set(inspector.get_table_names())
     assert {"manual_accessory_issues", "eco_fabric_dispatches", "sewing_records"} <= tables
+    assert _duplicate_foreign_key_groups(inspector) == {}
+    assert _duplicate_unique_index_groups(inspector) == {}
     mutations = []
 
     def capture(_connection, _cursor, statement, _parameters, _context, _executemany):

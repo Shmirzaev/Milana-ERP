@@ -31,7 +31,7 @@ class BrandedPlanningOrder(Base, PkMixin, TimestampMixin):
             name="ck_branded_planning_orders_status",
         ),
     )
-    order_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    order_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     ordered_for_type: Mapped[str] = mapped_column(String(32), nullable=False)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), index=True)
     ordered_for_name: Mapped[str] = mapped_column(String(255), nullable=False)

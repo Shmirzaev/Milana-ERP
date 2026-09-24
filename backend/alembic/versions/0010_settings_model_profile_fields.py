@@ -19,6 +19,19 @@ def _has_column(inspector, table: str, column: str) -> bool:
     return column in {c["name"] for c in inspector.get_columns(table)}
 
 
+def _has_foreign_key(inspector, table, columns, referred_table, referred_columns):
+    signature = (tuple(columns), referred_table, tuple(referred_columns))
+    return any(
+        (
+            tuple(foreign_key.get("constrained_columns") or ()),
+            foreign_key.get("referred_table"),
+            tuple(foreign_key.get("referred_columns") or ()),
+        )
+        == signature
+        for foreign_key in inspector.get_foreign_keys(table)
+    )
+
+
 def upgrade():
     bind = op.get_bind()
     inspector = sa.inspect(bind)
@@ -51,7 +64,6 @@ def upgrade():
                 op.add_column("models", column)
 
         if bind.dialect.name != "sqlite":
-            existing_fks = {fk.get("name") for fk in inspector.get_foreign_keys("models")}
             fk_defs = [
                 ("fk_models_brand_id", "brand_id", "brands"),
                 ("fk_models_collection_id", "collection_id", "collections"),
@@ -59,7 +71,7 @@ def upgrade():
                 ("fk_models_designer_employee_id", "designer_employee_id", "employees"),
             ]
             for fk_name, column_name, target_table in fk_defs:
-                if fk_name not in existing_fks:
+                if not _has_foreign_key(inspector, "models", [column_name], target_table, ["id"]):
                     op.create_foreign_key(fk_name, "models", target_table, [column_name], ["id"])
 
     if "model_images" in tables:
