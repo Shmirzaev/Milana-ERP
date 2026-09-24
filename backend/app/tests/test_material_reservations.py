@@ -159,6 +159,60 @@ def test_cutting_passport_adds_missing_material_atomically(client, auth_headers)
     assert client.patch(f"/api/cutting-passports/{passport_id}", headers=cutting_headers, json=extra).status_code == 400
 
 
+def test_cutting_passport_rejects_legacy_batch_unit_drift_with_existing_reservation(client, auth_headers):
+    from app.db.session import SessionLocal
+    from app.models import AuditLog, MaterialReservation, ProductionOrderMaterial, StockBatch
+    from app.models.cutting_passport import CuttingPassport
+    from app.tests.test_sewing_workspace_permissions import _create_user_headers
+
+    cutting_headers = _create_user_headers(client, auth_headers, role="Cutting", department="CUT")
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    primary = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=20, unit="kg",
+    )
+    extra = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=20, unit="kg",
+    )
+    created = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "materials": [{"stock_batch_id": primary["id"], "estimated_quantity": 5, "unit": "kg"}],
+        "items": [{"model_id": 1, "color": "white", "size": "46", "planned_quantity": 10}],
+    })
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+    _create_material_reservation(
+        client, auth_headers, production_order_id=order_id, item_id=item["id"],
+        stock_batch_id=extra["id"], warehouse_id=warehouse["id"], quantity=5,
+    )
+    with SessionLocal() as db:
+        db.get(StockBatch, extra["id"]).unit = "m"
+        db.commit()
+        before = (
+            db.query(CuttingPassport).count(), db.query(ProductionOrderMaterial).count(),
+            db.query(MaterialReservation).count(), db.query(AuditLog).count(),
+        )
+
+    response = client.post("/api/cutting-passports", headers=cutting_headers, json={
+        "passport_no": f"DRIFT-{uuid4().hex[:8]}", "date": "2026-09-10T00:00:00Z",
+        "production_order_id": order_id,
+        "materials": [
+            {"stock_batch_id": primary["id"], "planned_kg": 5, "pieces": 10},
+            {"stock_batch_id": extra["id"], "planned_kg": 5, "pieces": 10},
+        ],
+        "additional_materials": [{"stock_batch_id": extra["id"], "estimated_quantity": 5, "unit": "m"}],
+    })
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Batch unit must match the material unit"
+    with SessionLocal() as db:
+        assert (
+            db.query(CuttingPassport).count(), db.query(ProductionOrderMaterial).count(),
+            db.query(MaterialReservation).count(), db.query(AuditLog).count(),
+        ) == before
+        assert db.get(StockBatch, extra["id"]).unit == "m"
+
+
 def _planning_headers(client) -> dict[str, str]:
     r = None
     for password in ("demo12345", "PlanningResetPassword123!"):

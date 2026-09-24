@@ -12,6 +12,7 @@ from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionOrde
 from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
+from app.services.stock_batch_policy import validate_stock_batch_unit
 from app.services.factory_scope import require_operational_department_access
 from app.schemas.cutting_passport import (
     CuttingOperatorOut,
@@ -759,6 +760,7 @@ def _add_passport_materials(db, order, work_order, payload, current):
             raise HTTPException(409, "This fabric batch is archived or empty")
         if addition.unit != batch.unit:
             raise HTTPException(400, "Material unit must match the selected stock batch")
+        validate_stock_batch_unit(item, batch.unit)
         reservations = reservations_by_batch.get(batch.id, ())
         already_reserved = sum(max(0, float(row.reserved_quantity) - float(row.consumed_quantity or 0) - float(row.released_quantity or 0)) for row in reservations)
         missing = addition.estimated_quantity - already_reserved
