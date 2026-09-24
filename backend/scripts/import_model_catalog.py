@@ -79,7 +79,8 @@ def upsert_details(
     workbook: str,
     preserve_existing: bool = False,
 ) -> None:
-    details = dict(model.details_json) if isinstance(model.details_json, dict) else {}
+    existing_details = model.details_json
+    details = dict(existing_details) if isinstance(existing_details, dict) else {}
     general = dict(details.get("general")) if isinstance(details.get("general"), dict) else {}
     incoming_general = {
         "model_no": normalize_model_no(record.get("modelNo")),
@@ -105,6 +106,28 @@ def upsert_details(
     details["sources"] = list({clean(entry.get("import_key")): entry for entry in imports}.values())
     if not preserve_existing or not current_source:
         details["source"] = source_entry
+    prior_source = next(
+        (
+            entry for entry in [current_source, *(existing_details.get("sources") or [])]
+            if isinstance(entry, dict) and clean(entry.get("import_key")) == source_key
+        ),
+        None,
+    ) if isinstance(existing_details, dict) else None
+    if prior_source and isinstance(prior_source.get("imported_at"), str):
+        new_imported_at = source_entry["imported_at"]
+        source_entry["imported_at"] = prior_source["imported_at"]
+        if details != existing_details:
+            source_entry["imported_at"] = new_imported_at
+    from fastapi import HTTPException
+
+    from app.api.routes.catalog import _validate_model_details_json_bounds
+
+    try:
+        _validate_model_details_json_bounds(details, existing_details=existing_details)
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from exc
+    if details == existing_details:
+        return
     model.details_json = details
     flag_modified(model, "details_json")
 
