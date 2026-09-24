@@ -48,20 +48,35 @@ def _recommendation_payload(row: ForecastRecommendation) -> dict:
 
 
 def _validate_recommendation_references(payload: ForecastRecommendationIn, db: DbSession) -> None:
-    """Reject dangling references before creating a recommendation.
+    """Reject dangling references and contradictory brand/collection links.
 
-    These are existence checks only; visibility and cross-entity business rules
-    remain the responsibility of the forecasting policy layer.
+    Visibility and other cross-entity business rules remain the responsibility
+    of the forecasting policy layer.
     """
     references = (
         ("model_id", Model, payload.model_id),
         ("item_id", Item, payload.item_id),
         ("brand_id", Brand, payload.brand_id),
-        ("collection_id", Collection, payload.collection_id),
     )
     for field, entity, value in references:
         if value is not None and db.query(entity.id).filter(entity.id == value).first() is None:
             raise HTTPException(400, f"{field} references a missing record")
+
+    collection_brand_id = None
+    if payload.collection_id is not None:
+        collection = db.query(Collection.id, Collection.brand_id).filter(
+            Collection.id == payload.collection_id
+        ).first()
+        if collection is None:
+            raise HTTPException(400, "collection_id references a missing record")
+        collection_brand_id = int(collection.brand_id)
+
+    if (
+        payload.brand_id is not None
+        and collection_brand_id is not None
+        and collection_brand_id != payload.brand_id
+    ):
+        raise HTTPException(400, "collection_id does not belong to brand_id")
 
 
 @router.get("/dashboard")

@@ -6,6 +6,8 @@ from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models import (
+    Brand,
+    Collection,
     FinishedGoodsStock,
     Item,
     ManualAccessoryIssue,
@@ -743,6 +745,44 @@ def test_forecast_recommendation_rejects_dangling_reference_without_write(client
         }
         response = client.post("/api/forecasting/recommendations", json=payload, headers=auth_headers)
         assert response.status_code == 400, (field, response.text)
+    after = client.get("/api/forecasting/recommendations", headers=auth_headers)
+    assert after.status_code == 200, after.text
+    assert after.json() == before.json()
+
+
+def test_forecast_recommendation_rejects_mismatched_collection_brand_without_write(
+    client, auth_headers,
+):
+    marker = uuid4().hex
+    with TestSessionLocal() as db:
+        brand = Brand(name=f"Forecast API brand {marker}")
+        other_brand = Brand(name=f"Forecast API other brand {marker}")
+        db.add_all([brand, other_brand])
+        db.flush()
+        collection = Collection(
+            brand_id=brand.id,
+            name=f"Forecast API collection {marker}",
+            year=2026,
+        )
+        db.add(collection)
+        db.commit()
+        other_brand_id = int(other_brand.id)
+        collection_id = int(collection.id)
+
+    before = client.get("/api/forecasting/recommendations", headers=auth_headers)
+    assert before.status_code == 200, before.text
+    response = client.post(
+        "/api/forecasting/recommendations",
+        json={
+            "recommendation_type": "branded_stock_production",
+            "brand_id": other_brand_id,
+            "collection_id": collection_id,
+            "suggested_quantity": 1,
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "collection_id does not belong to brand_id"
     after = client.get("/api/forecasting/recommendations", headers=auth_headers)
     assert after.status_code == 200, after.text
     assert after.json() == before.json()

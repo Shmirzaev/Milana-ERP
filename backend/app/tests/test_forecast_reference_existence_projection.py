@@ -62,10 +62,41 @@ def test_forecast_reference_checks_select_only_ids():
             _validate_recommendation_references(missing_payload, db)
 
     assert len(statements) == 4
-    for table in ("models", "items", "brands", "collections"):
+    for table in ("models", "items", "brands"):
         statement = next(sql for sql in statements if f"from {table}" in sql)
         projection = statement.split(f" from {table}", 1)[0]
         assert projection.split()[1] == f"{table}.id"
         assert "," not in projection
+    collection_statement = next(sql for sql in statements if "from collections" in sql)
+    collection_projection = collection_statement.split(" from collections", 1)[0]
+    assert "collections.id" in collection_projection
+    assert "collections.brand_id" in collection_projection
+    assert "collections.name" not in collection_projection
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "model_id references a missing record"
+
+
+def test_forecast_reference_check_rejects_mismatched_collection_brand():
+    marker = uuid4().hex
+    with TestSessionLocal() as db:
+        brand = Brand(name=f"Forecast matching brand {marker}")
+        other_brand = Brand(name=f"Forecast other brand {marker}")
+        db.add_all([brand, other_brand])
+        db.flush()
+        collection = Collection(
+            brand_id=brand.id,
+            name=f"Forecast matching collection {marker}",
+            year=2026,
+        )
+        db.add(collection)
+        db.commit()
+
+        payload = ForecastRecommendationIn.model_validate(_payload(
+            brand_id=other_brand.id,
+            collection_id=collection.id,
+        ))
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_recommendation_references(payload, db)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "collection_id does not belong to brand_id"
