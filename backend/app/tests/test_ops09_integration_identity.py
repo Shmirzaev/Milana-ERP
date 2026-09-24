@@ -17,6 +17,7 @@ from app.core.integration_auth import (
     authenticate_onec_integration,
     parse_onec_client_credentials,
 )
+from app.core.config import settings
 from app.db.base import Base
 from app.models import IdempotencyRecord
 from app.services.integration_idempotency import replay_integration_response, store_integration_response
@@ -165,6 +166,111 @@ def test_integration_replay_policy_can_require_request_identity():
                 required=True,
             )
     assert caught.value.status_code == 400
+
+
+def test_1c_route_rejects_invalid_named_client_before_sync_or_idempotency_write(client, monkeypatch):
+    import app.api.routes.finance as finance_route
+
+    secret = "route-secret-" + "x" * 40
+    monkeypatch.setattr(settings, "INTEGRATION_1C_CLIENTS_JSON", json.dumps({"accounting": {"current": secret}}))
+    monkeypatch.setattr(settings, "INTEGRATION_1C_TOKEN", "legacy-token")
+    monkeypatch.setattr(settings, "ENV", "production")
+    sync_calls = []
+    monkeypatch.setattr(finance_route, "sync_from_1c", lambda *_args: sync_calls.append(True))
+
+    with TestSessionLocal() as db:
+        before = db.query(IdempotencyRecord).filter(
+            IdempotencyRecord.scope.like("integrations.1c:%")
+        ).count()
+    response = client.post(
+        "/api/finance/integrations/1c/sync",
+        headers={"X-1C-Client": "accounting", "X-1C-Token": "wrong", "Idempotency-Key": "route-invalid"},
+        json={"invoices": [], "payments": []},
+    )
+    with TestSessionLocal() as db:
+        after = db.query(IdempotencyRecord).filter(
+            IdempotencyRecord.scope.like("integrations.1c:%")
+        ).count()
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid 1C token"}
+    assert sync_calls == []
+    assert after == before
+    assert secret not in response.text
+
+
+def test_1c_route_uses_client_identity_and_replays_without_persisting_credentials(client, monkeypatch):
+    import app.api.routes.finance as finance_route
+
+    secret = "route-secret-" + "y" * 40
+    monkeypatch.setattr(settings, "INTEGRATION_1C_CLIENTS_JSON", json.dumps({"accounting": {"current": secret}}))
+    monkeypatch.setattr(settings, "INTEGRATION_1C_TOKEN", "legacy-token")
+    monkeypatch.setattr(settings, "ENV", "production")
+    calls = []
+
+    def fake_sync(_db, _payload):
+        calls.append(True)
+        return {"invoices_created": 1, "payments_created": 0, "errors": []}
+
+    monkeypatch.setattr(finance_route, "sync_from_1c", fake_sync)
+    headers = {
+        "X-1C-Client": "accounting",
+        "X-1C-Token": secret,
+        "Idempotency-Key": "route-replay",
+    }
+    body = {"invoices": [], "payments": []}
+    first = client.post("/api/finance/integrations/1c/sync", headers=headers, json=body)
+    second = client.post("/api/finance/integrations/1c/sync", headers=headers, json=body)
+
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json() == {"invoices_created": 1, "payments_created": 0, "errors": []}
+    assert len(calls) == 1
+    with TestSessionLocal() as db:
+        rows = db.query(IdempotencyRecord).filter_by(
+            scope="integrations.1c:accounting", key="route-replay",
+        ).all()
+        assert len(rows) == 1
+        serialized = json.dumps(rows[0].response_json)
+        assert secret not in serialized
+        assert "legacy-token" not in serialized
+
+
+def test_1c_route_fails_closed_when_named_clients_are_unconfigured_in_production(client, monkeypatch):
+    import app.api.routes.finance as finance_route
+
+    monkeypatch.setattr(settings, "INTEGRATION_1C_CLIENTS_JSON", "")
+    monkeypatch.setattr(settings, "INTEGRATION_1C_TOKEN", "legacy-token")
+    monkeypatch.setattr(settings, "ENV", "production")
+    sync_calls = []
+    monkeypatch.setattr(finance_route, "sync_from_1c", lambda *_args: sync_calls.append(True))
+
+    response = client.post(
+        "/api/finance/integrations/1c/sync",
+        headers={"X-1C-Token": "legacy-token", "Idempotency-Key": "route-no-clients"},
+        json={"invoices": [], "payments": []},
+    )
+    assert response.status_code == 503
+    assert "per-client" in response.json()["detail"]
+    assert sync_calls == []
+
+
+def test_1c_route_requires_replay_key_in_production(client, monkeypatch):
+    import app.api.routes.finance as finance_route
+
+    secret = "route-secret-" + "z" * 40
+    monkeypatch.setattr(settings, "INTEGRATION_1C_CLIENTS_JSON", json.dumps({"accounting": {"current": secret}}))
+    monkeypatch.setattr(settings, "ENV", "production")
+    sync_calls = []
+    monkeypatch.setattr(finance_route, "sync_from_1c", lambda *_args: sync_calls.append(True))
+
+    response = client.post(
+        "/api/finance/integrations/1c/sync",
+        headers={"X-1C-Client": "accounting", "X-1C-Token": secret},
+        json={"invoices": [], "payments": []},
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Idempotency-Key is required for 1C synchronization"}
+    assert sync_calls == []
 
 
 @pytest.fixture(scope="module")

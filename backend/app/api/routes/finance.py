@@ -1,4 +1,3 @@
-import hmac
 from datetime import datetime, timezone
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
@@ -6,12 +5,14 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
+from app.core.integration_auth import authenticate_onec_integration
 from app.models import Invoice, SalesOrder, User
 from app.schemas.integrations import OneCSyncIn
 from app.schemas.finance import FinanceInvoiceOut, FinanceInvoicePageOut
 from app.schemas.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
 from app.services.audit import log_action
 from app.services.finance_1c import sync_from_1c
+from app.services.integration_idempotency import replay_integration_response, store_integration_response
 from app.services.numbering import next_invoice_no
 from app.services.payments import create_invoice_payment
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
@@ -188,12 +189,33 @@ def sync_1c_finance(
     payload: OneCSyncIn,
     db: DbSession,
     x_1c_token: str | None = Header(default=None, alias="X-1C-Token"),
+    x_1c_client: str | None = Header(default=None, alias="X-1C-Client"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    expected = settings.INTEGRATION_1C_TOKEN.strip()
-    if not expected:
-        raise HTTPException(503, "1C integration token is not configured")
-    if not hmac.compare_digest(str(x_1c_token or ""), expected):
-        raise HTTPException(401, "Invalid 1C token")
+    identity = authenticate_onec_integration(
+        supplied_client_id=x_1c_client,
+        supplied_token=x_1c_token,
+        clients_json=settings.INTEGRATION_1C_CLIENTS_JSON,
+        legacy_shared_token=settings.INTEGRATION_1C_TOKEN,
+        strict_security_required=settings.strict_security_required,
+    )
+    replay = replay_integration_response(
+        db,
+        identity=identity,
+        key=idempotency_key,
+        payload=payload,
+        required=settings.strict_security_required,
+    )
+    if replay is not None:
+        db.commit()
+        return replay
     result = sync_from_1c(db, payload)
+    store_integration_response(
+        db,
+        identity=identity,
+        key=idempotency_key,
+        payload=payload,
+        response=result,
+    )
     db.commit()
     return result
