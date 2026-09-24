@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Header
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from app.services.print_response import warehouse_print_response
 from pydantic import ValidationError
 from sqlalchemy import and_, func, exists
@@ -1258,6 +1258,23 @@ def _invoice_print_details(db, shipment, document):
                 line["size_display"] = manual_invoice_sizes(db, package, line.get("size"))
         document["lines"] = lines
         document["invoice_rows"] = build_invoice_rows(lines, document.get("package_details") or [])
+    # Presentation order uses successful scans, never package IDs. Ignore scans
+    # invalidated by detachment; duplicate scans retain their first position.
+    scanned = db.query(Package.package_no).join(ShipmentScanLog, ShipmentScanLog.package_id == Package.id).filter(
+        ShipmentScanLog.shipment_id == shipment.id, _valid_matched_scan()
+    ).order_by(ShipmentScanLog.scanned_at, ShipmentScanLog.id).all()
+    positions = {}
+    for (package_no,) in scanned:
+        positions.setdefault(package_no, len(positions))
+    def rank(row):
+        return positions.get(row.get("package_no"), len(positions))
+    # Copy before sorting: printing and export must not mutate the frozen snapshot.
+    document["lines"] = sorted(lines, key=rank)
+    if document.get("package_details") is not None:
+        document["package_details"] = sorted(document["package_details"], key=rank)
+        document["invoice_rows"] = build_invoice_rows(document["lines"], document["package_details"])
+    elif document.get("invoice_rows"):
+        document["invoice_rows"] = sorted(document["invoice_rows"], key=rank)
     if not document.get("warehouse_person"):
         actor = db.query(User).join(AuditLog, AuditLog.user_id == User.id).filter(
             AuditLog.entity_type == "Shipment", AuditLog.entity_id == shipment.id, AuditLog.action == "ship"
@@ -1273,7 +1290,7 @@ def _printed_document(db: DbSession, shipment: Shipment) -> dict:
         if (shipment.dispatch_snapshot or {}).get("manual") and shipment.status in {"draft", "created"}:
             document = shipment_document(db, shipment, scanned_ids=_matched_package_ids_for_shipment(db, shipment.id))
             if document["packages_count"]:
-                return {**document, "finance_posting_status": "draft"}
+                return _invoice_print_details(db, shipment, {**document, "finance_posting_status": "draft"})
         raise HTTPException(409, "Invoice printing is available after shipment")
     frozen = (shipment.dispatch_snapshot or {}).get("document")
     if frozen:
@@ -1305,6 +1322,18 @@ def print_shipment_invoice(sid: int, db: DbSession, lang: str = "en",
     if not shipment:
         raise HTTPException(404, "Shipment not found")
     return warehouse_print_response(render_shipment_invoice(_printed_document(db, shipment), lang))
+
+
+@router.get("/{sid}/invoice.xlsx")
+def export_shipment_invoice(sid: int, db: DbSession, lang: str = "en",
+                            _: User = Depends(require_permissions("storage.shipment", "sales.orders", "finance.view", "*"))):
+    from app.services.shipment_invoice_excel import shipment_invoice_workbook
+    shipment = db.get(Shipment, sid)
+    if not shipment:
+        raise HTTPException(404, "Shipment not found")
+    return Response(shipment_invoice_workbook(_printed_document(db, shipment), lang),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="shipment-{sid}-invoice.xlsx"', "Cache-Control": "no-store"})
 
 
 @router.get("/{sid}/scan-status", response_model=ShipmentScanOut)

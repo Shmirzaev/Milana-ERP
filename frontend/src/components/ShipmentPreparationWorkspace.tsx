@@ -13,6 +13,7 @@ import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { shipmentReviewText } from "@/lib/shipmentReviewText";
+import ShipmentInvoiceActions from "@/components/ShipmentInvoiceActions";
 import ShipmentReviewPanel from "@/components/ShipmentReviewPanel";
 import ShipmentTransportDetails, { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
 import { shipmentTransportText } from "@/lib/shipmentTransportText";
@@ -251,7 +252,7 @@ export default function ShipmentPreparationWorkspace({
                 {t("page.shipments.traceability")}
               </Link>
             ) : null}
-            {(["shipped", "delivered"].includes(shipment.status) || (isOpen && shipment.shipment_type === "manual" && (preparation.review?.packages_count || 0) > 0)) && <a className="btn" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={reviewText.reference}>{reviewText.print}</a>}
+            {(["shipped", "delivered"].includes(shipment.status) || (isOpen && shipment.shipment_type === "manual" && (preparation.review?.packages_count || 0) > 0)) && <ShipmentInvoiceActions shipmentId={shipment.id} />}
           </div> : onCreate ? (
             <div className="flex lg:justify-end">
               <button type="button" className="btn btn-primary" onClick={() => onCreate(normalizeTransportDetails(transportDraft))} disabled={isCreating}>
