@@ -301,8 +301,21 @@ class MaterialReservationIn(BaseModel):
         gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
     unit: str
-    reservation_type: str = "material"
+    reservation_type: Literal["material", "accessory", "packaging", ""] = Field(
+        default="material",
+        description=(
+            "Reservation classification: material, accessory, or packaging. "
+            "A blank value retains the legacy category-derived behavior."
+        ),
+    )
     notes: Optional[str] = None
+
+    @field_validator("reservation_type", mode="before")
+    @classmethod
+    def normalize_reservation_type(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
 
 class MaterialReservationAutoIn(BaseModel):
