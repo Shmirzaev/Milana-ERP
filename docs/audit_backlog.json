@@ -1225,10 +1225,10 @@
       "risk": "Heavy work at scale; not ordinary read N+1.",
       "proposed_fix": "Bound fan-out and on-demand counts.",
       "baseline_source": "backend/app/api/routes/tasks.py:94",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "c5b2483, b6a8beb, 1785a88, ebe8399",
-      "evidence": "Task and notification fan-out inserts are batched. Commit ebe8399 bounds notification recipient discovery at cap+1 before any write/audit and adds a count-free metadata directory used by Data Console;1/50/401 table directories execute0 count SQL while legacy counted responses remain compatible. The independent backend selection passes51 with5 PostgreSQL-only skips; frontend component, strict-type and lint checks pass. Remaining task broadcast work is in the protected dirty API02 route: it still hydrates full User rows and has no recipient ceiling. Necessary task/notification rows remain O(N), so PERF36 stays partial."
+      "commit": "c5b2483, b6a8beb, 1785a88, ebe8399, bd36441",
+      "evidence": "Task and notification fan-out inserts are batched. Commit ebe8399 bounds notification recipient discovery at cap+1 before any write/audit and adds a count-free metadata directory used by Data Console; 1/50/401 table directories execute 0 count SQL while legacy counted responses remain compatible. Commit bd36441 applies the same 1..250 configurable ceiling to task broadcasts and uses one cap+1 narrow authorization projection instead of full User hydration. At 1/50 recipients the endpoint uses 4/4 SQLite or 6/6 PostgreSQL SELECTs and two flushes; at 401 recipients it reads only 251 target rows and rejects before recipient-policy iteration or any task, notification or audit write. Eight independently rerun PostgreSQL broadcast cases pass, and the combined local/PostgreSQL selections preserve API02 reference, factory, package and explicit-denial behavior. Necessary task/notification rows remain O(N)."
     },
     {
       "number": 103,
