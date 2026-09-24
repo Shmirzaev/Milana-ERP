@@ -56,7 +56,7 @@ new Function("require", "exports", "module", output)(name => {
     },
   };
   if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
-  if (name === "swr") return Object.assign(noop, { useSWRInfinite });
+  if (name === "swr/infinite") return { default: useSWRInfinite };
   if (name === "next/link") return noop;
   if (name === "@/lib/api") return { fetcher: async () => ({}) };
   if (name === "@/lib/i18n") return { useT: () => ({ lang: "en", t: key => key }) };
