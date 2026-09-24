@@ -1533,7 +1533,7 @@
       "status": "open",
       "owner": null,
       "commit": null,
-      "evidence": null
+      "evidence": "Added the value-free ownership, vault, consumer reconciliation and rotation checklist at docs/OPS11_CREDENTIAL_CUSTODY_CHECKLIST.md and linked it from docs/SECURITY_RUNBOOK.md. No secret-manager, production-host environment, handover-document, third-party client or consumer inventory was inspected; no owner assignment or rotation/revocation is evidenced. OPS11 remains open pending owner-approved vault custody, external copy review, complete consumer inventory and verified rotation/revocation where required."
     },
     {
       "number": 125,

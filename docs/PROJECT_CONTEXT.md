@@ -2,6 +2,8 @@
 
 Last updated: 2026-09-25
 
+- Continued 2026-09-25 (OPS11 credential custody checklist): added a value-free owner/vault/consumer inventory and rotation evidence procedure linked from the security runbook. It does not establish actual vault ownership, locate historic handover copies, inventory production/third-party consumers, or prove any rotation; OPS11 remains open pending owner-approved external reconciliation and rotation/revocation. No credential values were inspected or changed, and no production contact occurred.
+
 - Continued 2026-09-25 (OPS10 recovery drill preparation): `docs/OPS10_NONPRODUCTION_RESTORE_DRILL.md` adds a non-production isolation checklist and evidence template for paired database/storage recovery. Business/IT owners still need to approve RTO, RPO, backup cadence, retention, off-host copy, drill scope/frequency and recovery roles; no restore, live environment check or witnessed drill was performed. OPS10 remains open; no production contact, migration, push, merge or deployment.
 
 - Continued 2026-09-25 (PERF35 Purchasing Receiving): `59a86c5d` pages the real receiving queue in searchable 50-order slices and keeps direct-ID recovery for a pending idempotent receipt. `b3239284` bounds supplier-total summaries to groups visible on each page while computing each group's exact global ordered-kg total; the UI merges summaries across loaded pages. Legacy bare orders remain an array. The integrated backend selection passes 13 tests; four Bun receiving/supplier/roll-weight contracts, TypeScript and targeted lint pass. Other large graphs and live load evidence keep PERF35 partial. Local only; no push, deployment or merge.
