@@ -829,10 +829,10 @@
       "risk": "Large queues slow even small pages.",
       "proposed_fix": "Page eligible results; bulk stock totals.",
       "baseline_source": "backend/app/services/inventory.py:1425",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "2c30d5d, 704abef, 3a74e5a, 74211ab, 12579f6, 314265f, 6aaf2ba",
-      "evidence": "Accessory reference and stock reads are batched, including one aggregate stock read per source for issue plans and narrow summary projections. The paged request path still derives BOM requirements, linked/manual issuance, stock/reservations and completion/shortage status for every candidate before exact total and global status sorting. Twenty-three closure-audit tests pass. A safe closure requires parity-proven database-side derivation before LIMIT or an approved change to exact-total/status-order semantics, so PERF02 remains partial."
+      "commit": "2c30d5d, 704abef, 3a74e5a, 74211ab, 12579f6, 314265f, 6aaf2ba, 90b7f21",
+      "evidence": "Accessory reference and stock reads remain batched. Commit 90b7f21 replaces the PostgreSQL paged path's all-candidate Python derivation with one set-based statement that computes BOM requirements, direct/indirect/manual-alias issuance, global stock/reservations, completion, exact total and global status ordering before LIMIT. At 1/50/401 candidates it executes one statement and returns exact totals; the 401-row EXPLAIN ANALYZE completes in 23.668 ms, classifies before top-N and uses existing work-order and stock-batch indexes. Duplicate BOM, decimal/epsilon, blank-unit, return, alias, completion/search, empty-page, case-order and authorization parity are covered. Seven disposable-PostgreSQL cases and 14 independently rerun SQLite compatibility/auth cases pass. The legacy implementation is a dialect fallback only; PostgreSQL SQL errors propagate."
     },
     {
       "number": 70,
