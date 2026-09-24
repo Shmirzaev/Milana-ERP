@@ -1084,6 +1084,10 @@ def details_after(
     ):
         details["paid_operations"] = copy.deepcopy(paid_operations)
     merge_delta_provenance(details, provenance)
+    original.validate_imported_details_bounds(
+        details,
+        existing_details=current_details if isinstance(current_details, dict) else None,
+    )
     return details
 
 

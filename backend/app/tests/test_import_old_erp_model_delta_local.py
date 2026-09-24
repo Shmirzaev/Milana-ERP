@@ -444,6 +444,44 @@ def test_existing_paid_operations_list_is_preserved_exactly(field: str) -> None:
         assert "paid_operations" not in details
 
 
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep"])
+def test_delta_details_rejects_changed_unbounded_legacy_without_mutation(invalid_kind: str) -> None:
+    extension: object = "x" * (70 * 1024)
+    if invalid_kind == "deep":
+        extension = {"leaf": True}
+        for _ in range(20):
+            extension = {"next": extension}
+    current = {"legacy_extension": extension}
+    before = copy.deepcopy(current)
+
+    with pytest.raises(delta.MigrationError, match="Imported Model.details_json is invalid"):
+        delta.details_after(
+            current,
+            patch={"legacy_product": "Tunic"},
+            provenance={"source_key": delta.SOURCE_KEY},
+            paid_operations=[],
+        )
+
+    assert current == before
+
+
+def test_delta_details_preserves_exact_unchanged_oversized_legacy() -> None:
+    provenance = {"source_key": delta.SOURCE_KEY}
+    current = {
+        "general": {},
+        "paid_operations": [],
+        delta.DETAILS_KEY: copy.deepcopy(provenance),
+        "legacy_extension": "x" * (70 * 1024),
+    }
+
+    assert delta.details_after(
+        current,
+        patch={},
+        provenance=provenance,
+        paid_operations=[],
+    ) == current
+
+
 def applied_delta_model(name: str) -> tuple[SimpleNamespace, dict, dict, dict, dict]:
     created, master, record, variant, source_files = make_delta_create_action()
     model = SimpleNamespace(
