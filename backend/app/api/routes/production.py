@@ -2181,22 +2181,13 @@ def _update_standard_cutting_batch(
         requested = int(payload.planned_quantity or 0)
         if requested <= 0:
             raise HTTPException(400, "Batch quantity must be greater than zero")
-        other_batch_total = int(
-            db.query(func.coalesce(func.sum(ProductionBatch.planned_quantity), 0))
-            .filter(
-                ProductionBatch.production_order_id == po.id,
-                ProductionBatch.id != batch.id,
-            )
-            .scalar()
-            or 0
-        )
-        planning_floor = max(0, int(po.planned_quantity or 0) - other_batch_total)
-        physical_floor = max(
+        # Cutting can revise its batch plan independently of the original order
+        # target. Only recorded production evidence sets a lower bound.
+        minimum = max(
             _bundle_total_for_scope(db, int(po.id), int(batch.id)),
             _cutting_output_for_scope(db, wo, int(batch.id)),
             _downstream_committed_quantity(db, int(po.id), int(batch.id)),
         )
-        minimum = max(planning_floor, physical_floor)
         if requested < minimum:
             raise HTTPException(
                 409,
