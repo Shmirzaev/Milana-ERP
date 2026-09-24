@@ -913,7 +913,7 @@ def test_create_variant_rejects_batch_only_non_primary_bom_without_writes(client
 def test_create_variant_replaces_legacy_mismatched_primary_unit_with_catalog_unit(client, auth_headers):
     from uuid import uuid4
 
-    from app.models import Item, ModelBOM
+    from app.models import ModelBOM
     from app.tests.conftest import TestSessionLocal
 
     marker = uuid4().hex[:10].upper()
