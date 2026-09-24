@@ -1275,8 +1275,8 @@
       "baseline_source": "backend/app/services/image_storage.py:180",
       "status": "partial",
       "owner": null,
-      "commit": "170200f, 503d068, 940acd5, 056009d, 81887a1, 64f98a5, 3452166, 31a3a3c, ad5b278, 623c169, b2958f0",
-      "evidence": "Upload conversion/original writes/thumbnails run off the event loop with one upload slot per process. Commit 056009d adds cancellation-shielded cleanup for failed/cancelled BOM-photo transactions while preserving collision/pre-existing files; eight focused cases pass. Follow-up lifecycle regressions cover HR documents, model images, production and sales attachments, and attendance photos (81887a1, 64f98a5, 3452166, 31a3a3c, ad5b278). Commits 623c169 and b2958f0 cap attendance-photo upload concurrency and buffering; test_attendance_photo_upload_lifecycle.py covers the added path. Company-logo rollback and thumbnail restoration remain covered. Other upload routes, async SQL, cross-process capacity and broader lifecycle remain open."
+      "commit": "170200f,503d068,940acd5,056009d,81887a1,64f98a5,3452166,31a3a3c,ad5b278,623c169,b2958f0,b607eda",
+      "evidence": "All11 inventoried upload handlers now share one validated process-local admission limiter; image/document buffering, conversion, file writes and blocking SQL run off the event loop. Catalog, BOM, HR, logo and attendance database work uses fresh worker-owned sessions with authorization/scope rechecks, row locks and cancellation-safe transaction/file ownership. Attendance uses the shared limiter and a locked retry cannot commit a reference to a subsequently deleted file. The consolidated suite passes60 with4 expected skips, attendance lifecycle passes8 and all9 disposable-PostgreSQL attendance races pass; independent review reruns16 focused upload/cancellation cases and all9 PostgreSQL races. No inventoried route code gap remains. A global budget across multiple API processes still requires deployment-selected shared admission/topology; multipart spooling before handler entry also belongs at the proxy/server boundary, so PERF40 remains partial."
     },
     {
       "number": 107,
@@ -1297,10 +1297,10 @@
       "risk": "Same business action produces inconsistent data.",
       "proposed_fix": "Fix shared invariants, not the entire ERD",
       "baseline_source": null,
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "3d15874",
+      "evidence": "Partial: purchase receipts now reuse a shared category-to-storage contract after existing auth/reference checks and before any batch, movement, audit or idempotency write. Crossed storage rejects without changing order status, received quantity or persistence counts; valid receipts preserve batch/movement item, warehouse, quantity and reference parity. Twelve focused cases pass independently; the broader purchasing selection passes69 with3 expected PostgreSQL skips and 1/50/401 receipt reference reads remain4/4/8. Remaining alternate-writer gaps are stock adjustment/accessory return/transfer/batch edit in inventory.py and sewing-assignment quantity/state mutations across production_extra.py, bundles.py, production.py and sewing_corrections.py."
     },
     {
       "number": 109,
