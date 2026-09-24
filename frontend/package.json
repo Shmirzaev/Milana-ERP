@@ -48,6 +48,7 @@
     "test:process-qr-label-identity": "node scripts/test-process-qr-label-identity.mjs",
     "test:payroll-scan-autosave": "node scripts/check-payroll-scan-autosave.mjs",
     "test:sewing-report-print": "node scripts/check-sewing-report-print.mjs",
+    "test:sewing-report-options-optout": "node scripts/check-sewing-report-options-optout.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit",
     "test:payroll-process-updates": "node scripts/test-order-references.mjs && node scripts/test-paid-process-sections.mjs && node scripts/test-payroll-control-session.mjs && node scripts/test-bundle-scan-conflicts.mjs",

@@ -1189,6 +1189,23 @@ def test_sewing_production_report_filters_and_excludes_returned_work(client, aut
     assert "SO-REPORT-ONE" in option_values["orders"]
     assert "KR-REPORT-1" in option_values["cutting_references"]
     assert "L" in option_values["sizes"]
+    without_options = client.get(
+        f"/api/payroll/reports/sewing-production?employee_id={first_employee['id']}&order_no=REPORT-ONE&include_options=false",
+        headers=auth_headers,
+    )
+    assert without_options.status_code == 200, without_options.text
+    bounded_body = without_options.json()
+    assert bounded_body["options"] == {
+        "employees": [],
+        "operations": [],
+        "sewing_lines": [],
+        "models": [],
+        "orders": [],
+        "cutting_references": [],
+        "sizes": [],
+    }
+    for key in ("items", "total", "offset", "limit", "total_quantity", "total_amount", "currency"):
+        assert bounded_body[key] == body[key], f"include_options must not change filtered report {key}"
     employee_option = next(
         option for option in body["options"]["employees"]
         if option["value"] == str(first_employee["id"])

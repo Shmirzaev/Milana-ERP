@@ -114,6 +114,7 @@ export default function SewingProductionReportPage() {
     () => {
       const params = buildSewingReportParams(applied, page, pageSize);
       params.set("report_view", reportView);
+      params.set("include_options", "false");
       return params.toString();
     },
     [applied, page, pageSize, reportView],
@@ -181,6 +182,7 @@ export default function SewingProductionReportPage() {
     let total = 1;
     while (rows.length < total) {
       const params = buildSewingReportParams(applied, currentPage, 5000);
+      params.set("include_options", "false");
       const response = await api.get<SewingProductionReportResponse>(
         `/api/payroll/reports/sewing-production?${params.toString()}`,
         60_000,

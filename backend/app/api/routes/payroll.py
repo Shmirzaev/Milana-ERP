@@ -2323,6 +2323,7 @@ def sewing_production_report(
     report_view: Literal["details", "salary"] = "details",
     limit: int = 100,
     offset: int = 0,
+    include_options: Annotated[bool, Query()] = True,
 ):
     scoped_factory = selected_factory_code(current)
     if factory_code:
@@ -2376,7 +2377,7 @@ def sewing_production_report(
         "total_quantity": aggregate[0],
         "total_amount": aggregate[1],
         "currency": report_currency,
-        "options": _sewing_report_options(db, factory_code),
+        "options": _sewing_report_options(db, factory_code) if include_options else SewingProductionReportOptions(),
     }
 
 
