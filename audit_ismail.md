@@ -274,6 +274,8 @@ python scripts/run_isolated_postgres_tests.py --pg-bin "PATH/TO/POSTGRES/bin" -q
 
 Recorded production application code matches the base; live servers/manifests were intentionally not queried. Revalidate deployment state before any release.
 
-### Latest DB01 follow-up (local only)
+### Latest DB01/DB02 follow-ups (local only)
 
 `df14ad6` locks the sewing work order and assignment before deletion and reuses the return workflow's output/report guard. Progressed or historical assignments reject deletion without mutation; direct assignment-linked sewing records block return even when their line name differs. Fifty-eight focused sewing cases and Ruff pass. Other alternate writer/reference rules remain, so DB01 stays partial and the count stays **105 fixed, 16 partial, 6 open; 22 remaining**. No production contact, deployment or push occurred.
+
+`8711c96` makes purchase-request creation status an exact `draft`/`pending_approval` request type while retaining the service's established whitespace/null normalization. Unknown states return422 without business/audit writes; unauthenticated calls still return401. Forty-one focused/adjacent purchase-request cases and Ruff pass. DB02 remains partial; the count is unchanged. The fast subagent drafted this narrow slice in an isolated worktree, and the primary reviewer adapted, tested and committed it on the task branch.

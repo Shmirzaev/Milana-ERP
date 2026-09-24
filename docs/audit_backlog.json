@@ -1311,8 +1311,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "bf36441, 3f1633f, 7fdc2cb, f03259b, f2ff6e8, 28bd3c4, bed96e7, b0e9e71, 2de9bf7, 57cb07f",
-      "evidence": "Finite write vocabularies now cover HR employee status, direct/purchase stock-batch QC, 1C invoice status, manual payment method, sewing-assignment status, sales-line source type, package type, attendance-device vendor and the system default language. Each validator preserves authentication/resource/business error precedence and invalid requests leave no business/audit writes; focused and compatibility suites pass. A scan found remaining finite vocabularies already constrained; open external/free-text and policy fields keep DB02 partial."
+      "commit": "bf36441, 3f1633f, 7fdc2cb, f03259b, f2ff6e8, 28bd3c4, bed96e7, b0e9e71, 2de9bf7, 57cb07f, 8711c96",
+      "evidence": "Finite write vocabularies cover HR employee status, direct/purchase stock-batch QC, 1C invoice status, manual payment method, sewing-assignment status, sales-line source type, package type, attendance-device vendor and system default language. Commit 8711c96 also makes purchase-request creation status an explicit draft/pending_approval Literal while preserving existing whitespace/null normalization; unknown values fail before writes and unauthenticated requests retain 401 precedence. Forty-one focused/adjacent purchase-request tests and Ruff pass. Open external/free-text and policy fields keep DB02 partial."
     },
     {
       "number": 110,
