@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import load_only, selectinload
 
 from app.core.deps import CurrentUser, DbSession, user_permissions
@@ -1024,6 +1025,8 @@ def department_inbox(
     current: CurrentUser,
     dept: str | None = None,
     tz: str | None = None,
+    ready_to_ship_limit: Annotated[int | None, Query(ge=1, le=100)] = None,
+    ready_to_ship_offset: Annotated[int, Query(ge=0)] = 0,
 ):
     d = _resolve_department(db, current, dept)
     operation = _DEPT_OPERATION.get(d.code)
@@ -1240,6 +1243,7 @@ def department_inbox(
     pending_packages_total = 0
     ready_packages_total = 0
     ready_to_ship = []
+    ready_to_ship_total = 0
     if d.code == "FGS":
         package_list_columns = (
             Package.id,
@@ -1292,8 +1296,75 @@ def department_inbox(
             }
             for p in ready
         ]
+        selected_order_ids: list[int] | None = None
+        if ready_to_ship_limit is not None:
+            ready_package_statuses = ("received_in_storage", "reserved")
+            eligible_order_totals = (
+                db.query(
+                    StockReservation.sales_order_id.label("sales_order_id"),
+                    func.sum(
+                        case(
+                            (Package.status.in_(ready_package_statuses), StockReservation.quantity),
+                            else_=0,
+                        )
+                    ).label("quantity"),
+                    func.sum(
+                        case(
+                            (
+                                or_(
+                                    Package.status.is_(None),
+                                    Package.status.notin_(ready_package_statuses),
+                                ),
+                                StockReservation.quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("pending_qty"),
+                )
+                .join(SalesOrder, SalesOrder.id == StockReservation.sales_order_id)
+                .outerjoin(Package, Package.id == StockReservation.package_id)
+                .filter(
+                    SalesOrder.order_type == "branded_stock_sale",
+                    SalesOrder.status.in_(["ready", "reserved"]),
+                )
+                .group_by(StockReservation.sales_order_id)
+                .having(
+                    or_(
+                        func.sum(
+                            case(
+                                (Package.status.in_(ready_package_statuses), StockReservation.quantity),
+                                else_=0,
+                            )
+                        ) > 0,
+                        func.sum(
+                            case(
+                                (
+                                    or_(
+                                        Package.status.is_(None),
+                                        Package.status.notin_(ready_package_statuses),
+                                    ),
+                                    StockReservation.quantity,
+                                ),
+                                else_=0,
+                            )
+                        ) > 0,
+                    )
+                )
+                .subquery()
+            )
+            ready_to_ship_total = int(
+                db.query(func.count()).select_from(eligible_order_totals).scalar() or 0
+            )
+            eligible_orders_query = db.query(eligible_order_totals.c.sales_order_id).order_by(
+                eligible_order_totals.c.sales_order_id.asc()
+            )
+            eligible_orders_query = eligible_orders_query.offset(ready_to_ship_offset).limit(
+                ready_to_ship_limit
+            )
+            selected_order_ids = [int(row[0]) for row in eligible_orders_query.all()]
+
         grouped: dict[int, dict] = {}
-        reservation_rows = (
+        reservation_query = (
             db.query(
                 StockReservation.sales_order_id,
                 SalesOrder.order_no,
@@ -1322,8 +1393,12 @@ def department_inbox(
                 Package.package_no,
                 Package.status,
             )
-            .all()
         )
+        if selected_order_ids is not None:
+            reservation_query = reservation_query.filter(
+                StockReservation.sales_order_id.in_(selected_order_ids)
+            )
+        reservation_rows = reservation_query.all()
         for row in reservation_rows:
             so_id = int(row.sales_order_id)
             reserved_qty = int(row.reserved_qty or 0)
@@ -1367,7 +1442,7 @@ def department_inbox(
                 )
             else:
                 g["pending_qty"] += reserved_qty
-        so_ids = [int(x) for x in grouped.keys()]
+        so_ids = selected_order_ids if selected_order_ids is not None else list(grouped)
         if so_ids:
             item_rows = (
                 db.query(SalesOrderItem, Model).options(
@@ -1403,30 +1478,45 @@ def department_inbox(
                     }
                 )
                 order_row["order_quantity"] = int(order_row.get("order_quantity") or 0) + quantity
-            shipment_rows = (
-                db.query(Shipment)
+            latest_shipments = (
+                db.query(
+                    Shipment.sales_order_id.label("sales_order_id"),
+                    Shipment.id.label("shipment_id"),
+                    Shipment.shipment_no.label("shipment_no"),
+                    Shipment.status.label("shipment_status"),
+                    func.row_number().over(
+                        partition_by=Shipment.sales_order_id,
+                        order_by=Shipment.id.desc(),
+                    ).label("shipment_rank"),
+                )
                 .filter(Shipment.sales_order_id.in_(so_ids))
-                .order_by(Shipment.sales_order_id.asc(), Shipment.id.desc())
-                .all()
+                .subquery()
             )
-            latest_by_so: dict[int, Shipment] = {}
-            for sh in shipment_rows:
-                sid = int(sh.sales_order_id or 0)
-                if sid <= 0 or sid in latest_by_so:
-                    continue
-                latest_by_so[sid] = sh
+            latest_by_so = {
+                int(sh.sales_order_id): sh
+                for sh in db.query(latest_shipments).filter(
+                    latest_shipments.c.shipment_rank == 1
+                )
+            }
             for so_id, row in grouped.items():
                 sh = latest_by_so.get(int(so_id))
                 if not sh:
                     continue
-                row["shipment_id"] = int(sh.id)
+                row["shipment_id"] = int(sh.shipment_id)
                 row["shipment_no"] = sh.shipment_no
-                row["shipment_status"] = sh.status
+                row["shipment_status"] = sh.shipment_status
+        ordered_groups = (
+            (grouped[so_id] for so_id in selected_order_ids if so_id in grouped)
+            if selected_order_ids is not None
+            else (group for group in sorted(grouped.values(), key=lambda x: int(x["sales_order_id"])))
+        )
         ready_to_ship = [
-            {k: v for k, v in g.items() if k != "_ready_package_ids"}
-            for g in sorted(grouped.values(), key=lambda x: int(x["sales_order_id"]))
-            if int(g.get("quantity") or 0) > 0 or int(g.get("pending_qty") or 0) > 0
+            {k: v for k, v in group.items() if k != "_ready_package_ids"}
+            for group in ordered_groups
+            if int(group.get("quantity") or 0) > 0 or int(group.get("pending_qty") or 0) > 0
         ]
+        if selected_order_ids is None:
+            ready_to_ship_total = len(ready_to_ship)
 
     return {
         "department": {"id": d.id, "code": d.code, "name": d.name},
@@ -1513,4 +1603,5 @@ def department_inbox(
         "pending_packages_total": pending_packages_total,
         "ready_packages_total": ready_packages_total,
         "ready_to_ship": ready_to_ship,
+        "ready_to_ship_total": ready_to_ship_total,
     }

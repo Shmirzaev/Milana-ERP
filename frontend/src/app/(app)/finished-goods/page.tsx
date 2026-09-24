@@ -1,7 +1,7 @@
 "use client";
 import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
-import useSWR, { useSWRInfinite } from "swr";
+import { useSWRInfinite } from "swr";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
@@ -29,8 +29,18 @@ export default function FinishedGoodsPage() {
   const branded = brandedPages?.flat() ?? [];
   const hasMoreStock = stockPages?.at(-1)?.length === 500;
   const hasMoreBranded = brandedPages?.at(-1)?.length === 500;
-  const { data: inbox } = useSWR<any>("/api/inbox?dept=FGS", fetcher);
-  const readyToShip = Array.isArray(inbox?.ready_to_ship) ? inbox.ready_to_ship : [];
+  const {
+    data: readyToShipPages,
+    size: readyToShipSize,
+    setSize: setReadyToShipSize,
+    isValidating: readyToShipValidating,
+  } = useSWRInfinite<any>(
+    (index) => `/api/inbox?dept=FGS&ready_to_ship_limit=50&ready_to_ship_offset=${index * 50}`,
+    fetcher,
+  );
+  const readyToShip = readyToShipPages?.flatMap((page) => page?.ready_to_ship ?? []) ?? [];
+  const readyToShipTotal = Number(readyToShipPages?.[0]?.ready_to_ship_total ?? 0);
+  const hasMoreReadyToShip = readyToShip.length < readyToShipTotal;
   return (
     <div>
       <PageHeader
@@ -102,6 +112,15 @@ export default function FinishedGoodsPage() {
           </tbody>
         </table>
       </div>
+      {hasMoreReadyToShip && (
+        <button
+          className="btn btn-secondary mt-3"
+          disabled={readyToShipValidating}
+          onClick={() => setReadyToShipSize(readyToShipSize + 1)}
+        >
+          {readyToShipValidating ? t("common.loading") : t("common.loadMore")}
+        </button>
+      )}
     </div>
   );
 }
