@@ -40,6 +40,8 @@ SOURCE_SYSTEM = "UZERP"
 SOURCE_WAREHOUSE_ID = "18"
 SOURCE_WAREHOUSE_NAME = "TAYYOR MAHSULOT OMBORI"
 EMPTY_TOKENS = {"", "-", "—", "null", "none", "n/a"}
+MAX_SOURCE_PAYLOAD_BYTES = 16 * 1024
+MAX_SOURCE_PAYLOAD_DEPTH = 16
 
 
 def clean(value: Any, *, limit: int | None = None) -> str:
@@ -85,6 +87,25 @@ def current_piece_quantity(row: dict[str, Any], record_id: str) -> int:
 
 def canonical_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {str(key): row[key] for key in sorted(row)}
+
+
+def validate_source_payload_bounds(payload: object) -> None:
+    pending = [(payload, 1)]
+    while pending:
+        value, depth = pending.pop()
+        if isinstance(value, (dict, list)):
+            if depth > MAX_SOURCE_PAYLOAD_DEPTH:
+                raise ValueError("source_payload exceeds the maximum nesting depth")
+            children = value.values() if isinstance(value, dict) else value
+            pending.extend((child, depth + 1) for child in children)
+    try:
+        encoded = json.dumps(
+            payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ValueError("source_payload must contain finite JSON-compatible values") from exc
+    if len(encoded) > MAX_SOURCE_PAYLOAD_BYTES:
+        raise ValueError("source_payload exceeds the 16 KiB limit")
 
 
 def payload_checksum(row: dict[str, Any]) -> str:
@@ -236,6 +257,8 @@ def run_import(args: argparse.Namespace) -> dict[str, Any]:
     source_warehouse_name = clean(source.get("warehouse_name")) or SOURCE_WAREHOUSE_NAME
     if source_warehouse_id != SOURCE_WAREHOUSE_ID:
         raise ValueError(f"Expected legacy warehouse {SOURCE_WAREHOUSE_ID}, got {source_warehouse_id}")
+    for row in rows:
+        validate_source_payload_bounds(canonical_payload(row))
 
     summary: dict[str, Any] = {
         "mode": "apply" if args.apply else "dry-run",
