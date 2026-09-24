@@ -1,14 +1,33 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
+import pytest
+
 from app.db.session import SessionLocal
-from app.models import AuditLog, ForecastRecommendation
+from app.models import AuditLog, ForecastRecommendation, Model
 
 
-def _payload(confidence):
+@pytest.fixture
+def scoped_model_id():
+    with SessionLocal() as db:
+        model = Model(
+            code=f"FC-CONFIDENCE-{uuid4().hex[:8]}",
+            name="Forecast confidence test model",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.commit()
+        return int(model.id)
+
+
+def _payload(confidence, model_id):
     return {
         "recommendation_type": "item_reorder",
         "suggested_quantity": 1,
         "confidence": confidence,
+        "model_id": model_id,
     }
 
 
@@ -18,12 +37,12 @@ def _counts():
 
 
 def test_forecast_recommendation_rejects_unsupported_confidence_without_writes_and_preserves_precedence(
-    client, auth_headers
+    client, auth_headers, scoped_model_id
 ):
     before = _counts()
     invalid = client.post(
         "/api/forecasting/recommendations",
-        json=_payload("f" * 16),
+        json=_payload("f" * 16, scoped_model_id),
         headers=auth_headers,
     )
     assert invalid.status_code == 422, invalid.text
@@ -32,7 +51,7 @@ def test_forecast_recommendation_rejects_unsupported_confidence_without_writes_a
 
     missing_reference = client.post(
         "/api/forecasting/recommendations",
-        json={**_payload("unsupported"), "item_id": 2_147_483_647},
+        json={**_payload("unsupported", scoped_model_id), "item_id": 2_147_483_647},
         headers=auth_headers,
     )
     assert missing_reference.status_code == 400, missing_reference.text
@@ -40,19 +59,19 @@ def test_forecast_recommendation_rejects_unsupported_confidence_without_writes_a
 
     unauthorized = client.post(
         "/api/forecasting/recommendations",
-        json=_payload("unsupported"),
+        json=_payload("unsupported", scoped_model_id),
     )
     assert unauthorized.status_code == 401, unauthorized.text
     assert _counts() == before
 
 
 def test_forecast_recommendation_accepts_supported_confidence_and_reads_legacy_values(
-    client, auth_headers
+    client, auth_headers, scoped_model_id
 ):
     for confidence in ("low", "medium", "high", None):
         response = client.post(
             "/api/forecasting/recommendations",
-            json=_payload(confidence),
+            json=_payload(confidence, scoped_model_id),
             headers=auth_headers,
         )
         assert response.status_code == 201, response.text
@@ -62,6 +81,7 @@ def test_forecast_recommendation_accepts_supported_confidence_and_reads_legacy_v
         legacy = ForecastRecommendation(
             recommendation_type="item_reorder",
             status="open",
+            model_id=scoped_model_id,
             suggested_quantity=1,
             confidence="f" * 16,
         )

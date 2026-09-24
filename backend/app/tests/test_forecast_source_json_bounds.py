@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+from uuid import uuid4
 
-from app.models import AuditLog
+import pytest
+
+from app.models import AuditLog, Model
 from app.tests.conftest import TestSessionLocal
 
 
@@ -10,11 +13,26 @@ _MAX_SOURCE_JSON_BYTES = 16 * 1024
 _MAX_SOURCE_JSON_DEPTH = 16
 
 
-def _recommendation(source_json):
+@pytest.fixture
+def scoped_model_id():
+    with TestSessionLocal() as db:
+        model = Model(
+            code=f"FC-SOURCE-{uuid4().hex[:8]}",
+            name="Forecast source test model",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.commit()
+        return int(model.id)
+
+
+def _recommendation(source_json, model_id):
     return {
         "recommendation_type": "item_reorder",
         "suggested_quantity": 1,
         "source_json": source_json,
+        "model_id": model_id,
     }
 
 
@@ -39,7 +57,7 @@ def _nested_source(depth):
 
 
 def test_forecast_source_json_accepts_exact_byte_limit_and_rejects_over_limit_without_write(
-    client, auth_headers
+    client, auth_headers, scoped_model_id
 ):
     before = _recommendations(client, auth_headers)
     audit_count = _forecast_create_audit_count()
@@ -50,7 +68,7 @@ def test_forecast_source_json_accepts_exact_byte_limit_and_rejects_over_limit_wi
 
     accepted = client.post(
         "/api/forecasting/recommendations",
-        json=_recommendation(exact_source),
+        json=_recommendation(exact_source, scoped_model_id),
         headers=auth_headers,
     )
     assert accepted.status_code == 201, accepted.text
@@ -59,7 +77,7 @@ def test_forecast_source_json_accepts_exact_byte_limit_and_rejects_over_limit_wi
     too_large = {"padding": exact_source["padding"] + "x"}
     rejected = client.post(
         "/api/forecasting/recommendations",
-        json=_recommendation(too_large),
+        json=_recommendation(too_large, scoped_model_id),
         headers=auth_headers,
     )
     assert rejected.status_code == 422, rejected.text
@@ -71,19 +89,19 @@ def test_forecast_source_json_accepts_exact_byte_limit_and_rejects_over_limit_wi
     assert _forecast_create_audit_count() == audit_count + 1
 
 
-def test_forecast_source_json_rejects_excessive_depth_without_write(client, auth_headers):
+def test_forecast_source_json_rejects_excessive_depth_without_write(client, auth_headers, scoped_model_id):
     before = _recommendations(client, auth_headers)
     audit_count = _forecast_create_audit_count()
     accepted = client.post(
         "/api/forecasting/recommendations",
-        json=_recommendation(_nested_source(_MAX_SOURCE_JSON_DEPTH)),
+        json=_recommendation(_nested_source(_MAX_SOURCE_JSON_DEPTH), scoped_model_id),
         headers=auth_headers,
     )
     assert accepted.status_code == 201, accepted.text
 
     rejected = client.post(
         "/api/forecasting/recommendations",
-        json=_recommendation(_nested_source(_MAX_SOURCE_JSON_DEPTH + 1)),
+        json=_recommendation(_nested_source(_MAX_SOURCE_JSON_DEPTH + 1), scoped_model_id),
         headers=auth_headers,
     )
     assert rejected.status_code == 422, rejected.text
@@ -95,7 +113,7 @@ def test_forecast_source_json_rejects_excessive_depth_without_write(client, auth
     assert _forecast_create_audit_count() == audit_count + 1
 
 
-def test_forecast_source_json_validation_follows_auth_and_reference_checks(client, auth_headers):
+def test_forecast_source_json_validation_follows_auth_and_reference_checks(client, auth_headers, scoped_model_id):
     recommendation_count = len(_recommendations(client, auth_headers))
     audit_count = _forecast_create_audit_count()
     sales_token = client.post(
@@ -105,7 +123,7 @@ def test_forecast_source_json_validation_follows_auth_and_reference_checks(clien
     assert sales_token.status_code == 200, sales_token.text
     forbidden = client.post(
         "/api/forecasting/recommendations",
-        json=_recommendation({"padding": "x" * _MAX_SOURCE_JSON_BYTES}),
+        json=_recommendation({"padding": "x" * _MAX_SOURCE_JSON_BYTES}, scoped_model_id),
         headers={"Authorization": f"Bearer {sales_token.json()['access_token']}"},
     )
     assert forbidden.status_code == 403, forbidden.text
@@ -113,7 +131,7 @@ def test_forecast_source_json_validation_follows_auth_and_reference_checks(clien
     dangling = client.post(
         "/api/forecasting/recommendations",
         json={
-            **_recommendation({"padding": "x" * _MAX_SOURCE_JSON_BYTES}),
+            **_recommendation({"padding": "x" * _MAX_SOURCE_JSON_BYTES}, scoped_model_id),
             "item_id": 2_147_483_647,
         },
         headers=auth_headers,
@@ -124,12 +142,12 @@ def test_forecast_source_json_validation_follows_auth_and_reference_checks(clien
     assert _forecast_create_audit_count() == audit_count
 
 
-def test_forecast_source_json_rejects_non_finite_values_without_write(client, auth_headers):
+def test_forecast_source_json_rejects_non_finite_values_without_write(client, auth_headers, scoped_model_id):
     before = _recommendations(client, auth_headers)
     audit_count = _forecast_create_audit_count()
     rejected = client.post(
         "/api/forecasting/recommendations",
-        json=_recommendation({"ratio": float("nan")}),
+        json=_recommendation({"ratio": float("nan")}, scoped_model_id),
         headers=auth_headers,
     )
     assert rejected.status_code == 422, rejected.text
