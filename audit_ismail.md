@@ -280,6 +280,8 @@ Recorded production application code matches the base; live servers/manifests we
 
 `794f213` requires stock-backed accessory issue units to match the catalog item unit before consuming batches or writing movements. Manual non-stock issues retain custom units. Twenty-nine focused/adjacent inventory cases pass, including a two-line rollback when the second unit is invalid. DB01 remains partial and the count is unchanged.
 
+`7453b9b` bounds new role/user/factory-policy permission JSON writes to 150 entries and 128 characters per grant while preserving reads of oversized historical records. Fifty-one adjacent backend cases and Ruff pass independently. DB03 remains partial because other editable JSON structures still need review; the official count is unchanged.
+
 `8711c96` makes purchase-request creation status an exact `draft`/`pending_approval` request type while retaining the service's established whitespace/null normalization. Unknown states return422 without business/audit writes; unauthenticated calls still return401. Forty-one focused/adjacent purchase-request cases and Ruff pass. DB02 remains partial; the count is unchanged. The fast subagent drafted this narrow slice in an isolated worktree, and the primary reviewer adapted, tested and committed it on the task branch.
 
 ### 24 September PERF35 scan-map continuation (local only)

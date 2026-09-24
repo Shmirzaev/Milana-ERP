@@ -1325,8 +1325,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "8d386cf, ada93f8, 30119aa, 4def8fb",
-      "evidence": "Incoming writes now shape-check model paid-operation envelopes, established general/costing model-detail objects, the 21-field HR employee profile and finite numeric model-size measurements. Sparse/unknown legacy fields remain readable; unrelated edits preserve stored legacy shapes. Five new model-detail cases pass independently with no-write failures. Other editable JSON structures remain, so DB03 is partial."
+      "commit": "8d386cf, ada93f8, 30119aa, 4def8fb, 7453b9b",
+      "evidence": "Incoming writes now shape-check model paid-operation envelopes, established general/costing model-detail objects, the 21-field HR employee profile and finite numeric model-size measurements. Sparse/unknown legacy fields remain readable; unrelated edits preserve stored legacy shapes. Five new model-detail cases pass independently with no-write failures. Commit 7453b9b bounds permission JSON writes to 150 grants of at most 128 characters each for roles, user extras and factory allow/deny policy, while existing oversized records remain readable; 51 adjacent cases pass independently. Other editable JSON structures remain, so DB03 is partial."
     },
     {
       "number": 111,
