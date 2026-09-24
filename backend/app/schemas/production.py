@@ -526,7 +526,7 @@ class QualityCheckIn(BaseModel):
     failed_qty: int
     defect_type: Optional[str] = None
     defect_reason: Optional[str] = None
-    severity: str = "low"
+    severity: Literal["low", "medium", "high", "critical"] = "low"
 
 
 class QualityCheckOut(ORMModel):

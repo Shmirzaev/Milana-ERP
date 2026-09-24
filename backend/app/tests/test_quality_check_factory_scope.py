@@ -92,6 +92,59 @@ def test_quality_check_allows_same_factory_and_preserves_optional_department(
     assert response.status_code == 201, response.text
     assert response.json()["work_order_id"] == work_orders[factory].id
     assert response.json()["department_id"] is None
+    assert response.json()["severity"] == "low"
+
+
+@pytest.mark.parametrize("severity", ["low", "medium", "high", "critical"])
+def test_quality_check_accepts_all_documented_severities(client, quality_scope_data, severity):
+    users, work_orders, _ = quality_scope_data
+    response = client.post(
+        "/api/quality/checks",
+        json={**_payload(work_orders["MIL"].id), "severity": severity},
+        headers=_headers(users["MIL"]),
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["severity"] == severity
+
+
+def test_quality_check_rejects_unsupported_severity_without_writes(client, quality_scope_data):
+    users, work_orders, _ = quality_scope_data
+    with SessionLocal() as db:
+        before_checks = db.query(QualityCheck).count()
+        before_audit = db.query(AuditLog).count()
+
+    response = client.post(
+        "/api/quality/checks",
+        json={**_payload(work_orders["MIL"].id), "severity": "urgent"},
+        headers=_headers(users["MIL"]),
+    )
+
+    assert response.status_code == 422, response.text
+    assert any(error["loc"][-1] == "severity" for error in response.json()["detail"])
+    with SessionLocal() as db:
+        assert db.query(QualityCheck).count() == before_checks
+        assert db.query(AuditLog).count() == before_audit
+
+
+def test_quality_check_invalid_severity_validation_precedes_missing_work_order(client, quality_scope_data):
+    users, _, _ = quality_scope_data
+    response = client.post(
+        "/api/quality/checks",
+        json={**_payload(999_999_999), "severity": "urgent"},
+        headers=_headers(users["MIL"]),
+    )
+
+    assert response.status_code == 422, response.text
+
+
+def test_quality_check_invalid_severity_preserves_authentication_precedence(client):
+    response = client.post(
+        "/api/quality/checks",
+        json={**_payload(999_999_999), "severity": "urgent"},
+    )
+
+    assert response.status_code == 401, response.text
 
 
 def test_quality_check_honors_explicit_selected_factory(client, quality_scope_data):
