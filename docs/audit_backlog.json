@@ -1212,6 +1212,8 @@
       "bug": "Growing business lists/reports/exports may load everything.",
       "risk": "Memory spikes and oversized responses; candidates need measurement.",
       "proposed_fix": "Bound operational datasets",
+      "latest_commit": "4487ed0",
+      "latest_evidence": "Owner approved bounded lazy loading. Package Scan now uses a fixed-cell grouped summary and model-scoped SQL pages (50 default, 100 maximum) with exact total and Load more. Five new local tests cover 1/50/401, summary parity, auth/no writes and bounded SQL; thirteen combined storage-map tests, strict TypeScript, Ruff and the Bun page harness pass. Main warehouse-map/stock, inbox, HR and payroll graphs remain; PERF35 is partial and the overall count is unchanged.",
       "baseline_source": null,
       "status": "partial",
       "owner": null,
