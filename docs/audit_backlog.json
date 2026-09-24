@@ -1333,10 +1333,10 @@
       "risk": "Upgrade can change access or business records.",
       "proposed_fix": "Review affected rows and recovery",
       "baseline_source": null,
-      "status": "partial",
+      "status": "open",
       "owner": null,
-      "commit": "aa8fac1,c99e609",
-      "evidence": "Partial: SEC09 already supplies fail-closed explicit proxy trust and backend HSTS. Commit aa8fac1 replaces the frontend production unsafe-inline script allowance with per-request nonces and adds frontend HSTS; the executable header contract and targeted ESLint pass. Commit c99e609 adds validated named per-client 1C credential rotation slots plus client-scoped PostgreSQL replay locking that never persists credentials;21 local/startup cases pass with1 expected PostgreSQL skip and all17 disposable-PostgreSQL cases pass independently. The protected dirty finance route still uses the legacy shared token and is not wired to the new identity/replay helpers, so OPS09 cannot close until that concurrent work is integrated. Global TypeScript is blocked by an unrelated pre-existing finished-goods SWR import."
+      "commit": null,
+      "evidence": null
     },
     {
       "number": 112,
@@ -1466,10 +1466,10 @@
       "risk": "Security hardening gaps may remain.",
       "proposed_fix": "Verify current configuration",
       "baseline_source": null,
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "aa8fac1,c99e609",
+      "evidence": "Partial: SEC09 already supplies fail-closed explicit proxy trust and backend HSTS. Commit aa8fac1 replaces the frontend production unsafe-inline script allowance with per-request nonces and adds frontend HSTS; the executable header contract and targeted ESLint pass. Commit c99e609 adds validated named per-client 1C credential rotation slots plus client-scoped PostgreSQL replay locking that never persists credentials;21 local/startup cases pass with1 expected PostgreSQL skip and all17 disposable-PostgreSQL cases pass independently. The protected dirty finance route still uses the legacy shared token and is not wired to the new identity/replay helpers, so OPS09 cannot close until that concurrent work is integrated. Global TypeScript is blocked by an unrelated pre-existing finished-goods SWR import."
     },
     {
       "number": 123,
