@@ -372,10 +372,12 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
 def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     if payload.production_type != "branded_stock":
         raise HTTPException(400, "production_type must be branded_stock")
-    printing_attachments = production_order_printing_attachments_for_storage(payload.printing_attachments)
     planning_order = db.get(BrandedPlanningOrder, payload.planning_order_id) if payload.planning_order_id else None
     if payload.planning_order_id and not planning_order:
         raise HTTPException(404, "Branded planning order not found")
+    if planning_order and planning_order.status != "open":
+        raise HTTPException(400, "Branded planning order is not open")
+    printing_attachments = production_order_printing_attachments_for_storage(payload.printing_attachments)
     if not planning_order:
         planning_order = BrandedPlanningOrder(
             order_no=next_branded_planning_order_no(db),
@@ -386,8 +388,6 @@ def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User 
         )
         db.add(planning_order)
         db.flush()
-    if planning_order.status != "open":
-        raise HTTPException(400, "Branded planning order is not open")
     po = create_production_order(
         db,
         production_type="branded_stock",

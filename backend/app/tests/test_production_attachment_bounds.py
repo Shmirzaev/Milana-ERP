@@ -1,5 +1,6 @@
 import base64
 from copy import deepcopy
+from uuid import uuid4
 
 import pytest
 
@@ -85,6 +86,45 @@ def test_branded_planning_create_validates_before_planning_order_write(client, a
     )
 
     assert response.status_code == 422, response.text
+    assert _write_counts() == before
+
+
+def test_branded_planning_create_keeps_missing_order_404_precedence(client, auth_headers):
+    before = _write_counts()
+
+    response = client.post(
+        "/api/planning/create-branded-production",
+        json={**_branded_payload([_attachment("https://example.test/artwork.pdf")]), "planning_order_id": 2147483647},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404, response.text
+    assert _write_counts() == before
+
+
+def test_branded_planning_create_keeps_closed_order_400_precedence(client, auth_headers):
+    with TestSessionLocal() as db:
+        planning_order = BrandedPlanningOrder(
+            order_no=f"ATTACH-CLOSED-{uuid4().hex[:12]}",
+            ordered_for_type="milana",
+            ordered_for_name="Milana",
+            status="closed",
+        )
+        db.add(planning_order)
+        db.commit()
+        planning_order_id = planning_order.id
+    before = _write_counts()
+
+    response = client.post(
+        "/api/planning/create-branded-production",
+        json={
+            **_branded_payload([_attachment("https://example.test/artwork.pdf")]),
+            "planning_order_id": planning_order_id,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400, response.text
     assert _write_counts() == before
 
 
