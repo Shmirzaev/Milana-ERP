@@ -9,6 +9,8 @@ from app.db.session import SessionLocal
 from app.models import (
     FinishedGoodsStock,
     Model,
+    ModelBOM,
+    ProductionOrder,
     Role,
     SalesOrder,
     SalesOrderItem,
@@ -116,6 +118,40 @@ def test_branded_suggestions_api_scopes_secondary_factory_grants(client):
     assert model_ids["ECO"] in visible_model_ids
     assert model_ids["BST"] not in visible_model_ids
     assert model_ids["UNASSIGNED"] not in visible_model_ids
+
+
+def test_dashboard_branded_data_and_unlinked_bom_count_follow_factory_grants(client):
+    model_ids = _insert_factory_demand_rows()
+    headers = _forecast_view_headers(extra_permissions=["factory:ECO:forecasting.view"])
+    before = client.get("/api/forecasting/dashboard", headers=headers)
+    assert before.status_code == 200, before.text
+
+    with TestSessionLocal() as db:
+        for label in ("MIL", "BST", "ECO", "UNASSIGNED"):
+            model_id = model_ids[label]
+            db.add(ModelBOM(
+                model_id=model_id,
+                quantity_per_piece=1,
+                unit="pcs",
+            ))
+            db.add(ProductionOrder(
+                production_no=f"FC-DASH-{uuid4().hex[:12].upper()}",
+                production_type="branded_stock",
+                model_id=model_id,
+                planned_quantity=1,
+                status="new",
+            ))
+        db.commit()
+
+    response = client.get("/api/forecasting/dashboard", headers=headers)
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    visible_model_ids = {row["model_id"] for row in payload["branded_stock_suggestions"]}
+    assert model_ids["MIL"] in visible_model_ids
+    assert model_ids["ECO"] in visible_model_ids
+    assert model_ids["BST"] not in visible_model_ids
+    assert model_ids["UNASSIGNED"] not in visible_model_ids
+    assert payload["unlinked_bom_count"] == before.json()["unlinked_bom_count"] + 2
 
 
 def test_branded_suggestions_api_super_admin_sees_all_attributed_factories(client):

@@ -604,23 +604,41 @@ def demand_trend(
     return out
 
 
-def forecasting_dashboard(db: Session) -> dict:
-    branded_groups = _branded_demand_groups(db)
-    branded_analysis = _branded_stock_analysis(db, groups=branded_groups)
+def forecasting_dashboard(
+    db: Session,
+    *,
+    factory_codes: Sequence[str] | None = None,
+) -> dict:
+    branded_groups = (
+        _branded_demand_groups(db)
+        if factory_codes is None
+        else _branded_demand_groups(db, factory_codes=factory_codes)
+    )
+    branded_analysis = _branded_stock_analysis(
+        db,
+        groups=branded_groups,
+        factory_codes=factory_codes,
+    )
     branded = [row for row in branded_analysis if row["suggested_quantity"] > 0]
     reorder = item_reorder_suggestions(db)
     low_stock_fg = sum(1 for row in branded_analysis if row["is_low_stock"])
     trend = demand_trend(db, groups=branded_groups)
+    unlinked_bom_query = db.query(ModelBOM.id).filter(
+        ModelBOM.item_id.is_(None),
+        ModelBOM.stock_batch_id.is_(None),
+        ModelBOM.model_id.in_(db.query(ProductionOrder.model_id).filter(
+            ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES),
+        ).union(db.query(ProductionOrderItem.model_id).join(
+            ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id,
+        ).filter(ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES)))),
+    )
+    if factory_codes is not None:
+        unlinked_bom_query = unlinked_bom_query.join(
+            Model, Model.id == ModelBOM.model_id,
+        ).filter(Model.factory_code.in_(factory_codes))
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "unlinked_bom_count": db.query(ModelBOM.id).filter(
-            ModelBOM.item_id.is_(None), ModelBOM.stock_batch_id.is_(None),
-            ModelBOM.model_id.in_(db.query(ProductionOrder.model_id).filter(
-                ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES),
-            ).union(db.query(ProductionOrderItem.model_id).join(
-                ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id,
-            ).filter(ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES)))),
-        ).count(),
+        "unlinked_bom_count": unlinked_bom_query.count(),
         "cards": {
             "suggested_production_count": len(branded),
             "reorder_alert_count": len(reorder),

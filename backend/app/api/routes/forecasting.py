@@ -144,9 +144,12 @@ def _require_recommendation_factory_access(
 @router.get("/dashboard")
 def get_forecasting_dashboard(
     db: DbSession,
-    _: object = Depends(require_permissions("forecasting.view", "*")),
+    current: User = Depends(require_permissions("forecasting.view", "*")),
 ):
-    return forecasting_dashboard(db)
+    return forecasting_dashboard(
+        db,
+        factory_codes=factory_codes_with_permission(current, "forecasting.view"),
+    )
 
 
 @router.get("/branded-stock-suggestions")
