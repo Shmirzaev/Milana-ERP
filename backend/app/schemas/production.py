@@ -106,7 +106,7 @@ class ProductionOrderMaterialOut(ORMModel):
 class ProductionBatchIn(BaseModel):
     batch_no: str | None = None
     name: str | None = None
-    planned_quantity: int
+    planned_quantity: int = Field(strict=True, gt=0, le=2_147_483_647)
     start_date: Optional[datetime] = None
     deadline: Optional[datetime] = None
     notes: str | None = None

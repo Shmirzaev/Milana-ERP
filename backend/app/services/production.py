@@ -397,9 +397,19 @@ def create_production_batches(db: Session, production_order_id: int, batches: li
     used_nos: set[str] = set()
     created: list[ProductionBatch] = []
     for idx, raw in enumerate(batches, start=1):
-        qty = int(raw.get("planned_quantity", 0))
+        raw_quantity = raw.get("planned_quantity", 0)
+        if isinstance(raw_quantity, bool):
+            raise HTTPException(400, f"Batch #{idx} planned_quantity must be an integer")
+        try:
+            qty = int(raw_quantity)
+        except (TypeError, ValueError, OverflowError):
+            raise HTTPException(400, f"Batch #{idx} planned_quantity must be an integer") from None
+        if not isinstance(raw_quantity, str) and raw_quantity != qty:
+            raise HTTPException(400, f"Batch #{idx} planned_quantity must be an integer")
         if qty <= 0:
             raise HTTPException(400, f"Batch #{idx} planned_quantity must be > 0")
+        if qty > 2_147_483_647:
+            raise HTTPException(400, f"Batch #{idx} planned_quantity exceeds the supported maximum")
 
     for idx, raw in enumerate(batches, start=1):
         qty = int(raw.get("planned_quantity", 0))

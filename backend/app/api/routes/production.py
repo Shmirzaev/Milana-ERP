@@ -205,7 +205,7 @@ class PrintingCollectIn(BaseModel):
 
 class SplitBatchLineIn(BaseModel):
     name: str | None = None
-    planned_quantity: int
+    planned_quantity: int = Field(strict=True, gt=0, le=2_147_483_647)
     start_date: datetime | None = None
     deadline: datetime | None = None
     notes: str | None = None
@@ -266,7 +266,7 @@ class CuttingRecordDetailsUpdateIn(BaseModel):
 
 class CuttingBatchUpdateIn(BaseModel):
     name: str | None = None
-    planned_quantity: int | None = None
+    planned_quantity: int | None = Field(default=None, strict=True, gt=0, le=2_147_483_647)
     start_date: datetime | None = None
     deadline: datetime | None = None
     notes: str | None = None
