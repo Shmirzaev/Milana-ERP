@@ -319,13 +319,12 @@ def create_customer_payment(
     amount_remaining = payload.amount
 
     if sales_order:
-        amount_remaining = float(amount_remaining)
         invoice = _find_payable_invoice(db, sales_order)
         if not invoice and not _order_has_invoices(db, sales_order):
             invoice = Invoice(
                 sales_order_id=sales_order.id,
                 invoice_no=next_invoice_no(db),
-                amount=float(sales_order.total_amount or 0),
+                amount=Decimal(str(sales_order.total_amount or 0)),
                 status="unpaid",
                 issued_at=datetime.now(timezone.utc),
             )
@@ -333,8 +332,11 @@ def create_customer_payment(
             db.flush()
 
         if invoice:
-            invoice_balance = max(float(invoice.amount or 0) - invoice_paid_total(db, int(invoice.id)), 0)
-            invoice_amount = min(amount_remaining, invoice_balance) if invoice_balance > 0 else 0
+            invoice_balance = max(
+                Decimal(str(invoice.amount or 0)) - invoice_paid_total(db, int(invoice.id)),
+                Decimal("0"),
+            )
+            invoice_amount = min(amount_remaining, invoice_balance) if invoice_balance > 0 else Decimal("0")
             if invoice_amount > 0:
                 payment = create_invoice_payment(
                     db,
@@ -345,9 +347,9 @@ def create_customer_payment(
                     paid_at=payload.paid_at,
                     notes=payload.notes,
                 )
-                amount_remaining = round(amount_remaining - invoice_amount, 2)
+                amount_remaining -= invoice_amount
 
-    if amount_remaining >= 0.01:
+    if amount_remaining >= Decimal("0.01"):
         advance_notes = payload.notes
         if sales_order and invoice and payment:
             suffix = f"Advance balance from overpayment on {sales_order.order_no}"

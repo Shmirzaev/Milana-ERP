@@ -2,6 +2,7 @@
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 from queue import Queue
 from threading import Event
 from time import monotonic, sleep
@@ -37,7 +38,7 @@ def _create_invoice(session_factory, amount=100):
 
 @pytest.mark.parametrize(
     ("amounts", "expected_status"),
-    [([40], "partially_paid"), ([100], "paid"), ([60, 40], "paid"), ([60, 60], "paid")],
+    [([Decimal("0.01")], "unpaid"), ([40], "partially_paid"), ([100], "paid"), ([60, 40], "paid"), ([60, 60], "paid")],
 )
 def test_invoice_payment_status_matches_committed_sum(amounts, expected_status):
     customer_id, _, invoice_id = _create_invoice(SessionLocal)
@@ -50,6 +51,30 @@ def test_invoice_payment_status_matches_committed_sum(amounts, expected_status):
         assert invoice_paid_total(db, invoice_id) == sum(amounts)
         assert db.get(Invoice, invoice_id).status == expected_status
         assert db.query(Payment).filter_by(invoice_id=invoice_id).count() == len(amounts)
+
+
+def test_invoice_one_cent_short_remains_partially_paid():
+    _, _, invoice_id = _create_invoice(SessionLocal, amount=100)
+    with SessionLocal() as db:
+        create_invoice_payment(db, db.get(Invoice, invoice_id), amount=Decimal("99.99"))
+        db.commit()
+
+    with SessionLocal() as db:
+        invoice = db.get(Invoice, invoice_id)
+        assert invoice_paid_total(db, invoice_id) == Decimal("99.99")
+        assert invoice.status == "partially_paid"
+
+
+def test_invoice_exact_cent_total_is_paid():
+    _, _, invoice_id = _create_invoice(SessionLocal, amount=100)
+    with SessionLocal() as db:
+        create_invoice_payment(db, db.get(Invoice, invoice_id), amount=Decimal("99.99"))
+        create_invoice_payment(db, db.get(Invoice, invoice_id), amount=Decimal("0.01"))
+        db.commit()
+
+    with SessionLocal() as db:
+        assert invoice_paid_total(db, invoice_id) == Decimal("100.00")
+        assert db.get(Invoice, invoice_id).status == "paid"
 
 
 def test_invoice_payment_refreshes_cached_amount_before_status_calculation():

@@ -20,17 +20,17 @@ def normalize_manual_payment_method(payment_method: str | None) -> str | None:
     return normalized
 
 
-def invoice_paid_total(db: Session, invoice_id: int) -> float:
+def invoice_paid_total(db: Session, invoice_id: int) -> Decimal:
     total = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(Payment.invoice_id == invoice_id).scalar() or 0
-    return float(total)
+    return Decimal(str(total))
 
 
 def refresh_invoice_status(db: Session, invoice: Invoice) -> None:
     total_paid = invoice_paid_total(db, int(invoice.id))
-    amount = float(invoice.amount or 0)
-    if amount <= 0 or total_paid >= amount - 0.01:
+    amount = Decimal(str(invoice.amount or 0))
+    if amount <= 0 or total_paid >= amount:
         invoice.status = "paid"
-    elif total_paid > 0.01:
+    elif total_paid > Decimal("0.01"):
         invoice.status = "partially_paid"
     else:
         invoice.status = "unpaid"
