@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from typing import Any
 
 import sqlalchemy as sa
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 
 REVISION_0130 = "0130_eco_fabric_transfers"
@@ -24,10 +27,67 @@ _WORK_ORDER_ACTIVITY_FIELDS_0055 = (
     "actual_input_qty", "actual_output_qty", "passed_qty", "failed_qty", "rework_qty",
 )
 
+REVISION_0091 = "0091_payroll_workspace_access"
+PREDECESSOR_0091 = "0090_user_factory_access"
+REVISION_0092 = "0092_sewing_role_access"
+PREDECESSOR_0092 = REVISION_0091
+_ROLE_OVERWRITES_0091_0092 = (
+    {
+        "revision": REVISION_0091,
+        "expected_predecessor": PREDECESSOR_0091,
+        "role_name": "payroll",
+        "after_permissions": [
+            "payroll.view", "payroll.manage", "payroll.scan", "sewing.daily_reports.view",
+        ],
+        "downgrade_permissions": ["payroll.scan", "sewing.daily_reports.view"],
+    },
+    {
+        "revision": REVISION_0092,
+        "expected_predecessor": PREDECESSOR_0092,
+        "role_name": "sewing",
+        "after_permissions": [
+            "sewing.workspace", "sewing.records", "sewing.bundles", "sewing.flows", "traceability.view",
+        ],
+        "downgrade_permissions": [
+            "sewing.workspace", "sewing.records", "sewing.bundles", "traceability.view",
+        ],
+    },
+)
+
 
 def _snapshot_hash(value: dict[str, Any]) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _revision_in_history(current: str | None, target: str) -> bool:
+    """Return whether target is current or an ancestor in this Alembic graph."""
+    if current is None:
+        return False
+    root = Path(__file__).resolve().parents[2]
+    config = Config()
+    config.set_main_option("script_location", str(root / "alembic"))
+    try:
+        script = ScriptDirectory.from_config(config)
+        pending = [current]
+        visited = set()
+        while pending:
+            revision = pending.pop()
+            if revision == target:
+                return True
+            if revision in visited:
+                continue
+            visited.add(revision)
+            revision_script = script.get_revision(revision)
+            if revision_script is None:
+                continue
+            down_revisions = revision_script.down_revision
+            if down_revisions is None:
+                continue
+            pending.extend([down_revisions] if isinstance(down_revisions, str) else down_revisions)
+    except Exception:
+        return False
+    return False
 
 
 def preview_0055_deletion(connection: sa.Connection) -> dict[str, Any]:
@@ -254,4 +314,117 @@ def read_only_preflight_0130(engine: sa.Engine) -> dict[str, Any]:
                 else "migration_already_applied" if current == REVISION_0130
                 else "revision_mismatch_review_required"
             )
+            return report
+
+
+def preview_0091_0092_role_overwrites(connection: sa.Connection) -> dict[str, Any]:
+    """Preview the exact role rows and JSON values overwritten by 0091/0092.
+
+    Each revision uses a case-insensitive role-name predicate and overwrites
+    every matching row. Current permission values are retained as restoration
+    snapshots; no migration SQL or UPDATE is executed here.
+    """
+    roles_table = sa.Table("roles", sa.MetaData(), autoload_with=connection)
+    previews = []
+    for migration in _ROLE_OVERWRITES_0091_0092:
+        role_name = migration["role_name"]
+        rows = connection.execute(
+            sa.select(roles_table.c.id, roles_table.c.name, roles_table.c.permissions)
+            .where(sa.func.lower(roles_table.c.name) == role_name)
+            .order_by(roles_table.c.id)
+        ).mappings().all()
+        role_previews = []
+        for row in rows:
+            current_permissions = row["permissions"]
+            role_preview = {
+                "role_id": int(row["id"]),
+                "role_name": row["name"],
+                "restoration_snapshot": {"permissions": current_permissions},
+                "restoration_sha256": _snapshot_hash({"permissions": current_permissions}),
+            }
+            role_previews.append(role_preview)
+        previews.append({
+            **migration,
+            "matching_role_count": len(role_previews),
+            "roles": role_previews,
+        })
+
+    return {
+        "revision_family": f"{REVISION_0091}+{REVISION_0092}",
+        "stages": previews,
+        "recovery": "For pending stages, restoration_snapshot.permissions is the exact current JSON value to restore; at already-applied revisions it records only the current observed value and cannot reconstruct overwritten historical grants. Hashes identify snapshots.",
+    }
+
+
+def read_only_preflight_0091_0092(
+    engine: sa.Engine,
+    revision: str | None = None,
+) -> dict[str, Any]:
+    """Report stage applicability and role before/after values for 0091/0092.
+
+    ``revision`` can limit output to ``0091`` or ``0092``; ``None`` includes
+    both stages so the current Alembic position is clear.
+    """
+    selected_revisions = {"0091": REVISION_0091, "0092": REVISION_0092}
+    if revision is not None and revision not in selected_revisions:
+        raise ValueError("revision must be '0091', '0092', or None")
+    with engine.connect() as connection:
+        with connection.begin():
+            if connection.dialect.name == "postgresql":
+                connection.execute(sa.text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+            current = connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+            report = preview_0091_0092_role_overwrites(connection)
+            for stage in report["stages"]:
+                predecessor = stage["expected_predecessor"]
+                stage_revision = stage["revision"]
+                if current == predecessor:
+                    stage_status = "pending"
+                elif _revision_in_history(current, stage_revision):
+                    stage_status = "already_applied"
+                elif current == PREDECESSOR_0091 and stage_revision == REVISION_0092:
+                    stage_status = "awaiting_predecessor"
+                else:
+                    stage_status = "revision_mismatch_review_required"
+
+                for role in stage["roles"]:
+                    snapshot_value = role["restoration_snapshot"]["permissions"]
+                    if stage_status in {"pending", "awaiting_predecessor"}:
+                        role["before_permissions"] = snapshot_value
+                        role["after_permissions"] = stage["after_permissions"]
+                        role["changed"] = snapshot_value != stage["after_permissions"]
+                    else:
+                        role["observed_permissions"] = snapshot_value
+                        role["expected_migration_permissions"] = stage["after_permissions"]
+
+                if stage_status == "awaiting_predecessor":
+                    stage["applicability"] = "awaiting_predecessor"
+                elif stage_status == "pending":
+                    if stage["matching_role_count"] == 0:
+                        stage["applicability"] = "no_target"
+                    elif stage["matching_role_count"] > 1:
+                        stage["applicability"] = "multiple_matches_review_required"
+                    else:
+                        stage["applicability"] = "ready_for_review"
+                elif stage_status == "already_applied":
+                    stage["applicability"] = "migration_already_applied"
+                else:
+                    stage["applicability"] = stage_status
+
+            report["database_revision"] = current
+            if current == PREDECESSOR_0091:
+                report["migration_plan"] = "both_stages_pending"
+            elif current == PREDECESSOR_0092:
+                report["migration_plan"] = "0092_only_pending"
+            elif _revision_in_history(current, REVISION_0092):
+                report["migration_plan"] = "both_stages_applied"
+            else:
+                report["migration_plan"] = "revision_mismatch_review_required"
+            if revision is not None:
+                report["stages"] = [
+                    stage for stage in report["stages"]
+                    if stage["revision"] == selected_revisions[revision]
+                ]
+                report["selected_revisions"] = [selected_revisions[revision]]
+            else:
+                report["selected_revisions"] = [stage["revision"] for stage in report["stages"]]
             return report

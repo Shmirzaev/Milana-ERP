@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, Column, ForeignKey, Integer, MetaData, String, Table, create_engine, insert
+from sqlalchemy import JSON, Column, ForeignKey, Integer, MetaData, String, Table, create_engine, insert, text
 
 from app.migrations.preflight import (
     PREDECESSOR_0055,
     PREDECESSOR_0130,
+    PREDECESSOR_0091,
+    PREDECESSOR_0092,
+    REVISION_0091,
+    REVISION_0092,
     TARGET_PRODUCTION_NO_0055,
     TARGET_PERMISSION_0130,
     preview_0130_permissions,
+    read_only_preflight_0091_0092,
     read_only_preflight_0055,
     read_only_preflight_0130,
 )
@@ -244,4 +249,119 @@ def test_0055_revision_mismatch_does_not_reflect_unrelated_schema():
     report = read_only_preflight_0055(engine)
     assert report["applicability"] == "revision_mismatch_review_required"
     assert report["affected_rows_inspected"] is False
+    engine.dispose()
+
+
+def _engine_role_overwrites(revision: str):
+    engine = create_engine("sqlite://")
+    metadata = MetaData()
+    roles = Table(
+        "roles", metadata,
+        Column("id", Integer, primary_key=True),
+        Column("name", String, nullable=False),
+        Column("permissions", JSON, nullable=False),
+    )
+    version = Table("alembic_version", metadata, Column("version_num", String, primary_key=True))
+    metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(insert(version), {"version_num": revision})
+    return engine, roles
+
+
+def test_0091_0092_preflight_is_read_only_and_reports_case_insensitive_targets():
+    engine, roles = _engine_role_overwrites(PREDECESSOR_0091)
+    with engine.begin() as connection:
+        connection.execute(insert(roles), [
+            {"id": 1, "name": "Payroll", "permissions": ["payroll.custom"]},
+            {"id": 2, "name": "PAYROLL", "permissions": ["payroll.legacy"]},
+            {"id": 3, "name": "sEwInG", "permissions": ["sewing.custom"]},
+            {"id": 4, "name": "superpayroll", "permissions": ["admin.all"]},
+        ])
+
+    report = read_only_preflight_0091_0092(engine)
+    payroll, sewing = report["stages"]
+    assert report["database_revision"] == PREDECESSOR_0091
+    assert report["migration_plan"] == "both_stages_pending"
+    assert report["selected_revisions"] == [REVISION_0091, REVISION_0092]
+    assert payroll["revision"] == REVISION_0091
+    assert payroll["applicability"] == "multiple_matches_review_required"
+    assert payroll["matching_role_count"] == 2
+    assert [role["role_id"] for role in payroll["roles"]] == [1, 2]
+    assert [role["before_permissions"] for role in payroll["roles"]] == [
+        ["payroll.custom"], ["payroll.legacy"],
+    ]
+    assert all(role["after_permissions"] == [
+        "payroll.view", "payroll.manage", "payroll.scan", "sewing.daily_reports.view",
+    ] for role in payroll["roles"])
+    assert all(role["restoration_snapshot"]["permissions"] == role["before_permissions"]
+               for role in payroll["roles"])
+    assert all(len(role["restoration_sha256"]) == 64 for role in payroll["roles"])
+    assert sewing["applicability"] == "awaiting_predecessor"
+    assert sewing["roles"][0]["before_permissions"] == ["sewing.custom"]
+    assert sewing["roles"][0]["after_permissions"] == [
+        "sewing.workspace", "sewing.records", "sewing.bundles", "sewing.flows", "traceability.view",
+    ]
+
+    with engine.connect() as connection:
+        persisted = connection.execute(roles.select().order_by(roles.c.id)).mappings().all()
+    assert [row["permissions"] for row in persisted] == [
+        ["payroll.custom"], ["payroll.legacy"], ["sewing.custom"], ["admin.all"],
+    ]
+    engine.dispose()
+
+
+def test_0092_preflight_distinguishes_only_0092_pending_and_restores_exact_grants():
+    engine, roles = _engine_role_overwrites(PREDECESSOR_0092)
+    payroll_permissions = ["payroll.view", "payroll.manage", "payroll.scan", "sewing.daily_reports.view"]
+    sewing_permissions = ["sewing.custom", "sewing.records"]
+    with engine.begin() as connection:
+        connection.execute(insert(roles), [
+            {"id": 7, "name": "payroll", "permissions": payroll_permissions},
+            {"id": 8, "name": "SEWING", "permissions": sewing_permissions},
+            {"id": 9, "name": "administrator", "permissions": ["admin.all"]},
+        ])
+
+    report = read_only_preflight_0091_0092(engine, revision="0092")
+    assert report["migration_plan"] == "0092_only_pending"
+    assert report["selected_revisions"] == [REVISION_0092]
+    assert len(report["stages"]) == 1
+    stage = report["stages"][0]
+    assert stage["expected_predecessor"] == PREDECESSOR_0092
+    assert stage["applicability"] == "ready_for_review"
+    assert stage["roles"][0]["role_id"] == 8
+    assert stage["roles"][0]["before_permissions"] == sewing_permissions
+    assert stage["roles"][0]["restoration_snapshot"]["permissions"] == sewing_permissions
+    assert stage["roles"][0]["after_permissions"] == [
+        "sewing.workspace", "sewing.records", "sewing.bundles", "sewing.flows", "traceability.view",
+    ]
+
+    with engine.connect() as connection:
+        persisted = connection.execute(roles.select().order_by(roles.c.id)).mappings().all()
+    assert [row["permissions"] for row in persisted] == [payroll_permissions, sewing_permissions, ["admin.all"]]
+    engine.dispose()
+
+
+def test_0091_0092_preflight_reports_applied_and_mismatched_revisions_without_claiming_pending():
+    engine, roles = _engine_role_overwrites(REVISION_0092)
+    with engine.begin() as connection:
+        connection.execute(insert(roles), {"id": 1, "name": "Payroll", "permissions": ["custom"]})
+    applied_report = read_only_preflight_0091_0092(engine)
+    assert applied_report["migration_plan"] == "both_stages_applied"
+    assert [stage["applicability"] for stage in applied_report["stages"]] == [
+        "migration_already_applied", "migration_already_applied",
+    ]
+    assert applied_report["stages"][0]["roles"][0]["observed_permissions"] == ["custom"]
+
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE alembic_version SET version_num = '0130_eco_fabric_transfers'"))
+    descendant_report = read_only_preflight_0091_0092(engine)
+    assert descendant_report["migration_plan"] == "both_stages_applied"
+    assert all(stage["applicability"] == "migration_already_applied"
+               for stage in descendant_report["stages"])
+
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE alembic_version SET version_num = 'unrelated_revision'"))
+    mismatch_report = read_only_preflight_0091_0092(engine, revision="0091")
+    assert mismatch_report["migration_plan"] == "revision_mismatch_review_required"
+    assert mismatch_report["stages"][0]["applicability"] == "revision_mismatch_review_required"
     engine.dispose()
