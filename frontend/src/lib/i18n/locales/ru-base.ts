@@ -1589,6 +1589,7 @@ export default {
     "msg.printingNeedsCollect": "Сначала примите задание печати и установите срок, затем вносите выпуск.",
     "msg.selectedLineFull": "Выбранная линия перегружена. Выберите другую.",
     "page.deptInbox.awaitingPackaging": "Ожидает упаковки",
+    "page.deptInbox.unbatched": "Без партии",
     "page.deptInbox.doneToday": "Выполнено сегодня ({count})",
     "page.deptInbox.incoming": "Входящие ({count})",
     "page.deptInbox.incomingProcess": "{source} в {target}",

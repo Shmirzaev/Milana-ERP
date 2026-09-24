@@ -40,6 +40,14 @@ type InboxPackagePage = {
   group_total: number;
 };
 
+type InboxAwaitingPackagingPage = {
+  rows: any[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
 function MaterialThumb({ row }: { row: any }) {
   const imageUrl = row?.material_image_url || row?.model_image_url;
   const src = storageThumbnailUrl(imageUrl, 160);
@@ -88,6 +96,7 @@ export default function DepartmentInboxPage() {
   const params = useParams<{ code: string }>();
   const router = useRouter();
   const code = String(params.code || "").toUpperCase();
+  const isPackagingDepartment = code === "PKG" || code === "BPK" || code === "ECP";
   const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
   const [clientTz, setClientTz] = useState("UTC");
   const [startingWoId, setStartingWoId] = useState<number | null>(null);
@@ -116,7 +125,7 @@ export default function DepartmentInboxPage() {
       code === "CUT" || code === "ECT"
         ? "&replacement_cutting_limit=50&replacement_cutting_offset=0"
         : ""
-    }`
+    }${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}`
     : null;
   const { data, isLoading, mutate } = useSWR<any>(inboxUrl, fetcher, { refreshInterval: 10_000 });
   useEffect(() => {
@@ -156,6 +165,17 @@ export default function DepartmentInboxPage() {
       : null,
     fetcher,
   );
+  const {
+    data: awaitingPackagingPages,
+    setSize: setAwaitingPackagingPageCount,
+    isValidating: awaitingPackagingValidating,
+  } = useSWRInfinite<InboxAwaitingPackagingPage>(
+    (index, previous) => isPackagingDepartment && !(previous && !previous.has_more)
+      ? `/api/inbox/awaiting-packaging?dept=${code}&page=${index + 1}&page_size=50`
+      : null,
+    fetcher,
+    { refreshInterval: 10_000 },
+  );
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
   const replacementCuttingTotal = Number(data?.replacement_cutting_work_total ?? replacementCuttingRows.length);
@@ -182,6 +202,12 @@ export default function DepartmentInboxPage() {
   ]);
   const pendingPackages = useMemo(() => pendingPackagePages?.flatMap((page) => page.rows) || [], [pendingPackagePages]);
   const readyPackages = useMemo(() => readyPackagePages?.flatMap((page) => page.rows) || [], [readyPackagePages]);
+  const awaitingPackagingRows = useMemo(
+    () => awaitingPackagingPages?.flatMap((page) => page.rows) || [],
+    [awaitingPackagingPages],
+  );
+  const awaitingPackagingTotal = awaitingPackagingPages?.[0]?.total ?? 0;
+  const awaitingPackagingHasMore = awaitingPackagingPages?.[awaitingPackagingPages.length - 1]?.has_more ?? false;
   const pendingPackagesTotal = pendingPackagePages?.[0]?.total ?? 0;
   const readyPackagesTotal = readyPackagePages?.[0]?.total ?? 0;
   const [expandedPackageGroups, setExpandedPackageGroups] = useState<Record<string, boolean>>({});
@@ -455,17 +481,21 @@ export default function DepartmentInboxPage() {
         </div>
       ) : null}
 
-      {(code === "PKG" || code === "BPK" || code === "ECP") && data?.awaiting_packaging?.length > 0 && (
+      {isPackagingDepartment && awaitingPackagingRows.length > 0 && (
         <div className="card mt-4 overflow-x-auto p-4">
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")}</h3>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")}</h3>
+            <span className="text-xs text-slate-500">{awaitingPackagingRows.length} / {awaitingPackagingTotal}</span>
+          </div>
           <table className="table">
             <thead>
-              <tr><th>{t("field.production")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
+              <tr><th>{t("field.production")}</th><th>{t("field.batch")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
             </thead>
             <tbody>
-              {data.awaiting_packaging.map((r: any) => (
-                <tr key={r.production_order_id}>
+              {awaitingPackagingRows.map((r: any) => (
+                <tr key={`${r.production_order_id}:${r.production_batch_id ?? "unbatched"}`}>
                   <td>{orderReference(r, `#${r.production_order_id}`)}</td>
+                  <td>{r.batch_no ? (r.batch_name ? `${r.batch_no} · ${r.batch_name}` : r.batch_no) : t("page.deptInbox.unbatched")}</td>
                   <td>{r.ready_qty}</td>
                   <td>{r.sewn_passed}</td>
                   <td>{r.already_packed}</td>
@@ -473,6 +503,16 @@ export default function DepartmentInboxPage() {
               ))}
             </tbody>
           </table>
+          {awaitingPackagingHasMore ? (
+            <button
+              type="button"
+              className="btn mt-3"
+              disabled={awaitingPackagingValidating}
+              onClick={() => void setAwaitingPackagingPageCount((awaitingPackagingPages?.length ?? 1) + 1)}
+            >
+              {awaitingPackagingValidating ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
         </div>
       )}
 

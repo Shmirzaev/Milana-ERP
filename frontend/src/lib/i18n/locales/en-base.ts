@@ -1713,6 +1713,7 @@ export default {
     "msg.printingNeedsCollect": "Collect this printing work order and set a deadline before recording output.",
     "msg.selectedLineFull": "Selected line is full/overloaded. Choose another line.",
     "page.deptInbox.awaitingPackaging": "Awaiting packaging",
+    "page.deptInbox.unbatched": "Unbatched",
     "page.deptInbox.doneToday": "Done today ({count})",
     "page.deptInbox.incoming": "Incoming ({count})",
     "page.deptInbox.incomingProcess": "{source} to {target}",

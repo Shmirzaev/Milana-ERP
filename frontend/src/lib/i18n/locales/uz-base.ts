@@ -1589,6 +1589,7 @@ export default {
     "msg.printingNeedsCollect": "Avval bosma topshirig'ini qabul qilib muddat qo'ying, keyin natija kiriting.",
     "msg.selectedLineFull": "Tanlangan liniya to'liq/yuklangan. Boshqasini tanlang.",
     "page.deptInbox.awaitingPackaging": "Qadoqlashni kutmoqda",
+    "page.deptInbox.unbatched": "Partiyasiz",
     "page.deptInbox.doneToday": "Bugun bajarilgan ({count})",
     "page.deptInbox.incoming": "Kirim ({count})",
     "page.deptInbox.incomingProcess": "{source} dan {target} ga",
