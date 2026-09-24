@@ -17,7 +17,7 @@ from app.core.deps import DbSession, CurrentUser, require_permissions, user_perm
 from app.core.config import settings
 from app.core.dt import date_filter_bounds
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
-from app.core.signing import sign_path, strip_signature
+from app.core.signing import sign_path
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
@@ -44,6 +44,7 @@ from app.services.finished_goods import repair_missing_brand_metadata
 from app.services.ready_stock_sales import ready_pack_candidates, reserve_ready_packs
 from app.services.numbering import next_sales_order_no
 from app.services.numbering import next_invoice_no
+from app.services.production import production_order_printing_attachments_for_storage
 from app.services.workflow import notify_department
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.model_images import material_preview_image_url, model_display_image_url
@@ -60,17 +61,6 @@ _SALES_ORDER_ITEM_SOURCE_TYPES = frozenset({"produce_new", "from_stock"})
 class SalesOrderPageContext(BaseModel):
     sales_order: SalesOrderDetail
     material_requirements: list[MaterialRequirement] | None = None
-
-
-def _attachments_for_storage(attachments) -> list[dict]:
-    """Persist the bare storage path (no signature) so it never expires at rest."""
-    out: list[dict] = []
-    for a in attachments or []:
-        d = a.model_dump() if hasattr(a, "model_dump") else dict(a)
-        if d.get("file_url"):
-            d["file_url"] = strip_signature(d["file_url"])
-        out.append(d)
-    return out
 
 
 def _validate_sales_order_item_source_type(value: str) -> str:
@@ -1967,6 +1957,9 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         raise HTTPException(400, "A piece quantity is required")
     if payload.customer_id and not db.get(Customer, payload.customer_id):
         raise HTTPException(404, "Customer not found")
+    printing_attachments = production_order_printing_attachments_for_storage(
+        payload.printing_attachments,
+    )
     so = SalesOrder(
         order_no=next_sales_order_no(db),
         customer_id=payload.customer_id,
@@ -1974,7 +1967,7 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         status="draft",
         deadline=payload.deadline,
         printing_instructions=payload.printing_instructions,
-        printing_attachments=_attachments_for_storage(payload.printing_attachments),
+        printing_attachments=printing_attachments,
         notes=payload.notes,
         created_by=current.id,
     )
@@ -2079,7 +2072,10 @@ def update_sales_order(sid: int, payload: SalesOrderUpdate, db: DbSession, curre
         # A full-form resubmission may include the unchanged status. Never write
         # that snapshot back over progress made by another workflow command.
     if "printing_attachments" in updates:
-        updates["printing_attachments"] = _attachments_for_storage(updates["printing_attachments"])
+        updates["printing_attachments"] = production_order_printing_attachments_for_storage(
+            updates["printing_attachments"],
+            existing=so.printing_attachments,
+        )
     for k, v in updates.items():
         setattr(so, k, v)
     log_action(db, current, "update", "SalesOrder", so.id)
