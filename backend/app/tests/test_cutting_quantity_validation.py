@@ -221,3 +221,52 @@ def test_cutting_bundle_plan_rejects_int4_total():
             {"color": "white", "size": "M", "quantity": 2_147_483_647, "count": 1},
             {"color": "black", "size": "L", "quantity": 1, "count": 1},
         ])
+
+
+@pytest.mark.parametrize(
+    "spec, message",
+    [
+        ({"color": "white", "size": "M", "quantity": 1.5, "count": 1}, "whole numbers"),
+        ({"color": "white", "size": "M", "quantity": 1, "count": True}, "whole numbers"),
+        ({"color": "x" * 65, "size": "M", "quantity": 1, "count": 1}, "color.*64 characters"),
+        ({"color": "white", "size": "x" * 33, "quantity": 1, "count": 1}, "size.*32 characters"),
+    ],
+)
+def test_cutting_bundle_plan_rejects_invalid_embedded_shapes(spec, message):
+    with pytest.raises(HTTPException, match=message):
+        _parse_cutting_bundle_specs([spec])
+
+
+def test_cutting_bundle_plan_caps_raw_rows_even_when_bundle_count_is_zero():
+    rows = [
+        {"color": "white", "size": "M", "quantity": 0, "count": 0}
+        for _ in range(1001)
+    ]
+
+    with pytest.raises(HTTPException, match="cannot contain more than 1000 rows"):
+        _parse_cutting_bundle_specs(rows)
+
+
+def test_cutting_bundle_shape_failure_does_not_write_cutting_state(client, auth_headers):
+    order_id, work_order_id = _cutting_scope()
+    before = _write_state(order_id, work_order_id)
+
+    response = client.post(
+        "/api/cutting/records",
+        headers=auth_headers,
+        json={
+            "work_order_id": work_order_id,
+            "input_quantity": 0,
+            "cut_pieces": 0,
+            "passed_pieces": 0,
+            "defective_pieces": 0,
+            "waste_quantity": 0,
+            "bundles": [
+                {"color": "x" * 65, "size": "M", "quantity": 1, "count": 1},
+            ],
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert "color" in response.json()["detail"]
+    assert _write_state(order_id, work_order_id) == before

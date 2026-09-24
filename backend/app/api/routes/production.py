@@ -3246,6 +3246,9 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
 
 # ===== Cutting =====
 _MAX_BUNDLES_PER_CUTTING_RECORD = 1000
+_MAX_CUTTING_BUNDLE_PLAN_ROWS = 1000
+_CUTTING_BUNDLE_COLOR_MAX_LENGTH = 64
+_CUTTING_BUNDLE_SIZE_MAX_LENGTH = 32
 
 
 def _replacement_cut_total(db: DbSession, cutting_work_order_id: int) -> int:
@@ -3290,13 +3293,19 @@ def _allocate_replacement_cut(
 
 
 def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
+    specs = specs or []
+    if len(specs) > _MAX_CUTTING_BUNDLE_PLAN_ROWS:
+        raise HTTPException(
+            400,
+            f"Bundle plan cannot contain more than {_MAX_CUTTING_BUNDLE_PLAN_ROWS} rows",
+        )
     parsed: list[dict] = []
     total = 0
     total_quantity = 0
-    for i, spec in enumerate(specs or [], start=1):
+    for i, spec in enumerate(specs, start=1):
         try:
-            count = int(spec.get("count", 1))
-            qty = int(spec.get("quantity", 0))
+            count = _cutting_bundle_integer(spec.get("count", 1))
+            qty = _cutting_bundle_integer(spec.get("quantity", 0))
         except (TypeError, ValueError):
             raise HTTPException(400, f"Bundle plan row {i}: 'count' and 'quantity' must be whole numbers")
         if count < 0 or qty < 0:
@@ -3305,10 +3314,16 @@ def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
             raise HTTPException(400, f"Bundle plan row {i}: 'quantity' is too large")
         if count == 0:
             continue
-        color = str(spec.get("color") or "").strip()
-        size = str(spec.get("size") or "").strip()
+        raw_color = spec.get("color")
+        raw_size = spec.get("size")
+        color = raw_color.strip() if isinstance(raw_color, str) else ""
+        size = raw_size.strip() if isinstance(raw_size, str) else ""
         if not color or not size:
             raise HTTPException(400, f"Bundle plan row {i}: 'color' and 'size' are required")
+        if len(color) > _CUTTING_BUNDLE_COLOR_MAX_LENGTH:
+            raise HTTPException(400, f"Bundle plan row {i}: 'color' must be at most 64 characters")
+        if len(size) > _CUTTING_BUNDLE_SIZE_MAX_LENGTH:
+            raise HTTPException(400, f"Bundle plan row {i}: 'size' must be at most 32 characters")
         total += count
         if total > _MAX_BUNDLES_PER_CUTTING_RECORD:
             raise HTTPException(400, f"Bundle plan would create more than {_MAX_BUNDLES_PER_CUTTING_RECORD} bundles")
@@ -3329,6 +3344,14 @@ def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
             "next_code": "PRT" if raw_next == "printing" else factory_code,
         })
     return parsed
+
+
+def _cutting_bundle_integer(value: object) -> int:
+    if type(value) is int:
+        return value
+    if isinstance(value, str) and value.strip().lstrip("+").isdigit():
+        return int(value.strip())
+    raise ValueError("not a whole number")
 
 
 def _next_usluga_cutting_batch_no(db: DbSession, production_order_id: int) -> str:
