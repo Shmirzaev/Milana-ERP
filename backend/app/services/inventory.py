@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_
@@ -996,23 +997,23 @@ def stock_summary(
             .all()
         )
 
-    batch_totals = {int(item_id): float(qty or 0) for item_id, qty in batch_rows}
-    deltas: dict[int, float] = {int(i): 0.0 for i in item_ids}
+    batch_totals = {int(item_id): Decimal(str(qty or 0)) for item_id, qty in batch_rows}
+    deltas: dict[int, Decimal] = {int(i): Decimal("0") for i in item_ids}
     out_types = {"issue", "consume", "waste", "shipment"}
     in_types = {"produce", "return", "adjustment"}
     for item_id, movement_type, qty in move_rows:
-        qv = float(qty or 0)
+        qv = Decimal(str(qty or 0))
         iid = int(item_id)
         if movement_type in out_types:
-            deltas[iid] = deltas.get(iid, 0.0) - qv
+            deltas[iid] = deltas.get(iid, Decimal("0")) - qv
         elif movement_type in in_types:
-            deltas[iid] = deltas.get(iid, 0.0) + qv
-    reserved_totals = {int(item_id): max(0.0, float(qty or 0)) for item_id, qty in reservation_rows}
+            deltas[iid] = deltas.get(iid, Decimal("0")) + qv
+    reserved_totals = {int(item_id): max(Decimal("0"), Decimal(str(qty or 0))) for item_id, qty in reservation_rows}
 
     out = []
     for it in items:
-        qty = batch_totals.get(it.id, 0.0) + deltas.get(it.id, 0.0)
-        reserved_qty = reserved_totals.get(it.id, 0.0)
+        qty = batch_totals.get(it.id, Decimal("0")) + deltas.get(it.id, Decimal("0"))
+        reserved_qty = reserved_totals.get(it.id, Decimal("0"))
         out.append({
             "item_id": it.id,
             "sku": it.sku,

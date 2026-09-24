@@ -1,5 +1,6 @@
 """Finance/reporting service."""
 from datetime import datetime
+from decimal import Decimal
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -31,12 +32,12 @@ def waste_income(db: Session) -> float:
     return float(val or 0)
 
 
-def branded_stock_value(db: Session) -> float:
+def branded_stock_value(db: Session) -> Decimal:
     rows = db.query(FinishedGoodsStock).filter(
         FinishedGoodsStock.brand_id.isnot(None),
         FinishedGoodsStock.status == "available",
     ).all()
-    return float(sum(float(r.available_qty) * float(r.cost_per_piece) for r in rows))
+    return sum((Decimal(r.available_qty) * r.cost_per_piece for r in rows), Decimal("0"))
 
 
 def order_profit(db: Session, sales_order_id: int) -> dict:
