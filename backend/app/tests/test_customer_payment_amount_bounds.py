@@ -45,6 +45,18 @@ def test_customer_payment_schema_rejects_unrepresentable_amount(amount):
         CustomerPaymentIn(amount=amount)
 
 
+@pytest.mark.parametrize("sales_order_id", [0, -1, 2_147_483_648])
+def test_customer_payment_schema_rejects_invalid_sales_order_reference(sales_order_id):
+    with pytest.raises(ValidationError):
+        CustomerPaymentIn(sales_order_id=sales_order_id, amount="1.00")
+
+
+def test_customer_payment_schema_bounds_payment_method():
+    assert CustomerPaymentIn(amount="1.00", payment_method="cash").payment_method == "cash"
+    with pytest.raises(ValidationError):
+        CustomerPaymentIn(amount="1.00", payment_method="x" * 33)
+
+
 def test_customer_payment_overflow_rejects_without_writes(client, auth_headers):
     customer_id = _customer_id()
     before = _write_counts()
@@ -71,6 +83,35 @@ def test_customer_payment_subcent_precision_rejects_without_writes(client, auth_
 
     assert response.status_code == 422, response.text
     assert _write_counts() == before
+
+
+def test_customer_payment_rejects_unrepresentable_reference_or_method_without_writes(client, auth_headers):
+    customer_id = _customer_id()
+    before = _write_counts()
+
+    for payload in (
+        {"amount": "1.00", "sales_order_id": 2_147_483_648},
+        {"amount": "1.00", "payment_method": "x" * 33},
+    ):
+        response = client.post(
+            f"/api/customers/{customer_id}/payments",
+            headers=auth_headers,
+            json=payload,
+        )
+        assert response.status_code == 422, response.text
+        assert _write_counts() == before
+
+
+def test_customer_payment_path_id_is_int4_bounded_and_preserves_authentication(client, auth_headers):
+    response = client.post("/api/customers/2147483648/payments", json={"amount": "1.00"})
+    assert response.status_code == 401
+
+    response = client.post(
+        "/api/customers/2147483648/payments",
+        headers=auth_headers,
+        json={"amount": "1.00"},
+    )
+    assert response.status_code == 422, response.text
 
 
 def test_customer_payment_maximum_persists_exactly(client, auth_headers):

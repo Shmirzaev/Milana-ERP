@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Depends, Header, Query
+from fastapi import APIRouter, HTTPException, Depends, Header, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import load_only
@@ -45,7 +45,7 @@ router = APIRouter(tags=["partners"])
 
 
 class CustomerPaymentIn(BaseModel):
-    sales_order_id: int | None = None
+    sales_order_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
     amount: Decimal = Field(
         ge=0.01,
         le=Decimal("999999999999.99"),
@@ -53,7 +53,7 @@ class CustomerPaymentIn(BaseModel):
         allow_inf_nan=False,
     )
     paid_at: datetime | None = None
-    payment_method: str | None = None
+    payment_method: str | None = Field(default=None, max_length=32)
     notes: str | None = None
 
 
@@ -294,7 +294,7 @@ def get_customer_payments(
 
 @router.post("/customers/{cid}/payments", status_code=201)
 def create_customer_payment(
-    cid: int,
+    cid: Annotated[int, Path(gt=0, le=2_147_483_647)],
     payload: CustomerPaymentIn,
     db: DbSession,
     current: User = Depends(require_permissions("finance.payment", "*")),
