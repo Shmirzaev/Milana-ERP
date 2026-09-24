@@ -112,6 +112,8 @@ def _resolve_invoice(
 
 
 def _refresh_invoice_status(db: Session, invoice: Invoice) -> None:
+    if invoice.status in {"void", "cancelled"}:
+        return
     total_paid = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(Payment.invoice_id == invoice.id).scalar() or 0
     total_paid = Decimal(str(total_paid))
     amount = Decimal(str(invoice.amount or 0))
@@ -290,6 +292,8 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                 )
                 if not invoice:
                     raise ValueError("invoice not found (provide invoice_id, invoice_no, or invoice_external_id)")
+                if invoice.status in {"void", "cancelled"}:
+                    raise ValueError("cannot apply payment to void or cancelled invoice")
                 external_id = _bounded_text(row.external_id, "external_id", 128)
                 payment_method = _bounded_text(row.payment_method, "payment_method", 32)
                 amount = _validated_amount(row.amount, "payment", allow_zero=False)
@@ -338,6 +342,8 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
         if affected_invoices:
             _refresh_invoice_status(db, min(affected_invoices, key=lambda row: int(row.id)))
         for invoice in affected_invoices:
+            if invoice.status in {"void", "cancelled"}:
+                continue
             total_paid = Decimal(str(paid_totals.get(invoice.id, 0) or 0))
             amount = Decimal(str(invoice.amount or 0))
             invoice.status = "paid" if total_paid >= amount else "partially_paid" if total_paid > 0 else "unpaid"
