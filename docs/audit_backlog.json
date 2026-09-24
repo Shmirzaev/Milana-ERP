@@ -757,10 +757,10 @@
       "risk": "Revocation, factory-state or timeout errors.",
       "proposed_fix": "Version sessions and unify contracts.",
       "baseline_source": "backend/app/core/deps.py:119",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "177c3cd,b926fba,16544e1",
-      "evidence": "Partial: token/profile and reset-proxy fixes retained. Password change refreshes and locks active user before verification: 55 SQLite compatibility tests pass, 2 PG skips; independent real-PG race passes (one success, one rejection, one audit). Stale inactive/deleted users reject401. Proxy trust, request-body bounds and cross-workflow credential policy remain open."
+      "commit": "177c3cd,b926fba,16544e1,f35a62e",
+      "evidence": "Fixed: explicit trusted-proxy CIDRs now govern forwarded client/scheme handling and hosted startup fails closed unless proxy ownership is exact; public credential bodies and reset proxies are bounded/deadlined without touching application uploads. Self-service, reset, admin and configured-seed password rotations share a locked atomic session cutoff, reset-link invalidation and metadata-only audit policy. The focused/adjacent backend suite passes 142 with 7 expected skips, 4 targeted disposable-PostgreSQL races pass, reset proxies pass 20 cases, and independent review reruns the focused backend selection, all 15 password/reset PostgreSQL cases and all 20 proxy cases successfully. Deployment must set exact TRUSTED_PROXY_CIDRS and FORWARDED_ALLOW_IPS=; this is an activation requirement, not a remaining code gap."
     },
     {
       "number": 64,
