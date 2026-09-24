@@ -64,10 +64,31 @@ def test_production_order_pages_bound_rows_and_preserve_legacy_payload(order_cou
         page_size=50,
         include_total=True,
     )
+    page_two, _page_two_statements = _read(
+        production_type=production_type,
+        page=2,
+        page_size=50,
+        include_total=True,
+    )
     legacy, legacy_statements = _read(
         production_type=production_type,
         page=1,
         page_size=50,
+    )
+    search_marker = production_type.split("-")[1]
+    searched, _search_statements = _read(
+        production_type=production_type,
+        page=1,
+        page_size=50,
+        include_total=True,
+        q=search_marker.lower(),
+    )
+    wildcard, _wildcard_statements = _read(
+        production_type=production_type,
+        page=1,
+        page_size=50,
+        include_total=True,
+        q=f"%{search_marker[:5]}%",
     )
 
     selects = [statement for statement in statements if statement.startswith("select")]
@@ -83,8 +104,15 @@ def test_production_order_pages_bound_rows_and_preserve_legacy_payload(order_cou
         "has_more": order_count > 50,
     }
     assert len(page["rows"]) == min(order_count, 50)
+    assert page_two["total"] == order_count
+    assert len(page_two["rows"]) == min(max(0, order_count - 50), 50)
+    assert set(page["rows"]).isdisjoint(page_two["rows"])
     assert len(selects) == 3, selects
     assert " limit ? offset ?" in selects[1]
+    assert searched["total"] == order_count
+    assert searched["rows"] == legacy
+    assert wildcard["total"] == 0
+    assert wildcard["rows"] == []
     assert len([statement for statement in legacy_statements if statement.startswith("select")]) == 2
     assert writes == []
 
@@ -173,6 +201,10 @@ def test_production_order_page_contract_auth_filter_and_no_writes(client, auth_h
     ).status_code == 401
     assert client.get(
         "/api/production-orders?page_size=501",
+        headers=auth_headers,
+    ).status_code == 422
+    assert client.get(
+        "/api/production-orders?page=1&page_size=50&include_total=true&q=" + "x" * 101,
         headers=auth_headers,
     ).status_code == 422
 

@@ -572,6 +572,7 @@ def list_pos(
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     status: str | None = None,
     production_type: str | None = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=500)] = 50,
     include_total: bool = False,
@@ -586,6 +587,24 @@ def list_pos(
     )
     if status: qry = qry.filter(ProductionOrder.status == status)
     if production_type: qry = qry.filter(ProductionOrder.production_type == production_type)
+    needle = (q or "").strip()
+    if needle:
+        escaped_needle = (
+            needle.replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        pattern = f"%{escaped_needle}%"
+        qry = qry.join(Model, Model.id == ProductionOrder.model_id).outerjoin(
+            SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id,
+        ).filter(
+            or_(
+                ProductionOrder.production_no.ilike(pattern, escape="\\"),
+                SalesOrder.order_no.ilike(pattern, escape="\\"),
+                Model.code.ilike(pattern, escape="\\"),
+                Model.name.ilike(pattern, escape="\\"),
+            )
+        )
     total = qry.order_by(None).count() if include_total else 0
     rows = qry.order_by(ProductionOrder.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     if not include_total:
