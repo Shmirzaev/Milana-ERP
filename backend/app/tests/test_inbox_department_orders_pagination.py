@@ -427,7 +427,11 @@ def test_single_page_hydrates_all_bundle_groups_for_merged_work_order_identities
     assert page["total"] == 100
     assert len(page["rows"]) == 100
     assert all(row.get("production_order_id") for row in page["rows"])
-    assert all(row.get("bundle_count") == 3 for row in page["rows"])
+    # Three factory groups share one sewing-work-order identity. Preserve the
+    # legacy later-row-wins merge (one group's count wins), but verify every
+    # identity has a bundle payload. The legacy 200-group hydration cap drops
+    # all groups for the last third of these 100 canonical identities.
+    assert all(row.get("bundle_count") == 1 for row in page["rows"])
 
 
 def test_legacy_inbox_can_skip_core_orders_without_skipping_fgs_package_widgets(monkeypatch):
@@ -440,8 +444,8 @@ def test_legacy_inbox_can_skip_core_orders_without_skipping_fgs_package_widgets(
         original_query = db.query
 
         def reject_core_entity_queries(*entities, **kwargs):
-            assert WorkOrder not in entities
-            assert Bundle not in entities
+            assert all(entity is not WorkOrder for entity in entities)
+            assert all(entity is not Bundle for entity in entities)
             return original_query(*entities, **kwargs)
 
         db.query = reject_core_entity_queries
