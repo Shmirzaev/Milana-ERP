@@ -1,7 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 
+
+## Fresh payroll employee scanning sessions prepared (2026-09-25)
+
+- Selecting an employee through worker number, QR or search starts an empty visible Payroll Scan session, including A/B/A switching and same-employee reselection. History, employee/piece/pay totals, operation totals, saved/waiting counters and CSV use only scans from that selection. Old browser history never populates the new view, including after reload or cross-tab history updates.
+- The persistent history remains available internally for duplicate protection and pending-save recovery; selection does not delete or alter payroll records. Earlier unsaved work has a compact EN/RU/UZ count and Retry action without displaying old history. Clear resets only the current view. In-flight numeric saves retain their original employee and update recovery history without adding rows or notices to a later session; stale unresolved work cannot be assigned to the next employee. Control confirmation retains its existing employee lock.
+- Clean worktree `C:/ERP/.codex-work/payroll-scan-session-20260925`, branch `codex/payroll-scan-session-20260925`, from verified origin/main `9701b7b9`. Both production VMs match green `20260924_120531`, manifest `703f9bfe527c5857e92d1d84aeece76c5e7b647158d366a1e36d71745565729f`; database `0133_storage_customers`. Legacy 481-entry working tree preserved.
+- Existing scanner handler/race checks extended for fresh selections and delayed saved responses; focused handler and autosave contracts, strict TypeScript, scoped ESLint and whitespace review passed. User authorized fast deployment without extra testing or monitoring; required immutable CI, backup and immediate health checks retained. Frontend-only change; no schema, permission or business-record mutation.
 
 ## Shipment return to preparation deployed (2026-09-24)
 
