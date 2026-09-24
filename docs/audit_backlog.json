@@ -819,7 +819,8 @@
       "baseline_source": "backend/app/services/forecasting.py",
       "status": "partial",
       "owner": null,
-      "commit": "289e809",
+      "commit": "289e809, 064be49",
+      "latest_evidence": "Owner chose to restrict forecasting to authorized factories. Commit 064be49 adds optional model-attributed branded demand, stock, pipeline and trend filtering at the service layer; 36 focused/adjacent forecasting tests and Ruff pass. Routes still use global reads until effective per-factory permission and unattributed item/inventory policy are resolved; API05 remains partial and is not yet a security fix.",
       "evidence": "Commit 289e809 validates the existence of optional model, item, brand and collection references before forecasting recommendation insertion; all four dangling-reference cases return400 with no write and19 focused forecasting cases pass. Visibility, cross-entity relationships and global report scope still require explicit business policy, so API05 is partial rather than fixed."
     },
     {
