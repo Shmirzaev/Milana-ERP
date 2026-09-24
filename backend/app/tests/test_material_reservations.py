@@ -92,6 +92,64 @@ def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
     assert rejected.status_code == 409 and "already been used" in rejected.text
 
 
+def test_cutting_batch_replacement_rejects_catalog_unit_drift_with_existing_reservation(
+    client, auth_headers,
+):
+    from app.db.session import SessionLocal
+    from app.models import AuditLog, Item, MaterialReservation, ProductionOrderMaterial, StockBatch
+    from app.tests.test_sewing_workspace_permissions import _create_user_headers
+
+    cutting_headers = _create_user_headers(client, auth_headers, role="Cutting", department="CUT")
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    old_batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=20, unit="kg",
+    )
+    new_batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=20, unit="kg",
+    )
+    created = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "materials": [{"stock_batch_id": old_batch["id"], "estimated_quantity": 5, "unit": "kg"}],
+        "items": [{"model_id": 1, "color": "white", "size": "46", "planned_quantity": 10}],
+    })
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+    work_order = _cutting_work_order(client, auth_headers, order_id)
+    for batch in (old_batch, new_batch):
+        _create_material_reservation(
+            client, auth_headers, production_order_id=order_id, item_id=item["id"],
+            stock_batch_id=batch["id"], warehouse_id=warehouse["id"], quantity=5,
+        )
+    with SessionLocal() as db:
+        db.get(Item, item["id"]).unit = "m"
+        db.commit()
+        before = (
+            db.query(ProductionOrderMaterial).filter_by(production_order_id=order_id).one().stock_batch_id,
+            [(row.stock_batch_id, row.status, row.released_quantity) for row in db.query(
+                MaterialReservation,
+            ).filter_by(production_order_id=order_id).order_by(MaterialReservation.id).all()],
+            db.query(AuditLog).count(),
+        )
+
+    response = client.patch(
+        f"/api/work-orders/{work_order['id']}/cutting-materials/{old_batch['id']}",
+        headers=cutting_headers, json={"stock_batch_id": new_batch["id"]},
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Batch unit must match the material unit"
+    with SessionLocal() as db:
+        assert (
+            db.query(ProductionOrderMaterial).filter_by(production_order_id=order_id).one().stock_batch_id,
+            [(row.stock_batch_id, row.status, row.released_quantity) for row in db.query(
+                MaterialReservation,
+            ).filter_by(production_order_id=order_id).order_by(MaterialReservation.id).all()],
+            db.query(AuditLog).count(),
+        ) == before
+        assert db.get(StockBatch, new_batch["id"]).unit == "kg"
+
+
 def test_cutting_passport_adds_missing_material_atomically(client, auth_headers):
     from app.db.session import SessionLocal
     from app.models import MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch, WorkOrder

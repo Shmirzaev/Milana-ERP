@@ -10,6 +10,7 @@ from app.models.cutting_passport import CuttingPassport
 from app.services.audit import log_action
 from app.services.factory_scope import require_work_order_factory_access
 from app.services.inventory import create_material_reservations, release_material_reservation
+from app.services.stock_batch_policy import validate_stock_batch_unit
 
 
 def _replacement_material_rows(db, order_id: int, old_batch_id: int, new_batch_id: int):
@@ -75,7 +76,7 @@ def replace_cutting_material_batch(db, current, work_order_id, old_batch_id, new
             StockBatch.batch_no,
             StockBatch.internal_batch_no,
         ),
-        joinedload(StockBatch.item).load_only(Item.id, Item.category, Item.sku, Item.name),
+        joinedload(StockBatch.item).load_only(Item.id, Item.category, Item.sku, Item.name, Item.unit),
     ).filter(StockBatch.id.in_([old_batch_id, new_batch_id])).order_by(
         StockBatch.id,
     ).with_for_update(of=StockBatch).all()
@@ -87,6 +88,7 @@ def replace_cutting_material_batch(db, current, work_order_id, old_batch_id, new
         raise HTTPException(409, "This fabric batch is archived or empty")
     if batch.unit != material.unit:
         raise HTTPException(400, "The replacement batch must use the same unit as the planned material")
+    validate_stock_batch_unit(item, batch.unit)
     reservations = db.query(MaterialReservation).filter(
         MaterialReservation.production_order_id == order.id,
         MaterialReservation.stock_batch_id.in_([old_batch_id, new_batch_id]),
