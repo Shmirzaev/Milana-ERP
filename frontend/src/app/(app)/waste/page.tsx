@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import PaginationControls from "@/components/PaginationControls";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { useDialogs } from "@/components/DialogProvider";
@@ -28,12 +29,16 @@ type WasteForm = {
 };
 
 type SaleForm = { wasteId: number; buyer: string; quantity: string; unitPrice: string };
+type WastePage = { rows: any[]; total: number; page: number; page_size: number; has_more: boolean };
 
 export default function WastePage() {
   const { t } = useT();
   const dialogs = useDialogs();
   const { me } = useMe();
-  const { data, mutate } = useSWR<any[]>("/api/waste", fetcher);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const { data: wastePage, mutate } = useSWR<WastePage>(`/api/waste?page=${page}&page_size=${pageSize}`, fetcher);
+  const data = wastePage?.rows;
   const { data: items } = useSWR<any[]>("/api/inventory/items", fetcher);
   const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const { data: dash } = useSWR<any>("/api/dashboard/waste", fetcher);
@@ -100,6 +105,17 @@ export default function WastePage() {
       quantity: pending ? String(pending.payload.quantity) : "",
       unitPrice: pending ? String(pending.payload.unit_price) : "",
     });
+  }
+
+  function changePage(nextPage: number) {
+    setSale(null);
+    setPage(nextPage);
+  }
+
+  function changePageSize(nextPageSize: number) {
+    setSale(null);
+    setPage(1);
+    setPageSize(nextPageSize);
   }
 
   async function submitSale(e: React.FormEvent) {
@@ -254,6 +270,15 @@ export default function WastePage() {
             })}
           </tbody>
         </table>
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          total={wastePage?.total ?? 0}
+          count={data?.length ?? 0}
+          onPageChange={changePage}
+          onPageSizeChange={changePageSize}
+          pageSizeOptions={[25, 50, 100]}
+        />
       </div>
     </div>
   );

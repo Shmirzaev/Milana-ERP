@@ -175,6 +175,8 @@ class HarnessRecoveryError extends Error {
 
 function pageHarness({ confirmPromise, refreshFailure = false, storageFailure = false, recoveryCode = null } = {}) {
   const initial = [
+    1,
+    50,
     { item_id: 0, source_department_id: 0, waste_type: "fabric", quantity: "", unit: "kg", reason: "", sellable: true },
     "",
     { wasteId: 11, buyer: "Factory recycler", quantity: "4.25", unitPrice: "2.5" },
@@ -204,11 +206,12 @@ function pageHarness({ confirmPromise, refreshFailure = false, storageFailure = 
   new Function("exports", "require", pageCode)(pageExports, name => ({
     react: reactHooks,
     "react/jsx-runtime": jsxRuntime,
-    swr: { default: key => key === "/api/waste"
-      ? { data: [{ id: 11, waste_type: "offcuts", quantity: 10, remaining_quantity: 6, unit: "kg", sellable: true, status: "sold", estimated_value: 1 }], mutate: async () => { if (refreshFailure) throw new Error("refresh failed"); } }
+    swr: { default: key => key === "/api/waste?page=1&page_size=50"
+      ? { data: { rows: [{ id: 11, waste_type: "offcuts", quantity: 10, remaining_quantity: 6, unit: "kg", sellable: true, status: "sold", estimated_value: 1 }], total: 101, page: 1, page_size: 50, has_more: true }, mutate: async () => { if (refreshFailure) throw new Error("refresh failed"); } }
       : { data: undefined } },
     "@/lib/api": { api: { post: async () => ({}) }, fetcher() {} },
     "@/components/PageHeader": { default: () => null },
+    "@/components/PaginationControls": { default: () => null },
     "@/components/StagePipeline": { statusLabel: value => value },
     "@/lib/i18n": { useT: () => ({ t: key => key }) },
     "@/components/DialogProvider": { useDialogs: () => ({ ask: async (...args) => { asks.push(args); return confirmPromise ? confirmPromise.promise : true; } }) },
@@ -235,6 +238,12 @@ function pageHarness({ confirmPromise, refreshFailure = false, storageFailure = 
 
 const confirmation = deferred();
 const overlap = pageHarness({ confirmPromise: confirmation, refreshFailure: true });
+const paging = walk(overlap.tree, node => typeof node.type === "function" && node.props.total === 101)[0];
+assert.ok(paging && paging.props.page === 1 && paging.props.pageSize === 50 && paging.props.count === 1,
+  "the waste screen must consume a bounded exact-total page");
+paging.props.onPageChange(2);
+assert.ok(overlap.updates[0].includes(2), "page controls must request the next bounded server page");
+assert.ok(overlap.updates[4].includes(null), "page changes must close the current sale form");
 assert.ok(walk(overlap.tree, node => node.type === "div" && node.props.children?.join?.("") === "field.remaining: 6.00 kg").length,
   "the actual page must render the server-computed remaining balance");
 assert.ok(walk(overlap.tree, node => node.type === "button" && node.props.children === "page.waste.retrySale").length,
@@ -249,8 +258,8 @@ await overlappingSubmit;
 confirmation.resolve(true);
 await firstSubmit;
 assert.equal(overlap.posts.length, 1);
-assert.ok(overlap.updates[2].includes(null), "confirmed POST must close the form before refresh");
-assert.ok(overlap.updates[1].includes("page.waste.saleRecordedRefreshFailed"), "refresh failure must retain sale success");
+assert.ok(overlap.updates[4].includes(null), "confirmed POST must close the form before refresh");
+assert.ok(overlap.updates[3].includes("page.waste.saleRecordedRefreshFailed"), "refresh failure must retain sale success");
 assert.equal(overlap.submissionRef.current, false);
 
 const rejectedConfirmation = deferred();
@@ -262,18 +271,18 @@ await rejectedSubmit;
 assert.equal(rejection.submissionRef.current, false, "confirmation rejection must release the synchronous guard");
 
 const corrupt = pageHarness({ storageFailure: true });
-assert.ok(corrupt.updates[4].some(value => value.has(11)), "corrupt evidence must retain pending attention without throwing in a state updater");
+assert.ok(corrupt.updates[6].some(value => value.has(11)), "corrupt evidence must retain pending attention without throwing in a state updater");
 
 const unavailable = pageHarness({ recoveryCode: "completed_unavailable" });
 const unavailableForm = walk(unavailable.tree, node => node.type === "form" && String(node.props.className).includes("min-w-64"))[0];
 await unavailableForm.props.onSubmit({ preventDefault() {} });
-assert.ok(unavailable.updates[2].includes(null), "a committed unavailable sale must close without replaying the write");
-assert.ok(unavailable.updates[1].includes("page.waste.saleRecoveryResolved"));
+assert.ok(unavailable.updates[4].includes(null), "a committed unavailable sale must close without replaying the write");
+assert.ok(unavailable.updates[3].includes("page.waste.saleRecoveryResolved"));
 
 const cancelled = pageHarness({ recoveryCode: "cancelled" });
 const cancelledForm = walk(cancelled.tree, node => node.type === "form" && String(node.props.className).includes("min-w-64"))[0];
 await cancelledForm.props.onSubmit({ preventDefault() {} });
-assert.equal(cancelled.updates[2].includes(null), false, "an uncommitted cancelled sale stays open for review");
-assert.ok(cancelled.updates[1].includes("page.waste.saleRecoveryCancelled"));
+assert.equal(cancelled.updates[4].includes(null), false, "an uncommitted cancelled sale stays open for review");
+assert.ok(cancelled.updates[3].includes("page.waste.saleRecoveryCancelled"));
 
 console.log("Waste sales: balance display, cross-tab reconciliation, exact inputs, and recovery guards pass.");
