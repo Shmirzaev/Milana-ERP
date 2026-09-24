@@ -88,6 +88,7 @@ let tree = render();
 assert.equal(stockPages[0].rows.length, 50);
 assert(requestKeys.includes("/api/finished-goods?page=1&page_size=50&q="), "stock should fetch a 50-row exact-total page");
 assert(requestKeys.includes("/api/finished-goods/branded-stock?page=1&page_size=50&q="), "branded stock should fetch a 50-row exact-total page");
+assert(requestKeys.includes("/api/inbox?dept=FGS&ready_to_ship_limit=50&ready_to_ship_offset=0&include_core_orders=false"), "ready-to-ship should use a bounded page without the duplicate core-order graph");
 assert.match(source, /\{branded\.length\} \/ \{brandedTotal\}/, "branded table shows loaded rows against the exact total");
 assert.match(source, /\{data\.length\} \/ \{stockTotal\}/, "stock table shows loaded rows against the exact total");
 const buttons = walk(tree, node => node.type === "button" && (

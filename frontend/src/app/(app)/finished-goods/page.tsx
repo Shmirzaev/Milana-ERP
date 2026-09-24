@@ -64,7 +64,7 @@ export default function FinishedGoodsPage() {
     setSize: setReadyToShipSize,
     isValidating: readyToShipValidating,
   } = useSWRInfinite<any>(
-    (index) => `/api/inbox?dept=FGS&ready_to_ship_limit=50&ready_to_ship_offset=${index * 50}`,
+    (index) => `/api/inbox?dept=FGS&ready_to_ship_limit=50&ready_to_ship_offset=${index * 50}&include_core_orders=false`,
     fetcher,
   );
   const readyToShip = readyToShipPages?.flatMap((page) => page?.ready_to_ship ?? []) ?? [];

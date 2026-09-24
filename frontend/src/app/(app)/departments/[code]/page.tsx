@@ -142,9 +142,25 @@ export default function DepartmentInboxPage() {
       code === "CUT" || code === "ECT"
         ? "&replacement_cutting_limit=50&replacement_cutting_offset=0"
         : ""
-    }${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${isSewingDepartment ? "&include_replacement_sewing=false" : ""}${code !== "CUT" && code !== "ECT" ? "&include_core_orders=false" : ""}`
+    }${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${isSewingDepartment ? "&include_replacement_sewing=false" : ""}${code === "FGS" ? "&ready_to_ship_limit=50&ready_to_ship_offset=0" : ""}${code !== "CUT" && code !== "ECT" ? "&include_core_orders=false" : ""}`
     : null;
   const { data, isLoading, mutate } = useSWR<any>(inboxUrl, fetcher, { refreshInterval: 10_000 });
+  const {
+    data: readyToShipPages,
+    mutate: mutateReadyToShipPages,
+    size: readyToShipSize,
+    setSize: setReadyToShipSize,
+    isValidating: readyToShipValidating,
+  } = useSWRInfinite<any>(
+    (index, previous) => {
+      if (code !== "FGS") return null;
+      if (index === 0) return inboxUrl;
+      if (previous && index * 50 >= Number(previous.ready_to_ship_total ?? 0)) return null;
+      return `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}&ready_to_ship_limit=50&ready_to_ship_offset=${index * 50}&include_core_orders=false`;
+    },
+    fetcher,
+    { refreshInterval: 10_000 },
+  );
   const {
     data: departmentOrderPages,
     mutate: mutateDepartmentOrderPages,
@@ -303,9 +319,17 @@ export default function DepartmentInboxPage() {
         return left - right;
       });
   }, [readyPackages]);
+  const readyToShipRows = useMemo(
+    () => readyToShipPages?.flatMap((page) => page?.ready_to_ship ?? [])
+      ?? (Array.isArray(data?.ready_to_ship) ? data.ready_to_ship : []),
+    [data?.ready_to_ship, readyToShipPages],
+  );
+  const readyToShipTotal = Number(readyToShipPages?.[0]?.ready_to_ship_total ?? data?.ready_to_ship_total ?? 0);
+  const hasReadyToShipOrders = readyToShipRows.length > 0;
+  const readyToShipHasMore = code === "FGS" && readyToShipRows.length < readyToShipTotal;
   const readyToShipOrders = useMemo(() => {
-    if (Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0) {
-      return data.ready_to_ship;
+    if (readyToShipRows.length > 0) {
+      return readyToShipRows;
     }
     return readyPackagesByOrder.map((g) => ({
       sales_order_id: g.sales_order_id,
@@ -331,9 +355,9 @@ export default function DepartmentInboxPage() {
         status: p.status,
       })),
     }));
-  }, [data?.ready_to_ship, readyPackagesByOrder]);
-  const readyToShipCount = Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0
-    ? readyToShipOrders.length
+  }, [readyToShipRows, readyPackagesByOrder]);
+  const readyToShipCount = hasReadyToShipOrders
+    ? readyToShipTotal || readyToShipRows.length
     : readyPackagePages?.[0]?.group_total ?? 0;
 
   async function movePendingToInProgress(workOrderId: number) {
@@ -358,7 +382,7 @@ export default function DepartmentInboxPage() {
     try {
       const created = await api.post("/api/shipments", { sales_order_id: soId });
       await api.post(`/api/shipments/${created.id}/add-ready-packages`);
-      await Promise.all([mutate(), mutatePendingPackagePages(), mutateReadyPackagePages()]);
+      await Promise.all([mutate(), mutateReadyToShipPages(), mutatePendingPackagePages(), mutateReadyPackagePages()]);
       openShipment(soId, created.id);
     } catch (e: any) {
       setShipmentError(e?.message || "Failed to create shipment");
@@ -649,7 +673,7 @@ export default function DepartmentInboxPage() {
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
               {t("page.deptInbox.readyToShip", { count: readyToShipCount })}
             </h3>
-            {!(Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0) && <div className="mb-3 flex flex-wrap items-center gap-2">
+            {!hasReadyToShipOrders && <div className="mb-3 flex flex-wrap items-center gap-2">
               <input
                 className="input h-8 min-w-48 flex-1"
                 aria-label={`${t("common.search")} ${t("field.package")}`}
@@ -729,7 +753,17 @@ export default function DepartmentInboxPage() {
                 )}
               </tbody>
             </table>
-            {!(Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0) && readyPackagePages?.[readyPackagePages.length - 1]?.has_more && (
+            {hasReadyToShipOrders && readyToShipHasMore && (
+              <button
+                className="btn mt-3"
+                type="button"
+                disabled={readyToShipValidating}
+                onClick={() => setReadyToShipSize(readyToShipSize + 1)}
+              >
+                {readyToShipValidating ? t("common.loading") : t("common.loadMore")}
+              </button>
+            )}
+            {!hasReadyToShipOrders && readyPackagePages?.[readyPackagePages.length - 1]?.has_more && (
               <button
                 className="btn mt-3"
                 type="button"
@@ -739,7 +773,7 @@ export default function DepartmentInboxPage() {
                 {readyPackagesValidating ? t("common.loading") : t("common.loadMore")}
               </button>
             )}
-            {Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0 && (
+            {hasReadyToShipOrders && (
               <div className="mt-4 border-t border-slate-200 pt-4">
                 <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
                   {t("field.packages")} ({readyPackagesTotal})
