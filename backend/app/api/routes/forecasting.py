@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.deps import DbSession, require_permissions
+from app.core.deps import DbSession, factory_codes_with_permission, require_permissions
 from app.models import Brand, Collection, ForecastRecommendation, Item, Model, User
 from app.schemas.forecasting import (
     ForecastRecommendationIn,
@@ -90,9 +90,12 @@ def get_forecasting_dashboard(
 @router.get("/branded-stock-suggestions")
 def get_branded_stock_suggestions(
     db: DbSession,
-    _: object = Depends(require_permissions("forecasting.view", "*")),
+    current: User = Depends(require_permissions("forecasting.view", "*")),
 ):
-    return branded_stock_suggestions(db)
+    return branded_stock_suggestions(
+        db,
+        factory_codes=factory_codes_with_permission(current, "forecasting.view"),
+    )
 
 
 @router.get("/item-reorder-suggestions")

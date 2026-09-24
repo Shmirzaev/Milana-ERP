@@ -4,11 +4,15 @@ from uuid import uuid4
 
 from sqlalchemy import event
 
+from app.core.security import create_access_token
+from app.db.session import SessionLocal
 from app.models import (
     FinishedGoodsStock,
     Model,
+    Role,
     SalesOrder,
     SalesOrderItem,
+    User,
 )
 from app.services.forecasting import (
     _branded_demand_groups,
@@ -71,6 +75,59 @@ def _insert_factory_demand_rows() -> dict[str, int]:
         return model_ids
     finally:
         db.close()
+
+
+def _forecast_view_headers(*, extra_permissions=(), super_admin: bool = False) -> dict[str, str]:
+    marker = uuid4().hex[:8]
+    with SessionLocal() as db:
+        permissions = ["forecasting.view"]
+        if super_admin:
+            permissions.extend(["*", "admin.super"])
+        role = Role(
+            name=f"Forecast scope {marker}",
+            permissions=permissions,
+        )
+        db.add(role)
+        db.flush()
+        user = User(
+            name=f"Forecast scope {marker}",
+            email=f"forecast-scope-{marker}@example.invalid",
+            password_hash="unused-forecast-scope-hash",
+            role_id=role.id,
+            factory_code="MIL",
+            extra_permissions=list(extra_permissions),
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        token = create_access_token(int(user.id), {"factory_code": "MIL"})
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_branded_suggestions_api_scopes_secondary_factory_grants(client):
+    model_ids = _insert_factory_demand_rows()
+    headers = _forecast_view_headers(extra_permissions=["factory:ECO:forecasting.view"])
+
+    response = client.get("/api/forecasting/branded-stock-suggestions", headers=headers)
+
+    assert response.status_code == 200, response.text
+    visible_model_ids = {row["model_id"] for row in response.json()}
+    assert model_ids["MIL"] in visible_model_ids
+    assert model_ids["ECO"] in visible_model_ids
+    assert model_ids["BST"] not in visible_model_ids
+    assert model_ids["UNASSIGNED"] not in visible_model_ids
+
+
+def test_branded_suggestions_api_super_admin_sees_all_attributed_factories(client):
+    model_ids = _insert_factory_demand_rows()
+    headers = _forecast_view_headers(super_admin=True)
+
+    response = client.get("/api/forecasting/branded-stock-suggestions", headers=headers)
+
+    assert response.status_code == 200, response.text
+    visible_model_ids = {row["model_id"] for row in response.json()}
+    assert visible_model_ids.issuperset({model_ids["MIL"], model_ids["BST"], model_ids["ECO"]})
+    assert model_ids["UNASSIGNED"] not in visible_model_ids
 
 
 def test_branded_forecast_scope_filters_factories_and_unassigned_models():

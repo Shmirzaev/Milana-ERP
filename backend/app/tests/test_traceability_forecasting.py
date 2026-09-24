@@ -175,6 +175,15 @@ def _create_traceable_package(client, headers, *, with_cutting_batch: bool = Tru
 def _insert_branded_history(*, color: str, size: str, quantities: list[int], available_qty: int) -> None:
     db = SessionLocal()
     try:
+        marker = uuid4().hex[:10]
+        model = Model(
+            code=f"SO-FC-MODEL-{marker}",
+            name=f"Forecast model {marker}",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.flush()
         for qty in quantities:
             so = SalesOrder(
                 order_no=f"SO-FC-{uuid4().hex[:10]}",
@@ -188,7 +197,7 @@ def _insert_branded_history(*, color: str, size: str, quantities: list[int], ava
             db.add(
                 SalesOrderItem(
                     sales_order_id=so.id,
-                    model_id=1,
+                    model_id=model.id,
                     color=color,
                     size=size,
                     quantity=qty,
@@ -199,7 +208,7 @@ def _insert_branded_history(*, color: str, size: str, quantities: list[int], ava
         if available_qty > 0:
             db.add(
                 FinishedGoodsStock(
-                    model_id=1,
+                    model_id=model.id,
                     color=color,
                     size=size,
                     quantity=available_qty,
@@ -256,15 +265,27 @@ def _insert_branded_production_history(
     status: str = "finished_storage",
     brand_id: int | None = None,
     available_qty: int = 0,
+    model_id: int | None = None,
 ) -> list[int]:
     db = SessionLocal()
     try:
+        if model_id is None:
+            marker = uuid4().hex[:10]
+            model = Model(
+                code=f"PO-FC-MODEL-{marker}",
+                name=f"Forecast production model {marker}",
+                factory_code="MIL",
+                status="approved",
+            )
+            db.add(model)
+            db.flush()
+            model_id = int(model.id)
         production_order_ids: list[int] = []
         for qty in quantities:
             po = ProductionOrder(
                 production_no=f"PO-FC-{uuid4().hex[:10]}",
                 production_type="branded_stock",
-                model_id=1,
+                model_id=model_id,
                 brand_id=brand_id,
                 status=status,
                 planned_quantity=qty,
@@ -276,7 +297,7 @@ def _insert_branded_production_history(
             db.add(
                 ProductionOrderItem(
                     production_order_id=po.id,
-                    model_id=1,
+                    model_id=model_id,
                     color=color,
                     size=size,
                     planned_quantity=qty,
@@ -286,7 +307,7 @@ def _insert_branded_production_history(
             db.add(
                 FinishedGoodsStock(
                     production_order_id=production_order_ids[-1],
-                    model_id=1,
+                    model_id=model_id,
                     color=color,
                     size=size,
                     quantity=available_qty,
@@ -597,8 +618,31 @@ def test_forecasting_uses_branded_production_history_when_variant_has_no_sales(c
 def test_forecasting_subtracts_active_pipeline_from_production_suggestion(client, auth_headers):
     color = f"forecast-pipeline-{uuid4().hex[:8]}"
     size = "XXL"
-    _insert_branded_production_history(color=color, size=size, quantities=[25], status="finished_storage")
-    _insert_branded_production_history(color=color, size=size, quantities=[30], status="planning")
+    with SessionLocal() as db:
+        marker = uuid4().hex[:10]
+        model = Model(
+            code=f"PO-FC-PIPELINE-{marker}",
+            name=f"Forecast pipeline model {marker}",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.commit()
+        model_id = int(model.id)
+    _insert_branded_production_history(
+        color=color,
+        size=size,
+        quantities=[25],
+        status="finished_storage",
+        model_id=model_id,
+    )
+    _insert_branded_production_history(
+        color=color,
+        size=size,
+        quantities=[30],
+        status="planning",
+        model_id=model_id,
+    )
 
     r = client.get("/api/forecasting/branded-stock-suggestions", headers=auth_headers)
     assert r.status_code == 200, r.text
