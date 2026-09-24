@@ -176,6 +176,12 @@ def create_purchase_request(db: Session, *, data: dict, current: User) -> Purcha
 
     _validate_purchase_line_varchar_lengths(line_inputs)
     _validate_purchase_line_varchar_lengths(line_values)
+    for values in line_values:
+        validate_stock_batch_unit(
+            items[int(values["item_id"])],
+            values["unit"],
+            detail="Purchase request line unit must match the item unit",
+        )
     request = PurchaseRequest(
         request_no=next_purchase_request_no(db),
         status=status,
@@ -416,6 +422,12 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
 
     _validate_purchase_line_varchar_lengths(line_inputs)
     _validate_purchase_line_varchar_lengths(line_values)
+    for values in line_values:
+        validate_stock_batch_unit(
+            items[int(values["item_id"])],
+            values["unit"],
+            detail="Purchase order line unit must match the item unit",
+        )
     order = PurchaseOrder(
         po_no=next_purchase_order_no(db),
         purchase_request_id=purchase_request_id,

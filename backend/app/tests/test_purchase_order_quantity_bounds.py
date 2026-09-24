@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, PurchaseOrder, PurchaseOrderLine, Role, User
+from app.models import AuditLog, Item, PurchaseOrder, PurchaseOrderLine, Role, User
 from app.schemas.purchasing import PurchaseOrderLineIn, PurchaseRequestOrderLineIn
 
 
@@ -43,6 +43,7 @@ def test_purchase_order_quantity_rejects_invalid_or_unrepresentable_values(build
 
 def test_purchase_order_quantity_api_rejects_before_writes_and_preserves_auth_precedence(client, auth_headers):
     with SessionLocal() as db:
+        item_unit = db.query(Item.unit).filter(Item.id == 1).scalar()
         denied_role = Role(name=f"No purchase order {uuid4().hex}", permissions=[])
         db.add(denied_role)
         db.flush()
@@ -70,7 +71,7 @@ def test_purchase_order_quantity_api_rejects_before_writes_and_preserves_auth_pr
             "lines": [{
                 "item_id": 1,
                 "ordered_quantity": quantity,
-                "unit": "pcs",
+                "unit": item_unit,
                 "unit_cost": 1,
             }],
         }

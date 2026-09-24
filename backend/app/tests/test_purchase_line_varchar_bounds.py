@@ -61,11 +61,22 @@ def test_purchase_line_varchar_api_accepts_boundaries_and_rejects_overflow_befor
     client, auth_headers
 ):
     boundary_values = {name: name[0] * limit for name, limit in _VARCHAR_LIMITS.items()}
+    with SessionLocal() as db:
+        item = Item(
+            sku=f"PURCHASE-UNIT-BOUND-{uuid4().hex}",
+            name="Purchase unit boundary item",
+            category="fabric",
+            unit=boundary_values["unit"],
+            is_active=True,
+        )
+        db.add(item)
+        db.commit()
+        item_id = int(item.id)
     before = _write_counts()
 
     request_response = client.post(
         "/api/purchasing/requests",
-        json={"status": "draft", "lines": [{"item_id": 1, **boundary_values}]},
+        json={"status": "draft", "lines": [{"item_id": item_id, **boundary_values}]},
         headers=auth_headers,
     )
     assert request_response.status_code == 201, request_response.text
@@ -74,7 +85,7 @@ def test_purchase_line_varchar_api_accepts_boundaries_and_rejects_overflow_befor
     order_response = client.post(
         "/api/purchasing/orders",
         json={
-            "lines": [{"item_id": 1, "ordered_quantity": 1, "unit_cost": 1, **boundary_values}]
+            "lines": [{"item_id": item_id, "ordered_quantity": 1, "unit_cost": 1, **boundary_values}]
         },
         headers=auth_headers,
     )

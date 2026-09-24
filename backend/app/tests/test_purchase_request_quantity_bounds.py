@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, PurchaseRequest, PurchaseRequestLine
+from app.models import AuditLog, Item, PurchaseRequest, PurchaseRequestLine
 from app.schemas.purchasing import PurchaseRequestLineIn
 
 
@@ -35,10 +35,13 @@ def test_purchase_request_quantities_reject_nonfinite_or_unrepresentable_values(
 def test_purchase_request_quantity_api_rejects_before_writes_and_keeps_auth_precedence(
     client, auth_headers
 ):
+    with SessionLocal() as db:
+        item_unit = db.query(Item.unit).filter(Item.id == 1).scalar()
+
     def payload(**line_values):
         return {
             "status": "draft",
-            "lines": [{"item_id": 1, "unit": "pcs", **line_values}],
+            "lines": [{"item_id": 1, "unit": item_unit, **line_values}],
         }
 
     with SessionLocal() as db:

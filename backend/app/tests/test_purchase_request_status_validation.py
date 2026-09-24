@@ -1,7 +1,7 @@
 """Purchase request creation accepts only the established draft/approval states."""
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, PurchaseRequest, PurchaseRequestLine
+from app.models import AuditLog, Item, PurchaseRequest, PurchaseRequestLine
 
 
 def _counts():
@@ -14,9 +14,11 @@ def _counts():
 
 
 def _payload(status):
+    with SessionLocal() as db:
+        item_unit = db.query(Item.unit).filter(Item.id == 1).scalar()
     return {
         "status": status,
-        "lines": [{"item_id": 1, "unit": "pcs", "requested_quantity": 2}],
+        "lines": [{"item_id": 1, "unit": item_unit, "requested_quantity": 2}],
     }
 
 
