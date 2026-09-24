@@ -6,7 +6,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import joinedload
 
 from app.api.routes.purchasing import list_purchase_orders
-from app.models import Item, PurchaseOrder, PurchaseOrderLine
+from app.models import Item, PurchaseOrder, PurchaseOrderLine, Supplier
 from app.schemas.purchasing import PurchaseOrderOut
 from app.tests.conftest import TestSessionLocal, test_engine
 
@@ -186,3 +186,51 @@ def test_receiving_orders_filter_status_and_search_before_count():
     assert [row.id for row in page["rows"]] == [order_ids[1]]
     assert page["supplier_totals"] == [{"key": "supplier-name:", "total_ordered_kg": 2.0}]
     assert writes == []
+
+
+def test_receiving_supplier_totals_are_bounded_to_visible_page_keys():
+    marker = uuid4().hex[:10]
+    with TestSessionLocal() as db:
+        item = db.query(Item).order_by(Item.id).first()
+        assert item is not None
+        suppliers = [Supplier(name=f"PERF35 supplier {marker} {index:03d}") for index in range(61)]
+        db.add_all(suppliers)
+        db.flush()
+        orders = [
+            PurchaseOrder(
+                po_no=f"PERF35-SUPPLIER-{marker}-{index:04d}",
+                status="sent",
+                supplier_id=supplier.id,
+            )
+            for index, supplier in enumerate(suppliers)
+        ]
+        db.add_all(orders)
+        db.flush()
+        db.add_all([
+            PurchaseOrderLine(
+                purchase_order_id=order.id,
+                item_id=item.id,
+                ordered_quantity=1,
+                received_quantity=0,
+                unit="kg",
+                unit_cost=1,
+                material_name=f"Supplier page bound {marker} {index}",
+            )
+            for index, order in enumerate(orders)
+        ])
+        expected_page_one_keys = {f"supplier:{int(order.supplier_id)}" for order in orders[11:]}
+        expected_page_two_keys = {f"supplier:{int(order.supplier_id)}" for order in orders[:11]}
+        db.commit()
+
+    page_one, _, writes_one = _read(page=1, page_size=50, receivable_only=True, q=marker)
+    page_two, _, writes_two = _read(page=2, page_size=50, receivable_only=True, q=marker)
+
+    assert page_one["total"] == 61
+    assert len(page_one["supplier_totals"]) == 50
+    assert {entry["key"] for entry in page_one["supplier_totals"]} == expected_page_one_keys
+    assert all(entry["total_ordered_kg"] == 1 for entry in page_one["supplier_totals"])
+    assert page_two["total"] == 61
+    assert len(page_two["supplier_totals"]) == 11
+    assert {entry["key"] for entry in page_two["supplier_totals"]} == expected_page_two_keys
+    assert all(entry["total_ordered_kg"] == 1 for entry in page_two["supplier_totals"])
+    assert writes_one == writes_two == []

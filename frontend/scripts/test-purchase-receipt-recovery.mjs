@@ -276,6 +276,11 @@ const visibleOrder = {
   lines: [{ id: 11, item_id: 1, item_sku: "FAB", item_name: "Fabric", ordered_quantity: 1,
     received_quantity: 0, remaining_quantity: 1, unit: "kg", unit_cost: 1 }],
 };
+const pageTwoSupplierOrder = {
+  id: 9, po_no: "PO-needle-9", status: "sent", supplier_id: 42, supplier_name: "Later Supplier",
+  lines: [{ id: 12, item_id: 1, item_sku: "FAB", item_name: "Fabric", ordered_quantity: 1,
+    received_quantity: 0, remaining_quantity: 1, unit: "kg", unit_cost: 1 }],
+};
 const t = (key) => key;
 const jsx = (type, props) => ({ type, props });
 const dependencies = {
@@ -306,9 +311,17 @@ const dependencies = {
     return { data: key === "/api/purchasing/orders?order_id=20" ? [closedOrder] : [], mutate() {} };
   } },
   "swr/infinite": { default: (getKey) => {
-    orderListKeys.push(getKey(0, null));
-    return { data: [{ rows: [visibleOrder], total: 401, page: 1, page_size: 50, has_more: true,
-      supplier_totals: [{ key: "supplier-name:", total_ordered_kg: 999 }] }], size: 1, setSize(value) { requestedOrderPageCount = value; }, isValidating: false, mutate() {} };
+    const firstKey = getKey(0, null);
+    if (orderListKeys.at(-1) !== firstKey) requestedOrderPageCount = 1;
+    orderListKeys.push(firstKey);
+    const firstPage = { rows: [visibleOrder], total: 401, page: 1, page_size: 50, has_more: true,
+      supplier_totals: [{ key: "supplier-name:", total_ordered_kg: 999 }] };
+    const secondKey = getKey(1, firstPage);
+    if (requestedOrderPageCount >= 2) orderListKeys.push(secondKey);
+    const secondPage = { rows: [pageTwoSupplierOrder], total: 401, page: 2, page_size: 50, has_more: true,
+      supplier_totals: [{ key: "supplier:42", total_ordered_kg: 888 }] };
+    return { data: requestedOrderPageCount >= 2 ? [firstPage, secondPage] : [firstPage],
+      size: requestedOrderPageCount ?? 1, setSize(value) { requestedOrderPageCount = value; }, isValidating: false, mutate() {} };
   } },
   "next/link": { default: "a" },
   "lucide-react": Object.fromEntries(["ArrowLeft", "ChevronDown", "ChevronRight", "PackageCheck", "X"].map(name => [name, name])),
@@ -374,6 +387,11 @@ try {
   assert.ok(loadMore, "a 401-order result must expose Load more");
   loadMore.props.onClick();
   assert.equal(requestedOrderPageCount, 2, "Load more must request the next bounded page");
+  tree = render();
+  assert.ok(orderListKeys.includes("/api/purchasing/orders?page=2&page_size=50&receivable_only=true&q=needle"),
+    "Load more must request the next page for the active search");
+  assert.ok(JSON.stringify(tree).includes('"888.00"'),
+    "a supplier first appearing on page two must use its exact global total from that page");
   const retryButton = elements(tree, "button").find(button => JSON.stringify(button.props.children).includes("common.retry"));
   assert.ok(retryButton, "closed orders must still expose pending-receipt recovery");
   assert.match(JSON.stringify(retryButton.props.children), /PO-TEST/,

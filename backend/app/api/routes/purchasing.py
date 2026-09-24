@@ -328,38 +328,62 @@ def list_purchase_orders(
     rows = query.offset((current_page - 1) * safe_page_size).limit(safe_page_size).all()
     supplier_totals = []
     if receivable_only:
+        visible_supplier_ids = set()
+        visible_supplier_names = set()
+        for order in rows:
+            for line in order.lines:
+                if (line.ordered_quantity or 0) <= (line.received_quantity or 0):
+                    continue
+                supplier_id = line.supplier_id or order.supplier_id
+                if supplier_id:
+                    visible_supplier_ids.add(int(supplier_id))
+                    continue
+                supplier_name = line.supplier.name if line.supplier else None
+                supplier_name = supplier_name or (order.supplier.name if order.supplier else "")
+                visible_supplier_names.add(supplier_name.strip())
+
         line_supplier = aliased(Supplier)
         order_supplier = aliased(Supplier)
         supplier_id_expr = func.coalesce(PurchaseOrderLine.supplier_id, PurchaseOrder.supplier_id)
-        supplier_name_expr = func.lower(func.trim(func.coalesce(
+        supplier_name_expr = func.trim(func.coalesce(
             line_supplier.name, order_supplier.name, "",
-        )))
+        ))
         normalized_unit = func.lower(func.trim(func.replace(PurchaseOrderLine.unit, ".", "")))
-        aggregate_rows = db.query(
-            supplier_id_expr,
-            supplier_name_expr,
-            func.coalesce(func.sum(case(
-                (normalized_unit.in_(("kg", "kgs", "kilogram", "kilograms", "кг")), PurchaseOrderLine.ordered_quantity),
-                else_=0,
-            )), 0),
-        ).select_from(PurchaseOrder).join(
-            PurchaseOrderLine, PurchaseOrderLine.purchase_order_id == PurchaseOrder.id,
-        ).outerjoin(
-            line_supplier, line_supplier.id == PurchaseOrderLine.supplier_id,
-        ).outerjoin(
-            order_supplier, order_supplier.id == PurchaseOrder.supplier_id,
-        ).filter(
-            *filters,
-            PurchaseOrder.status.in_(("sent", "approved", "partially_received")),
-            PurchaseOrderLine.ordered_quantity > PurchaseOrderLine.received_quantity,
-        ).group_by(supplier_id_expr, supplier_name_expr).all()
-        supplier_totals = [
-            {
-                "key": f"supplier:{int(row[0])}" if row[0] else f"supplier-name:{row[1]}",
-                "total_ordered_kg": float(row[2] or 0),
-            }
-            for row in aggregate_rows
-        ]
+        visible_supplier_filter = []
+        if visible_supplier_ids:
+            visible_supplier_filter.append(supplier_id_expr.in_(visible_supplier_ids))
+        if visible_supplier_names:
+            visible_supplier_filter.append(
+                supplier_id_expr.is_(None) & supplier_name_expr.in_(visible_supplier_names)
+            )
+        if visible_supplier_filter:
+            aggregate_rows = db.query(
+                supplier_id_expr,
+                supplier_name_expr,
+                func.coalesce(func.sum(case(
+                    (normalized_unit.in_(("kg", "kgs", "kilogram", "kilograms", "кг")), PurchaseOrderLine.ordered_quantity),
+                    else_=0,
+                )), 0),
+            ).select_from(PurchaseOrder).join(
+                PurchaseOrderLine, PurchaseOrderLine.purchase_order_id == PurchaseOrder.id,
+            ).outerjoin(
+                line_supplier, line_supplier.id == PurchaseOrderLine.supplier_id,
+            ).outerjoin(
+                order_supplier, order_supplier.id == PurchaseOrder.supplier_id,
+            ).filter(
+                *filters,
+                or_(*visible_supplier_filter),
+                PurchaseOrder.status.in_(("sent", "approved", "partially_received")),
+                PurchaseOrderLine.ordered_quantity > PurchaseOrderLine.received_quantity,
+            ).group_by(supplier_id_expr, supplier_name_expr).all()
+            totals_by_key = {}
+            for row in aggregate_rows:
+                key = f"supplier:{int(row[0])}" if row[0] else f"supplier-name:{row[1].strip().lower()}"
+                totals_by_key[key] = totals_by_key.get(key, 0.0) + float(row[2] or 0)
+            supplier_totals = [
+                {"key": key, "total_ordered_kg": total_ordered_kg}
+                for key, total_ordered_kg in totals_by_key.items()
+            ]
     return {
         "rows": rows,
         "total": total,

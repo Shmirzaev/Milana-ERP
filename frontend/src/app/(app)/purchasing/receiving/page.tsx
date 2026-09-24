@@ -160,7 +160,7 @@ export default function PurchaseReceivingPage() {
   const totalOrders = orderPages?.[0]?.total ?? 0;
   const hasMoreOrders = orderPages?.at(-1)?.has_more ?? false;
   const supplierTotals = useMemo(
-    () => new Map((orderPages?.[0]?.supplier_totals ?? []).map((entry) => [entry.key, entry.total_ordered_kg])),
+    () => new Map((orderPages ?? []).flatMap((page) => page.supplier_totals ?? []).map((entry) => [entry.key, entry.total_ordered_kg])),
     [orderPages],
   );
   const loadedPendingOrder = orders.find((order) => order.id === pendingReceipt?.orderId);
@@ -206,7 +206,7 @@ export default function PurchaseReceivingPage() {
         const supplierId = Number(line.supplier_id || order.supplier_id || 0);
         const rawSupplierName = line.supplier_name || order.supplier_name || "";
         const supplierName = rawSupplierName || t("page.purchasing.unassignedSupplier");
-        const key = supplierId > 0 ? `supplier:${supplierId}` : `supplier-name:${rawSupplierName.trim().toLocaleLowerCase()}`;
+        const key = supplierId > 0 ? `supplier:${supplierId}` : `supplier-name:${rawSupplierName.trim().toLowerCase()}`;
         const group = groups.get(key) || {
           key,
           supplierName,
