@@ -30,7 +30,7 @@ def refresh_invoice_status(db: Session, invoice: Invoice) -> None:
     amount = Decimal(str(invoice.amount or 0))
     if amount <= 0 or total_paid >= amount:
         invoice.status = "paid"
-    elif total_paid > Decimal("0.01"):
+    elif total_paid > 0:
         invoice.status = "partially_paid"
     else:
         invoice.status = "unpaid"

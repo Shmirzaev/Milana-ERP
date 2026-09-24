@@ -38,7 +38,7 @@ def _create_invoice(session_factory, amount=100):
 
 @pytest.mark.parametrize(
     ("amounts", "expected_status"),
-    [([Decimal("0.01")], "unpaid"), ([40], "partially_paid"), ([100], "paid"), ([60, 40], "paid"), ([60, 60], "paid")],
+    [([Decimal("0.01")], "partially_paid"), ([40], "partially_paid"), ([100], "paid"), ([60, 40], "paid"), ([60, 60], "paid")],
 )
 def test_invoice_payment_status_matches_committed_sum(amounts, expected_status):
     customer_id, _, invoice_id = _create_invoice(SessionLocal)
