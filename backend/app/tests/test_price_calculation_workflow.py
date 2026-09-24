@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
-from app.models import CuttingPassport, Department, Model, ModelImage, ModelSize, Role, User
+from app.models import AuditLog, CuttingPassport, Department, Model, ModelImage, ModelSize, PriceCalculationRequest, Role, User
 
 
 PASSWORD = "PriceWorkflow123!"
@@ -175,6 +175,19 @@ def test_price_calculation_department_workflow_and_authorization(client):
     assert request["accessories"] == [{"name": "Label", "price": 0.05}]
     assert request["cost_price"] is not None
     assert request["overall_status"] == "in_progress"
+
+    with SessionLocal() as db:
+        before_accessories = db.get(PriceCalculationRequest, request_id).accessories_json
+        before_audit_count = db.query(AuditLog).count()
+    oversized_accessory = client.patch(
+        f"/api/price-calculation/requests/{request_id}/accessories",
+        json={"accessories": [{"name": "Label", "price": 10_000_000_000}]},
+        headers=accessories,
+    )
+    assert oversized_accessory.status_code == 422, oversized_accessory.text
+    with SessionLocal() as db:
+        assert db.get(PriceCalculationRequest, request_id).accessories_json == before_accessories
+        assert db.query(AuditLog).count() == before_audit_count
 
     finalized = client.patch(
         f"/api/price-calculation/requests/{request_id}/finance",
