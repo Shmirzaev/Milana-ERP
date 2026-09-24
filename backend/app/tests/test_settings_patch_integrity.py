@@ -234,6 +234,34 @@ def test_logo_transaction_failure_removes_new_files_and_preserves_existing_logo(
     assert list((tmp_path / "_thumbs").glob("*")) == []
 
 
+def test_logo_upload_rejects_oversized_legacy_company_info_and_discards_new_file(
+    client, auth_headers, tmp_path, monkeypatch,
+):
+    _seed("company_info", {
+        "name": "Synthetic",
+        "address": "Legacy address " + "x" * (20 * 1024),
+        "phone": "123",
+        "email": None,
+        "logo_url": None,
+    })
+    monkeypatch.setattr(settings_routes.app_settings, "MODEL_FILES_DIR", str(tmp_path))
+    before_state = _state()
+
+    data = BytesIO()
+    Image.new("RGB", (12, 12), "white").save(data, format="PNG")
+    response = client.post(
+        "/api/settings/company-logo/upload",
+        headers=auth_headers,
+        files={"file": ("oversized-legacy-company.png", data.getvalue(), "image/png")},
+    )
+
+    assert response.status_code == 422, response.text
+    assert "UTF-8 bytes" in response.text
+    assert _state() == before_state
+    assert list(tmp_path.glob("company_logo_*.webp")) == []
+    assert not (tmp_path / "_thumbs").exists() or list((tmp_path / "_thumbs").glob("*")) == []
+
+
 def test_logo_cancellation_shields_new_file_cleanup(tmp_path, monkeypatch):
     previous_url = "/storage/model-files/existing-company-logo.webp"
     _seed("company_info", {
