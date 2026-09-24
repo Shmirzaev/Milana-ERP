@@ -3237,6 +3237,8 @@ def issue_accessories_to_production_order(
             )
 
         unit = str(raw.get("unit") or (plan_row or {}).get("unit") or item.unit or "").strip() or item.unit
+        if unit != item.unit:
+            raise HTTPException(409, "Accessory issue unit must match the item unit")
         consumed = consume_item_from_batches(
             db,
             item_id=item.id,
