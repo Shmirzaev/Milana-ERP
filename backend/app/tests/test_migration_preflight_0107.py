@@ -148,3 +148,21 @@ def test_0107_role_permission_hash_is_repeatable_and_report_excludes_notes_and_p
     assert "notes" not in serialized.lower()
     assert first["eco_cotton_usluga_role"]["matching_role_count"] == 2
     engine.dispose()
+
+
+def test_0107_non_array_role_permissions_require_manual_review_without_guessing_after_value():
+    engine = _engine()
+    with engine.begin() as connection:
+        roles = Table("roles", MetaData(), autoload_with=connection)
+        connection.execute(
+            roles.update().where(roles.c.id == 7).values(permissions={"legacy": True})
+        )
+
+    report = read_only_preflight_0107(engine)
+    role_report = report["eco_cotton_usluga_role"]
+    assert report["applicability"] == "manual_review_required"
+    assert role_report["unsupported_permission_role_ids"] == [7]
+    assert role_report["roles"][0]["after_permissions"] is None
+    assert role_report["roles"][0]["changed"] is None
+    assert role_report["roles"][0]["input_blocker"]
+    engine.dispose()

@@ -37,17 +37,10 @@ def _derived_material_name(item: sa.RowMapping) -> str:
 
 
 def _jsonb_append_permission(value: Any) -> Any:
-    """Mirror 0107's JSONB ``?`` and ``|| [permission]`` for JSON values."""
-    if value is None:
-        return None
-    if isinstance(value, dict) and TARGET_PERMISSION_0107 in value:
+    """Mirror 0107's JSONB array append for supported permission arrays."""
+    if TARGET_PERMISSION_0107 in value:
         return value
-    if isinstance(value, list) and TARGET_PERMISSION_0107 in value:
-        return value
-    if isinstance(value, list):
-        return [*value, TARGET_PERMISSION_0107]
-    # PostgreSQL JSONB concatenation promotes a non-array operand to an array.
-    return [value, TARGET_PERMISSION_0107]
+    return [*value, TARGET_PERMISSION_0107]
 
 
 def _not_applicable(current_revisions: list[str]) -> dict[str, Any]:
@@ -86,7 +79,7 @@ def preview_0107(connection: sa.Connection) -> dict[str, Any]:
     # needed to reconstruct the removed inventory links; omit notes and PII.
     fabric_rows = connection.execute(
         sa.select(
-            bom.c.id.label("bom_id"), bom.c.model_id, bom.c.item_id,
+            bom.c.id.label("bom_id"), bom.c.model_id,
             bom.c.stock_batch_id, bom.c.material_name,
             items.c.id.label("item_id"), items.c.name.label("item_name"),
             items.c.sku.label("item_sku"), items.c.category.label("item_category"),
@@ -234,9 +227,13 @@ def preview_0107(connection: sa.Connection) -> dict[str, Any]:
         .order_by(roles.c.id)
     ).mappings().all()
     role_snapshots = []
+    unsupported_role_ids = []
     for row in role_rows:
         before = row["permissions"]
-        after = _jsonb_append_permission(before)
+        supported = isinstance(before, list) and all(isinstance(value, str) for value in before)
+        after = _jsonb_append_permission(before) if supported else None
+        if not supported:
+            unsupported_role_ids.append(int(row["id"]))
         restoration_snapshot = {
             "permissions": before,
             "updated_at": row["updated_at"],
@@ -245,10 +242,11 @@ def preview_0107(connection: sa.Connection) -> dict[str, Any]:
             "role_id": int(row["id"]),
             "restoration_snapshot": restoration_snapshot,
             "after_permissions": after,
-            "changed": before != after,
+            "changed": before != after if supported else None,
+            "input_blocker": None if supported else "Permissions are not a string array; PostgreSQL JSONB migration result needs manual review",
             "updated_at_will_be_refreshed": True,
             "snapshot_sha256": _snapshot_hash(restoration_snapshot),
-            "after_sha256": _snapshot_hash({"permissions": after}),
+            "after_sha256": _snapshot_hash({"permissions": after}) if supported else None,
         })
 
     return {
@@ -259,6 +257,7 @@ def preview_0107(connection: sa.Connection) -> dict[str, Any]:
         "applicability": (
             "manual_review_required" if (
                 ambiguous_rows or len(role_snapshots) > 1 or out_of_scope_named_rows
+                or unsupported_role_ids
             )
             else "ready_for_operator_review"
         ),
@@ -304,7 +303,8 @@ def preview_0107(connection: sa.Connection) -> dict[str, Any]:
         },
         "eco_cotton_usluga_role": {
             "matching_role_count": len(role_snapshots),
-            "changed_role_count": sum(role["changed"] for role in role_snapshots),
+            "changed_role_count": sum(role["changed"] is True for role in role_snapshots),
+            "unsupported_permission_role_ids": unsupported_role_ids,
             "roles": role_snapshots,
             "snapshot_sha256": _snapshot_hash(role_snapshots),
         },
@@ -321,8 +321,18 @@ def preview_0107(connection: sa.Connection) -> dict[str, Any]:
 
 def read_only_preflight_0107(engine: sa.Engine) -> dict[str, Any]:
     """Run the preview in one read-only transaction when supported."""
+    if engine.dialect.name not in {"postgresql", "sqlite"}:
+        raise RuntimeError(f"Unsupported database dialect: {engine.dialect.name}")
     with engine.connect() as connection:
         with connection.begin():
             if connection.dialect.name == "postgresql":
                 connection.execute(sa.text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
-            return preview_0107(connection)
+                return preview_0107(connection)
+            previous_query_only = int(connection.exec_driver_sql("PRAGMA query_only").scalar_one())
+            if not previous_query_only:
+                connection.exec_driver_sql("PRAGMA query_only = ON")
+            try:
+                return preview_0107(connection)
+            finally:
+                if not previous_query_only:
+                    connection.exec_driver_sql("PRAGMA query_only = OFF")
