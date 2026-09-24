@@ -62,6 +62,8 @@ def create_invoice_payment(
         .with_for_update(of=Invoice)
         .one()
     )
+    if invoice.status in {"void", "cancelled"}:
+        raise HTTPException(409, "Cannot pay a void or cancelled invoice")
     payment_method = normalize_manual_payment_method(payment_method)
     if customer_id is None and invoice.sales_order_id:
         customer_id = db.query(SalesOrder.customer_id).filter(SalesOrder.id == invoice.sales_order_id).scalar()

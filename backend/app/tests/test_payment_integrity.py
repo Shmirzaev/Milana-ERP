@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import partners
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import AuditLog, Customer, Invoice, Payment, SalesOrder
+from app.models import AuditLog, Customer, IdempotencyRecord, Invoice, Payment, SalesOrder
 from app.services.payments import create_invoice_payment, invoice_paid_total
 
 
@@ -176,6 +176,34 @@ def test_fully_paid_invoice_retry_replays_original_payment(client, auth_headers)
         assert db.query(Payment).filter_by(invoice_id=invoice_id).count() == 1
         assert invoice_paid_total(db, invoice_id) == 100
         assert db.get(Invoice, invoice_id).status == "paid"
+
+
+@pytest.mark.parametrize("status", ["void", "cancelled"])
+def test_manual_payment_rejects_terminal_invoice_without_writes(client, auth_headers, status):
+    _, _, invoice_id = _create_invoice(SessionLocal)
+    with SessionLocal() as db:
+        db.get(Invoice, invoice_id).status = status
+        db.commit()
+        before = (
+            db.query(Payment).count(),
+            db.query(AuditLog).count(),
+            db.query(IdempotencyRecord).count(),
+        )
+
+    response = client.post(
+        "/api/finance/payments",
+        json={"invoice_id": invoice_id, "amount": "0.01", "payment_method": "cash"},
+        headers={**auth_headers, "Idempotency-Key": f"terminal-payment-{uuid4().hex}"},
+    )
+
+    assert response.status_code == 409, response.text
+    with SessionLocal() as db:
+        assert db.get(Invoice, invoice_id).status == status
+        assert (
+            db.query(Payment).count(),
+            db.query(AuditLog).count(),
+            db.query(IdempotencyRecord).count(),
+        ) == before
 
 
 @pytest.fixture(scope="module")
