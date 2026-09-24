@@ -6,8 +6,8 @@ import pytest
 from sqlalchemy import event
 
 from app.models import (
-    AuditLog, IdempotencyRecord, Item, ManualAccessoryIssue, Model, ModelBOM,
-    ProductionOrder, StockBatch, StockMovement, Warehouse,
+    AuditLog, CuttingRecord, Department, IdempotencyRecord, Item, ManualAccessoryIssue, Model, ModelBOM,
+    PackagingRecord, ProductionOrder, SewingRecord, StockBatch, StockMovement, Warehouse, WorkOrder,
 )
 from app.schemas.inventory import AccessoryReturnIn
 from app.services.inventory import accessory_issue_plan, accessory_issue_summary, current_stock_for_item
@@ -72,6 +72,28 @@ def test_return_is_deducted_once_per_order_item_unit(accessory_case, stock, manu
         assert row["returned_quantity"] == returned
         assert row["returnable_quantity"] == stock + sum(manual) - returned
         assert row["movement_count"] == int(stock > 0) + len(manual)
+        paged_rows, total = accessory_issue_summary(
+            db,
+            production_order_id=accessory_case["po_id"],
+            page=1,
+            page_size=50,
+            include_total=True,
+            returnable_only=True,
+        )
+        expected = [
+            legacy for legacy in rows
+            if legacy["item_id"] > 0 and legacy["returnable_quantity"] > 1e-9
+        ]
+        assert total == len(expected)
+        assert len(paged_rows) == len(expected)
+        for actual, legacy in zip(paged_rows, expected, strict=True):
+            for field in (
+                "production_order_id", "item_id", "item_sku", "item_name", "category", "unit",
+                "movement_count", "first_issued_at", "last_issued_at",
+            ):
+                assert actual[field] == legacy[field]
+            for field in ("issued_quantity", "returned_quantity", "returnable_quantity"):
+                assert float(actual[field]) == pytest.approx(legacy[field])
 
 
 def test_accessory_issue_summary_projects_only_fields_used_from_movements_and_items(accessory_case):
@@ -120,6 +142,65 @@ def test_accessory_issue_summary_projects_only_fields_used_from_movements_and_it
     assert "models.code" in model_columns
     assert "models.name" in model_columns
     assert "models.image_url" not in model_columns
+
+
+def test_sql_return_picker_preserves_all_polymorphic_movement_references(accessory_case):
+    case = accessory_case
+    with TestSessionLocal() as db:
+        department = Department(name="Accessory SQL test", code=f"AS{case['po_id']}")
+        db.add(department)
+        db.flush()
+        work_orders = [
+            WorkOrder(
+                production_order_id=case["po_id"], department_id=department.id,
+                operation=f"accessory-test-{index}",
+            )
+            for index in range(4)
+        ]
+        db.add_all(work_orders)
+        db.flush()
+        cutting = CuttingRecord(work_order_id=work_orders[1].id)
+        sewing = SewingRecord(work_order_id=work_orders[2].id)
+        packaging = PackagingRecord(work_order_id=work_orders[3].id)
+        db.add_all([cutting, sewing, packaging])
+        db.flush()
+        refs = [
+            ("ProductionOrder", case["po_id"]),
+            ("ProductionOrderAccessoryIssue", case["po_id"]),
+            ("WorkOrder", work_orders[0].id),
+            ("CuttingRecord", cutting.id),
+            ("SewingRecord", sewing.id),
+            ("PackagingRecord", packaging.id),
+        ]
+        db.add_all([
+            StockMovement(
+                movement_type="consume", item_id=case["item_id"], quantity=2, unit="pcs",
+                reference_type=reference_type, reference_id=reference_id,
+            )
+            for reference_type, reference_id in refs
+        ])
+        db.add(StockMovement(
+            movement_type="return", item_id=case["item_id"], quantity=1, unit="pcs",
+            reference_type="ProductionOrderAccessoryReturn", reference_id=case["po_id"],
+        ))
+        db.commit()
+
+        legacy = accessory_issue_summary(db, production_order_id=case["po_id"])
+        paged, total = accessory_issue_summary(
+            db, production_order_id=case["po_id"], page=1, page_size=50,
+            include_total=True, returnable_only=True,
+        )
+        expected = next(row for row in legacy if row["item_id"] == case["item_id"])
+        assert total == 1
+        assert len(paged) == 1
+        for field in (
+            "production_order_id", "item_id", "item_sku", "item_name", "category", "unit",
+            "movement_count", "first_issued_at", "last_issued_at",
+        ):
+            assert paged[0][field] == expected[field]
+        assert float(paged[0]["issued_quantity"]) == pytest.approx(12)
+        assert float(paged[0]["returned_quantity"]) == pytest.approx(1)
+        assert float(paged[0]["returnable_quantity"]) == pytest.approx(11)
 
 
 def test_return_groups_keep_other_orders_items_units_and_itemless_labels_separate(accessory_case):
@@ -182,12 +263,33 @@ def test_return_picker_pages_exact_returnable_groups_beyond_legacy_cap(client, a
         ))
         db.commit()
 
-    first = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
-        "page": 1, "page_size": 50, "include_total": "true", "returnable_only": "true",
-    })
-    last = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
-        "page": 9, "page_size": 50, "include_total": "true", "returnable_only": "true",
-    })
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if "accessory_return_groups" in normalized:
+            statements.append(normalized)
+
+    engine = TestSessionLocal.kw["bind"]
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        first = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+            "page": 1, "page_size": 50, "include_total": "true", "returnable_only": "true",
+        })
+        last = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+            "page": 9, "page_size": 50, "include_total": "true", "returnable_only": "true",
+        })
+        order_page = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+            "page": 1, "page_size": 50, "include_total": "true", "returnable_only": "true", "orders_only": "true",
+        })
+        final_order_page = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+            "page": 9, "page_size": 50, "include_total": "true", "returnable_only": "true", "orders_only": "true",
+        })
+        filtered = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
+            "page": 1, "page_size": 50, "include_total": "true", "returnable_only": "true", "q": "PAGE-ACCESSORY",
+        })
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
     assert first.status_code == last.status_code == 200
     assert first.json()["total"] == 402
     assert len(first.json()["rows"]) == 50
@@ -198,24 +300,18 @@ def test_return_picker_pages_exact_returnable_groups_beyond_legacy_cap(client, a
                 & {row["production_order_id"] for row in last.json()["rows"]})
     assert all(row["item_id"] > 0 and row["returnable_quantity"] > 0 for row in first.json()["rows"])
 
-    order_page = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
-        "page": 1, "page_size": 50, "include_total": "true", "returnable_only": "true", "orders_only": "true",
-    })
-    final_order_page = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
-        "page": 9, "page_size": 50, "include_total": "true", "returnable_only": "true", "orders_only": "true",
-    })
     assert order_page.status_code == final_order_page.status_code == 200
     assert order_page.json()["total"] == 401
     assert len(order_page.json()["rows"]) == 50
     assert len({row["production_order_id"] for row in order_page.json()["rows"]}) == 50
     assert len(final_order_page.json()["rows"]) == 1
 
-    filtered = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
-        "page": 1, "page_size": 50, "include_total": "true", "returnable_only": "true", "q": "PAGE-ACCESSORY",
-    })
     assert filtered.status_code == 200
     assert filtered.json()["total"] == 401
     assert len(filtered.json()["rows"]) == 50
+    page_selects = [statement for statement in statements if " limit " in statement]
+    assert len(page_selects) == 5
+    assert all("group by" in statement for statement in page_selects)
 
     legacy = client.get("/api/inventory/accessory-issues", headers=auth_headers, params={
         "production_order_id": first_order_id,

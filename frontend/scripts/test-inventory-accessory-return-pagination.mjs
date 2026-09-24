@@ -20,6 +20,7 @@ assert.match(route, /returnable_only: bool = False/, "route should expose opt-in
 assert.match(route, /orders_only: bool = False/, "route should expose exact unique-order paging for the order selector");
 assert.match(route, /has_more": safe_page \* safe_size < total/, "route should return page state based on exact total");
 assert.match(service, /if returnable_only:[\s\S]*?returnable_quantity[\s\S]*?EPSILON/, "filtering must use computed, net returnable quantities");
+assert.match(service, /def _accessory_returnable_summary_page_sql[\s\S]*?union_all[\s\S]*?\.group_by\([\s\S]*?\.offset\(offset\)[\s\S]*?\.limit\(safe_size\)/, "return picker sources must be aggregated and paged in SQL before Python materializes rows");
 assert.match(backendTest, /test_return_picker_pages_exact_returnable_groups_beyond_legacy_cap/, "backend coverage must exercise more than 500 total summary groups");
 assert.match(backendTest, /"total"\] == 401/, "backend coverage must assert exact filtered total");
 

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, func, or_, text
+from sqlalchemy import String, and_, case, func, literal, or_, text, union_all
 from sqlalchemy.orm import Session, joinedload, lazyload, load_only, noload
 
 from app.core.pagination import clamp_pagination
@@ -1748,6 +1748,275 @@ def lock_accessory_return_allowance(db: Session, production_order_id: int) -> No
         )
 
 
+def _accessory_returnable_summary_page_sql(
+    db: Session,
+    *,
+    production_order_id: int | None,
+    model_id: int | None,
+    q: str | None,
+    page: int,
+    page_size: int,
+    orders_only: bool,
+) -> tuple[list[dict], int]:
+    """Aggregate return-picker source rows in SQL before counting or paging.
+
+    Keep this projection separate from the compatibility summary below: the
+    picker only needs catalog-linked rows with a positive net return balance.
+    """
+    movement_base = (
+        db.query(
+            StockMovement.item_id.label("item_id"),
+            func.coalesce(func.nullif(func.trim(StockMovement.unit), ""), Item.unit).label("unit"),
+            StockMovement.quantity.label("quantity"),
+            StockMovement.created_at.label("created_at"),
+            literal(1).label("is_stock"),
+            literal(None, type_=String()).label("manual_item_sku"),
+            literal(None, type_=String()).label("manual_item_name"),
+        )
+        .join(Item, Item.id == StockMovement.item_id)
+        .filter(
+            Item.category.in_(ACCESSORY_CATEGORIES),
+            StockMovement.movement_type.in_(("consume", "issue")),
+        )
+    )
+    movement_sources = [
+        movement_base.with_entities(
+            StockMovement.reference_id.label("production_order_id"),
+            *movement_base.statement.selected_columns,
+        ).filter(StockMovement.reference_type.in_(("ProductionOrder", "ProductionOrderAccessoryIssue"))),
+        movement_base.join(
+            WorkOrder,
+            and_(
+                StockMovement.reference_type == "WorkOrder",
+                StockMovement.reference_id == WorkOrder.id,
+            ),
+        ).with_entities(
+            WorkOrder.production_order_id.label("production_order_id"),
+            StockMovement.item_id.label("item_id"), StockMovement.unit.label("unit"),
+            StockMovement.quantity.label("quantity"), StockMovement.created_at.label("created_at"),
+            literal(1).label("is_stock"), literal(None, type_=String()).label("manual_item_sku"),
+            literal(None, type_=String()).label("manual_item_name"),
+        ),
+    ]
+    record_mappings = (
+        ("CuttingRecord", CuttingRecord),
+        ("SewingRecord", SewingRecord),
+        ("PackagingRecord", PackagingRecord),
+    )
+    for reference_type, record_model in record_mappings:
+        movement_sources.append(
+            movement_base.join(
+                record_model,
+                and_(
+                    StockMovement.reference_type == reference_type,
+                    StockMovement.reference_id == record_model.id,
+                ),
+            ).join(WorkOrder, WorkOrder.id == record_model.work_order_id).with_entities(
+                WorkOrder.production_order_id.label("production_order_id"),
+                StockMovement.item_id.label("item_id"), StockMovement.unit.label("unit"),
+                StockMovement.quantity.label("quantity"), StockMovement.created_at.label("created_at"),
+                literal(1).label("is_stock"), literal(None, type_=String()).label("manual_item_sku"),
+                literal(None, type_=String()).label("manual_item_name"),
+            )
+        )
+
+    manual_unit = func.coalesce(func.nullif(func.trim(ManualAccessoryIssue.unit), ""), "pcs")
+    manual_rows = (
+        db.query(
+            ManualAccessoryIssue.production_order_id.label("production_order_id"),
+            ManualAccessoryIssue.item_id.label("item_id"),
+            manual_unit.label("unit"),
+            ManualAccessoryIssue.quantity.label("quantity"),
+            ManualAccessoryIssue.created_at.label("created_at"),
+            literal(0).label("is_stock"),
+            ManualAccessoryIssue.item_sku.label("manual_item_sku"),
+            ManualAccessoryIssue.item_name.label("manual_item_name"),
+        )
+        .join(Item, Item.id == ManualAccessoryIssue.item_id)
+        .filter(Item.category.in_(ACCESSORY_CATEGORIES), ManualAccessoryIssue.item_id.is_not(None))
+    )
+    if production_order_id is not None:
+        manual_rows = manual_rows.filter(ManualAccessoryIssue.production_order_id == production_order_id)
+    event_sources = [source.statement for source in movement_sources]
+    event_sources.append(manual_rows.statement)
+    events = union_all(*event_sources).cte("accessory_return_events")
+
+    grouped_query = db.query(
+        events.c.production_order_id.label("production_order_id"),
+        events.c.item_id.label("item_id"),
+        events.c.unit.label("unit"),
+        func.sum(events.c.quantity).label("issued_quantity"),
+        func.sum(events.c.is_stock).label("stock_movement_count"),
+        func.count().label("movement_count"),
+        func.min(events.c.created_at).label("first_issued_at"),
+        func.max(events.c.created_at).label("last_issued_at"),
+    ).group_by(events.c.production_order_id, events.c.item_id, events.c.unit)
+    if production_order_id is not None:
+        grouped_query = grouped_query.filter(events.c.production_order_id == production_order_id)
+    grouped = grouped_query.cte("accessory_return_groups")
+
+    manual_rank = func.row_number().over(
+        partition_by=(
+            ManualAccessoryIssue.production_order_id,
+            ManualAccessoryIssue.item_id,
+            manual_unit,
+        ),
+        order_by=(ManualAccessoryIssue.created_at.desc(), ManualAccessoryIssue.id.desc()),
+    ).label("manual_rank")
+    latest_manual = (
+        db.query(
+            ManualAccessoryIssue.production_order_id.label("production_order_id"),
+            ManualAccessoryIssue.item_id.label("item_id"),
+            manual_unit.label("unit"),
+            ManualAccessoryIssue.item_sku.label("item_sku"),
+            ManualAccessoryIssue.item_name.label("item_name"),
+            manual_rank,
+        )
+        .filter(ManualAccessoryIssue.item_id.is_not(None))
+        .subquery("accessory_return_latest_manual")
+    )
+    return_totals = (
+        db.query(
+            StockMovement.reference_id.label("production_order_id"),
+            StockMovement.item_id.label("item_id"),
+            StockMovement.unit.label("unit"),
+            func.sum(StockMovement.quantity).label("returned_quantity"),
+        )
+        .join(
+            grouped,
+            and_(
+                grouped.c.production_order_id == StockMovement.reference_id,
+                grouped.c.item_id == StockMovement.item_id,
+                grouped.c.unit == StockMovement.unit,
+            ),
+        )
+        .filter(
+            StockMovement.movement_type == "return",
+            StockMovement.reference_type == "ProductionOrderAccessoryReturn",
+        )
+        .group_by(StockMovement.reference_id, StockMovement.item_id, StockMovement.unit)
+        .cte("accessory_return_totals")
+    )
+
+    effective_manual_sku = func.nullif(func.trim(func.coalesce(latest_manual.c.item_sku, "")), "")
+    effective_manual_name = func.coalesce(
+        func.nullif(func.trim(func.coalesce(latest_manual.c.item_name, "")), ""),
+        effective_manual_sku,
+        "Manual accessory",
+    )
+    item_sku = case(
+        (grouped.c.stock_movement_count > 0, Item.sku),
+        else_=func.coalesce(effective_manual_sku, effective_manual_name),
+    )
+    item_name = case(
+        (grouped.c.stock_movement_count > 0, Item.name),
+        else_=effective_manual_name,
+    )
+    returned = func.coalesce(return_totals.c.returned_quantity, 0.0)
+    returnable = grouped.c.issued_quantity - returned
+    rows_query = db.query(
+        grouped.c.production_order_id,
+        ProductionOrder.production_no,
+        SalesOrder.order_no,
+        ProductionOrder.model_id,
+        Model.code.label("model_code"),
+        Model.name.label("model_name"),
+        grouped.c.item_id,
+        item_sku.label("item_sku"),
+        item_name.label("item_name"),
+        Item.image_url.label("item_image_url"),
+        Item.category.label("category"),
+        grouped.c.unit,
+        grouped.c.issued_quantity,
+        returned.label("returned_quantity"),
+        case((returnable > EPSILON, returnable), else_=0.0).label("returnable_quantity"),
+        grouped.c.movement_count,
+        grouped.c.first_issued_at,
+        grouped.c.last_issued_at,
+    )
+    rows_query = (
+        rows_query.join(ProductionOrder, ProductionOrder.id == grouped.c.production_order_id)
+        .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
+        .outerjoin(Model, Model.id == ProductionOrder.model_id)
+        .join(Item, Item.id == grouped.c.item_id)
+        .outerjoin(
+            latest_manual,
+            and_(
+                latest_manual.c.production_order_id == grouped.c.production_order_id,
+                latest_manual.c.item_id == grouped.c.item_id,
+                latest_manual.c.unit == grouped.c.unit,
+                latest_manual.c.manual_rank == 1,
+            ),
+        )
+        .outerjoin(
+            return_totals,
+            and_(
+                return_totals.c.production_order_id == grouped.c.production_order_id,
+                return_totals.c.item_id == grouped.c.item_id,
+                return_totals.c.unit == grouped.c.unit,
+            ),
+        )
+        .filter(returnable > EPSILON)
+    )
+    if production_order_id is not None:
+        rows_query = rows_query.filter(ProductionOrder.id == production_order_id)
+    if model_id is not None:
+        rows_query = rows_query.filter(ProductionOrder.model_id == model_id)
+    search = (q or "").strip().lower()
+    if search:
+        escaped_search = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped_search}%"
+        search_filters = [
+            func.lower(func.coalesce(SalesOrder.order_no, "")).like(pattern, escape="\\"),
+            func.lower(ProductionOrder.production_no).like(pattern, escape="\\"),
+            func.lower(func.coalesce(Model.name, "")).like(pattern, escape="\\"),
+            func.lower(func.coalesce(item_sku, "")).like(pattern, escape="\\"),
+            func.lower(func.coalesce(item_name, "")).like(pattern, escape="\\"),
+            func.lower(grouped.c.unit).like(pattern, escape="\\"),
+        ]
+        normalized_query = normalized_model_code_key(search)
+        if normalized_query:
+            search_filters.append(normalized_model_code_column(Model.code).like(f"%{normalized_query}%"))
+        rows_query = rows_query.filter(or_(*search_filters))
+
+    rows_subquery = rows_query.subquery("accessory_return_filtered_groups")
+    if orders_only:
+        order_rank = func.row_number().over(
+            partition_by=rows_subquery.c.production_order_id,
+            order_by=(
+                rows_subquery.c.last_issued_at.desc(),
+                rows_subquery.c.production_order_id.desc(),
+                rows_subquery.c.item_sku.desc(),
+            ),
+        ).label("order_rank")
+        ranked = db.query(rows_subquery, order_rank).subquery("accessory_return_order_choices")
+        rows_subquery = db.query(ranked).filter(ranked.c.order_rank == 1).subquery("accessory_return_unique_orders")
+
+    total = int(db.query(func.count()).select_from(rows_subquery).scalar() or 0)
+    safe_page, safe_size, offset = clamp_pagination(page, page_size)
+    page_rows = (
+        db.query(rows_subquery)
+        .order_by(
+            rows_subquery.c.last_issued_at.desc(),
+            rows_subquery.c.production_order_id.desc(),
+            rows_subquery.c.item_sku.desc(),
+        )
+        .offset(offset)
+        .limit(safe_size)
+        .all()
+    )
+    keys = (
+        "production_order_id", "production_no", "order_no", "model_id", "model_code", "model_name",
+        "item_id", "item_sku", "item_name", "item_image_url", "category", "unit", "issued_quantity",
+        "returned_quantity", "returnable_quantity", "movement_count", "first_issued_at", "last_issued_at",
+    )
+    projected = []
+    for row in page_rows:
+        record = row._mapping
+        projected.append({key: record[key] for key in keys})
+    return projected, total
+
+
 def accessory_issue_summary(
     db: Session,
     *,
@@ -1760,6 +2029,16 @@ def accessory_issue_summary(
     returnable_only: bool = False,
     orders_only: bool = False,
 ) -> list[dict] | tuple[list[dict], int]:
+    if include_total and returnable_only:
+        return _accessory_returnable_summary_page_sql(
+            db,
+            production_order_id=production_order_id,
+            model_id=model_id,
+            q=q,
+            page=page or 1,
+            page_size=page_size or 50,
+            orders_only=orders_only,
+        )
     exact_page = include_total or returnable_only or orders_only
     query = (
         db.query(StockMovement, Item)
