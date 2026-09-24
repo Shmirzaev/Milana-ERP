@@ -1,7 +1,7 @@
 from copy import deepcopy
 from uuid import uuid4
 
-from app.models import Department, Model, Role
+from app.models import AuditLog, Department, Model, Role
 from app.tests.conftest import TestSessionLocal
 
 
@@ -209,3 +209,52 @@ def test_payroll_manager_can_save_only_own_factory_paid_operations(client, auth_
         "besttex-op",
     }
     assert next(row for row in rows if row["id"] == "besttex-op")["name"] == "Payroll saved Besttex"
+
+
+def test_scoped_model_patch_rejects_oversized_merged_paid_operations_without_write(client, auth_headers):
+    sewing_headers = _create_sewing_master(client, auth_headers, "BST")
+    suffix = uuid4().hex[:8]
+    code = f"OPS-MERGE-{suffix}"
+    original_rows = [
+        *(_operation(f"besttex-{index}", "besttex") for index in range(999)),
+        _operation("milana-hidden-1", "milana"),
+        _operation("milana-hidden-2", "milana"),
+    ]
+    with TestSessionLocal() as db:
+        model = Model(
+            code=code,
+            name="Scoped paid operation merge",
+            status="approved",
+            details_json={
+                "general": {"model_no": code},
+                "paid_operations": original_rows,
+            },
+        )
+        db.add(model)
+        db.commit()
+        model_id = int(model.id)
+
+    visible = client.get(f"/api/models/{model_id}", headers=sewing_headers)
+    assert visible.status_code == 200, visible.text
+    submitted_rows = [*visible.json()["details_json"]["paid_operations"], _operation("besttex-new", "besttex")]
+    assert len(submitted_rows) == 1000
+
+    response = client.patch(
+        f"/api/models/{model_id}",
+        headers=sewing_headers,
+        json={
+            "code": code,
+            "name": "Scoped paid operation merge",
+            "details_json": {
+                "general": {"model_no": code},
+                "paid_operations": submitted_rows,
+            },
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert "cannot exceed 1000 rows" in response.text
+    with TestSessionLocal() as db:
+        saved = db.get(Model, model_id)
+        assert saved.details_json["paid_operations"] == original_rows
+        assert db.query(AuditLog.id).filter_by(entity_type="Model", entity_id=model_id).count() == 0

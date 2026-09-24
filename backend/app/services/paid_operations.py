@@ -24,6 +24,26 @@ FACTORY_ALIASES = {
     "ECO_COTTON": "eco_cotton",
     "ECOCOTTON": "eco_cotton",
 }
+MAX_MODEL_PAID_OPERATION_ROWS = 1000
+
+
+def _same_json_value(left: object, right: object) -> bool:
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
 
 
 def normalize_paid_operation_factory(value: object) -> str | None:
@@ -82,7 +102,37 @@ def paid_operations_from_details(details: object) -> list[dict[str, Any]]:
     return rows if isinstance(rows, list) else []
 
 
-def validate_paid_operations_details_structure(details: object) -> None:
+def paid_operations_rows_unchanged(
+    details: object,
+    existing_details: object,
+    *,
+    factory: str | None = None,
+) -> bool:
+    if not isinstance(details, dict) or not isinstance(existing_details, dict):
+        return False
+    for key in ("paid_operations", "paidOperations"):
+        rows = details.get(key)
+        if not isinstance(rows, list):
+            continue
+        existing_key = key if isinstance(existing_details.get(key), list) else (
+            "paidOperations" if key == "paid_operations" else "paid_operations"
+        )
+        existing_rows = existing_details.get(existing_key)
+        if not isinstance(existing_rows, list):
+            continue
+        expected_rows = _rows_for_factory(existing_rows, factory) if factory else existing_rows
+        if _same_json_value(rows, expected_rows):
+            return True
+    return False
+
+
+def validate_paid_operations_details_structure(
+    details: object,
+    *,
+    existing_details: object = None,
+    unchanged_factory: str | None = None,
+    allow_oversized_unchanged: bool = False,
+) -> None:
     """Validate the JSON containers shared by catalog and payroll readers.
 
     Operation row keys remain extensible for imported and versioned clients;
@@ -99,6 +149,19 @@ def validate_paid_operations_details_structure(details: object) -> None:
         invalid_index = next((index for index, row in enumerate(rows) if not isinstance(row, dict)), None)
         if invalid_index is not None:
             raise HTTPException(422, f"details_json.{key}[{invalid_index}] must be an object")
+        unchanged_legacy_rows = (
+            allow_oversized_unchanged
+            or paid_operations_rows_unchanged(
+                {key: rows},
+                existing_details,
+                factory=unchanged_factory,
+            )
+        )
+        if len(rows) > MAX_MODEL_PAID_OPERATION_ROWS and not unchanged_legacy_rows:
+            raise HTTPException(
+                422,
+                f"details_json.{key} cannot exceed {MAX_MODEL_PAID_OPERATION_ROWS} rows",
+            )
 
 
 def sewing_master_factory_scope(user: User) -> str | None:

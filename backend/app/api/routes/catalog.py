@@ -59,6 +59,7 @@ from app.services.paid_operations import (
     filter_paid_operations_for_factory,
     merge_scoped_paid_operations,
     normalize_paid_operation_factory,
+    paid_operations_rows_unchanged,
     paid_operations_from_details,
     sewing_master_factory_scope,
     validate_paid_operations_details_structure,
@@ -139,13 +140,18 @@ def _validate_model_details_structure(
     details: object,
     *,
     existing_details: object = None,
+    unchanged_paid_operations_factory: str | None = None,
 ) -> None:
     """Check established model-detail containers without constraining legacy keys."""
     if details is None:
         return
     if not isinstance(details, dict):
         raise HTTPException(422, "details_json must be an object")
-    validate_paid_operations_details_structure(details)
+    validate_paid_operations_details_structure(
+        details,
+        existing_details=existing_details,
+        unchanged_factory=unchanged_paid_operations_factory,
+    )
     for key in ("general", "costing"):
         if key in details and not isinstance(details[key], dict):
             raise HTTPException(422, f"details_json.{key} must be an object")
@@ -2577,9 +2583,11 @@ def update_model(
     m = _catalog_model(db, mid, catalog_scope)
     if not m: raise HTTPException(404, "Model not found")
     update_data = payload.model_dump(exclude_unset=True)
+    factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
     _validate_model_details_structure(
         update_data.get("details_json"),
         existing_details=m.details_json,
+        unchanged_paid_operations_factory=factory_scope,
     )
     if (
         "status" in update_data
@@ -2587,12 +2595,25 @@ def update_model(
         and update_data["status"] not in MODEL_STATUSES
     ):
         raise HTTPException(400, "Invalid model status")
-    factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
+    unchanged_paid_operations = (
+        "details_json" in update_data
+        and paid_operations_rows_unchanged(
+            update_data["details_json"],
+            m.details_json,
+            factory=factory_scope,
+        )
+    )
     if factory_scope and "details_json" in update_data:
         update_data["details_json"] = merge_scoped_paid_operations(
             m.details_json,
             update_data.get("details_json"),
             factory_scope,
+        )
+    if "details_json" in update_data:
+        validate_paid_operations_details_structure(
+            update_data["details_json"],
+            existing_details=m.details_json,
+            allow_oversized_unchanged=unchanged_paid_operations,
         )
     if "code" in update_data:
         update_data["code"] = _normalize_model_number(update_data.get("code"))
@@ -2659,10 +2680,26 @@ def update_model_paid_operations(
     incoming_details = deepcopy(model.details_json) if isinstance(model.details_json, dict) else {}
     incoming_details["paid_operations"] = deepcopy(payload.paid_operations)
     incoming_details.pop("paidOperations", None)
+    unchanged_paid_operations = paid_operations_rows_unchanged(
+        incoming_details,
+        model.details_json,
+        factory=factory_scope,
+    )
+    validate_paid_operations_details_structure(
+        incoming_details,
+        existing_details=model.details_json,
+        unchanged_factory=factory_scope,
+    )
     if factory_scope:
         next_details = merge_scoped_paid_operations(model.details_json, incoming_details, factory_scope)
     else:
         next_details = incoming_details
+
+    validate_paid_operations_details_structure(
+        next_details,
+        existing_details=model.details_json,
+        allow_oversized_unchanged=unchanged_paid_operations,
+    )
 
     old_count = len(paid_operations_from_details(filter_paid_operations_for_factory(model.details_json, factory_scope)))
     model.details_json = next_details
