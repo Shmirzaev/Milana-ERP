@@ -35,6 +35,7 @@ from app.models import (
     User,
     Warehouse,
     WasteRecord,
+    ForecastRecommendation,
 )
 from app.schemas.inventory import (
     ItemImageIn, ItemIn, ItemOut, WarehouseIn, WarehouseOut, WarehousePageOut,
@@ -405,6 +406,19 @@ def update_item(
         raise HTTPException(400, "SKU already exists")
     data = _item_payload(payload)
     _ensure_unique_active_item_name(db, data, item_id=item_id)
+    if data["unit"] != it.unit:
+        unit_referenced = (
+            db.query(StockBatch.id).filter(StockBatch.item_id == item_id).first()
+            or db.query(StockMovement.id).filter(StockMovement.item_id == item_id).first()
+            or db.query(MaterialReservation.id).filter(MaterialReservation.item_id == item_id).first()
+            or db.query(ModelBOM.id).filter(ModelBOM.item_id == item_id).first()
+            or db.query(ForecastRecommendation.id).filter(ForecastRecommendation.item_id == item_id).first()
+            or db.query(PurchaseRequestLine.id).filter(PurchaseRequestLine.item_id == item_id).first()
+            or db.query(PurchaseOrderLine.id).filter(PurchaseOrderLine.item_id == item_id).first()
+            or db.query(WasteRecord.id).filter(WasteRecord.item_id == item_id).first()
+        )
+        if unit_referenced:
+            raise HTTPException(409, "Cannot change material unit while quantity records exist")
     old_value = {
         "sku": it.sku,
         "name": it.name,

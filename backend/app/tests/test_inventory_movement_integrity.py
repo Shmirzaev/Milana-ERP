@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from app.api.routes import inventory as inventory_routes
 from app.db import session as session_module
 from app.models import (
-    AuditLog, IdempotencyRecord, Item, MaterialReservation, Model, ProductionOrder,
+    AuditLog, ForecastRecommendation, IdempotencyRecord, Item, MaterialReservation, Model, ProductionOrder,
     StockBatch, StockMovement, User, Warehouse,
 )
 from app.models.eco_transfer import EcoFabricDispatch, EcoFabricRoll
@@ -88,6 +88,96 @@ def test_mismatched_item_and_batch_rejected_without_writes(client, auth_headers,
                            json=movement_payload(movement_stock, item_id=movement_stock["other_item_id"]))
     assert response.status_code == 409, response.text
     assert stock_state(movement_stock) == before
+
+
+def test_item_unit_change_with_stock_history_rejected_but_metadata_edit_remains_allowed(
+    client, auth_headers, movement_stock,
+):
+    before = stock_state(movement_stock)
+    common_payload = {
+        "sku": "MOVEMENT-TEST",
+        "category": "accessory",
+        "default_cost": 0,
+        "reorder_level": 0,
+        "track_batch": False,
+        "is_active": True,
+        "composition": [],
+    }
+
+    rejected = client.patch(
+        f"/api/inventory/items/{movement_stock['item_id']}",
+        headers=auth_headers,
+        json={**common_payload, "name": "Should not persist", "unit": "box"},
+    )
+
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["detail"] == "Cannot change material unit while quantity records exist"
+    assert stock_state(movement_stock) == before
+    with session_module.SessionLocal() as db:
+        item = db.get(Item, movement_stock["item_id"])
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        movements = db.query(StockMovement).filter_by(batch_id=batch.id).all()
+        assert item.name == "Movement test"
+        assert item.unit == "pcs"
+        assert batch.unit == "pcs"
+        assert all(row.unit == "pcs" for row in movements)
+
+    metadata = client.patch(
+        f"/api/inventory/items/{movement_stock['item_id']}",
+        headers=auth_headers,
+        json={**common_payload, "name": "Metadata edit allowed", "unit": "pcs"},
+    )
+    assert metadata.status_code == 200, metadata.text
+    assert metadata.json()["name"] == "Metadata edit allowed"
+    assert metadata.json()["unit"] == "pcs"
+
+
+def test_item_unit_change_with_forecast_quantity_reference_rejected_without_writes(
+    client, auth_headers,
+):
+    created = client.post("/api/inventory/items", headers=auth_headers, json={
+        "sku": "FORECAST-UNIT-GUARD",
+        "name": "Forecast unit guard",
+        "category": "accessory",
+        "unit": "pcs",
+        "default_cost": 1,
+        "reorder_level": 0,
+        "track_batch": False,
+        "is_active": True,
+    })
+    assert created.status_code == 201, created.text
+    item_id = created.json()["id"]
+    with session_module.SessionLocal() as db:
+        db.add(ForecastRecommendation(
+            recommendation_type="purchase",
+            item_id=item_id,
+            suggested_quantity=8,
+            unit="pcs",
+            status="open",
+        ))
+        db.commit()
+        before_audits = db.query(AuditLog).count()
+
+    rejected = client.patch(f"/api/inventory/items/{item_id}", headers=auth_headers, json={
+        "sku": "FORECAST-UNIT-GUARD",
+        "name": "Must not rename",
+        "category": "accessory",
+        "unit": "box",
+        "default_cost": 1,
+        "reorder_level": 0,
+        "track_batch": False,
+        "is_active": True,
+        "composition": [],
+    })
+
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["detail"] == "Cannot change material unit while quantity records exist"
+    with session_module.SessionLocal() as db:
+        item = db.get(Item, item_id)
+        recommendation = db.query(ForecastRecommendation).filter_by(item_id=item_id).one()
+        assert (item.name, item.unit) == ("Forecast unit guard", "pcs")
+        assert (recommendation.suggested_quantity, recommendation.unit) == (8, "pcs")
+        assert db.query(AuditLog).count() == before_audits
 
 
 @pytest.mark.parametrize("quantity", [0, -1, "NaN", "Infinity", "-Infinity", 0.00001, 10000000000])
