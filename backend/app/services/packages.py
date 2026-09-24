@@ -50,6 +50,7 @@ PACKAGE_TYPES = frozenset({"bag", "box", "legacy_stock"})
 _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE = 400
 _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE = 400
 _PACKAGE_EDIT_ROW_LIMIT = 200
+_PACKAGE_EDIT_NOTES_BYTES = 4096
 
 
 @dataclass
@@ -1061,6 +1062,8 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
     color = str(payload.get("color", pkg.color) or "").strip()
     if not color:
         raise HTTPException(400, "color is required")
+    if len(color) > 64 and color != pkg.color:
+        raise HTTPException(400, "color must be at most 64 characters")
 
     weight_kg = _normalize_optional_weight(payload.get("weight_kg", pkg.weight_kg))
     warehouse_id = _normalize_optional_int(payload.get("warehouse_id", pkg.warehouse_id), "warehouse_id")
@@ -1091,6 +1094,10 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
     package_type = _validate_package_type(package_type)
 
     notes = payload.get("notes", pkg.notes)
+    if notes is not None and not isinstance(notes, str):
+        raise HTTPException(400, "notes must be text")
+    if notes != pkg.notes and notes is not None and len(notes.encode("utf-8")) > _PACKAGE_EDIT_NOTES_BYTES:
+        raise HTTPException(400, f"notes must be at most {_PACKAGE_EDIT_NOTES_BYTES} UTF-8 bytes")
     return {
         "color": color,
         "package_type": package_type,
