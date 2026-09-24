@@ -1483,7 +1483,7 @@
       "status": "open",
       "owner": null,
       "commit": null,
-      "evidence": null
+      "evidence": "A read-only factory/branch capture checklist is documented in docs/OPS07_NETWORK_CAPTURE_CHECKLIST.md. Historical public-path evidence in docs/PROJECT_CONTEXT.md recorded 50-sample public health/login and stable internal-health phase timings plus one fixed 100-sample public confirmation, but did not measure actual factory/branch paths or establish firewall/shaping rules as the cause. OPS07 remains open pending owner-authorized, time-matched captures and network-rule evidence from every in-scope site/path; no network or production access occurred in this task."
     },
     {
       "number": 121,
