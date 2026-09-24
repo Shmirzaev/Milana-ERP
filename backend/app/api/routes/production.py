@@ -2037,14 +2037,12 @@ def update_wo(
     if not wo: raise HTTPException(404, "Work order not found")
     _authorize_work_order_command(db, current, wo)
     changes = payload.model_dump(exclude_unset=True)
-    if changes.get("status") == "completed":
-        _ensure_replacements_do_not_block_completion(db, wo)
-    if (
-        wo.operation == "storage_transfer"
-        and changes.get("status") in ("in_progress", "pending", "collected", "ready", "paused")
-        and _storage_received_total(db, int(wo.production_order_id)) <= 0
-    ):
-        raise HTTPException(400, "Storage transfer starts only when packages are received into storage.")
+    if "status" in changes:
+        if changes["status"] is None or changes["status"] != wo.status:
+            raise HTTPException(409, "Use a work-order action to change status")
+        changes.pop("status")
+    if not changes:
+        return wo
 
     if wo.operation == "sewing" and "sewing_flow_id" in changes and changes["sewing_flow_id"]:
         target_flow = db.get(SewingFlow, int(changes["sewing_flow_id"]))
