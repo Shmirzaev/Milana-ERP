@@ -1345,10 +1345,10 @@
       "risk": "Unnecessary writes or slow joins; plans not yet measured.",
       "proposed_fix": "Inspect real plans before adding indexes",
       "baseline_source": null,
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "a590222",
+      "evidence": "Fresh PostgreSQL replays no longer reproduce the five captured duplicate foreign-key definitions: revisions 0002 and 0010 detect relationships by constrained/referenced columns instead of constraint name. The captured branded-planning duplicate unique index and a second current material-reservation duplicate are removed from new schemas, with ORM metadata aligned to the surviving unique constraints. The migration regression now rejects any duplicate FK signature or redundant standalone unique index; local contracts pass14 with2 expected PostgreSQL skips, the complete disposable-PostgreSQL migration suite passes16, and Ruff/diff checks pass. Existing deployed schemas are intentionally unchanged: dropping their redundant objects or adding any of the173 historical FK-prefix candidates requires measured live cardinality/query plans and an explicitly approved migration, so DB06 remains partial."
     },
     {
       "number": 113,
