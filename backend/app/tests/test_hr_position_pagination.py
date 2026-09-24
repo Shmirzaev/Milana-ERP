@@ -79,7 +79,13 @@ def test_position_pages_preserve_legacy_and_bound_enrichment(count):
     returned_count = min(count, 50)
 
     page, statements = _read(page=1, page_size=50)
+    second_page, _ = _read(page=2, page_size=50)
     legacy, _ = _read()
+    legacy_summary = {
+        "plan": sum(row["approved_count"] for row in legacy),
+        "actual": sum(row["occupied_count"] for row in legacy),
+        "vacant": sum(row["vacant_count"] for row in legacy),
+    }
 
     assert page["total"] == count
     assert page["page"] == 1
@@ -87,11 +93,17 @@ def test_position_pages_preserve_legacy_and_bound_enrichment(count):
     assert page["has_more"] is (count > 50)
     assert [row["id"] for row in page["rows"]] == position_ids[:returned_count]
     assert page["rows"] == legacy[:returned_count]
+    assert page["summary"] == legacy_summary
+    assert second_page["total"] == count
+    assert second_page["rows"] == legacy[50:100]
+    assert {row["id"] for row in page["rows"]}.isdisjoint({row["id"] for row in second_page["rows"]})
     assert all(row["occupied_count"] == 1 and row["vacant_count"] == 1 for row in page["rows"])
-    assert len(statements) == 4, statements
-    occupied_reads = [statement for statement in statements if " from employees " in statement]
+    assert len(statements) == 5, statements
+    occupied_reads = [statement for statement in statements if "employees.hr_position_id in (" in statement]
+    summary_reads = [statement for statement in statements if "left outer join (select employees.hr_position_id" in statement]
     department_reads = [statement for statement in statements if " from departments " in statement]
     assert len(occupied_reads) == len(department_reads) == 1
+    assert len(summary_reads) == 1
     assert occupied_reads[0].count("?") == returned_count + 2
     assert department_reads[0].count("?") == 1
 
@@ -108,4 +120,5 @@ def test_position_page_http_contract_and_bound(client, auth_headers):
     assert page["page"] == 1
     assert page["page_size"] == 500
     assert page["has_more"] is False
+    assert set(page["summary"]) == {"plan", "actual", "vacant"}
     assert client.get("/api/hr/positions?page_size=501", headers=auth_headers).status_code == 422

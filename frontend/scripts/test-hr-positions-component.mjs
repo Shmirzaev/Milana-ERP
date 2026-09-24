@@ -15,6 +15,7 @@ const position = {
 };
 const calls = [];
 let swrKey;
+let positionSWRKey;
 let state;
 let cursor = 0;
 const effects = [];
@@ -25,10 +26,11 @@ function useState(initial) {
   return [state[index], value => { state[index] = typeof value === "function" ? value(state[index]) : value; }];
 }
 function useEffect(effect) { effects.push(effect); }
-function useSWR(key) {
-  swrKey = key;
-  calls.push(key);
-  return { data: key === "/api/hr/positions" ? [position] : undefined, error: undefined, isLoading: false, mutate: async () => {} };
+function useSWRInfinite(key) {
+  swrKey = typeof key === "function" ? key(0, null) : key;
+  positionSWRKey = swrKey;
+  calls.push(swrKey);
+  return { data: [{ rows: [position], total: 1, has_more: false, summary: { plan: 2, actual: 1, vacant: 1 } }], error: undefined, isLoading: false, isValidating: false, size: 1, setSize: async () => {}, mutate: async () => {} };
 }
 function createElement(type, props, ...children) {
   const nextProps = { ...(props || {}), children: children.flat() };
@@ -53,7 +55,7 @@ function text(tree) {
 const module = { exports: {} };
 new Function("require", "exports", "module", output)(name => {
   if (name === "react") return { useState, useEffect, createElement };
-  if (name === "swr") return { default: useSWR };
+  if (name === "swr/infinite") return { default: useSWRInfinite };
   if (name === "@/lib/api") return { api: { post: async () => {}, patch: async () => {} }, fetcher: async () => [] };
   if (name === "@/components/Modal") return { default: props => createElement("modal", props, props.children) };
   if (name === "@/components/hr/HrUi") return {
@@ -78,6 +80,7 @@ function render() {
 }
 
 let tree = render();
+assert.equal(positionSWRKey, "/api/hr/positions?page=1&page_size=50", "positions must start with a bounded first page");
 assert.equal(swrKey, null, "closed position modal must not fetch departments");
 assert.match(text(tree), /Senior Cutter/);
 assert.match(text(tree), /Cutting/, "position rows carry department labels without fetching the form directory");

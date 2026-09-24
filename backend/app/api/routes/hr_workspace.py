@@ -515,10 +515,31 @@ def list_positions(
     factory = _factory(current)
     query = db.query(HrPosition).filter(HrPosition.factory_code == factory)
     total = None
+    summary = None
     if page is not None or page_size is not None:
         page = page or 1
         page_size = page_size or 100
         total = query.count()
+        active_by_position = db.query(
+            Employee.hr_position_id.label("position_id"),
+            func.count(Employee.id).label("occupied_count"),
+        ).filter(
+            Employee.factory_code == factory,
+            Employee.status == "active",
+            Employee.hr_position_id.isnot(None),
+        ).group_by(Employee.hr_position_id).subquery()
+        occupied_count = func.coalesce(active_by_position.c.occupied_count, 0)
+        summary_row = db.query(
+            func.coalesce(func.sum(HrPosition.approved_count), 0),
+            func.coalesce(func.sum(occupied_count), 0),
+            func.coalesce(func.sum(case(
+                (HrPosition.approved_count > occupied_count, HrPosition.approved_count - occupied_count),
+                else_=0,
+            )), 0),
+        ).outerjoin(
+            active_by_position, active_by_position.c.position_id == HrPosition.id,
+        ).filter(HrPosition.factory_code == factory).one()
+        summary = {"plan": int(summary_row[0]), "actual": int(summary_row[1]), "vacant": int(summary_row[2])}
     query = query.options(load_only(
         HrPosition.id,
         HrPosition.org_unit_id,
@@ -561,6 +582,7 @@ def list_positions(
         "page": page,
         "page_size": page_size,
         "has_more": page * page_size < total,
+        "summary": summary,
     }
 
 
