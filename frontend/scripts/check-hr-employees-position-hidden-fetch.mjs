@@ -7,7 +7,7 @@ const source = fs.readFileSync(new URL("../src/app/(app)/hr/employees/page.tsx",
 
 assert.match(
   source,
-  /const positionDirectoryKey = editing !== null \|\| \(data \|\| \[\]\)\.some\(\(employee\) => employee\.hr_position_id != null\)[\s\S]*?\? "\/api\/hr\/positions"[\s\S]*?: null;/,
+  /const positionDirectoryKey = editing !== null \|\| employees\.some\(\(employee\) => employee\.hr_position_id != null\)[\s\S]*?\? "\/api\/hr\/positions"[\s\S]*?: null;/,
   "the staffing-position directory must depend on an active editor or referenced row",
 );
 assert.match(
@@ -40,19 +40,19 @@ function createHarness({ employees, denied = false }) {
 
   const dependencies = {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
-    react: { useMemo: (calculate) => calculate(), useState },
+    react: { useEffect: (callback) => callback(), useMemo: (calculate) => calculate(), useState },
     swr: {
       default: (key) => {
         requests.push(key);
         return {
-          data: key === "/api/employees"
-            ? employees
+          data: key === "/api/employees?page=1&page_size=50&search=" && employees
+            ? { rows: employees, total: employees.length, page: 1, page_size: 50, has_more: false, active_total: employees.length, inactive_total: 0, profile_coverage_percent: null, search: "" }
             : key === "/api/departments"
               ? [{ id: 2, name: "Cutting" }]
               : key === positionKey
                 ? [{ id: 3, name: "Senior Cutter" }]
                 : undefined,
-          error: key === "/api/employees" && denied ? new Error("403 forbidden") : undefined,
+          error: key === "/api/employees?page=1&page_size=50&search=" && denied ? new Error("403 forbidden") : undefined,
           isLoading: false,
           mutate() {},
         };
@@ -71,6 +71,9 @@ function createHarness({ employees, denied = false }) {
   const Page = loadedModule.exports.default;
 
   function render() {
+    stateCursor = 0;
+    requests = [];
+    Page(); // The paged screen copies the fetched page into state in an effect.
     stateCursor = 0;
     requests = [];
     const tree = Page();
