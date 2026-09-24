@@ -28,13 +28,14 @@ from app.migrations.preflight import (  # noqa: E402
     read_only_preflight_0091_0092,
     read_only_preflight_0130,
 )
+from app.migrations.preflight_0126 import read_only_preflight_0126  # noqa: E402
 from app.migrations.preflight_0101 import read_only_preflight_0101  # noqa: E402
 from app.migrations.preflight_0107 import read_only_preflight_0107  # noqa: E402
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only migration impact preview")
-    parser.add_argument("--revision", choices=("0055", "0091", "0092", "0101", "0107", "0130", "both"), default="0130")
+    parser.add_argument("--revision", choices=("0055", "0091", "0092", "0101", "0107", "0126", "0130", "both"), default="0130")
     args = parser.parse_args()
     database_url = os.environ.get("MIGRATION_PREFLIGHT_DATABASE_URL")
     if not database_url:
@@ -52,6 +53,8 @@ def main() -> int:
             report = read_only_preflight_0101(engine)
         elif args.revision == "0107":
             report = read_only_preflight_0107(engine)
+        elif args.revision == "0126":
+            report = read_only_preflight_0126(engine)
         else:
             report = read_only_preflight_0130(engine)
     finally:
