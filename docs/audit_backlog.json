@@ -772,7 +772,7 @@
       "status": "fixed",
       "owner": null,
       "commit": "a77de07",
-      "evidence": "test_task_assignment_authorization.py: baseline 10 failed; 50 focused tests passed; broader API02 remains open"
+      "evidence": "test_task_assignment_authorization.py: baseline 10 failed; 50 focused tests passed. Broader task reference validation is closed separately under API02."
     },
     {
       "number": 65,
@@ -781,10 +781,10 @@
       "risk": "Invalid tasks or uncontrolled errors.",
       "proposed_fix": "Use strict command schemas.",
       "baseline_source": "backend/app/schemas/tasks.py:8",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "22593e7, 31350dc",
-      "evidence": "Commit 31350dc adds supported target-type normalization and existence validation on task create/reference changes while preserving unrelated edits to legacy orphan rows and canonical notification links;28 focused cases pass with3 PostgreSQL-only skips. Target authorization/factory-access policy remains an explicit owner decision, so API02 stays partial."
+      "commit": "22593e7, 31350dc, 73d7ca4",
+      "evidence": "Commit 73d7ca4 locks supported task targets through commit and mirrors each target read route's permission/factory policy for actors, assignees and broadcasts, including scoped grants, explicit denials and Super Admin factory switching. Raw aliases and legacy orphan reassignment remain compatible. The focused selection passes 79 with 4 expected PostgreSQL skips; all 15 disposable-PostgreSQL cases pass, including a verified delete/create lock wait. Referenced broadcasts stay within 8 SELECTs at 1/50 recipients; full User hydration/no ceiling remains PERF36."
     },
     {
       "number": 66,
