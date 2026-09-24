@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -120,7 +121,13 @@ def test_batch_tracked_adjustment_uses_matching_category_storage(client, auth_he
         assert movement.quantity == batch.quantity == Decimal("3")
 
 
-def test_batch_tracked_adjustment_rejects_active_legacy_unit_drift_without_writes(client, auth_headers):
+@pytest.mark.parametrize(
+    ("archived", "target_quantity"),
+    [(False, 6), (False, 5), (True, 6), (True, 5)],
+)
+def test_batch_tracked_adjustment_rejects_legacy_unit_drift_without_writes(
+    client, auth_headers, archived, target_quantity,
+):
     suffix = uuid4().hex[:10].upper()
     item_response = client.post("/api/inventory/items", headers=auth_headers, json={
         "sku": f"ADJ-DRIFT-{suffix}", "name": f"Adjustment drift {suffix}",
@@ -141,6 +148,7 @@ def test_batch_tracked_adjustment_rejects_active_legacy_unit_drift_without_write
             cost_per_unit=1,
             warehouse_id=warehouse.id,
             qc_status="passed",
+            archived_at=datetime.utcnow() if archived else None,
         )
         db.add(batch)
         db.commit()
@@ -155,7 +163,7 @@ def test_batch_tracked_adjustment_rejects_active_legacy_unit_drift_without_write
     response = client.patch(
         f"/api/inventory/stock/{item_id}",
         headers=auth_headers,
-        json={"quantity": 6, "unit": "pcs"},
+        json={"quantity": target_quantity, "unit": "pcs"},
     )
 
     assert response.status_code == 409, response.text
@@ -167,6 +175,7 @@ def test_batch_tracked_adjustment_rejects_active_legacy_unit_drift_without_write
             db.query(AuditLog).count(),
         )
         assert db.get(StockBatch, batch_id).quantity == Decimal("5")
+        assert (db.get(StockBatch, batch_id).archived_at is not None) is archived
     assert after == before
 
 

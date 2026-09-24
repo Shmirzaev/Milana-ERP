@@ -788,6 +788,27 @@ def set_stock_quantity(
     if target_quantity + EPSILON < reserved_quantity and not force:
         raise HTTPException(409, f"Stock quantity cannot be lower than reserved quantity ({reserved_quantity:g} {item.unit})")
     delta = target_quantity - previous_quantity
+    if abs(delta) > EPSILON and Decimal(str(abs(delta))) > MAX_STORED_STOCK_QUANTITY:
+        raise HTTPException(422, "Stock adjustment delta exceeds the supported maximum")
+    if item.track_batch:
+        # current_stock_for_item includes every batch row, including archived
+        # legacy rows. Guard the same population before both mutations and
+        # no-op responses so unlike units are never treated as additive.
+        mismatched_batch = (
+            db.query(StockBatch.id)
+            .filter(
+                StockBatch.item_id == item.id,
+                StockBatch.quantity > EPSILON,
+                StockBatch.unit != item.unit,
+            )
+            .order_by(StockBatch.id.asc())
+            .first()
+        )
+        if mismatched_batch:
+            raise HTTPException(
+                409,
+                "Batch-tracked stock has batches whose unit differs from the item; reconcile before adjusting stock",
+            )
     if abs(delta) <= EPSILON:
         return StockQuantityAdjustmentOut(
             item_id=item_id,
@@ -796,27 +817,8 @@ def set_stock_quantity(
             delta=0,
             unit=item.unit,
         )
-    if Decimal(str(abs(delta))) > MAX_STORED_STOCK_QUANTITY:
-        raise HTTPException(422, "Stock adjustment delta exceeds the supported maximum")
-
     movement_type = "adjustment" if delta > 0 else "issue"
     if item.track_batch:
-        mismatched_active_batch = (
-            db.query(StockBatch.id)
-            .filter(
-                StockBatch.item_id == item.id,
-                StockBatch.archived_at.is_(None),
-                StockBatch.quantity > EPSILON,
-                StockBatch.unit != item.unit,
-            )
-            .order_by(StockBatch.id.asc())
-            .first()
-        )
-        if mismatched_active_batch:
-            raise HTTPException(
-                409,
-                "Batch-tracked stock has active batches whose unit differs from the item; reconcile before adjusting stock",
-            )
         active_batch_count = (
             db.query(StockBatch.id)
             .filter(
