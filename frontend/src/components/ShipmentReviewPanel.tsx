@@ -66,19 +66,7 @@ export default function ShipmentReviewPanel({ preparation, onChanged }: {
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
     finally { setBusy(false); }
   }
-  return <div className="border-t px-4 py-3 space-y-3">
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm tabular-nums">
-      <span>{text.scanned}: <strong>{review.quantity}</strong> · {review.packages_count} {text.packs}</span>
-      <span>{text.calculated}: {review.calculated_amount ?? text.noPrices}</span>
-      <span>{text.amount}: <strong>{review.amount ?? text.noPrices}</strong></span>
-      {amountAllowed && review.packages_count > 0 && <button type="button" className="btn" onClick={() => begin("amount")} disabled={busy}>{pendingPrice ? text.addAmount : text.review}</button>}
-    </div>
-    {preparation.shipment.shipment_type === "manual" && review.amount === null && <p className="text-sm text-amber-800">{text.pendingPrice}</p>}
-    {review.review_stale && <p role="alert" className="text-amber-800 text-sm">{text.stale}</p>}
-    {allowed && preparation.packages.some(row => row.scanned) && <details><summary className="cursor-pointer text-sm">{text.edit}</summary>
-      <div className="divide-y mt-2">{preparation.packages.filter(row => row.scanned).map(row => <div key={row.id} className="flex items-center justify-between gap-3 py-2 text-sm"><span>{row.package_no} · {row.quantity} {text.pieces}</span><button type="button" className="btn" disabled={busy} onClick={() => begin(row.id)}>{text.edit}</button></div>)}</div>
-    </details>}
-    {editing !== null && (editing === "amount" ? amountAllowed : allowed) && <form className="space-y-3 border-t pt-3" onSubmit={save}>
+  const editor = editing !== null && (editing === "amount" ? amountAllowed : allowed) && <form className="space-y-3 border-t pt-3" onSubmit={save}>
       <p className="text-sm">{editing === "amount" ? preparation.shipment.shipment_type === "manual" ? text.manualAmountHint : text.amountHint : text.qtyHint}</p>
       {editing === "amount" ? <label className="block text-sm">{text.amount}<input className="input block mt-1 max-w-64" inputMode="decimal" type="number" step="0.01" min="0" max="999999999999.99" required value={amount} onChange={e => setAmount(e.target.value)} disabled={busy} /></label> : <>
         <p className="font-semibold text-sm">{pkg?.package_no}</p>
@@ -88,6 +76,22 @@ export default function ShipmentReviewPanel({ preparation, onChanged }: {
       <label className="block text-sm">{text.reason}<input className="input block mt-1 w-full" required minLength={3} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} disabled={busy} /></label>
       {error && <p role="alert" className="text-red-700 text-sm">{error}</p>}
       <div className="flex flex-wrap gap-2">{pkg && <button className="btn" type="button" disabled={busy || reason.trim().length < 3} onClick={() => void remove()}>{text.remove}</button>}<button className="btn btn-primary" disabled={busy || reason.trim().length < 3}>{text.save}</button><button className="btn" type="button" disabled={busy} onClick={() => setEditing(null)}>{text.cancel}</button></div>
-    </form>}
+    </form>;
+  return <div className="border-t px-4 py-3 space-y-3">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm tabular-nums">
+      <span>{text.scanned}: <strong>{review.quantity}</strong> · {review.packages_count} {text.packs}</span>
+      <span>{text.calculated}: {review.calculated_amount ?? text.noPrices}</span>
+      <span>{text.amount}: <strong>{review.amount ?? text.noPrices}</strong></span>
+      {amountAllowed && review.packages_count > 0 && <button type="button" className="btn" onClick={() => begin("amount")} disabled={busy}>{pendingPrice ? text.addAmount : text.review}</button>}
+    </div>
+    {preparation.shipment.shipment_type === "manual" && review.amount === null && <p className="text-sm text-amber-800">{text.pendingPrice}</p>}
+    {review.review_stale && <p role="alert" className="text-amber-800 text-sm">{text.stale}</p>}
+    {editing === "amount" && editor}
+    {allowed && preparation.packages.some(row => row.scanned) && <details><summary className="cursor-pointer text-sm">{text.edit}</summary>
+      <div className="divide-y mt-2">{preparation.packages.filter(row => row.scanned).map(row => <div key={row.id} className="py-2 text-sm">
+        <div className="flex items-center justify-between gap-3"><span>{row.package_no} · {row.quantity} {text.pieces}</span><button type="button" className="btn" disabled={busy} aria-expanded={editing === row.id} onClick={() => begin(row.id)}>{text.edit}</button></div>
+        {editing === row.id && <div className="mt-3">{editor}</div>}
+      </div>)}</div>
+    </details>}
   </div>;
 }
