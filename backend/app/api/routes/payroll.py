@@ -199,7 +199,10 @@ def _to_money_decimal(value: Any) -> Decimal:
     if not _present(value):
         raise HTTPException(400, "amount is required")
     try:
-        return Decimal(str(value)).quantize(Decimal("0.01"))
+        amount = Decimal(str(value))
+        if not amount.is_finite():
+            raise HTTPException(400, f"Invalid numeric value: {value}")
+        return amount.quantize(Decimal("0.01"))
     except (InvalidOperation, ValueError, TypeError):
         raise HTTPException(400, f"Invalid numeric value: {value}")
 

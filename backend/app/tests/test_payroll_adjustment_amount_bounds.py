@@ -30,7 +30,16 @@ def test_payroll_adjustment_accepts_numeric_storage_maximum(client, auth_headers
     assert Decimal(str(response.json()["amount"])) == Decimal("999999999999.99")
 
 
-@pytest.mark.parametrize("amount", ["1000000000000", "-1000000000000"])
+@pytest.mark.parametrize(
+    "amount",
+    [
+        "1000000000000",
+        "-1000000000000",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+    ],
+)
 def test_payroll_adjustment_rejects_amount_outside_numeric_storage_without_writes(
     client, auth_headers, amount
 ):
@@ -52,11 +61,12 @@ def test_payroll_adjustment_rejects_amount_outside_numeric_storage_without_write
     assert _counts() == before
 
 
-def test_unrepresentable_adjustment_amount_preserves_auth_precedence(client):
+@pytest.mark.parametrize("amount", ["1000000000000", "NaN", "Infinity", "-Infinity"])
+def test_unrepresentable_adjustment_amount_preserves_auth_precedence(client, amount):
     before = _counts()
     response = client.post(
         "/api/payroll/adjustments",
-        json={"employee_id": 1, "amount": "1000000000000", "reason": "Boundary"},
+        json={"employee_id": 1, "amount": amount, "reason": "Boundary"},
     )
     assert response.status_code == 401, response.text
     assert _counts() == before
