@@ -721,10 +721,10 @@
       "risk": "Misleading revenue or historical profit.",
       "proposed_fix": "Define accounting and currency policy.",
       "baseline_source": "backend/app/services/finance.py",
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null
+      "commit": "285b69d",
+      "evidence": "Dashboard and monthly revenue now exclude void/cancelled invoices; focused finance/report regressions pass independently. Historical cost valuation and currency treatment still require an explicit accounting policy, so FN08 remains partial."
     },
     {
       "number": 61,
@@ -889,10 +889,10 @@
       "risk": "Slow queue and oversized response.",
       "proposed_fix": "Page minimal results.",
       "baseline_source": "backend/app/api/routes/packages.py:1032",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "890177e, 3da6174, cbebcd4, 2dd8ef8",
-      "evidence": "Queue pages and removal inputs are bounded to500 parents, use a direct scalar count, and scope child/reference reads to returned package IDs. Detail eager loads project only serializer fields;47 receiving/detail/pagination compatibility cases pass. Each selected package still returns its complete child arrays to preserve the full-detail contract; a hard child-row ceiling requires an API contract decision, so PERF08 remains partial."
+      "commit": "890177e, 3da6174, cbebcd4, 2dd8ef8, 330374c",
+      "evidence": "The receiving queue now returns minimal rows without package children in pages of50 by default and100 maximum; removal uses the same bounded minimal contract. Full package details remain available by ID. Thirty-four receiving/workflow cases pass independently, so the queue's unbounded detailed response is resolved."
     },
     {
       "number": 75,
@@ -1057,10 +1057,10 @@
       "risk": "Growing history slows the page.",
       "proposed_fix": "Page and bulk-load.",
       "baseline_source": "backend/app/api/routes/usluga.py:588",
-      "status": "partial",
+      "status": "fixed",
       "owner": null,
-      "commit": "d1c4117, c8ac9f3, 0005ff3, bec46dd, 55fef7f, 9c5d9c9",
-      "evidence": "Paged Usluga reads bulk-load projected models/items/work orders/packages, and the frontend uses100-row SWR pages with executable load-more coverage. Twenty-four backend tests plus the frontend pagination test pass. Legacy callers that omit pagination intentionally retain the complete historical array; bounding that compatibility response requires an approved contract change, so PERF22 remains partial."
+      "commit": "d1c4117, c8ac9f3, 0005ff3, bec46dd, 55fef7f, 9c5d9c9, cadb035",
+      "evidence": "Usluga order reads now default to a bounded100-row page, bulk-load page-scoped children and retain frontend load-more behavior. The former unpaged compatibility response is removed;27 backend cases and the Bun frontend harness pass independently."
     },
     {
       "number": 89,
@@ -1381,10 +1381,10 @@
       "risk": "Queueing or exhausted database connections.",
       "proposed_fix": "Budget and load-test all clients",
       "baseline_source": null,
-      "status": "open",
+      "status": "partial",
       "owner": null,
-      "commit": null,
-      "evidence": null,
+      "commit": "50a050d",
+      "evidence": "Backend slot configuration now enforces2 workers with pool8 and overflow4 per worker, bounding two slots to48 connections against the documented100. Sixteen independent configuration tests pass. Other database clients, active runtime configuration and load/queueing are not measured, so OPS02 remains partial.",
       "external_review": "Friend S17 code defect fixed in cc7ffdf: honor DB_POOL_SIZE/DB_MAX_OVERFLOW; 9 isolated tests. OPS02 remains open: worker/slot/global connection budget and load behavior unproven. No live inspection."
     },
     {

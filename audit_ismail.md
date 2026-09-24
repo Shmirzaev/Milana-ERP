@@ -6,11 +6,11 @@
 
 | Status | Count | Meaning |
 | --- | ---: | --- |
-| **Fixed and tested** | **102** | Resolved with regression evidence |
+| **Fixed and tested** | **104** | Resolved with regression evidence |
 | **Partially fixed** | **15** | Improved, but remaining risk is documented |
-| **Open** | **10** | Not resolved |
-| **Total remaining** | **25** | Partial + open; not production-ready |
-| **Total audited** | **127** | 80.3% fully resolved |
+| **Open** | **8** | Not resolved |
+| **Total remaining** | **23** | Partial + open; not production-ready |
+| **Total audited** | **127** | 81.9% fully resolved |
 
 [Complete backlog](docs/audit_backlog.json) · [QA steps and complexity](docs/stabilization_qa.md). Partial findings are not counted as resolved. No deployment, production access or database redesign. PR #175 still conflicts with `develop`. The latest batch completes Sewing conservation, batches catalog-family approval checks, defers model BOM metadata until its visible tab, and caps payroll bulk records at 500. Its corrected combined backend slice passed 33 tests and Ruff; the four full-suite loss-semantics cases pass separately within a 24-test compatibility selection, and both model-detail fetch contracts pass. Validation-only run `35675969462` passed backend, frontend lint/strict types/optimized build/contracts and all PostgreSQL selections on `bae444d`; release was skipped. The preceding run `35674868826` passed frontend/PostgreSQL but exposed the initial Sewing compatibility error in four backend cases, which `65586e0` corrected.
 
@@ -44,6 +44,10 @@ Other committed finite-storage and query-projection changes are linked by findin
 ### 23–24 September closure pass (`95111b5..a590222`)
 
 This pass reviewed whole findings instead of counting individual optimization slices. The official ledger is now **102 fixed, 15 partial, 10 open, 25 remaining**. The committed history through `f25b064` was pushed to `feat/ismoiljon`; later closure commits remain local until separately approved.
+
+### 24 September latest reviewed slice (local only)
+
+The current ledger is **104 fixed, 15 partial, 8 open, 23 remaining**. **PERF08 fixed:** `330374c` returns minimal receiving-queue rows in pages (default 50, maximum 100) without child hydration; detailed package lookup remains by ID. Thirty-four focused queue/workflow cases pass independently. **PERF22 fixed:** `cadb035` gives `/api/usluga/orders` a default 100-row page and matching frontend load-more contract; 27 backend cases and the Bun frontend harness pass independently. **FN08 partial:** `285b69d` excludes void/cancelled invoices from dashboard and monthly revenue; historical cost and currency policy remain undecided. **OPS02 partial:** `50a050d` bounds configured backend workers/pools to a calculated two-slot maximum of 48 database connections versus the documented 100 limit; other database clients and load behavior remain unverified. SEC08 remains partial because department soft delete needs an approved schema migration. No production contact, migration, deployment or new push occurred.
 
 - **PERF13 fixed:** `f5977d0` reuses the already-loaded accepted bundle rows for response aggregation. Manual receipt uses 20 SELECTs and sewing acceptance 29 SELECTs at 1/50/401 bundles. Twenty-six focused receiving, gate and aggregate-parity cases pass. Necessary per-bundle transitions/scans/audits remain O(N) writes; repeated lookup/gate reads are resolved.
 - **PERF28 fixed:** `cda1df0` completes chunked supplier validation for approval and adds audit-head/query-growth assertions across request creation, approval, order creation and receipt. At 1/50/401 lines, reference reads are bounded by 400-ID chunks and audit-head reads stay exactly one per operation. The focused purchasing suite passes 140 with five PostgreSQL-only skips. Necessary per-line persistence and chain hashing remain O(N).
