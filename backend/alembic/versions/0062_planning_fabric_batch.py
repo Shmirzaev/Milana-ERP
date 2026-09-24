@@ -6,7 +6,6 @@ Create Date: 2026-07-17
 """
 
 from copy import deepcopy
-import json
 
 from alembic import op
 import sqlalchemy as sa
@@ -18,32 +17,7 @@ branch_labels = None
 depends_on = None
 
 
-def _validate_changed_details(details: dict, *, model_id: int) -> None:
-    # Frozen migration-local copy of the live 64 KiB/16-container write bound.
-    pending = [(details, 0)]
-    while pending:
-        value, parent_depth = pending.pop()
-        if isinstance(value, (dict, list)):
-            depth = parent_depth + 1
-            if depth > 16:
-                raise ValueError(f"Model {model_id} details_json cannot exceed 16 nested container levels")
-            if isinstance(value, dict):
-                if any(not isinstance(key, str) for key in value):
-                    raise ValueError(f"Model {model_id} details_json must contain JSON-compatible values")
-                pending.extend((child, depth) for child in value.values())
-            else:
-                pending.extend((child, depth) for child in value)
-        elif value is not None and type(value) not in (str, bool, int, float):
-            raise ValueError(f"Model {model_id} details_json must contain JSON-compatible values")
-    try:
-        serialized = json.dumps(details, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError) as exc:
-        raise ValueError(f"Model {model_id} details_json must contain finite JSON-compatible values") from exc
-    if len(serialized) > 64 * 1024:
-        raise ValueError(f"Model {model_id} details_json cannot exceed 65536 UTF-8 bytes")
-
-
-def _updated_model_details(existing: object, fabric_row: object, *, model_id: int) -> dict | None:
+def _updated_model_details(existing: object, fabric_row: object) -> dict | None:
     details = deepcopy(existing or {})
     if not isinstance(details, dict):
         return None
@@ -65,7 +39,6 @@ def _updated_model_details(existing: object, fabric_row: object, *, model_id: in
     if not changed:
         return None
     details["general"] = general
-    _validate_changed_details(details, model_id=model_id)
     return details
 
 
@@ -109,7 +82,7 @@ def upgrade():
     ).mappings().all()
     for model_row in model_rows:
         fabric_row = first_fabric_by_model.get(int(model_row["id"]))
-        details = _updated_model_details(model_row["details_json"], fabric_row, model_id=int(model_row["id"]))
+        details = _updated_model_details(model_row["details_json"], fabric_row)
         if details is not None:
             connection.execute(
                 models_table.update()
