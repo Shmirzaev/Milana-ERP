@@ -170,7 +170,12 @@ export default function SuperDataPage() {
         const parsed = parseDraftValue(column, draft[column.name]);
         if (stable(parsed) !== stable(editing[column.name])) values[column.name] = parsed;
       }
-      await api.patch(`/api/admin/super-data/tables/${selectedTable}/rows/${editing.id}`, { values });
+      if (selectedTable !== "departments" || Object.keys(values).some((field) => field !== "name")) {
+        throw new Error(t("page.superData.updateFailed"));
+      }
+      if ("name" in values) {
+        await api.patch(`/api/admin/super-data/repairs/departments/${editing.id}/rename`, { name: values.name });
+      }
       setEditing(null);
       mutateRows();
       mutateTables();

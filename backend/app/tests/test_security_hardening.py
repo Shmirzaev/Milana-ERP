@@ -393,6 +393,69 @@ def test_super_data_update_rolls_back_when_audit_fails(client, auth_headers, mon
         )
 
 
+def test_super_data_named_department_repair_validates_and_keeps_legacy_patch(client, auth_headers):
+    original = client.post(
+        "/api/departments",
+        json={"name": "Repair Target", "code": "RPT"},
+        headers=auth_headers,
+    )
+    duplicate = client.post(
+        "/api/departments",
+        json={"name": "Repair Duplicate", "code": "RPD"},
+        headers=auth_headers,
+    )
+    assert original.status_code == 201, original.text
+    assert duplicate.status_code == 201, duplicate.text
+    department_id = original.json()["id"]
+    repair_url = f"/api/admin/super-data/repairs/departments/{department_id}/rename"
+
+    renamed = client.patch(repair_url, json={"name": "  Repaired Name  "}, headers=auth_headers)
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["name"] == "Repaired Name"
+
+    blank = client.patch(repair_url, json={"name": "   "}, headers=auth_headers)
+    too_long = client.patch(repair_url, json={"name": "N" * 129}, headers=auth_headers)
+    extra_field = client.patch(
+        repair_url,
+        json={"name": "Ignored Extra", "code": "MUTATE"},
+        headers=auth_headers,
+    )
+    duplicate_name = client.patch(
+        repair_url,
+        json={"name": "Repair Duplicate"},
+        headers=auth_headers,
+    )
+    assert blank.status_code == 422, blank.text
+    assert too_long.status_code == 422, too_long.text
+    assert extra_field.status_code == 422, extra_field.text
+    assert duplicate_name.status_code == 409, duplicate_name.text
+
+    # The former table/row URL stays compatible but accepts only this one
+    # named repair and routes through the same validator.
+    legacy = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{department_id}",
+        json={"values": {"name": "Legacy Compatible Repair"}},
+        headers=auth_headers,
+    )
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["name"] == "Legacy Compatible Repair"
+    rejected_extra_field = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{department_id}",
+        json={"values": {"name": "Rejected", "code": "MUTATE"}},
+        headers=auth_headers,
+    )
+    assert rejected_extra_field.status_code == 403, rejected_extra_field.text
+
+    with SessionLocal() as db:
+        assert db.get(Department, department_id).name == "Legacy Compatible Repair"
+        assert (
+            db.query(AuditLog)
+            .filter_by(action="update", entity_type="SuperData:departments", entity_id=department_id)
+            .count()
+            == 2
+        )
+
+
 # ---------- H2: permission gating on state changes ----------
 
 def test_hr_user_cannot_post_quality_check(client, auth_headers):

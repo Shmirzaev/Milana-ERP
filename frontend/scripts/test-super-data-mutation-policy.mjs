@@ -95,7 +95,7 @@ nameInput.props.onChange({ target: { value: "Renamed" } });
 tree = render();
 const editForm = walkAll(tree, node => node.type === "form" && typeof node.props?.onSubmit === "function").at(-1);
 await editForm.props.onSubmit({ preventDefault() {} });
-assert.deepEqual(patches, [["/api/admin/super-data/tables/departments/rows/7", { values: { name: "Renamed" } }]]);
+assert.deepEqual(patches, [["/api/admin/super-data/repairs/departments/7/rename", { name: "Renamed" }]]);
 
 state = ["users"];
 tree = render();

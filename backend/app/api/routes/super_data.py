@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
-from decimal import Decimal, InvalidOperation
-import json
+from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
-from sqlalchemy import func, literal, or_, select, union_all, update
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func, literal, or_, select, union_all
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.sql import sqltypes
 from sqlalchemy.sql.schema import Column, Table
@@ -17,6 +16,7 @@ from app.core.deps import DbSession, require_super_admin
 from app.db.base import Base
 from app.models import User
 from app.services.audit import log_action
+from app.services.department_repairs import repair_department_name
 
 router = APIRouter(prefix="/admin/super-data", tags=["super-admin-data"])
 
@@ -71,6 +71,12 @@ class SuperDataRowsOut(BaseModel):
 
 class SuperDataUpdateIn(BaseModel):
     values: dict[str, Any] = Field(default_factory=dict)
+
+
+class DepartmentNameRepairIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
 
 
 def _table_name_label(name: str) -> str:
@@ -140,67 +146,6 @@ def _row_for(db: Session, table: Table, row_id: int) -> dict[str, Any]:
     if row is None:
         raise HTTPException(404, "Row not found")
     return dict(row)
-
-
-def _parse_datetime(value: str) -> datetime:
-    raw = value.strip()
-    if raw.endswith("Z"):
-        raw = raw[:-1] + "+00:00"
-    return datetime.fromisoformat(raw)
-
-
-def _coerce_value(column: Column, value: Any) -> Any:
-    if value == "" and not isinstance(column.type, (sqltypes.String, sqltypes.Text, sqltypes.Unicode, sqltypes.UnicodeText)):
-        value = None
-    if value is None:
-        if not column.nullable:
-            raise HTTPException(400, f"{column.name} cannot be blank")
-        return None
-
-    try:
-        if isinstance(column.type, sqltypes.Boolean):
-            if isinstance(value, bool):
-                return value
-            if isinstance(value, str):
-                lowered = value.strip().lower()
-                if lowered in {"true", "1", "yes", "y", "on"}:
-                    return True
-                if lowered in {"false", "0", "no", "n", "off"}:
-                    return False
-            raise ValueError("expected boolean")
-        if isinstance(column.type, sqltypes.Integer):
-            return int(value)
-        if isinstance(column.type, sqltypes.Numeric):
-            return Decimal(str(value))
-        if isinstance(column.type, sqltypes.Float):
-            return float(value)
-        if isinstance(column.type, sqltypes.DateTime):
-            if isinstance(value, datetime):
-                return value
-            if isinstance(value, str):
-                return _parse_datetime(value)
-            raise ValueError("expected ISO datetime")
-        if isinstance(column.type, sqltypes.Date):
-            if isinstance(value, date) and not isinstance(value, datetime):
-                return value
-            if isinstance(value, str):
-                return date.fromisoformat(value.strip())
-            raise ValueError("expected ISO date")
-        if isinstance(column.type, sqltypes.Time):
-            if isinstance(value, time):
-                return value
-            if isinstance(value, str):
-                return time.fromisoformat(value.strip())
-            raise ValueError("expected ISO time")
-        if isinstance(column.type, sqltypes.JSON):
-            if isinstance(value, str):
-                return json.loads(value)
-            return value
-        if _is_binary(column):
-            raise ValueError("binary columns are read-only in this console")
-        return str(value) if isinstance(column.type, (sqltypes.String, sqltypes.Text, sqltypes.Unicode, sqltypes.UnicodeText)) else value
-    except (ValueError, TypeError, InvalidOperation, json.JSONDecodeError) as exc:
-        raise HTTPException(400, f"Invalid value for {column.name}: {exc}") from exc
 
 
 def _search_condition(table: Table, query: str):
@@ -387,38 +332,39 @@ def update_super_data_row(
         raise HTTPException(403, f"Data Console editing is not allowed for: {', '.join(disallowed)}")
     if not payload.values:
         raise HTTPException(422, "At least one approved field is required")
+    if table.name != "departments" or set(payload.values) != {"name"}:
+        raise HTTPException(403, "Use an approved named repair operation")
+    return _repair_department_name(row_id, payload.values["name"], db, current)
 
-    pk = _pk_column(table)
-    before = _row_for(db, table, row_id)
-    values: dict[str, Any] = {}
-    for key, raw_value in payload.values.items():
-        column = table.columns.get(key)
-        if column is None:
-            raise HTTPException(400, f"Unknown column: {key}")
-        value = _coerce_value(column, raw_value)
-        if table.name == "departments" and key == "name":
-            if not isinstance(raw_value, str) or not value.strip():
-                raise HTTPException(422, "Department name must be a non-empty string")
-            value = value.strip()
-        values[key] = value
 
-    if values:
-        try:
-            db.execute(update(table).where(pk == row_id).values(**values))
-            after = _row_for(db, table, row_id)
-            log_action(
-                db,
-                current,
-                "update",
-                f"SuperData:{table.name}",
-                row_id,
-                old_value=_serialize_row(before),
-                new_value=_serialize_row(after),
-            )
-        except SQLAlchemyError as exc:
-            _rollback_and_raise(db, exc, "Could not update row")
-        _commit_or_409(db, "Could not update row")
-    return _serialize_row(_row_for(db, table, row_id))
+@router.patch("/repairs/departments/{row_id}/rename")
+def rename_department_repair(
+    row_id: int,
+    payload: DepartmentNameRepairIn,
+    db: DbSession,
+    current: User = Depends(require_super_admin),
+):
+    """Named, validated repair endpoint used by the Data Console."""
+    return _repair_department_name(row_id, payload.name, db, current)
+
+
+def _repair_department_name(row_id: int, raw_name: object, db: Session, current: User) -> dict[str, Any]:
+    try:
+        department, previous_name = repair_department_name(db, row_id, raw_name)
+        db.flush()
+        log_action(
+            db,
+            current,
+            "update",
+            "SuperData:departments",
+            row_id,
+            old_value={"id": row_id, "name": previous_name, "code": department.code},
+            new_value={"id": row_id, "name": department.name, "code": department.code},
+        )
+    except SQLAlchemyError as exc:
+        _rollback_and_raise(db, exc, "Could not update department name")
+    _commit_or_409(db, "Could not update department name")
+    return _serialize_row(_row_for(db, _table_for("departments"), row_id))
 
 
 @router.delete("/tables/{table_name}/rows/{row_id}", status_code=204)
