@@ -495,8 +495,8 @@
       "baseline_source": "backend/app/api/routes/waste.py:85",
       "status": "partial",
       "owner": null,
-      "commit": "6cb2d3a, 2948674",
-      "evidence": "Backend validates/locks remaining capacity and keyed retries;27 independently rerun tests plus3 PostgreSQL races. UI real buyer/price/quantity and tab-persisted exact retries; actual handler/recovery tests independently pass, strict types/lint pass. Double-confirm, corrupt evidence, sold-row lost-response recovery and post-success refresh failure covered. Balance still not displayed; cross-tab/unkeyed retries, historical data and valuation policy remain open. No visual QA claim."
+      "commit": "6cb2d3a,2948674,c13d638",
+      "evidence": "Backend validates/locks remaining capacity. Keyed uncertain sales now reconcile or tombstone under the same lock hierarchy without re-executing the physical sale; cross-tab localStorage/Web Locks/storage events preserve one exact request and the UI displays current balance. The broad waste suite passes115 with9 expected PostgreSQL skips, valuation/history passes3, all5 PostgreSQL races pass and the frontend handler contract passes; independent review reruns33 local cases with5 expected skips, both new PostgreSQL ordering races and the frontend contract successfully. Identical unkeyed legacy requests remain inherently ambiguous until the owner requires Idempotency-Key; historical duplicate repair needs authoritative evidence, and finance must choose live versus stored valuation/backfill. Old sessionStorage in an unopened different tab can migrate only when that tab runs. No visual QA claim."
     },
     {
       "number": 42,
