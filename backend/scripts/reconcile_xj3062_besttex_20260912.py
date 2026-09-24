@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import text
 
-from app.api.routes.catalog import _model_code_parts, _model_group_payload
+from app.api.routes.catalog import _model_code_parts, _model_group_payload, _validate_model_details_json_bounds
 from app.db.session import SessionLocal
 from app.models import Model, SewingAssignment, SewingFlow, WorkOrder
 from app.services.audit import log_action
@@ -23,6 +23,23 @@ NAMES = ["Oydinoy Mamadaliyeva", "Miyassar Yunusova", "Teshaboyeva Nargiza",
          "Kamola Xoliqova", "Nargiza Xoliqova"]
 CANONICAL = "ХJ3062"  # Existing 138-variant family uses Cyrillic Х.
 ACTIVE = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
+
+
+def next_canonical_details(existing: dict | None) -> dict:
+    """Prepare and validate the complete document before changing a model."""
+    details = deepcopy(existing or {})
+    general = dict(details.get("general") or {})
+    general["model_no"] = CANONICAL
+    if "modelNo" in general:
+        general["modelNo"] = CANONICAL
+    details["general"] = general
+    from fastapi import HTTPException
+
+    try:
+        _validate_model_details_json_bounds(details, existing_details=existing)
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from exc
+    return details
 
 
 def main() -> None:
@@ -66,13 +83,8 @@ def main() -> None:
             result["already_applied"] = True
             print(json.dumps(result)); return
         if args.apply:
-            for model in source:
-                details = deepcopy(model.details_json or {})
-                general = dict(details.get("general") or {})
-                general["model_no"] = CANONICAL
-                if "modelNo" in general:
-                    general["modelNo"] = CANONICAL
-                details["general"] = general
+            prepared_details = [(model, next_canonical_details(model.details_json)) for model in source]
+            for model, details in prepared_details:
                 model.details_json = details
             for i, flow in enumerate(lines):
                 flow.is_active = i < 8
