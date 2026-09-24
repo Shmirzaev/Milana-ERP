@@ -21,6 +21,7 @@ from app.schemas.cutting_passport import (
     CuttingPassportOut,
     CuttingPassportPageOut,
 )
+from app.schemas.cutting_material import PassportMaterial
 from app.services.audit import log_action
 from app.services.factory_scope import available_factory_codes, selected_factory_code
 from app.services.model_images import model_display_image_url
@@ -28,6 +29,7 @@ from app.services.model_images import model_display_image_url
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
 _MATERIAL_CATEGORIES = ("fabric", "semi_finished")
 _DEFAULTS_QUERY_CHUNK_SIZE = 400
+_MAX_PASSPORT_MATERIAL_ROWS = 1000
 _PASSPORT_TEXT_LIMITS = {
     "passport_no": 32,
     "model_code": 128,
@@ -807,10 +809,73 @@ def _add_passport_materials(db, order, work_order, payload, current):
     db.expire(order, ["materials"])
 
 
-def _passport_values(db, payload: CuttingPassportIn, current) -> dict:
+def _same_passport_materials(
+    stored_materials: object,
+    submitted_materials: list[PassportMaterial],
+) -> bool:
+    if not isinstance(stored_materials, list) or len(stored_materials) != len(submitted_materials):
+        return False
+    try:
+        return all(
+            PassportMaterial.model_validate(stored).model_dump() == submitted.model_dump()
+            for stored, submitted in zip(stored_materials, submitted_materials)
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _unchanged_oversized_legacy_materials(
+    payload: CuttingPassportIn,
+    existing_materials: object,
+) -> bool:
+    return (
+        isinstance(existing_materials, list)
+        and len(existing_materials) > _MAX_PASSPORT_MATERIAL_ROWS
+        and (
+            "materials" not in payload.model_fields_set
+            or _same_passport_materials(existing_materials, payload.materials)
+        )
+    )
+
+
+def _validate_passport_material_limits(
+    payload: CuttingPassportIn,
+    *,
+    existing_materials: object = None,
+) -> bool:
+    """Bound new material rows, while allowing exact unchanged oversized legacy rows."""
+    unchanged_oversized_legacy = _unchanged_oversized_legacy_materials(
+        payload,
+        existing_materials,
+    )
+    if len(payload.materials) > _MAX_PASSPORT_MATERIAL_ROWS and not unchanged_oversized_legacy:
+        raise HTTPException(
+            422,
+            f"materials must contain at most {_MAX_PASSPORT_MATERIAL_ROWS} rows",
+        )
+    if len(payload.additional_materials) > _MAX_PASSPORT_MATERIAL_ROWS:
+        raise HTTPException(
+            422,
+            f"additional_materials must contain at most {_MAX_PASSPORT_MATERIAL_ROWS} rows",
+        )
+    return unchanged_oversized_legacy
+
+
+def _passport_values(
+    db,
+    payload: CuttingPassportIn,
+    current,
+    *,
+    existing_materials: object = None,
+) -> dict:
     values = payload.model_dump(exclude={"additional_materials"})
+    preserve_oversized_legacy = False
     if payload.production_order_id:
         order, work_order = _passport_order(db, payload.production_order_id, current, lock=True)
+        preserve_oversized_legacy = _validate_passport_material_limits(
+            payload,
+            existing_materials=existing_materials,
+        )
         _add_passport_materials(db, order, work_order, payload, current)
         if payload.materials:
             ids = [row.stock_batch_id for row in payload.materials]
@@ -821,9 +886,19 @@ def _passport_values(db, payload: CuttingPassportIn, current) -> dict:
         # A stale form must not overwrite the linked order's live reference.
         values["order_no"] = order.order_no
     else:
-        if payload.materials or payload.additional_materials:
+        preserve_oversized_legacy = _unchanged_oversized_legacy_materials(
+            payload,
+            existing_materials,
+        )
+        if payload.additional_materials or (payload.materials and not preserve_oversized_legacy):
             raise HTTPException(400, "Select a production order for passport materials")
+        preserve_oversized_legacy = _validate_passport_material_limits(
+            payload,
+            existing_materials=existing_materials,
+        )
         values["order_no"] = canonical_business_order_reference(db, payload.order_no)
+    if preserve_oversized_legacy:
+        values["materials"] = existing_materials
     for field, maximum in _PASSPORT_TEXT_LIMITS.items():
         value = values.get(field)
         if value is not None and len(value) > maximum:
@@ -866,7 +941,12 @@ def update_passport(
         _passport_order(db, p.production_order_id, current)
     if payload.production_order_id != p.production_order_id and db.query(CuttingRecord.id).filter(CuttingRecord.cutting_passport_id == p.id).first():
         raise HTTPException(409, "A passport used by Cutting cannot be moved to another order")
-    for k, v in _passport_values(db, payload, current).items():
+    for k, v in _passport_values(
+        db,
+        payload,
+        current,
+        existing_materials=p.materials,
+    ).items():
         setattr(p, k, v)
     log_action(db, current, "update", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
     db.commit()
