@@ -16,6 +16,74 @@ def test_inventory_stock_groups_separate_materials_and_accessories(client, auth_
     assert "FAB-COT-001" not in accessory_skus
 
 
+def test_accessory_issue_plan_quantity_round_trips_to_issue(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Item, Model, ModelBOM, ProductionOrder, StockBatch, Warehouse
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:10]
+    with TestSessionLocal() as db:
+        warehouse = db.query(Warehouse).filter_by(type="accessory_storage").first()
+        assert warehouse is not None
+        model = Model(code=f"PLAN-ROUNDTRIP-{marker}", name="Plan round-trip", product_type="shirt")
+        item = Item(
+            sku=f"PLAN-ROUNDTRIP-{marker}",
+            name="Plan round-trip accessory",
+            category="accessory",
+            unit="pcs",
+        )
+        db.add_all([model, item])
+        db.flush()
+        order = ProductionOrder(
+            production_no=f"PLAN-ROUNDTRIP-{marker}",
+            production_type="branded_stock",
+            model_id=model.id,
+            planned_quantity=210,
+            status="new",
+        )
+        db.add_all([
+            order,
+            ModelBOM(
+                model_id=model.id,
+                item_id=item.id,
+                quantity_per_piece=0.06,
+                unit="pcs",
+                waste_percent=0,
+            ),
+            StockBatch(
+                item_id=item.id,
+                batch_no=f"PLAN-ROUNDTRIP-{marker}",
+                quantity=20,
+                unit="pcs",
+                warehouse_id=warehouse.id,
+                qc_status="passed",
+            ),
+        ])
+        db.commit()
+        order_id = int(order.id)
+        item_id = int(item.id)
+
+    plan_response = client.get(
+        f"/api/inventory/accessory-issue-plan?production_order_id={order_id}",
+        headers=auth_headers,
+    )
+    assert plan_response.status_code == 200, plan_response.text
+    row = next(row for row in plan_response.json()["rows"] if row["item_id"] == item_id)
+    assert row["remaining_quantity"] == 12.6
+
+    issue_response = client.post(
+        "/api/inventory/accessory-issues",
+        json={
+            "production_order_id": order_id,
+            "lines": [{"item_id": item_id, "quantity": row["remaining_quantity"], "unit": "pcs"}],
+        },
+        headers=auth_headers,
+    )
+    assert issue_response.status_code == 201, issue_response.text
+    assert issue_response.json()["issued"][0]["quantity"] == 12.6
+
+
 def test_inventory_item_groups_follow_same_split(client, auth_headers):
     material_response = client.get("/api/inventory/items?group=materials", headers=auth_headers)
     accessory_response = client.get("/api/inventory/items?group=accessories", headers=auth_headers)

@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, func, or_, text
@@ -44,6 +44,7 @@ RESERVATION_SOURCES = ("manual", "auto_bom", "planning")
 REQUIRE_RESERVATION_SETTING = "require_material_reservation_before_cutting"
 ACCESSORY_SEWING_BLOCK_REASON = "Accessories must be issued before sewing."
 EPSILON = 1e-9
+_ACCESSORY_QUANTITY_QUANTUM = Decimal("0.0001")
 _RESERVATION_LOCK_NAMESPACE = 1_297_047_633
 _ACCESSORY_RETURN_LOCK_NAMESPACE = 1_297_047_634
 
@@ -2018,6 +2019,11 @@ def _accessory_issue_plan_summary(rows: list[dict]) -> dict:
     }
 
 
+def _accessory_plan_quantity(value: object) -> Decimal:
+    """Normalize quantities to the four decimal places stored by inventory."""
+    return Decimal(str(value or 0)).quantize(_ACCESSORY_QUANTITY_QUANTUM, rounding=ROUND_HALF_UP)
+
+
 def accessory_issue_plan(db: Session, production_order_id: int) -> dict:
     po = db.get(ProductionOrder, production_order_id)
     if not po:
@@ -2052,26 +2058,28 @@ def accessory_issue_plan(db: Session, production_order_id: int) -> dict:
     rows = []
     for row in required_rows:
         key = (int(row["item_id"]), str(row["unit"]))
-        issued = issued_by_item_unit.get(key, 0.0)
+        issued = _accessory_plan_quantity(issued_by_item_unit.get(key, 0.0))
         unit = str(row["unit"])
         for value in (row.get("item_sku"), row.get("item_name")):
             manual_key = (_accessory_match_key(value), unit)
-            issued += manual_issued_by_label_unit.get(manual_key, 0.0)
-        available = available_by_item_id.get(int(row["item_id"]), 0.0)
-        remaining = max(0.0, float(row["required_quantity"] or 0) - issued)
-        shortage = max(0.0, remaining - available)
-        if remaining <= EPSILON:
+            issued += _accessory_plan_quantity(manual_issued_by_label_unit.get(manual_key, 0.0))
+        required = _accessory_plan_quantity(row["required_quantity"])
+        available = _accessory_plan_quantity(available_by_item_id.get(int(row["item_id"]), 0.0))
+        remaining = max(Decimal("0"), required - issued)
+        shortage = max(Decimal("0"), remaining - available)
+        if remaining == 0:
             status = "ready"
-        elif shortage > EPSILON:
+        elif shortage > 0:
             status = "shortage"
         else:
             status = "partial"
         rows.append({
             **row,
-            "issued_quantity": issued,
-            "remaining_quantity": remaining,
-            "available_quantity": available,
-            "shortage": shortage,
+            "required_quantity": float(required),
+            "issued_quantity": float(issued),
+            "remaining_quantity": float(remaining),
+            "available_quantity": float(available),
+            "shortage": float(shortage),
             "status": status,
         })
 
