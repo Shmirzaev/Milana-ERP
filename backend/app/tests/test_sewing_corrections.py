@@ -58,6 +58,68 @@ def test_bad_changes_rollback(client, auth_headers, values, status):
         assert db.get(SewingAssignment, aid).completed_qty == 80
 
 
+@pytest.mark.parametrize("size_quantities", [
+    [1],
+    [{"size": "M"}],
+    [{"size": "M", "quantity": True}],
+    [{"size": "M", "quantity": 0}],
+    [{"size": "M", "quantity": 2_147_483_648}],
+    [{"size": "M", "quantity": 1, "extra": "unexpected"}],
+    [{"size": "X" * 33, "quantity": 1}],
+    [{"size": "M", "quantity": 1}] * 1001,
+])
+def test_correction_rejects_malformed_size_rows_before_writes(client, auth_headers, size_quantities):
+    rid, wid, aid = setup_record()
+    with TestSessionLocal() as db:
+        before = (
+            db.get(SewingRecord, rid).correction_version,
+            db.get(SewingRecord, rid).passed_qty,
+            db.get(WorkOrder, wid).passed_qty,
+            db.get(SewingAssignment, aid).completed_qty,
+            db.query(AuditLog).count(),
+        )
+
+    response = update(client, auth_headers, rid, size_quantities=size_quantities)
+
+    assert response.status_code == 422, response.text
+    with TestSessionLocal() as db:
+        assert (
+            db.get(SewingRecord, rid).correction_version,
+            db.get(SewingRecord, rid).passed_qty,
+            db.get(WorkOrder, wid).passed_qty,
+            db.get(SewingAssignment, aid).completed_qty,
+            db.query(AuditLog).count(),
+        ) == before
+
+
+def test_correction_keeps_duplicate_size_aggregation_and_explicit_clear(client, auth_headers):
+    from app.models import ProductionOrder, ProductionOrderItem
+
+    rid, wid, _ = setup_record()
+    with TestSessionLocal() as db:
+        order_id = db.get(WorkOrder, wid).production_order_id
+        model_id = db.get(ProductionOrder, order_id).model_id
+        db.add(ProductionOrderItem(
+            production_order_id=order_id, model_id=model_id,
+            color="white", size="M", planned_quantity=100,
+        ))
+        db.commit()
+
+    corrected = update(client, auth_headers, rid, size_quantities=[
+        {"size": "M", "quantity": 25}, {"size": "m ", "quantity": 35},
+    ])
+
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["size_quantities"] == [{"size": "M", "quantity": 60}]
+    cleared = client.patch(
+        f"/api/sewing/records/{rid}", headers=auth_headers,
+        json={"expected_version": 1, "input_qty": 90, "sewn_qty": 60, "passed_qty": 60,
+              "size_quantities": []},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["size_quantities"] == []
+
+
 @pytest.mark.parametrize("linked", ["packaging", "replacement"])
 def test_linked_output_cannot_change(client, auth_headers, linked):
     rid, wid, _ = setup_record()

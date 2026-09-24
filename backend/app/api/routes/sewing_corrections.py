@@ -17,13 +17,19 @@ from app.services.sewing_assignment_policy import validate_assignment_progress
 router = APIRouter(tags=["sewing_corrections"])
 
 
+class CorrectionSizeQuantity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    size: str = Field(min_length=1, max_length=32)
+    quantity: int = Field(gt=0, le=2_147_483_647, strict=True)
+
+
 class Correction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=0)
     input_qty: int = Field(ge=0)
     sewn_qty: int = Field(ge=0)
     passed_qty: int = Field(ge=0)
-    size_quantities: list[dict] = Field(default_factory=list)
+    size_quantities: list[CorrectionSizeQuantity] = Field(default_factory=list, max_length=1000)
     notes: str | None = Field(default=None, max_length=4000)
 
 
@@ -308,7 +314,8 @@ def apply(db, wo, row, user, payload=None):
     db.flush()
     if payload:
         data = SewingRecordIn(work_order_id=wo.id, production_batch_id=row.production_batch_id,
-                input_qty=new_input, sewn_qty=new_sewn, passed_qty=new_passed, size_quantities=payload.size_quantities)
+                input_qty=new_input, sewn_qty=new_sewn, passed_qty=new_passed,
+                size_quantities=[item.model_dump() for item in payload.size_quantities])
         row.size_quantities = _validated_sewing_size_quantities(db, wo, row.production_batch_id, data)
         row.passed_qty = new_passed
         row.notes = payload.notes
