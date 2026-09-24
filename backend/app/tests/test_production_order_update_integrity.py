@@ -117,7 +117,7 @@ def test_generic_update_accepts_documented_fields_and_pydantic_coercion(client, 
     response = client.patch(
         f"/api/production-orders/{order_id}",
         json={
-            "status": "planning",
+            "status": "new",
             "model_id": str(model_id),
             "sales_order_id": str(sales_order_id),
             "planned_quantity": "42",
@@ -138,7 +138,7 @@ def test_generic_update_accepts_documented_fields_and_pydantic_coercion(client, 
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["status"] == "planning"
+    assert body["status"] == "new"
     assert body["model_id"] == model_id
     assert body["sales_order_id"] == sales_order_id
     assert body["planned_quantity"] == 42
@@ -181,18 +181,64 @@ def test_generic_update_preserves_nullable_clearing(client, auth_headers):
     assert body["printing_attachments"] == []
 
 
-@pytest.mark.parametrize("status", STANDARD_STATUSES)
-def test_generic_update_accepts_established_standard_statuses(client, auth_headers, status):
+@pytest.mark.parametrize("status", [value for value in STANDARD_STATUSES if value != "new"])
+def test_generic_update_rejects_workflow_status_changes_without_writes(client, auth_headers, status):
+    order_id, *_ = _update_targets()
+    with TestSessionLocal() as db:
+        before_audits = db.query(AuditLog).count()
+
+    response = client.patch(
+        f"/api/production-orders/{order_id}",
+        json={"status": status, "printing_instructions": "Must not persist"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 409, response.text
+    with TestSessionLocal() as db:
+        order = db.get(ProductionOrder, order_id)
+        assert order.status == "new"
+        assert order.printing_instructions == "Old instructions"
+        assert db.query(AuditLog).count() == before_audits
+
+
+def test_generic_update_accepts_unchanged_status_with_metadata(client, auth_headers):
     order_id, *_ = _update_targets()
 
     response = client.patch(
         f"/api/production-orders/{order_id}",
-        json={"status": status},
+        json={"status": "new", "printing_instructions": "Updated instructions"},
         headers=auth_headers,
     )
 
     assert response.status_code == 200, response.text
-    assert response.json()["status"] == status
+    assert response.json()["status"] == "new"
+    assert response.json()["printing_instructions"] == "Updated instructions"
+
+
+def test_generic_update_unchanged_status_only_does_not_append_audit(client, auth_headers):
+    order_id, *_ = _update_targets()
+    with TestSessionLocal() as db:
+        before_audits = db.query(AuditLog).count()
+
+    response = client.patch(
+        f"/api/production-orders/{order_id}",
+        json={"status": "new"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    with TestSessionLocal() as db:
+        assert db.query(AuditLog).count() == before_audits
+
+
+def test_generic_update_status_guard_keeps_authentication_and_missing_order_precedence(
+    client, auth_headers,
+):
+    payload = {"status": "delivered"}
+    assert client.patch("/api/production-orders/999999999", json=payload).status_code == 401
+    assert client.patch(
+        "/api/production-orders/999999999", json=payload, headers=auth_headers,
+    ).status_code == 404
 
 
 @pytest.mark.parametrize(

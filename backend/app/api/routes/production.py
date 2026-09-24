@@ -1382,6 +1382,13 @@ def update_po(
     po: ProductionOrder = Depends(_require_standard_production_order_update),
 ):
     updates = payload.model_dump(exclude_unset=True)
+    if "status" in updates:
+        if updates.pop("status") != po.status:
+            raise HTTPException(409, "Use a production workflow action to change status")
+        # Full-form edits may include the current status, but must not write it
+        # back over a workflow transition.
+    if not updates:
+        return po
     if _PO_PRE_CUTTING_EDIT_FIELDS.intersection(updates):
         cutting_wo = (
             db.query(WorkOrder)
