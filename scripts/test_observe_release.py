@@ -23,7 +23,7 @@ class Clock:
 
 class ObservationTests(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
+        self.directory = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1])
         self.addCleanup(self.directory.cleanup)
         self.clock = Clock()
         self.output = Path(self.directory.name) / "observation.json"
@@ -46,7 +46,7 @@ class ObservationTests(unittest.TestCase):
         result = self.run_observer()
         self.assertEqual(result["elapsed_seconds"], 1800)
         self.assertEqual(len(result["checks"]), 61)
-        self.assertEqual(len(self.calls), 244)
+        self.assertEqual(len(self.calls), 366)
         self.assertEqual(result["status"], "health_checks_passed")
         self.assertTrue(result["closing_checks_required"])
         self.assertEqual(json.loads(self.output.read_text()), result)
@@ -55,7 +55,15 @@ class ObservationTests(unittest.TestCase):
         result = self.run_observer(risk="low", reason="Reviewed isolated display wording")
         self.assertEqual(result["elapsed_seconds"], 600)
         self.assertEqual(len(result["checks"]), 21)
-        self.assertEqual(self.calls[:4], [(url, method) for _, url, method in ENDPOINTS])
+        self.assertEqual(self.calls[: len(ENDPOINTS)], [(url, method) for _, url, method in ENDPOINTS])
+        self.assertEqual({name for name, _, _ in ENDPOINTS}, {
+            "internal_backend",
+            "internal_backend_readiness",
+            "internal_frontend",
+            "public_backend",
+            "public_backend_readiness",
+            "public_frontend",
+        })
 
     def test_low_risk_without_reason_rejected_before_requests(self):
         with self.assertRaisesRegex(ValueError, "review reason"):
@@ -64,7 +72,7 @@ class ObservationTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_failure_cannot_be_erased_by_recovery(self):
-        calls = iter([503] + [200] * 100)
+        calls = iter([503] + [200] * (21 * len(ENDPOINTS) - 1))
         result = self.run_observer(risk="low", reason="Small display change", probe=lambda *_: next(calls))
         self.assertEqual(result["status"], "failed")
         self.assertEqual(len(result["failures"]), 1)

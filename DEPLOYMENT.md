@@ -304,8 +304,10 @@ verify that the supplied identity matches both active slot states and the review
 artifact. The observer records this identity; HTTP health checks alone do not
 independently prove which release is serving traffic.
 
-The observer automatically checks all four required endpoints every 30 seconds
-using GET/HEAD only, records evidence, and reports start, failures and finish.
+The observer automatically checks all six required endpoints every 30 seconds
+using GET/HEAD only: internal and public backend liveness and readiness, plus
+internal and public frontend login. It records evidence and reports start,
+failures and finish.
 Run it as a tracked background process during the deployment task so the user
 does not need to poll. Continue following that process through closing checks;
 do not abandon it when reporting Live. A failed probe stays a failure even if

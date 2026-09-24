@@ -2,6 +2,8 @@
 
 Last updated: 2026-09-25
 
+- Continued 2026-09-25 (OPS05 release-observer readiness coverage): release observation now probes internal and public backend `/ready` every 30 seconds alongside `/health` and frontend login, so dependency readiness is monitored during the observation window rather than only at cutover. Deterministic observer tests verify all six endpoints; OPS05 remains partial until reviewed config is released/applied and active candidate, stable listener and public dependency health are verified. Local only; no production access, deployment, push, merge or schema change.
+
 - Continued 2026-09-25 (DB05 revision 0126 preview): `87c16a05` adds a predecessor-gated, read-only review of every case-insensitive Payroll-role permission append in migration 0126, with before/after snapshots, hashes, malformed-value blockers and CLI dispatch. The new and adjacent preflight tests pass **25** in integration; Ruff, CLI help and diff checks pass. DB05 stays partial until affected rows, backup/recovery approval and migration rehearsal are reviewed; no migration or production database was touched.
 
 - Continued 2026-09-25 (DB01/DB03/PERF35/FN08 integration checks): the production-batch integer bound passes 51 focused/adjacent tests; HR profile and Cutting JSON/quantity bounds pass 88; finance revenue dashboard/monthly parity passes six; and HR Positions now pages the real screen while retaining exact global staffing totals (four backend tests, UI contract, TypeScript and lint passed). These are independently verified local slices, not whole-finding closures. The official ledger remains **105 fixed, 16 partial, 6 open, 22 remaining**; no production change, push, deployment or merge occurred.

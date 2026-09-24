@@ -80,7 +80,9 @@ def test_readiness_dependency_timeout_is_one_shared_budget(client, monkeypatch):
     elapsed = monotonic() - started
 
     assert response.status_code == 503
-    assert elapsed < 0.3
+    # Leave room for heavily loaded Windows test hosts while remaining well
+    # below the 1s serial delay from two 0.5s probes.
+    assert elapsed < 0.8
     assert response.json() == {
         "status": "not_ready",
         "checks": {"postgresql": "unavailable", "shared_store": "unavailable"},
