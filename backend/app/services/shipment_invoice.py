@@ -101,6 +101,21 @@ def invoice_logo_uri() -> str:
     return "data:image/svg+xml;base64," + b64encode(artwork.read_bytes()).decode("ascii")
 
 
+WEIGHT_NOTE = {
+    "en": "Some package weights are unknown. Total includes recorded weights only.",
+    "ru": "Вес некоторых упаковок неизвестен. В итог включён только указанный вес.",
+    "uz": "Ayrim qadoqlar vazni noma’lum. Jami faqat kiritilgan vaznlardan hisoblangan.",
+}
+
+
+def recorded_weight(document: dict) -> Decimal:
+    if document.get("known_weight_kg") is not None:
+        return Decimal(str(document["known_weight_kg"]))
+    if document.get("package_details") is not None:
+        return sum((Decimal(str(p["weight_kg"])) for p in document["package_details"] if p.get("weight_kg") is not None), Decimal("0"))
+    return Decimal(str(document.get("total_weight_kg") or "0"))
+
+
 def render_shipment_invoice(document: dict, language: str) -> str:
     lang = language if language in LABELS else "en"
     text = LABELS[lang]
@@ -149,7 +164,7 @@ def render_shipment_invoice(document: dict, language: str) -> str:
         span = row["package_rowspan"]
         pack_cell = f'<td rowspan="{span}" class="numeric">{number(row["pack_count"], 0)}</td>' if span else ""
         weight_cells = f'<td rowspan="{span}" class="numeric">{weight(row.get("weight_kg"))}</td>' * 2 if span else ""
-        body.append(f'<tr><td>{index}</td><td>{value(row.get("model_no"))}</td>'
+        body.append(f'<tr><td class="row-number">{index}</td><td class="identity">{value(row.get("model_no"))}</td>'
                     f'<td>{value(row.get("variant_no"))}</td><td class="description">{value(row.get("description"))}</td>'
                     f'<td class="sizes">{sizes}</td>{pack_cell}<td class="numeric">{number(row["quantity"], 0)}</td>'
                     f'{weight_cells}</tr>')
@@ -161,9 +176,7 @@ def render_shipment_invoice(document: dict, language: str) -> str:
                          "ru": "Исторический снимок не содержит исходные данные транспорта, описания модели или веса; пропуски оставлены пустыми.",
                          "uz": "Tarixiy nusxada asl transport, model tavsifi yoki vazn tafsilotlari yo‘q; qiymatlar bo‘sh qoldirildi."}[lang])
     if document.get("missing_weight_packages", len(packages) if document.get("invoice_layout_version") != 2 else 0):
-        cautions.append({"en": "Some package weights are unknown. Total weight is not estimated.",
-                         "ru": "Вес некоторых упаковок неизвестен. Общий вес не рассчитывается по предположению.",
-                         "uz": "Ayrim qadoqlar vazni noma’lum. Jami vazn taxmin qilinmaydi."}[lang])
+        cautions.append(WEIGHT_NOTE[lang])
     warning = "".join(f'<p class="warning">{value(caution)}</p>' for caution in cautions)
     transport = document.get("transport_details") or {}
     metadata = [
@@ -177,27 +190,29 @@ def render_shipment_invoice(document: dict, language: str) -> str:
                             for left, left_value, right, right_value in metadata)
     headers = ["№", text["modelNo"], text["variant"], text["description"], text["size"], {"en": "Packs", "ru": "Упак.", "uz": "Qadoq"}[lang],
                text["qty"], text["weight"], text["totalWeight"]]
-    columns = "".join(f'<col style="width:{width}%">' for width in [3, 11, 10, 22, 23, 7, 8, 8, 8])
-    weights = weight(document.get("total_weight_kg"))
+    columns = "".join(f'<col style="width:{width}%">' for width in [4, 10, 9, 22, 25, 6, 8, 8, 8])
+    weights = number(recorded_weight(document))
     return f'''<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{text["title"]} {value(document["shipment_no"])}</title>
 <style>
-*{{box-sizing:border-box}}body{{font:400 9pt "Helvetica Neue",Arial,sans-serif;line-height:1.35;color:#202124;background:#fff;margin:20px auto;max-width:190mm;padding:0}}
+*{{box-sizing:border-box}}body{{font:400 8pt "Helvetica Neue",Arial,sans-serif;line-height:1.3;color:#202124;background:#fff;margin:20px auto;max-width:190mm;padding:0}}
 .controls{{margin-bottom:16px}}button{{font:inherit;padding:8px 16px;background:#fff;border:1px solid #b9bec4;border-radius:4px;cursor:pointer}}
 .masthead{{display:flex;align-items:center;justify-content:space-between;gap:10mm;padding:0 0 4mm;border-bottom:1.5pt solid #b82025;break-inside:avoid}}
-h1{{font-size:19pt;line-height:1.2;font-weight:700;margin:2mm 0}}.supplier{{margin:0;font-size:11pt}}.document-number{{margin:2mm 0 0;color:#51565d;font-size:9pt}}
+h1{{font-size:16pt;line-height:1.2;font-weight:700;margin:2mm 0;color:#243446}}.supplier{{margin:0;font-size:10pt}}.document-number{{margin:2mm 0 0;color:#9b242b;font-size:8pt;font-weight:700}}
 .logo{{width:38mm;height:auto;display:block;flex:none}}
 table{{width:100%;border-collapse:collapse;table-layout:fixed}}td,th{{overflow-wrap:anywhere;vertical-align:middle}}
 .meta{{margin:3mm 0 4mm}}.meta th,.meta td{{padding:1mm 2mm 1mm 0;text-align:left;border-bottom:.5pt solid #e1e4e7}}
-.meta th{{font-size:8pt;font-weight:400;color:#575e66}}.meta td{{font-size:9pt;font-weight:700}}.meta th:nth-child(3){{padding-left:5mm}}
-.items{{font-size:7.5pt;line-height:1.15}}.items th,.items td{{padding:.7mm 1mm;border:.5pt solid #c8cdd2;text-align:center}}
-.items thead th{{background:#eaf0f5;color:#263746;font-size:7pt;font-weight:700;padding:2.2mm .8mm}}
-.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:7pt;color:#444b52}}
-.items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:7pt}}
-.size-label{{display:inline-block;width:50%;white-space:normal}}.size-label.multicolor{{width:100%;white-space:normal}}
+.meta th{{font-size:7pt;font-weight:400;color:#575e66}}.meta td{{font-size:8pt;font-weight:700}}.meta th:nth-child(3){{padding-left:5mm}}
+.items{{font-size:7pt;line-height:1.2}}.items th,.items td{{padding:1mm 1.1mm;border:.5pt solid #d5dce2;text-align:center}}
+.items thead th{{background:#243446;color:#fff;font-size:6.8pt;font-weight:700;padding:2mm .8mm;overflow-wrap:normal}}
+.items tbody:first-of-type tr:nth-child(even){{background:#f3f6f8}}
+.items .row-number{{white-space:nowrap;overflow-wrap:normal;color:#64717e;font-variant-numeric:tabular-nums;padding-left:.5mm;padding-right:.5mm}}
+.items .identity{{font-weight:700;color:#243446}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:6.5pt;color:#444b52}}
+.items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:6.8pt}}
+.size-label{{display:inline-block;vertical-align:top;width:50%;white-space:normal;padding-right:1mm}}.size-label.multicolor{{width:100%;white-space:normal}}
 thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of-type tr:last-child{{break-after:avoid}}
-.items .totals td{{font-weight:700;background:#eef1f3;border-top:1pt solid #64717e;padding-top:3mm;padding-bottom:3mm}}
-.items .totals .total-label{{font-size:10pt;text-align:left;padding-left:3mm}}
+.items .totals td{{font-weight:700;background:#e8f1ec;color:#174a35;border-top:1.2pt solid #3b775a;padding-top:2mm;padding-bottom:2mm}}
+.items .totals .total-label{{font-size:8pt;text-align:left;padding-left:3mm}}
 .accounting{{margin-top:4mm;font-size:8pt;break-inside:avoid;color:#51565d}}p{{margin:1.5mm 0}}.warning{{padding-left:2mm;border-left:1.5pt solid #b82025}}
 .signatures{{display:flex;gap:20mm;justify-content:space-between;margin-top:6mm;break-inside:avoid;color:#51565d;font-size:8pt}}
 .signatures div{{width:44%;border-top:.5pt solid #939ba3;padding-top:2mm}}

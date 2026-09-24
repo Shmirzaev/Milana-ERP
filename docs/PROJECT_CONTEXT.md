@@ -3,6 +3,14 @@
 Last updated: 2026-09-24
 
 
+## Shipment invoice polish, scan order and compact workspace prepared (2026-09-24)
+
+- Shipment History shows shipped/delivered in green, draft/created in red and cancelled in neutral styling. Added explicit EN/RU/UZ Back to shipments and Open shipment actions. The Shipments page uses one compact table with expandable rows, expand/collapse all, preserved mounted forms and deep links that open the requested shipment, including completed order shipments.
+- Invoice typography is smaller, column widths total exactly 100%, row numbers cannot wrap, sizes align at the top, headers use Milana navy and totals use green. The displayed total sums recorded weights even when some are missing; unknown individual weights stay blank/em-dash with a partial-total note. Frozen financial and weight evidence remains unchanged.
+- Print and Excel order packages by first successful valid scan, excluding detached scans and ignoring duplicates; absent scan evidence keeps the stable original order after scanned packages. Presentation copies are reordered without mutating snapshots. Added permission-protected read-only `/api/shipments/{sid}/invoice.xlsx` with matching metadata/rows/totals, shared pack weights, EN/RU/UZ labels, literal spreadsheet text and print setup. Print and Excel buttons are available from shipment workspaces and history.
+- Worktree `C:/ERP/.codex-work/shipment-invoice-polish-20260924`, branch `codex/shipment-invoice-polish-20260924`, from verified origin/main `7db9ae1f`. Both production manifests and active slots matched green `20260924_055207`, manifest `f872f21a30052a21dbdf7dc06fff51805afa9f2369d4dc1382376cf0282cbdb1`. Legacy checkout preserved. No schema, permission or business-data changes; database remains `0133_storage_customers`.
+- Focused export/partial-weight/shared-pack/literal-text, scan-order and snapshot-preservation checks passed after correcting synthetic fixture setup. Scoped lint, TypeScript (standard and strict), existing shipment contract and whitespace review passed. User authorized deployment without extra tests or monitoring; standard immutable CI, verified backup and immediate startup/runtime/four health checks retained. Extra suites, browser/performance checks and extended observation omitted.
+
 ## Inline shipment review and Storage customers deployed (2026-09-24)
 
 - LIVE: backend/frontend green release `20260924_055207`, exact application commit `2d37248f98c9d0b17488635768ff7dee2e0ad1dd`, merged through PR #202. Both source manifests, symlinks, images and slot states agree. Blue `20260924_051514` remains running for rollback. Frontend activated `2026-09-24T06:25:29.101291+00:00`.

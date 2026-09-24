@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
+import ShipmentWorkspaceTable, { type ShipmentWorkspaceRow } from "@/components/ShipmentWorkspaceTable";
 import PageHeader from "@/components/PageHeader";
 import ShipmentPreparationWorkspace, {
   type ShipmentPreparation,
@@ -185,6 +186,7 @@ export default function ShipmentsPage() {
   const { data, mutate } = useSWR<ShipmentRow[]>("/api/shipments", fetcher);
   const { data: orders, mutate: mutateOrders } = useSWR<EligibleOrder[]>("/api/shipments/eligible-orders", fetcher);
   const [orderQuery, setOrderQuery] = useState("");
+  const [createdShipmentId, setCreatedShipmentId] = useState<number | null>(null);
   const manualText = manualShipmentText[lang];
   const { data: customers, mutate: mutateCustomers } = useSWR<Array<{ id: number; name: string }>>(can(me, "storage.shipment") ? "/api/shipments/customers" : null, fetcher);
   const [customerId, setCustomerId] = useState<number | null>(null);
@@ -240,6 +242,7 @@ export default function ShipmentsPage() {
     setWarehouseCreating(true);
     try {
       const shipment = await postPackageWorkflow<ShipmentRow>("/api/shipments", pendingManual || { manual: true, customer_id: customerId, transport_details: normalizeTransportDetails(warehouseTransport) }, me!.id);
+      setCreatedShipmentId(shipment.id);
       setPendingManual(null);
       setCustomerId(null);
       setWarehouseTransport({});
@@ -253,16 +256,35 @@ export default function ShipmentsPage() {
     }
   }
 
-  useEffect(() => {
-    const requestedOrderId = Number(searchParams.get("so_id") || 0);
-    const requestedShipmentId = Number(searchParams.get("shipment_id") || 0);
-    const requestedOrder = requestedOrderId
-      ? shipmentOrders.find((order) => order.id === requestedOrderId)
-      : shipmentOrders.find((order) => Number(order.shipment?.id || 0) === requestedShipmentId);
-    window.requestAnimationFrame(() => {
-      document.getElementById(requestedOrder ? `shipment-order-${requestedOrder.id}` : `shipment-${requestedShipmentId}`)?.scrollIntoView({ block: "start" });
-    });
-  }, [searchParams, shipmentOrders, data]);
+  const requestedShipmentId = createdShipmentId || Number(searchParams.get("shipment_id") || 0);
+  const requestedOrderId = Number(searchParams.get("so_id") || 0);
+  const standalone = (data || []).filter(shipment =>
+    !shipmentOrders.some(order => order.shipment?.id === shipment.id) && (
+      (!shipment.sales_order_id && ["draft", "created"].includes(shipment.status)) ||
+      (shipment.shipment_type === "manual" && shipment.status === "shipped") ||
+      (shipment.id === requestedShipmentId && shipment.status !== "cancelled")
+    )).filter(shipment => !orderQuery.trim() || [shipment.shipment_no, shipment.sales_order_no, shipment.customer_name]
+      .some(value => String(value || "").toLocaleLowerCase().includes(orderQuery.trim().toLocaleLowerCase())));
+  function workspaceRow(order: ShipmentOrder): ShipmentWorkspaceRow {
+    const shipment = order.shipment;
+    return {
+      key: shipment ? `shipment-${shipment.id}` : `order-${order.id}`,
+      reference: shipment?.shipment_no || order.order_no,
+      order: order.order_no || shipment?.sales_order_no || "",
+      customer: order.customer_name || shipment?.customer_name || "",
+      status: shipment?.status || "draft",
+      packages: Number(shipment?.packages_count || 0),
+      quantity: Number(shipment?.total_qty || order.ready_qty || 0),
+      workspace: <ShipmentOrderWorkspace order={order} canTraceability={canTraceability} onChanged={refreshOrders} />,
+    };
+  }
+  const workspaceRows = [
+    ...filteredOrders.map(workspaceRow),
+    ...standalone.map(shipment => workspaceRow({ id: 0, order_no: "", status: shipment.status, shipment, is_scanned: !!shipment.is_complete })),
+  ];
+  const requestedOrder = shipmentOrders.find(order => order.id === requestedOrderId);
+  const requestedKey = requestedShipmentId ? `shipment-${requestedShipmentId}` : requestedOrder
+    ? requestedOrder.shipment ? `shipment-${requestedOrder.shipment.id}` : `order-${requestedOrder.id}` : undefined;
 
   return (
     <div>
@@ -284,11 +306,7 @@ export default function ShipmentsPage() {
           </div>
         </section>
 
-        {filteredOrders.length ? (
-          <div className="space-y-4">
-            {filteredOrders.map((order) => <ShipmentOrderWorkspace key={order.id} order={order} canTraceability={canTraceability} onChanged={refreshOrders} />)}
-          </div>
-        ) : <section className="card px-4 py-10 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noOrderMatches")}</section>}
+        <ShipmentWorkspaceTable rows={workspaceRows} requestedKey={requestedKey} />
 
         {can(me, "storage.shipment") && <section id="warehouse-exit" className="card p-4 sm:p-5">
           <div className="mb-3"><h2 className="app-card-title">{manualText.title}</h2><p className="mt-1 text-xs text-[#6f6a5b]">{manualText.hint}</p></div>
@@ -306,11 +324,7 @@ export default function ShipmentsPage() {
           </details>}
         </section>}
 
-        {(data || []).filter(shipment => (!shipment.sales_order_id && ["draft", "created"].includes(shipment.status)) ||
-          (shipment.shipment_type === "manual" && (shipment.status === "shipped" ||
-            (shipment.status === "delivered" && shipment.id === Number(searchParams.get("shipment_id")))))).map(shipment => (
-          <ShipmentOrderWorkspace key={shipment.id} order={{ id: 0, order_no: "", status: shipment.status, shipment, is_scanned: !!shipment.is_complete }} canTraceability={canTraceability} onChanged={refreshOrders} />
-        ))}
+
 
 
       </div>
