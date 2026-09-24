@@ -13,38 +13,57 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, literal, or_, select
 from sqlalchemy.engine import Connection, Engine, create_engine
+from sqlalchemy.orm import aliased
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.models import (
+    CuttingBeikaMaterialUsage,
+    CuttingMaterialUsage,
+    EcoFabricRoll,
     ForecastRecommendation,
     Item,
+    ManualAccessoryIssue,
+    ModelBOM,
     MaterialReservation,
     PurchaseOrderLine,
     PurchaseRequestLine,
+    ProductionOrderMaterial,
     StockBatch,
     StockMovement,
+    WasteRecord,
 )
 
 
 _SOURCES = (
-    ("stock_batches", StockBatch),
-    ("material_reservations", MaterialReservation),
-    ("purchase_request_lines", PurchaseRequestLine),
-    ("purchase_order_lines", PurchaseOrderLine),
-    ("stock_movements", StockMovement),
-    ("forecast_recommendations", ForecastRecommendation),
+    ("stock_batches", StockBatch, "item_id", None),
+    ("material_reservations", MaterialReservation, "item_id", "stock_batch_id"),
+    ("purchase_request_lines", PurchaseRequestLine, "item_id", None),
+    ("purchase_order_lines", PurchaseOrderLine, "item_id", None),
+    ("stock_movements", StockMovement, "item_id", "batch_id"),
+    ("forecast_recommendations", ForecastRecommendation, "item_id", None),
+    ("waste_records", WasteRecord, "item_id", "batch_id"),
+    ("model_bom", ModelBOM, "item_id", "stock_batch_id"),
+    ("production_order_materials", ProductionOrderMaterial, None, "stock_batch_id"),
+    ("cutting_material_usages", CuttingMaterialUsage, None, "stock_batch_id"),
+    ("cutting_beika_material_usages", CuttingBeikaMaterialUsage, None, "stock_batch_id"),
+    ("manual_accessory_issues", ManualAccessoryIssue, "item_id", None),
+    ("eco_fabric_rolls", EcoFabricRoll, None, "batch_id"),
 )
 
 _REQUIRED_COLUMNS = {
     "items": {"id", "unit"},
-    **{
-        table_name: {"id", "item_id", "unit"}
-        for table_name, _model in _SOURCES
-    },
+    "stock_batches": {"id", "item_id", "unit"},
 }
+for table_name, _model, item_column, batch_column in _SOURCES:
+    required = {"id", "unit"}
+    if item_column:
+        required.add(item_column)
+    if batch_column:
+        required.add(batch_column)
+    _REQUIRED_COLUMNS[table_name] = required
 
 
 def _validate_schema(connection: Connection) -> None:
@@ -85,17 +104,43 @@ def audit_item_unit_history(connection: Connection) -> dict[str, Any]:
     with _read_only_transaction(connection):
         _validate_schema(connection)
         tables: dict[str, Any] = {}
-        for table_name, model in _SOURCES:
-            statement = (
-                select(
-                    model.id.label("row_id"),
-                    model.item_id.label("item_id"),
-                    model.unit.label("row_unit"),
-                    Item.id.label("item_record_id"),
-                    Item.unit.label("item_unit"),
+        for table_name, model, item_column, batch_column in _SOURCES:
+            direct_item = aliased(Item, name=f"{table_name}_direct_item")
+            batch = aliased(StockBatch, name=f"{table_name}_batch")
+            batch_item = aliased(Item, name=f"{table_name}_batch_item")
+            direct_id = getattr(model, item_column) if item_column else literal(None)
+            batch_id = getattr(model, batch_column) if batch_column else literal(None)
+            direct_record_id = direct_item.id if item_column else literal(None)
+            direct_unit = direct_item.unit if item_column else literal(None)
+            batch_record_id = batch.id if batch_column else literal(None)
+            batch_item_id = batch.item_id if batch_column else literal(None)
+            batch_item_record_id = batch_item.id if batch_column else literal(None)
+            batch_item_unit = batch_item.unit if batch_column else literal(None)
+            statement = select(
+                model.id.label("row_id"),
+                model.unit.label("row_unit"),
+                direct_id.label("direct_item_id"),
+                direct_record_id.label("direct_item_record_id"),
+                direct_unit.label("direct_item_unit"),
+                batch_id.label("batch_id"),
+                batch_record_id.label("batch_record_id"),
+                batch_item_id.label("batch_item_id"),
+                batch_item_record_id.label("batch_item_record_id"),
+                batch_item_unit.label("batch_item_unit"),
+            ).select_from(model)
+            if item_column:
+                statement = statement.outerjoin(direct_item, direct_item.id == direct_id)
+            if batch_column:
+                statement = statement.outerjoin(batch, batch.id == batch_id).outerjoin(
+                    batch_item, batch_item.id == batch.item_id,
                 )
-                .outerjoin(Item, Item.id == model.item_id)
-                .where(model.item_id.is_not(None))
+            linked_references = []
+            if item_column:
+                linked_references.append(direct_id.is_not(None))
+            if batch_column:
+                linked_references.append(batch_id.is_not(None))
+            statement = (
+                statement.where(or_(*linked_references))
                 .order_by(model.id)
                 .execution_options(stream_results=True)
             )
@@ -107,12 +152,54 @@ def audit_item_unit_history(connection: Connection) -> dict[str, Any]:
             unresolved_items: list[dict[str, Any]] = []
             for row in connection.execute(statement).mappings():
                 scanned_count += 1
-                row_unit = row["row_unit"]
-                item_unit = row["item_unit"]
-                if row["item_record_id"] is None:
+                direct_item_id = row["direct_item_id"]
+                linked_batch_id = row["batch_id"]
+                if direct_item_id is not None and row["direct_item_record_id"] is None:
                     unresolved_item_count += 1
-                    unresolved_items.append({"row_id": row["row_id"], "item_id": row["item_id"]})
+                    unresolved_items.append({
+                        "row_id": row["row_id"], "item_id": direct_item_id,
+                        "batch_id": linked_batch_id, "reason": "item not found",
+                    })
                     continue
+                if linked_batch_id is not None:
+                    if row["batch_record_id"] is None:
+                        unresolved_item_count += 1
+                        unresolved_items.append({
+                            "row_id": row["row_id"], "item_id": direct_item_id,
+                            "batch_id": linked_batch_id, "reason": "batch not found",
+                        })
+                        continue
+                    if row["batch_item_record_id"] is None:
+                        unresolved_item_count += 1
+                        unresolved_items.append({
+                            "row_id": row["row_id"], "item_id": direct_item_id,
+                            "batch_id": linked_batch_id,
+                            "reason": "batch item not found",
+                        })
+                        continue
+                    if direct_item_id is not None and direct_item_id != row["batch_item_id"]:
+                        unresolved_item_count += 1
+                        unresolved_items.append({
+                            "row_id": row["row_id"], "item_id": direct_item_id,
+                            "batch_id": linked_batch_id,
+                            "reason": "item does not match batch item",
+                        })
+                        continue
+
+                item_id = direct_item_id or row["batch_item_id"]
+                item_unit = (
+                    row["direct_item_unit"]
+                    if direct_item_id is not None
+                    else row["batch_item_unit"]
+                )
+                if item_id is None:
+                    unresolved_item_count += 1
+                    unresolved_items.append({
+                        "row_id": row["row_id"], "item_id": None,
+                        "batch_id": linked_batch_id, "reason": "item reference missing",
+                    })
+                    continue
+                row_unit = row["row_unit"]
                 if row_unit is None or item_unit is None or not str(row_unit).strip() or not str(item_unit).strip():
                     missing_unit_count += 1
                     continue
@@ -122,7 +209,7 @@ def audit_item_unit_history(connection: Connection) -> dict[str, Any]:
                 mismatches.append(
                     {
                         "row_id": row["row_id"],
-                        "item_id": row["item_id"],
+                        "item_id": item_id,
                         "row_unit": row_unit,
                         "item_unit": item_unit,
                     }

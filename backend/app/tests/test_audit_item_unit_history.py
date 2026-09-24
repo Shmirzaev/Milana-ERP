@@ -3,25 +3,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, insert, select
 
-from app.models import (
-    ForecastRecommendation,
-    MaterialReservation,
-    PurchaseOrderLine,
-    PurchaseRequestLine,
-    StockBatch,
-    StockMovement,
-)
-from scripts.audit_item_unit_history import audit_item_unit_history, main
-
-
-_SOURCE_MODELS = (
-    StockBatch,
-    MaterialReservation,
-    PurchaseRequestLine,
-    PurchaseOrderLine,
-    StockMovement,
-    ForecastRecommendation,
-)
+from scripts.audit_item_unit_history import _SOURCES, audit_item_unit_history, main
 
 
 @pytest.fixture
@@ -34,31 +16,46 @@ def synthetic_database():
         Column("id", Integer, primary_key=True),
         Column("unit", String(32)),
     )
-    tables = {
-        model.__tablename__: Table(
-            model.__tablename__,
-            metadata,
-            Column("id", Integer, primary_key=True),
-            Column("item_id", Integer),
-            Column("unit", String(32)),
-        )
-        for model in _SOURCE_MODELS
-    }
+    tables = {}
+    for _name, model, item_column, batch_column in _SOURCES:
+        columns = [Column("id", Integer, primary_key=True), Column("unit", String(32))]
+        if item_column:
+            columns.append(Column(item_column, Integer))
+        if batch_column:
+            columns.append(Column(batch_column, Integer))
+        tables[model.__tablename__] = Table(model.__tablename__, metadata, *columns)
     metadata.create_all(engine)
     with engine.begin() as connection:
         connection.execute(insert(items), [{"id": 1, "unit": "kg"}, {"id": 2, "unit": ""}])
-        for table in tables.values():
+        stock_batches = tables["stock_batches"]
+        connection.execute(
+            insert(stock_batches),
+            [
+                {"id": 1, "item_id": 1, "unit": "kg"},
+                {"id": 2, "item_id": 1, "unit": "m"},
+                {"id": 3, "item_id": 1, "unit": None},
+                {"id": 4, "item_id": 2, "unit": "kg"},
+                {"id": 5, "item_id": 999, "unit": "kg"},
+                {"id": 6, "item_id": None, "unit": "kg"},
+                {"id": 7, "item_id": 1, "unit": "   "},
+            ],
+        )
+        for name, model, item_column, batch_column in _SOURCES:
+            if name == "stock_batches":
+                continue
+            table = tables[model.__tablename__]
+            source_rows = []
+            for row_id, unit in enumerate(("kg", "m", None, "kg", "kg", "kg", "   "), 1):
+                row = {"id": row_id, "unit": unit}
+                item_ids = (1, 1, 1, 2, 999, None, 1)
+                if item_column:
+                    row[item_column] = item_ids[row_id - 1]
+                if batch_column:
+                    row[batch_column] = row_id
+                source_rows.append(row)
             connection.execute(
                 insert(table),
-                [
-                    {"id": 1, "item_id": 1, "unit": "kg"},
-                    {"id": 2, "item_id": 1, "unit": "m"},
-                    {"id": 3, "item_id": 1, "unit": None},
-                    {"id": 4, "item_id": 2, "unit": "kg"},
-                    {"id": 5, "item_id": 999, "unit": "kg"},
-                    {"id": 6, "item_id": None, "unit": "kg"},
-                    {"id": 7, "item_id": 1, "unit": "   "},
-                ],
+                source_rows,
             )
     try:
         yield engine, items, tables
@@ -73,15 +70,55 @@ def test_audit_reports_exact_mismatches_and_skips_missing_units(synthetic_databa
         report = audit_item_unit_history(connection)
 
     for table_name, result in report["tables"].items():
-        assert result["scanned_count"] == 6, table_name
+        uses_batch = any(name == table_name and batch_column for name, _model, _item_column, batch_column in _SOURCES)
+        assert result["scanned_count"] == (7 if uses_batch else 6), table_name
         assert result["equal_count"] == 1, table_name
         assert result["missing_unit_count"] == 3, table_name
-        assert result["unresolved_item_count"] == 1, table_name
+        assert result["unresolved_item_count"] == (2 if uses_batch else 1), table_name
         assert result["mismatch_count"] == 1, table_name
         assert result["mismatches"] == [
             {"row_id": 2, "item_id": 1, "row_unit": "m", "item_unit": "kg"}
         ], table_name
-        assert result["unresolved_items"] == [{"row_id": 5, "item_id": 999}], table_name
+        assert result["unresolved_items"][0]["row_id"] == 5, table_name
+        assert result["unresolved_items"][0]["reason"] in {
+            "item not found", "batch item not found",
+        }, table_name
+        if uses_batch:
+            assert result["unresolved_items"][1]["row_id"] == 6, table_name
+            assert result["unresolved_items"][1]["reason"] == "batch item not found", table_name
+
+
+def test_audit_resolves_batch_links_and_reports_conflicting_item_references(synthetic_database):
+    engine, _items, tables = synthetic_database
+    with engine.begin() as connection:
+        connection.execute(
+            insert(tables["production_order_materials"]),
+            {"id": 8, "stock_batch_id": 1, "unit": "m"},
+        )
+        connection.execute(
+            insert(tables["waste_records"]),
+            {"id": 8, "item_id": 2, "batch_id": 1, "unit": "pcs"},
+        )
+
+    with engine.connect() as connection:
+        report = audit_item_unit_history(connection)
+
+    production_materials = report["tables"]["production_order_materials"]
+    assert production_materials["mismatch_count"] == 2
+    assert production_materials["mismatches"][-1] == {
+        "row_id": 8,
+        "item_id": 1,
+        "row_unit": "m",
+        "item_unit": "kg",
+    }
+
+    waste_rows = report["tables"]["waste_records"]
+    assert waste_rows["unresolved_items"][-1] == {
+        "row_id": 8,
+        "item_id": 2,
+        "batch_id": 1,
+        "reason": "item does not match batch item",
+    }
 
 
 def test_audit_does_not_change_synthetic_rows(synthetic_database):
