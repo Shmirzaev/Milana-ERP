@@ -789,6 +789,7 @@ export default {
     "page.payroll.netTotal": "Net total",
     "page.payroll.noTotals": "No payroll totals match these filters.",
     "page.payroll.operationTotals": "Operation totals",
+    "page.payroll.operationTotalsScope": "For {count} of {total} employee groups loaded",
     "page.payroll.noOperationTotals": "No operation totals match these filters.",
     "page.payroll.payrollRecords": "Payroll records",
     "page.payroll.time": "Time",

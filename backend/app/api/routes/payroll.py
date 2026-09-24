@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from sqlalchemy import Date, case, cast, func, or_
+from sqlalchemy import Date, and_, case, cast, func, or_
 from sqlalchemy.orm import load_only, object_session
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
@@ -866,12 +866,22 @@ def _validate_and_enrich_record(
     return data
 
 
-def _load_employee_maps(db: DbSession, employee_ids: set[int]) -> tuple[dict[int, Employee], dict[int, Department]]:
+def _load_employee_maps(
+    db: DbSession,
+    employee_ids: set[int],
+    *,
+    include_search_fields: bool = False,
+) -> tuple[dict[int, Employee], dict[int, Department]]:
+    employee_fields = [Employee.id, Employee.full_name, Employee.department_id]
+    department_fields = [Department.id, Department.name]
+    if include_search_fields:
+        employee_fields.append(Employee.employee_no)
+        department_fields.append(Department.code)
     employees = {
         int(e.id): e
         for e in (
             db.query(Employee)
-            .options(load_only(Employee.id, Employee.full_name, Employee.department_id))
+            .options(load_only(*employee_fields))
             .filter(Employee.id.in_(employee_ids))
             .all()
             if employee_ids
@@ -883,7 +893,7 @@ def _load_employee_maps(db: DbSession, employee_ids: set[int]) -> tuple[dict[int
         int(d.id): d
         for d in (
             db.query(Department)
-            .options(load_only(Department.id, Department.name))
+            .options(load_only(*department_fields))
             .filter(Department.id.in_(department_ids))
             .all()
             if department_ids
@@ -4077,7 +4087,14 @@ def payroll_summary(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     group_by_operation: bool = True,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=100)] = None,
+    employee_search: Annotated[str | None, Query(max_length=100)] = None,
 ):
+    paged = page is not None or page_size is not None or bool((employee_search or "").strip())
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    normalized_search = " ".join((employee_search or "").split()).casefold()
     factory_code = selected_factory_code(current)
     base_qry = _filtered_record_query(
         db,
@@ -4157,7 +4174,7 @@ def payroll_summary(
         current["piecework_amount"] += record.total_amount or Decimal("0")
         current["total_amount"] += record.total_amount or Decimal("0")
 
-        if group_by_operation:
+        if group_by_operation and not paged:
             operation_key = (
                 record_employee_id,
                 record_currency,
@@ -4202,7 +4219,9 @@ def payroll_summary(
             bonus_amount += amount
             current["bonus_amount"] += amount
 
-    employees, departments = _load_employee_maps(db, employee_ids)
+    employees, departments = _load_employee_maps(
+        db, employee_ids, include_search_fields=bool(normalized_search)
+    )
     for (group_employee_id, _currency), group in employee_groups.items():
         employee = employees.get(group_employee_id)
         department = (
@@ -4216,13 +4235,106 @@ def payroll_summary(
         group["department_id"] = employee.department_id if employee else None
         group["department_name"] = department.name if department else None
 
-    if group_by_operation:
+    if group_by_operation and not paged:
         for key, op in operation_groups.items():
             employee_key = (key[0], key[1])
             employee_groups[employee_key]["operations"].append(PayrollSummaryOperationOut(**op))
 
     employees_out = [PayrollSummaryEmployeeOut(**row) for row in employee_groups.values()]
     employees_out.sort(key=lambda row: (str(row.employee_name).lower(), row.employee_id))
+    if normalized_search:
+        search_terms = normalized_search.split()
+
+        def matches_employee(row: PayrollSummaryEmployeeOut) -> bool:
+            employee = employees.get(row.employee_id)
+            department = (
+                departments.get(int(employee.department_id))
+                if employee and employee.department_id
+                else None
+            )
+            searchable = [
+                row.employee_name,
+                getattr(employee, "employee_no", None),
+                getattr(department, "code", None),
+                row.department_name,
+            ]
+            normalized_fields = [str(value).casefold() for value in searchable if value]
+            if normalized_search.isdecimal() and normalized_search == str(row.employee_id):
+                return True
+            return all(
+                any(term in field for field in normalized_fields)
+                for term in search_terms
+            )
+
+        employees_out = [row for row in employees_out if matches_employee(row)]
+
+    employees_total = len(employees_out)
+    if paged:
+        start = (effective_page - 1) * effective_page_size
+        employees_out = employees_out[start : start + effective_page_size]
+
+    if group_by_operation and paged and employees_out:
+        selected_groups = {(row.employee_id, row.currency) for row in employees_out}
+        page_operation_query = _filtered_record_query(
+            db,
+            factory_code=factory_code,
+            period_id=period_id,
+            employee_id=employee_id,
+            department_id=department_id,
+            date_from=date_from,
+            date_to=date_to,
+        ).filter(
+            PayrollRecord.status != "voided",
+            or_(
+                *(
+                    and_(
+                        PayrollRecord.employee_id == selected_employee_id,
+                        func.coalesce(PayrollRecord.currency, "UZS") == selected_currency,
+                    )
+                    for selected_employee_id, selected_currency in selected_groups
+                )
+            ),
+        ).options(load_only(
+            PayrollRecord.employee_id,
+            PayrollRecord.currency,
+            PayrollRecord.quantity,
+            PayrollRecord.total_amount,
+            PayrollRecord.operation_section,
+            PayrollRecord.operation_code,
+            PayrollRecord.operation_name,
+        ))
+        page_operation_groups: dict[
+            tuple[int, str, str | None, str | None, str | None], dict[str, Any]
+        ] = {}
+        for record in page_operation_query.yield_per(400):
+            key = (
+                int(record.employee_id),
+                str(record.currency or "UZS"),
+                record.operation_section,
+                record.operation_code,
+                record.operation_name,
+            )
+            op = page_operation_groups.setdefault(
+                key,
+                {
+                    "employee_id": key[0],
+                    "operation_section": key[2],
+                    "operation_code": key[3],
+                    "operation_name": key[4],
+                    "currency": key[1],
+                    "records_count": 0,
+                    "quantity": Decimal("0"),
+                    "total_amount": Decimal("0"),
+                },
+            )
+            op["records_count"] += 1
+            op["quantity"] += record.quantity or Decimal("0")
+            op["total_amount"] += record.total_amount or Decimal("0")
+        page_employees = {(row.employee_id, row.currency): row for row in employees_out}
+        for key, op in page_operation_groups.items():
+            page_employees[(key[0], key[1])].operations.append(
+                PayrollSummaryOperationOut(**op)
+            )
     summary_currency = (
         next(iter(currencies))
         if len(currencies) == 1
@@ -4241,6 +4353,13 @@ def payroll_summary(
         total_amount=total_amount,
         currency=summary_currency,
         employees=employees_out,
+        employees_total=employees_total if paged else None,
+        employee_page=effective_page if paged else None,
+        employee_page_size=effective_page_size if paged else None,
+        employees_has_more=(
+            effective_page * effective_page_size < employees_total if paged else None
+        ),
+        employee_search=normalized_search or None if paged else None,
     )
 
 

@@ -789,6 +789,7 @@ export default {
     "page.payroll.netTotal": "Итого",
     "page.payroll.noTotals": "Нет итогов по выбранным фильтрам.",
     "page.payroll.operationTotals": "Итоги по операциям",
+    "page.payroll.operationTotalsScope": "Загружено по группам сотрудников: {count} из {total}",
     "page.payroll.noOperationTotals": "Нет итогов по операциям для выбранных фильтров.",
     "page.payroll.payrollRecords": "Записи зарплаты",
     "page.payroll.time": "Время",

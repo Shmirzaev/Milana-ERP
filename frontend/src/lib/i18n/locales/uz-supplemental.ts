@@ -789,6 +789,7 @@ export default {
     "page.payroll.netTotal": "Sof jami",
     "page.payroll.noTotals": "Bu filtrlarga mos ish haqi jamisi yo‘q.",
     "page.payroll.operationTotals": "Amallar bo‘yicha jami",
+    "page.payroll.operationTotalsScope": "Xodimlar guruhlaridan {count} / {total} yuklandi",
     "page.payroll.noOperationTotals": "Bu filtrlarga mos amal jamisi yo‘q.",
     "page.payroll.payrollRecords": "Ish haqi yozuvlari",
     "page.payroll.time": "Vaqt",

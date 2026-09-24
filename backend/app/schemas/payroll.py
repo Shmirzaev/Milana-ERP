@@ -462,6 +462,11 @@ class PayrollSummaryOut(BaseModel):
     total_amount: Decimal
     currency: str
     employees: list[PayrollSummaryEmployeeOut]
+    employees_total: int | None = None
+    employee_page: int | None = None
+    employee_page_size: int | None = None
+    employees_has_more: bool | None = None
+    employee_search: str | None = None
 
 
 class PayrollAdjustmentIn(BaseModel):
