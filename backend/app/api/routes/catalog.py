@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import partial
 from math import isfinite
+import json
 import os
 from pathlib import Path
 import re
@@ -169,6 +170,29 @@ def _validate_model_details_structure(
             ):
                 continue
             raise HTTPException(422, f"details_json.costing.{key} must be a finite number")
+
+    if "translation" in details:
+        translation = details["translation"]
+        is_string_map = isinstance(translation, dict) and all(
+            isinstance(language, str) and isinstance(value, str)
+            for language, value in translation.items()
+        )
+        if not is_string_map:
+            existing_translation = (
+                existing_details.get("translation")
+                if isinstance(existing_details, dict)
+                and "translation" in existing_details
+                else None
+            )
+            unchanged_legacy_translation = (
+                isinstance(existing_details, dict)
+                and "translation" in existing_details
+                and type(translation) is type(existing_translation)
+                and json.dumps(translation, sort_keys=True, ensure_ascii=False)
+                == json.dumps(existing_translation, sort_keys=True, ensure_ascii=False)
+            )
+            if not unchanged_legacy_translation:
+                raise HTTPException(422, "details_json.translation must be a string-to-string object")
 
 
 def _model_paid_operation_factory_scope(user: User) -> str | None:

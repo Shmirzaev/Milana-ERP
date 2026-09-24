@@ -1570,3 +1570,139 @@ def test_clone_code_allocation_uses_one_bounded_exact_query():
     normalized = " ".join(statements[0].lower().split())
     assert " in " in f" {normalized} "
     assert " like " not in f" {normalized} "
+
+
+def test_model_translation_write_requires_string_values_and_has_no_create_side_effect(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    code = f"TRANSLATION-INVALID-{uuid4().hex[:10]}"
+    response = client.post(
+        "/api/models",
+        json={
+            "code": code,
+            "name": "Invalid translation model",
+            "details_json": {"translation": {"ru": "Русский", "uz": 17}},
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "details_json.translation must be a string-to-string object"
+    with TestSessionLocal() as db:
+        assert db.query(Model).filter(Model.code == code).first() is None
+
+
+def test_model_translation_accepts_unknown_language_keys(client, auth_headers):
+    from uuid import uuid4
+
+    code = f"TRANSLATION-VALID-{uuid4().hex[:10]}"
+    translations = {"ru": "Русский", "uz": "Oʻzbekcha", "en": "English", "tg": "Тоҷикӣ"}
+    response = client.post(
+        "/api/models",
+        json={"code": code, "name": "Valid translation model", "details_json": {"translation": translations}},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["details_json"]["translation"] == translations
+
+
+def test_model_translation_update_rejects_changed_invalid_legacy_shape_without_write(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    code = f"TRANSLATION-LEGACY-{uuid4().hex[:10]}"
+    legacy_translation = ["legacy", 8]
+    with TestSessionLocal() as db:
+        model = Model(code=code, name="Legacy translation model", details_json={"translation": legacy_translation})
+        db.add(model)
+        db.commit()
+        model_id = model.id
+
+    response = client.patch(
+        f"/api/models/{model_id}",
+        json={"code": code, "name": "Must not be saved", "details_json": {"translation": {"ru": 8}}},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    with TestSessionLocal() as db:
+        saved = db.get(Model, model_id)
+        assert saved.name == "Legacy translation model"
+        assert saved.details_json == {"translation": legacy_translation}
+
+
+def test_model_translation_allows_unchanged_legacy_value_on_unrelated_edit(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    code = f"TRANSLATION-LEGACY-EDIT-{uuid4().hex[:8]}"
+    legacy_translation = ["legacy", 8]
+    with TestSessionLocal() as db:
+        model = Model(code=code, name="Before edit", details_json={"translation": legacy_translation})
+        db.add(model)
+        db.commit()
+        model_id = model.id
+
+    response = client.patch(
+        f"/api/models/{model_id}",
+        json={"code": code, "name": "After edit", "details_json": {"translation": legacy_translation}},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["details_json"]["translation"] == legacy_translation
+    with TestSessionLocal() as db:
+        saved = db.get(Model, model_id)
+        assert saved.name == "After edit"
+        assert saved.details_json == {"translation": legacy_translation}
+
+
+def test_model_translation_rejects_bool_substituted_for_legacy_number(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    code = f"TRANSLATION-LEGACY-TYPE-{uuid4().hex[:8]}"
+    with TestSessionLocal() as db:
+        model = Model(code=code, name="Before edit", details_json={"translation": [1]})
+        db.add(model)
+        db.commit()
+        model_id = model.id
+
+    response = client.patch(
+        f"/api/models/{model_id}",
+        json={"code": code, "name": "After edit", "details_json": {"translation": [True]}},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    with TestSessionLocal() as db:
+        saved = db.get(Model, model_id)
+        assert saved.name == "Before edit"
+        assert saved.details_json == {"translation": [1]}
+
+
+def test_model_translation_validation_keeps_auth_error_precedence(client):
+    from uuid import uuid4
+
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    code = f"TRANSLATION-UNAUTH-{uuid4().hex[:10]}"
+    response = client.post(
+        "/api/models",
+        json={"code": code, "name": "Unauthenticated", "details_json": {"translation": {"ru": None}}},
+    )
+
+    assert response.status_code == 401
+    with TestSessionLocal() as db:
+        assert db.query(Model).filter(Model.code == code).first() is None
