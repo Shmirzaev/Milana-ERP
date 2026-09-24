@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, Response
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
-from sqlalchemy import case, func, or_
+from sqlalchemy import String, and_, case, cast, func, or_
 from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 import base64
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from html import escape
 import os
 from typing import Annotated
@@ -1418,11 +1418,67 @@ class StorageMapCellSummaryOut(BaseModel):
     count: int
     status: str
     matched_count: int = 0
+    quantity: int = 0
 
 
 class StorageMapOverviewOut(BaseModel):
     summary: dict[str, int]
     cells: list[StorageMapCellSummaryOut]
+
+
+class StorageMapZoneOverviewOut(BaseModel):
+    id: str
+    sku_count: int
+    moves_today: int
+
+
+class StorageMapPageOverviewOut(BaseModel):
+    summary: dict[str, int]
+    cells: list[StorageMapCellSummaryOut]
+    zones: list[StorageMapZoneOverviewOut]
+
+
+class StorageMapPlacementRowOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    package_no: str
+    barcode: str | None = None
+    model_id: int | None = None
+    model_code: str | None = None
+    model_name: str | None = None
+    color: str | None = None
+    total_quantity: int
+    status: str
+    storage_cell: str
+    storage_shelf: str | None = None
+    storage_placed_at: datetime | None = None
+
+
+class StorageMapPlacementPageOut(BaseModel):
+    rows: list[StorageMapPlacementRowOut]
+    total: int
+    shelf_total: int
+    total_quantity: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class StorageMapRackPreviewOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    package_no: str
+    model_id: int | None = None
+    model_code: str | None = None
+    model_name: str | None = None
+    color: str | None = None
+    total_quantity: int
+    status: str
+    storage_cell: str
+    storage_shelf: str
+    storage_placed_at: datetime | None = None
 
 
 class StorageMapModelPackageOut(BaseModel):
@@ -1479,6 +1535,262 @@ def storage_map_summary(db: DbSession, _: CurrentUser):
             "matched_packages": 0,
         },
         "cells": cells,
+    }
+
+
+def _storage_map_search_expression(needle: str):
+    escaped_needle = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like = f"%{escaped_needle}%"
+    model_pattern = normalized_model_code_pattern(needle)
+    model_needle = model_pattern[1:-1].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return or_(
+        normalized_model_code_column(Model.code).ilike(f"%{model_needle}%", escape="\\"),
+        Model.name.ilike(like, escape="\\"),
+        SalesOrder.order_no.ilike(like, escape="\\"),
+        ProductionOrder.production_no.ilike(like, escape="\\"),
+        Package.package_no.ilike(like, escape="\\"),
+        Package.barcode.ilike(like, escape="\\"),
+        Package.storage_cell.ilike(like, escape="\\"),
+        Package.storage_shelf.ilike(like, escape="\\"),
+    )
+
+
+@router.get("/storage-map/overview", response_model=StorageMapPageOverviewOut)
+def storage_map_page_overview(
+    db: DbSession,
+    _: CurrentUser,
+    model_query: Annotated[str | None, Query(max_length=100)] = None,
+    today_from: datetime | None = None,
+    today_to: datetime | None = None,
+):
+    """Return exact warehouse totals and cell/zone aggregates without packages."""
+    ready_statuses = ("packed", "received_in_storage", "reserved")
+    layout_codes = [
+        f"{zone}-{idx:02d}"
+        for zone, size in WAREHOUSE_MAP_LAYOUT
+        for idx in range(1, size + 1)
+    ]
+    needle = (model_query or "").strip()
+    matches = _storage_map_search_expression(needle) if needle else None
+    query = (
+        db.query(Package)
+        .join(Model, Model.id == Package.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
+        .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
+        .filter(Package.status.in_(ready_statuses), Package.storage_cell.isnot(None))
+    )
+    summary_row = query.with_entities(
+        func.count(Package.id),
+        func.coalesce(func.sum(Package.total_quantity), 0),
+        func.coalesce(func.sum(case((Package.status == "reserved", Package.total_quantity), else_=0)), 0),
+        func.coalesce(func.sum(case((Package.status == "packed", Package.total_quantity), else_=0)), 0),
+    ).one()
+    matched_packages = query.filter(matches).count() if matches is not None else 0
+    matched_count_expression = func.sum(case((matches, 1), else_=0)) if matches is not None else 0
+    cell_rows = (
+        query.with_entities(
+            Package.storage_cell,
+            func.count(Package.id),
+            func.coalesce(func.sum(Package.total_quantity), 0),
+            matched_count_expression,
+        )
+        .filter(Package.storage_cell.in_(layout_codes))
+        .group_by(Package.storage_cell)
+        .all()
+    )
+    counts_by_cell = {
+        str(code): (int(count), int(quantity), int(matched_count or 0))
+        for code, count, quantity, matched_count in cell_rows
+    }
+    cells = []
+    for zone, size in WAREHOUSE_MAP_LAYOUT:
+        for idx in range(1, size + 1):
+            code = f"{zone}-{idx:02d}"
+            count, quantity, matched_count = counts_by_cell.get(code, (0, 0, 0))
+            cells.append({
+                "code": code,
+                "zone": zone,
+                "count": count,
+                "quantity": quantity,
+                "status": "free" if count == 0 else "partial" if count == 1 else "full",
+                "matched_count": matched_count,
+            })
+
+    if today_from is None or today_to is None:
+        now = datetime.now().astimezone()
+        local_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if today_from is None:
+            today_from = local_start
+        if today_to is None:
+            today_to = local_start + timedelta(days=1)
+    zone_expression = func.substr(Package.storage_cell, 1, 1)
+    zone_rows = (
+        query.with_entities(
+            zone_expression,
+        func.count(func.distinct(func.coalesce(func.nullif(Model.code, ""), cast(Model.id, String)))),
+            func.coalesce(
+                func.sum(case((and_(Package.storage_placed_at >= today_from, Package.storage_placed_at < today_to), 1), else_=0)),
+                0,
+            ),
+        )
+        .filter(or_(*(Package.storage_cell.like(f"{zone}-%") for zone, _size in WAREHOUSE_MAP_LAYOUT)))
+        .group_by(zone_expression)
+        .all()
+    )
+    zone_activity_by_id = {
+        str(zone): {"sku_count": int(sku_count), "moves_today": int(moves_today)}
+        for zone, sku_count, moves_today in zone_rows
+    }
+    zones = [
+        {"id": zone, **zone_activity_by_id.get(zone, {"sku_count": 0, "moves_today": 0})}
+        for zone, _size in WAREHOUSE_MAP_LAYOUT
+    ]
+    packages_on_map, total_qty, reserved_qty, receiving_qty = map(int, summary_row)
+    return {
+        "summary": {
+            "cells_total": len(cells),
+            "cells_occupied": sum(cell["count"] > 0 for cell in cells),
+            "packages_on_map": packages_on_map,
+            "packages_in_storage": packages_on_map,
+            "matched_packages": matched_packages,
+            "total_qty": total_qty,
+            "reserved_qty": reserved_qty,
+            "receiving_qty": receiving_qty,
+        },
+        "cells": cells,
+        "zones": zones,
+    }
+
+
+@router.get("/storage-map/rack-preview", response_model=list[StorageMapRackPreviewOut])
+def storage_map_rack_preview(
+    zone: Annotated[str, Query(min_length=1, max_length=1)],
+    db: DbSession,
+    _: CurrentUser,
+):
+    """Return only the newest package per shelf slot for the selected rack zone."""
+    zone_size = dict(WAREHOUSE_MAP_LAYOUT).get(zone.upper())
+    if zone_size is None:
+        raise HTTPException(422, "Unknown warehouse zone")
+    zone_cells = [f"{zone.upper()}-{idx:02d}" for idx in range(1, zone_size + 1)]
+    shelf_key = case((Package.storage_shelf == "S2", "S2"), else_="S1")
+    row_number = func.row_number().over(
+        partition_by=(Package.storage_cell, shelf_key),
+        order_by=Package.id.desc(),
+    ).label("slot_rank")
+    ranked = (
+        db.query(Package.id.label("package_id"), row_number)
+        .join(Model, Model.id == Package.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
+        .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
+        .filter(
+            Package.status.in_(("packed", "received_in_storage", "reserved")),
+            Package.storage_cell.in_(zone_cells),
+        )
+    )
+    ranked_subquery = ranked.subquery()
+    rows = (
+        db.query(
+            Package.id,
+            Package.package_no,
+            Package.model_id,
+            Model.code.label("model_code"),
+            Model.name.label("model_name"),
+            Package.color,
+            Package.total_quantity,
+            Package.status,
+            Package.storage_cell,
+            shelf_key.label("storage_shelf"),
+            Package.storage_placed_at,
+        )
+        .join(ranked_subquery, ranked_subquery.c.package_id == Package.id)
+        .join(Model, Model.id == Package.model_id)
+        .filter(ranked_subquery.c.slot_rank == 1)
+        .order_by(Package.storage_cell.asc(), shelf_key.asc())
+        .limit(zone_size * 2)
+        .all()
+    )
+    return [
+        {
+            "id": row.id,
+            "package_no": row.package_no,
+            "model_id": row.model_id,
+            "model_code": row.model_code,
+            "model_name": row.model_name,
+            "color": row.color,
+            "total_quantity": row.total_quantity,
+            "status": row.status,
+            "storage_cell": row.storage_cell,
+            "storage_shelf": row.storage_shelf,
+            "storage_placed_at": row.storage_placed_at,
+        }
+        for row in rows
+    ]
+
+
+@router.get("/storage-map/cell-packages", response_model=StorageMapPlacementPageOut)
+def storage_map_cell_packages(
+    cell: Annotated[str, Query(min_length=1, max_length=8)],
+    shelf: Annotated[str, Query(pattern="^S[12]$")],
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+):
+    normalized_cell = cell.strip().upper()
+    valid_cells = {
+        f"{zone}-{idx:02d}"
+        for zone, size in WAREHOUSE_MAP_LAYOUT
+        for idx in range(1, size + 1)
+    }
+    if normalized_cell not in valid_cells:
+        raise HTTPException(422, "Unknown warehouse cell")
+    query = (
+        db.query(Package, Model)
+        .join(Model, Model.id == Package.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
+        .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
+        .filter(
+            Package.storage_cell == normalized_cell,
+            Package.status.in_(("packed", "received_in_storage", "reserved")),
+        )
+    )
+    shelf_key = case((Package.storage_shelf == "S2", "S2"), else_="S1")
+    cell_totals = query.with_entities(
+        func.count(Package.id),
+        func.coalesce(func.sum(case((shelf_key == shelf, 1), else_=0)), 0),
+    ).one()
+    cell_total, selected_shelf_total = map(int, cell_totals)
+    effective_query = query.filter(shelf_key == shelf) if selected_shelf_total else query
+    total = selected_shelf_total or cell_total
+    total_quantity = int(
+        effective_query.with_entities(func.coalesce(func.sum(Package.total_quantity), 0)).scalar() or 0
+    )
+    rows = effective_query.order_by(Package.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": [
+            {
+                "id": pkg.id,
+                "package_no": pkg.package_no,
+                "barcode": pkg.barcode,
+                "model_id": pkg.model_id,
+                "model_code": model.code,
+                "model_name": model.name,
+                "color": pkg.color,
+                "total_quantity": pkg.total_quantity,
+                "status": pkg.status,
+                "storage_cell": pkg.storage_cell,
+                "storage_shelf": pkg.storage_shelf,
+                "storage_placed_at": pkg.storage_placed_at,
+            }
+            for pkg, model in rows
+        ],
+        "total": total,
+        "shelf_total": selected_shelf_total,
+        "total_quantity": total_quantity,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
     }
 
 
@@ -1958,6 +2270,8 @@ def api_batch_place_on_map(
         storage_cell=payload.storage_cell,
         storage_shelf=payload.storage_shelf,
         user_id=current.id,
+        allow_mixed_models=payload.allow_mixed_models,
+        enforce_model_guard=payload.enforce_model_guard,
     )
     for pkg in ordered_packages:
         log_action(
@@ -2062,6 +2376,8 @@ def api_place_on_map(
         storage_cell=payload.storage_cell,
         storage_shelf=payload.storage_shelf,
         user_id=current.id,
+        allow_mixed_models=payload.allow_mixed_models,
+        enforce_model_guard=payload.enforce_model_guard,
     )
     log_action(
         db,

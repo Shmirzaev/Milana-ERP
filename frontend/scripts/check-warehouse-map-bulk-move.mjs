@@ -9,7 +9,12 @@ const checks = [
   [page.includes("selectAllPackages") && page.includes("clearPackageSelection"), "select-all and clear-selection actions exist"],
   [page.includes('api.post("/api/packages/batch/place-on-map"'), "multi-package moves use the batch placement endpoint"],
   [page.includes("package_ids: packagesToMove.map((row) => row.id)"), "every selected package id is sent to the batch endpoint"],
-  [page.includes("targetModels.size > 1"), "mixed-model protection considers all selected and destination packages"],
+  [page.includes("allow_mixed_models: allowMixedModels") && page.includes("enforce_model_guard: true"), "the warehouse map opts into server-side mixed-model enforcement"],
+  [page.includes("/api/packages/storage-map/overview?"), "map KPIs and cells use bounded aggregate data"],
+  [page.includes("/api/packages/storage-map/rack-preview?"), "rack cards use one package per shelf slot"],
+  [page.includes("/api/packages/storage-map/cell-packages?"), "selected-cell packages load through a paged endpoint"],
+  [page.includes("!hasMorePackages && selectedMovePlacements.length === candidateTotal"), "select-all is unavailable until every selected-shelf page is loaded"],
+  [page.includes("setPackagePageCount(packagePageCount + 1)"), "selected-shelf packages expose load more"],
   [page.includes("setMoveSources([])"), "bulk move state is cleared after success or cancellation"],
 ];
 

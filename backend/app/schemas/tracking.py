@@ -189,6 +189,8 @@ class PackageReceivingQueueScanIn(BaseModel):
 class PackageStoragePlacementIn(BaseModel):
     storage_cell: str
     storage_shelf: Optional[str] = "S1"
+    allow_mixed_models: bool = False
+    enforce_model_guard: bool = False
 
 
 class PackageBatchStoragePlacementIn(PackageStoragePlacementIn):

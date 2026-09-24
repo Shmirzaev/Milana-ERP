@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session, object_session
 
 from app.models import (
@@ -1464,11 +1464,20 @@ def place_on_storage_map(
     storage_cell: str,
     storage_shelf: str | None,
     user_id: int | None,
+    allow_mixed_models: bool = False,
+    enforce_model_guard: bool = False,
 ):
     _require_warehouse_package(db, pkg)
+    packages = _prepare_storage_map_placement(
+        db,
+        [pkg],
+        storage_cell=storage_cell,
+        allow_mixed_models=allow_mixed_models,
+        enforce_model_guard=enforce_model_guard,
+    )
     _place_on_storage_map(
         db,
-        pkg,
+        packages[0],
         storage_cell=storage_cell,
         storage_shelf=storage_shelf,
         user_id=user_id,
@@ -1512,7 +1521,16 @@ def place_packages_on_storage_map(
     storage_cell: str,
     storage_shelf: str | None,
     user_id: int | None,
+    allow_mixed_models: bool = False,
+    enforce_model_guard: bool = False,
 ) -> None:
+    packages = _prepare_storage_map_placement(
+        db,
+        packages,
+        storage_cell=storage_cell,
+        allow_mixed_models=allow_mixed_models,
+        enforce_model_guard=enforce_model_guard,
+    )
     source_types = _warehouse_source_types(db, packages)
     for pkg in packages:
         source_type = source_types.get(int(pkg.production_order_id or 0))
@@ -1525,6 +1543,78 @@ def place_packages_on_storage_map(
             storage_shelf=storage_shelf,
             user_id=user_id,
         )
+
+
+def _prepare_storage_map_placement(
+    db: Session,
+    packages: list[Package],
+    *,
+    storage_cell: str,
+    allow_mixed_models: bool,
+    enforce_model_guard: bool,
+) -> list[Package]:
+    # Preserve the historical placement path for API clients that have not
+    # opted into the warehouse-map mixed-model guard. In particular, do not
+    # add map-only locking/query overhead to those clients.
+    if not enforce_model_guard:
+        return packages
+
+    cell, _shelf = validate_storage_location(storage_cell, "S1", require_cell=True)
+    requested_order = [int(package.id) for package in packages]
+    package_ids = sorted({int(package.id) for package in packages})
+    source_cells = {
+        str(package.storage_cell).strip().upper()
+        for package in packages
+        if package.storage_cell
+    }
+    lock_cells = sorted(source_cells | {cell})
+
+    # Placement uses cell-scoped locks in sorted order so two moves in opposite
+    # directions cannot race the mixed-model check or deadlock each other.
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        for lock_cell in lock_cells:
+            db.execute(
+                text("SELECT pg_advisory_xact_lock(60129, hashtext(:cell))"),
+                {"cell": lock_cell},
+            )
+
+    locked_packages = (
+        db.query(Package)
+        .filter(Package.id.in_(package_ids))
+        .order_by(Package.id.asc())
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    if len(locked_packages) != len(package_ids):
+        raise HTTPException(404, "Package not found")
+    locked_by_id = {int(package.id): package for package in locked_packages}
+
+    if enforce_model_guard and not allow_mixed_models:
+        occupied_models = {
+            int(model_id)
+            for (model_id,) in (
+                db.query(Package.model_id)
+                .filter(
+                    Package.storage_cell == cell,
+                    Package.status.in_(("packed", "received_in_storage", "reserved")),
+                    Package.id.notin_(package_ids),
+                    Package.model_id.isnot(None),
+                )
+                .with_for_update()
+                .all()
+            )
+        }
+        occupied_models.update(
+            int(package.model_id)
+            for package in locked_packages
+            if package.model_id is not None
+            and package.status in ("packed", "received_in_storage", "reserved")
+        )
+        if len(occupied_models) > 1:
+            raise HTTPException(400, "Cell already contains a different model")
+
+    return [locked_by_id[package_id] for package_id in requested_order]
 
 
 def reserve_package(db: Session, pkg: Package, user_id: int | None):

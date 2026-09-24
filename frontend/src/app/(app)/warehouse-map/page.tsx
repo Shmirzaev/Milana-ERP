@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { Bookmark, Clock3, MoveHorizontal, QrCode } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -24,6 +25,7 @@ type StorageMapCell = {
   count?: number;
   status?: CellStatus | "free" | "partial" | "full";
   matched_count?: number;
+  quantity?: number;
 };
 
 type StoragePlacement = {
@@ -40,6 +42,14 @@ type StoragePlacement = {
   storage_shelf?: string | null;
   storage_placed_at?: string | null;
   matched?: boolean;
+};
+
+type StorageMapPage = {
+  rows: StoragePlacement[];
+  total: number;
+  shelf_total: number;
+  total_quantity: number;
+  has_more: boolean;
 };
 
 const ZONES: Array<{ id: string; cols: number; rows: number; labelKey: string }> = [
@@ -162,10 +172,22 @@ export default function WarehouseMapPage() {
   const [allowMixedModels, setAllowMixedModels] = useState(false);
   const [selectedPackageId, setSelectedPackageId] = useState<number | null>(null);
   const [selectedPackageIds, setSelectedPackageIds] = useState<number[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const mapQueryPath = modelQuery.trim()
-    ? `/api/packages/storage-map?model_query=${encodeURIComponent(modelQuery.trim())}`
-    : "/api/packages/storage-map";
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setSearchQuery(modelQuery.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [modelQuery]);
+
+  const todayRange = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return `today_from=${encodeURIComponent(start.toISOString())}&today_to=${encodeURIComponent(end.toISOString())}`;
+  }, []);
+  const searchParam = searchQuery ? `&model_query=${encodeURIComponent(searchQuery)}` : "";
+  const mapQueryPath = `/api/packages/storage-map/overview?${todayRange}${searchParam}`;
   const { data: mapData, mutate: mutateMap } = useSWR<any>(mapQueryPath, fetcher);
 
   const normalizedCells = useMemo(() => {
@@ -178,8 +200,6 @@ export default function WarehouseMapPage() {
       status: getCellStatus(c),
     }));
   }, [mapData?.cells]);
-
-  const placements = useMemo(() => (mapData?.placements || []) as StoragePlacement[], [mapData?.placements]);
 
   useEffect(() => {
     if (selectedCell) return;
@@ -194,30 +214,44 @@ export default function WarehouseMapPage() {
     return map;
   }, [normalizedCells]);
 
+  const selectedCellData = selectedCell ? cellsByCode.get(selectedCell) || null : null;
+  const selectedZone = selectedCellData?.zone || "A";
+  const rackPreviewPath = `/api/packages/storage-map/rack-preview?zone=${encodeURIComponent(selectedZone)}`;
+  const { data: rackPreview, mutate: mutateRackPreview } = useSWR<StoragePlacement[]>(rackPreviewPath, fetcher);
+  const packagePageKey = (index: number, previousPage: StorageMapPage | null) => {
+    if (!selectedCell || (index > 0 && previousPage && !previousPage.has_more)) return null;
+    const params = new URLSearchParams({
+      cell: selectedCell,
+      shelf: selectedShelf,
+      page: String(index + 1),
+      page_size: "50",
+    });
+    return `/api/packages/storage-map/cell-packages?${params.toString()}`;
+  };
+  const {
+    data: packagePages,
+    size: packagePageCount,
+    setSize: setPackagePageCount,
+    mutate: mutatePackagePages,
+    isValidating: packagesLoading,
+  } = useSWRInfinite<StorageMapPage>(packagePageKey, fetcher);
+  const candidatePlacements = useMemo(
+    () => packagePages?.flatMap((page) => page.rows) || [],
+    [packagePages],
+  );
+  const candidateTotal = packagePages?.[packagePages.length - 1]?.total || 0;
+  const selectedShelfTotal = packagePages?.[packagePages.length - 1]?.shelf_total || 0;
+  const hasMorePackages = packagePages?.[packagePages.length - 1]?.has_more || false;
+  const selectedCellQty = selectedCellData?.quantity || 0;
   const placementsByCellShelf = useMemo(() => {
     const map = new Map<string, StoragePlacement[]>();
-    for (const row of placements) {
+    for (const row of rackPreview || []) {
       const key = `${row.storage_cell}|${normalizeShelf(row.storage_shelf)}`;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(row);
     }
     return map;
-  }, [placements]);
-
-  const selectedCellData = selectedCell ? cellsByCode.get(selectedCell) || null : null;
-  const selectedZone = selectedCellData?.zone || "A";
-
-  const selectedCellPlacements = useMemo(
-    () => placements.filter((row) => row.storage_cell === selectedCell),
-    [placements, selectedCell],
-  );
-
-  const selectedShelfPlacements = useMemo(
-    () => selectedCellPlacements.filter((row) => normalizeShelf(row.storage_shelf) === selectedShelf),
-    [selectedCellPlacements, selectedShelf],
-  );
-
-  const candidatePlacements = selectedShelfPlacements.length ? selectedShelfPlacements : selectedCellPlacements;
+  }, [rackPreview]);
 
   useEffect(() => {
     if (!candidatePlacements.length) {
@@ -248,8 +282,7 @@ export default function WarehouseMapPage() {
     null;
   const selectedMovePlacements = candidatePlacements.filter((row) => selectedPackageIds.includes(row.id));
   const allCandidatePackagesSelected =
-    candidatePlacements.length > 0 && selectedMovePlacements.length === candidatePlacements.length;
-  const selectedCellQty = selectedCellPlacements.reduce((sum, row) => sum + (row.total_quantity || 0), 0);
+    candidatePlacements.length > 0 && !hasMorePackages && selectedMovePlacements.length === candidateTotal;
 
   const zoneCells = useMemo(() => normalizedCells.filter((row) => row.zone === selectedZone), [normalizedCells, selectedZone]);
   const zoneTotal = zoneCells.length || 1;
@@ -257,32 +290,9 @@ export default function WarehouseMapPage() {
   const zoneFree = zoneTotal - zoneOccupied;
   const zoneFillPct = Math.round((zoneOccupied / zoneTotal) * 100);
 
-  const zonePlacements = useMemo(
-    () => placements.filter((row) => row.storage_cell?.startsWith(`${selectedZone}-`)),
-    [placements, selectedZone],
-  );
-
-  const zoneSkuCount = useMemo(() => {
-    const keys = new Set<string>();
-    for (const row of zonePlacements) {
-      keys.add(String(row.model_code || row.model_id || ""));
-    }
-    keys.delete("");
-    return keys.size;
-  }, [zonePlacements]);
-
-  const zoneMovesToday = useMemo(() => {
-    const now = new Date();
-    return zonePlacements.filter((row) => {
-      if (!row.storage_placed_at) return false;
-      const dt = new Date(row.storage_placed_at);
-      return (
-        dt.getFullYear() === now.getFullYear() &&
-        dt.getMonth() === now.getMonth() &&
-        dt.getDate() === now.getDate()
-      );
-    }).length;
-  }, [zonePlacements]);
+  const zoneActivity = (mapData?.zones || []).find((zone: { id: string }) => zone.id === selectedZone);
+  const zoneSkuCount = zoneActivity?.sku_count || 0;
+  const zoneMovesToday = zoneActivity?.moves_today || 0;
 
   const zoneCodes = useMemo(() => {
     const rows = zoneCells
@@ -298,14 +308,10 @@ export default function WarehouseMapPage() {
   }, [zoneCodes]);
 
   const totals = useMemo(() => {
-    const totalQty = placements.reduce((sum, row) => sum + (row.total_quantity || 0), 0);
+    const totalQty = mapData?.summary?.total_qty || 0;
     const freeCells = (mapData?.summary?.cells_total || normalizedCells.length) - (mapData?.summary?.cells_occupied || 0);
-    const reservedQty = placements
-      .filter((row) => row.status === "reserved")
-      .reduce((sum, row) => sum + (row.total_quantity || 0), 0);
-    const receivingQty = placements
-      .filter((row) => row.status === "packed")
-      .reduce((sum, row) => sum + (row.total_quantity || 0), 0);
+    const reservedQty = mapData?.summary?.reserved_qty || 0;
+    const receivingQty = mapData?.summary?.receiving_qty || 0;
     return {
       totalQty,
       freeCells,
@@ -313,7 +319,7 @@ export default function WarehouseMapPage() {
       reservedQty,
       receivingQty,
     };
-  }, [placements, mapData?.summary, normalizedCells.length]);
+  }, [mapData?.summary, normalizedCells.length]);
 
   const selectedPlacementBookmarked = !!(selectedPlacement && bookmarkedPackages.includes(selectedPlacement.id));
 
@@ -390,7 +396,7 @@ export default function WarehouseMapPage() {
   }
 
   function selectAllPackages() {
-    if (moveSources.length) return;
+    if (moveSources.length || hasMorePackages) return;
     setSelectedPackageIds(candidatePlacements.map((row) => row.id));
     if (candidatePlacements.length) setSelectedPackageId(candidatePlacements[0].id);
     clearMessages();
@@ -438,35 +444,25 @@ export default function WarehouseMapPage() {
       return;
     }
 
-    const movingIds = new Set(packagesToMove.map((row) => row.id));
-    const targetPlacements = placements.filter(
-      (row) => row.storage_cell === selectedCell && !movingIds.has(row.id),
-    );
-    const targetModels = new Set(
-      [...packagesToMove, ...targetPlacements]
-        .map((row) => String(row.model_code || row.model_id || ""))
-        .filter(Boolean),
-    );
-    if (!allowMixedModels && targetModels.size > 1) {
-      setMessageError(t("page.warehouseMap.mixedModelBlocked"));
-      return;
-    }
-
     try {
       setBusyAction("move");
       if (packagesToMove.length === 1) {
         await api.post(`/api/packages/${packagesToMove[0].id}/place-on-map`, {
           storage_cell: selectedCell,
           storage_shelf: selectedShelf,
+          allow_mixed_models: allowMixedModels,
+          enforce_model_guard: true,
         });
       } else {
         await api.post("/api/packages/batch/place-on-map", {
           package_ids: packagesToMove.map((row) => row.id),
           storage_cell: selectedCell,
           storage_shelf: selectedShelf,
+          allow_mixed_models: allowMixedModels,
+          enforce_model_guard: true,
         });
       }
-      await mutateMap();
+      await Promise.all([mutateMap(), mutateRackPreview(), mutatePackagePages()]);
       setMessage(packagesToMove.length === 1
         ? t("page.warehouseMap.moveSuccess", {
             package: packagesToMove[0].package_no,
@@ -480,7 +476,10 @@ export default function WarehouseMapPage() {
           }));
       setMoveSources([]);
     } catch (err: any) {
-      setMessageError(err?.message || t("page.warehouseMap.actionFailed"));
+      const message = err?.message || "";
+      setMessageError(message.includes("Cell already contains a different model")
+        ? t("page.warehouseMap.mixedModelBlocked")
+        : message || t("page.warehouseMap.actionFailed"));
     } finally {
       setBusyAction(null);
     }
@@ -787,14 +786,14 @@ export default function WarehouseMapPage() {
               </span>
             </div>
             <div className="mt-1 text-sm text-[#8a8472]">{selectedPlacement?.model_name || selectedPlacement?.package_no || t("page.warehouseMap.empty")}</div>
-            {candidatePlacements.length > 1 && (
+            {(candidateTotal > 1 || hasMorePackages) && (
               <div className="mt-3">
                 <div className="flex items-center justify-between gap-3">
                   <label className="label !mb-0">{t("field.packages")}</label>
                   <div className="text-xs text-[#8a8472]">
                     {t("page.warehouseMap.selectedPackages", {
                       count: selectedMovePlacements.length,
-                      total: candidatePlacements.length,
+                      total: candidateTotal,
                     })}
                   </div>
                 </div>
@@ -803,7 +802,7 @@ export default function WarehouseMapPage() {
                     type="button"
                     className="btn h-8 px-3 text-xs"
                     onClick={selectAllPackages}
-                    disabled={allCandidatePackagesSelected || moveSources.length > 0 || busyAction !== null}
+                    disabled={allCandidatePackagesSelected || hasMorePackages || moveSources.length > 0 || busyAction !== null}
                   >
                     {t("page.warehouseMap.selectAllPackages")}
                   </button>
@@ -841,6 +840,16 @@ export default function WarehouseMapPage() {
                     </label>
                   ))}
                 </div>
+                {hasMorePackages && (
+                  <button
+                    type="button"
+                    className="btn mt-2 w-full"
+                    onClick={() => setPackagePageCount(packagePageCount + 1)}
+                    disabled={packagesLoading || moveSources.length > 0 || busyAction !== null}
+                  >
+                    {packagesLoading ? t("common.loading") : t("common.loadMore")}
+                  </button>
+                )}
               </div>
             )}
             {moveSources.length > 0 && (
@@ -879,7 +888,7 @@ export default function WarehouseMapPage() {
               </div>
               <div>
                 <div className="label">{t("page.warehouseMap.onHand")}</div>
-                <div className="mono text-sm font-medium text-[#14110b]">{selectedShelfPlacements.length}</div>
+                <div className="mono text-sm font-medium text-[#14110b]">{selectedShelfTotal}</div>
               </div>
               <div>
                 <div className="label">{t("field.totalQty")}</div>
