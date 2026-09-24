@@ -26,7 +26,7 @@ def _create_user_with_permissions(
 ) -> dict[str, str]:
     role = client.post(
         "/api/roles",
-        json={"name": f"Payroll Role {email}", "permissions": permissions},
+        json={"name": f"Payroll Role {uuid4().hex}", "permissions": permissions},
         headers=admin_headers,
     )
     assert role.status_code == 201, role.text
