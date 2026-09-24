@@ -110,6 +110,12 @@ def create_forecast_recommendation(
     current: User = Depends(require_permissions("forecasting.manage", "*")),
 ):
     _validate_recommendation_references(payload, db)
+    unit = payload.unit
+    if payload.item_id is not None:
+        item_unit = db.query(Item.unit).filter(Item.id == payload.item_id).scalar()
+        if unit is not None and unit != item_unit:
+            raise HTTPException(409, "Recommendation unit must match the item unit")
+        unit = item_unit
     row = ForecastRecommendation(
         recommendation_type=payload.recommendation_type,
         status="open",
@@ -120,7 +126,7 @@ def create_forecast_recommendation(
         color=payload.color,
         size=payload.size,
         suggested_quantity=payload.suggested_quantity,
-        unit=payload.unit,
+        unit=unit,
         confidence=payload.confidence,
         reason=payload.reason,
         source_json=payload.source_json,
