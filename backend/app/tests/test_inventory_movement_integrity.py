@@ -8,7 +8,7 @@ from app.api.routes import inventory as inventory_routes
 from app.db import session as session_module
 from app.models import (
     AuditLog, ForecastRecommendation, IdempotencyRecord, Item, MaterialReservation, Model, ProductionOrder,
-    StockBatch, StockMovement, User, Warehouse,
+    StockBatch, StockMovement, User, Warehouse, WasteRecord,
 )
 from app.models.eco_transfer import EcoFabricDispatch, EcoFabricRoll
 from app.services.inventory import current_stock_for_item
@@ -480,6 +480,103 @@ def test_batch_edit_cannot_relabel_quantity_or_ledger_history(
             for row in db.query(StockMovement).filter_by(batch_id=batch.id).all()
         ] == before_movements
         assert db.query(AuditLog).count() == before_audits
+
+
+def test_zero_balance_batch_relabel_rejects_mismatched_linked_movement_without_writes(
+    client, auth_headers, movement_stock,
+):
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        batch.quantity = 0
+        batch.unit = "kg"
+        movement = db.query(StockMovement).filter_by(batch_id=batch.id).one()
+        movement.unit = "kg"
+        db.commit()
+        before_movements = [
+            (row.id, row.movement_type, row.quantity, row.unit)
+            for row in db.query(StockMovement).filter_by(batch_id=batch.id).all()
+        ]
+        before_audits = db.query(AuditLog).count()
+    before_stock = stock_state(movement_stock)
+
+    response = client.patch(
+        f"/api/inventory/batches/{movement_stock['batch_id']}",
+        headers=auth_headers,
+        json={"unit": "pcs"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "linked quantity units differ" in response.json()["detail"]
+    assert stock_state(movement_stock) == before_stock
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        assert batch.unit == "kg"
+        assert [
+            (row.id, row.movement_type, row.quantity, row.unit)
+            for row in db.query(StockMovement).filter_by(batch_id=batch.id).all()
+        ] == before_movements
+        assert db.query(AuditLog).count() == before_audits
+
+
+def test_zero_balance_batch_relabel_rejects_linked_waste_record_without_writes(
+    client, auth_headers, movement_stock,
+):
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        batch.quantity = 0
+        batch.unit = "kg"
+        db.add(WasteRecord(
+            item_id=movement_stock["item_id"],
+            batch_id=batch.id,
+            waste_type="Synthetic unit-label review",
+            quantity=1,
+            unit="pcs",
+            sellable=False,
+            estimated_value=0,
+        ))
+        db.commit()
+        before_waste = db.query(WasteRecord).filter_by(batch_id=batch.id).count()
+        before_audits = db.query(AuditLog).count()
+    before_stock = stock_state(movement_stock)
+
+    response = client.patch(
+        f"/api/inventory/batches/{movement_stock['batch_id']}",
+        headers=auth_headers,
+        json={"unit": "pcs"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "linked waste records exist" in response.json()["detail"]
+    assert stock_state(movement_stock) == before_stock
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        assert batch.unit == "kg"
+        assert db.query(WasteRecord).filter_by(batch_id=batch.id).count() == before_waste
+        assert db.query(AuditLog).count() == before_audits
+
+
+def test_zero_balance_unreferenced_batch_can_be_relabelled(client, auth_headers, movement_stock):
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        batch.quantity = 0
+        batch.unit = "kg"
+        for movement in db.query(StockMovement).filter_by(batch_id=batch.id).all():
+            db.delete(movement)
+        db.commit()
+        before_movement_count = db.query(StockMovement).count()
+
+    response = client.patch(
+        f"/api/inventory/batches/{movement_stock['batch_id']}",
+        headers=auth_headers,
+        json={"unit": "pcs"},
+    )
+
+    assert response.status_code == 200, response.text
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        assert batch.unit == "pcs"
+        assert batch.quantity == Decimal("0")
+        assert db.query(StockMovement).count() == before_movement_count
 
 
 def test_batch_archive_rejects_legacy_unit_drift_before_issue_or_reservation_release(
