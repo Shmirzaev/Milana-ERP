@@ -51,7 +51,7 @@ class PurchaseRequestIn(BaseModel):
     production_order_id: Optional[int] = None
     status: Literal["draft", "pending_approval"] = "pending_approval"
     notes: Optional[str] = None
-    lines: list[PurchaseRequestLineIn]
+    lines: list[PurchaseRequestLineIn] = Field(max_length=1000)
 
     @field_validator("status", mode="before")
     @classmethod
@@ -119,7 +119,7 @@ class PurchaseOrderIn(BaseModel):
     supplier_id: Optional[int] = None
     expected_date: Optional[datetime] = None
     notes: Optional[str] = None
-    lines: list[PurchaseOrderLineIn]
+    lines: list[PurchaseOrderLineIn] = Field(max_length=1000)
 
 
 class PurchaseOrderLineOut(ORMModel):
@@ -189,7 +189,7 @@ class PurchaseOrderReceiveLineIn(BaseModel):
 class PurchaseOrderReceiveIn(BaseModel):
     supplier_id: Optional[int] = None
     close_order: bool = False
-    lines: list[PurchaseOrderReceiveLineIn]
+    lines: list[PurchaseOrderReceiveLineIn] = Field(max_length=1000)
 
 
 class PurchaseRequestApprovalLineIn(BaseModel):
@@ -200,7 +200,7 @@ class PurchaseRequestApprovalLineIn(BaseModel):
 
 
 class PurchaseRequestApprovalIn(BaseModel):
-    lines: list[PurchaseRequestApprovalLineIn]
+    lines: list[PurchaseRequestApprovalLineIn] = Field(max_length=1000)
 
 
 class PurchaseRequestOrderLineIn(BaseModel):
@@ -210,4 +210,4 @@ class PurchaseRequestOrderLineIn(BaseModel):
 
 class PurchaseRequestOrderIn(BaseModel):
     expected_date: datetime
-    lines: list[PurchaseRequestOrderLineIn]
+    lines: list[PurchaseRequestOrderLineIn] = Field(max_length=1000)
