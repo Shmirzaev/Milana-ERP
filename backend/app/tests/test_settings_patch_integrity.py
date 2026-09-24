@@ -147,6 +147,50 @@ def test_real_logo_upload_and_partial_patch_preserve_company_fields(client, auth
     assert patched.json() == {"name": "Synthetic", "address": "Keep address", "phone": "456", "email": None, "logo_url": logo}
 
 
+def test_successful_logo_replacement_removes_only_previous_managed_image_and_thumbnails(
+    client, auth_headers, tmp_path, monkeypatch,
+):
+    previous_name = f"company_logo_{uuid4().hex}.webp"
+    previous_url = f"/storage/model-files/{previous_name}"
+    _seed("company_info", {
+        "name": "Synthetic",
+        "address": None,
+        "phone": None,
+        "email": None,
+        "logo_url": previous_url,
+    })
+    previous_file = tmp_path / previous_name
+    previous_file.write_bytes(b"old company logo")
+    thumbnail_root = tmp_path / "_thumbs"
+    thumbnail_root.mkdir()
+    previous_thumbnails = [
+        thumbnail_root / f"{size}_{previous_name}.webp"
+        for size in (160, 320)
+    ]
+    for thumbnail in previous_thumbnails:
+        thumbnail.write_bytes(b"old thumbnail")
+    unrelated = tmp_path / "unrelated.webp"
+    unrelated.write_bytes(b"preserve unrelated image")
+    monkeypatch.setattr(settings_routes.app_settings, "MODEL_FILES_DIR", str(tmp_path))
+
+    data = BytesIO()
+    Image.new("RGB", (12, 12), "white").save(data, format="PNG")
+    response = client.post(
+        "/api/settings/company-logo/upload",
+        headers=auth_headers,
+        files={"file": ("replacement.png", data.getvalue(), "image/png")},
+    )
+
+    assert response.status_code == 201, response.text
+    replacement_url = response.json()["logo_url"]
+    assert replacement_url != previous_url
+    assert not previous_file.exists()
+    assert all(not thumbnail.exists() for thumbnail in previous_thumbnails)
+    assert unrelated.read_bytes() == b"preserve unrelated image"
+    assert (tmp_path / replacement_url.rsplit("/", 1)[-1]).exists()
+    assert _state()[0]["company_info"]["logo_url"] == replacement_url
+
+
 def test_logo_transaction_failure_removes_new_files_and_preserves_existing_logo(tmp_path, monkeypatch):
     previous_url = "/storage/model-files/existing-company-logo.webp"
     _seed("company_info", {

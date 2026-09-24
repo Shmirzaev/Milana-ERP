@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
+import re
 from functools import partial
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -46,6 +49,10 @@ _SCHEMAS = {
 }
 _SETTING_LOCK_KEYS = {"company_info": 1, "financial": 2, "preferences": 3}
 SYSTEM_LANGUAGES = frozenset({"en", "ru", "uz"})
+_logger = logging.getLogger(__name__)
+_MANAGED_COMPANY_LOGO_URL = re.compile(
+    r"^/storage/model-files/(company_logo_[0-9a-f]{32}\.webp)$"
+)
 
 
 def _validate_settings_types(section: str, payload: dict) -> None:
@@ -147,7 +154,7 @@ async def upload_company_logo(
     commit_state = UploadCommitState()
 
     try:
-        await run_upload_db_work(
+        replaced_logo_url = await run_upload_db_work(
             worker_sessions,
             partial(_save_uploaded_company_logo, actor_id=actor_id, logo_url=logo_url),
             commit=True,
@@ -157,6 +164,16 @@ async def upload_company_logo(
         if not commit_state.committed:
             await discard_stored_image(stored)
         raise
+
+    try:
+        await run_upload_db_work(
+            worker_sessions,
+            partial(_discard_replaced_company_logo, replaced_logo_url=replaced_logo_url),
+        )
+    except Exception:
+        # The new logo is already committed. Cleanup is best effort and must
+        # not make the successful update appear to have failed.
+        _logger.warning("Unable to clean up replaced company logo", exc_info=True)
     return {"logo_url": logo_url}
 
 
@@ -165,7 +182,7 @@ def _save_uploaded_company_logo(
     *,
     actor_id: int,
     logo_url: str,
-) -> None:
+) -> str | None:
     actor = db.get(User, actor_id)
     if not actor:
         raise HTTPException(401, "Inactive or unknown user")
@@ -173,6 +190,7 @@ def _save_uploaded_company_logo(
     company = CompanyInfo(
         **(row.value_json if row and isinstance(row.value_json, dict) else {})
     ).model_dump()
+    previous_logo_url = company.get("logo_url")
     company["logo_url"] = logo_url
     if row:
         row.value_json = CompanyInfo(**company).model_dump()
@@ -191,3 +209,43 @@ def _save_uploaded_company_logo(
         row.id,
         new_value={"logo_url": logo_url},
     )
+    return previous_logo_url
+
+
+def _discard_replaced_company_logo(
+    db: Session,
+    *,
+    replaced_logo_url: str | None,
+) -> None:
+    if not replaced_logo_url:
+        return
+    match = _MANAGED_COMPANY_LOGO_URL.fullmatch(replaced_logo_url)
+    if match is None:
+        return
+
+    file_name = match.group(1)
+    storage_root = Path(app_settings.MODEL_FILES_DIR).resolve()
+    image_path = (storage_root / file_name).resolve()
+    if image_path.parent != storage_root:
+        return
+
+    # Serialize with logo uploads and company-info PATCHes, then verify the
+    # previous path was not made current again before removing it.
+    row = _setting_for_update(db, "company_info")
+    company = CompanyInfo(
+        **(row.value_json if row and isinstance(row.value_json, dict) else {})
+    ).model_dump()
+    if company.get("logo_url") == replaced_logo_url:
+        return
+
+    from app.services.image_storage import PREBUILT_THUMBNAIL_SIZES
+
+    thumbnail_root = storage_root / "_thumbs"
+    resolved_thumbnail_root = thumbnail_root.resolve()
+    if resolved_thumbnail_root.parent != storage_root:
+        return
+    for size in PREBUILT_THUMBNAIL_SIZES:
+        thumbnail = thumbnail_root / f"{size}_{file_name}.webp"
+        if thumbnail.resolve().parent == resolved_thumbnail_root:
+            thumbnail.unlink(missing_ok=True)
+    image_path.unlink(missing_ok=True)
