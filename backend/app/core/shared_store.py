@@ -13,6 +13,7 @@ from app.core.config import settings
 
 
 class SharedCounterStore(Protocol):
+    def ping(self) -> None: ...
     def increment(self, key: str, ttl_seconds: int) -> int: ...
     def ttl(self, key: str) -> int | None: ...
     def set(self, key: str, value: str, ttl_seconds: int) -> None: ...
@@ -26,6 +27,9 @@ class InMemorySharedCounterStore:
 
     _values: dict[str, tuple[int | str, float]] = field(default_factory=dict)
     _lock: RLock = field(default_factory=RLock)
+
+    def ping(self) -> None:
+        return None
 
     def _purge_expired(self) -> None:
         now = time.time()
@@ -91,6 +95,9 @@ return count
 
     def _key(self, key: str) -> str:
         return f"{self._prefix}:{key}" if self._prefix else key
+
+    def ping(self) -> None:
+        self._client.ping()
 
     def increment(self, key: str, ttl_seconds: int) -> int:
         ttl = max(1, int(ttl_seconds or 1))
@@ -161,6 +168,10 @@ class SQLiteSharedCounterStore:
 
     def _key(self, key: str) -> str:
         return f"{self._prefix}:{key}" if self._prefix else key
+
+    def ping(self) -> None:
+        with sqlite3.connect(self._db_path, timeout=5) as conn:
+            conn.execute("SELECT 1 FROM shared_counters LIMIT 1").fetchone()
 
     @staticmethod
     def _purge_expired(conn: sqlite3.Connection) -> None:

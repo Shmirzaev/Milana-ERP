@@ -222,8 +222,10 @@ ln -sfn /opt/milana-erp/releases/<release_id> /opt/milana-erp/current
 ## Required postflight
 
 ```sh
+curl --fail http://172.16.10.4:8000/ready
 curl --fail http://172.16.10.4:8000/health
 curl --fail --head http://172.16.10.5:3000/login
+curl --fail https://erp.milanapremium.uz/ready
 curl --fail https://erp.milanapremium.uz/health
 curl --fail --head https://erp.milanapremium.uz/login
 ```

@@ -135,6 +135,7 @@ _RATE_LIMIT_IP_ONLY_PATHS = {
 }
 _READINESS_TIMEOUT_SECONDS = 2.0
 _READINESS_CHECK_SLOT = Lock()
+_SHARED_STORE_READINESS_CHECK_SLOT = Lock()
 
 
 def _probe_postgresql() -> None:
@@ -142,34 +143,59 @@ def _probe_postgresql() -> None:
         connection.execute(text("SELECT 1")).scalar_one()
 
 
-def _postgresql_ready_within(timeout_seconds: float) -> bool:
-    """Bound readiness latency and allow at most one stuck database probe."""
-    slot = _READINESS_CHECK_SLOT
-    if not slot.acquire(blocking=False):
-        return False
+def _probe_shared_store() -> None:
+    get_shared_counter_store().ping()
 
-    completed = Event()
-    ready = False
 
-    def run_probe() -> None:
-        nonlocal ready
+def _dependencies_ready_within(timeout_seconds: float) -> dict[str, bool]:
+    """Probe required dependencies concurrently within one latency budget.
+
+    A separate non-blocking slot per dependency prevents a timed-out probe from
+    accumulating daemon threads while still allowing the other dependency to
+    be checked on later requests.
+    """
+    probes = {
+        "postgresql": (_probe_postgresql, _READINESS_CHECK_SLOT),
+        "shared_store": (_probe_shared_store, _SHARED_STORE_READINESS_CHECK_SLOT),
+    }
+    completed: dict[str, Event | None] = {}
+    ready = dict.fromkeys(probes, False)
+
+    for name, (probe, slot) in probes.items():
+        if not slot.acquire(blocking=False):
+            completed[name] = None
+            continue
+
+        event = Event()
+        completed[name] = event
+
+        def run_probe(
+            dependency_probe=probe,
+            dependency_slot=slot,
+            dependency_name=name,
+            dependency_event=event,
+        ) -> None:
+            try:
+                dependency_probe()
+            except Exception:
+                pass
+            else:
+                ready[dependency_name] = True
+            finally:
+                dependency_slot.release()
+                dependency_event.set()
+
         try:
-            _probe_postgresql()
+            Thread(target=run_probe, name=f"{name}-readiness", daemon=True).start()
         except Exception:
-            pass
-        else:
-            ready = True
-        finally:
             slot.release()
-            completed.set()
+            event.set()
 
-    try:
-        Thread(target=run_probe, name="postgres-readiness", daemon=True).start()
-    except Exception:
-        slot.release()
-        return False
-
-    return completed.wait(timeout=max(timeout_seconds, 0.001)) and ready
+    deadline = perf_counter() + max(timeout_seconds, 0.001)
+    observed: dict[str, bool] = {}
+    for name, event in completed.items():
+        observed[name] = event is not None and event.wait(timeout=max(0.0, deadline - perf_counter()))
+    return {name: observed[name] and ready[name] for name in probes}
 
 
 def _rate_limit_client_key(request: Request) -> str:
@@ -524,9 +550,11 @@ def health():
 
 @app.get("/ready", response_model=None)
 def readiness() -> dict[str, object] | JSONResponse:
-    if _postgresql_ready_within(_READINESS_TIMEOUT_SECONDS):
-        return {"status": "ready", "checks": {"postgresql": "ok"}}
+    readiness_checks = _dependencies_ready_within(_READINESS_TIMEOUT_SECONDS)
+    checks = {name: "ok" if ready else "unavailable" for name, ready in readiness_checks.items()}
+    if all(readiness_checks.values()):
+        return {"status": "ready", "checks": checks}
     return JSONResponse(
         status_code=503,
-        content={"status": "not_ready", "checks": {"postgresql": "unavailable"}},
+        content={"status": "not_ready", "checks": checks},
     )
