@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, Response
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 import base64
@@ -1409,6 +1409,113 @@ def storage_map(
         "cells": cells,
         "placements": placements,
         "matches": matches,
+    }
+
+
+class StorageMapCellSummaryOut(BaseModel):
+    code: str
+    zone: str
+    count: int
+    status: str
+    matched_count: int = 0
+
+
+class StorageMapOverviewOut(BaseModel):
+    summary: dict[str, int]
+    cells: list[StorageMapCellSummaryOut]
+
+
+class StorageMapModelPackageOut(BaseModel):
+    id: int
+    package_no: str
+    storage_cell: str
+    storage_shelf: str | None
+    total_quantity: int
+    status: str
+
+
+class StorageMapModelPageOut(BaseModel):
+    rows: list[StorageMapModelPackageOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+@router.get("/storage-map/summary", response_model=StorageMapOverviewOut)
+def storage_map_summary(db: DbSession, _: CurrentUser):
+    ready_statuses = ["packed", "received_in_storage", "reserved"]
+    layout_codes = [
+        f"{zone}-{idx:02d}"
+        for zone, size in WAREHOUSE_MAP_LAYOUT
+        for idx in range(1, size + 1)
+    ]
+    cell_key = case((Package.storage_cell.in_(layout_codes), Package.storage_cell), else_=None)
+    counts = dict(
+        db.query(cell_key, func.count(Package.id))
+        .filter(Package.status.in_(ready_statuses), Package.storage_cell.isnot(None))
+        .group_by(cell_key)
+        .all()
+    )
+    cells = []
+    for zone, size in WAREHOUSE_MAP_LAYOUT:
+        for idx in range(1, size + 1):
+            code = f"{zone}-{idx:02d}"
+            count = counts.get(code, 0)
+            cells.append({
+                "code": code,
+                "zone": zone,
+                "count": count,
+                "status": "free" if count == 0 else "partial" if count == 1 else "full",
+                "matched_count": 0,
+            })
+    packages_on_map = sum(counts.values())
+    return {
+        "summary": {
+            "cells_total": len(cells),
+            "cells_occupied": sum(cell["count"] > 0 for cell in cells),
+            "packages_on_map": packages_on_map,
+            "packages_in_storage": packages_on_map,
+            "matched_packages": 0,
+        },
+        "cells": cells,
+    }
+
+
+@router.get("/storage-map/models/{model_id}", response_model=StorageMapModelPageOut)
+def storage_map_model_packages(
+    model_id: int,
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+):
+    query = db.query(Package).filter(
+        Package.model_id == model_id,
+        Package.storage_cell.isnot(None),
+        Package.status.in_(["packed", "received_in_storage", "reserved"]),
+    )
+    total = query.count()
+    packages = (
+        query.options(load_only(
+            Package.id,
+            Package.package_no,
+            Package.storage_cell,
+            Package.storage_shelf,
+            Package.total_quantity,
+            Package.status,
+        ))
+        .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {
+        "rows": packages,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
     }
 
 
