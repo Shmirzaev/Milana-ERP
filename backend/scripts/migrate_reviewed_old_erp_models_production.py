@@ -369,9 +369,17 @@ def _validate_sizes(raw: object, label: str) -> list[dict[str, Any]]:
             raise MigrationError(f"{label}.sizes[{position}] is blank")
         if len(size) > 32:
             raise MigrationError(f"{label}.sizes[{position}] exceeds the database limit")
+        measurement_json = row.get("measurement_json")
+        try:
+            local_import.validate_size_measurements(
+                measurement_json,
+                f"{label}.sizes[{position}].measurement_json",
+            )
+        except local_import.MigrationError as exc:
+            raise MigrationError(str(exc)) from exc
         value = {
             "size": size,
-            "measurement_json": copy.deepcopy(row.get("measurement_json")),
+            "measurement_json": copy.deepcopy(measurement_json),
         }
         if key in result and result[key] != value:
             raise MigrationError(f"{label} has conflicting duplicate size {size!r}")

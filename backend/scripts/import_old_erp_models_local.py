@@ -44,6 +44,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from pydantic import ValidationError
 from sqlalchemy import func, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import selectinload
@@ -52,6 +53,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import Model, ModelBOM, ModelColor, ModelImage, ModelSize, User
+from app.schemas.catalog import ModelSizeMeasurements
 
 
 SCHEMA_VERSION = 1
@@ -420,6 +422,10 @@ def load_sizes(payload: Any) -> dict[int, dict[str, Any]]:
                 measurement = None
             if not size:
                 continue
+            validate_size_measurements(
+                measurement,
+                f"Sizes/details manifest model {old_model_id} size {size!r}.measurement_json",
+            )
             normalized_sizes.append({"size": size, "measurement_json": measurement})
         scalar = row.get("scalar") if isinstance(row.get("scalar"), dict) else {}
         indexed[old_model_id] = {
@@ -428,6 +434,16 @@ def load_sizes(payload: Any) -> dict[int, dict[str, Any]]:
             "raw": copy.deepcopy(row),
         }
     return indexed
+
+
+def validate_size_measurements(value: Any, label: str) -> None:
+    """Apply the live ModelSize measurement shape to imported new rows."""
+    if value is None:
+        return
+    try:
+        ModelSizeMeasurements.model_validate(value)
+    except ValidationError as exc:
+        raise MigrationError(f"{label} does not match the ModelSize measurement schema") from exc
 
 
 def image_sha(row: dict[str, Any], field: str) -> str:

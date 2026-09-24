@@ -799,6 +799,40 @@ def test_existing_model_preserves_code_name_images_and_nonblank_information() ->
     assert action["add_colors"] == [{"color_name": "Red", "color_code": "#f00"}]
 
 
+@pytest.mark.parametrize(
+    "measurement_json",
+    [
+        {"shoulder": 40},
+        {"chest": {"value": 92}},
+        {"waist": "71.5"},
+        {"hip": [98]},
+        {"length": True},
+        {"sleeve": float("inf")},
+    ],
+)
+def test_reviewed_package_rejects_measurements_outside_live_schema(measurement_json) -> None:
+    with pytest.raises(migration.MigrationError, match="measurement schema"):
+        migration._validate_sizes(
+            [{"size": "M", "measurement_json": measurement_json}],
+            "Package model TEST",
+        )
+
+
+def test_reviewed_package_preserves_valid_measurements_and_null() -> None:
+    measurements = {"chest": 92, "waist": 71.5}
+
+    assert migration._validate_sizes(
+        [
+            {"size": "M", "measurement_json": measurements},
+            {"size": "L", "measurement_json": None},
+        ],
+        "Package model TEST",
+    ) == [
+        {"size": "L", "measurement_json": None},
+        {"size": "M", "measurement_json": measurements},
+    ]
+
+
 def test_existing_update_is_idempotent_after_receipt() -> None:
     exact = paid_operation("old-1", "Exact")
     missing = paid_operation("old-2", "Missing")

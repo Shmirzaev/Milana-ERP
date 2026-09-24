@@ -161,6 +161,42 @@ def test_sizes_manifest_accepts_progress_records_wrapper() -> None:
     assert indexed[42]["raw"]["checks"] == {"size_button_count": 1}
 
 
+@pytest.mark.parametrize(
+    "measurement_json",
+    [
+        {"shoulder": 40},
+        {"chest": {"value": 92}},
+        {"waist": "71.5"},
+        {"hip": [98]},
+        {"length": True},
+        {"sleeve": float("nan")},
+    ],
+)
+def test_sizes_manifest_rejects_measurements_outside_live_schema(measurement_json) -> None:
+    payload = [{"old_model_id": 42, "sizes": [{"size": "M", "measurement_json": measurement_json}]}]
+
+    with pytest.raises(migration.MigrationError, match="measurement schema"):
+        migration.load_sizes(payload)
+
+
+def test_sizes_manifest_preserves_valid_measurements_and_null() -> None:
+    measurements = {"chest": 92, "waist": 71.5}
+    indexed = migration.load_sizes(
+        [{
+            "old_model_id": 42,
+            "sizes": [
+                {"size": "M", "measurement_json": measurements},
+                {"size": "L", "measurement_json": None},
+            ],
+        }]
+    )
+
+    assert indexed[42]["sizes"] == [
+        {"size": "M", "measurement_json": measurements},
+        {"size": "L", "measurement_json": None},
+    ]
+
+
 def test_new_variant_protected_fields_come_from_exact_parent_not_db_group() -> None:
     parent = {
         "old_model_id": 10,
