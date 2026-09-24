@@ -23,7 +23,7 @@ def _bounded_text(value: str | None, field: str, maximum: int) -> str | None:
     return value
 
 
-def _validated_amount(value: float, kind: str, *, allow_zero: bool) -> Decimal:
+def _validated_amount(value: Decimal | float, kind: str, *, allow_zero: bool) -> Decimal:
     amount = Decimal(str(value))
     if not amount.is_finite():
         raise ValueError(f"{kind} amount must be finite")
@@ -32,6 +32,8 @@ def _validated_amount(value: float, kind: str, *, allow_zero: bool) -> Decimal:
         raise ValueError(f"{kind} amount must be {qualifier}")
     if amount > MAX_MONEY:
         raise ValueError(f"{kind} amount must be no more than {MAX_MONEY}")
+    if amount != amount.quantize(Decimal("0.01")):
+        raise ValueError(f"{kind} amount must have at most 2 decimal places")
     return amount
 
 

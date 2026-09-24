@@ -70,6 +70,8 @@ def test_1c_sync_accepts_established_money_boundaries(client, kind, amount):
         ("invoice", 1_000_000_000_000, "invoice amount must be no more than 999999999999.99"),
         ("payment", 0, "payment amount must be greater than zero"),
         ("payment", -0.01, "payment amount must be greater than zero"),
+        ("invoice", 1.001, "invoice amount must have at most 2 decimal places"),
+        ("payment", 1.001, "payment amount must have at most 2 decimal places"),
         ("payment", float("nan"), "payment amount must be finite"),
         ("payment", float("inf"), "payment amount must be finite"),
         ("payment", 1_000_000_000_000, "payment amount must be no more than 999999999999.99"),
