@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useDeferredValue, useEffect, useMemo, useState } from "react";
+import useSWRInfinite from "swr/infinite";
 
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
@@ -28,6 +29,15 @@ const DEPT_LABELS: Record<string, string> = {
   BPK: "nav.besttexPackaging",
   ECP: "nav.ecoCottonPackaging",
   FGS: "nav.finishedGoods",
+};
+
+type InboxPackagePage = {
+  rows: any[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+  group_total: number;
 };
 
 function MaterialThumb({ row }: { row: any }) {
@@ -84,6 +94,10 @@ export default function DepartmentInboxPage() {
   const [startError, setStartError] = useState("");
   const [creatingShipmentFor, setCreatingShipmentFor] = useState<string | null>(null);
   const [shipmentError, setShipmentError] = useState("");
+  const [pendingPackageSearch, setPendingPackageSearch] = useState("");
+  const [readyPackageSearch, setReadyPackageSearch] = useState("");
+  const deferredPendingPackageSearch = useDeferredValue(pendingPackageSearch.trim());
+  const deferredReadyPackageSearch = useDeferredValue(readyPackageSearch.trim());
 
   useEffect(() => {
     try {
@@ -97,6 +111,28 @@ export default function DepartmentInboxPage() {
   const { data, isLoading, mutate } = useSWR<any>(code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null, fetcher, {
     refreshInterval: 10_000,
   });
+  const {
+    data: pendingPackagePages,
+    mutate: mutatePendingPackagePages,
+    setSize: setPendingPackagePageCount,
+    isValidating: pendingPackagesValidating,
+  } = useSWRInfinite<InboxPackagePage>(
+    (index, previous) => code === "FGS" && !(previous && !previous.has_more)
+      ? `/api/inbox/packages?status=pending&page=${index + 1}&page_size=50&q=${encodeURIComponent(deferredPendingPackageSearch)}`
+      : null,
+    fetcher,
+  );
+  const {
+    data: readyPackagePages,
+    mutate: mutateReadyPackagePages,
+    setSize: setReadyPackagePageCount,
+    isValidating: readyPackagesValidating,
+  } = useSWRInfinite<InboxPackagePage>(
+    (index, previous) => code === "FGS" && !(previous && !previous.has_more)
+      ? `/api/inbox/packages?status=ready&page=${index + 1}&page_size=50&q=${encodeURIComponent(deferredReadyPackageSearch)}`
+      : null,
+    fetcher,
+  );
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
   const replacementCuttingWork = Array.isArray(data?.replacement_cutting_work) ? data.replacement_cutting_work : [];
@@ -121,12 +157,10 @@ export default function DepartmentInboxPage() {
     { kind: "in_progress", rows: inProgressWorkOrders },
     { kind: "completed", rows: Array.isArray(data?.done_today) ? data.done_today : [] },
   ]);
-  const pendingPackages = useMemo(() => (
-    Array.isArray(data?.pending_packages) ? data.pending_packages : []
-  ), [data?.pending_packages]);
-  const readyPackages = useMemo(() => (
-    Array.isArray(data?.ready_packages) ? data.ready_packages : []
-  ), [data?.ready_packages]);
+  const pendingPackages = useMemo(() => pendingPackagePages?.flatMap((page) => page.rows) || [], [pendingPackagePages]);
+  const readyPackages = useMemo(() => readyPackagePages?.flatMap((page) => page.rows) || [], [readyPackagePages]);
+  const pendingPackagesTotal = pendingPackagePages?.[0]?.total ?? 0;
+  const readyPackagesTotal = readyPackagePages?.[0]?.total ?? 0;
   const [expandedPackageGroups, setExpandedPackageGroups] = useState<Record<string, boolean>>({});
 
   const pendingPackagesByOrder = useMemo(() => {
@@ -216,6 +250,9 @@ export default function DepartmentInboxPage() {
       })),
     }));
   }, [data?.ready_to_ship, readyPackagesByOrder]);
+  const readyToShipCount = Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0
+    ? readyToShipOrders.length
+    : readyPackagePages?.[0]?.group_total ?? 0;
 
   async function movePendingToInProgress(workOrderId: number) {
     setStartingWoId(workOrderId);
@@ -239,7 +276,7 @@ export default function DepartmentInboxPage() {
     try {
       const created = await api.post("/api/shipments", { sales_order_id: soId });
       await api.post(`/api/shipments/${created.id}/add-ready-packages`);
-      await mutate();
+      await Promise.all([mutate(), mutatePendingPackagePages(), mutateReadyPackagePages()]);
       openShipment(soId, created.id);
     } catch (e: any) {
       setShipmentError(e?.message || "Failed to create shipment");
@@ -394,8 +431,18 @@ export default function DepartmentInboxPage() {
         <div className="grid grid-cols-1 gap-4 mt-4 lg:grid-cols-2">
           <section className="card overflow-x-auto p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.pendingPackageIntake", { count: pendingPackages.length })}
+              {t("page.deptInbox.pendingPackageIntake", { count: pendingPackagesTotal })}
             </h3>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <input
+                className="input h-8 min-w-48 flex-1"
+                aria-label={`${t("common.search")} ${t("field.package")}`}
+                placeholder={`${t("common.search")} ${t("field.package").toLowerCase()}`}
+                value={pendingPackageSearch}
+                onChange={(event) => setPendingPackageSearch(event.target.value)}
+              />
+              <span className="text-xs text-slate-500">{pendingPackages.length} / {pendingPackagesTotal}</span>
+            </div>
             <table className="table">
               <thead><tr><th>{t("field.salesOrderShort")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th><th className="text-right">{t("field.actions")}</th></tr></thead>
               <tbody>
@@ -443,11 +490,31 @@ export default function DepartmentInboxPage() {
                 )}
               </tbody>
             </table>
+            {pendingPackagePages?.[pendingPackagePages.length - 1]?.has_more && (
+              <button
+                className="btn mt-3"
+                type="button"
+                disabled={pendingPackagesValidating}
+                onClick={() => setPendingPackagePageCount((size) => size + 1)}
+              >
+                {pendingPackagesValidating ? t("common.loading") : t("common.loadMore")}
+              </button>
+            )}
           </section>
           <section className="card overflow-x-auto p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.readyToShip", { count: readyToShipOrders.length })}
+              {t("page.deptInbox.readyToShip", { count: readyToShipCount })}
             </h3>
+            {!(Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0) && <div className="mb-3 flex flex-wrap items-center gap-2">
+              <input
+                className="input h-8 min-w-48 flex-1"
+                aria-label={`${t("common.search")} ${t("field.package")}`}
+                placeholder={`${t("common.search")} ${t("field.package").toLowerCase()}`}
+                value={readyPackageSearch}
+                onChange={(event) => setReadyPackageSearch(event.target.value)}
+              />
+              <span className="text-xs text-slate-500">{readyPackages.length} / {readyPackagesTotal}</span>
+            </div>}
             {shipmentError && <div className="mb-2 text-xs text-red-600">{shipmentError}</div>}
             <table className="table">
               <thead>
@@ -518,6 +585,58 @@ export default function DepartmentInboxPage() {
                 )}
               </tbody>
             </table>
+            {!(Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0) && readyPackagePages?.[readyPackagePages.length - 1]?.has_more && (
+              <button
+                className="btn mt-3"
+                type="button"
+                disabled={readyPackagesValidating}
+                onClick={() => setReadyPackagePageCount((size) => size + 1)}
+              >
+                {readyPackagesValidating ? t("common.loading") : t("common.loadMore")}
+              </button>
+            )}
+            {Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0 && (
+              <div className="mt-4 border-t border-slate-200 pt-4">
+                <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  {t("field.packages")} ({readyPackagesTotal})
+                </h4>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <input
+                    className="input h-8 min-w-48 flex-1"
+                    aria-label={`${t("common.search")} ${t("field.package")}`}
+                    placeholder={`${t("common.search")} ${t("field.package").toLowerCase()}`}
+                    value={readyPackageSearch}
+                    onChange={(event) => setReadyPackageSearch(event.target.value)}
+                  />
+                  <span className="text-xs text-slate-500">{readyPackages.length} / {readyPackagesTotal}</span>
+                </div>
+                <table className="table text-xs">
+                  <thead><tr><th>{t("field.salesOrderShort")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th></tr></thead>
+                  <tbody>
+                    {readyPackagesByOrder.map((group) => (
+                      <tr key={`ready-package-${group.key}`}>
+                        <td>{orderReference(group, "-")}</td>
+                        <td>{group.packages.length}</td>
+                        <td>{group.total_quantity}</td>
+                      </tr>
+                    ))}
+                    {readyPackagesByOrder.length === 0 && (
+                      <tr><td colSpan={3} className="text-sm text-slate-400">{t("page.deptInbox.noReadyToShip")}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+                {readyPackagePages?.[readyPackagePages.length - 1]?.has_more && (
+                  <button
+                    className="btn mt-3"
+                    type="button"
+                    disabled={readyPackagesValidating}
+                    onClick={() => setReadyPackagePageCount((size) => size + 1)}
+                  >
+                    {readyPackagesValidating ? t("common.loading") : t("common.loadMore")}
+                  </button>
+                )}
+              </div>
+            )}
           </section>
         </div>
       )}

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, or_
 from sqlalchemy.orm import load_only, selectinload
 
@@ -79,6 +79,78 @@ _DOWNSTREAM_BUNDLE_STATUSES = (
     "sent_to_sewing",
     "received_sewing",
 )
+
+
+def _require_inbox_department_permission(department: Department, current: CurrentUser) -> None:
+    operation = _DEPT_OPERATION.get(department.code)
+    required = WORK_ORDER_OPERATION_PERMISSIONS.get(operation or "", set())
+    granted = set(user_permissions(current))
+    if required and "*" not in granted and not required.intersection(granted):
+        raise HTTPException(403, f"Missing permission for {department.code} department inbox")
+
+
+@router.get("/packages")
+def finished_goods_packages(
+    db: DbSession,
+    current: CurrentUser,
+    status: str = Query("ready", pattern="^(pending|ready)$"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    q: str | None = Query(None, max_length=100),
+):
+    department = _resolve_department(db, current, "FGS")
+    _require_inbox_department_permission(department, current)
+    package_statuses = ("packed",) if status == "pending" else ("received_in_storage", "reserved")
+    query = (
+        db.query(
+            Package.id,
+            Package.package_no,
+            Package.sales_order_id,
+            Package.total_quantity,
+            Package.status,
+            SalesOrder.order_no,
+        )
+        .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
+        .filter(Package.status.in_(package_statuses))
+    )
+    term = (q or "").strip()
+    if term:
+        escaped_term = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped_term}%"
+        query = query.filter(
+            or_(
+                Package.package_no.ilike(pattern, escape="\\"),
+                SalesOrder.order_no.ilike(pattern, escape="\\"),
+            )
+        )
+    total = int(query.order_by(None).count())
+    group_keys = (
+        query.with_entities(Package.sales_order_id)
+        .group_by(Package.sales_order_id)
+        .order_by(None)
+        .subquery()
+    )
+    group_total = int(db.query(func.count()).select_from(group_keys).scalar() or 0)
+    rows = query.order_by(Package.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": [
+            {
+                "id": int(row.id),
+                "package_no": row.package_no,
+                "sales_order_id": int(row.sales_order_id) if row.sales_order_id is not None else None,
+                "sales_order_no": row.order_no,
+                "order_no": row.order_no,
+                "total_quantity": int(row.total_quantity or 0),
+                "status": row.status,
+            }
+            for row in rows
+        ],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "group_total": group_total,
+        "has_more": page * page_size < total,
+    }
 
 
 def _orders_progressed_beyond_cutting(db: DbSession, production_order_ids: list[int]) -> set[int]:
@@ -1165,6 +1237,8 @@ def department_inbox(
 
     pending_packages = []
     ready_packages = []
+    pending_packages_total = 0
+    ready_packages_total = 0
     ready_to_ship = []
     if d.code == "FGS":
         package_list_columns = (
@@ -1174,9 +1248,11 @@ def department_inbox(
             Package.total_quantity,
             Package.status,
         )
-        packed = db.query(Package).options(
+        packed_rows = db.query(Package, func.count(Package.id).over()).options(
             load_only(*package_list_columns)
-        ).filter(Package.status == "packed").order_by(Package.id.desc()).limit(200).all()
+        ).filter(Package.status == "packed").order_by(Package.id.desc()).limit(50).all()
+        pending_packages_total = int(packed_rows[0][1]) if packed_rows else 0
+        packed = [package for package, _total in packed_rows]
         packed_so_ids = {int(p.sales_order_id) for p in packed if p.sales_order_id}
         packed_sales_by_id = {
             int(so.id): so
@@ -1193,9 +1269,12 @@ def department_inbox(
             }
             for p in packed
         ]
-        ready = db.query(Package).options(
+        ready_statuses = ("received_in_storage", "reserved")
+        ready_rows = db.query(Package, func.count(Package.id).over()).options(
             load_only(*package_list_columns)
-        ).filter(Package.status.in_(["received_in_storage", "reserved"])).all()
+        ).filter(Package.status.in_(ready_statuses)).order_by(Package.id.desc()).limit(50).all()
+        ready_packages_total = int(ready_rows[0][1]) if ready_rows else 0
+        ready = [package for package, _total in ready_rows]
         ready_so_ids = {int(p.sales_order_id) for p in ready if p.sales_order_id}
         ready_sales_by_id = {
             int(so.id): so
@@ -1431,5 +1510,7 @@ def department_inbox(
         "awaiting_packaging": awaiting_packaging,
         "pending_packages": pending_packages,
         "ready_packages": ready_packages,
+        "pending_packages_total": pending_packages_total,
+        "ready_packages_total": ready_packages_total,
         "ready_to_ship": ready_to_ship,
     }
