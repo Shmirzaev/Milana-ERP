@@ -1,5 +1,7 @@
 """Reject values that cannot fit the existing sales-item database columns."""
 
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
@@ -33,6 +35,8 @@ def test_sales_item_rejects_unrepresentable_numbers(overrides):
 def test_sales_item_preserves_supported_numeric_values(overrides):
     parsed = SalesOrderItemIn(**_item(**overrides))
     for field, value in overrides.items():
+        if field == "unit_price" and value is not None:
+            value = Decimal(str(value))
         assert getattr(parsed, field) == value
 
 

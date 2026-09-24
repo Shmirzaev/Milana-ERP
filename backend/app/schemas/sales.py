@@ -68,9 +68,9 @@ class SalesOrderIn(BaseModel):
     order_type: str = "client_order"
     deadline: Optional[datetime] = None
     printing_instructions: Optional[str] = None
-    printing_attachments: list[SalesOrderPrintingAttachment] = []
+    printing_attachments: list[SalesOrderPrintingAttachment] = Field(default_factory=list, max_length=50)
     notes: Optional[str] = None
-    items: list[SalesOrderItemIn] = []
+    items: list[SalesOrderItemIn] = Field(default_factory=list, max_length=1000)
 
 
 class SalesOrderUpdate(BaseModel):
@@ -225,7 +225,12 @@ class InvoiceOut(ORMModel):
 
 class PaymentIn(BaseModel):
     invoice_id: int = Field(gt=0, le=2_147_483_647)
-    amount: float = Field(ge=0.01, le=999_999_999_999.99, allow_inf_nan=False)
+    amount: Decimal = Field(
+        ge=Decimal("0.01"),
+        le=Decimal("999999999999.99"),
+        multiple_of=Decimal("0.01"),
+        allow_inf_nan=False,
+    )
     paid_at: Optional[datetime] = None
     payment_method: Optional[str] = Field(default=None, max_length=32)
     notes: Optional[str] = None

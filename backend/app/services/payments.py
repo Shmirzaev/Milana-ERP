@@ -40,7 +40,7 @@ def create_invoice_payment(
     db: Session,
     invoice: Invoice,
     *,
-    amount: float,
+    amount: Decimal | float,
     customer_id: int | None = None,
     payment_method: str | None = None,
     paid_at: datetime | None = None,

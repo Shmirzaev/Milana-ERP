@@ -155,7 +155,7 @@ def test_finance_payment_idempotency_key_prevents_duplicate_payment(client, auth
     payload = {"invoice_id": invoice["id"], "amount": 25, "payment_method": "cash"}
 
     first = client.post("/api/finance/payments", json=payload, headers=headers)
-    second = client.post("/api/finance/payments", json=payload, headers=headers)
+    second = client.post("/api/finance/payments", json={**payload, "amount": "25.00"}, headers=headers)
 
     assert first.status_code == 201, first.text
     assert second.status_code == 201, second.text

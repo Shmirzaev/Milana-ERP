@@ -175,6 +175,9 @@ def create_payment(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = payload.model_dump(mode="json")
+    # Keep the historical JSON-number shape used by existing idempotency
+    # records while retaining Decimal for the stored payment amount.
+    fingerprint_payload["amount"] = float(payload.amount)
     replay = replay_idempotent_response(db, user=current, scope="finance.payments", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay

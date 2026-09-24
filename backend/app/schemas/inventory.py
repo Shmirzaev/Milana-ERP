@@ -415,7 +415,7 @@ class AccessoryIssueLineIn(BaseModel):
 
 class AccessoryIssueIn(BaseModel):
     production_order_id: int
-    lines: list[AccessoryIssueLineIn]
+    lines: list[AccessoryIssueLineIn] = Field(max_length=1000)
     notes: Optional[str] = None
 
 

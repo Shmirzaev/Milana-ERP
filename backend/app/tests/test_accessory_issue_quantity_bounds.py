@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.inventory import AccessoryIssueLineIn
+from app.schemas.inventory import AccessoryIssueIn, AccessoryIssueLineIn
 
 
 def test_accessory_issue_quantity_accepts_numeric_14_4_maximum_exactly():
@@ -29,3 +29,11 @@ def test_accessory_issue_quantity_keeps_four_decimal_places_exact():
     line = AccessoryIssueLineIn(item_name="Manual item", quantity="0.1001")
 
     assert line.quantity == Decimal("0.1001")
+
+
+def test_accessory_issue_line_list_has_supported_limit():
+    line = {"item_name": "Manual item", "quantity": "1"}
+
+    assert len(AccessoryIssueIn(production_order_id=1, lines=[line] * 1000).lines) == 1000
+    with pytest.raises(ValidationError):
+        AccessoryIssueIn(production_order_id=1, lines=[line] * 1001)
