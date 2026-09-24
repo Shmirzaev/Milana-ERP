@@ -157,8 +157,8 @@ class PackageIn(SchemaModel):
     capacity: int = 60
     weight_kg: Optional[PackageWeight] = None
     warehouse_id: Optional[int] = None
-    items: list[PackageItemIn]
-    batch_allocations: list[PackageBatchAllocationIn] = []
+    items: list[PackageItemIn] = Field(max_length=200)
+    batch_allocations: list[PackageBatchAllocationIn] = Field(default_factory=list, max_length=200)
     override_capacity: bool = False
     notes: Optional[str] = None
 

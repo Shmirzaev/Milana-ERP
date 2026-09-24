@@ -7,10 +7,11 @@ from pydantic import ValidationError
 
 from app.db.session import SessionLocal
 from app.models import AuditLog, LegacyStockReceipt, Model, Package, PackageChangeRequest, PackageItem
-from app.schemas.tracking import PackageEditPayload
+from app.schemas.tracking import PackageBulkIn, PackageEditPayload, PackageIn
 from app.services.packages import (
     _normalize_package_items,
     _validate_batch_allocations,
+    create_package,
     normalize_package_edit_payload,
 )
 
@@ -119,3 +120,43 @@ def test_package_edit_text_accepts_boundary_and_unchanged_legacy_values():
     assert normalized["color"] == "C" * 64
     assert normalized["notes"] == pkg.notes
     assert normalize_package_edit_payload(None, pkg, {"notes": "N" * 4096})["notes"] == "N" * 4096
+
+
+def _new_package_payload(**changes):
+    payload = {
+        "production_order_id": 1, "model_id": 1, "color": "blue",
+        "items": [{"model_id": 1, "color": "blue", "size": "M", "quantity": 1}],
+    }
+    payload.update(changes)
+    return payload
+
+
+@pytest.mark.parametrize("schema", [PackageIn, PackageBulkIn])
+@pytest.mark.parametrize("field,rows", [
+    ("items", lambda count: _new_package_payload()["items"] * count),
+    ("batch_allocations", _allocations),
+])
+def test_initial_package_arrays_accept_200_rows_and_reject_201(schema, field, rows):
+    assert len(getattr(schema.model_validate(_new_package_payload(**{field: rows(200)})), field)) == 200
+    with pytest.raises(ValidationError):
+        schema.model_validate(_new_package_payload(**{field: rows(201)}))
+
+
+@pytest.mark.parametrize("field,rows", [
+    ("items", lambda count: _new_package_payload()["items"] * count),
+    ("batch_allocations", _allocations),
+])
+def test_initial_package_service_rejects_oversized_rows_before_database_reads(field, rows):
+    payload = _new_package_payload(**{field: rows(201)})
+    with pytest.raises(HTTPException, match="more than 200"):
+        create_package(None, **payload)
+
+
+@pytest.mark.parametrize("path", ["/api/packages", "/api/packages/bulk"])
+def test_oversized_initial_package_rows_have_no_package_or_audit_write(client, auth_headers, path):
+    with SessionLocal() as db:
+        before = (db.query(Package).count(), db.query(PackageItem).count(), db.query(AuditLog).count())
+    rejected = client.post(path, headers=auth_headers, json=_new_package_payload(items=_new_package_payload()["items"] * 201))
+    assert rejected.status_code == 422, rejected.text
+    with SessionLocal() as db:
+        assert (db.query(Package).count(), db.query(PackageItem).count(), db.query(AuditLog).count()) == before
