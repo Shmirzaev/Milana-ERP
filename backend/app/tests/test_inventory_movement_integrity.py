@@ -90,6 +90,56 @@ def test_mismatched_item_and_batch_rejected_without_writes(client, auth_headers,
     assert stock_state(movement_stock) == before
 
 
+def test_direct_receipt_rejects_item_unit_mismatch_without_writes(client, auth_headers, movement_stock):
+    with session_module.SessionLocal() as db:
+        before = (
+            db.query(StockBatch).count(), db.query(StockMovement).count(),
+            db.query(AuditLog).count(), db.query(IdempotencyRecord).count(),
+        )
+
+    response = client.post(
+        "/api/inventory/receive",
+        headers={**auth_headers, "Idempotency-Key": "direct-unit-mismatch"},
+        json={
+            "item_id": movement_stock["item_id"], "batch_no": "DIRECT-UNIT-MISMATCH",
+            "quantity": 3, "unit": "kg", "warehouse_id": movement_stock["source_id"],
+            "qc_status": "passed",
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Batch unit must match the material unit"
+    with session_module.SessionLocal() as db:
+        assert (
+            db.query(StockBatch).count(), db.query(StockMovement).count(),
+            db.query(AuditLog).count(), db.query(IdempotencyRecord).count(),
+        ) == before
+        assert db.query(StockBatch).filter_by(batch_no="DIRECT-UNIT-MISMATCH").first() is None
+
+
+def test_direct_receipt_checks_warehouse_before_item_unit(client, auth_headers, movement_stock):
+    with session_module.SessionLocal() as db:
+        wrong_warehouse = Warehouse(name="Wrong receipt warehouse", type="fabric_storage")
+        db.add(wrong_warehouse)
+        db.commit()
+        wrong_warehouse_id = wrong_warehouse.id
+
+    response = client.post(
+        "/api/inventory/receive",
+        headers=auth_headers,
+        json={
+            "item_id": movement_stock["item_id"], "batch_no": "WRONG-WAREHOUSE-UNIT",
+            "quantity": 3, "unit": "kg", "warehouse_id": wrong_warehouse_id,
+            "qc_status": "passed",
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "Movement test must be received into Accessory Storage"
+    with session_module.SessionLocal() as db:
+        assert db.query(StockBatch).filter_by(batch_no="WRONG-WAREHOUSE-UNIT").first() is None
+
+
 def test_item_unit_change_with_stock_history_rejected_but_metadata_edit_remains_allowed(
     client, auth_headers, movement_stock,
 ):

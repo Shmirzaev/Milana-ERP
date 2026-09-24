@@ -898,6 +898,7 @@ def receive_stock(
     if not warehouse:
         raise HTTPException(404, "Warehouse not found")
     _validate_receiving_warehouse(item, warehouse)
+    validate_stock_batch_unit(item, payload.unit)
     batch_data = payload.model_dump()
     batch_data["order_no"] = canonical_business_order_reference(db, payload.order_no)
     roll_weights, piece_count = normalize_material_roll_weights(
