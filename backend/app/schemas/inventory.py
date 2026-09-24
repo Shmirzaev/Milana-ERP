@@ -320,7 +320,7 @@ class MaterialReservationIn(BaseModel):
 
 class MaterialReservationAutoIn(BaseModel):
     production_order_id: int
-    mode: str = "full_remaining"
+    mode: Literal["shortage_only", "full_remaining"] = "full_remaining"
     reserve_accessories: bool = True
     reserve_materials: bool = True
     reserve_packaging: bool = True
