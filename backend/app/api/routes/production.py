@@ -108,6 +108,7 @@ from app.services.factory_scope import require_factory_access, selected_factory_
 from app.services.factory_scope import require_work_order_factory_access
 
 router = APIRouter(tags=["production"])
+_MAX_SEWING_SIZE_QUANTITY_ROWS = 1000
 
 # Anyone who legitimately runs the production floor: planners plus the four
 # stage operator roles (and admins). Blocks unrelated staff (HR, Finance, Sales)
@@ -5382,6 +5383,11 @@ def _validated_sewing_size_quantities(
     production_batch_id: int | None,
     payload: SewingRecordIn,
 ) -> list[dict[str, int | str]]:
+    if len(payload.size_quantities) > _MAX_SEWING_SIZE_QUANTITY_ROWS:
+        raise HTTPException(
+            422,
+            f"size_quantities cannot exceed {_MAX_SEWING_SIZE_QUANTITY_ROWS} rows",
+        )
     if not payload.size_quantities:
         return []
 
