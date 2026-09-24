@@ -1,8 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import ORMModel
 
@@ -49,9 +49,14 @@ class PurchaseRequestLineIn(BaseModel):
 class PurchaseRequestIn(BaseModel):
     sales_order_id: Optional[int] = None
     production_order_id: Optional[int] = None
-    status: str = "pending_approval"
+    status: Literal["draft", "pending_approval"] = "pending_approval"
     notes: Optional[str] = None
     lines: list[PurchaseRequestLineIn]
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_create_status(cls, value):
+        return str(value or "pending_approval").strip() or "pending_approval"
 
 
 class PurchaseRequestLineOut(ORMModel):
