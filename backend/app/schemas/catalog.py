@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Annotated, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel
@@ -9,9 +9,12 @@ from app.schemas.user_access import AccessPolicy
 
 
 # Roles / Departments / Users
+PermissionGrant = Annotated[str, Field(max_length=128)]
+
+
 class RoleIn(BaseModel):
     name: str
-    permissions: list[str] = []
+    permissions: list[PermissionGrant] = Field(default_factory=list, max_length=150)
 
 
 class RoleOut(ORMModel):
@@ -39,7 +42,7 @@ class UserIn(BaseModel):
     role_id: Optional[int] = None
     department_id: Optional[int] = None
     factory_code: str = "MIL"
-    extra_permissions: list[str] = Field(default_factory=list)
+    extra_permissions: list[PermissionGrant] = Field(default_factory=list, max_length=150)
     access_policy: AccessPolicy | None = None
     is_active: bool = True
 
@@ -51,7 +54,7 @@ class UserUpdate(BaseModel):
     role_id: Optional[int] = None
     department_id: Optional[int] = None
     factory_code: Optional[str] = None
-    extra_permissions: Optional[list[str]] = None
+    extra_permissions: Optional[list[PermissionGrant]] = Field(default=None, max_length=150)
     access_policy: AccessPolicy | None = None
     is_active: Optional[bool] = None
 

@@ -1,12 +1,12 @@
-from typing import Literal
+from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.core.permission_catalog import PERMISSION_KEYS
 
 
 class FactoryAccess(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    allow: list[str] = Field(default_factory=list, max_length=150)
-    deny: list[str] = Field(default_factory=list, max_length=150)
+    allow: list[Annotated[str, Field(max_length=128)]] = Field(default_factory=list, max_length=150)
+    deny: list[Annotated[str, Field(max_length=128)]] = Field(default_factory=list, max_length=150)
 
     @model_validator(mode="after")
     def valid_permissions(self):
