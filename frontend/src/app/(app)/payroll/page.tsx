@@ -40,6 +40,7 @@ type PayrollRecord = {
   payroll_period_id?: number | null;
   employee_id: number;
   employee_name?: string | null;
+  department_id?: number | null;
   department_name?: string | null;
   production_no?: string | null;
   sales_order_no?: string | null;
@@ -106,6 +107,9 @@ type PayrollAdjustment = {
   payroll_period_id?: number | null;
   source_payroll_record_id?: number | null;
   employee_id: number;
+  employee_name?: string | null;
+  department_id?: number | null;
+  department_name?: string | null;
   adjustment_type: "bonus" | "deduction";
   amount: number | string;
   signed_amount: number | string;
@@ -122,13 +126,23 @@ type PayrollAdjustmentPage = {
   has_more: boolean;
 };
 
-type Employee = {
+type PayrollEmployeeOption = {
   id: number;
   full_name: string;
   employee_no?: string | null;
   position?: string | null;
   department_id?: number | null;
-  status: string;
+  department_code?: string | null;
+  department_name?: string | null;
+};
+
+type PayrollEmployeeOptionPage = {
+  items: PayrollEmployeeOption[];
+  selected: PayrollEmployeeOption | null;
+  page: number;
+  page_size: number;
+  search: string;
+  has_more: boolean;
 };
 
 type Department = {
@@ -204,6 +218,10 @@ export default function PayrollPage() {
   const { me } = useMe();
   const canManage = can(me, "payroll.manage", "*");
   const [deletingAdjustment, setDeletingAdjustment] = useState<number | null>(null);
+  const [employeeFilterSearch, setEmployeeFilterSearch] = useState("");
+  const [debouncedEmployeeFilterSearch, setDebouncedEmployeeFilterSearch] = useState("");
+  const [adjustmentEmployeeSearch, setAdjustmentEmployeeSearch] = useState("");
+  const [debouncedAdjustmentEmployeeSearch, setDebouncedAdjustmentEmployeeSearch] = useState("");
   const [employeeTotalsSearch, setEmployeeTotalsSearch] = useState("");
   const [debouncedEmployeeTotalsSearch, setDebouncedEmployeeTotalsSearch] = useState("");
   const canApprove = can(me, "payroll.approve", "*");
@@ -239,9 +257,40 @@ export default function PayrollPage() {
     return () => window.clearTimeout(timeout);
   }, [employeeTotalsSearch]);
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedEmployeeFilterSearch(employeeFilterSearch.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [employeeFilterSearch]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedAdjustmentEmployeeSearch(adjustmentEmployeeSearch.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [adjustmentEmployeeSearch]);
+
   const { data: periods = [], mutate: mutatePeriods } = useSWR<PayrollPeriod[]>("/api/payroll/periods", fetcher);
-  const { data: employees = [] } = useSWR<Employee[]>("/api/employees", fetcher);
   const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
+  const {
+    data: employeeFilterPages,
+    setSize: setEmployeeFilterSize,
+    isValidating: employeeFilterIsValidating,
+  } = useSWRInfinite<PayrollEmployeeOptionPage>((index, previousPage) => {
+    if (previousPage && !previousPage.has_more) return null;
+    const params = new URLSearchParams({ page: String(index + 1), page_size: "50", search: debouncedEmployeeFilterSearch });
+    if (filters.employeeId) params.set("selected_id", filters.employeeId);
+    return `/api/payroll/employees/options?${params.toString()}`;
+  }, fetcher);
+  const {
+    data: adjustmentEmployeePages,
+    setSize: setAdjustmentEmployeeSize,
+    isValidating: adjustmentEmployeeIsValidating,
+  } = useSWRInfinite<PayrollEmployeeOptionPage>((index, previousPage) => {
+    if (!canManage) return null;
+    if (previousPage && !previousPage.has_more) return null;
+    const params = new URLSearchParams({ page: String(index + 1), page_size: "50", search: debouncedAdjustmentEmployeeSearch });
+    if (adjustmentForm.employee_id) params.set("selected_id", adjustmentForm.employee_id);
+    return `/api/payroll/employees/options?${params.toString()}`;
+  }, fetcher);
+  useEffect(() => { void setEmployeeFilterSize(1); }, [debouncedEmployeeFilterSearch, filters.employeeId, setEmployeeFilterSize]);
+  useEffect(() => { void setAdjustmentEmployeeSize(1); }, [debouncedAdjustmentEmployeeSearch, adjustmentForm.employee_id, setAdjustmentEmployeeSize]);
 
   const recordsQuery = [buildPayrollQuery(filters, true), "status=active"].filter(Boolean).join("&");
   const summaryQuery = buildPayrollQuery(filters);
@@ -296,25 +345,46 @@ export default function PayrollPage() {
   const adjustmentsIsLoadingMore = adjustmentsIsValidating && adjustments.length > 0;
 
   const periodById = useMemo(() => new Map(periods.map((period) => [Number(period.id), period])), [periods]);
-  const employeeById = useMemo(() => new Map(employees.map((employee) => [Number(employee.id), employee])), [employees]);
   const departmentById = useMemo(() => new Map(departments.map((department) => [Number(department.id), department])), [departments]);
-  const employeeFilterOptions = useMemo(() => [
-    { value: "", label: t("page.payroll.allEmployees") },
-    ...employees.map((employee) => {
-      const department = employee.department_id ? departmentById.get(Number(employee.department_id)) : null;
-      return {
+  const employeeFilterPagesAreCurrent = Boolean(employeeFilterPages?.every((page, index) => page.page === index + 1 && page.search === debouncedEmployeeFilterSearch));
+  const employeeFilterOptions = useMemo(() => {
+    const pages = employeeFilterPagesAreCurrent ? employeeFilterPages || [] : [];
+    const rows = new Map<number, PayrollEmployeeOption>();
+    for (const page of pages) {
+      for (const employee of page.items) rows.set(employee.id, employee);
+      if (page.selected) rows.set(page.selected.id, page.selected);
+    }
+    return [
+      { value: "", label: t("page.payroll.allEmployees") },
+      ...Array.from(rows.values()).map((employee) => ({
         value: String(employee.id),
         label: employee.full_name,
         searchText: [
           employee.employee_no,
           employee.id,
           employee.position,
-          department?.code,
-          department?.name,
+          employee.department_code,
+          employee.department_name,
         ].filter(Boolean).join(" "),
-      };
-    }),
-  ], [departmentById, employees, t]);
+      })),
+    ];
+  }, [employeeFilterPages, employeeFilterPagesAreCurrent, t]);
+  const adjustmentEmployeePagesAreCurrent = Boolean(adjustmentEmployeePages?.every((page, index) => page.page === index + 1 && page.search === debouncedAdjustmentEmployeeSearch));
+  const adjustmentEmployeeOptions = useMemo(() => {
+    const pages = adjustmentEmployeePagesAreCurrent ? adjustmentEmployeePages || [] : [];
+    const rows = new Map<number, PayrollEmployeeOption>();
+    for (const page of pages) {
+      for (const employee of page.items) rows.set(employee.id, employee);
+      if (page.selected) rows.set(page.selected.id, page.selected);
+    }
+    return Array.from(rows.values()).map((employee) => ({
+      value: String(employee.id),
+      label: employee.full_name,
+      searchText: [employee.employee_no, employee.id, employee.position, employee.department_code, employee.department_name].filter(Boolean).join(" "),
+    }));
+  }, [adjustmentEmployeePages, adjustmentEmployeePagesAreCurrent]);
+  const employeeFilterHasMore = employeeFilterPagesAreCurrent && Boolean(employeeFilterPages?.[employeeFilterPages.length - 1]?.has_more);
+  const adjustmentEmployeeHasMore = adjustmentEmployeePagesAreCurrent && Boolean(adjustmentEmployeePages?.[adjustmentEmployeePages.length - 1]?.has_more);
   const adjustmentPeriod = adjustmentForm.payroll_period_id ? periodById.get(Number(adjustmentForm.payroll_period_id)) : null;
   const adjustmentPeriodFinalized = Boolean(adjustmentPeriod && FINALIZED_PERIOD_STATUSES.has(adjustmentPeriod.status));
   const operationRows = useMemo(() => (
@@ -612,6 +682,16 @@ export default function PayrollPage() {
               options={employeeFilterOptions}
               placeholder={t("page.payroll.searchEmployee")}
               noResultsText={t("page.payroll.noEmployeeResults")}
+              serverFilter
+              loading={employeeFilterIsValidating}
+              loadingText={t("common.loading")}
+              loadMoreText={t("common.loadMore")}
+              hasMore={employeeFilterHasMore}
+              onSearchChange={(search) => {
+                setEmployeeFilterSearch(search);
+                void setEmployeeFilterSize(1);
+              }}
+              onLoadMore={() => void setEmployeeFilterSize((size) => size + 1)}
               onChange={(employeeId) => setFilters((current) => ({ ...current, employeeId }))}
             />
           </div>
@@ -684,17 +764,25 @@ export default function PayrollPage() {
               </div>
               <div>
                 <label className="label">{t("page.payroll.employee")}</label>
-                <select
-                  className="input"
+                <SearchableSelect<string>
+                  inputId="payroll-adjustment-employee"
                   value={adjustmentForm.employee_id}
-                  onChange={(event) => setAdjustmentForm({ ...adjustmentForm, employee_id: event.target.value })}
+                  options={adjustmentEmployeeOptions}
                   required
-                >
-                  <option value="">{t("page.payroll.selectEmployee")}</option>
-                  {employees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>{employee.full_name}</option>
-                  ))}
-                </select>
+                  placeholder={t("page.payroll.searchEmployee")}
+                  noResultsText={t("page.payroll.noEmployeeResults")}
+                  serverFilter
+                  loading={adjustmentEmployeeIsValidating}
+                  loadingText={t("common.loading")}
+                  loadMoreText={t("common.loadMore")}
+                  hasMore={adjustmentEmployeeHasMore}
+                  onSearchChange={(search) => {
+                    setAdjustmentEmployeeSearch(search);
+                    void setAdjustmentEmployeeSize(1);
+                  }}
+                  onLoadMore={() => void setAdjustmentEmployeeSize((size) => size + 1)}
+                  onChange={(employeeId) => setAdjustmentForm((current) => ({ ...current, employee_id: employeeId }))}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -766,12 +854,11 @@ export default function PayrollPage() {
                   <tr><td colSpan={7} className="text-sm text-[#8a8472]">{t("page.payroll.noAdjustments")}</td></tr>
                 )}
                 {adjustments.map((adjustment) => {
-                  const employee = employeeById.get(Number(adjustment.employee_id));
                   const period = adjustment.payroll_period_id ? periodById.get(Number(adjustment.payroll_period_id)) : null;
                   return (
                     <tr key={adjustment.id}>
                       <td>{new Date(adjustment.created_at).toLocaleString(lang)}</td>
-                      <td>{employee?.full_name || t("page.payroll.employeeId", { id: adjustment.employee_id })}</td>
+                      <td>{adjustment.employee_name || t("page.payroll.employeeId", { id: adjustment.employee_id })}</td>
                       <td>{period?.period_no || "-"}</td>
                       <td><span className={`badge ${adjustmentBadge(adjustment.adjustment_type)}`}>{t(`page.payroll.${adjustment.adjustment_type}`)}</span></td>
                       <td className="font-semibold">{money(adjustment.signed_amount, adjustment.currency)}</td>
@@ -1022,9 +1109,7 @@ export default function PayrollPage() {
                   period && FINALIZED_PERIOD_STATUSES.has(period.status)
                 );
                 const employeeDept = record.department_name || (
-                  employees.find((employee) => Number(employee.id) === Number(record.employee_id))?.department_id
-                    ? departmentById.get(Number(employees.find((employee) => Number(employee.id) === Number(record.employee_id))?.department_id))?.name
-                    : null
+                  record.department_id ? departmentById.get(Number(record.department_id))?.name : null
                 );
                 return (
                   <tr key={record.id}>

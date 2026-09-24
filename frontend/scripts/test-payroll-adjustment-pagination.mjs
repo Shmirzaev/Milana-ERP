@@ -14,7 +14,7 @@ assert.match(page, /adjustmentPages\?\.\[0\]\?\.total/, "the exact backend total
 assert.match(page, /setAdjustmentSize\(\(size\) => size \+ 1\)/, "Load more should request the next page");
 assert.match(page, /await setAdjustmentSize\(1\)[\s\S]*await mutateAdjustmentPages\(\)/, "refreshes after mutations should return to page one and revalidate");
 assert.doesNotMatch(page, /useSWR<PayrollAdjustment\[\]>/, "the initial render must not fetch an unpaged adjustment array");
-assert.match(schema, /class PayrollAdjustmentPageOut[\s\S]*?rows: list\[PayrollAdjustmentOut\][\s\S]*?total: int[\s\S]*?has_more: bool/, "backend page envelope should expose rows, exact total, and has_more");
+assert.match(schema, /class PayrollAdjustmentPageOut[\s\S]*?rows: list\[PayrollAdjustmentRowOut\][\s\S]*?total: int[\s\S]*?has_more: bool/, "backend page envelope should expose labeled rows, exact total, and has_more");
 assert.match(route, /@router\.get\("\/adjustments"[\s\S]*?page_size: Annotated\[int \| None, Query\(ge=1, le=500\)\]/, "legacy-compatible endpoint should accept optional paging");
 
 console.log("PASS: payroll adjustments use filtered 50-row lazy pages with exact totals and mutation refresh.");

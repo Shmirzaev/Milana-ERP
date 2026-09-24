@@ -65,6 +65,7 @@
     "test:hr-organization-pagination": "node scripts/test-hr-organization-pagination.mjs",
     "test:payroll-order-option-pagination": "node scripts/check-payroll-order-option-pagination.mjs",
     "test:payroll-adjustment-pagination": "bun scripts/test-payroll-adjustment-pagination.mjs",
+    "test:payroll-employee-options": "bun scripts/test-payroll-employee-options.mjs",
     "test:inbox-package-pagination": "node scripts/check-inbox-package-pagination.mjs",
     "test:hr-attendance-pagination": "node scripts/test-hr-attendance-pagination.mjs",
     "test:hr-analytics-summary-contract": "bun scripts/test-hr-analytics-summary-contract.mjs",

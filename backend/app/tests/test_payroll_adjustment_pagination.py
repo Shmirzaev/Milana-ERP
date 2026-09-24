@@ -80,10 +80,14 @@ def test_adjustment_pages_bound_sql_and_preserve_legacy_payload(count):
     assert page["page"] == 1
     assert page["page_size"] == 50
     assert page["has_more"] is (count > 50)
-    assert [row.id for row in page["rows"]] == list(reversed(created_ids))[:expected_count]
-    assert _payload(page["rows"]) == _payload(legacy[:expected_count])
-    assert len(statements) == 2, statements
+    assert [row["id"] for row in page["rows"]] == list(reversed(created_ids))[:expected_count]
+    assert [row["id"] for row in page["rows"]] == [row.id for row in legacy[:expected_count]]
+    assert all(row["employee_name"].startswith("Bounded adjustment employee ") for row in page["rows"])
+    assert all(row["department_id"] is None and row["department_name"] is None for row in page["rows"])
+    assert all("employee_name" not in row for row in _payload(legacy[:expected_count]))
+    assert len(statements) == 3, statements
     assert " limit ? offset ?" in statements[1]
+    assert "employees.id in" in statements[2]
     assert len(legacy_statements) == 1, legacy_statements
 
 
@@ -107,13 +111,24 @@ def test_adjustment_page_contract_factory_auth_filters_and_no_writes(client, aut
         headers=auth_headers,
     )
     assert response.status_code == 200, response.text
-    assert response.json() == {
-        "rows": legacy.json(),
+    response_body = response.json()
+    assert response_body["rows"] == [{
+        **legacy.json()[0],
+        "employee_name": response_body["rows"][0]["employee_name"],
+        "department_id": None,
+        "department_name": None,
+    }]
+    assert response_body == {
+        "rows": response_body["rows"],
         "total": 1,
         "page": 1,
         "page_size": 1,
         "has_more": False,
     }
+
+    periods = client.get("/api/payroll/periods?page=1&page_size=1", headers=auth_headers)
+    assert periods.status_code == 200, periods.text
+    assert periods.json() == {"rows": [], "total": 0, "page": 1, "page_size": 1, "has_more": False}
 
     assert client.get(
         "/api/payroll/adjustments?page_size=501",

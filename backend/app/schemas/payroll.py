@@ -508,8 +508,14 @@ class PayrollAdjustmentOut(ORMModel):
     created_at: datetime
 
 
+class PayrollAdjustmentRowOut(PayrollAdjustmentOut):
+    employee_name: str | None = None
+    department_id: int | None = None
+    department_name: str | None = None
+
+
 class PayrollAdjustmentPageOut(BaseModel):
-    rows: list[PayrollAdjustmentOut]
+    rows: list[PayrollAdjustmentRowOut]
     total: int
     page: int
     page_size: int

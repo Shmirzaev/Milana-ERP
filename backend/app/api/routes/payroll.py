@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from sqlalchemy import Date, and_, case, cast, func, or_
+from sqlalchemy import Date, String, and_, case, cast, func, or_
 from sqlalchemy.orm import load_only, object_session
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
@@ -2732,6 +2732,80 @@ def search_payroll_employees(
     }
 
 
+@router.get("/employees/options")
+def list_payroll_employee_options(
+    db: DbSession,
+    current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.approve", "payroll.pay", "*")),
+    search: Annotated[str, Query(max_length=100)] = "",
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=50)] = 50,
+    selected_id: Annotated[int | None, Query(ge=1)] = None,
+):
+    factory_code = selected_factory_code(current)
+    normalized_search = search.strip()
+    terms = normalized_search.split()
+    query = db.query(
+        Employee.id,
+        Employee.full_name,
+        Employee.employee_no,
+        Employee.position,
+        Employee.department_id,
+        Department.code.label("department_code"),
+        Department.name.label("department_name"),
+    ).outerjoin(Department, Employee.department_id == Department.id).filter(
+        Employee.factory_code == factory_code,
+    )
+    for term in terms:
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.filter(or_(
+            Employee.full_name.ilike(pattern, escape="\\"),
+            Employee.employee_no.ilike(pattern, escape="\\"),
+            Employee.position.ilike(pattern, escape="\\"),
+            Department.code.ilike(pattern, escape="\\"),
+            Department.name.ilike(pattern, escape="\\"),
+            cast(Employee.id, String).ilike(pattern, escape="\\"),
+        ))
+    rows = query.order_by(func.lower(Employee.full_name), Employee.employee_no, Employee.id).offset(
+        (page - 1) * page_size,
+    ).limit(page_size + 1).all()
+
+    def serialize(row):
+        return {
+            "id": int(row.id),
+            "full_name": row.full_name,
+            "employee_no": row.employee_no,
+            "position": row.position,
+            "department_id": row.department_id,
+            "department_code": row.department_code,
+            "department_name": row.department_name,
+        }
+
+    selected = None
+    if selected_id:
+        selected_row = db.query(
+            Employee.id,
+            Employee.full_name,
+            Employee.employee_no,
+            Employee.position,
+            Employee.department_id,
+            Department.code.label("department_code"),
+            Department.name.label("department_name"),
+        ).outerjoin(Department, Employee.department_id == Department.id).filter(
+            Employee.factory_code == factory_code,
+            Employee.id == selected_id,
+        ).first()
+        selected = serialize(selected_row) if selected_row else None
+    return {
+        "items": [serialize(row) for row in rows[:page_size]],
+        "selected": selected,
+        "page": page,
+        "page_size": page_size,
+        "search": normalized_search,
+        "has_more": len(rows) > page_size,
+    }
+
+
 @router.get("/employees/resolve")
 def resolve_employee_number(
     employee_no: str,
@@ -4449,8 +4523,35 @@ def list_adjustments(
     if total is None:
         return ordered_qry.all()
     rows = ordered_qry.offset((page - 1) * page_size).limit(page_size).all()
+    employee_ids = {int(row.employee_id) for row in rows}
+    employee_labels = {}
+    if employee_ids:
+        labels = db.query(
+            Employee.id,
+            Employee.full_name,
+            Employee.department_id,
+            Department.name.label("department_name"),
+        ).outerjoin(Department, Employee.department_id == Department.id).filter(
+            Employee.factory_code == selected_factory_code(current),
+            Employee.id.in_(employee_ids),
+        ).all()
+        employee_labels = {
+            int(row.id): {
+                "employee_name": row.full_name,
+                "department_id": row.department_id,
+                "department_name": row.department_name,
+            }
+            for row in labels
+        }
+    serialized_rows = [
+        {
+            **PayrollAdjustmentOut.model_validate(row).model_dump(),
+            **employee_labels.get(int(row.employee_id), {}),
+        }
+        for row in rows
+    ]
     return {
-        "rows": rows,
+        "rows": serialized_rows,
         "total": total,
         "page": page,
         "page_size": page_size,
