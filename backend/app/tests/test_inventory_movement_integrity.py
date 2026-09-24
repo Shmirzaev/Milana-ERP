@@ -402,6 +402,32 @@ def test_batch_edit_allows_metadata_only_change_on_legacy_unit_drift(
         assert db.query(StockMovement).count() == before_movements
 
 
+def test_batch_archive_rejects_legacy_unit_drift_before_issue_or_reservation_release(
+    client, auth_headers, movement_stock,
+):
+    used = client.post(
+        "/api/inventory/transfer",
+        headers=auth_headers,
+        json=movement_payload(movement_stock, "issue", quantity=1),
+    )
+    assert used.status_code == 201, used.text
+    with session_module.SessionLocal() as db:
+        db.get(StockBatch, movement_stock["batch_id"]).unit = "kg"
+        db.commit()
+    before = stock_state(movement_stock)
+
+    response = client.delete(
+        f"/api/inventory/batches/{movement_stock['batch_id']}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Batch unit must match the material unit"
+    assert stock_state(movement_stock) == before
+    with session_module.SessionLocal() as db:
+        assert db.get(StockBatch, movement_stock["batch_id"]).unit == "kg"
+
+
 @pytest.mark.parametrize("movement_type", ["issue", "consume", "transfer"])
 def test_movement_cannot_spend_or_move_reserved_stock(client, auth_headers, movement_stock, movement_type):
     with session_module.SessionLocal() as db:

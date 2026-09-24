@@ -1801,6 +1801,11 @@ def archive_or_delete_batch(
         item and str(item.category or "").strip().lower() in {"fabric", "semi_finished"}
     )
     if is_material_batch or linked or has_downstream_movement:
+        removed_quantity = float(batch.quantity or 0)
+        if removed_quantity > EPSILON:
+            if not item:
+                raise HTTPException(404, "Item not found")
+            validate_stock_batch_unit(item, batch.unit)
         reservations = db.execute(
             _locked_active_batch_reservations_statement(batch_id)
         ).scalars().all()
@@ -1815,7 +1820,6 @@ def archive_or_delete_batch(
             release_material_reservation(db, int(reservation.id))
             released_quantity += remaining
 
-        removed_quantity = float(batch.quantity or 0)
         if removed_quantity > EPSILON:
             db.add(StockMovement(
                 movement_type="issue",
