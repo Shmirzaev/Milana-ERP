@@ -19,6 +19,7 @@ class EmployeeOut(BaseModel):
     phone: str | None = None
     salary: float | None = None
     hr_profile_json: dict[str, Any] | None = None
+    manager_name: str | None = None
 
 
 class EmployeePageOut(BaseModel):
@@ -27,3 +28,7 @@ class EmployeePageOut(BaseModel):
     page: int
     page_size: int
     has_more: bool
+    active_total: int
+    inactive_total: int
+    profile_coverage_percent: int | None = None
+    search: str

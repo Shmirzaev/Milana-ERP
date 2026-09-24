@@ -1110,4 +1110,8 @@ export default {
     "attendance.empty": "No device profiles match these filters.",
     "attendance.resultCount": "{count} profiles",
     "page.processQr.correctedIdentityReview": "An edited label no longer matches a model operation. Review its operation identity before issuing additional labels. Existing labels remain available to print.",
+    "page.hrEmployees.managerSearch": "Find manager",
+    "page.hrEmployees.manager": "Manager",
+    "page.hrEmployees.refineManagerSearch": "More than 50 matches. Refine the manager search.",
+    "page.hrEmployees.loadMore": "Load more employees",
   } as Record<string, string>;

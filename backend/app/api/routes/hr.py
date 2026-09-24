@@ -12,7 +12,7 @@ from app.schemas.hr import EmployeeOut, EmployeePageOut
 from app.services.audit import log_action
 from app.services.factory_scope import factory_for_department, selected_factory_code
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-from sqlalchemy import func
+from sqlalchemy import func, or_, cast, case
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, load_only, noload
 from datetime import datetime
@@ -292,6 +292,7 @@ def list_employees(
     limit: Annotated[int, Query(ge=1, le=500)] = 500,
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    search: Annotated[str | None, Query(max_length=120)] = None,
 ):
     if settings.BACKFILL_EMPLOYEES_FROM_USERS:
         _backfill_employees_from_users(db)
@@ -313,21 +314,74 @@ def list_employees(
     if include_private:
         employee_fields.extend([Employee.phone, Employee.salary, Employee.hr_profile_json])
     query = db.query(Employee).options(load_only(*employee_fields)).filter(Employee.factory_code == factory_code)
+    normalized_search = (search or "").strip()
+    if normalized_search:
+        escaped = normalized_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.filter(or_(
+            Employee.full_name.ilike(pattern, escape="\\"),
+            Employee.employee_no.ilike(pattern, escape="\\"),
+            Employee.position.ilike(pattern, escape="\\"),
+        ))
     ordered_query = query.order_by(Employee.id.desc())
     paginated = page is not None or page_size is not None
     effective_page = page or 1
     effective_page_size = page_size or limit
     total = int(query.with_entities(func.count(Employee.id)).scalar() or 0) if paginated else None
     if paginated:
+        summary = query.with_entities(
+            func.sum(case((Employee.status == "active", 1), else_=0)),
+            func.sum(case((Employee.status != "active", 1), else_=0)),
+        ).first()
+        active_total = int(summary[0] or 0)
+        inactive_total = int(summary[1] or 0)
+        profile_coverage_percent = None
+        if include_private:
+            if db.bind.dialect.name == "sqlite":
+                profile_keys = (
+                    db.query(func.count())
+                    .select_from(func.json_each(Employee.hr_profile_json).table_valued("key"))
+                    .correlate(Employee)
+                    .scalar_subquery()
+                )
+            else:
+                from sqlalchemy.dialects.postgresql import JSONB
+
+                profile_json = cast(Employee.hr_profile_json, JSONB)
+                profile_type = func.jsonb_typeof(profile_json)
+                profile_keys = case(
+                    (profile_type == "object", func.jsonb_object_length(profile_json)),
+                    (profile_type == "array", func.jsonb_array_length(profile_json)),
+                    else_=0,
+                )
+            covered = int(query.filter(profile_keys >= 5).with_entities(func.count(Employee.id)).scalar() or 0)
+            profile_coverage_percent = round(covered * 100 / total) if total else 0
+    if paginated:
+        from sqlalchemy.orm import aliased
+
+        manager = aliased(Employee)
         rows = (
-            ordered_query
-            .offset((effective_page - 1) * effective_page_size)
-            .limit(effective_page_size)
-            .all()
+            db.query(Employee, manager.full_name)
+            .options(load_only(*employee_fields))
+            .outerjoin(manager, (manager.id == Employee.manager_employee_id) & (manager.factory_code == factory_code))
+            .filter(Employee.factory_code == factory_code)
         )
+        if normalized_search:
+            rows = rows.filter(or_(
+                Employee.full_name.ilike(pattern, escape="\\"),
+                Employee.employee_no.ilike(pattern, escape="\\"),
+                Employee.position.ilike(pattern, escape="\\"),
+            ))
+        rows = rows.order_by(Employee.id.desc()).offset((effective_page - 1) * effective_page_size).limit(effective_page_size).all()
     else:
         rows = ordered_query.limit(limit).all()
-    serialized = [_serialize(r, include_private=include_private) for r in rows]
+    if paginated:
+        serialized = [
+            {**_serialize(row, include_private=include_private), **({"manager_name": manager_name} if manager_name else {})}
+            for row, manager_name in rows
+        ]
+    else:
+        serialized = [_serialize(r, include_private=include_private) for r in rows]
     if not paginated:
         return serialized
     return {
@@ -336,7 +390,39 @@ def list_employees(
         "page": effective_page,
         "page_size": effective_page_size,
         "has_more": effective_page * effective_page_size < (total or 0),
+        "active_total": active_total,
+        "inactive_total": inactive_total,
+        "profile_coverage_percent": profile_coverage_percent,
+        "search": normalized_search,
     }
+
+
+@router.get("/employees/manager-options")
+def employee_manager_options(
+    db: DbSession,
+    current: CurrentUser,
+    search: Annotated[str, Query(max_length=120)] = "",
+    selected_id: Annotated[int | None, Query(ge=1)] = None,
+):
+    factory_code = selected_factory_code(current)
+    query = db.query(Employee.id, Employee.full_name).filter(Employee.factory_code == factory_code)
+    normalized_search = search.strip()
+    if normalized_search:
+        escaped = normalized_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.filter(or_(Employee.full_name.ilike(pattern, escape="\\"), Employee.employee_no.ilike(pattern, escape="\\")))
+    rows = query.order_by(Employee.full_name.asc(), Employee.id.asc()).limit(51).all()
+    has_more = len(rows) > 50
+    options = [{"id": int(row.id), "full_name": row.full_name} for row in rows[:50]]
+    if selected_id and all(row["id"] != selected_id for row in options):
+        selected = db.query(Employee.id, Employee.full_name).filter(
+            Employee.factory_code == factory_code, Employee.id == selected_id,
+        ).first()
+        if selected:
+            if len(options) == 50:
+                options.pop()
+            options.append({"id": int(selected.id), "full_name": selected.full_name})
+    return {"rows": options, "has_more": has_more}
 
 
 @router.get("/employees/{eid}")

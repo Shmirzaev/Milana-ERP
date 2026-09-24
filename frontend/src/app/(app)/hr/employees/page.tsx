@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import Modal from "@/components/Modal";
@@ -13,8 +13,10 @@ type Employee = {
   id: number; factory_code: string; employee_no: string | null; full_name: string;
   department_id: number | null; position: string | null; phone: string | null;
   salary: number | null; status: string; joined_at: string | null;
-  manager_employee_id: number | null; hr_position_id: number | null; hr_profile_json: Record<string, unknown>;
+  manager_employee_id: number | null; manager_name?: string | null; hr_position_id: number | null; hr_profile_json: Record<string, unknown>;
 };
+type EmployeePage = { rows: Employee[]; total: number; page: number; page_size: number; has_more: boolean; active_total: number; inactive_total: number; profile_coverage_percent: number | null; search: string };
+type ManagerOptions = { rows: { id: number; full_name: string }[]; has_more: boolean };
 type FormState = {
   employee_no: string; full_name: string; department_id: string; position: string; phone: string;
   salary: string; status: string; joined_at: string; manager_employee_id: string; hr_position_id: string;
@@ -56,23 +58,39 @@ function toForm(employee?: Employee | null): FormState {
 
 export default function EmployeesPage() {
   const { t } = useT();
-  const { data, error, isLoading, mutate } = useSWR<Employee[]>("/api/employees", fetcher);
-  const { data: departments } = useSWR<Dept[]>("/api/departments", fetcher);
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [query, setQuery] = useState("");
+  const { data, error, isLoading, mutate } = useSWR<EmployeePage>(`/api/employees?page=${page}&page_size=${PAGE_SIZE}&search=${encodeURIComponent(query)}`, fetcher);
+  const { data: departments } = useSWR<Dept[]>("/api/departments", fetcher);
   const [editing, setEditing] = useState<Employee | "new" | null>(null);
-  const positionDirectoryKey = editing !== null || (data || []).some((employee) => employee.hr_position_id != null)
+  const [form, setForm] = useState<FormState>(EMPTY);
+  const positionDirectoryKey = editing !== null || employees.some((employee) => employee.hr_position_id != null)
     ? "/api/hr/positions"
     : null;
   const { data: positions } = useSWR<Position[]>(positionDirectoryKey, fetcher);
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const [managerSearch, setManagerSearch] = useState("");
+  const managerSelected = form.manager_employee_id ? Number(form.manager_employee_id) : null;
+  const managerKey = editing !== null
+    ? `/api/employees/manager-options?search=${encodeURIComponent(managerSearch)}${managerSelected ? `&selected_id=${managerSelected}` : ""}`
+    : null;
+  const { data: managerOptions } = useSWR<ManagerOptions>(managerKey, fetcher);
   const [section, setSection] = useState<keyof typeof PROFILE_FIELDS>("Personal");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const filtered = useMemo(() => (data || []).filter((row) => `${row.employee_no || ""} ${row.full_name} ${row.position || ""}`.toLowerCase().includes(query.toLowerCase())), [data, query]);
-  const active = (data || []).filter((row) => row.status === "active").length;
+  useEffect(() => {
+    if (!data || data.page !== page || data.search !== query.trim()) return;
+    setEmployees((current) => page === 1
+      ? data.rows
+      : Array.from(new Map([...current, ...data.rows].map((row) => [row.id, row])).values()));
+  }, [data, page, query]);
+  const activePageData = data?.page === page && data.search === query.trim() ? data : undefined;
+  const filtered = useMemo(() => employees, [employees]);
+  function changeQuery(value: string) { setEmployees([]); setPage(1); setQuery(value); }
 
-  function open(employee?: Employee) { setEditing(employee || "new"); setForm(toForm(employee)); setSection("Personal"); setMessage(""); }
+  function open(employee?: Employee) { setEditing(employee || "new"); setForm(toForm(employee)); setManagerSearch(""); setSection("Personal"); setMessage(""); }
   function profileValue(key: string) { return form.profile[key] || ""; }
   function setProfile(key: string, value: string) { setForm((old) => ({ ...old, profile: { ...old.profile, [key]: value } })); }
 
@@ -92,23 +110,23 @@ export default function EmployeesPage() {
     try {
       if (editing === "new") await api.post("/api/employees", payload);
       else await api.patch(`/api/employees/${editing?.id}`, payload);
-      await mutate(); setEditing(null);
+      setEmployees([]); setPage(1); if (page === 1) await mutate(); setEditing(null);
     } catch (saveError: unknown) { setMessage(String((saveError as Error)?.message || saveError)); }
     finally { setSaving(false); }
   }
 
   return <div>
     <HrHeader title="Employees" subtitle="Central employee database and complete digital personnel profiles." actions={<button className="btn btn-primary" onClick={() => open()}>Add employee</button>} />
-    <MetricGrid items={[{ label: "Total profiles", value: data?.length ?? "—" }, { label: "Active", value: active }, { label: "Inactive / leave", value: (data?.length || 0) - active }, { label: "Profile coverage", value: data?.length ? `${Math.round((data.filter((row) => Object.keys(row.hr_profile_json || {}).length >= 5).length / data.length) * 100)}%` : "0%" }]} />
-    <div className="card mb-4 p-4"><input className="input max-w-xl" placeholder="Search by employee ID, name or position" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-    <LoadState loading={isLoading} error={error} empty={!isLoading && filtered.length === 0}>
+    <MetricGrid items={[{ label: "Total profiles", value: activePageData?.total ?? "—" }, { label: "Active", value: activePageData?.active_total ?? "—" }, { label: "Inactive / leave", value: activePageData?.inactive_total ?? "—" }, { label: "Profile coverage", value: activePageData?.profile_coverage_percent == null ? "—" : `${activePageData.profile_coverage_percent}%` }]} />
+    <div className="card mb-4 p-4"><input className="input max-w-xl" placeholder="Search by employee ID, name or position" value={query} onChange={(event) => changeQuery(event.target.value)} /></div>
+    <LoadState loading={isLoading || !activePageData} error={error} empty={!isLoading && Boolean(activePageData) && filtered.length === 0}>
       <div className="card overflow-x-auto"><table className="table min-w-[900px]"><thead><tr><th>Employee</th><th>Employee ID</th><th>Department</th><th>Position</th><th>Manager</th><th>Status</th><th>Hire date</th><th /></tr></thead><tbody>
         {filtered.map((employee) => <tr key={employee.id}>
           <td><div className="flex items-center gap-3">{String(employee.hr_profile_json?.photo_url || "") ? <img className="h-9 w-9 rounded-full object-cover" src={String(employee.hr_profile_json.photo_url)} alt="" /> : <div className="grid h-9 w-9 place-items-center rounded-full bg-[#ecebe3] text-xs font-semibold">{employee.full_name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</div>}<div><div className="font-medium">{employee.full_name}</div><div className="text-xs text-[#8a8472]">{employee.phone || String(employee.hr_profile_json?.email || "—")}</div></div></div></td>
           <td className="font-mono">{effectiveEmployeeNumber(employee)}</td>
           <td>{departments?.find((row) => row.id === employee.department_id)?.name || "Unassigned"}</td>
           <td>{positions?.find((row) => row.id === employee.hr_position_id)?.name || employee.position || "—"}</td>
-          <td>{data?.find((row) => row.id === employee.manager_employee_id)?.full_name || "—"}</td>
+          <td>{employee.manager_name || "—"}</td>
           <td><span className={`badge ${employee.status === "active" ? "badge-green" : "badge-red"}`}>{employee.status.replaceAll("_", " ")}</span></td>
           <td>{employee.joined_at ? new Date(employee.joined_at).toLocaleDateString() : "—"}</td>
           <td><button className="text-brand-600 hover:underline" onClick={() => open(employee)}>Open profile</button></td>
@@ -125,7 +143,8 @@ export default function EmployeesPage() {
           <label><span className="label">Department</span><select className="input" value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })}><option value="">Unassigned</option>{departments?.filter((row) => row.is_active !== false || row.id === Number(form.department_id)).map((row) => <option key={row.id} value={row.id}>{row.name}{row.is_active === false ? " (Inactive)" : ""}</option>)}</select></label>
           <label><span className="label">Staffing position</span><select className="input" value={form.hr_position_id} onChange={(e) => setForm({ ...form, hr_position_id: e.target.value })}><option value="">Unassigned</option>{positions?.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
           <label><span className="label">Position label</span><input className="input" value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} /></label>
-          <label><span className="label">Manager</span><select className="input" value={form.manager_employee_id} onChange={(e) => setForm({ ...form, manager_employee_id: e.target.value })}><option value="">No manager</option>{data?.filter((row) => row.id !== (editing === "new" ? -1 : editing?.id)).map((row) => <option key={row.id} value={row.id}>{row.full_name}</option>)}</select></label>
+          <label><span className="label">{t("page.hrEmployees.managerSearch")}</span><input className="input" type="search" value={managerSearch} onChange={(event) => setManagerSearch(event.target.value)} placeholder={t("page.payroll.searchEmployee")} /></label>
+          <label><span className="label">{t("page.hrEmployees.manager")}</span><select className="input" value={form.manager_employee_id} onChange={(e) => setForm({ ...form, manager_employee_id: e.target.value })}><option value="">—</option>{managerOptions?.rows.filter((row) => row.id !== (editing === "new" ? -1 : editing?.id)).map((row) => <option key={row.id} value={row.id}>{row.full_name}</option>)}</select>{managerOptions?.has_more && <span className="mt-1 block text-xs text-[#8a8472]">{t("page.hrEmployees.refineManagerSearch")}</span>}</label>
           <label><span className="label">Employment status</span><select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option><option value="terminated">Terminated</option></select></label>
           <label><span className="label">Hire date</span><input className="input" type="date" value={form.joined_at} onChange={(e) => setForm({ ...form, joined_at: e.target.value })} /></label>
           <label><span className="label">Salary</span><input className="input" type="number" min="0" step="0.01" value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} /></label>
@@ -138,5 +157,6 @@ export default function EmployeesPage() {
         <div className="flex justify-end gap-2"><button type="button" className="btn" onClick={() => setEditing(null)}>Cancel</button><button className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save employee profile"}</button></div>
       </form>
     </Modal>
+    {activePageData?.has_more && <button className="btn mt-4" onClick={() => setPage((current) => current + 1)} disabled={isLoading}>{t("page.hrEmployees.loadMore")}</button>}
   </div>;
 }

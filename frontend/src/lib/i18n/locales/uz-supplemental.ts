@@ -1244,4 +1244,8 @@ export default {
     "attendance.empty": "Bu filtrlarga mos qurilma profillari yo'q.",
     "attendance.resultCount": "{count} ta profil",
     "page.processQr.correctedIdentityReview": "Tahrirlangan yorliq model amaliga mos kelmayapti. Yangi yorliqlar chiqarishdan oldin uning amalini tekshiring. Mavjud yorliqlarni chop etish mumkin.",
+    "page.hrEmployees.managerSearch": "Rahbarni topish",
+    "page.hrEmployees.manager": "Rahbar",
+    "page.hrEmployees.refineManagerSearch": "50 dan ortiq natija topildi. Rahbar qidiruvini aniqlashtiring.",
+    "page.hrEmployees.loadMore": "Yana xodimlarni yuklash",
   } as Record<string, string>;
