@@ -905,7 +905,15 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
         if changed:
             from decimal import Decimal
             previous_amount = str(order.total_amount)
-            order.total_amount = sum(Decimal(str(line.unit_price)) * line.quantity for line in order_lines)
+            reconciled_total = sum(
+                Decimal(str(line.unit_price)) * line.quantity for line in order_lines
+            )
+            if (
+                not reconciled_total.is_finite()
+                or reconciled_total > Decimal("999999999999.99")
+            ):
+                raise HTTPException(422, "Reconciled order total exceeds supported database precision")
+            order.total_amount = reconciled_total
             log_action(db, current, "reconcile_scanned_sales_quantities", "SalesOrder", order.id,
                        old_value={"total_amount": previous_amount},
                        new_value={"items": changed, "total_amount": str(order.total_amount), "shipment_id": shipment.id})
