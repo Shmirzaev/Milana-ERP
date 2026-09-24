@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     MODEL_FILES_DIR: str = "/app/storage/model_files"
     SALES_ORDER_FILES_DIR: str = "/app/storage/sales_order_files"
     INTEGRATION_1C_TOKEN: str = ""
+    INTEGRATION_1C_CLIENTS_JSON: str = ""
     ATTENDANCE_INTEGRATION_TOKEN: str = ""
     ATTENDANCE_INTEGRATION_FACTORY_CODE: str = "MIL"
     ATTENDANCE_PHOTOS_DIR: str = "/app/storage/attendance_photos"
@@ -146,6 +147,15 @@ class Settings(BaseSettings):
         return self.FILE_SIGNING_SECRET.strip() or self.JWT_SECRET.strip()
 
     def validate_runtime_security(self) -> None:
+        from app.core.integration_auth import parse_onec_client_credentials
+
+        try:
+            parse_onec_client_credentials(
+                self.INTEGRATION_1C_CLIENTS_JSON,
+                minimum_secret_length=32 if self.strict_security_required else 1,
+            )
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid 1C integration client configuration: {exc}") from exc
         if not self.strict_security_required:
             return
         errors: list[str] = []
