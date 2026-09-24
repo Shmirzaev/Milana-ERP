@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from functools import partial
@@ -53,6 +54,83 @@ _logger = logging.getLogger(__name__)
 _MANAGED_COMPANY_LOGO_URL = re.compile(
     r"^/storage/model-files/(company_logo_[0-9a-f]{32}\.webp)$"
 )
+_MAX_SETTING_VALUE_JSON_BYTES = 16 * 1024
+_MAX_SETTING_VALUE_JSON_DEPTH = 16
+
+
+def _json_values_equal(left: object, right: object) -> bool:
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _settings_fields_unchanged(value: dict, previous: object, schema: type[BaseModel]) -> bool:
+    previous = previous if isinstance(previous, dict) else {}
+    for name, current in value.items():
+        field = schema.model_fields[name]
+        old = previous[name] if name in previous else field.get_default(call_default_factory=True)
+        if not _json_values_equal(current, old):
+            return False
+    return True
+
+
+def _validate_settings_value_json_bounds(
+    value: dict,
+    *,
+    previous: object,
+    schema: type[BaseModel],
+) -> None:
+    """Bound changed settings JSON while leaving semantically unchanged legacy values editable."""
+    if _settings_fields_unchanged(value, previous, schema):
+        return
+
+    pending = [(value, 0)]
+    while pending:
+        current, parent_depth = pending.pop()
+        if isinstance(current, dict):
+            depth = parent_depth + 1
+            if depth > _MAX_SETTING_VALUE_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"Settings JSON cannot exceed {_MAX_SETTING_VALUE_JSON_DEPTH} nested container levels",
+                )
+            if any(not isinstance(key, str) for key in current):
+                raise HTTPException(422, "Settings must contain JSON-compatible values")
+            pending.extend((child, depth) for child in current.values())
+        elif isinstance(current, list):
+            depth = parent_depth + 1
+            if depth > _MAX_SETTING_VALUE_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"Settings JSON cannot exceed {_MAX_SETTING_VALUE_JSON_DEPTH} nested container levels",
+                )
+            pending.extend((child, depth) for child in current)
+        elif current is not None and type(current) not in (str, bool, int, float):
+            raise HTTPException(422, "Settings must contain JSON-compatible values")
+
+    try:
+        serialized = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        encoded = serialized.encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise HTTPException(422, "Settings must contain finite JSON-compatible values") from None
+    if len(encoded) > _MAX_SETTING_VALUE_JSON_BYTES:
+        raise HTTPException(
+            422,
+            f"Settings JSON cannot exceed {_MAX_SETTING_VALUE_JSON_BYTES} UTF-8 bytes",
+        )
 
 
 def _validate_settings_types(section: str, payload: dict) -> None:
@@ -121,6 +199,11 @@ def save_settings_section(
             {**error, "loc": ("body", *error["loc"])} for error in exc.errors()
         ]) from exc
     _validate_settings_types(section, validated)
+    _validate_settings_value_json_bounds(
+        validated,
+        previous=old_value,
+        schema=schema,
+    )
     if row:
         row.value_json = validated
     else:
@@ -190,14 +273,21 @@ def _save_uploaded_company_logo(
     company = CompanyInfo(
         **(row.value_json if row and isinstance(row.value_json, dict) else {})
     ).model_dump()
+    previous_company = row.value_json if row else None
     previous_logo_url = company.get("logo_url")
     company["logo_url"] = logo_url
+    validated_company = CompanyInfo(**company).model_dump()
+    _validate_settings_value_json_bounds(
+        validated_company,
+        previous=previous_company,
+        schema=CompanyInfo,
+    )
     if row:
-        row.value_json = CompanyInfo(**company).model_dump()
+        row.value_json = validated_company
     else:
         row = SystemSetting(
             key="company_info",
-            value_json=CompanyInfo(**company).model_dump(),
+            value_json=validated_company,
         )
         db.add(row)
         db.flush()
