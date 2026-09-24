@@ -5,9 +5,9 @@ import pytest
 
 from app.db.session import SessionLocal
 from app.models import (
-    Customer, FinishedGoodsStock, Invoice, LegacyStockReceipt, Model, Package,
+    AuditLog, Customer, FinishedGoodsStock, Invoice, LegacyStockReceipt, Model, Package,
     PackageItem, SalesOrder, SalesOrderItem, Shipment, ShipmentPackage,
-    ShipmentScanLog, StockReservation, Payment, Role, User,
+    ShipmentScanLog, StockMovement, StockReservation, Payment, Role, User,
 )
 from app.models.shipment_review import PackageQuantityAdjustment
 
@@ -195,6 +195,86 @@ def test_correction_rejects_growth_stale_and_foreign_reservation(client, auth_he
         db.query(StockReservation).filter_by(package_id=dispatch["package"]).first().sales_order_id = other.id
         db.commit()
     assert correct(client, auth_headers, dispatch).status_code == 409
+
+
+def _shipment_financial_state(dispatch):
+    with SessionLocal() as db:
+        order = db.get(SalesOrder, dispatch["order"])
+        line = db.query(SalesOrderItem).filter_by(sales_order_id=dispatch["order"]).one()
+        package = db.get(Package, dispatch["package"])
+        shipment = db.get(Shipment, dispatch["shipment"])
+        stocks = tuple(
+            (row.quantity, row.available_qty, row.reserved_qty, row.sold_qty, row.status)
+            for row in db.query(FinishedGoodsStock)
+            .filter_by(package_id=dispatch["package"])
+            .order_by(FinishedGoodsStock.id)
+        )
+        return (
+            order.total_amount,
+            line.quantity,
+            package.total_quantity,
+            package.status,
+            shipment.status,
+            stocks,
+            db.query(StockReservation).filter_by(package_id=dispatch["package"]).count(),
+            db.query(StockMovement).count(),
+            db.query(AuditLog).count(),
+        )
+
+
+def test_shipment_rejects_reconciled_sales_total_outside_numeric_storage_without_writes(
+    client, auth_headers, dispatch
+):
+    with SessionLocal() as db:
+        order_line = db.query(SalesOrderItem).filter_by(sales_order_id=dispatch["order"]).one()
+        order_line.unit_price = Decimal("9999999999.99")
+        package = db.get(Package, dispatch["package"])
+        package.capacity = 101
+        package.total_quantity = 101
+        db.query(ShipmentPackage).filter_by(
+            shipment_id=dispatch["shipment"], package_id=dispatch["package"]
+        ).one().quantity = 101
+        package_items = (
+            db.query(PackageItem)
+            .filter_by(package_id=dispatch["package"])
+            .order_by(PackageItem.id)
+            .all()
+        )
+        stocks = (
+            db.query(FinishedGoodsStock)
+            .filter_by(package_id=dispatch["package"])
+            .order_by(FinishedGoodsStock.id)
+            .all()
+        )
+        reservations = (
+            db.query(StockReservation)
+            .filter_by(package_id=dispatch["package"])
+            .order_by(StockReservation.id)
+            .all()
+        )
+        for row, quantity in zip(package_items, (50, 51)):
+            row.quantity = quantity
+        for row, quantity in zip(stocks, (50, 51)):
+            row.quantity = quantity
+            row.available_qty = 0
+            row.reserved_qty = quantity
+            row.sold_qty = 0
+            row.status = "reserved"
+        for row, quantity in zip(reservations, (50, 51)):
+            row.quantity = quantity
+        db.commit()
+
+    before = _shipment_financial_state(dispatch)
+    endpoint = f'/api/shipments/{dispatch["shipment"]}/ship'
+
+    unauthenticated = client.post(endpoint)
+    assert unauthenticated.status_code == 401, unauthenticated.text
+    assert _shipment_financial_state(dispatch) == before
+
+    response = client.post(endpoint, headers=auth_headers)
+    assert response.status_code == 422, response.text
+    assert "database precision" in response.text
+    assert _shipment_financial_state(dispatch) == before
 
 
 def test_review_permissions_and_postdispatch_freeze(client, auth_headers, dispatch):
