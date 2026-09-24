@@ -615,7 +615,8 @@ def ensure_invoice_for_delivered_shipment(
     so = db.get(SalesOrder, sales_order_id)
     if not so:
         return None
-    existing = db.query(Invoice).filter(Invoice.sales_order_id == sales_order_id).first()
+    existing = db.query(Invoice).filter(Invoice.sales_order_id == sales_order_id,
+                                        Invoice.status.notin_(["void", "cancelled"])).first()
     if existing:
         return existing
     now = datetime.now(timezone.utc)

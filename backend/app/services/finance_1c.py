@@ -81,6 +81,9 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
             sales_order = _resolve_sales_order(db, row.sales_order_id, row.sales_order_no)
             if not sales_order:
                 raise ValueError("sales order not found (provide sales_order_id or sales_order_no)")
+            sales_order = db.query(SalesOrder).filter_by(id=sales_order.id).populate_existing().with_for_update().one()
+            if sales_order.status == "cancelled":
+                raise ValueError("Cannot invoice a cancelled sales order")
             invoice = db.query(Invoice).filter(
                 Invoice.external_source == SOURCE_1C,
                 Invoice.external_id == row.external_id,
@@ -119,6 +122,9 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
             invoice = _resolve_invoice(db, row.invoice_id, row.invoice_no, row.invoice_external_id)
             if not invoice:
                 raise ValueError("invoice not found (provide invoice_id, invoice_no, or invoice_external_id)")
+            invoice = db.query(Invoice).filter_by(id=invoice.id).populate_existing().with_for_update().one()
+            if invoice.status in {"void", "cancelled"}:
+                raise ValueError("Cannot pay a reversed or cancelled invoice")
             payment = db.query(Payment).filter(
                 Payment.external_source == SOURCE_1C,
                 Payment.external_id == row.external_id,
