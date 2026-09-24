@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
 
+from app.models import Model
 from scripts import import_old_erp_models_local as migration
 
 
@@ -495,3 +497,54 @@ def test_existing_metadata_plan_keeps_only_missing_values_and_real_provenance_de
         {"legacy_source_date": "2020-01-02"},
     ) == {}
     assert migration.provenance_would_change(converged, changed) is False
+
+
+def _details_provenance() -> dict:
+    return {
+        "source_key": migration.SOURCE_KEY,
+        "source_files": {},
+        "identity": "TEST|1",
+        "master_records": [],
+        "variant_records": [],
+        "metadata_only_records": [],
+        "details_and_sizes": {},
+        "validated_images": {"models": {}, "variants": {}},
+    }
+
+
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep"])
+def test_apply_details_rejects_changed_unbounded_document_without_mutation(invalid_kind: str) -> None:
+    existing = {"general": {}}
+    model = Model(code="TEST", name="Test", details_json=deepcopy(existing))
+    invalid_value: object = "x" * (70 * 1024)
+    if invalid_kind == "deep":
+        invalid_value = {"leaf": True}
+        for _ in range(20):
+            invalid_value = {"next": invalid_value}
+
+    with pytest.raises(migration.MigrationError, match="Imported Model.details_json is invalid"):
+        migration.apply_details(model, {"legacy_product": invalid_value}, _details_provenance(), created=True)
+
+    assert model.details_json == existing
+
+
+def test_apply_details_preserves_exact_unchanged_oversized_legacy_document() -> None:
+    provenance = _details_provenance()
+    existing = {
+        "general": {},
+        "old_erp_migration": deepcopy(provenance),
+        "legacy_extension": "x" * (70 * 1024),
+    }
+    model = Model(code="TEST", name="Test", details_json=deepcopy(existing))
+
+    migration.apply_details(model, {}, provenance, created=False)
+
+    assert model.details_json == existing
+
+
+def test_apply_details_accepts_bounded_new_document() -> None:
+    model = Model(code="TEST", name="Test", details_json={})
+
+    migration.apply_details(model, {"legacy_product": "Tunic"}, _details_provenance(), created=True)
+
+    assert model.details_json["general"]["legacy_product"] == "Tunic"

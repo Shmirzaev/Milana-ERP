@@ -2410,7 +2410,8 @@ def merge_provenance(details: dict[str, Any], incoming: dict[str, Any]) -> None:
 
 
 def apply_details(model: Model, patch: dict[str, Any], provenance: dict[str, Any], *, created: bool) -> None:
-    details = copy.deepcopy(model.details_json) if isinstance(model.details_json, dict) else {}
+    existing_details = model.details_json if isinstance(model.details_json, dict) else None
+    details = copy.deepcopy(existing_details) if existing_details is not None else {}
     general = details.get("general")
     if not isinstance(general, dict):
         general = {}
@@ -2425,6 +2426,14 @@ def apply_details(model: Model, patch: dict[str, Any], provenance: dict[str, Any
         # Existing nonblank ERP data is authoritative and remains untouched.
     details["general"] = general
     merge_provenance(details, provenance)
+    from fastapi import HTTPException
+
+    from app.api.routes.catalog import _validate_model_details_json_bounds
+
+    try:
+        _validate_model_details_json_bounds(details, existing_details=existing_details)
+    except HTTPException as exc:
+        raise MigrationError(f"Imported Model.details_json is invalid: {exc.detail}") from exc
     model.details_json = details
     flag_modified(model, "details_json")
 
