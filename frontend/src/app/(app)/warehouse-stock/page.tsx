@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import useSWR from "swr";
+import { useEffect, useMemo, useState } from "react";
+import useSWRInfinite from "swr/infinite";
 import { Boxes, Grid2X2, ImageOff, PackageSearch, Search, Warehouse } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
@@ -12,40 +12,7 @@ import { fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
-import { modelSearchIncludes } from "@/lib/modelCode";
-import { formatOrderReference, rawOrderReference } from "@/lib/orderRef";
-
-type StoragePlacement = {
-  id: number;
-  package_no: string;
-  barcode?: string | null;
-  production_order_id?: number | null;
-  production_no?: string | null;
-  order_no?: string | null;
-  sales_order_id?: number | null;
-  sales_order_no?: string | null;
-  model_id?: number | null;
-  model_code?: string | null;
-  model_name?: string | null;
-  model_image_url?: string | null;
-  color?: string | null;
-  package_type?: string | null;
-  total_quantity: number;
-  package_count?: number;
-  status: string;
-  storage_cell?: string | null;
-  storage_shelf?: string | null;
-  created_at?: string | null;
-  location?: string | null;
-};
-
-type StorageMapResponse = {
-  summary?: {
-    cells_occupied?: number;
-    packages_on_map?: number;
-  };
-  placements?: StoragePlacement[];
-};
+import { formatOrderReference } from "@/lib/orderRef";
 
 type DetailRow = {
   key: string;
@@ -64,22 +31,24 @@ type DetailRow = {
   packages: Array<{ id: number; package_no: string }>;
 };
 
-function clean(value?: string | number | null) {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function sectionFromCell(cell?: string | null) {
-  const code = String(cell || "").trim();
-  return code ? code.split("-")[0] : "-";
-}
-
-function storageShelf(value?: string | null) {
-  return value || "S1";
-}
-
-function isUnresolvedLegacyModel(code?: string | null) {
-  return String(code || "").trim().toUpperCase().startsWith("LEGACY-");
-}
+type WarehouseStockPage = {
+  rows: DetailRow[];
+  model_groups: Array<{
+    key?: string;
+    model_id: number;
+    model_code: string;
+    model_name: string;
+    model_image_url?: string | null;
+    package_count: number;
+    total_quantity: number;
+    sections: string[];
+  }>;
+  summary: { models: number; packages: number; quantity: number; sections: number };
+  total: number;
+  offset: number;
+  page_size: number;
+  has_more: boolean;
+};
 
 function colorToHex(color?: string | null) {
   if (!color) return "#a8a395";
@@ -106,155 +75,31 @@ export default function WarehouseStockPage() {
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const [query, setQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
-  const stockUrl = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set("include_unplaced", "true");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setAppliedQuery(query.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+  const pageKey = (index: number, previous: WarehouseStockPage | null) => {
+    if (index > 0 && previous && !previous.has_more) return null;
+    const params = new URLSearchParams({ offset: String(index * 50), page_size: "50", include_unplaced: "true" });
+    if (appliedQuery) params.set("query", appliedQuery);
     if (createdFrom) params.set("created_from", createdFrom);
     if (createdTo) params.set("created_to", createdTo);
-    const qs = params.toString();
-    return `/api/packages/storage-map${qs ? `?${qs}` : ""}`;
-  }, [createdFrom, createdTo]);
-  const { data, isLoading } = useSWR<StorageMapResponse>(stockUrl, fetcher);
-
-  const placements = useMemo(() => data?.placements || [], [data?.placements]);
-  const filtered = useMemo(() => {
-    const q = clean(query);
-    if (!q) return placements;
-    return placements.filter((row) => {
-      const fields = [
-        row.order_no,
-        row.sales_order_no,
-        row.production_no,
-        row.model_name,
-        row.package_no,
-        row.barcode,
-        row.color,
-        row.storage_cell,
-        row.storage_shelf,
-        row.status,
-      ];
-      return modelSearchIncludes(row.model_code, q) || fields.some((field) => clean(field).includes(q));
-    });
-  }, [placements, query]);
-
-  const totals = useMemo(() => {
-    const modelKeys = new Set<string>();
-    const sectionKeys = new Set<string>();
-    let totalQty = 0;
-    for (const row of filtered) {
-      modelKeys.add(String(row.model_id || row.model_code || row.model_name || row.package_no));
-      sectionKeys.add(sectionFromCell(row.storage_cell));
-      totalQty += Number(row.total_quantity || 0);
-    }
-    sectionKeys.delete("-");
-    return {
-      models: modelKeys.size,
-      packages: filtered.reduce((sum, row) => sum + Number(row.package_count || 1), 0),
-      quantity: totalQty,
-      sections: sectionKeys.size,
-    };
-  }, [filtered]);
-
-  const modelGroups = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        key: string;
-        model_id?: number | null;
-        model_code?: string | null;
-        model_name?: string | null;
-        model_image_url?: string | null;
-        package_count: number;
-        total_quantity: number;
-        sections: Set<string>;
-        orders: Set<string>;
-        colors: Set<string>;
-      }
-    >();
-
-    for (const row of filtered) {
-      const key = String(row.model_id || row.model_code || row.model_name || row.package_no);
-      const existing = map.get(key) || {
-        key,
-        model_id: row.model_id,
-        model_code: row.model_code,
-        model_name: row.model_name,
-        model_image_url: row.model_image_url,
-        package_count: 0,
-        total_quantity: 0,
-        sections: new Set<string>(),
-        orders: new Set<string>(),
-        colors: new Set<string>(),
-      };
-      existing.package_count += Number(row.package_count || 1);
-      existing.total_quantity += Number(row.total_quantity || 0);
-      existing.sections.add(sectionFromCell(row.storage_cell));
-      existing.orders.add(rawOrderReference(row, t("page.warehouseStock.unassignedOrder")));
-      if (row.color) existing.colors.add(row.color);
-      if (!existing.model_image_url && row.model_image_url) existing.model_image_url = row.model_image_url;
-      map.set(key, existing);
-    }
-
-    return Array.from(map.values()).sort((a, b) => {
-      const unresolvedOrder =
-        Number(isUnresolvedLegacyModel(b.model_code)) -
-        Number(isUnresolvedLegacyModel(a.model_code));
-      if (unresolvedOrder !== 0) return unresolvedOrder;
-      return b.total_quantity - a.total_quantity;
-    });
-  }, [filtered, t]);
-
-  const detailRows = useMemo<DetailRow[]>(() => {
-    const map = new Map<string, DetailRow>();
-    for (const row of filtered) {
-      const section = sectionFromCell(row.storage_cell);
-      const shelf = storageShelf(row.storage_shelf);
-      const orderNo = rawOrderReference(row, t("page.warehouseStock.unassignedOrder"));
-      const key = [
-        row.model_id || row.model_code || row.model_name || "-",
-        orderNo,
-        section,
-        row.storage_cell || "-",
-        shelf,
-        row.color || "-",
-        row.status || "-",
-      ].join("|");
-      const existing = map.get(key) || {
-        key,
-        model_id: row.model_id,
-        model_code: row.model_code,
-        model_name: row.model_name,
-        model_image_url: row.model_image_url,
-        order_no: orderNo,
-        section,
-        storage_cell: row.storage_cell || "-",
-        storage_shelf: shelf,
-        color: row.color,
-        status: row.status,
-        total_quantity: 0,
-        package_count: 0,
-        packages: [],
-      };
-      existing.total_quantity += Number(row.total_quantity || 0);
-      existing.package_count += Number(row.package_count || 1);
-      existing.packages.push({ id: row.id, package_no: row.package_no });
-      if (!existing.model_image_url && row.model_image_url) existing.model_image_url = row.model_image_url;
-      map.set(key, existing);
-    }
-    return Array.from(map.values()).sort((a, b) => {
-      const unresolvedOrder =
-        Number(isUnresolvedLegacyModel(b.model_code)) -
-        Number(isUnresolvedLegacyModel(a.model_code));
-      if (unresolvedOrder !== 0) return unresolvedOrder;
-      const byModel = String(a.model_code || "").localeCompare(String(b.model_code || ""));
-      if (byModel !== 0) return byModel;
-      const byOrder = a.order_no.localeCompare(b.order_no);
-      if (byOrder !== 0) return byOrder;
-      return `${a.storage_cell}-${a.storage_shelf}`.localeCompare(`${b.storage_cell}-${b.storage_shelf}`);
-    });
-  }, [filtered, t]);
+    return `/api/packages/warehouse-stock?${params.toString()}`;
+  };
+  const { data: pages, setSize, isLoading, isValidating, error } = useSWRInfinite<WarehouseStockPage>(pageKey, fetcher);
+  useEffect(() => {
+    void setSize(1);
+  }, [appliedQuery, createdFrom, createdTo, setSize]);
+  const detailRows = useMemo(() => pages?.flatMap((page) => page.rows) || [], [pages]);
+  const firstPage = pages?.[0];
+  const totals = firstPage?.summary || { models: 0, packages: 0, quantity: 0, sections: 0 };
+  const modelGroups = firstPage?.model_groups || [];
+  const hasMore = pages?.[pages.length - 1]?.has_more || false;
+  const isLoadingMore = Boolean(pages && isValidating);
 
   return (
     <div>
@@ -327,11 +172,11 @@ export default function WarehouseStockPage() {
       <div className="mb-5">
         <div className="mb-3 flex items-baseline justify-between gap-3">
           <h2 className="app-card-title">{t("page.warehouseStock.stockByModel")}</h2>
-          <span className="text-xs text-[#8a8472]">{t("common.matches", { count: detailRows.length })}</span>
+          <span className="text-xs text-[#8a8472]">{t("common.matches", { count: firstPage?.total ?? 0 })}</span>
         </div>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-4">
-          {modelGroups.slice(0, 8).map((group) => (
-            <article key={group.key} className="overflow-hidden rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm">
+          {modelGroups.map((group) => (
+            <article key={group.model_id} className="overflow-hidden rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm">
               <div className="grid min-h-[132px] grid-cols-[104px_minmax(0,1fr)]">
                 <div className="bg-[#f1efe8]">
                   {group.model_image_url ? (
@@ -358,7 +203,7 @@ export default function WarehouseStockPage() {
                     </div>
                   </div>
                   <div className="mt-2 truncate text-xs text-[#8a8472]">
-                    {t("field.section")}: {Array.from(group.sections).filter((v) => v !== "-").join(", ") || "-"}
+                    {t("field.section")}: {group.sections.join(", ") || "-"}
                   </div>
                 </div>
               </div>
@@ -373,6 +218,7 @@ export default function WarehouseStockPage() {
       </div>
 
       <div className="card overflow-hidden">
+        {error && <div role="alert" className="border-b border-red-200 bg-red-50 p-4 text-sm text-red-800">{t("common.error")}</div>}
         <div className="border-b border-[#ecebe3] p-4">
           <div className="app-card-title">{t("page.warehouseStock.stockDetail")}</div>
         </div>
@@ -453,6 +299,18 @@ export default function WarehouseStockPage() {
             </tbody>
           </table>
         </div>
+        {hasMore && (
+          <div className="border-t border-[#ecebe3] p-4">
+            <button
+              type="button"
+              className="btn"
+              disabled={isLoadingMore}
+              onClick={() => void setSize((size) => size + 1)}
+            >
+              {isLoadingMore ? t("common.loading") : t("common.loadMore")}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

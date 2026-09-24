@@ -1,8 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, Response
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
-from sqlalchemy import String, and_, case, cast, func, or_
-from sqlalchemy.orm import joinedload, load_only, selectinload
+from sqlalchemy import String, and_, case, cast, func, literal, or_, select, union_all
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.functions import FunctionElement
+from sqlalchemy.orm import aliased, joinedload, load_only, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 import base64
 from datetime import date, datetime, timedelta
@@ -1412,6 +1414,438 @@ def storage_map(
     }
 
 
+class WarehouseStockPackageLabelOut(BaseModel):
+    id: int
+    package_no: str
+
+
+class WarehouseStockDetailOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    key: str
+    model_id: int
+    model_code: str
+    model_name: str
+    model_image_url: str | None = None
+    order_no: str
+    section: str
+    storage_cell: str
+    storage_shelf: str
+    color: str | None = None
+    status: str
+    total_quantity: int
+    package_count: int
+    packages: list[WarehouseStockPackageLabelOut]
+
+
+class WarehouseStockModelOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    model_id: int
+    model_code: str
+    model_name: str
+    model_image_url: str | None = None
+    package_count: int
+    total_quantity: int
+    sections: list[str]
+
+
+class WarehouseStockPageOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    rows: list[WarehouseStockDetailOut]
+    model_groups: list[WarehouseStockModelOut]
+    summary: dict[str, int]
+    total: int
+    offset: int
+    page_size: int
+    has_more: bool
+
+
+@router.get("/warehouse-stock", response_model=WarehouseStockPageOut)
+def warehouse_stock_page(
+    db: DbSession,
+    _: CurrentUser,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    query_text: Annotated[str | None, Query(alias="query", max_length=100)] = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
+    include_unplaced: bool = False,
+):
+    """Return exact warehouse KPIs/model cards with SQL-paged detail groups.
+
+    Package groups are formed before pagination so a page boundary cannot split a
+    model/order/location group. Legacy unplaced receipts retain the prior screen's
+    compact aggregation and representative-package search behavior.
+    """
+    ready_statuses = ("packed", "received_in_storage", "reserved")
+    start, end = date_filter_bounds(created_from, created_to)
+    needle = (query_text or "").strip()
+    escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like = f"%{escaped}%"
+
+    order_expression = func.coalesce(
+        SalesOrder.order_no,
+        ProductionOrder.production_no,
+        case(
+            (Package.sales_order_id.isnot(None), literal("#") + cast(Package.sales_order_id, String)),
+            (Package.production_order_id.isnot(None), literal("#") + cast(Package.production_order_id, String)),
+            else_=literal("#") + cast(Package.id, String),
+        ),
+    )
+    normalized_cell = func.nullif(func.trim(Package.storage_cell), "")
+    section_expression = func.coalesce(_WarehouseStockSection(normalized_cell), "-")
+    cell_expression = func.coalesce(func.nullif(Package.storage_cell, ""), "-")
+    shelf_expression = func.coalesce(func.nullif(Package.storage_shelf, ""), "S1")
+
+    base = (
+        db.query(Package)
+        .join(Model, Model.id == Package.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
+        .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
+        .filter(Package.status.in_(ready_statuses))
+    )
+    if include_unplaced:
+        base = base.filter(or_(Package.storage_cell.isnot(None), Package.legacy_receipt_id.is_(None)))
+    else:
+        base = base.filter(Package.storage_cell.isnot(None))
+    if start:
+        base = base.filter(Package.created_at >= start)
+    if end:
+        base = base.filter(Package.created_at <= end)
+    if needle:
+        base = base.filter(
+            or_(
+                _storage_map_search_expression(needle),
+                Package.color.ilike(like, escape="\\"),
+                Package.status.ilike(like, escape="\\"),
+            )
+        )
+
+    group_columns = (
+        Package.model_id,
+        Model.code,
+        Model.name,
+        order_expression,
+        section_expression,
+        cell_expression,
+        shelf_expression,
+        Package.color,
+        Package.status,
+    )
+    base_groups = base.with_entities(
+        Package.model_id.label("model_id"),
+        Model.code.label("model_code"),
+        Model.name.label("model_name"),
+        order_expression.label("order_no"),
+        section_expression.label("section"),
+        cell_expression.label("storage_cell"),
+        shelf_expression.label("storage_shelf"),
+        Package.color.label("color"),
+        Package.status.label("status"),
+        func.count(Package.id).label("package_count"),
+        func.coalesce(func.sum(Package.total_quantity), 0).label("total_quantity"),
+        func.max(Package.id).label("representative_id"),
+        literal(False).label("is_legacy_aggregate"),
+    ).group_by(*group_columns).subquery("warehouse_stock_base_groups")
+
+    # Legacy imported rows without a cell have historically been summarized by
+    # model/color/package type/status and searched through their minimum-id row.
+    legacy_raw = (
+        db.query(
+            Package.model_id.label("model_id"),
+            Package.color.label("color"),
+            Package.package_type.label("package_type"),
+            Package.status.label("status"),
+            func.count(Package.id).label("package_count"),
+            func.coalesce(func.sum(Package.total_quantity), 0).label("total_quantity"),
+            func.min(Package.id).label("representative_id"),
+            func.min(Package.created_at).label("created_at"),
+        )
+        .filter(
+            Package.legacy_receipt_id.isnot(None),
+            Package.storage_cell.is_(None),
+            Package.status.in_(ready_statuses),
+        )
+    )
+    if start:
+        legacy_raw = legacy_raw.filter(Package.created_at >= start)
+    if end:
+        legacy_raw = legacy_raw.filter(Package.created_at <= end)
+    legacy_raw = legacy_raw.group_by(
+        Package.model_id, Package.color, Package.package_type, Package.status
+    ).subquery("warehouse_stock_legacy_raw")
+
+    representative = aliased(Package)
+    legacy_query = (
+        db.query(
+            legacy_raw.c.model_id,
+            Model.code.label("model_code"),
+            Model.name.label("model_name"),
+            (literal("#") + cast(legacy_raw.c.representative_id, String)).label("order_no"),
+            literal("-").label("section"),
+            literal("-").label("storage_cell"),
+            literal("S1").label("storage_shelf"),
+            legacy_raw.c.color,
+            legacy_raw.c.status,
+            legacy_raw.c.package_count,
+            legacy_raw.c.total_quantity,
+            legacy_raw.c.representative_id,
+            literal(True).label("is_legacy_aggregate"),
+        )
+        .join(Model, Model.id == legacy_raw.c.model_id)
+        .join(representative, representative.id == legacy_raw.c.representative_id)
+    )
+    if needle:
+        model_pattern = normalized_model_code_pattern(needle)
+        model_needle = model_pattern[1:-1].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        legacy_query = legacy_query.filter(
+            or_(
+                normalized_model_code_column(Model.code).ilike(f"%{model_needle}%", escape="\\"),
+                Model.name.ilike(like, escape="\\"),
+                representative.package_no.ilike(like, escape="\\"),
+                representative.barcode.ilike(like, escape="\\"),
+                representative.color.ilike(like, escape="\\"),
+                representative.status.ilike(like, escape="\\"),
+            )
+        )
+    legacy_groups = legacy_query.subquery("warehouse_stock_legacy_groups")
+
+    union_columns = (
+        "model_id", "model_code", "model_name", "order_no", "section",
+        "storage_cell", "storage_shelf", "color", "status", "package_count",
+        "total_quantity", "representative_id", "is_legacy_aggregate",
+    )
+    group_selects = [select(*(getattr(base_groups.c, column) for column in union_columns))]
+    if include_unplaced:
+        group_selects.append(select(*(getattr(legacy_groups.c, column) for column in union_columns)))
+    group_rows = union_all(*group_selects).subquery("warehouse_stock_groups")
+
+    group_count = int(db.query(func.count()).select_from(group_rows).scalar() or 0)
+    count_row = db.query(
+        func.coalesce(func.sum(group_rows.c.package_count), 0),
+        func.coalesce(func.sum(group_rows.c.total_quantity), 0),
+        func.count(func.distinct(group_rows.c.model_id)),
+    ).one()
+    section_count = int(
+        base.with_entities(func.count(func.distinct(section_expression)))
+        .filter(normalized_cell.isnot(None), section_expression != "-")
+        .scalar()
+        or 0
+    )
+    summary = {
+        "models": int(count_row[2] or 0),
+        "packages": int(count_row[0] or 0),
+        "quantity": int(count_row[1] or 0),
+        "sections": section_count,
+    }
+
+    legacy_first = case(
+        (func.upper(func.trim(group_rows.c.model_code)).like("LEGACY-%"), 0), else_=1
+    )
+    page_rows = (
+        db.query(group_rows)
+        .order_by(
+            legacy_first,
+            group_rows.c.model_code.asc(),
+            group_rows.c.order_no.asc(),
+            group_rows.c.storage_cell.asc(),
+            group_rows.c.storage_shelf.asc(),
+            group_rows.c.color.asc(),
+            group_rows.c.status.asc(),
+        )
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
+
+    # Exact model-card totals are independently aggregated over every matching
+    # package group, not inferred from the visible detail page.
+    model_selects = [select(
+            base_groups.c.model_id,
+            base_groups.c.model_code,
+            base_groups.c.model_name,
+            base_groups.c.package_count,
+            base_groups.c.total_quantity,
+        )]
+    if include_unplaced:
+        model_selects.append(select(
+            legacy_groups.c.model_id,
+            legacy_groups.c.model_code,
+            legacy_groups.c.model_name,
+            legacy_groups.c.package_count,
+            legacy_groups.c.total_quantity,
+        ))
+    model_source = union_all(*model_selects).subquery("warehouse_stock_model_source")
+    model_groups = (
+        db.query(
+            model_source.c.model_id,
+            func.max(model_source.c.model_code).label("model_code"),
+            func.max(model_source.c.model_name).label("model_name"),
+            func.sum(model_source.c.package_count).label("package_count"),
+            func.sum(model_source.c.total_quantity).label("total_quantity"),
+        )
+        .group_by(model_source.c.model_id)
+        .order_by(
+            case((func.upper(func.trim(func.max(model_source.c.model_code))).like("LEGACY-%"), 0), else_=1),
+            func.sum(model_source.c.total_quantity).desc(),
+            func.max(model_source.c.model_code).asc(),
+        )
+        .limit(8)
+        .all()
+    )
+    top_model_ids = [int(row.model_id) for row in model_groups]
+    sections_by_model: dict[int, set[str]] = {model_id: set() for model_id in top_model_ids}
+    if top_model_ids:
+        for model_id, section in (
+            base.filter(Package.model_id.in_(top_model_ids))
+            .with_entities(Package.model_id, section_expression)
+            .filter(normalized_cell.isnot(None), section_expression != "-")
+            .distinct()
+            .all()
+        ):
+            sections_by_model[int(model_id)].add(str(section))
+
+    model_ids = set(top_model_ids)
+    model_ids.update(int(row.model_id) for row in page_rows)
+    models = (
+        db.query(Model)
+        .options(_warehouse_model_image_loader(), *_warehouse_model_bom_loader())
+        .filter(Model.id.in_(model_ids))
+        .all()
+        if model_ids
+        else []
+    )
+    model_by_id = {int(model.id): model for model in models}
+
+    # Fetch up to the three package labels shown for each detail group, after
+    # selecting the bounded group page. Windowing keeps this bounded at 3/page.
+    sample_conditions = []
+    for row in page_rows:
+        if row.is_legacy_aggregate:
+            continue
+        sample_conditions.append(
+            and_(
+                Package.model_id == row.model_id,
+                order_expression == row.order_no,
+                section_expression == row.section,
+                cell_expression == row.storage_cell,
+                shelf_expression == row.storage_shelf,
+                Package.color == row.color,
+                Package.status == row.status,
+            )
+        )
+    samples_by_key: dict[tuple, list[dict]] = {}
+    if sample_conditions:
+        sample_query = (
+            base.filter(or_(*sample_conditions))
+            .with_entities(
+                Package.model_id.label("model_id"),
+                Model.code.label("model_code"),
+                order_expression.label("order_no"),
+                section_expression.label("section"),
+                cell_expression.label("storage_cell"),
+                shelf_expression.label("storage_shelf"),
+                Package.color.label("color"),
+                Package.status.label("status"),
+                Package.id.label("id"),
+                Package.package_no.label("package_no"),
+                func.row_number().over(
+                    partition_by=group_columns,
+                    order_by=Package.id.desc(),
+                ).label("sample_rank"),
+            )
+            .subquery("warehouse_stock_samples")
+        )
+        for sample in (
+            db.query(sample_query)
+            .filter(sample_query.c.sample_rank <= 3)
+            .order_by(sample_query.c.storage_cell, sample_query.c.storage_shelf, sample_query.c.id.desc())
+            .all()
+        ):
+            key = (
+                int(sample.model_id), sample.order_no, sample.section, sample.storage_cell,
+                sample.storage_shelf, sample.color, sample.status,
+            )
+            samples_by_key.setdefault(key, []).append(
+                {"id": int(sample.id), "package_no": sample.package_no}
+            )
+
+    legacy_ids = [int(row.representative_id) for row in page_rows if row.is_legacy_aggregate]
+    legacy_packages = (
+        db.query(Package.id, Package.package_no)
+        .filter(Package.id.in_(legacy_ids))
+        .all()
+        if legacy_ids
+        else []
+    )
+    legacy_label_by_id = {
+        int(package_id): {"id": int(package_id), "package_no": package_no}
+        for package_id, package_no in legacy_packages
+    }
+
+    def model_image(model_id: int) -> str | None:
+        return warehouse_stock_image_url(model_by_id.get(model_id))
+
+    output_rows = []
+    for row in page_rows:
+        model_id = int(row.model_id)
+        if row.is_legacy_aggregate:
+            samples = [legacy_label_by_id[int(row.representative_id)]] if int(row.representative_id) in legacy_label_by_id else []
+        else:
+            sample_key = (
+                model_id, row.order_no, row.section, row.storage_cell, row.storage_shelf,
+                row.color, row.status,
+            )
+            samples = samples_by_key.get(sample_key, [])
+        key = "|".join(
+            str(value if value is not None else "-")
+            for value in (
+                model_id, row.order_no, row.section, row.storage_cell,
+                row.storage_shelf, row.color, row.status,
+            )
+        )
+        output_rows.append({
+            "key": key,
+            "model_id": model_id,
+            "model_code": row.model_code,
+            "model_name": row.model_name,
+            "model_image_url": model_image(model_id),
+            "order_no": row.order_no,
+            "section": row.section,
+            "storage_cell": row.storage_cell,
+            "storage_shelf": row.storage_shelf,
+            "color": row.color,
+            "status": row.status,
+            "total_quantity": int(row.total_quantity or 0),
+            "package_count": int(row.package_count or 0),
+            "packages": samples[:3],
+        })
+
+    output_models = [
+        {
+            "model_id": int(row.model_id),
+            "model_code": row.model_code,
+            "model_name": row.model_name,
+            "model_image_url": model_image(int(row.model_id)),
+            "package_count": int(row.package_count or 0),
+            "total_quantity": int(row.total_quantity or 0),
+            "sections": sorted(sections_by_model.get(int(row.model_id), set())),
+        }
+        for row in model_groups
+    ]
+    return {
+        "rows": output_rows,
+        "model_groups": output_models,
+        "summary": summary,
+        "total": group_count,
+        "offset": offset,
+        "page_size": page_size,
+        "has_more": offset + len(output_rows) < group_count,
+    }
+
+
 class StorageMapCellSummaryOut(BaseModel):
     code: str
     zone: str
@@ -1496,6 +1930,31 @@ class StorageMapModelPageOut(BaseModel):
     page: int
     page_size: int
     has_more: bool
+
+
+class _WarehouseStockSection(FunctionElement):
+    type = String()
+    inherit_cache = True
+
+
+@compiles(_WarehouseStockSection, "sqlite")
+def _compile_warehouse_stock_section_sqlite(element, compiler, **kwargs):
+    column = compiler.process(next(iter(element.clauses)), **kwargs)
+    return (
+        f"CASE WHEN instr({column}, '-') > 0 "
+        f"THEN substr({column}, 1, instr({column}, '-') - 1) ELSE {column} END"
+    )
+
+
+@compiles(_WarehouseStockSection, "postgresql")
+def _compile_warehouse_stock_section_postgres(element, compiler, **kwargs):
+    column = compiler.process(next(iter(element.clauses)), **kwargs)
+    return (
+        f"CASE WHEN strpos({column}, '-') > 0 "
+        f"THEN substr({column}, 1, strpos({column}, '-') - 1) ELSE {column} END"
+    )
+
+
 
 
 @router.get("/storage-map/summary", response_model=StorageMapOverviewOut)
