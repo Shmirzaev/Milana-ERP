@@ -1174,6 +1174,33 @@ def _validate_effective_bom_item_unit(
         raise HTTPException(409, "BOM unit must match inventory item unit")
 
 
+def _preflight_copied_bom_item_units(
+    db: DbSession,
+    rows: list[ModelBOM] | None,
+    *,
+    replaced_row_ids: set[int] | None = None,
+) -> None:
+    """Validate inventory-linked BOM rows that a copy will persist unchanged."""
+    replaced_row_ids = replaced_row_ids or set()
+    for row in rows or []:
+        if int(row.id or 0) in replaced_row_ids:
+            continue
+        item_id = row.item_id
+        if not item_id and row.stock_batch_id:
+            batch = db.get(StockBatch, row.stock_batch_id)
+            if not batch:
+                raise HTTPException(404, "Stock batch not found")
+            item_id = batch.item_id
+        _validate_effective_bom_item_unit(
+            db,
+            {
+                "item_id": item_id,
+                "stock_batch_id": row.stock_batch_id,
+                "unit": row.unit,
+            },
+        )
+
+
 def _ensure_unique_usluga_main_material(
     db: DbSession,
     model_id: int,
@@ -2092,24 +2119,9 @@ def clone_model(
         raise HTTPException(404, "Model not found")
 
     # Cloning duplicates the effective BOM rows. Check inventory-linked rows
-    # before creating the copy so a legacy unit mismatch is not propagated.
-    # Some legacy rows only carry a batch reference; resolve that batch's item
-    # for validation, while itemless Usluga description rows remain untouched.
-    for row in source.bom or []:
-        item_id = row.item_id
-        if not item_id and row.stock_batch_id:
-            batch = db.get(StockBatch, row.stock_batch_id)
-            if not batch:
-                raise HTTPException(404, "Stock batch not found")
-            item_id = batch.item_id
-        _validate_effective_bom_item_unit(
-            db,
-            {
-                "item_id": item_id,
-                "stock_batch_id": row.stock_batch_id,
-                "unit": row.unit,
-            },
-        )
+    # before creating the copy so a legacy unit mismatch is not propagated;
+    # itemless Usluga description rows remain untouched.
+    _preflight_copied_bom_item_units(db, source.bom)
 
     new_code = _unique_model_copy_code(db, source.code)
     cloned = Model(
@@ -2265,6 +2277,18 @@ def create_model_variant(
     if db.query(Model.id).filter(Model.code == new_code).first():
         raise HTTPException(400, "Model variant already exists")
 
+    variant_fabric_source = _primary_material_bom_row(source)
+    replaced_bom_ids = (
+        {int(variant_fabric_source.id)}
+        if parent_fabric_item is not None and variant_fabric_source is not None and variant_fabric_source.id
+        else set()
+    )
+    _preflight_copied_bom_item_units(
+        db,
+        source.bom,
+        replaced_row_ids=replaced_bom_ids,
+    )
+
     details = deepcopy(source.details_json or {})
     general = details.get("general")
     if not isinstance(general, dict):
@@ -2316,7 +2340,6 @@ def create_model_variant(
     for row in source.colors or []:
         db.add(ModelColor(model_id=cloned.id, color_name=row.color_name, color_code=row.color_code))
 
-    variant_fabric_source = _primary_material_bom_row(source)
     for row in source.bom or []:
         is_fabric_row = bool(
             variant_fabric_source

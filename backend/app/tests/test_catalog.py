@@ -767,6 +767,174 @@ def test_clone_model_rejects_batch_only_bom_unit_mismatch_without_writes(client,
     assert after == before
 
 
+def _seed_standard_variant_source(marker: str, *, main_unit: str = "m") -> tuple[int, int]:
+    from app.models import Item, Model, ModelBOM
+    from app.tests.conftest import TestSessionLocal
+
+    with TestSessionLocal() as db:
+        fabric = Item(
+            sku=f"VARIANT-FAB-{marker}", name="Variant fabric", category="fabric", unit=main_unit,
+        )
+        source = Model(
+            code=f"VARIANT-UNIT-{marker}-01",
+            name="Variant unit source",
+            catalog_scope="standard",
+            details_json={"general": {"model_no": f"VARIANT-UNIT-{marker}", "variant_no": "01"}},
+        )
+        db.add_all([fabric, source])
+        db.flush()
+        primary = ModelBOM(
+            model_id=source.id,
+            item_id=fabric.id,
+            material_role="main",
+            quantity_per_piece=1,
+            unit=main_unit,
+        )
+        db.add(primary)
+        db.commit()
+        return int(source.id), int(fabric.id)
+
+
+def test_create_variant_rejects_mismatched_non_primary_bom_without_writes(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import AuditLog, Item, Model, ModelBOM
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:10].upper()
+    source_id, fabric_id = _seed_standard_variant_source(marker)
+    with TestSessionLocal() as db:
+        accessory = Item(
+            sku=f"VARIANT-ACC-{marker}", name="Variant accessory", category="accessory", unit="pcs",
+        )
+        db.add(accessory)
+        db.flush()
+        secondary = ModelBOM(
+            model_id=source_id,
+            item_id=accessory.id,
+            material_role="secondary",
+            quantity_per_piece=1,
+            unit="pcs",
+        )
+        db.add(secondary)
+        db.flush()
+        secondary_id = int(secondary.id)
+        secondary.unit = "legacy-mismatch"
+        db.commit()
+        before = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.post(
+        f"/api/models/{source_id}/variants",
+        json={"variant_no": "V-02", "fabric_item_id": fabric_id},
+        headers=auth_headers,
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "BOM unit must match inventory item unit"
+
+    with TestSessionLocal() as db:
+        after = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+        assert db.get(ModelBOM, secondary_id).unit == "legacy-mismatch"
+    assert after == before
+
+
+def test_create_variant_rejects_batch_only_non_primary_bom_without_writes(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import AuditLog, Item, Model, ModelBOM, StockBatch, Warehouse
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:10].upper()
+    source_id, _fabric_id = _seed_standard_variant_source(marker)
+    with TestSessionLocal() as db:
+        item = Item(
+            sku=f"VARIANT-BATCH-ITEM-{marker}",
+            name="Variant batch item",
+            category="accessory",
+            unit="pcs",
+        )
+        warehouse = Warehouse(name=f"Variant batch warehouse {marker}", type="accessory_storage")
+        db.add_all([item, warehouse])
+        db.flush()
+        batch = StockBatch(
+            item_id=item.id,
+            batch_no=f"VARIANT-BATCH-{marker}",
+            quantity=10,
+            unit="pcs",
+            warehouse_id=warehouse.id,
+            qc_status="passed",
+        )
+        db.add(batch)
+        db.flush()
+        bom = ModelBOM(
+            model_id=source_id,
+            item_id=None,
+            stock_batch_id=batch.id,
+            material_role="secondary",
+            quantity_per_piece=1,
+            unit="kg",
+        )
+        db.add(bom)
+        db.commit()
+        bom_id = int(bom.id)
+        before = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.post(
+        f"/api/models/{source_id}/variants",
+        json={"variant_no": "V-03"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "BOM unit must match inventory item unit"
+
+    with TestSessionLocal() as db:
+        after = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+        source_row = db.get(ModelBOM, bom_id)
+        assert source_row.item_id is None
+        assert source_row.unit == "kg"
+    assert after == before
+
+
+def test_create_variant_replaces_legacy_mismatched_primary_unit_with_catalog_unit(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Item, ModelBOM
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:10].upper()
+    source_id, fabric_id = _seed_standard_variant_source(marker, main_unit="m")
+    with TestSessionLocal() as db:
+        primary = db.query(ModelBOM).filter_by(model_id=source_id).one()
+        primary.unit = "legacy-mismatch"
+        db.commit()
+
+    response = client.post(
+        f"/api/models/{source_id}/variants",
+        json={"variant_no": "V-02", "fabric_item_id": fabric_id},
+        headers=auth_headers,
+    )
+    assert response.status_code == 201, response.text
+    copied_row = response.json()["bom"][0]
+    assert copied_row["item_id"] == fabric_id
+    assert copied_row["unit"] == "m"
+    assert copied_row["stock_batch_id"] is None
+
+
 def test_model_payloads_include_material_composition(client, auth_headers):
     item = client.post(
         "/api/inventory/items",

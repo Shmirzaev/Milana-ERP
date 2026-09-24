@@ -875,6 +875,45 @@ def test_usluga_variant_uses_main_fabric_for_color_and_variant_summary(client):
     assert edited_by_role["secondary"]["color"] == "Red"
 
 
+def test_usluga_variant_preserves_itemless_descriptive_bom(client):
+    _login_eco(client)
+    suffix = uuid4().hex[:8].upper()
+    model = client.post(
+        "/api/usluga/models",
+        json={
+            "code": f"USL-VARIANT-MANUAL-{suffix}",
+            "name": "Manual fabric variant source",
+            "category": "hoodie",
+            "status": "draft",
+        },
+    )
+    assert model.status_code == 201, model.text
+    model_id = model.json()["id"]
+    bom = client.post(
+        f"/api/usluga/models/{model_id}/bom",
+        json={
+            "material_name": "Customer-provided waffle knit",
+            "material_role": "main",
+            "quantity_per_piece": 0.45,
+            "unit": "kg",
+        },
+    )
+    assert bom.status_code == 201, bom.text
+
+    variant = client.post(
+        f"/api/usluga/models/{model_id}/variants",
+        json={"variant_no": f"V{suffix[:4]}", "color": "Moss"},
+    )
+    assert variant.status_code == 201, variant.text
+    detail = client.get(f"/api/usluga/models/{variant.json()['id']}")
+    assert detail.status_code == 200, detail.text
+    copied = detail.json()["bom"][0]
+    assert copied["item_id"] is None
+    assert copied["stock_batch_id"] is None
+    assert copied["material_name"] == "Customer-provided waffle knit"
+    assert copied["unit"] == "kg"
+
+
 def test_usluga_order_is_eco_only_and_has_no_inventory_or_storage_stage(client):
     # The default super-admin session is Milana and cannot cross into ECT Usluga.
     milana_login = client.post(
