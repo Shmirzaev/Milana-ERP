@@ -918,7 +918,8 @@ def create_material_reservations(
             raise HTTPException(404, f"Item #{item_id} not found")
         if item.category not in RESERVABLE_CATEGORIES:
             raise HTTPException(400, f"Item {item.sku} is not a reservable material/accessory item")
-        unit = unit or item.unit
+        item_unit = str(item.unit or "").strip()
+        unit = unit or item_unit
         reservation_type = str(raw.get("reservation_type") or _reservation_type_for_category(item.category)).strip()
         if reservation_type not in RESERVATION_TYPES:
             raise HTTPException(400, "Invalid reservation_type")
@@ -933,12 +934,16 @@ def create_material_reservations(
                 raise HTTPException(400, f"Batch {batch.batch_no} unit is {batch.unit}, not {unit}")
             if warehouse_id is not None and int(batch.warehouse_id) != warehouse_id:
                 raise HTTPException(400, f"Batch {batch.batch_no} is not in warehouse #{warehouse_id}")
+            if unit != item_unit:
+                raise HTTPException(400, f"Item {item.sku} unit is {item_unit}, not {unit}")
             warehouse_id = int(batch.warehouse_id)
             availability_key = ("batch", int(batch.id), None)
             available = float(batch.quantity or 0) - batch_reserved.get(int(batch.id), 0.0)
         else:
             if warehouse_id is not None and warehouse_id not in warehouses:
                 raise HTTPException(404, f"Warehouse #{warehouse_id} not found")
+            if unit != item_unit:
+                raise HTTPException(400, f"Item {item.sku} unit is {item_unit}, not {unit}")
             availability_key = ("item", item_id, warehouse_id)
             available = available_by_key.get((item_id, warehouse_id), 0.0)
         available -= used_by_key.get(availability_key, 0.0)

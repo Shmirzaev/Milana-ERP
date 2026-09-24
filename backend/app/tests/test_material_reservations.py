@@ -824,6 +824,156 @@ def test_reservation_availability_release_and_over_reservation(client, auth_head
     assert round(float(stock_row["available_quantity"]), 2) == 10.00
 
 
+def test_item_only_reservation_rejects_mismatched_item_unit_without_stock_writes(
+    client, auth_headers,
+):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, StockBatch, StockMovement
+
+    po = _create_branded_po(client, auth_headers, qty=10)
+    item = _create_accessory_item(client, auth_headers, unit="kg")
+    warehouse = _warehouse(client, auth_headers, "accessory_storage")
+    batch = _receive_batch(
+        client,
+        auth_headers,
+        item_id=item["id"],
+        warehouse_id=warehouse["id"],
+        quantity=10,
+        unit="kg",
+    )
+
+    with SessionLocal() as db:
+        movements_before = db.query(StockMovement.id).filter(
+            StockMovement.item_id == item["id"],
+        ).all()
+        reservations_before = db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item["id"],
+        ).all()
+
+    response = client.post(
+        "/api/inventory/reservations",
+        json={
+            "production_order_id": po["id"],
+            "item_id": item["id"],
+            "warehouse_id": warehouse["id"],
+            "reserved_quantity": 2,
+            "unit": "pcs",
+            "reservation_type": "accessory",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json() == {
+        "detail": f"Item {item['sku']} unit is kg, not pcs",
+    }
+    with SessionLocal() as db:
+        assert db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item["id"],
+        ).all() == reservations_before
+        assert db.query(StockMovement.id).filter(
+            StockMovement.item_id == item["id"],
+        ).all() == movements_before
+        assert float(db.get(StockBatch, batch["id"]).quantity) == 10
+
+
+def test_batch_reservation_rejects_legacy_batch_item_unit_mismatch_without_stock_writes(
+    client, auth_headers,
+):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, StockBatch, StockMovement
+
+    po = _create_branded_po(client, auth_headers, qty=10)
+    item = _create_accessory_item(client, auth_headers, unit="kg")
+    warehouse = _warehouse(client, auth_headers, "accessory_storage")
+    batch = _receive_batch(
+        client,
+        auth_headers,
+        item_id=item["id"],
+        warehouse_id=warehouse["id"],
+        quantity=10,
+        unit="kg",
+    )
+    with SessionLocal() as db:
+        legacy_batch = db.get(StockBatch, batch["id"])
+        legacy_batch.unit = "pcs"
+        db.commit()
+        movements_before = db.query(StockMovement.id).filter(
+            StockMovement.item_id == item["id"],
+        ).all()
+        reservations_before = db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item["id"],
+        ).all()
+
+    response = client.post(
+        "/api/inventory/reservations",
+        json={
+            "production_order_id": po["id"],
+            "item_id": item["id"],
+            "stock_batch_id": batch["id"],
+            "warehouse_id": warehouse["id"],
+            "reserved_quantity": 2,
+            "unit": "pcs",
+            "reservation_type": "accessory",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json() == {
+        "detail": f"Item {item['sku']} unit is kg, not pcs",
+    }
+    with SessionLocal() as db:
+        assert db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item["id"],
+        ).all() == reservations_before
+        assert db.query(StockMovement.id).filter(
+            StockMovement.item_id == item["id"],
+        ).all() == movements_before
+        assert float(db.get(StockBatch, batch["id"]).quantity) == 10
+
+
+def test_batch_reservation_preserves_batch_unit_error_precedence(client, auth_headers):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, StockBatch
+
+    po = _create_branded_po(client, auth_headers, qty=10)
+    item = _create_accessory_item(client, auth_headers, unit="kg")
+    warehouse = _warehouse(client, auth_headers, "accessory_storage")
+    batch = _receive_batch(
+        client,
+        auth_headers,
+        item_id=item["id"],
+        warehouse_id=warehouse["id"],
+        quantity=10,
+        unit="kg",
+    )
+
+    response = client.post(
+        "/api/inventory/reservations",
+        json={
+            "production_order_id": po["id"],
+            "item_id": item["id"],
+            "stock_batch_id": batch["id"],
+            "warehouse_id": warehouse["id"],
+            "reserved_quantity": 2,
+            "unit": "pcs",
+            "reservation_type": "accessory",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json() == {
+        "detail": f"Batch {batch['batch_no']} unit is kg, not pcs",
+    }
+    with SessionLocal() as db:
+        assert db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item["id"],
+        ).count() == 0
+        assert float(db.get(StockBatch, batch["id"]).quantity) == 10
+
+
 def test_consume_reservation_creates_stock_movement(client, auth_headers):
     po = _create_branded_po(client, auth_headers, qty=10)
     item = _create_accessory_item(client, auth_headers)
