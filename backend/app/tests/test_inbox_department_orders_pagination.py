@@ -358,6 +358,121 @@ def test_department_order_pages_include_bundle_groups_beyond_legacy_two_hundred_
     assert len(actual_rows) == baseline + 201
     assert len(actual_group_rows) == 201
     assert len(legacy_group_rows) == 200
+
+
+def test_single_page_hydrates_all_bundle_groups_for_merged_work_order_identities(monkeypatch):
+    _enable_inbox_access(monkeypatch)
+    suffix = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        model = Model(code=f"CORE-INBOX-PAGE-GROUPS-{suffix}", name="Merged bundle group page")
+        db.add(model)
+        db.flush()
+        sewing_id = _dept_id(db, "SEW")
+        production_orders = [
+            ProductionOrder(
+                production_no=f"CORE-INBOX-PAGE-GROUPS-{suffix}-{index:03}",
+                production_type="client_order",
+                model_id=model.id,
+                status="new",
+                planned_quantity=3,
+            )
+            for index in range(100)
+        ]
+        db.add_all(production_orders)
+        db.flush()
+        work_orders = [
+            WorkOrder(
+                production_order_id=row.id,
+                department_id=sewing_id,
+                operation="sewing",
+                status="pending",
+                planned_output_qty=3,
+            )
+            for row in production_orders
+        ]
+        db.add_all(work_orders)
+        db.flush()
+        factories = ("MIL", "BST", "ECO")
+        bundles = [
+            Bundle(
+                bundle_no=f"CORE-INBOX-PAGE-GROUPS-{suffix}-{index:03}-{factory}",
+                barcode=f"CORE-INBOX-PAGE-GROUPS-{suffix}-{index:03}-{factory}",
+                production_order_id=po.id,
+                model_id=model.id,
+                color="navy",
+                size=factory,
+                quantity=1,
+                next_department_id=sewing_id,
+                sewing_factory_code=factory,
+                status="sent_to_sewing",
+            )
+            for index, po in enumerate(production_orders)
+            for factory in factories
+        ]
+        db.add_all(bundles)
+        db.commit()
+
+        page = inbox.department_order_page(
+            db,
+            SimpleNamespace(department_id=None),
+            dept="SEW",
+            limit=100,
+            offset=0,
+        )
+
+    assert page["total"] == 100
+    assert len(page["rows"]) == 100
+    assert all(row.get("production_order_id") for row in page["rows"])
+    assert all(row.get("bundle_count") == 3 for row in page["rows"])
+
+
+def test_legacy_inbox_can_skip_core_orders_without_skipping_fgs_package_widgets(monkeypatch):
+    _enable_inbox_access(monkeypatch)
+    with TestSessionLocal() as db:
+        expected = inbox.department_inbox(
+            db, SimpleNamespace(department_id=None), dept="FGS",
+        )
+
+        original_query = db.query
+
+        def reject_core_entity_queries(*entities, **kwargs):
+            assert WorkOrder not in entities
+            assert Bundle not in entities
+            return original_query(*entities, **kwargs)
+
+        db.query = reject_core_entity_queries
+        actual = inbox.department_inbox(
+            db,
+            SimpleNamespace(department_id=None),
+            dept="FGS",
+            include_core_orders=False,
+        )
+
+    for key in (
+        "incoming_bundles",
+        "incoming_bundle_groups",
+        "incoming_work_orders",
+        "cutting_work_orders",
+        "active_work_orders",
+        "pending_work_orders",
+        "in_progress_work_orders",
+        "blocked",
+        "overdue",
+        "needs_qc",
+        "done_today",
+    ):
+        assert actual[key] == []
+    for key in (
+        "pending_packages",
+        "ready_packages",
+        "pending_packages_total",
+        "ready_packages_total",
+        "ready_to_ship",
+        "ready_to_ship_total",
+        "replacement_cutting_work",
+        "replacement_sewing_work",
+    ):
+        assert actual[key] == expected[key]
     assert [row["production_order_id"] for row in actual_group_rows[1:]] == [
         row["production_order_id"] for row in legacy_group_rows
     ]
