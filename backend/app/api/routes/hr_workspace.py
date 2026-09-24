@@ -49,6 +49,9 @@ router = APIRouter(prefix="/hr", tags=["hr-workspace"])
 HrUser = Depends(require_permissions("hr.employees", "*"))
 MAX_INT4 = 2_147_483_647
 MAX_POSITION_SALARY = 999_999_999_999.99
+MAX_POSITION_REQUIRED_SKILLS = 50
+MAX_POSITION_REQUIRED_SKILL_LENGTH = 160
+_UNSET_POSITION_SKILLS = object()
 
 
 class OrgUnitIn(BaseModel):
@@ -317,6 +320,20 @@ def _validate_position_approved_count(payload: PositionIn) -> None:
         raise HTTPException(422, "Approved count must fit a 32-bit database integer")
 
 
+def _validate_position_required_skills(
+    required_skills: list[str],
+    *,
+    existing=_UNSET_POSITION_SKILLS,
+) -> None:
+    if existing is not _UNSET_POSITION_SKILLS and isinstance(existing, list) and required_skills == existing:
+        return
+    if len(required_skills) > MAX_POSITION_REQUIRED_SKILLS:
+        raise HTTPException(422, "Required skills cannot exceed 50 entries")
+    for index, skill in enumerate(required_skills):
+        if len(skill) > MAX_POSITION_REQUIRED_SKILL_LENGTH:
+            raise HTTPException(422, f"Required skill #{index + 1} cannot exceed 160 characters")
+
+
 def _position_dict(row: HrPosition, occupied: int = 0, department_name: str | None = None) -> dict:
     return {
         "id": row.id,
@@ -552,6 +569,7 @@ def create_position(payload: PositionIn, db: DbSession, current: User = HrUser):
     factory = _factory(current)
     _validate_position_links(payload, db, factory)
     _validate_position_approved_count(payload)
+    _validate_position_required_skills(payload.required_skills)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     row = HrPosition(factory_code=factory, **values)
     db.add(row); db.flush(); log_action(db, current, "create", "HrPosition", row.id, new_value={"name": row.name}); db.commit(); db.refresh(row)
@@ -565,6 +583,7 @@ def update_position(position_id: int, payload: PositionIn, db: DbSession, curren
     if not row: raise HTTPException(404, "Position not found")
     _validate_position_links(payload, db, factory, existing_department_id=row.department_id)
     _validate_position_approved_count(payload)
+    _validate_position_required_skills(payload.required_skills, existing=row.required_skills_json)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     for key, value in values.items(): setattr(row, key, value)
     log_action(db, current, "update", "HrPosition", row.id, new_value=values); db.commit(); db.refresh(row)
