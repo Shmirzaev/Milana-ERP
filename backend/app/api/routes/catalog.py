@@ -113,6 +113,18 @@ def _catalog_paid_operation_factory_scope(user: User, catalog_scope: str) -> str
     return _model_paid_operation_factory_scope(user)
 
 
+def _validate_model_details_structure(details: object) -> None:
+    """Check established model-detail containers without constraining legacy keys."""
+    if details is None:
+        return
+    if not isinstance(details, dict):
+        raise HTTPException(422, "details_json must be an object")
+    validate_paid_operations_details_structure(details)
+    for key in ("general", "costing"):
+        if key in details and not isinstance(details[key], dict):
+            raise HTTPException(422, f"details_json.{key} must be an object")
+
+
 def _model_paid_operation_factory_scope(user: User) -> str | None:
     sewing_scope = sewing_master_factory_scope(user)
     if sewing_scope:
@@ -1816,6 +1828,7 @@ def create_model(
     )
     if db.query(Model).filter(Model.code == model_data["code"]).first():
         raise HTTPException(400, "Model code already exists")
+    _validate_model_details_structure(model_data.get("details_json"))
     factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
     if factory_scope:
         details = merge_scoped_paid_operations({}, details, factory_scope)
@@ -2411,7 +2424,7 @@ def update_model(
     m = _catalog_model(db, mid, catalog_scope)
     if not m: raise HTTPException(404, "Model not found")
     update_data = payload.model_dump(exclude_unset=True)
-    validate_paid_operations_details_structure(update_data.get("details_json"))
+    _validate_model_details_structure(update_data.get("details_json"))
     factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
     if factory_scope and "details_json" in update_data:
         update_data["details_json"] = merge_scoped_paid_operations(
