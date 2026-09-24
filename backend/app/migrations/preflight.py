@@ -134,15 +134,22 @@ def read_only_preflight_0055(engine: sa.Engine) -> dict[str, Any]:
             if connection.dialect.name == "postgresql":
                 connection.execute(sa.text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
             current = connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+            if current != PREDECESSOR_0055:
+                return {
+                    "revision": REVISION_0055,
+                    "expected_predecessor": PREDECESSOR_0055,
+                    "database_revision": current,
+                    "migration_pending": False,
+                    "applicability": (
+                        "migration_already_applied" if current == REVISION_0055
+                        else "revision_mismatch_review_required"
+                    ),
+                    "affected_rows_inspected": False,
+                }
             report = preview_0055_deletion(connection)
             report["database_revision"] = current
-            report["migration_pending"] = current == PREDECESSOR_0055
-            if current != PREDECESSOR_0055:
-                report["applicability"] = (
-                    "migration_already_applied" if current == REVISION_0055
-                    else "revision_mismatch_review_required"
-                )
-            elif report["matching_order_count"] == 0:
+            report["migration_pending"] = True
+            if report["matching_order_count"] == 0:
                 report["applicability"] = "no_target"
             elif (
                 report["matching_order_count"] != 1

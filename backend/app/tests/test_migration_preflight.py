@@ -229,4 +229,19 @@ def test_0055_preflight_no_target_and_revision_mismatch_do_not_claim_ready():
     report = read_only_preflight_0055(engine)
     assert report["applicability"] == "revision_mismatch_review_required"
     assert report["migration_pending"] is False
+    assert report["affected_rows_inspected"] is False
+    engine.dispose()
+
+
+def test_0055_revision_mismatch_does_not_reflect_unrelated_schema():
+    engine = create_engine("sqlite://")
+    metadata = MetaData()
+    version = Table("alembic_version", metadata, Column("version_num", String, primary_key=True))
+    metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(insert(version), {"version_num": "unrelated_revision"})
+
+    report = read_only_preflight_0055(engine)
+    assert report["applicability"] == "revision_mismatch_review_required"
+    assert report["affected_rows_inspected"] is False
     engine.dispose()
