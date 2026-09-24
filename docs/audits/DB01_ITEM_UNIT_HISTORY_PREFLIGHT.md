@@ -1,6 +1,7 @@
 # DB01 historical item-unit preflight
 
-Run from `backend` with the intended database configured through `DATABASE_URL`:
+Run from `backend` with an explicitly selected database configured through
+`ITEM_UNIT_AUDIT_DATABASE_URL`:
 
 ```powershell
 python scripts/audit_item_unit_history.py

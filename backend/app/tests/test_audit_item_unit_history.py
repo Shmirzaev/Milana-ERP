@@ -11,7 +11,7 @@ from app.models import (
     StockBatch,
     StockMovement,
 )
-from scripts.audit_item_unit_history import audit_item_unit_history
+from scripts.audit_item_unit_history import audit_item_unit_history, main
 
 
 _SOURCE_MODELS = (
@@ -108,3 +108,20 @@ def test_audit_fails_closed_when_required_table_is_missing():
             audit_item_unit_history(connection)
     finally:
         engine.dispose()
+
+
+def test_audit_preserves_an_existing_sqlite_read_only_mode(synthetic_database):
+    engine, _items, _tables = synthetic_database
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA query_only = ON")
+        try:
+            audit_item_unit_history(connection)
+            assert connection.exec_driver_sql("PRAGMA query_only").scalar_one() == 1
+        finally:
+            connection.exec_driver_sql("PRAGMA query_only = OFF")
+
+
+def test_cli_requires_an_explicit_database_target(monkeypatch):
+    monkeypatch.delenv("ITEM_UNIT_AUDIT_DATABASE_URL", raising=False)
+    with pytest.raises(SystemExit, match="ITEM_UNIT_AUDIT_DATABASE_URL"):
+        main()

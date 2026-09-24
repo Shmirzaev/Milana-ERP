@@ -6,6 +6,7 @@ infers conversions or updates rows.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -17,7 +18,6 @@ from sqlalchemy.engine import Connection, Engine, create_engine
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.config import settings
 from app.models import (
     ForecastRecommendation,
     Item,
@@ -62,18 +62,21 @@ def _validate_schema(connection: Connection) -> None:
 def _read_only_transaction(connection: Connection) -> Iterator[None]:
     """Set a server-side read-only transaction for supported ERP databases."""
     dialect = connection.dialect.name
+    previous_query_only = None
     if dialect == "postgresql":
         connection.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
     elif dialect == "sqlite":
         # query_only is connection-scoped and rejects accidental DML/DDL during this run.
-        connection.exec_driver_sql("PRAGMA query_only = ON")
+        previous_query_only = int(connection.exec_driver_sql("PRAGMA query_only").scalar_one())
+        if not previous_query_only:
+            connection.exec_driver_sql("PRAGMA query_only = ON")
     else:
         raise RuntimeError(f"Unsupported database dialect for read-only preflight: {dialect}")
     try:
         yield
     finally:
-        if dialect == "sqlite":
-            # Restore the pooled connection's prior mode without touching database rows.
+        if dialect == "sqlite" and not previous_query_only:
+            # Preserve the pooled connection's original read-only mode.
             connection.exec_driver_sql("PRAGMA query_only = OFF")
 
 
@@ -137,7 +140,10 @@ def audit_item_unit_history(connection: Connection) -> dict[str, Any]:
 
 
 def main() -> int:
-    engine: Engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
+    database_url = os.environ.get("ITEM_UNIT_AUDIT_DATABASE_URL")
+    if not database_url:
+        raise SystemExit("Set ITEM_UNIT_AUDIT_DATABASE_URL to the explicitly selected database URL.")
+    engine: Engine = create_engine(database_url, pool_pre_ping=True)
     try:
         with engine.connect() as connection:
             report = audit_item_unit_history(connection)
