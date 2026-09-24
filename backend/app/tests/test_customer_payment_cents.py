@@ -72,3 +72,27 @@ def test_invalid_minor_units_are_rejected_before_writes(client, auth_headers, ce
     response = client.post(f"/api/customers/{cid}/payments", headers=auth_headers, json={"amount": amount})
     assert response.status_code == 422, response.text
     assert _state(cid) == before
+
+
+def test_customer_can_settle_exact_one_cent_invoice_balance(client, auth_headers, cent_customer):
+    cid, oid, iid = cent_customer
+
+    first = client.post(
+        f"/api/customers/{cid}/payments",
+        headers=auth_headers,
+        json={"sales_order_id": oid, "amount": "0.99", "payment_method": "cash"},
+    )
+    second = client.post(
+        f"/api/customers/{cid}/payments",
+        headers=auth_headers,
+        json={"sales_order_id": oid, "amount": "0.01", "payment_method": "cash"},
+    )
+
+    assert first.status_code == second.status_code == 201
+    assert first.json()["invoice_id"] == second.json()["invoice_id"] == iid
+    with TestSessionLocal() as db:
+        invoice = db.get(Invoice, iid)
+        payments = db.query(Payment).filter_by(customer_id=cid).all()
+        assert invoice.status == "paid"
+        assert sum((row.amount for row in payments if row.invoice_id == iid), Decimal(0)) == Decimal("1.00")
+        assert not any(row.invoice_id is None for row in payments)

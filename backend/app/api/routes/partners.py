@@ -411,8 +411,11 @@ def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | N
             .all()
         )
     for invoice in invoices:
-        balance_due = max(float(invoice.amount or 0) - float(paid_by_invoice.get(int(invoice.id)) or 0), 0)
-        if balance_due > 0.01:
+        balance_due = (
+            Decimal(str(invoice.amount or 0))
+            - Decimal(str(paid_by_invoice.get(int(invoice.id)) or 0))
+        )
+        if balance_due > Decimal("0"):
             return invoice
     return None
 
