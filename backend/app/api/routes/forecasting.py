@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -21,6 +23,41 @@ from app.services.forecasting import (
 )
 
 router = APIRouter(prefix="/forecasting", tags=["forecasting"])
+
+_MAX_SOURCE_JSON_BYTES = 16 * 1024
+_MAX_SOURCE_JSON_DEPTH = 16
+
+
+def _validate_source_json(source_json: dict | None) -> None:
+    """Bound newly submitted provenance before it is persisted as JSON."""
+    if source_json is None:
+        return
+
+    pending: list[tuple[object, int]] = [(source_json, 1)]
+    while pending:
+        value, depth = pending.pop()
+        if isinstance(value, dict):
+            if depth > _MAX_SOURCE_JSON_DEPTH:
+                raise HTTPException(422, "source_json exceeds the maximum nesting depth")
+            pending.extend((child, depth + 1) for child in value.values())
+        elif isinstance(value, list):
+            if depth > _MAX_SOURCE_JSON_DEPTH:
+                raise HTTPException(422, "source_json exceeds the maximum nesting depth")
+            pending.extend((child, depth + 1) for child in value)
+        elif isinstance(value, float) and not math.isfinite(value):
+            raise HTTPException(422, "source_json must contain finite numbers")
+
+    try:
+        encoded = json.dumps(
+            source_json,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise HTTPException(422, "source_json must contain valid JSON values") from exc
+    if len(encoded) > _MAX_SOURCE_JSON_BYTES:
+        raise HTTPException(422, "source_json exceeds the 16 KiB limit")
 
 
 def _recommendation_payload(row: ForecastRecommendation) -> dict:
@@ -113,6 +150,7 @@ def create_forecast_recommendation(
     current: User = Depends(require_permissions("forecasting.manage", "*")),
 ):
     _validate_recommendation_references(payload, db)
+    _validate_source_json(payload.source_json)
     unit = payload.unit
     if payload.item_id is not None:
         item_unit = db.query(Item.unit).filter(Item.id == payload.item_id).scalar()
