@@ -90,6 +90,43 @@ def test_0130_preflight_never_echoes_target_email():
     engine.dispose()
 
 
+def test_0130_revision_mismatch_does_not_reflect_unrelated_schema():
+    engine = create_engine("sqlite://")
+    metadata = MetaData()
+    version = Table("alembic_version", metadata, Column("version_num", String, primary_key=True))
+    metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(insert(version), {"version_num": "0128_previous_revision"})
+
+    report = read_only_preflight_0130(engine)
+
+    assert report == {
+        "revision": "0130_eco_fabric_transfers",
+        "expected_predecessor": PREDECESSOR_0130,
+        "database_revision": "0128_previous_revision",
+        "migration_pending": False,
+        "applicability": "revision_mismatch_review_required",
+        "affected_rows_inspected": False,
+    }
+    engine.dispose()
+
+
+def test_0130_applied_revision_does_not_reconstruct_historical_grants():
+    engine = create_engine("sqlite://")
+    metadata = MetaData()
+    version = Table("alembic_version", metadata, Column("version_num", String, primary_key=True))
+    metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(insert(version), {"version_num": "0130_eco_fabric_transfers"})
+
+    report = read_only_preflight_0130(engine)
+
+    assert report["applicability"] == "migration_already_applied"
+    assert report["affected_rows_inspected"] is False
+    assert "accounts" not in report
+    engine.dispose()
+
+
 def test_null_mil_policy_is_reported_as_migration_blocker():
     engine, users, version = _engine()
     with engine.begin() as connection:

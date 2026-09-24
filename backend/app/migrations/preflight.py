@@ -303,16 +303,26 @@ def read_only_preflight_0130(engine: sa.Engine) -> dict[str, Any]:
     with engine.connect() as connection:
         with connection.begin():
             if connection.dialect.name == "postgresql":
-                connection.execute(sa.text("SET TRANSACTION READ ONLY"))
+                connection.execute(sa.text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
             current = connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+            if current != PREDECESSOR_0130:
+                return {
+                    "revision": REVISION_0130,
+                    "expected_predecessor": PREDECESSOR_0130,
+                    "database_revision": current,
+                    "migration_pending": False,
+                    "applicability": (
+                        "migration_already_applied" if current == REVISION_0130
+                        else "revision_mismatch_review_required"
+                    ),
+                    "affected_rows_inspected": False,
+                }
             report = preview_0130_permissions(connection)
             report["database_revision"] = current
-            report["migration_pending"] = current == PREDECESSOR_0130
+            report["migration_pending"] = True
             report["applicability"] = (
-                "blocked_by_migration_input" if current == PREDECESSOR_0130 and report["blocked_account_count"]
-                else "ready_for_review" if current == PREDECESSOR_0130
-                else "migration_already_applied" if current == REVISION_0130
-                else "revision_mismatch_review_required"
+                "blocked_by_migration_input" if report["blocked_account_count"]
+                else "ready_for_review"
             )
             return report
 
