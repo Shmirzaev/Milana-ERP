@@ -1378,6 +1378,10 @@ export default {
     "page.waste.saleRecordedRefreshFailed": "Chiqindi sotuvi saqlandi. Ro‘yxatni yangilash uchun sahifani qayta yuklang.",
     "page.waste.saleFailed": "Chiqindi sotuvini saqlab bo‘lmadi",
     "page.waste.saleInvalid": "Xaridorni, musbat miqdorni va manfiy bo‘lmagan narxni kiriting.",
+    "page.waste.pendingSale": "Qiymatlarni o‘zgartirishdan oldin saqlangan chiqindi sotuvini yakunlang.",
+    "page.waste.saleRecoveryUnavailable": "Saqlangan sotuvni tiklab bo‘lmadi. Boshqa sotuv yuborishdan oldin brauzer ma’lumotlarini saqlang va administratorga murojaat qiling.",
+    "page.waste.saleRecoveryCancelled": "Saqlangan sotuv amalga oshmagan. Qiymatlarni tekshirib, yangi sotuvni tasdiqlang.",
+    "page.waste.saleRecoveryResolved": "Sotuv amalga oshgan, ammo natija o‘chirilgan yoki joriy ruxsat bilan mavjud emas. Qayta urinish ma’lumoti xavfsiz tozalandi.",
     "field.wasteType": "Tur",
 
     "page.finance.title": "Moliya",

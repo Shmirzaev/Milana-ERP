@@ -1477,6 +1477,10 @@ export default {
     "page.waste.saleRecordedRefreshFailed": "Waste sale recorded. Refresh the page to update the list.",
     "page.waste.saleFailed": "Waste sale could not be recorded",
     "page.waste.saleInvalid": "Enter a buyer, a positive quantity, and a nonnegative unit price.",
+    "page.waste.pendingSale": "Resolve the saved waste sale before changing its values.",
+    "page.waste.saleRecoveryUnavailable": "Saved sale recovery is unavailable. Keep this browser data and contact an administrator before submitting another sale.",
+    "page.waste.saleRecoveryCancelled": "The saved sale was not committed. Review the values and confirm a new sale.",
+    "page.waste.saleRecoveryResolved": "The sale was completed, but its result is deleted or unavailable with your current access. Saved retry data was cleared safely.",
     "field.wasteType": "Type",
 
     // ----- Finance -----

@@ -79,6 +79,15 @@ def _sell(client, headers, wid, *, quantity, unit_price=2.5, buyer_name="Synthet
     )
 
 
+def _reconcile(client, headers, wid, *, quantity, unit_price=2.5, buyer_name="Synthetic buyer", key=None):
+    request_headers = {**headers, **({"Idempotency-Key": key} if key else {})}
+    return client.post(
+        f"/api/waste/{wid}/sell/reconcile",
+        headers=request_headers,
+        json={"buyer_name": buyer_name, "quantity": quantity, "unit_price": unit_price},
+    )
+
+
 def test_partial_sales_keep_stock_open_until_exactly_exhausted(client):
     _, headers = _actor()
     wid = _fixture(quantity=10)
@@ -156,7 +165,6 @@ def test_sale_preserves_decimal_input_precision_when_validating(client, field, v
         headers=headers,
         json={"buyer_name": "Synthetic buyer", "quantity": 1, "unit_price": 2, field: value},
     )
-
     assert response.status_code == 400, response.text
     assert response.json() == {"detail": detail}
     assert _snapshot(wid) == before
@@ -272,6 +280,74 @@ def test_sale_idempotency_scope_isolated_by_authenticated_user_and_parent(client
     assert len({first.json()["id"], other_actor.json()["id"], other_parent.json()["id"]}) == 3
     assert len(_snapshot(first_wid)["sales"]) == 2
     assert len(_snapshot(second_wid)["sales"]) == 1
+
+
+def test_sale_reconciliation_returns_committed_result_without_replaying_sale(client):
+    _, headers = _actor()
+    wid = _fixture(quantity=5)
+    key = f"waste-sale-reconcile-{uuid4().hex}"
+
+    created = _sell(client, headers, wid, quantity=2.25, unit_price=3.5, buyer_name="Exact buyer", key=key)
+    assert created.status_code == 200, created.text
+    before = _snapshot(wid)
+
+    reconciled = _reconcile(
+        client, headers, wid, quantity=2.25, unit_price=3.5, buyer_name="Exact buyer", key=key,
+    )
+
+    assert reconciled.status_code == 200, reconciled.text
+    assert reconciled.json() == {"status": "completed", "result": created.json()}
+    assert _snapshot(wid) == before
+
+
+def test_sale_reconciliation_tombstones_unused_key_before_corrected_sale(client):
+    _, headers = _actor()
+    wid = _fixture(quantity=5)
+    key = f"waste-sale-cancel-{uuid4().hex}"
+
+    missing_key = _reconcile(client, headers, wid, quantity=2)
+    assert missing_key.status_code == 400
+    assert missing_key.json() == {"detail": "Idempotency-Key is required for waste sale reconciliation"}
+
+    reconciled = _reconcile(client, headers, wid, quantity=2, key=key)
+    assert reconciled.status_code == 200 and reconciled.json() == {"status": "cancelled"}
+    before = _snapshot(wid)
+
+    delayed = _sell(client, headers, wid, quantity=2, key=key)
+    assert delayed.status_code == 409
+    assert delayed.json() == {
+        "detail": "This waste sale request was cancelled; submit corrected values with a new key",
+    }
+    assert _snapshot(wid) == before
+
+    corrected = _sell(client, headers, wid, quantity=2, key=f"{key}-corrected")
+    assert corrected.status_code == 200, corrected.text
+    assert len(_snapshot(wid)["sales"]) == 1
+
+
+def test_sale_reconciliation_preserves_payload_and_current_authorization(client):
+    actor_id, headers = _actor()
+    wid = _fixture(quantity=5)
+    key = f"waste-sale-auth-{uuid4().hex}"
+    created = _sell(client, headers, wid, quantity=2, unit_price=4, buyer_name="Original buyer", key=key)
+    assert created.status_code == 200, created.text
+    before = _snapshot(wid)
+
+    changed = _reconcile(client, headers, wid, quantity=2, unit_price=4, buyer_name="Changed buyer", key=key)
+    assert changed.status_code == 409
+    assert changed.json() == {"detail": "Idempotency-Key was already used with a different request payload"}
+    assert _snapshot(wid) == before
+
+    with SessionLocal() as db:
+        actor = db.get(User, actor_id)
+        actor.extra_permissions = []
+        db.commit()
+    unavailable = _reconcile(
+        client, headers, wid, quantity=2, unit_price=4, buyer_name="Original buyer", key=key,
+    )
+    assert unavailable.status_code == 200
+    assert unavailable.json() == {"status": "completed_unavailable"}
+    assert _snapshot(wid) == before
 
 
 def test_sale_preserves_database_rounding_for_fractional_cent_total(client):
@@ -541,3 +617,72 @@ def test_postgres_sale_and_disposal_serialize_on_same_parent(sale_postgres_engin
     assert after["record"]["status"] == "received_by_waste_department"
     with sessions() as db:
         assert db.query(WasteDisposalRequest).filter_by(waste_record_id=wid).count() == 0
+
+
+@pytest.mark.parametrize("first_operation", ["sell", "reconcile"])
+def test_postgres_sale_reconciliation_serializes_without_replaying_physical_sale(
+    sale_postgres_engine, first_operation,
+):
+    sessions = sessionmaker(bind=sale_postgres_engine, autoflush=False, expire_on_commit=False)
+    actor_id = _actor(session_factory=sessions)[0]
+    wid = _fixture(quantity=5, session_factory=sessions)
+    before = _snapshot(wid, sessions)
+    key = f"waste-sale-race-{uuid4().hex}"
+    payload = waste.WasteSaleIn(buyer_name="Race buyer", quantity=2, unit_price=3)
+    ready = Queue()
+
+    def execute(operation):
+        with sessions() as db:
+            actor = db.get(User, actor_id)
+            ready.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            try:
+                if operation == "sell":
+                    result = waste.sell_waste(wid, payload, db, actor, key)
+                    return operation, 200, result["id"]
+                result = waste.reconcile_waste_sale(wid, payload, db, actor, key)
+                return operation, 200, result["status"]
+            except HTTPException as rejected:
+                db.rollback()
+                return operation, rejected.status_code, rejected.detail
+
+    second_operation = "reconcile" if first_operation == "sell" else "sell"
+    with sale_postgres_engine.connect() as holder, ThreadPoolExecutor(max_workers=2) as workers:
+        holder.execute(text("SELECT id FROM waste_records WHERE id = :id FOR NO KEY UPDATE"), {"id": wid})
+        first = workers.submit(execute, first_operation)
+        first_pid = ready.get(timeout=10)
+        deadline = monotonic() + 10
+        while monotonic() < deadline:
+            if holder.execute(
+                text("SELECT cardinality(pg_blocking_pids(:pid)) > 0"), {"pid": first_pid},
+            ).scalar_one():
+                break
+            sleep(0.01)
+        else:
+            pytest.fail("First waste sale operation did not reach the parent lock")
+
+        second = workers.submit(execute, second_operation)
+        second_pid = ready.get(timeout=10)
+        deadline = monotonic() + 10
+        while monotonic() < deadline:
+            if holder.execute(
+                text("SELECT cardinality(pg_blocking_pids(:pid)) > 0"), {"pid": second_pid},
+            ).scalar_one():
+                break
+            sleep(0.01)
+        else:
+            pytest.fail("Second waste sale operation did not serialize on the request key")
+        holder.rollback()
+        results = {result[0]: result for result in (first.result(timeout=20), second.result(timeout=20))}
+
+    snapshot = _snapshot(wid, sessions)
+    if first_operation == "sell":
+        assert results["sell"][1] == 200
+        assert results["reconcile"][1:] == (200, "completed")
+        assert len(snapshot["sales"]) == 1
+        assert len(snapshot["audits"]) == 1
+    else:
+        assert results["reconcile"][1:] == (200, "cancelled")
+        assert results["sell"][1] == 409
+        assert snapshot["sales"] == []
+        assert snapshot["audits"] == []
+    assert snapshot["idempotency_count"] == before["idempotency_count"] + 1

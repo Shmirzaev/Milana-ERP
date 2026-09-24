@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from sqlalchemy import func
 from sqlalchemy.orm import load_only
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.models import WasteRecord, WasteSale, WasteDisposalRequest, User, StockBatch, Item
 from app.schemas.waste import (
     WasteIn, WasteOut, WastePageOut, WasteSaleIn, WasteSaleOut, WasteDisposalIn, WasteDisposalOut,
@@ -20,6 +20,7 @@ router = APIRouter(prefix="/waste", tags=["waste"])
 MAX_WASTE_QUANTITY = Decimal("9999999999.9999")
 MAX_WASTE_ESTIMATED_VALUE = Decimal("9999999999.99")
 WASTE_QUANTITY_QUANTUM = Decimal("0.0001")
+_CANCELLED_SALE_REQUEST = {"_waste_sale_request": "cancelled"}
 
 
 def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | None) -> Decimal:
@@ -172,6 +173,8 @@ def sell_waste(
         db, user=current, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
     )
     if replay:
+        if replay == _CANCELLED_SALE_REQUEST:
+            raise HTTPException(409, "This waste sale request was cancelled; submit corrected values with a new key")
         return replay
 
     w = (
@@ -189,6 +192,8 @@ def sell_waste(
         db, user=current, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
     )
     if replay:
+        if replay == _CANCELLED_SALE_REQUEST:
+            raise HTTPException(409, "This waste sale request was cancelled; submit corrected values with a new key")
         return replay
 
     if not w.sellable: raise HTTPException(400, "Waste is not marked sellable")
@@ -229,6 +234,80 @@ def sell_waste(
     )
     db.commit()
     return response
+
+
+@router.post("/{wid}/sell/reconcile")
+def reconcile_waste_sale(
+    wid: int,
+    payload: WasteSaleIn,
+    db: DbSession,
+    current: CurrentUser,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """Resolve an uncertain keyed sale without executing the sale again."""
+    if not idempotency_key:
+        raise HTTPException(400, "Idempotency-Key is required for waste sale reconciliation")
+
+    idempotency_scope = f"waste.sales.{current.id}.{wid}"
+    fingerprint_payload = {"waste_record_id": wid, **payload.model_dump(mode="json")}
+
+    # Match the write endpoint's lock order: request-key advisory lock first,
+    # then the waste parent. A live write therefore completes before its
+    # reconciliation, while an earlier reconciliation tombstones the key
+    # before any delayed write can apply it.
+    replay = replay_idempotent_response(
+        db,
+        user=current,
+        scope=idempotency_scope,
+        key=idempotency_key,
+        payload=fingerprint_payload,
+    )
+    waste_record = (
+        db.query(WasteRecord.id)
+        .filter(WasteRecord.id == wid)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
+    if replay is None:
+        replay = replay_idempotent_response(
+            db,
+            user=current,
+            scope=idempotency_scope,
+            key=idempotency_key,
+            payload=fingerprint_payload,
+        )
+
+    if replay is not None:
+        if replay == _CANCELLED_SALE_REQUEST:
+            db.commit()
+            return {"status": "cancelled"}
+        can_sell = bool(set(user_permissions(current)).intersection({"waste.sell", "*"}))
+        sale_id = replay.get("id")
+        sale_exists = bool(
+            isinstance(sale_id, int)
+            and db.query(WasteSale.id).filter(
+                WasteSale.id == sale_id,
+                WasteSale.waste_record_id == wid,
+            ).first()
+        )
+        if not can_sell or not waste_record or not sale_exists:
+            db.commit()
+            return {"status": "completed_unavailable"}
+        db.commit()
+        return {"status": "completed", "result": replay}
+
+    store_idempotent_response(
+        db,
+        scope=idempotency_scope,
+        key=idempotency_key,
+        payload=fingerprint_payload,
+        response=_CANCELLED_SALE_REQUEST,
+        user=current,
+        status_code=409,
+    )
+    db.commit()
+    return {"status": "cancelled"}
 
 
 def _validated_sale_values(payload: WasteSaleIn) -> tuple[str, Decimal, Decimal, Decimal]:

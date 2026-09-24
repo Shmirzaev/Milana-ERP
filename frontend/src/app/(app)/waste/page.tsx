@@ -8,7 +8,14 @@ import { useT } from "@/lib/i18n";
 import { useDialogs } from "@/components/DialogProvider";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { useMe } from "@/lib/auth";
-import { pendingWasteSale, postWasteSale, type WasteSalePayload } from "@/lib/wasteSaleRecovery";
+import {
+  pendingWasteSale,
+  postWasteSale,
+  WasteSaleRecoveryError,
+  wasteSaleChangedEvent,
+  wasteSaleStorageKey,
+  type WasteSalePayload,
+} from "@/lib/wasteSaleRecovery";
 
 type WasteForm = {
   item_id: number;
@@ -39,16 +46,31 @@ export default function WastePage() {
 
   useEffect(() => {
     if (!me || !data) return;
-    const pendingIds = new Set<number>();
-    for (const row of data) {
-      try {
-        if (pendingWasteSale(me.id, row.id)) pendingIds.add(row.id);
-      } catch {
-        // Corrupt evidence must stay visible and block a replacement request.
-        pendingIds.add(row.id);
+    const refreshPendingSales = () => {
+      const pendingIds = new Set<number>();
+      for (const row of data) {
+        try {
+          if (pendingWasteSale(me.id, row.id)) pendingIds.add(row.id);
+        } catch {
+          // Corrupt evidence must stay visible and block a replacement request.
+          pendingIds.add(row.id);
+        }
       }
-    }
-    setPendingSaleIds(pendingIds);
+      setPendingSaleIds(pendingIds);
+    };
+    refreshPendingSales();
+    if (typeof window === "undefined") return;
+    const syncPendingSales = (event: Event) => {
+      const changedKey = "key" in event ? (event as StorageEvent).key : null;
+      if (changedKey && !data.some((row) => changedKey === wasteSaleStorageKey(me.id, row.id))) return;
+      refreshPendingSales();
+    };
+    window.addEventListener("storage", syncPendingSales);
+    window.addEventListener(wasteSaleChangedEvent, syncPendingSales);
+    return () => {
+      window.removeEventListener("storage", syncPendingSales);
+      window.removeEventListener(wasteSaleChangedEvent, syncPendingSales);
+    };
   }, [data, me]);
 
   async function record(e: React.FormEvent) {
@@ -119,12 +141,36 @@ export default function WastePage() {
           setMsg(t("page.waste.saleRecordedRefreshFailed"));
         }
       } catch (error: unknown) {
+        if (error instanceof WasteSaleRecoveryError && error.code === "completed_unavailable") {
+          setPendingSaleIds((current) => {
+            const next = new Set(current);
+            next.delete(wasteId);
+            return next;
+          });
+          setSale(null);
+          setMsg(t("page.waste.saleRecoveryResolved"));
+          try { await mutate(); } catch { /* The completed-sale warning remains authoritative. */ }
+          return;
+        }
+        if (error instanceof WasteSaleRecoveryError && error.code === "cancelled") {
+          setPendingSaleIds((current) => {
+            const next = new Set(current);
+            next.delete(wasteId);
+            return next;
+          });
+          setMsg(t("page.waste.saleRecoveryCancelled"));
+          return;
+        }
         let stillPending = true;
         let storageMessage = "";
         try {
           stillPending = Boolean(pendingWasteSale(me.id, wasteId));
         } catch (storageError: unknown) {
-          storageMessage = storageError instanceof Error ? storageError.message : t("page.waste.saleFailed");
+          storageMessage = storageError instanceof WasteSaleRecoveryError
+            ? t("page.waste.saleRecoveryUnavailable")
+            : storageError instanceof Error
+              ? storageError.message
+              : t("page.waste.saleFailed");
         }
         setPendingSaleIds((current) => {
           const next = new Set(current);
@@ -132,7 +178,12 @@ export default function WastePage() {
           else next.delete(wasteId);
           return next;
         });
-        setMsg(storageMessage || (error instanceof Error ? error.message : t("page.waste.saleFailed")));
+        const recoveryMessage = error instanceof WasteSaleRecoveryError
+          ? error.code === "pending"
+            ? t("page.waste.pendingSale")
+            : t("page.waste.saleRecoveryUnavailable")
+          : "";
+        setMsg(storageMessage || recoveryMessage || (error instanceof Error ? error.message : t("page.waste.saleFailed")));
       }
     } finally {
       saleSubmissionRef.current = false;
