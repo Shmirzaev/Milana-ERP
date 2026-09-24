@@ -352,6 +352,56 @@ def test_batch_edit_rejects_wrong_category_warehouse_without_writes(
     assert stock_state(movement_stock) == before
 
 
+@pytest.mark.parametrize("edit_kind", ["quantity", "warehouse"])
+def test_batch_edit_rejects_legacy_unit_drift_before_ledger_write(
+    client, auth_headers, movement_stock, edit_kind,
+):
+    with session_module.SessionLocal() as db:
+        db.get(StockBatch, movement_stock["batch_id"]).unit = "kg"
+        db.commit()
+    before = stock_state(movement_stock)
+    payload = (
+        {"quantity": 11}
+        if edit_kind == "quantity"
+        else {"warehouse_id": movement_stock["destination_id"]}
+    )
+
+    response = client.patch(
+        f"/api/inventory/batches/{movement_stock['batch_id']}",
+        headers=auth_headers,
+        json=payload,
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Batch unit must match the material unit"
+    assert stock_state(movement_stock) == before
+    with session_module.SessionLocal() as db:
+        assert db.get(StockBatch, movement_stock["batch_id"]).unit == "kg"
+
+
+def test_batch_edit_allows_metadata_only_change_on_legacy_unit_drift(
+    client, auth_headers, movement_stock,
+):
+    with session_module.SessionLocal() as db:
+        db.get(StockBatch, movement_stock["batch_id"]).unit = "kg"
+        db.commit()
+    with session_module.SessionLocal() as db:
+        before_movements = db.query(StockMovement).count()
+
+    response = client.patch(
+        f"/api/inventory/batches/{movement_stock['batch_id']}",
+        headers=auth_headers,
+        json={"color": "navy"},
+    )
+
+    assert response.status_code == 200, response.text
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        assert batch.color == "navy"
+        assert batch.unit == "kg"
+        assert db.query(StockMovement).count() == before_movements
+
+
 @pytest.mark.parametrize("movement_type", ["issue", "consume", "transfer"])
 def test_movement_cannot_spend_or_move_reserved_stock(client, auth_headers, movement_stock, movement_type):
     with session_module.SessionLocal() as db:

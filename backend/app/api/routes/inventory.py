@@ -1656,6 +1656,8 @@ def update_batch(
         if not target_warehouse:
             raise HTTPException(404, "Warehouse not found")
         validate_stock_batch_warehouse(target_item, target_warehouse)
+    if abs(delta) > EPSILON or (target_warehouse_id != old_warehouse_id and target_quantity > EPSILON):
+        validate_stock_batch_unit(target_item, target_unit)
 
     old_value = {
         "item_id": batch.item_id,
