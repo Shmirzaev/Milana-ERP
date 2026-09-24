@@ -929,7 +929,9 @@ def test_create_variant_replaces_legacy_mismatched_primary_unit_with_catalog_uni
         headers=auth_headers,
     )
     assert response.status_code == 201, response.text
-    copied_row = response.json()["bom"][0]
+    variant_detail = client.get(f"/api/models/{response.json()['id']}", headers=auth_headers)
+    assert variant_detail.status_code == 200, variant_detail.text
+    copied_row = variant_detail.json()["bom"][0]
     assert copied_row["item_id"] == fabric_id
     assert copied_row["unit"] == "m"
     assert copied_row["stock_batch_id"] is None
