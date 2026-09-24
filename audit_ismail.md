@@ -278,6 +278,8 @@ Recorded production application code matches the base; live servers/manifests we
 
 `df14ad6` locks the sewing work order and assignment before deletion and reuses the return workflow's output/report guard. Progressed or historical assignments reject deletion without mutation; direct assignment-linked sewing records block return even when their line name differs. Fifty-eight focused sewing cases and Ruff pass. Other alternate writer/reference rules remain, so DB01 stays partial and the count stays **105 fixed, 16 partial, 6 open; 22 remaining**. No production contact, deployment or push occurred.
 
+`794f213` requires stock-backed accessory issue units to match the catalog item unit before consuming batches or writing movements. Manual non-stock issues retain custom units. Twenty-nine focused/adjacent inventory cases pass, including a two-line rollback when the second unit is invalid. DB01 remains partial and the count is unchanged.
+
 `8711c96` makes purchase-request creation status an exact `draft`/`pending_approval` request type while retaining the service's established whitespace/null normalization. Unknown states return422 without business/audit writes; unauthenticated calls still return401. Forty-one focused/adjacent purchase-request cases and Ruff pass. DB02 remains partial; the count is unchanged. The fast subagent drafted this narrow slice in an isolated worktree, and the primary reviewer adapted, tested and committed it on the task branch.
 
 ### 24 September PERF35 scan-map continuation (local only)
