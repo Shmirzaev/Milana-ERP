@@ -1449,7 +1449,7 @@
       "status": "open",
       "owner": null,
       "commit": null,
-      "evidence": null
+      "evidence": "Added docs/OPS04_FAILURE_DOMAIN_CHECKLIST.md and linked it from the disaster-recovery plan. Repository deployment documentation describes PostgreSQL/backend/frontend VM roles and same-VM blue/green slots but contains no verifiable hypervisor, physical-host, power/site, storage/network failure-domain map, owner-approved RTO/RPO or host-failover test. The audit finding reports VM co-location, which was not independently verified; OPS04 remains open pending authorized infrastructure inventory and a demonstrated recovery/failover exercise. No production access or infrastructure change occurred."
     },
     {
       "number": 118,
