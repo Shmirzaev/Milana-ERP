@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, ForecastRecommendation, Item
+from app.models import AuditLog, ForecastRecommendation, Item, Model
 from app.schemas.forecasting import ForecastRecommendationIn
 
 
@@ -13,9 +13,10 @@ TEXT_LIMITS = {
 }
 
 
-def _payload(*, item_id: int = 1, **values) -> dict:
+def _payload(*, item_id: int = 1, model_id: int | None = None, **values) -> dict:
     return {
         "recommendation_type": "item_reorder",
+        "model_id": model_id,
         "item_id": item_id,
         "suggested_quantity": "12.3456",
         **values,
@@ -40,6 +41,14 @@ def test_forecast_recommendation_text_overflow_is_rejected_before_writes_and_kee
     client, auth_headers
 ):
     with SessionLocal() as db:
+        model = Model(
+            code="FORECAST-TEXT-BOUND-MODEL",
+            name="Forecast text-bound model",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.flush()
         item = Item(
             sku="FORECAST-TEXT-BOUND-UNIT",
             name="Forecast text-bound unit",
@@ -48,6 +57,7 @@ def test_forecast_recommendation_text_overflow_is_rejected_before_writes_and_kee
         )
         db.add(item)
         db.commit()
+        model_id = int(model.id)
         item_id = int(item.id)
         before = (db.query(ForecastRecommendation).count(), db.query(AuditLog).count())
 
@@ -55,6 +65,7 @@ def test_forecast_recommendation_text_overflow_is_rejected_before_writes_and_kee
         "/api/forecasting/recommendations",
         json=_payload(
             item_id=item_id,
+            model_id=model_id,
             color="c" * 64,
             size="s" * 32,
             unit="u" * 32,
@@ -71,14 +82,14 @@ def test_forecast_recommendation_text_overflow_is_rejected_before_writes_and_kee
     for field, limit in TEXT_LIMITS.items():
         response = client.post(
             "/api/forecasting/recommendations",
-            json=_payload(item_id=item_id, **{field: "x" * (limit + 1)}),
+            json=_payload(item_id=item_id, model_id=model_id, **{field: "x" * (limit + 1)}),
             headers=auth_headers,
         )
         assert response.status_code == 422, (field, response.text)
 
     assert client.post(
         "/api/forecasting/recommendations",
-        json=_payload(item_id=item_id, color="x" * 65),
+        json=_payload(item_id=item_id, model_id=model_id, color="x" * 65),
     ).status_code == 401
 
     with SessionLocal() as db:

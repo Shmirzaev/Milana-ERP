@@ -118,6 +118,29 @@ def _validate_recommendation_references(payload: ForecastRecommendationIn, db: D
         raise HTTPException(400, "collection_id does not belong to brand_id")
 
 
+def _recommendation_query_for_factories(db: DbSession, factory_codes: list[str]):
+    return (
+        db.query(ForecastRecommendation)
+        .join(Model, Model.id == ForecastRecommendation.model_id)
+        .filter(Model.factory_code.in_(factory_codes))
+    )
+
+
+def _require_recommendation_factory_access(
+    model_id: int | None,
+    *,
+    factory_codes: list[str],
+    db: DbSession,
+) -> None:
+    if model_id is None:
+        raise HTTPException(403, "A factory-attributed model is required for this recommendation")
+    if not factory_codes or db.query(Model.id).filter(
+        Model.id == model_id,
+        Model.factory_code.in_(factory_codes),
+    ).first() is None:
+        raise HTTPException(403, "Not authorized for this recommendation's factory")
+
+
 @router.get("/dashboard")
 def get_forecasting_dashboard(
     db: DbSession,
@@ -155,6 +178,12 @@ def create_forecast_recommendation(
     if payload.confidence is not None and payload.confidence not in _FORECAST_CONFIDENCE_VALUES:
         raise HTTPException(422, "confidence must be low, medium, or high")
     _validate_source_json(payload.source_json)
+    factory_codes = factory_codes_with_permission(current, "forecasting.manage")
+    _require_recommendation_factory_access(
+        payload.model_id,
+        factory_codes=factory_codes,
+        db=db,
+    )
     unit = payload.unit
     if payload.item_id is not None:
         item_unit = db.query(Item.unit).filter(Item.id == payload.item_id).scalar()
@@ -201,12 +230,16 @@ def create_forecast_recommendation(
 )
 def list_forecast_recommendations(
     db: DbSession,
-    _: object = Depends(require_permissions("forecasting.view", "*")),
+    current: User = Depends(require_permissions("forecasting.view", "*")),
     status: str | None = None,
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = db.query(ForecastRecommendation)
+    qry = _recommendation_query_for_factories(
+        db,
+        factory_codes_with_permission(current, "forecasting.view"),
+    )
     if status:
         qry = qry.filter(ForecastRecommendation.status == status)
     ordered_qry = qry.order_by(ForecastRecommendation.id.desc())
@@ -234,7 +267,10 @@ def update_forecast_recommendation(
     db: DbSession,
     current: User = Depends(require_permissions("forecasting.manage", "*")),
 ):
-    row = db.get(ForecastRecommendation, recommendation_id)
+    factory_codes = factory_codes_with_permission(current, "forecasting.manage")
+    row = _recommendation_query_for_factories(db, factory_codes).filter(
+        ForecastRecommendation.id == recommendation_id
+    ).first()
     if not row:
         raise HTTPException(404, "Forecast recommendation not found")
     old_value = {"status": row.status}

@@ -1,11 +1,19 @@
 from uuid import uuid4
 
-from app.models import AuditLog, ForecastRecommendation, Item
+from app.models import AuditLog, ForecastRecommendation, Item, Model
 from app.tests.conftest import TestSessionLocal
 
 
 def test_item_recommendation_uses_catalog_unit_without_invalid_writes(client, auth_headers):
     with TestSessionLocal() as db:
+        model = Model(
+            code=f"FORECAST-UNIT-MODEL-{uuid4().hex[:8]}",
+            name="Forecast unit guard model",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.flush()
         item = Item(
             sku=f"FORECAST-UNIT-{uuid4().hex[:12]}",
             name="Forecast unit guard fabric",
@@ -14,11 +22,13 @@ def test_item_recommendation_uses_catalog_unit_without_invalid_writes(client, au
         )
         db.add(item)
         db.commit()
+        model_id = int(model.id)
         item_id = int(item.id)
         before = db.query(ForecastRecommendation).count(), db.query(AuditLog).count()
 
     payload = {
         "recommendation_type": "item_reorder",
+        "model_id": model_id,
         "item_id": item_id,
         "suggested_quantity": 3,
     }

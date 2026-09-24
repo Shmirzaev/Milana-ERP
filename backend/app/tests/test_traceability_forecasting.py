@@ -753,10 +753,22 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
 
 
 def test_forecast_recommendation_accept_and_dismiss_state_changes(client, auth_headers):
+    with TestSessionLocal() as db:
+        marker = uuid4().hex[:10]
+        model = Model(
+            code=f"REC-STATE-{marker}",
+            name=f"Recommendation state {marker}",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.commit()
+        model_id = int(model.id)
     r = client.post(
         "/api/forecasting/recommendations",
         json={
             "recommendation_type": "item_reorder",
+            "model_id": model_id,
             "item_id": 1,
             "suggested_quantity": 12,
             "unit": "kg",

@@ -5,17 +5,26 @@ from sqlalchemy import event
 
 from app.api.routes.forecasting import list_forecast_recommendations
 from app.db.session import SessionLocal
-from app.models import AuditLog, ForecastRecommendation
+from app.models import AuditLog, ForecastRecommendation, Model, User
 
 
 def _seed_recommendations(count: int) -> tuple[list[int], int]:
     marker = uuid4().hex[:10]
     with SessionLocal() as db:
+        model = Model(
+            code=f"PERF35-FORECAST-{marker}",
+            name=f"PERF35 forecast {marker}",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.flush()
         db.query(ForecastRecommendation).delete(synchronize_session=False)
         rows = [
             ForecastRecommendation(
                 recommendation_type="item_reorder",
                 status="open",
+                model_id=model.id,
                 suggested_quantity=index + 1,
                 unit="kg",
                 confidence="medium",
@@ -29,6 +38,7 @@ def _seed_recommendations(count: int) -> tuple[list[int], int]:
         excluded = ForecastRecommendation(
             recommendation_type="item_reorder",
             status="dismissed",
+            model_id=model.id,
             suggested_quantity=1,
             reason=f"Excluded forecast {marker}",
         )
@@ -40,6 +50,7 @@ def _seed_recommendations(count: int) -> tuple[list[int], int]:
 def _read(**kwargs):
     with SessionLocal() as db:
         statements = []
+        current = db.query(User).filter(User.id == 1).first()
 
         def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
             if statement.lstrip().lower().startswith("select"):
@@ -47,7 +58,7 @@ def _read(**kwargs):
 
         event.listen(db.bind, "before_cursor_execute", capture)
         try:
-            payload = list_forecast_recommendations(db, None, **kwargs)
+            payload = list_forecast_recommendations(db, current, **kwargs)
         finally:
             event.remove(db.bind, "before_cursor_execute", capture)
         return payload, statements
