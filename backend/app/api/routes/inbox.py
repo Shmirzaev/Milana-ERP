@@ -794,8 +794,13 @@ def _core_inbox_identity_sources(
     if department_code in _SEWING_LOGISTICS_DEPTS:
         incoming_bundle_statuses.append("created")
     bundle_rows = (
-        db.query(Bundle, ProductionOrder.order_no, ProductionOrder.production_no)
+        db.query(
+            Bundle,
+            func.coalesce(func.nullif(SalesOrder.order_no, ""), ProductionOrder.production_no).label("order_no"),
+            ProductionOrder.production_no,
+        )
         .join(ProductionOrder, ProductionOrder.id == Bundle.production_order_id)
+        .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
         .filter(
             Bundle.next_department_id.in_(inbox_department_ids),
             Bundle.status.in_(incoming_bundle_statuses),
