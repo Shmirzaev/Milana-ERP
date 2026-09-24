@@ -265,7 +265,11 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
 
 def review_shipment_amount(db: Session, shipment: Shipment, document: dict,
                            payload: ShipmentAmountReview, user: User) -> None:
-    if shipment.status not in {"draft", "created"}:
+    pending = ((shipment.dispatch_snapshot or {}).get("manual")
+               and shipment.status in {"shipped", "delivered"}
+               and not shipment.sales_order_id and document.get("amount") is None
+               and document.get("finance_posting_status") == "pending_price")
+    if shipment.status not in {"draft", "created"} and not pending:
         raise HTTPException(409, "Invoice amount can only be reviewed before shipment")
     if not document["packages_count"] or document["basis"] != payload.basis:
         raise HTTPException(409, "Scanned contents changed; reload and review again")
@@ -276,15 +280,24 @@ def review_shipment_amount(db: Session, shipment: Shipment, document: dict,
     log_action(db, user, "review_shipment_amount", "Shipment", shipment.id,
                old_value={"amount": document["amount"], "review": (shipment.dispatch_snapshot or {}).get("review")},
                new_value=review)
-    shipment.dispatch_snapshot = {**(shipment.dispatch_snapshot or {}), "review": review}
+    if pending:
+        shipment.dispatch_snapshot = {**shipment.dispatch_snapshot, "unpriced_document": document,
+                                      "review": review,
+                                      "document": {**document, "amount": review["amount"],
+                                                   "adjustment_reason": review["reason"]}}
+        post_manual_shipment_invoice(db, shipment, user)
+    else:
+        shipment.dispatch_snapshot = {**(shipment.dispatch_snapshot or {}), "review": review}
 
 
 def freeze_dispatch_document(db: Session, shipment: Shipment) -> None:
     document = shipment_document(db, shipment)
     if document["review_stale"]:
         raise HTTPException(409, "Scanned contents changed after amount review; review the invoice amount again")
-    if document["amount"] is None and (shipment.sales_order_id or (shipment.dispatch_snapshot or {}).get("manual")):
+    if document["amount"] is None and shipment.sales_order_id:
         raise HTTPException(409, "Some package prices are ambiguous; warehouse must review the invoice amount")
+    if document["amount"] is None and (shipment.dispatch_snapshot or {}).get("manual"):
+        document["finance_posting_status"] = "pending_price"
     shipment.dispatch_snapshot = {**({"manual": True} if (shipment.dispatch_snapshot or {}).get("manual") else {}), "document": document}
 
 
@@ -364,20 +377,25 @@ def invoice_for_frozen_delivery(db: Session, shipment: Shipment, user: User) -> 
     return invoice
 
 
-def post_manual_shipment_invoice(db: Session, shipment: Shipment, user: User) -> Invoice:
-    """One transaction: scanned stock dispatch, customer sale and frozen ledger invoice."""
+def post_manual_shipment_invoice(db: Session, shipment: Shipment, user: User) -> Invoice | None:
+    """Post once after dispatch; unpriced manual documents wait for an amount review."""
     from app.services.numbering import next_sales_order_no
     from app.services.workflow import ensure_invoice_for_delivered_shipment
     document = (shipment.dispatch_snapshot or {}).get("document")
-    if shipment.status != "shipped" or not document or document.get("amount") is None or not shipment.customer_id:
+    if (not (shipment.dispatch_snapshot or {}).get("manual")
+            or shipment.status not in {"shipped", "delivered"} or not document or not shipment.customer_id):
         raise HTTPException(409, "A scanned, priced customer shipment is required")
     if shipment.sales_order_id:
         raise HTTPException(409, "Manual shipment has already been posted")
+    if document.get("amount") is None and document.get("finance_posting_status") == "pending_price":
+        return None
+    if document.get("amount") is None:
+        raise HTTPException(409, "A scanned, priced customer shipment is required")
     amount = Decimal(document["amount"])
     if not amount.is_finite() or not Decimal("0") <= amount <= Decimal("999999999999.99"):
         raise HTTPException(409, "Invoice amount is outside supported limits")
     order = SalesOrder(order_no=next_sales_order_no(db), customer_id=shipment.customer_id,
-                       order_type="branded_stock", status="shipped", total_amount=amount,
+                       order_type="branded_stock", status=shipment.status, total_amount=amount,
                        notes=f"Manual shipment {shipment.shipment_no}", created_by=user.id)
     db.add(order)
     db.flush()
@@ -399,7 +417,7 @@ def post_manual_shipment_invoice(db: Session, shipment: Shipment, user: User) ->
     db.flush()
     document = {**document, "sales_order_no": order.order_no, "ledger_invoice_no": invoice.invoice_no,
                 "finance_posting_status": "posted"}
-    shipment.dispatch_snapshot = {"manual": True, "document": document}
+    shipment.dispatch_snapshot = {**shipment.dispatch_snapshot, "manual": True, "document": document}
     log_action(db, user, "post_manual_shipment_invoice", "Shipment", shipment.id,
                new_value={"sales_order_id": order.id, "invoice_id": invoice.id, "amount": str(amount),
                           "quantity": document["quantity"], "packages": document["packages_count"]})

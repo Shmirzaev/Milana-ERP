@@ -254,17 +254,15 @@ export default function ShipmentsPage() {
   }
 
   useEffect(() => {
-    if (!shipmentOrders.length) return;
     const requestedOrderId = Number(searchParams.get("so_id") || 0);
     const requestedShipmentId = Number(searchParams.get("shipment_id") || 0);
     const requestedOrder = requestedOrderId
       ? shipmentOrders.find((order) => order.id === requestedOrderId)
       : shipmentOrders.find((order) => Number(order.shipment?.id || 0) === requestedShipmentId);
-    if (!requestedOrder) return;
     window.requestAnimationFrame(() => {
-      document.getElementById(`shipment-order-${requestedOrder.id}`)?.scrollIntoView({ block: "start" });
+      document.getElementById(requestedOrder ? `shipment-order-${requestedOrder.id}` : `shipment-${requestedShipmentId}`)?.scrollIntoView({ block: "start" });
     });
-  }, [searchParams, shipmentOrders]);
+  }, [searchParams, shipmentOrders, data]);
 
   return (
     <div>
@@ -308,7 +306,9 @@ export default function ShipmentsPage() {
           </details>}
         </section>}
 
-        {(data || []).filter(shipment => !shipment.sales_order_id && ["draft", "created"].includes(shipment.status)).map(shipment => (
+        {(data || []).filter(shipment => (!shipment.sales_order_id && ["draft", "created"].includes(shipment.status)) ||
+          (shipment.shipment_type === "manual" && (shipment.status === "shipped" ||
+            (shipment.status === "delivered" && shipment.id === Number(searchParams.get("shipment_id")))))).map(shipment => (
           <ShipmentOrderWorkspace key={shipment.id} order={{ id: 0, order_no: "", status: shipment.status, shipment, is_scanned: !!shipment.is_complete }} canTraceability={canTraceability} onChanged={refreshOrders} />
         ))}
 

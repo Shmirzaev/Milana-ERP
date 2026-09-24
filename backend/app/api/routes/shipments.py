@@ -1267,7 +1267,13 @@ def _invoice_print_details(db, shipment, document):
 
 
 def _printed_document(db: DbSession, shipment: Shipment) -> dict:
+    if shipment.deleted_at:
+        raise HTTPException(404, "Shipment not found")
     if shipment.status not in {"shipped", "delivered"}:
+        if (shipment.dispatch_snapshot or {}).get("manual") and shipment.status in {"draft", "created"}:
+            document = shipment_document(db, shipment, scanned_ids=_matched_package_ids_for_shipment(db, shipment.id))
+            if document["packages_count"]:
+                return {**document, "finance_posting_status": "draft"}
         raise HTTPException(409, "Invoice printing is available after shipment")
     frozen = (shipment.dispatch_snapshot or {}).get("document")
     if frozen:

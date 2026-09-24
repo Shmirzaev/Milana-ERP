@@ -1,5 +1,6 @@
 """Manual receipt, guarded deletion and scan-to-invoice regression."""
 from decimal import Decimal
+import pytest
 from app.db.session import SessionLocal
 from app.models import Customer, FinishedGoodsStock, Invoice, ManualPackageReceipt, Model, Package, PackagePrintRun, PackagePrintRunMember, Shipment
 from app.tests.test_package_workflows import warehouse, manual_body, package_qr  # noqa: F401
@@ -84,11 +85,10 @@ def test_scan_ship_invoice_once(client, warehouse):
         assert db.query(Invoice).filter_by(sales_order_id=db.get(Shipment, sid).sales_order_id).count() == 1
 
 
-def test_missing_price_review_rollback(client, warehouse):
+def test_missing_price_can_be_reviewed_before_dispatch(client, warehouse):
     run = receive(client, warehouse, (7,))
     sid = shipment(client, warehouse)
     assert client.post(f"/api/shipments/{sid}/scan-package", headers=warehouse, json={"code": package_qr(run["package_ids"][0])}).json()["ok"]
-    assert client.post(f"/api/shipments/{sid}/ship", headers=warehouse).status_code == 409
     with SessionLocal() as db:
         assert db.get(Package, run["package_ids"][0]).status == "received_in_storage"
         assert db.get(Shipment, sid).sales_order_id is None
@@ -99,6 +99,68 @@ def test_missing_price_review_rollback(client, warehouse):
     assert result.status_code == 200, result.text
     with SessionLocal() as db:
         assert db.query(Invoice).filter_by(sales_order_id=db.get(Shipment, sid).sales_order_id).one().amount == Decimal("29.99")
+
+
+@pytest.mark.parametrize("deliver_first", [False, True])
+@pytest.mark.parametrize("amount", ["29.99", "0.00"])
+def test_unpriced_manual_invoice_print_and_later_amount(client, warehouse, deliver_first, amount):
+    run = receive(client, warehouse, (7,))
+    pid = run["package_ids"][0]
+    sid = shipment(client, warehouse)
+    base = f"/api/shipments/{sid}"
+    assert client.get(base + "/invoice/print", headers=warehouse).status_code == 409
+    assert client.post(base + "/scan-package", headers=warehouse, json={"code": package_qr(pid)}).json()["ok"]
+    draft = client.get(base + "/invoice", headers=warehouse).json()
+    assert draft["finance_posting_status"] == "draft" and draft["amount"] is None
+    printed = client.get(base + "/invoice/print", headers=warehouse)
+    assert printed.status_code == 200 and "Draft invoice" in printed.text
+    with SessionLocal() as db:
+        before_invoices = db.query(Invoice).count()
+        assert db.get(Package, pid).status == "received_in_storage"
+    result = client.post(base + "/ship", headers=warehouse)
+    assert result.status_code == 200, result.text
+    if deliver_first:
+        assert client.post(base + "/deliver", headers=warehouse).status_code == 200
+    pending = client.get(base + "/invoice", headers=warehouse).json()
+    assert pending["amount"] is None and pending["lines"][0]["unit_price"] is None
+    assert pending["finance_posting_status"] == "pending_price"
+    for lang, label in [("en", "Price pending"), ("ru", "Цена не указана"), ("uz", "Narx kutilmoqda")]:
+        printed = client.get(base + f"/invoice/print?lang={lang}", headers=warehouse)
+        assert printed.status_code == 200 and label in printed.text
+        assert "window.print()" in printed.text
+    with SessionLocal() as db:
+        sh = db.get(Shipment, sid)
+        assert sh.sales_order_id is None and db.query(Invoice).count() == before_invoices
+        stock = db.query(FinishedGoodsStock).filter_by(package_id=pid).one()
+        stock_before = (stock.quantity, stock.available_qty, stock.reserved_qty, stock.sold_qty)
+        assert stock.available_qty == 0 and stock.sold_qty == 7
+        # Catalog edits must not silently replace the saved unpriced document.
+        db.get(Model, stock.model_id).selling_price = Decimal("999")
+        db.commit()
+    assert client.get(base + "/invoice", headers=warehouse).json() == pending
+    payload = {"amount": amount, "basis": pending["basis"], "reason": "Agreed customer total"}
+    assert client.post(base + "/review-amount", json=payload).status_code == 401
+    token = client.post("/api/auth/token", data={"username": "planning@example.com", "password": "demo12345"})
+    viewer = {"Authorization": "Bearer " + token.json()["access_token"]}
+    assert client.post(base + "/review-amount", headers=viewer, json=payload).status_code == 403
+    assert client.get(base + "/invoice/print", headers=viewer).status_code == 403
+    assert client.post(base + "/review-amount", headers=warehouse, json={**payload, "basis": "0" * 64}).status_code == 409
+    assert client.post(base + "/review-amount", headers=warehouse, json={**payload, "amount": "-1"}).status_code == 422
+    result = client.post(base + "/review-amount", headers=warehouse, json=payload)
+    assert result.status_code == 200, result.text
+    assert client.post(base + "/review-amount", headers=warehouse, json=payload).status_code == 409
+    if not deliver_first:
+        assert client.post(base + "/deliver", headers=warehouse).status_code == 200
+    final = client.get(base + "/invoice", headers=warehouse).json()
+    assert final["amount"] == amount and final["finance_posting_status"] == "posted"
+    assert final["lines"] == pending["lines"] and final["quantity"] == 7
+    with SessionLocal() as db:
+        sh = db.get(Shipment, sid)
+        assert sh.dispatch_snapshot["unpriced_document"]["amount"] is None
+        assert db.query(Invoice).count() == before_invoices + 1
+        assert db.query(Invoice).filter_by(sales_order_id=sh.sales_order_id).one().amount == Decimal(amount)
+        stock = db.query(FinishedGoodsStock).filter_by(package_id=pid).one()
+        assert (stock.quantity, stock.available_qty, stock.reserved_qty, stock.sold_qty) == stock_before
 
 
 def test_invalid_inputs(client, warehouse):

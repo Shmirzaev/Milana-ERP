@@ -83,7 +83,7 @@ export type ShipmentPreparation = {
   remaining_count: number;
   is_complete: boolean;
   is_preview?: boolean;
-  review?: { quantity: number; packages_count: number; amount: string | null; calculated_amount: string | null; basis: string; review_stale: boolean } | null;
+  review?: { quantity: number; packages_count: number; amount: string | null; calculated_amount: string | null; basis: string; review_stale: boolean; finance_posting_status?: string } | null;
 };
 
 function formatQuantity(value: number | null | undefined) {
@@ -163,7 +163,7 @@ export default function ShipmentPreparationWorkspace({
   const isPreview = Boolean(preparation.is_preview);
   const isOpen = !isPreview && ["draft", "created"].includes(String(shipment.status || ""));
   const canScan = isOpen;
-  const shipDisabled = !isOpen || preparation.required_count <= 0 || preparation.remaining_count > 0 || !!preparation.review?.review_stale || (shipment.shipment_type === "manual" && preparation.review?.amount == null);
+  const shipDisabled = !isOpen || preparation.required_count <= 0 || preparation.remaining_count > 0 || !!preparation.review?.review_stale;
   const items = preparation.items || [];
   const packages = (preparation.packages || []).slice().sort((a, b) => Number(a.scanned) - Number(b.scanned));
 
@@ -251,7 +251,7 @@ export default function ShipmentPreparationWorkspace({
                 {t("page.shipments.traceability")}
               </Link>
             ) : null}
-            {["shipped", "delivered"].includes(shipment.status) && <a className="btn" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={reviewText.reference}>{reviewText.print}</a>}
+            {(["shipped", "delivered"].includes(shipment.status) || (isOpen && shipment.shipment_type === "manual" && (preparation.review?.packages_count || 0) > 0)) && <a className="btn" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={reviewText.reference}>{reviewText.print}</a>}
           </div> : onCreate ? (
             <div className="flex lg:justify-end">
               <button type="button" className="btn btn-primary" onClick={() => onCreate(normalizeTransportDetails(transportDraft))} disabled={isCreating}>
