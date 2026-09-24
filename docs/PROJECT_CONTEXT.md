@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-23
+Last updated: 2026-09-24
+
+## Manual shipment invoices without variant prices prepared (2026-09-24)
+
+- Manual shipments may be dispatched and delivered with missing variant prices. Their warehouse invoice retains unknown prices/amounts and an explicit pending-price status. No zero-valued Finance invoice or accounting sales order is fabricated; posting waits for an agreed amount. Sales-order shipment pricing and all scan, stock, ownership, reservation and stale-review guards remain in force.
+- Warehouse users can add the agreed invoice total through the existing audited amount-review action after dispatch or delivery. The shipment lock and one-time pending-state transition create exactly one accounting order/unpaid invoice, retain the original unpriced document, and do not touch stock again. This enters a shipment total; it does not change catalog variant prices. Already-posted invoices remain locked by the existing reconciliation rules.
+- Manual shipment invoices can be printed after scanning, before dispatch, with a Draft label; dispatched unpriced invoices print with a pending-price label in EN/RU/UZ. Shipped manual workspaces remain available for printing and adding the amount; Shipment History links back to manual workspaces, including delivered shipments. Printing is read-only and existing permissions are unchanged.
+- Worktree `C:/ERP/.codex-work/manual-shipment-unpriced-20260924`, branch `codex/manual-shipment-unpriced-20260924`, based on verified `origin/main` `fb0e1c44`. Both production manifests/symlinks/slot states matched baseline green release `20260923_094746`, manifest `8382a08dcfc0f5c2a80d0f5af0f1d2ed53d039308cbbe78337367a53bfa23d73`; rollback remains blue `20260923_090323`. No migration, deployment, production business-data change or permission grant. Database remains recorded `0132_first_grade_singles`.
+- Validation: 1,011 backend tests plus the final 11-test manual-dispatch recheck, Ruff/compilation, frontend lint (zero errors, four inherited warnings), strict TypeScript, all build contracts and optimized 90-page webpack build passed. Signed-in browser QA has not been performed. Merge and deployment are not authorized by this task.
 
 ## Bulk deletion inside inventory scan history deployed (2026-09-23)
 

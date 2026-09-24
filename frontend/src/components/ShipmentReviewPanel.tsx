@@ -25,6 +25,8 @@ export default function ShipmentReviewPanel({ preparation, onChanged }: {
   const pkg = preparation.packages.find(row => row.id === editing);
   const open = ["created", "draft"].includes(preparation.shipment.status);
   const allowed = open && can(me, "storage.shipment");
+  const pendingPrice = preparation.shipment.shipment_type === "manual" && review?.finance_posting_status === "pending_price";
+  const amountAllowed = can(me, "storage.shipment") && (open || pendingPrice);
   const canReceiveExtra = can(me, "storage.shipment") && can(me, "storage.packages");
   const hasIncrease = !!pkg?.quantity_items?.some(row => Number(values[row.item_id]) > row.quantity);
   if (!review) return null;
@@ -69,14 +71,15 @@ export default function ShipmentReviewPanel({ preparation, onChanged }: {
       <span>{text.scanned}: <strong>{review.quantity}</strong> · {review.packages_count} {text.packs}</span>
       <span>{text.calculated}: {review.calculated_amount ?? text.noPrices}</span>
       <span>{text.amount}: <strong>{review.amount ?? text.noPrices}</strong></span>
-      {allowed && review.packages_count > 0 && <button type="button" className="btn" onClick={() => begin("amount")} disabled={busy}>{text.review}</button>}
+      {amountAllowed && review.packages_count > 0 && <button type="button" className="btn" onClick={() => begin("amount")} disabled={busy}>{pendingPrice ? text.addAmount : text.review}</button>}
     </div>
+    {preparation.shipment.shipment_type === "manual" && review.amount === null && <p className="text-sm text-amber-800">{text.pendingPrice}</p>}
     {review.review_stale && <p role="alert" className="text-amber-800 text-sm">{text.stale}</p>}
     {allowed && preparation.packages.some(row => row.scanned) && <details><summary className="cursor-pointer text-sm">{text.edit}</summary>
       <div className="divide-y mt-2">{preparation.packages.filter(row => row.scanned).map(row => <div key={row.id} className="flex items-center justify-between gap-3 py-2 text-sm"><span>{row.package_no} · {row.quantity} {text.pieces}</span><button type="button" className="btn" disabled={busy} onClick={() => begin(row.id)}>{text.edit}</button></div>)}</div>
     </details>}
-    {editing !== null && allowed && <form className="space-y-3 border-t pt-3" onSubmit={save}>
-      <p className="text-sm">{editing === "amount" ? text.amountHint : text.qtyHint}</p>
+    {editing !== null && (editing === "amount" ? amountAllowed : allowed) && <form className="space-y-3 border-t pt-3" onSubmit={save}>
+      <p className="text-sm">{editing === "amount" ? preparation.shipment.shipment_type === "manual" ? text.manualAmountHint : text.amountHint : text.qtyHint}</p>
       {editing === "amount" ? <label className="block text-sm">{text.amount}<input className="input block mt-1 max-w-64" inputMode="decimal" type="number" step="0.01" min="0" max="999999999999.99" required value={amount} onChange={e => setAmount(e.target.value)} disabled={busy} /></label> : <>
         <p className="font-semibold text-sm">{pkg?.package_no}</p>
         <div className="flex flex-wrap gap-3">{pkg?.quantity_items?.map(row => <label key={row.item_id} className="text-sm">{row.color} / {row.size}<input aria-label={`${text.quantity}: ${row.color} / ${row.size}`} className="input block mt-1 w-28" type="number" step="1" min="0" max={canReceiveExtra ? 10000 : row.quantity} required value={values[row.item_id] ?? ""} onChange={e => setValues(previous => ({ ...previous, [row.item_id]: e.target.value }))} disabled={busy} /></label>)}</div>

@@ -64,7 +64,7 @@ def build_invoice_rows(lines: list[dict], packages: list[dict]) -> list[dict]:
 
 
 LABELS = {
-    "en": {"title": "Warehouse invoice", "posting": "Unposted to Finance until delivery.", "print": "Print", "order": "Sales order", "customer": "Customer",
+    "en": {"pending_price": "Price pending. Not posted to Finance.", "draft": "Draft invoice — shipment not dispatched.", "title": "Warehouse invoice", "posting": "Unposted to Finance until delivery.", "print": "Print", "order": "Sales order", "customer": "Customer",
            "date": "Shipped", "pack": "Package", "model": "Model / variant", "color": "Color", "size": "Size",
            "qty": "Pieces", "price": "Unit price", "amount": "Amount", "total": "Total", "packs": "Packages",
            "calculated": "Calculated amount", "adjustment": "Warehouse adjustment", "net": "Net prices. No tax calculation.",
@@ -73,7 +73,7 @@ LABELS = {
            "issued": "Warehouse keeper", "received": "Received by", "ledger": "Ledger invoice",
            "historical": "Historical shipment: reconstructed from current records; original financial snapshot unavailable.",
            "missing": "Price unavailable", "signature": "Issued by / Received by"},
-    "ru": {"title": "Складская накладная", "posting": "Не проведён в финансах до подтверждения доставки.", "print": "Печать", "order": "Заказ", "customer": "Клиент",
+    "ru": {"pending_price": "Цена не указана. Не проведено в финансах.", "draft": "Черновик накладной — отгрузка не выполнена.", "title": "Складская накладная", "posting": "Не проведён в финансах до подтверждения доставки.", "print": "Печать", "order": "Заказ", "customer": "Клиент",
            "date": "Отгружено", "pack": "Упаковка", "model": "Модель / вариант", "color": "Цвет", "size": "Размер",
            "qty": "Штук", "price": "Цена", "amount": "Сумма", "total": "Итого", "packs": "Упаковок",
            "calculated": "Расчётная сумма", "adjustment": "Корректировка склада", "net": "Цены нетто. Налог не рассчитывается.",
@@ -82,7 +82,7 @@ LABELS = {
            "issued": "Кладовщик", "received": "Получил", "ledger": "Финансовый счёт",
            "historical": "Историческая отгрузка: данные восстановлены из текущих записей; исходный финансовый снимок отсутствует.",
            "missing": "Цена не указана", "signature": "Отпустил / Получил"},
-    "uz": {"title": "Ombor hisob-fakturasi", "posting": "Yetkazish tasdiqlanmaguncha Moliyaga o‘tkazilmagan.", "print": "Chop etish", "order": "Buyurtma", "customer": "Mijoz",
+    "uz": {"pending_price": "Narx kutilmoqda. Moliyaga o‘tkazilmagan.", "draft": "Hisob-faktura qoralamasi — jo‘natma hali jo‘natilmagan.", "title": "Ombor hisob-fakturasi", "posting": "Yetkazish tasdiqlanmaguncha Moliyaga o‘tkazilmagan.", "print": "Chop etish", "order": "Buyurtma", "customer": "Mijoz",
            "date": "Jo‘natilgan", "pack": "Qadoq", "model": "Model / variant", "color": "Rang", "size": "O‘lcham",
            "qty": "Dona", "price": "Narx", "amount": "Summa", "total": "Jami", "packs": "Qadoqlar",
            "calculated": "Hisoblangan summa", "adjustment": "Ombor tuzatishi", "net": "Sof narxlar. Soliq hisoblanmaydi.",
@@ -131,7 +131,7 @@ def render_shipment_invoice(document: dict, language: str) -> str:
         except ValueError:
             return value(raw)
 
-    posting = text["posting"]
+    posting = text.get(document.get("finance_posting_status"), text["posting"])
     if document.get("finance_posting_status") == "posted":
         posting = text["ledger"] + ": " + value(document.get("ledger_invoice_no"))
     packages = document.get("package_details")
