@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import partial
+import json
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import uuid4
@@ -262,6 +263,49 @@ class CuttingRecordDetailsUpdateIn(BaseModel):
     material_rolls_used: float | None = Field(default=None, le=9_999_999_999.9999, allow_inf_nan=False)
     layup_operator_name: str | None = None
     notes: str | None = None
+
+
+_MAX_CUTTING_USAGE_DETAILS_BYTES = 16 * 1024
+_MAX_CUTTING_USAGE_DETAILS_DEPTH = 16
+
+
+def _same_json_value(left: object, right: object) -> bool:
+    pending = [(left, right)]
+    while pending:
+        first, second = pending.pop()
+        if type(first) is not type(second):
+            return False
+        if isinstance(first, dict):
+            if first.keys() != second.keys():
+                return False
+            pending.extend((first[key], second[key]) for key in first)
+        elif isinstance(first, list):
+            if len(first) != len(second):
+                return False
+            pending.extend(zip(first, second))
+        elif first != second:
+            return False
+    return True
+
+
+def _validate_cutting_usage_details_bounds(details: object, *, existing: object = None) -> None:
+    if _same_json_value(details, existing):
+        return
+
+    pending = [(details, 1)]
+    while pending:
+        value, depth = pending.pop()
+        if isinstance(value, (dict, list)):
+            if depth > _MAX_CUTTING_USAGE_DETAILS_DEPTH:
+                raise HTTPException(422, "cutting material details exceed the maximum nesting depth")
+            children = value.values() if isinstance(value, dict) else value
+            pending.extend((child, depth + 1) for child in children)
+    try:
+        encoded = json.dumps(details, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, RecursionError):
+        raise HTTPException(422, "cutting material details must contain JSON-compatible values") from None
+    if len(encoded) > _MAX_CUTTING_USAGE_DETAILS_BYTES:
+        raise HTTPException(422, "cutting material details exceed the 16 KiB limit")
 
 
 class CuttingBatchUpdateIn(BaseModel):
@@ -4346,14 +4390,18 @@ def update_cutting_record_details(
             usage = by_batch[row.stock_batch_id]
             if usage.details is None:
                 raise HTTPException(400, "This historic record has no separate material details")
-            usage.details = {**usage.details, **row.model_dump(exclude={"stock_batch_id"})}
+            next_details = {**usage.details, **row.model_dump(exclude={"stock_batch_id"})}
+            _validate_cutting_usage_details_bounds(next_details, existing=usage.details)
+            usage.details = next_details
         primary = min(rec.materials, key=lambda row: row.position)
         for field in (*numeric_fields, "layup_operator_name"):
             setattr(payload, field, primary.details[field])
     elif any(row.details is not None for row in rec.materials):
         # Legacy clients edit the primary material only.
         primary = min(rec.materials, key=lambda row: row.position)
-        primary.details = {**primary.details, **payload.model_dump(exclude_unset=True, include=set(numeric_fields) | {"layup_operator_name"})}
+        next_details = {**primary.details, **payload.model_dump(exclude_unset=True, include=set(numeric_fields) | {"layup_operator_name"})}
+        _validate_cutting_usage_details_bounds(next_details, existing=primary.details)
+        primary.details = next_details
     fields = payload.model_fields_set
     for field in numeric_fields:
         if field in fields:
