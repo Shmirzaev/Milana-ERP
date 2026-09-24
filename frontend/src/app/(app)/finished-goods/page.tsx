@@ -1,7 +1,7 @@
 "use client";
 import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
-import { useSWRInfinite } from "swr";
+import useSWRInfinite from "swr/infinite";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
