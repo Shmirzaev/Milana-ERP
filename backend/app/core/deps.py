@@ -1,4 +1,5 @@
 import math
+from types import SimpleNamespace
 from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -11,6 +12,7 @@ from app.models import User
 from app.services.user_access import access_configured, apply_policy
 from app.services.factory_scope import (
     assigned_factory_code,
+    available_factory_codes,
     bind_session_factory,
     enforce_request_factory_scope,
     factory_permissions_for,
@@ -172,6 +174,32 @@ def user_permissions(user: User) -> list[str]:
         if user.role and user.role.name.lower() in {"admin", "management"}:
             permissions.extend(["tasks.manage", "management.approve"])
     return normalize_permissions(apply_policy(user, selected_factory_code(user), permissions))
+
+
+def factory_codes_with_permission(user: User, permission: str) -> list[str]:
+    """Return available factories where this user effectively has a permission.
+
+    Permission resolution is evaluated as if the user had selected each
+    available factory. This preserves secondary-factory grants and applies the
+    same role, wildcard, and per-factory denial rules as ``require_permissions``.
+    """
+    if not permission:
+        return []
+
+    authorized: list[str] = []
+    for factory_code in available_factory_codes(user):
+        scoped_user = SimpleNamespace(
+            role=user.role,
+            department=user.department,
+            factory_code=user.factory_code,
+            extra_permissions=user.extra_permissions,
+            access_policy=user.access_policy,
+            session_factory_code=factory_code,
+        )
+        granted = user_permissions(scoped_user)
+        if permission in granted or "*" in granted:
+            authorized.append(factory_code)
+    return authorized
 
 
 def is_admin(user: User) -> bool:
