@@ -61,7 +61,7 @@ def test_shared_stock_batch_warehouse_contract_rejects_crossed_categories(
     assert error.value.detail == f"Contract item must be received into {expected_name}"
 
 
-def _seed_purchase_receipt() -> dict[str, int | str]:
+def _seed_purchase_receipt(*, line_unit: str = "kg") -> dict[str, int | str]:
     marker = uuid4().hex[:10].upper()
     with SessionLocal() as db:
         item = Item(
@@ -88,7 +88,7 @@ def _seed_purchase_receipt() -> dict[str, int | str]:
             item_id=item.id,
             ordered_quantity=Decimal("5"),
             received_quantity=Decimal("0"),
-            unit="kg",
+            unit=line_unit,
             unit_cost=1,
             warehouse_id=accessory_storage.id,
         )
@@ -149,6 +149,21 @@ def test_purchase_receipt_rejects_crossed_storage_without_writes(client, auth_he
     assert response.json() == {
         "detail": f"{case['item_name']} must be received into Fabric Storage",
     }
+    assert _state(case) == before
+
+
+def test_purchase_receipt_rejects_line_unit_mismatch_without_writes(client, auth_headers):
+    case = _seed_purchase_receipt(line_unit="m")
+    before = _state(case)
+
+    response = client.post(
+        f"/api/purchasing/orders/{case['order_id']}/receive",
+        headers=auth_headers,
+        json=_payload(case, int(case["fabric_warehouse_id"])),
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json() == {"detail": "Purchase order line unit must match the item unit"}
     assert _state(case) == before
 
 

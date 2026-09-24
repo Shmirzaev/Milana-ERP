@@ -28,6 +28,7 @@ from app.services.numbering import next_purchase_order_no, next_purchase_request
 from app.services.planning import material_requirements_for_sales_order
 from app.services.stock_batch_policy import (
     normalize_stock_batch_qc_status,
+    validate_stock_batch_unit,
     validate_stock_batch_warehouse,
 )
 from app.services.workflow import notify_department
@@ -598,10 +599,15 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             raise HTTPException(404, f"Item {int(line.item_id)} not found")
         warehouse = warehouses[int(warehouse_id)]
         validate_stock_batch_warehouse(item, warehouse)
+        unit = str(line.unit or item.unit or "").strip() or item.unit
+        validate_stock_batch_unit(
+            item,
+            unit,
+            detail="Purchase order line unit must match the item unit",
+        )
         piece_count = raw.get("piece_count")
         if piece_count is not None and not 0 <= piece_count <= MAX_STOCK_BATCH_PIECE_COUNT:
             raise HTTPException(422, "piece_count must be between 0 and 2147483647")
-        unit = str(line.unit or item.unit or "").strip() or item.unit
         cost_per_unit = _num(raw.get("cost_per_unit")) if raw.get("cost_per_unit") is not None else _num(line.unit_cost)
         roll_weights, piece_count = normalize_material_roll_weights(
             item_category=item.category,
