@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import auth
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.base import Base
-from app.models import Department, PasswordResetToken, Role, User
+from app.models import AuditLog, Department, PasswordResetToken, Role, User
 from app.schemas.auth import ResetPasswordIn
 from app.services.password_reset import create_password_reset_token, password_reset_hash
 from app.tests.conftest import TestSessionLocal
@@ -166,7 +166,17 @@ def test_failed_commit_rolls_back_password_and_all_token_changes(reset_links, mo
         assert verify_password(ORIGINAL_PASSWORD, user.password_hash)
         assert user.tokens_valid_from is None
         assert all(token.used_at is None for token in db.query(PasswordResetToken).filter_by(user_id=user_id))
+        assert db.query(AuditLog).filter_by(
+            action="reset_password",
+            entity_type="User",
+            entity_id=user_id,
+        ).count() == 0
         assert auth.reset_password(ResetPasswordIn(**_payload(links[1])), db) == {"message": "password_reset"}
+        assert db.query(AuditLog).filter_by(
+            action="reset_password",
+            entity_type="User",
+            entity_id=user_id,
+        ).count() == 1
 
 
 @pytest.fixture(scope="module")
@@ -190,7 +200,14 @@ def reset_postgres_engine():
         connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
     try:
         Base.metadata.create_all(
-            engine, tables=[Role.__table__, Department.__table__, User.__table__, PasswordResetToken.__table__],
+            engine,
+            tables=[
+                Role.__table__,
+                Department.__table__,
+                User.__table__,
+                PasswordResetToken.__table__,
+                AuditLog.__table__,
+            ],
         )
         yield engine
     finally:

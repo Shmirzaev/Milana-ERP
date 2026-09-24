@@ -523,12 +523,17 @@ def test_login_sets_httponly_cookie_and_cookie_auth_works(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_https_forwarded_login_cookie_is_secure(client):
-    r = client.post(
-        "/api/auth/login",
-        data={"username": "admin@example.com", "password": "test-admin-password-123!"},
-        headers={"x-forwarded-proto": "https"},
-    )
+def test_https_forwarded_login_cookie_is_secure(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+    with TestClient(app, client=("127.0.0.1", 50000)) as trusted_proxy_client:
+        r = trusted_proxy_client.post(
+            "/api/auth/login",
+            data={"username": "admin@example.com", "password": "test-admin-password-123!"},
+            headers={"x-forwarded-proto": "https"},
+        )
     assert r.status_code == 200, r.text
     set_cookie = r.headers.get("set-cookie", "").lower()
     assert "erp_access_token=" in set_cookie

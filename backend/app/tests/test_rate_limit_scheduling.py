@@ -152,9 +152,10 @@ def test_every_public_auth_path_forces_ip_identity(path):
     assert main._rate_limit_identity_key(request) == "ip:127.0.0.1"
 
 
-def test_proxy_headers_are_only_used_for_trusted_peers():
+def test_proxy_headers_are_only_used_for_trusted_peers(monkeypatch):
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
     forwarded = {"x-forwarded-for": "203.0.113.50, 10.0.0.1"}
-    assert main._rate_limit_identity_key(_request(headers=forwarded)) == "ip:203.0.113.50"
+    assert main._rate_limit_identity_key(_request(headers=forwarded)) == "ip:10.0.0.1"
     assert main._rate_limit_identity_key(
         _request(headers=forwarded, client_host="8.8.8.8")
     ) == "ip:8.8.8.8"

@@ -20,8 +20,11 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.deps import CurrentUser, DbSession
+from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
+from app.core.request_body_limit import AuthRequestBodyLimitMiddleware, validate_request_body_runtime_configuration
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
+from app.services.credentials import validate_credential_runtime_configuration
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
 import app.models  # noqa: F401 — register models with metadata
@@ -71,6 +74,9 @@ def _run_local_schema_sync() -> None:
 def _run_startup() -> None:
     """Validate runtime settings and database readiness before serving."""
     settings.validate_runtime_security()
+    validate_proxy_runtime_configuration(strict_security_required=settings.strict_security_required)
+    validate_request_body_runtime_configuration()
+    validate_credential_runtime_configuration(strict_security_required=settings.strict_security_required)
     # In production validate_runtime_security() hard-fails on insecure defaults.
     # Outside production we don't block local dev, but we still surface them
     # loudly so a misconfigured deploy (e.g. ENV left at "development") can't run
@@ -167,24 +173,7 @@ def _postgresql_ready_within(timeout_seconds: float) -> bool:
 
 
 def _rate_limit_client_key(request: Request) -> str:
-    peer = request.client.host if request.client else "unknown"
-    forwarded = request.headers.get("x-forwarded-for")
-    # In supported deployments the app sits behind a trusted proxy. This keeps
-    # direct clients from picking arbitrary buckets in normal operation while
-    # still separating users behind Vercel/HF proxies and local TestClient.
-    trusted_peer = peer in {"testclient", "127.0.0.1", "::1", "localhost"}
-    if not trusted_peer:
-        try:
-            import ipaddress
-            peer_ip = ipaddress.ip_address(peer)
-            trusted_peer = peer_ip.is_private or peer_ip.is_loopback
-        except ValueError:
-            trusted_peer = False
-    if trusted_peer and forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
-    return peer
+    return client_ip(request)
 
 
 def _rate_limit_identity_key(request: Request) -> str:
@@ -258,10 +247,7 @@ def _trusted_csrf_origins(request: Request) -> set[str]:
     })
     host = request.headers.get("host", "").strip().lower()
     if host:
-        configured.add(f"{request.url.scheme}://{host}")
-        proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-        if proto in {"http", "https"}:
-            configured.add(f"{proto}://{host}")
+        configured.add(f"{effective_request_scheme(request)}://{host}")
     return configured
 
 
@@ -309,7 +295,7 @@ async def _security_headers(request: Request, call_next):
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     )
-    if request.url.scheme == "https":
+    if effective_request_scheme(request) == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     # Uploaded files under /storage are served unauthenticated (so <img> tags can
     # render them with bearer-token auth). They have unguessable UUID names; keep
@@ -385,6 +371,7 @@ app.add_middleware(
 # where it materially reduces transfer size. Static model images are already
 # encoded and are therefore unaffected by this middleware.
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
+app.add_middleware(AuthRequestBodyLimitMiddleware)
 
 app.include_router(api_router)
 

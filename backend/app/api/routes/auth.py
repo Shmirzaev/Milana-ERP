@@ -1,5 +1,3 @@
-import ipaddress
-
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
@@ -11,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload, load_only, noload
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, user_permissions
 from app.core.dt import as_utc, utcnow
+from app.core.proxy_trust import client_ip, effective_request_scheme
 from app.core.shared_store import get_shared_counter_store
 from app.core.security import (
     create_access_token,
@@ -32,6 +31,7 @@ from app.services.password_reset import (
     password_reset_url,
     send_password_email_safely,
 )
+from app.services.credentials import apply_password_credential_change, lock_user_for_credential_change
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 session_router = APIRouter(prefix="/session", tags=["auth"])
@@ -55,32 +55,7 @@ class ChangePasswordIn(BaseModel):
 
 
 def _client_ip(request: Request) -> str:
-    """Resolve the real client IP. Behind HF Spaces / Vercel the socket peer is
-    the platform proxy (identical for every user), so rate-limit buckets keyed on
-    it collapse into one global bucket. The platform sets X-Forwarded-For with the
-    originating client as the left-most entry. Only trust proxy headers when the
-    socket peer is a private/loopback proxy; otherwise a direct client could
-    spoof X-Forwarded-For and bypass throttling."""
-    peer = request.client.host if request.client else "unknown"
-    peer_is_trusted_proxy = False
-    try:
-        peer_ip = ipaddress.ip_address(peer)
-        peer_is_trusted_proxy = peer_ip.is_private or peer_ip.is_loopback
-    except ValueError:
-        peer_is_trusted_proxy = False
-
-    if not peer_is_trusted_proxy:
-        return peer
-
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip and real_ip.strip():
-        return real_ip.strip()
-    return peer
+    return client_ip(request)
 
 
 def _login_key(request: Request, email: str) -> str:
@@ -173,16 +148,9 @@ def _authenticate(request: Request, db: Session, email: str, password: str) -> U
 
 
 def _is_https_request(request: Request) -> bool:
-    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-    forwarded_ssl = request.headers.get("x-forwarded-ssl", "").strip().lower()
-    host = request.headers.get("host", "").split(":", 1)[0].strip().lower()
     return (
         settings.strict_security_required
-        or request.url.scheme == "https"
-        or proto == "https"
-        or forwarded_ssl == "on"
-        or host.endswith(".vercel.app")
-        or host.endswith(".hf.space")
+        or effective_request_scheme(request) == "https"
     )
 
 
@@ -333,7 +301,7 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
     # Sibling links must serialize on the same account, not individual tokens.
     # Re-read the token after acquiring the lock so a waiting reset observes the
     # first reset's invalidation even if this session already loaded the token.
-    user = db.query(User).filter(User.id == user_id).with_for_update(of=User).populate_existing().first()
+    user = lock_user_for_credential_change(db, user_id, require_active=True)
     reset_token = (
         db.query(PasswordResetToken)
         .filter(PasswordResetToken.token_hash == token_hash)
@@ -350,12 +318,15 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
     ):
         raise HTTPException(400, "Invalid or expired reset link")
 
-    user.password_hash = hash_password(payload.new_password)
-    user.tokens_valid_from = now
-    db.query(PasswordResetToken).filter(
-        PasswordResetToken.user_id == user_id,
-        PasswordResetToken.used_at.is_(None),
-    ).update({PasswordResetToken.used_at: now}, synchronize_session="fetch")
+    apply_password_credential_change(db, user, payload.new_password, changed_at=now)
+    log_action(
+        db,
+        user,
+        "reset_password",
+        "User",
+        user.id,
+        new_value={"credential_changed": True, "reset_links_invalidated": True},
+    )
     db.commit()
     return {"message": "password_reset"}
 
@@ -416,13 +387,7 @@ def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
 def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser):
     if payload.new_password != payload.confirm_new_password:
         raise HTTPException(400, "New passwords do not match")
-    locked_user = (
-        db.query(User)
-        .filter(User.id == user.id, User.is_active.is_(True))
-        .populate_existing()
-        .with_for_update(of=User)
-        .first()
-    )
+    locked_user = lock_user_for_credential_change(db, user.id, require_active=True)
     if not locked_user:
         raise HTTPException(401, "Invalid credentials")
     if not verify_password(payload.current_password, locked_user.password_hash):
@@ -431,9 +396,15 @@ def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser)
         validate_password_strength(payload.new_password)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    locked_user.password_hash = hash_password(payload.new_password)
-    locked_user.tokens_valid_from = datetime.now(timezone.utc)
-    log_action(db, locked_user, "change_password", "User", locked_user.id)
+    apply_password_credential_change(db, locked_user, payload.new_password)
+    log_action(
+        db,
+        locked_user,
+        "change_password",
+        "User",
+        locked_user.id,
+        new_value={"credential_changed": True, "reset_links_invalidated": True},
+    )
     db.commit()
     return {"message": "password_updated"}
 

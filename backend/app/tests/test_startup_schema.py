@@ -14,6 +14,9 @@ def _harden_runtime_settings(monkeypatch):
     monkeypatch.setattr(settings, "REDIS_URL", "")
     monkeypatch.setattr(settings, "ALLOW_INSECURE_DEFAULT_ADMIN_LOGIN", False)
     monkeypatch.setattr(settings, "ALLOW_DEMO_RESET", False)
+    monkeypatch.setattr(settings, "SEED_DEMO_USERS", False)
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "")
 
 
 def test_production_startup_verifies_alembic_without_schema_sync(monkeypatch):
