@@ -178,6 +178,13 @@ def model_state(
     }
 
 
+def nested_legacy_value(depth: int = 20) -> dict:
+    value = {"leaf": True}
+    for _ in range(depth):
+        value = {"next": value}
+    return value
+
+
 @pytest.mark.parametrize(
     ("stage", "section"),
     [
@@ -443,6 +450,64 @@ def test_second_correction_pass_is_idempotent() -> None:
     assert second["complete_sections_changed"] is False
     assert second["paid_operations_status"] == "already_exact"
     assert second["_details_after"] == first["_details_after"]
+
+
+def test_second_correction_pass_preserves_unchanged_oversized_and_deep_legacy_json() -> None:
+    prior_action = action()
+    record = complete_record(35, operations=[raw_operation()], recipes=[raw_recipe()])
+    manifest = indexed_manifest(record)
+    first_state = model_state(prior_action)
+    first = correction.plan_model_correction(
+        first_state,
+        action=prior_action,
+        created=True,
+        complete_records={35: record},
+        manifest=manifest,
+    )
+    legacy_details = copy.deepcopy(first["_details_after"])
+    legacy_details["legacy_extension"] = {
+        "large": "x" * (70 * 1024),
+        "deep": nested_legacy_value(),
+    }
+    second = correction.plan_model_correction(
+        {
+            **first_state,
+            "name": first["new_name"],
+            "details_json": legacy_details,
+        },
+        action=prior_action,
+        created=True,
+        complete_records={35: record},
+        manifest=manifest,
+    )
+
+    assert second["details_changed"] is False
+    assert second["_details_after"] == legacy_details
+
+
+@pytest.mark.parametrize("legacy_kind", ["oversized", "deep"])
+def test_changed_correction_rejects_unbounded_legacy_document_without_mutation(
+    legacy_kind: str,
+) -> None:
+    prior_action = action()
+    state = model_state(prior_action)
+    if legacy_kind == "oversized":
+        state["details_json"]["legacy_extension"] = "x" * (70 * 1024)
+    else:
+        state["details_json"]["legacy_extension"] = nested_legacy_value()
+    state_before = copy.deepcopy(state)
+    record = complete_record(35, operations=[raw_operation()], recipes=[raw_recipe()])
+
+    with pytest.raises(correction.MigrationError, match="details_json cannot exceed"):
+        correction.plan_model_correction(
+            state,
+            action=prior_action,
+            created=True,
+            complete_records={35: record},
+            manifest=indexed_manifest(record),
+        )
+
+    assert state == state_before
 
 
 def test_general_values_fill_only_missing_fields() -> None:

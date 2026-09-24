@@ -1254,6 +1254,22 @@ def build_corrected_details(
     }
 
 
+def validate_corrected_details_bounds(
+    details: dict[str, Any],
+    *,
+    existing_details: dict[str, Any],
+) -> None:
+    """Reuse the live size/depth guard while preserving exact legacy pass-through."""
+    from fastapi import HTTPException
+
+    from app.api.routes.catalog import _validate_model_details_json_bounds
+
+    try:
+        _validate_model_details_json_bounds(details, existing_details=existing_details)
+    except HTTPException as exc:
+        raise MigrationError(f"Corrected Model.details_json is invalid: {exc.detail}") from exc
+
+
 def product_name_decision(
     *,
     created: bool,
@@ -1383,6 +1399,10 @@ def plan_model_correction(
     )
     details_after = details_result.pop("details_after")
     details_changed = details_after != current_details
+    validate_corrected_details_bounds(
+        details_after,
+        existing_details=current_details,
+    )
     image_snapshot = copy.deepcopy(state.get("images") or [])
     return {
         "model_id": model_id,
