@@ -10,7 +10,6 @@ TEXT_LIMITS = {
     "color": 64,
     "size": 32,
     "unit": 32,
-    "confidence": 16,
 }
 
 
@@ -59,7 +58,7 @@ def test_forecast_recommendation_text_overflow_is_rejected_before_writes_and_kee
             color="c" * 64,
             size="s" * 32,
             unit="u" * 32,
-            confidence="f" * 16,
+            confidence="high",
         ),
         headers=auth_headers,
     )

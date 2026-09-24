@@ -24,6 +24,8 @@ from app.services.forecasting import (
 
 router = APIRouter(prefix="/forecasting", tags=["forecasting"])
 
+_FORECAST_CONFIDENCE_VALUES = frozenset({"low", "medium", "high"})
+
 _MAX_SOURCE_JSON_BYTES = 16 * 1024
 _MAX_SOURCE_JSON_DEPTH = 16
 
@@ -150,6 +152,8 @@ def create_forecast_recommendation(
     current: User = Depends(require_permissions("forecasting.manage", "*")),
 ):
     _validate_recommendation_references(payload, db)
+    if payload.confidence is not None and payload.confidence not in _FORECAST_CONFIDENCE_VALUES:
+        raise HTTPException(422, "confidence must be low, medium, or high")
     _validate_source_json(payload.source_json)
     unit = payload.unit
     if payload.item_id is not None:
