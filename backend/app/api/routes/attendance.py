@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import secrets
 from dataclasses import dataclass
@@ -39,6 +40,70 @@ TASHKENT = ZoneInfo("Asia/Tashkent")
 ATTENDANCE_IMPORT_LOCK_NAMESPACE = 1096043342
 ATTENDANCE_DEVICE_VENDORS = frozenset({"Hikvision", "Dahua"})
 ATTENDANCE_SOURCE_SETTING_PREFIX = "att_src:"
+_MAX_ATTENDANCE_SOURCE_STATE_JSON_BYTES = 16 * 1024
+_MAX_ATTENDANCE_SOURCE_STATE_JSON_DEPTH = 16
+
+
+def _json_values_equal(left: object, right: object) -> bool:
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _validate_attendance_source_state_bounds(
+    state: dict[str, object],
+    *,
+    existing_state: object = None,
+) -> None:
+    if _json_values_equal(state, existing_state):
+        return
+
+    pending = [(state, 0)]
+    while pending:
+        current, parent_depth = pending.pop()
+        if isinstance(current, dict):
+            depth = parent_depth + 1
+            if depth > _MAX_ATTENDANCE_SOURCE_STATE_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"Attendance source state cannot exceed {_MAX_ATTENDANCE_SOURCE_STATE_JSON_DEPTH} nested container levels",
+                )
+            if any(not isinstance(key, str) for key in current):
+                raise HTTPException(422, "Attendance source state must contain JSON-compatible values")
+            pending.extend((child, depth) for child in current.values())
+        elif isinstance(current, list):
+            depth = parent_depth + 1
+            if depth > _MAX_ATTENDANCE_SOURCE_STATE_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"Attendance source state cannot exceed {_MAX_ATTENDANCE_SOURCE_STATE_JSON_DEPTH} nested container levels",
+                )
+            pending.extend((child, depth) for child in current)
+        elif current is not None and type(current) not in (str, bool, int, float):
+            raise HTTPException(422, "Attendance source state must contain JSON-compatible values")
+
+    try:
+        encoded = json.dumps(state, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise HTTPException(422, "Attendance source state must contain finite JSON-compatible values") from None
+    if len(encoded) > _MAX_ATTENDANCE_SOURCE_STATE_JSON_BYTES:
+        raise HTTPException(
+            422,
+            f"Attendance source state cannot exceed {_MAX_ATTENDANCE_SOURCE_STATE_JSON_BYTES} UTF-8 bytes",
+        )
 
 
 def _validate_device_vendor(value: str) -> str:
@@ -246,6 +311,10 @@ def _store_source_state(
     row: SystemSetting | None,
     state: dict[str, object],
 ) -> None:
+    _validate_attendance_source_state_bounds(
+        state,
+        existing_state=row.value_json if row else None,
+    )
     if row is None:
         db.add(SystemSetting(
             key=_source_setting_key(str(state["factory_code"]), str(state["device_key"])),

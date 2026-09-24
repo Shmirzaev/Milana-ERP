@@ -1,10 +1,11 @@
+from copy import deepcopy
 from datetime import datetime, timezone
 
 import pytest
 
 from app.api.routes import attendance
 from app.core.dt import as_utc
-from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting
+from app.models import AuditLog, AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting
 from app.tests.conftest import TestSessionLocal
 
 
@@ -60,6 +61,13 @@ def _events(
 def _set_received_at(monkeypatch, value: str) -> None:
     received_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
     monkeypatch.setattr(attendance, "utcnow", lambda: received_at)
+
+
+def _deep_json_value(levels: int) -> object:
+    value: object = "leaf"
+    for _ in range(levels):
+        value = [value]
+    return value
 
 
 def test_versioned_roster_rejects_late_older_and_unversioned_snapshots(client, monkeypatch):
@@ -203,6 +211,99 @@ def test_first_versioned_snapshot_older_than_legacy_receipt_cannot_overwrite(cli
         "737",
         "Versioned current",
     )
+
+
+@pytest.mark.parametrize(
+    ("legacy_extension", "message"),
+    [
+        ("Ж" * 9_000, "UTF-8 bytes"),
+        (_deep_json_value(17), "nested container levels"),
+    ],
+    ids=["oversized", "deep"],
+)
+def test_changed_oversized_legacy_checkpoint_rejects_roster_without_writes(
+    client, monkeypatch, legacy_extension, message,
+):
+    device_key = "oversized-checkpoint"
+    _set_received_at(monkeypatch, "2026-09-20T12:01:00Z")
+    initial = client.post(
+        "/api/attendance/integration/people",
+        headers=INTEGRATION_HEADERS,
+        json=_roster(device_key, "Before", "735", "2026-09-20T12:00:00Z"),
+    )
+    assert initial.status_code == 200, initial.text
+    checkpoint_key = attendance._source_setting_key("MIL", device_key)
+    with TestSessionLocal() as db:
+        checkpoint = db.query(SystemSetting).filter_by(key=checkpoint_key).one()
+        checkpoint.value_json = {**checkpoint.value_json, "legacy_extension": legacy_extension}
+        db.commit()
+        before_checkpoint = deepcopy(checkpoint.value_json)
+        before_device = db.query(AttendanceDevice).filter_by(device_key=device_key).one()
+        before_device_state = (before_device.name, before_device.last_seen_at, before_device.last_people_sync_at)
+        before = (
+            db.query(AttendanceDevice.id).count(),
+            db.query(AttendancePerson.id).count(),
+            db.query(AttendanceEvent.id).count(),
+            db.query(AuditLog.id).count(),
+        )
+
+    _set_received_at(monkeypatch, "2026-09-20T13:01:00Z")
+    response = client.post(
+        "/api/attendance/integration/people",
+        headers=INTEGRATION_HEADERS,
+        json=_roster(device_key, "Should not save", "736", "2026-09-20T13:00:00Z"),
+    )
+
+    assert response.status_code == 422, response.text
+    assert message in response.text
+    with TestSessionLocal() as db:
+        checkpoint = db.query(SystemSetting).filter_by(key=checkpoint_key).one()
+        device = db.query(AttendanceDevice).filter_by(device_key=device_key).one()
+        assert checkpoint.value_json == before_checkpoint
+        assert (device.name, device.last_seen_at, device.last_people_sync_at) == before_device_state
+        assert (
+            db.query(AttendanceDevice.id).count(),
+            db.query(AttendancePerson.id).count(),
+            db.query(AttendanceEvent.id).count(),
+            db.query(AuditLog.id).count(),
+        ) == before
+
+
+@pytest.mark.parametrize(
+    "legacy_extension",
+    ["Ж" * 9_000, _deep_json_value(17)],
+    ids=["oversized", "deep"],
+)
+def test_stale_import_passes_through_exact_oversized_legacy_checkpoint(
+    client, monkeypatch, legacy_extension,
+):
+    device_key = "unchanged-oversized-checkpoint"
+    _set_received_at(monkeypatch, "2026-09-20T12:01:00Z")
+    initial = client.post(
+        "/api/attendance/integration/people",
+        headers=INTEGRATION_HEADERS,
+        json=_roster(device_key, "Current", "735", "2026-09-20T12:00:00Z"),
+    )
+    assert initial.status_code == 200, initial.text
+    checkpoint_key = attendance._source_setting_key("MIL", device_key)
+    with TestSessionLocal() as db:
+        checkpoint = db.query(SystemSetting).filter_by(key=checkpoint_key).one()
+        checkpoint.value_json = {**checkpoint.value_json, "legacy_extension": legacy_extension}
+        db.commit()
+        before = deepcopy(checkpoint.value_json)
+
+    _set_received_at(monkeypatch, "2026-09-20T13:01:00Z")
+    stale = client.post(
+        "/api/attendance/integration/people",
+        headers=INTEGRATION_HEADERS,
+        json=_roster(device_key, "Stale", "736", "2026-09-20T11:00:00Z"),
+    )
+
+    assert stale.status_code == 200, stale.text
+    assert stale.json()["ignored_reason"] == "stale_source_version"
+    with TestSessionLocal() as db:
+        checkpoint = db.query(SystemSetting).filter_by(key=checkpoint_key).one()
+        assert checkpoint.value_json == before
 
 
 @pytest.mark.parametrize("source_snapshot_at", ["2026-09-20T12:00:00", "2026-09-20T12:06:01Z"])

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import secrets
+import json
 from datetime import date, datetime, time, timedelta, timezone
 from functools import partial
 from math import isfinite
@@ -51,6 +52,8 @@ MAX_INT4 = 2_147_483_647
 MAX_POSITION_SALARY = 999_999_999_999.99
 MAX_POSITION_REQUIRED_SKILLS = 50
 MAX_POSITION_REQUIRED_SKILL_LENGTH = 160
+_MAX_HR_SETTINGS_JSON_BYTES = 16 * 1024
+_MAX_HR_SETTINGS_JSON_DEPTH = 16
 _UNSET_POSITION_SKILLS = object()
 
 
@@ -209,6 +212,72 @@ def _same_legacy_weekend_days(submitted: object, stored: object) -> bool:
         and len(submitted) == len(stored)
         and all(type(new) is type(old) and new == old for new, old in zip(submitted, stored))
     )
+
+
+def _json_values_equal(left: object, right: object) -> bool:
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _hr_settings_fields_unchanged(value: dict, previous: object) -> bool:
+    previous = previous if isinstance(previous, dict) else {}
+    for name, current in value.items():
+        field = HrSettingsWriteIn.model_fields[name]
+        old = previous[name] if name in previous else field.get_default(call_default_factory=True)
+        if not _json_values_equal(current, old):
+            return False
+    return True
+
+
+def _validate_hr_settings_json_bounds(value: dict, *, previous: object) -> None:
+    """Limit changed HR settings while preserving semantically unchanged legacy values."""
+    if _hr_settings_fields_unchanged(value, previous):
+        return
+
+    pending = [(value, 0)]
+    while pending:
+        current, parent_depth = pending.pop()
+        if isinstance(current, dict):
+            depth = parent_depth + 1
+            if depth > _MAX_HR_SETTINGS_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"HR settings JSON cannot exceed {_MAX_HR_SETTINGS_JSON_DEPTH} nested container levels",
+                )
+            if any(not isinstance(key, str) for key in current):
+                raise HTTPException(422, "HR settings must contain JSON-compatible values")
+            pending.extend((child, depth) for child in current.values())
+        elif isinstance(current, list):
+            depth = parent_depth + 1
+            if depth > _MAX_HR_SETTINGS_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"HR settings JSON cannot exceed {_MAX_HR_SETTINGS_JSON_DEPTH} nested container levels",
+                )
+            pending.extend((child, depth) for child in current)
+        elif current is not None and type(current) not in (str, bool, int, float):
+            raise HTTPException(422, "HR settings must contain JSON-compatible values")
+
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise HTTPException(422, "HR settings must contain finite JSON-compatible values") from None
+    if len(encoded) > _MAX_HR_SETTINGS_JSON_BYTES:
+        raise HTTPException(422, f"HR settings JSON cannot exceed {_MAX_HR_SETTINGS_JSON_BYTES} UTF-8 bytes")
 
 
 def _required_text(value: str, label: str) -> str:
@@ -1242,6 +1311,7 @@ def put_hr_settings(payload: HrSettingsWriteIn, db: DbSession, current: User = H
         raise HTTPException(422, "Weekend days must be unique ISO weekdays from 1 through 7")
 
     values = payload.model_dump()
+    _validate_hr_settings_json_bounds(values, previous=stored_value)
     if not row:
         row = SystemSetting(key=key, value_json={}); db.add(row)
     row.value_json = values
