@@ -48,6 +48,8 @@ EXPECTED_IMPORTER_ID = 1
 QR_RE = re.compile(r"^uzerp_ii_(\d+)_1$", re.IGNORECASE)
 SHA_RE = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 QUANTITY_SOURCES = {"direct_exact_query", "exhaustive_item_barcode_report"}
+MAX_SOURCE_PAYLOAD_BYTES = 16 * 1024
+MAX_SOURCE_PAYLOAD_DEPTH = 16
 CONFUSABLES = str.maketrans(
     {
         "А": "A", "В": "B", "С": "C", "Е": "E", "Н": "H", "К": "K",
@@ -76,6 +78,25 @@ def canonical(value: Any) -> Any:
     if isinstance(value, list):
         return [canonical(item) for item in value]
     return value
+
+
+def validate_source_payload_bounds(payload: object) -> None:
+    pending = [(payload, 1)]
+    while pending:
+        value, depth = pending.pop()
+        if isinstance(value, (dict, list)):
+            if depth > MAX_SOURCE_PAYLOAD_DEPTH:
+                raise ValueError("source_payload exceeds the maximum nesting depth")
+            children = value.values() if isinstance(value, dict) else value
+            pending.extend((child, depth + 1) for child in children)
+    try:
+        encoded = json.dumps(
+            payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ValueError("source_payload must contain finite JSON-compatible values") from exc
+    if len(encoded) > MAX_SOURCE_PAYLOAD_BYTES:
+        raise ValueError("source_payload exceeds the 16 KiB limit")
 
 
 def checksum(value: Any) -> str:
@@ -179,7 +200,7 @@ def validate_row(raw: dict[str, Any]) -> dict[str, Any]:
     keys = [(item_identity(item), item["size"].casefold()) for item in items]
     if len(keys) != len(set(keys)):
         raise ValueError(f"{source_record_id}: duplicate model/size item row")
-    return {
+    validated = {
         **row,
         "source_record_id": source_record_id,
         "external_qr": external_qr,
@@ -192,6 +213,8 @@ def validate_row(raw: dict[str, Any]) -> dict[str, Any]:
         "color": clean(row.get("color"), limit=64) or "Not specified",
         "items": items,
     }
+    validate_source_payload_bounds(validated)
+    return validated
 
 
 def read_manifest(path: Path, expected_hash: str, evidence_root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:

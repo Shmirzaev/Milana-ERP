@@ -83,6 +83,44 @@ def test_validate_row_preserves_qr_sizes_and_blank_weight_approval():
         importer.validate_row(row)
 
 
+def _nested_payload(levels: int) -> dict:
+    nested = {}
+    for _ in range(levels):
+        nested = {"nested": nested}
+    return nested
+
+
+@pytest.mark.parametrize("source_extra", [
+    {"large_extension": "x" * importer.MAX_SOURCE_PAYLOAD_BYTES},
+    {"deep_extension": _nested_payload(importer.MAX_SOURCE_PAYLOAD_DEPTH)},
+    {"nonfinite_extension": float("nan")},
+])
+def test_validate_row_rejects_unbounded_source_payload_before_import(source_extra):
+    row = {
+        "source_record_id": "1104",
+        "external_qr": "1104",
+        "qr_code": "uzerp_ii_1104_1",
+        "package_no": "OLD-1104-1",
+        "quantity": 20,
+        "candidate_quantity": 20,
+        "exhaustive_quantity": 20,
+        "quantity_source": "exhaustive_item_barcode_report",
+        "quantity_corrected_from_live_query": False,
+        "weight_kg": None,
+        "allowed_blank_weight": True,
+        "items": [{
+            "model_number": "BJ5001", "variant_number": "V-738", "size": "M-46",
+            "quantity": 20, "target_kind": "catalog", "expected_model_id": 1534,
+            "expected_model_code": "ВJ5001-738",
+        }],
+        **source_extra,
+    }
+
+    expected = "finite JSON" if "nonfinite_extension" in source_extra else "source_payload"
+    with pytest.raises(ValueError, match=expected):
+        importer.validate_row(row)
+
+
 def test_validate_row_allows_reviewed_direct_quantity_override():
     row = {
         "source_record_id": "3313",
