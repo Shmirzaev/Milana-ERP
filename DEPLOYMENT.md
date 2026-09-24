@@ -128,6 +128,39 @@ Create a unique PostgreSQL custom-format backup without printing `DATABASE_URL`.
 - more than 100 restore objects;
 - recorded dump/restore-list sizes and SHA-256 values.
 
+Uploads are stored under the persistent backend-host `/app/storage` mount and
+their URLs/metadata are stored in PostgreSQL. A database dump alone cannot
+recover those file bytes, and an additional backend host must mount the same
+storage or a verified replica. Before taking a coordinated recovery point,
+quiesce upload and database writes, take the PostgreSQL dump and a storage
+snapshot/copy using the approved host backup mechanism, then create and retain
+a pairing manifest alongside the backups (outside both artifact trees):
+
+```sh
+python /opt/milana-erp/releases/<release_id>/scripts/storage_recovery_manifest.py create \
+  --database-dump <path-to-postgres.dump> \
+  --storage-root <path-to-storage-snapshot> \
+  --output <path-to-backup-pairing.json>
+```
+
+The command reads and hashes every regular storage file and the non-empty dump;
+it rejects links and special files. At recovery time, after restoring the
+storage snapshot to an isolated target, verify the paired artifacts before
+putting the recovered service into use:
+
+```sh
+python /opt/milana-erp/releases/<release_id>/scripts/storage_recovery_manifest.py verify \
+  --manifest <path-to-backup-pairing.json> \
+  --database-dump <path-to-postgres.dump> \
+  --storage-root <path-to-restored-storage>
+```
+
+Verification is read-only and fails on a changed dump or any missing, added,
+or changed file. Keep the manifest with its exact dump and storage backup; do
+not resume writes between the two snapshots. This hash pairing does not perform
+or certify a PostgreSQL restore, establish backup retention, prove off-host
+durability, or replace a witnessed isolated restore drill and measured RTO/RPO.
+
 Run candidate migrations before traffic switch:
 
 ```sh
