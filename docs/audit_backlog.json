@@ -1212,7 +1212,8 @@
       "bug": "Growing business lists/reports/exports may load everything.",
       "risk": "Memory spikes and oversized responses; candidates need measurement.",
       "proposed_fix": "Bound operational datasets",
-      "latest_commit": "4487ed0,ef94d3c,d7e4f15,59fea8b,a877454,67d3ca8,deef9c6,b38f723,2174ade,bfb51a9,3e6c5d4",
+      "latest_commit": "4487ed0,ef94d3c,d7e4f15,59fea8b,a877454,67d3ca8,deef9c6,b38f723,2174ade,bfb51a9,3e6c5d4,051a5a2",
+      "followup_2026_09_24": "Replacement Sewing now has an exact-total 50-row page on the real inbox screen, while the legacy unpaged API remains available. SQL factory filtering preserves bundle alias, mixed-factory, batch/production-order fallback and non-sewing operation behavior. Ten combined inbox cases, strict TypeScript, targeted ESLint and Ruff pass. Other broad inbox graphs remain; PERF35 stays partial.",
       "latest_evidence": "Owner approved bounded lazy loading. Package Scan, HR Organization, Payroll Order QR options, Finished Goods inbox package lists and HR attendance now use bounded screen pages with exact totals; focused local and disposable-PostgreSQL evidence is documented in stabilization_qa.md. The main warehouse map uses exact fixed-size cell/zone aggregates, capped rack previews and 50-row selected-cell pages, with an opt-in server-side mixed-model move guard. Thirteen focused and four adjacent local map tests, an isolated PostgreSQL concurrent-move rollback case, Bun contract, full frontend stabilization, strict TypeScript, touched-file ESLint and Ruff pass. Finished Goods reservations now load 50 sales-order pages with exact total and complete per-order detail (11 local tests, frontend runtime and stabilization pass). Warehouse Stock now loads SQL-grouped 50-row detail pages with exact filtered totals and top model cards, preserving legacy unplaced receipts (5 SQLite and 5 disposable-PG tests; combined root suite 14, strict TypeScript/lint/Ruff/stabilization pass). Payroll Summary now returns 50 employee/currency groups at a time with exact global headline totals, debounced search and operation detail scoped to loaded groups; 58 adjacent backend tests, frontend stabilization, strict TypeScript, targeted lint and Ruff pass. Exact headline totals still scan matching records; other inbox/payroll/employee workflows and large graphs remain. PERF35 is partial and the overall count is unchanged. Replacement-cutting and Packaging awaiting queues now show exact-total 50-row pages on their real inbox screens; the Packaging queue is one row per batch, including grouped unbatched work. Nine combined inbox tests, strict TypeScript, lint and Ruff pass. Other broad inbox graphs remain, so the count is unchanged.",
       "baseline_source": null,
       "status": "partial",
@@ -1301,7 +1302,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "3d15874, 287fab2, 1610d50, df14ad6, 794f213, 5b4ac7c",
+      "commit": "3d15874, 287fab2, 1610d50, df14ad6, 794f213, 5b4ac7c, 59ea70b",
+      "latest_evidence": "Catalog item unit edits now reject changes when stock, movement, reservation, BOM, purchasing, waste or forecast quantity references exist, while same-unit metadata edits and unreferenced corrections remain allowed. Eighty-two adjacent inventory tests and Ruff pass. Other writer/state invariants remain; DB01 stays partial.",
       "evidence": "Purchase receipts and inventory adjustment/accessory-return/transfer/batch-edit writers now reuse the item-category warehouse contract; returns enforce item units and transfers enforce paired valid references. The inventory slice passes72 focused cases independently, including no-write failures and ledger parity. Sewing-assignment creation/update, acceptance/output, cutting-driven resizing and correction writers share positive assigned quantity and 0<=completed<=assigned invariants, with40 focused/adjacent passes. Commit df14ad6 makes deletion lock the work order/assignment and reject output, linked reports/records and historical statuses before a write; return also detects directly linked records with a different line name. Fifty-eight focused sewing tests and Ruff pass. Commit 794f213 rejects stock-backed accessory issues whose requested unit differs from the catalog item unit while preserving manual custom-unit issues; 29 focused/adjacent cases pass, including rollback after an earlier valid line. Other alternate references and writer/state rules remain, so DB01 is partial. Commit 5b4ac7c checks catalog, reservation and batch units in shared stock-consumption paths before mutation, including a FIFO preflight and batchless ledger unit; 73 adjacent local tests pass. Legacy mismatched records need correction, and other writer/state invariants remain."
     },
     {
@@ -1313,7 +1315,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "bf36441, 3f1633f, 7fdc2cb, f03259b, f2ff6e8, 28bd3c4, bed96e7, b0e9e71, 2de9bf7, 57cb07f, 8711c96",
+      "commit": "bf36441, 3f1633f, 7fdc2cb, f03259b, f2ff6e8, 28bd3c4, bed96e7, b0e9e71, 2de9bf7, 57cb07f, 8711c96, 54cfe39",
+      "latest_evidence": "Collection create/update now accepts only draft, approved and archived as new status values, preserving an unchanged legacy status on unrelated edits; invalid writes fail before any change. Sixty-two combined collection/HR tests pass. Other open vocabularies keep DB02 partial.",
       "evidence": "Finite write vocabularies cover HR employee status, direct/purchase stock-batch QC, 1C invoice status, manual payment method, sewing-assignment status, sales-line source type, package type, attendance-device vendor and system default language. Commit 8711c96 also makes purchase-request creation status an explicit draft/pending_approval Literal while preserving existing whitespace/null normalization; unknown values fail before writes and unauthenticated requests retain 401 precedence. Forty-one focused/adjacent purchase-request tests and Ruff pass. Open external/free-text and policy fields keep DB02 partial."
     },
     {
@@ -1325,7 +1328,8 @@
       "baseline_source": null,
       "status": "partial",
       "owner": null,
-      "commit": "8d386cf, ada93f8, 30119aa, 4def8fb, 7453b9b",
+      "commit": "8d386cf, ada93f8, 30119aa, 4def8fb, 7453b9b, d034a12",
+      "latest_evidence": "New HR weekend-day JSON writes require unique strict integer ISO weekdays 1–7, while unchanged legacy lists can round-trip on unrelated edits. Sixty-two combined collection/HR tests pass. Other editable JSON remains; DB03 stays partial.",
       "evidence": "Incoming writes now shape-check model paid-operation envelopes, established general/costing model-detail objects, the 21-field HR employee profile and finite numeric model-size measurements. Sparse/unknown legacy fields remain readable; unrelated edits preserve stored legacy shapes. Five new model-detail cases pass independently with no-write failures. Commit 7453b9b bounds permission JSON writes to 150 grants of at most 128 characters each for roles, user extras and factory allow/deny policy, while existing oversized records remain readable; 51 adjacent cases pass independently. Other editable JSON structures remain, so DB03 is partial."
     },
     {
