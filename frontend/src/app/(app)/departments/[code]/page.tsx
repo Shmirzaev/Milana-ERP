@@ -96,6 +96,9 @@ export default function DepartmentInboxPage() {
   const [shipmentError, setShipmentError] = useState("");
   const [pendingPackageSearch, setPendingPackageSearch] = useState("");
   const [readyPackageSearch, setReadyPackageSearch] = useState("");
+  const [replacementCuttingRows, setReplacementCuttingRows] = useState<any[]>([]);
+  const [loadingReplacementCutting, setLoadingReplacementCutting] = useState(false);
+  const [replacementCuttingError, setReplacementCuttingError] = useState("");
   const deferredPendingPackageSearch = useDeferredValue(pendingPackageSearch.trim());
   const deferredReadyPackageSearch = useDeferredValue(readyPackageSearch.trim());
 
@@ -108,9 +111,29 @@ export default function DepartmentInboxPage() {
     }
   }, []);
 
-  const { data, isLoading, mutate } = useSWR<any>(code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null, fetcher, {
-    refreshInterval: 10_000,
-  });
+  const inboxUrl = code
+    ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}${
+      code === "CUT" || code === "ECT"
+        ? "&replacement_cutting_limit=50&replacement_cutting_offset=0"
+        : ""
+    }`
+    : null;
+  const { data, isLoading, mutate } = useSWR<any>(inboxUrl, fetcher, { refreshInterval: 10_000 });
+  useEffect(() => {
+    const firstPage = Array.isArray(data?.replacement_cutting_work) ? data.replacement_cutting_work : [];
+    setReplacementCuttingRows((current) => {
+      const currentFirstPageIds = current.slice(0, firstPage.length).map((row) => Number(row.id));
+      const nextFirstPageIds = firstPage.map((row: any) => Number(row.id));
+      const sameFirstPage = currentFirstPageIds.length === nextFirstPageIds.length
+        && currentFirstPageIds.every((id, index) => id === nextFirstPageIds[index]);
+      const total = Number(data?.replacement_cutting_work_total ?? firstPage.length);
+      if ((code === "CUT" || code === "ECT") && firstPage.length > 0 && sameFirstPage && current.length <= total) {
+        return [...firstPage, ...current.slice(firstPage.length)];
+      }
+      return firstPage;
+    });
+    setReplacementCuttingError("");
+  }, [code, data?.replacement_cutting_work, data?.replacement_cutting_work_total]);
   const {
     data: pendingPackagePages,
     mutate: mutatePendingPackagePages,
@@ -135,7 +158,7 @@ export default function DepartmentInboxPage() {
   );
   const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
   const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
-  const replacementCuttingWork = Array.isArray(data?.replacement_cutting_work) ? data.replacement_cutting_work : [];
+  const replacementCuttingTotal = Number(data?.replacement_cutting_work_total ?? replacementCuttingRows.length);
   const replacementSewingWork = Array.isArray(data?.replacement_sewing_work) ? data.replacement_sewing_work : [];
   const cuttingWorkOrders = Array.isArray(data?.cutting_work_orders) ? data.cutting_work_orders : [];
   const incomingWorkOrders = useMemo(
@@ -300,6 +323,22 @@ export default function DepartmentInboxPage() {
     return <div className="text-[11px] text-slate-500">{t("field.textile")}: {textileName}</div>;
   }
 
+  async function loadMoreReplacementCutting() {
+    if (loadingReplacementCutting || replacementCuttingRows.length >= replacementCuttingTotal) return;
+    setLoadingReplacementCutting(true);
+    setReplacementCuttingError("");
+    try {
+      const page = await api.get<{ rows: any[]; total: number }>(
+        `/api/inbox/replacement-cutting?dept=${code}&limit=50&offset=${replacementCuttingRows.length}`,
+      );
+      setReplacementCuttingRows((current) => [...current, ...page.rows]);
+    } catch (error: any) {
+      setReplacementCuttingError(String(error?.message || error));
+    } finally {
+      setLoadingReplacementCutting(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -311,11 +350,12 @@ export default function DepartmentInboxPage() {
       {!isLoading && (code === "CUT" || code === "ECT") && (
         <section className="card mb-4 p-4">
           <h2 className="mb-3 text-sm font-semibold text-slate-700">
-            {t("replacement.cuttingSection", { count: replacementCuttingWork.length })}
+            {t("replacement.cuttingSection", { count: replacementCuttingTotal })}
           </h2>
-          {replacementCuttingWork.length > 0 ? (
+          {replacementCuttingError ? <div role="alert" className="mb-2 text-sm text-red-700">{replacementCuttingError}</div> : null}
+          {replacementCuttingRows.length > 0 ? (
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-              {replacementCuttingWork.map((row: any) => (
+              {replacementCuttingRows.map((row: any) => (
                 <div key={row.id} className="rounded border border-amber-200 bg-amber-50/60 p-2 text-sm">
                   <div className="flex items-start gap-2">
                     <MaterialThumb row={row} />
@@ -348,6 +388,15 @@ export default function DepartmentInboxPage() {
           ) : (
             <div className="text-sm text-slate-400">{t("replacement.noCuttingWork")}</div>
           )}
+          {replacementCuttingRows.length < replacementCuttingTotal ? (
+            <button
+              className="btn mt-3 h-8 px-3 text-xs"
+              onClick={loadMoreReplacementCutting}
+              disabled={loadingReplacementCutting}
+            >
+              {loadingReplacementCutting ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
         </section>
       )}
       {!isLoading && replacementSewingWork.length > 0 && (

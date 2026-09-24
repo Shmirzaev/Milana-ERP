@@ -915,8 +915,11 @@ def _work_order_card_payload(
 def _replacement_cutting_work_payload(
     db: DbSession,
     department_id: int,
-) -> list[dict]:
-    rows = (
+    limit: int | None = None,
+    offset: int = 0,
+    suppression_work_order_ids: set[int] | None = None,
+) -> tuple[list[dict], int, set[int]]:
+    query = (
         db.query(SewingReplacementRequest, WorkOrder, ProductionOrder, SewingRecord)
         .join(WorkOrder, WorkOrder.id == SewingReplacementRequest.cutting_work_order_id)
         .join(ProductionOrder, ProductionOrder.id == SewingReplacementRequest.production_order_id)
@@ -928,16 +931,44 @@ def _replacement_cutting_work_payload(
             ProductionOrder.status.notin_(_CANCELLED_PRODUCTION_STATUSES),
         )
         .order_by(SewingReplacementRequest.created_at.asc(), SewingReplacementRequest.id.asc())
-        .all()
     )
+    if limit is None:
+        rows = query.all()
+        total = len(rows)
+        replacement_work_order_ids = {
+            int(cutting_work_order.id)
+            for _, cutting_work_order, _, _ in rows
+        }
+    else:
+        total = int(query.order_by(None).with_entities(func.count(SewingReplacementRequest.id)).scalar() or 0)
+        rows = query.offset(offset).limit(limit).all()
+        suppression_query = query.order_by(None).with_entities(
+            SewingReplacementRequest.cutting_work_order_id
+        ).distinct()
+        if suppression_work_order_ids is not None:
+            if not suppression_work_order_ids:
+                replacement_work_order_ids = set()
+            else:
+                suppression_query = suppression_query.filter(
+                    SewingReplacementRequest.cutting_work_order_id.in_(suppression_work_order_ids)
+                )
+                replacement_work_order_ids = {
+                    int(row[0]) for row in suppression_query.all() if row[0] is not None
+                }
+        else:
+            replacement_work_order_ids = {
+                int(row[0])
+                for row in suppression_query.all()
+                if row[0] is not None
+            }
     if not rows:
-        return []
+        return [], total, replacement_work_order_ids
 
     production_order_ids = sorted({int(request.production_order_id) for request, _, _, _ in rows})
     material_by_po = _material_payload_by_production_order(db, production_order_ids)
     production_context_by_po = _production_context_by_production_order(db, production_order_ids)
 
-    return [
+    payload = [
         {
             "id": request.id,
             "production_order_id": request.production_order_id,
@@ -958,6 +989,7 @@ def _replacement_cutting_work_payload(
         }
         for request, cutting_work_order, production_order, sewing_record in rows
     ]
+    return payload, total, replacement_work_order_ids
 
 
 def _replacement_sewing_work_payload(
@@ -1019,6 +1051,34 @@ def _replacement_sewing_work_payload(
     ]
 
 
+@router.get("/replacement-cutting")
+def replacement_cutting_page(
+    db: DbSession,
+    current: CurrentUser,
+    dept: Annotated[str, Query()],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    department = _resolve_department(db, current, dept)
+    if department.code not in {"CUT", DEPT_ECO_COTTON_CUTTING}:
+        raise HTTPException(404, "Replacement cutting queue not found")
+    _require_inbox_department_permission(department, current)
+    rows, total, _replacement_work_order_ids = _replacement_cutting_work_payload(
+        db,
+        int(department.id),
+        limit,
+        offset,
+        set(),
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(rows) < total,
+    }
+
+
 @router.get("")
 def department_inbox(
     db: DbSession,
@@ -1027,6 +1087,8 @@ def department_inbox(
     tz: str | None = None,
     ready_to_ship_limit: Annotated[int | None, Query(ge=1, le=100)] = None,
     ready_to_ship_offset: Annotated[int, Query(ge=0)] = 0,
+    replacement_cutting_limit: Annotated[int | None, Query(ge=1, le=100)] = None,
+    replacement_cutting_offset: Annotated[int, Query(ge=0)] = 0,
 ):
     d = _resolve_department(db, current, dept)
     operation = _DEPT_OPERATION.get(d.code)
@@ -1176,20 +1238,25 @@ def department_inbox(
         and as_utc(w.end_time)
         and as_utc(w.end_time).astimezone(client_tz).date() == today_client
     ]
-    replacement_cutting_work = (
-        _replacement_cutting_work_payload(db, int(d.id))
-        if d.code in {"CUT", DEPT_ECO_COTTON_CUTTING}
-        else []
-    )
+    if d.code in {"CUT", DEPT_ECO_COTTON_CUTTING}:
+        replacement_cutting_work, replacement_cutting_total, replacement_work_order_ids = (
+            _replacement_cutting_work_payload(
+                db,
+                int(d.id),
+                replacement_cutting_limit,
+                replacement_cutting_offset,
+                {int(work_order.id) for work_order in work_orders},
+            )
+        )
+    else:
+        replacement_cutting_work = []
+        replacement_cutting_total = 0
+        replacement_work_order_ids = set()
     replacement_sewing_work = (
         _replacement_sewing_work_payload(db, inbox_department_ids, textile_filter)
         if d.code in _SEWING_LOGISTICS_DEPTS
         else []
     )
-    replacement_work_order_ids = {
-        int(row["cutting_work_order_id"])
-        for row in replacement_cutting_work
-    }
     if replacement_work_order_ids:
         pending_work_orders = [w for w in pending_work_orders if int(w.id) not in replacement_work_order_ids]
         in_progress_work_orders = [w for w in in_progress_work_orders if int(w.id) not in replacement_work_order_ids]
@@ -1543,6 +1610,11 @@ def department_inbox(
         "incoming_bundle_groups": incoming_bundle_groups,
         "incoming_work_orders": incoming_work_orders,
         "replacement_cutting_work": replacement_cutting_work,
+        "replacement_cutting_work_total": replacement_cutting_total,
+        "replacement_cutting_work_has_more": (
+            replacement_cutting_limit is not None
+            and replacement_cutting_offset + len(replacement_cutting_work) < replacement_cutting_total
+        ),
         "replacement_sewing_work": replacement_sewing_work,
         "cutting_work_orders": [
             _work_order_card_payload(w, received_by_po, None, material_by_po, production_context_by_po)
