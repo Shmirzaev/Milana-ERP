@@ -32,7 +32,7 @@ from app.services.production import (
     create_production_order,
     create_production_batches,
     create_work_orders,
-    printing_attachments_for_storage,
+    production_order_printing_attachments_for_storage,
 )
 from app.services.audit import log_action
 from app.services.model_images import material_preview_image_url, model_display_image_url
@@ -326,7 +326,7 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
     allowed_statuses = {"confirmed", "pending_sales_approval", "planning_approved"}
     if so.status not in allowed_statuses:
         raise HTTPException(400, f"Sales order must be confirmed before creating production (current: '{so.status}')")
-    printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
+    printing_attachments = production_order_printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,
         production_type="client_order",
@@ -372,6 +372,7 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
 def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     if payload.production_type != "branded_stock":
         raise HTTPException(400, "production_type must be branded_stock")
+    printing_attachments = production_order_printing_attachments_for_storage(payload.printing_attachments)
     planning_order = db.get(BrandedPlanningOrder, payload.planning_order_id) if payload.planning_order_id else None
     if payload.planning_order_id and not planning_order:
         raise HTTPException(404, "Branded planning order not found")
@@ -387,7 +388,6 @@ def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User 
         db.flush()
     if planning_order.status != "open":
         raise HTTPException(400, "Branded planning order is not open")
-    printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,
         production_type="branded_stock",

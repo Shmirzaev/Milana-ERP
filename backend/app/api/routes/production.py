@@ -68,7 +68,7 @@ from app.services.production import (
     create_production_order,
     create_production_batches,
     create_work_orders,
-    printing_attachments_for_storage,
+    production_order_printing_attachments_for_storage,
 )
 from app.services.inventory import (
     auto_reserve_materials_for_production_order,
@@ -600,7 +600,7 @@ def list_pos(
 
 @router.post("/production-orders", response_model=ProductionOrderDetail, status_code=201)
 def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
-    printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
+    printing_attachments = production_order_printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,
         production_type=payload.production_type,
@@ -1337,7 +1337,10 @@ def update_po(
     if updates.get("sales_order_id") is not None and not db.get(SalesOrder, updates["sales_order_id"]):
         raise HTTPException(404, "Sales order not found")
     if "printing_attachments" in updates:
-        updates["printing_attachments"] = printing_attachments_for_storage(updates["printing_attachments"])
+        updates["printing_attachments"] = production_order_printing_attachments_for_storage(
+            updates["printing_attachments"],
+            existing=po.printing_attachments,
+        )
     for key, value in updates.items():
         setattr(po, key, value)
     log_action(db, current, "update", "ProductionOrder", po.id)

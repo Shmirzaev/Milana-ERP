@@ -40,6 +40,13 @@ WORK_ORDER_OPERATION_PERMISSIONS = {
 
 _NUMERIC_SIZE_RANGE = re.compile(r"^\s*(\d+)\s*[-\u2013\u2014]\s*(\d+)\s*$")
 _MAX_ESTIMATED_MATERIAL_AMOUNT = 9_999_999_999.9999
+_PRODUCTION_ATTACHMENT_STORAGE_PREFIX = "/storage/sales-order-files/"
+_PRODUCTION_ATTACHMENT_FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_PRODUCTION_ATTACHMENT_LIMIT = 50
+_PRODUCTION_ATTACHMENT_URL_MAX_LENGTH = 512
+_PRODUCTION_ATTACHMENT_NAME_MAX_LENGTH = 255
+_PRODUCTION_ATTACHMENT_CONTENT_TYPE_MAX_LENGTH = 128
+_UNSET_ATTACHMENT_VALUE = object()
 
 
 def expand_production_size_range_items(items: list[dict] | None) -> list[dict]:
@@ -89,6 +96,72 @@ def printing_attachments_for_storage(attachments) -> list[dict]:
             data["file_url"] = strip_signature(data["file_url"])
         out.append(data)
     return out
+
+
+def production_order_printing_attachments_for_storage(
+    attachments,
+    *,
+    existing=_UNSET_ATTACHMENT_VALUE,
+) -> list[dict]:
+    """Validate new ProductionOrder attachment writes while preserving unchanged legacy JSON."""
+    raw_rows = [
+        attachment.model_dump() if hasattr(attachment, "model_dump") else dict(attachment)
+        for attachment in attachments or []
+    ]
+    normalized = printing_attachments_for_storage(raw_rows)
+
+    if existing is not _UNSET_ATTACHMENT_VALUE:
+        old_projection = _production_attachment_public_projection(existing)
+        new_projection = _production_attachment_public_projection(normalized)
+        if old_projection is not None and old_projection == new_projection:
+            # Generic PATCH clients echo response rows. Keep unexposed legacy keys
+            # and historical shapes when the public attachment values did not change.
+            return existing
+
+    if len(normalized) > _PRODUCTION_ATTACHMENT_LIMIT:
+        raise HTTPException(422, f"printing_attachments cannot exceed {_PRODUCTION_ATTACHMENT_LIMIT} rows")
+
+    for index, (raw_attachment, attachment) in enumerate(zip(raw_rows, normalized, strict=True)):
+        raw_file_url = raw_attachment.get("file_url")
+        if not isinstance(raw_file_url, str) or len(raw_file_url) > _PRODUCTION_ATTACHMENT_URL_MAX_LENGTH:
+            raise HTTPException(422, f"printing_attachments[{index}].file_url must be at most 512 characters")
+        if "#" in raw_file_url:
+            raise HTTPException(422, f"printing_attachments[{index}].file_url cannot contain a fragment")
+        file_url = attachment.get("file_url")
+        if not isinstance(file_url, str) or len(file_url) > _PRODUCTION_ATTACHMENT_URL_MAX_LENGTH:
+            raise HTTPException(422, f"printing_attachments[{index}].file_url must be at most 512 characters")
+        if not file_url.startswith(_PRODUCTION_ATTACHMENT_STORAGE_PREFIX):
+            raise HTTPException(422, f"printing_attachments[{index}].file_url must reference an uploaded attachment")
+        filename = file_url[len(_PRODUCTION_ATTACHMENT_STORAGE_PREFIX):]
+        if not filename or not _PRODUCTION_ATTACHMENT_FILENAME.fullmatch(filename) or filename in {".", ".."}:
+            raise HTTPException(422, f"printing_attachments[{index}].file_url must contain one safe filename")
+
+        file_name = attachment.get("file_name")
+        if file_name is not None and len(file_name) > _PRODUCTION_ATTACHMENT_NAME_MAX_LENGTH:
+            raise HTTPException(422, f"printing_attachments[{index}].file_name must be at most 255 characters")
+        content_type = attachment.get("content_type")
+        if content_type is not None and len(content_type) > _PRODUCTION_ATTACHMENT_CONTENT_TYPE_MAX_LENGTH:
+            raise HTTPException(422, f"printing_attachments[{index}].content_type must be at most 128 characters")
+
+    return normalized
+
+
+def _production_attachment_public_projection(value):
+    if not isinstance(value, list):
+        return None
+    projection = []
+    for attachment in value:
+        if not isinstance(attachment, dict):
+            return None
+        file_url = attachment.get("file_url")
+        if isinstance(file_url, str):
+            file_url = strip_signature(file_url)
+        projection.append({
+            "file_url": file_url,
+            "file_name": attachment.get("file_name"),
+            "content_type": attachment.get("content_type"),
+        })
+    return projection
 
 
 def create_production_order(
