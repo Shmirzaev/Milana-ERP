@@ -13,14 +13,14 @@ def _reject_boolean_quantity(value: object) -> object:
     return value
 
 
-PlannedQuantity = Annotated[int, BeforeValidator(_reject_boolean_quantity)]
+NonBooleanInteger = Annotated[int, BeforeValidator(_reject_boolean_quantity)]
 
 
 class ProductionOrderItemIn(SchemaModel):
     model_id: int
     color: str
     size: str
-    planned_quantity: PlannedQuantity = Field(ge=0, le=2_147_483_647)
+    planned_quantity: NonBooleanInteger = Field(ge=0, le=2_147_483_647)
     printing_required: bool = False
 
 
@@ -74,7 +74,7 @@ class ProductionOrderUpdateIn(BaseModel):
     ] | None = None
     model_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
     sales_order_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
-    planned_quantity: PlannedQuantity | None = Field(default=None, ge=0, le=2_147_483_647)
+    planned_quantity: NonBooleanInteger | None = Field(default=None, ge=0, le=2_147_483_647)
     deadline: datetime | None = None
     estimated_material_code: str | None = Field(default=None, max_length=128)
     estimated_material_amount: Decimal | None = Field(
@@ -141,7 +141,7 @@ class ProductionOrderIn(SchemaModel):
     model_id: int
     brand_id: Optional[int] = None
     fabric_batch_id: Optional[int] = None
-    planned_quantity: PlannedQuantity = Field(default=0, ge=0, le=2_147_483_647)
+    planned_quantity: NonBooleanInteger = Field(default=0, ge=0, le=2_147_483_647)
     start_date: Optional[datetime] = None
     deadline: Optional[datetime] = None
     estimated_material_code: Optional[str] = None
@@ -488,9 +488,9 @@ class SewingRecordIn(BaseModel):
 class PackagingRecordIn(BaseModel):
     work_order_id: int
     production_batch_id: Optional[int] = None
-    input_qty: PlannedQuantity = Field(ge=0, le=2_147_483_647)
-    packed_qty: PlannedQuantity = Field(ge=0, le=2_147_483_647)
-    damaged_qty: PlannedQuantity = Field(default=0, ge=0, le=2_147_483_647)
+    input_qty: NonBooleanInteger = Field(ge=0, le=2_147_483_647)
+    packed_qty: NonBooleanInteger = Field(ge=0, le=2_147_483_647)
+    damaged_qty: NonBooleanInteger = Field(default=0, ge=0, le=2_147_483_647)
     packaging_material_used: Optional[str] = None
     operator_id: Optional[int] = None
     notes: Optional[str] = None
