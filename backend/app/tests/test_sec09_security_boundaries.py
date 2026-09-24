@@ -88,6 +88,12 @@ def test_forwarding_chain_strips_only_explicit_trusted_hops(monkeypatch):
     )
     assert proxy_trust.client_ip(malformed) == "127.0.0.1"
 
+    empty_hop = _request(
+        peer="127.0.0.1",
+        headers={"x-forwarded-for": "198.51.100.10,,10.20.30.40"},
+    )
+    assert proxy_trust.client_ip(empty_hop) == "127.0.0.1"
+
 
 def test_untrusted_forwarded_https_cannot_mark_login_cookie_secure(monkeypatch):
     from fastapi.testclient import TestClient

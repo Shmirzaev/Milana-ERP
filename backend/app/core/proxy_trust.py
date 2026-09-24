@@ -86,7 +86,10 @@ def client_ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         try:
-            hops = [ipaddress.ip_address(value.strip()) for value in forwarded.split(",") if value.strip()]
+            values = [value.strip() for value in forwarded.split(",")]
+            if any(not value for value in values):
+                return peer
+            hops = [ipaddress.ip_address(value) for value in values]
         except ValueError:
             return peer
         if not hops:
