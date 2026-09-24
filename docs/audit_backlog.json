@@ -1420,8 +1420,8 @@
       "baseline_source": "backend/app/main.py:443",
       "status": "partial",
       "owner": null,
-      "commit": "4067755, 78a580f",
-      "evidence": "The bounded /ready PostgreSQL probe remains. Commit 78a580f switches backend candidate, stable and HAProxy traffic gates to /ready while retaining /health as warm-up liveness coverage; an offline config-contract test verifies backend/frontend paths and generated HAProxy checks. Redis readiness policy and applying the reviewed template to infrastructure remain unresolved; no deployment occurred."
+      "commit": "4067755,78a580f,c275be7",
+      "evidence": "Code/config complete: /ready concurrently probes PostgreSQL and the required shared store within one two-second budget, with per-dependency single-flight guards so stuck probes cannot accumulate threads. Redis, SQLite and in-memory stores implement read-only ping; failures return generic per-dependency status while /health remains liveness-only. Candidate/stable/HAProxy config already targets /ready and postflight now checks internal/public readiness. Twelve focused readiness/store/slot cases and30 adjacent rate-limit/startup cases pass; independent review reruns all12 focused cases. Infrastructure must still release/apply the reviewed config and verify active candidate, stable listener and public readiness report both dependencies healthy; no deployment or production access occurred."
     },
     {
       "number": 119,
@@ -1502,10 +1502,10 @@
       "risk": "Tests can miss production nullability, defaults, foreign-key behavior and index costs.",
       "proposed_fix": "Review the 30 unresolved drift entries; align source contracts with intended migrations. Preserve legacy data; do not auto-generate destructive changes.",
       "baseline_source": "backend/app/models; backend/alembic/versions",
-      "status": "open",
+      "status": "fixed",
       "owner": null,
-      "commit": null,
-      "evidence": "docs/audit-evidence/fresh-migration-schema-drift.json: full reviewed drift, including intentional migration-owned features; not 126 separate bugs"
+      "commit": "1141d40",
+      "evidence": "Fixed without a migration or data rewrite: ORM metadata now matches all 30 unresolved migration-created contracts and ten equivalent index names, including legacy Beyka evidence, sewing accepted-defect fields/checks/indexes, nullable legacy stock/package/sales references, barcode cascade, cutting-passport length and collection default. The remaining86 normalized differences are exact reviewed representation choices:34 migration-owned indexes,48 database defaults with matching Python defaults and4 migration-owned unique constraints; two migration-owned generated columns are validated separately. Local migration contract passes14 with2 expected PostgreSQL skips, disposable PostgreSQL passes16, and124 compatibility cases pass. Independent review reruns14/2 and all16 PostgreSQL cases successfully."
     },
     {
       "number": 126,
