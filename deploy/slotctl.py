@@ -30,6 +30,29 @@ ROLES = {
     "backend": {"stable": 8000, "blue": 18001, "green": 18002, "health": "/ready"},
     "frontend": {"stable": 3000, "blue": 13001, "green": 13002, "health": "/login"},
 }
+BACKEND_WORKERS = 2
+DB_POOL_SIZE = 8
+DB_MAX_OVERFLOW = 4
+POSTGRES_MAX_CONNECTIONS = 100
+
+
+def backend_connection_budget(
+    *, slots: int = 2, workers: int = BACKEND_WORKERS,
+    pool_size: int = DB_POOL_SIZE, max_overflow: int = DB_MAX_OVERFLOW,
+) -> int:
+    """Return the backend's peak possible PostgreSQL connections during overlap."""
+    if slots < 1 or workers < 1 or pool_size < 1 or max_overflow < 0:
+        raise ValueError("slots, workers and pool size must be positive; overflow must be non-negative")
+    return slots * workers * (pool_size + max_overflow)
+
+
+def validate_backend_connection_budget() -> None:
+    connections = backend_connection_budget()
+    if connections > POSTGRES_MAX_CONNECTIONS:
+        raise RuntimeError(
+            f"Backend blue-green pool budget {connections} exceeds PostgreSQL ceiling "
+            f"{POSTGRES_MAX_CONNECTIONS}"
+        )
 
 
 def run(*args: str, capture: bool = False) -> str:
@@ -122,6 +145,8 @@ def remove_inactive_container(role: str, slot: str) -> None:
 
 
 def stage(role: str, slot: str, release: str, image: str) -> None:
+    if role == "backend":
+        validate_backend_connection_budget()
     inspect_image(image)
     remove_inactive_container(role, slot)
     name = container_name(role, slot)
@@ -134,7 +159,9 @@ def stage(role: str, slot: str, release: str, image: str) -> None:
     if role == "backend":
         command.extend([
             "--env-file", str(BASE / "shared/backend.env"),
-            "-e", "DB_POOL_SIZE=8", "-e", "DB_MAX_OVERFLOW=4", "-e", "WEB_CONCURRENCY=2",
+            "-e", f"DB_POOL_SIZE={DB_POOL_SIZE}",
+            "-e", f"DB_MAX_OVERFLOW={DB_MAX_OVERFLOW}",
+            "-e", f"WEB_CONCURRENCY={BACKEND_WORKERS}",
             "-v", "/app/storage:/app/storage",
         ])
     command.append(image)
