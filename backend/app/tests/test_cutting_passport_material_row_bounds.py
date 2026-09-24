@@ -175,11 +175,58 @@ def test_cutting_passport_rejects_overlong_material_text_without_writes(client, 
     assert _write_counts() == before
 
 
+@pytest.mark.parametrize("field,maximum,oversized", [
+    ("rolls_count", 2_147_483_647, 2_147_483_648),
+    ("total_layers", 2_147_483_647, 2_147_483_648),
+    ("pieces", 2_147_483_647, 2_147_483_648),
+    ("layer_weight_kg", 9_999_999_999.9999, 10_000_000_000),
+    ("planned_kg", 9_999_999_999.9999, 10_000_000_000),
+    ("fabric_width_m", 9_999_999_999.9999, 10_000_000_000),
+    ("lay_length_m", 9_999_999_999.9999, 10_000_000_000),
+    ("scrap_kg", 9_999_999_999.9999, 10_000_000_000),
+    ("gramage", 99_999_999.999999, 100_000_000),
+    ("beka_per_piece_kg", 99_999_999.999999, 100_000_000),
+    ("other_beka_per_piece_kg", 99_999_999.999999, 100_000_000),
+    ("ribana_per_piece_kg", 99_999_999.999999, 100_000_000),
+])
+def test_cutting_passport_material_numeric_json_matches_scalar_storage(field, maximum, oversized):
+    row = _material_rows(1)[0]
+    row[field] = maximum
+    accepted = CuttingPassportIn.model_validate(_payload(materials=[row]))
+    assert _validate_passport_material_limits(accepted) is False
+
+    row[field] = oversized
+    rejected = CuttingPassportIn.model_validate(_payload(materials=[row]))
+    with pytest.raises(HTTPException, match=f"materials.{field} must be at most"):
+        _validate_passport_material_limits(rejected)
+
+
+@pytest.mark.parametrize("field,oversized", [
+    ("pieces", 2_147_483_648),
+    ("planned_kg", 10_000_000_000),
+    ("gramage", 100_000_000),
+])
+def test_cutting_passport_rejects_numeric_overflow_without_writes(client, auth_headers, field, oversized):
+    order_id = _linked_order()
+    row = _material_rows(1)[0]
+    row[field] = oversized
+    before = _write_counts()
+
+    response = client.post(
+        "/api/cutting-passports", headers=auth_headers,
+        json=_payload(production_order_id=order_id, materials=[row]),
+    )
+
+    assert response.status_code == 422, response.text
+    assert _write_counts() == before
+
+
 def test_unchanged_oversized_legacy_materials_round_trip_on_patch(client, auth_headers):
     passport_no = f"LEGACY-MAT-{uuid4().hex[:10].upper()}"
     legacy_materials = _material_rows(MAX_MATERIAL_ROWS + 1)
     legacy_materials[0]["fabric_type"] = "x" * 129
     legacy_materials[0]["lot_no"] = "y" * 65
+    legacy_materials[0]["pieces"] = 2_147_483_648
     with TestSessionLocal() as db:
         passport = CuttingPassport(
             passport_no=passport_no,

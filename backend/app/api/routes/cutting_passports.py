@@ -42,6 +42,20 @@ _PASSPORT_TEXT_LIMITS = {
     "lot_no": 64,
     "size_range": 32,
 }
+_PASSPORT_MATERIAL_NUMERIC_MAX = {
+    "rolls_count": 2_147_483_647,
+    "total_layers": 2_147_483_647,
+    "pieces": 2_147_483_647,
+    "layer_weight_kg": 9_999_999_999.9999,
+    "planned_kg": 9_999_999_999.9999,
+    "fabric_width_m": 9_999_999_999.9999,
+    "lay_length_m": 9_999_999_999.9999,
+    "scrap_kg": 9_999_999_999.9999,
+    "gramage": 99_999_999.999999,
+    "beka_per_piece_kg": 99_999_999.999999,
+    "other_beka_per_piece_kg": 99_999_999.999999,
+    "ribana_per_piece_kg": 99_999_999.999999,
+}
 
 
 def _query_chunks(values):
@@ -861,14 +875,21 @@ def _validate_passport_material_limits(
     oversized_field = None
     for row in payload.materials:
         if row.fabric_type is not None and len(row.fabric_type) > 128:
-            oversized_field = ("fabric_type", 128)
+            oversized_field = ("fabric_type", "128 characters")
             break
         if row.lot_no is not None and len(row.lot_no) > 64:
-            oversized_field = ("lot_no", 64)
+            oversized_field = ("lot_no", "64 characters")
+            break
+        for field, maximum in _PASSPORT_MATERIAL_NUMERIC_MAX.items():
+            value = getattr(row, field)
+            if value is not None and value > maximum:
+                oversized_field = (field, str(maximum))
+                break
+        if oversized_field:
             break
     if oversized_field and not _same_passport_materials(existing_materials, payload.materials):
         field, maximum = oversized_field
-        raise HTTPException(422, f"materials.{field} must be at most {maximum} characters")
+        raise HTTPException(422, f"materials.{field} must be at most {maximum}")
     return unchanged_oversized_legacy
 
 
