@@ -140,6 +140,45 @@ def test_direct_receipt_checks_warehouse_before_item_unit(client, auth_headers, 
         assert db.query(StockBatch).filter_by(batch_no="WRONG-WAREHOUSE-UNIT").first() is None
 
 
+def test_batch_reassignment_rejects_linked_unit_mismatch_without_writes(
+    client, auth_headers, movement_stock,
+):
+    with session_module.SessionLocal() as db:
+        target = Item(
+            sku="MOVEMENT-OTHER-UNIT",
+            name="Other unit item",
+            category="accessory",
+            unit="kg",
+        )
+        db.add(target)
+        db.commit()
+        target_item_id = target.id
+        before_audits = db.query(AuditLog).count()
+        before_movements = [
+            (row.id, row.item_id, row.batch_id, row.quantity, row.unit)
+            for row in db.query(StockMovement).filter_by(batch_id=movement_stock["batch_id"]).all()
+        ]
+
+    response = client.patch(
+        f"/api/inventory/batches/{movement_stock['batch_id']}",
+        headers=auth_headers,
+        json={"item_id": target_item_id, "unit": "kg"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Cannot change batch material when linked quantity units differ"
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, movement_stock["batch_id"])
+        assert (batch.item_id, batch.unit, batch.quantity) == (
+            movement_stock["item_id"], "pcs", Decimal("10.0000"),
+        )
+        assert [
+            (row.id, row.item_id, row.batch_id, row.quantity, row.unit)
+            for row in db.query(StockMovement).filter_by(batch_id=movement_stock["batch_id"]).all()
+        ] == before_movements
+        assert db.query(AuditLog).count() == before_audits
+
+
 def test_item_unit_change_with_stock_history_rejected_but_metadata_edit_remains_allowed(
     client, auth_headers, movement_stock,
 ):

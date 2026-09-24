@@ -181,6 +181,30 @@ def _relink_stock_batch_item_references(
     }
 
 
+def _validate_stock_batch_relink_units(db: DbSession, batch_id: int, target_unit: str) -> None:
+    unit_references = (
+        (StockMovement, StockMovement.batch_id, StockMovement.unit, None),
+        (MaterialReservation, MaterialReservation.stock_batch_id, MaterialReservation.unit, None),
+        (ModelBOM, ModelBOM.stock_batch_id, ModelBOM.unit, None),
+        (ProductionOrderMaterial, ProductionOrderMaterial.stock_batch_id, ProductionOrderMaterial.unit, None),
+        (CuttingMaterialUsage, CuttingMaterialUsage.stock_batch_id, CuttingMaterialUsage.unit, None),
+        (CuttingBeikaMaterialUsage, CuttingBeikaMaterialUsage.stock_batch_id, CuttingBeikaMaterialUsage.unit, None),
+        (EcoFabricRoll, EcoFabricRoll.batch_id, EcoFabricRoll.unit, None),
+        (WasteRecord, WasteRecord.batch_id, WasteRecord.unit, None),
+        (
+            ProductionOrder, ProductionOrder.fabric_batch_id,
+            ProductionOrder.estimated_material_unit, ProductionOrder.estimated_material_amount,
+        ),
+        (CuttingRecord, CuttingRecord.fabric_batch_id, CuttingRecord.input_unit, CuttingRecord.input_quantity),
+    )
+    for model, batch_column, unit_column, quantity_column in unit_references:
+        query = db.query(model.id).filter(batch_column == batch_id)
+        if quantity_column is not None:
+            query = query.filter(quantity_column > 0)
+        if query.filter(or_(unit_column.is_(None), unit_column != target_unit)).first():
+            raise HTTPException(409, "Cannot change batch material when linked quantity units differ")
+
+
 def _validate_item_image_url(image_url: str | None) -> str | None:
     if not image_url:
         return None
@@ -1687,6 +1711,7 @@ def update_batch(
             )
             if (reserved_quantity > EPSILON or linked or has_downstream_movement) and not force:
                 raise HTTPException(409, "Stock batch is already reserved or used and cannot change material")
+            _validate_stock_batch_relink_units(db, batch_id, target_unit)
 
     if "warehouse_id" in values or "quantity" in values or target_item.id != item.id:
         target_warehouse = db.get(Warehouse, target_warehouse_id)
