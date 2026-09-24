@@ -5,7 +5,9 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload, load_only
 
+from app.api.routes.notifications import _max_bulk_recipients
 from app.core.deps import (
     DbSession,
     CurrentUser,
@@ -15,10 +17,12 @@ from app.core.deps import (
 )
 from app.models import (
     Bundle,
+    Department,
     Invoice,
     Notification,
     Package,
     ProductionOrder,
+    Role,
     SalesOrder,
     Shipment,
     Task,
@@ -245,6 +249,21 @@ def _require_single_assignee(assigned: int | None, db: DbSession, current: User,
     return user
 
 
+def _broadcast_recipient_query(db: DbSession):
+    """Load at most the user fields needed by API02 recipient authorization."""
+    return db.query(User).options(
+        load_only(
+            User.id,
+            User.factory_code,
+            User.extra_permissions,
+            User.access_policy,
+            User.is_active,
+        ),
+        joinedload(User.role).load_only(Role.name, Role.permissions),
+        joinedload(User.department).load_only(Department.code),
+    )
+
+
 def _task_link(
     t: Task,
     db: DbSession | None = None,
@@ -319,9 +338,24 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
     if requested_assignee == -1:
         if not is_manager:
             raise HTTPException(403, "Only managers can assign tasks to everyone")
-        targets = db.query(User).filter(User.is_active.is_(True)).order_by(User.id).all()
+        # Share the notification fan-out ceiling (ERP_MCP_MAX_BULK_RECIPIENTS,
+        # clamped to 1..250). Reading cap+1 makes oversized broadcasts fail
+        # before recipient policy checks or any task/notification/audit write.
+        max_recipients = _max_bulk_recipients()
+        targets = (
+            _broadcast_recipient_query(db)
+            .filter(User.is_active.is_(True))
+            .order_by(User.id)
+            .limit(max_recipients + 1)
+            .all()
+        )
         if not targets:
             raise HTTPException(404, "No active users found")
+        if len(targets) > max_recipients:
+            raise HTTPException(
+                400,
+                f"Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS={max_recipients}",
+            )
         if reference is not None:
             try:
                 for user in targets:

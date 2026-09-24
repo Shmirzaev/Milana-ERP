@@ -2,6 +2,7 @@ import os
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
@@ -46,8 +47,13 @@ def _actor(db):
 
 
 @pytest.mark.parametrize("recipients", [1, 50])
-def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(broadcast_sessions, recipients):
+def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(
+    broadcast_sessions,
+    monkeypatch,
+    recipients,
+):
     marker = uuid4().hex
+    monkeypatch.setenv("ERP_MCP_MAX_BULK_RECIPIENTS", "250")
     with broadcast_sessions() as db:
         admin = _actor(db)
         db.query(User).update({"is_active": False}, synchronize_session=False)
@@ -58,16 +64,18 @@ def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(broa
         db.commit()
         user_ids = [user.id for user in users]
         title = f"Broadcast {marker}"
-        flushes, inserts, selects = [], [], []
+        flushes, inserts, selects, recipient_selects = [], [], [], []
 
         def before_flush(*_):
             flushes.append(1)
 
         def before_execute(_conn, _cursor, statement, *_):
-            normalized = statement.lstrip().upper()
-            if normalized.startswith("SELECT"):
+            normalized = " ".join(statement.lower().split())
+            if statement.lstrip().upper().startswith("SELECT"):
                 selects.append(statement)
-            if normalized.startswith("INSERT INTO TASKS") or normalized.startswith("INSERT INTO NOTIFICATIONS"):
+            if "from users" in normalized and "users.is_active" in normalized:
+                recipient_selects.append(normalized)
+            if statement.lstrip().upper().startswith("INSERT INTO TASKS") or statement.lstrip().upper().startswith("INSERT INTO NOTIFICATIONS"):
                 inserts.append(statement)
 
         event.listen(db, "before_flush", before_flush)
@@ -91,9 +99,108 @@ def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(broa
         audit = db.query(AuditLog).filter(AuditLog.entity_type == "Task", AuditLog.entity_id == first.id).one()
         assert audit.new_value_json["created_count"] == recipients
         assert len(flushes) == 2  # One task/notification flush, one audit flush.
-        assert len(selects) <= 8  # Reference authorization stays constant at 1/50 recipients.
+        expected_selects = 6 if db.bind.dialect.name == "postgresql" else 4
+        assert len(selects) == expected_selects
+        assert len(recipient_selects) == 1
+        recipient_projection = recipient_selects[0].split(" from users", 1)[0]
+        assert " limit " in recipient_selects[0]
+        assert "users.password_hash" not in recipient_projection
+        assert "users.email" not in recipient_projection
+        assert "users.name" not in recipient_projection
+        assert "users.last_login_at" not in recipient_projection
+        assert "users.last_seen_at" not in recipient_projection
+        assert "users.tokens_valid_from" not in recipient_projection
+        assert "users.factory_code" in recipient_projection
+        assert "users.extra_permissions" in recipient_projection
+        assert "users.access_policy" in recipient_projection
+        assert "roles_1.permissions" in recipient_projection
+        assert "departments_1.code" in recipient_projection
         if db.bind.dialect.name == "postgresql":
             assert len(inserts) == 2
+
+
+def test_oversized_broadcast_rejects_after_bounded_read_before_policy_or_writes(
+    broadcast_sessions,
+    monkeypatch,
+):
+    marker = uuid4().hex
+    monkeypatch.setenv("ERP_MCP_MAX_BULK_RECIPIENTS", "250")
+    with broadcast_sessions() as db:
+        admin = _actor(db)
+        db.query(User).update({"is_active": False}, synchronize_session=False)
+        users = [
+            User(
+                name=f"Recipient{i}",
+                email=f"{marker}-{i}@example.com",
+                password_hash="test-only",
+                is_active=True,
+            )
+            for i in range(401)
+        ]
+        sales_order = SalesOrder(order_no=f"BROADCAST-{marker}")
+        db.add_all([*users, sales_order])
+        db.commit()
+        title = f"Oversized broadcast {marker}"
+        flushes: list[int] = []
+        selects: list[str] = []
+        recipient_selects: list[tuple[str, object]] = []
+
+        def before_flush(*_args):
+            flushes.append(1)
+
+        def before_execute(_connection, _cursor, statement, parameters, *_args):
+            normalized = " ".join(statement.lower().split())
+            if statement.lstrip().upper().startswith("SELECT"):
+                selects.append(normalized)
+            if "from users" in normalized and "users.is_active" in normalized:
+                recipient_selects.append((normalized, parameters))
+
+        def fail_recipient_policy(*_args, **_kwargs):
+            raise AssertionError("oversized broadcast must reject before recipient policy checks")
+
+        def fail_audit(*_args, **_kwargs):
+            raise AssertionError("oversized broadcast must reject before audit")
+
+        monkeypatch.setattr(tasks, "_require_assignee_reference_access", fail_recipient_policy)
+        monkeypatch.setattr(tasks, "log_action", fail_audit)
+        event.listen(db, "before_flush", before_flush)
+        event.listen(db.bind, "before_cursor_execute", before_execute)
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                tasks.create_task(
+                    TaskIn(
+                        title=title,
+                        assigned_to=-1,
+                        entity_type="salesorder",
+                        entity_id=sales_order.id,
+                    ),
+                    db,
+                    admin,
+                )
+        finally:
+            event.remove(db, "before_flush", before_flush)
+            event.remove(db.bind, "before_cursor_execute", before_execute)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == (
+            "Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS=250"
+        )
+        assert len(recipient_selects) == 1
+        statement, parameters = recipient_selects[0]
+        assert " limit " in statement
+        parameter_values = parameters.values() if isinstance(parameters, dict) else parameters
+        assert 251 in parameter_values
+        assert flushes == []
+        assert len(selects) == 2
+        assert selects[-1] == statement
+        assert not db.new
+        assert not db.dirty
+        assert db.query(Task).filter(Task.title == title).count() == 0
+        assert db.query(Notification).filter(Notification.title == f"New task: {title}").count() == 0
+        assert db.query(AuditLog).filter(
+            AuditLog.entity_type == "Task",
+            AuditLog.new_value_json["title"].as_string() == title,
+        ).count() == 0
 
 
 def test_failed_broadcast_can_roll_back_tasks_and_notifications(broadcast_sessions, monkeypatch):
