@@ -30,6 +30,16 @@ PROFILE_FIELDS = {
     "bank_details": "test account",
     "payroll_id": "PAY-123",
 }
+MAX_PROFILE_JSON_BYTES = 16 * 1024
+MAX_PROFILE_JSON_DEPTH = 16
+ADDRESS_JSON_OVERHEAD = len('{"address":""}'.encode("utf-8"))
+
+
+def _nested_profile(depth: int) -> dict:
+    value: object = "leaf"
+    for _ in range(depth):
+        value = {"legacy_extension": value}
+    return value
 
 
 def _employee_counts() -> tuple[int, int]:
@@ -105,6 +115,86 @@ def test_employee_profile_rejects_malformed_shape_without_side_effects(
 
     assert response.status_code == 422, response.text
     assert _employee_counts() == before
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [
+        {"address": "x" * MAX_PROFILE_JSON_BYTES},
+        _nested_profile(MAX_PROFILE_JSON_DEPTH + 1),
+    ],
+)
+def test_employee_profile_rejects_oversized_or_deep_json_without_side_effects(
+    client, auth_headers, profile,
+):
+    before = _employee_counts()
+
+    response = client.post(
+        "/api/employees",
+        headers=auth_headers,
+        json={
+            "employee_no": "81234020",
+            "full_name": "Bounded HR Profile",
+            "hr_profile_json": profile,
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert _employee_counts() == before
+
+
+def test_employee_profile_accepts_exact_json_byte_limit(client, auth_headers):
+    address = "x" * (MAX_PROFILE_JSON_BYTES - ADDRESS_JSON_OVERHEAD)
+    response = client.post(
+        "/api/employees",
+        headers=auth_headers,
+        json={"employee_no": "81234022", "full_name": "HR Profile Byte Boundary", "hr_profile_json": {"address": address}},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["hr_profile_json"]["address"] == address
+
+
+def test_employee_profile_preserves_unchanged_oversized_legacy_json_on_patch(
+    client, auth_headers,
+):
+    legacy_profile = {
+        "legacy_extension": _nested_profile(MAX_PROFILE_JSON_DEPTH + 1),
+        "padding": "x" * MAX_PROFILE_JSON_BYTES,
+    }
+    with SessionLocal.begin() as db:
+        employee = Employee(
+            factory_code="MIL",
+            employee_no="81234021",
+            full_name="Oversized Legacy Profile",
+            status="active",
+            hr_profile_json=legacy_profile,
+        )
+        db.add(employee)
+        db.flush()
+        employee_id = employee.id
+
+    before = _employee_counts()
+    rejected = client.patch(
+        f"/api/employees/{employee_id}",
+        headers=auth_headers,
+        json={
+            "hr_profile_json": {
+                "legacy_extension": _nested_profile(MAX_PROFILE_JSON_DEPTH + 1),
+                "padding": "x" * (MAX_PROFILE_JSON_BYTES + 1),
+            },
+        },
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert _employee_counts() == before
+
+    preserved = client.patch(
+        f"/api/employees/{employee_id}",
+        headers=auth_headers,
+        json={"full_name": "Oversized Legacy Profile Renamed", "hr_profile_json": legacy_profile},
+    )
+    assert preserved.status_code == 200, preserved.text
+    assert preserved.json()["hr_profile_json"] == legacy_profile
 
 
 def test_employee_profile_update_rejects_malformed_shape_without_mutation(

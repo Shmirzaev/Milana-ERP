@@ -1,6 +1,7 @@
-from typing import Annotated
+import json
 from decimal import Decimal, InvalidOperation
 from math import isfinite
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.exceptions import RequestValidationError
@@ -21,6 +22,8 @@ from typing import Literal, Optional
 
 MAX_EMPLOYEE_SALARY = Decimal("9999999999.99")
 _EMPLOYEE_TEXT_LIMITS = {"full_name": 255, "position": 128, "phone": 64}
+_MAX_HR_PROFILE_JSON_BYTES = 16 * 1024
+_MAX_HR_PROFILE_JSON_DEPTH = 16
 
 
 class EmployeeIn(BaseModel):
@@ -103,18 +106,54 @@ def _normalize_employee_no(value) -> str | None:
 
 
 def _same_json_value(left: object, right: object) -> bool:
-    if type(left) is not type(right):
-        return False
-    if isinstance(left, dict):
-        return (
-            left.keys() == right.keys()
-            and all(_same_json_value(left[key], right[key]) for key in left)
-        )
-    if isinstance(left, list):
-        return len(left) == len(right) and all(
-            _same_json_value(a, b) for a, b in zip(left, right)
-        )
-    return left == right
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _validate_hr_profile_json_bounds(value: dict, existing_profile: object) -> None:
+    pending = [(value, 1)]
+    exceeds_depth = False
+    while pending:
+        current, depth = pending.pop()
+        if isinstance(current, dict):
+            if depth > _MAX_HR_PROFILE_JSON_DEPTH:
+                exceeds_depth = True
+            pending.extend((nested, depth + 1) for nested in current.values())
+        elif isinstance(current, list):
+            if depth > _MAX_HR_PROFILE_JSON_DEPTH:
+                exceeds_depth = True
+            pending.extend((nested, depth + 1) for nested in current)
+
+    if _same_json_value(value, existing_profile):
+        return
+    if exceeds_depth:
+        raise HTTPException(422, "hr_profile_json exceeds the maximum nesting depth")
+
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
+        raise HTTPException(422, "hr_profile_json must contain valid JSON values") from exc
+    if len(encoded) > _MAX_HR_PROFILE_JSON_BYTES:
+        raise HTTPException(422, "hr_profile_json exceeds the 16 KiB limit")
 
 
 def _validate_hr_profile_json(
@@ -122,6 +161,7 @@ def _validate_hr_profile_json(
     *,
     existing_profile: object = None,
 ) -> dict:
+    _validate_hr_profile_json_bounds(value, existing_profile)
     existing = existing_profile if isinstance(existing_profile, dict) else {}
     known_fields = EmployeeProfileJson.model_fields.keys()
     unknown_keys = set(value) - known_fields
