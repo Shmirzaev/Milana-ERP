@@ -21,7 +21,7 @@ export default function CustomersPage() {
   const { me } = useMe();
   const { t } = useT();
   const dialogs = useDialogs();
-  const isAdmin = can(me, "*");
+  const canManage = can(me, "sales.customers");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [createdFrom, setCreatedFrom] = useState("");
@@ -110,14 +110,14 @@ export default function CustomersPage() {
             <tr>
               <th>{t("common.name")}</th><th>{t("field.phone")}</th>
               <th>{t("field.email")}</th><th>{t("field.address")}</th>
-              {isAdmin && <th>{t("field.actions")}</th>}
+              {canManage && <th>{t("field.actions")}</th>}
             </tr>
           </thead>
           <tbody>
             {data?.map((c) => (
               <tr key={c.id}>
                 <td><Link className="text-brand-600 hover:underline" href={`/customers/${c.id}`}>{c.name}</Link></td><td>{c.phone}</td><td>{c.email}</td><td>{c.address}</td>
-                {isAdmin && (
+                {canManage && (
                   <td className="flex gap-2">
                     <button type="button" className="text-brand-600 hover:underline" onClick={() => openEdit(c)}>{t("btn.edit")}</button>
                     <button type="button" className="text-red-600 hover:underline" onClick={() => deleteCustomer(c)}>{t("btn.delete")}</button>

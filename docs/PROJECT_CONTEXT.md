@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-24
 
+
+## Inline shipment quantity review and Storage customers prepared (2026-09-24)
+
+- Quantity review now opens immediately beneath the selected scanned pack, retaining quantity, receipt, reason, save and removal rules. Amount review stays beside shipment totals.
+- Storage and ReadyStorage receive `sales.customers` through seed defaults and additive migration `0133_storage_customers`. Customers Edit/Delete visibility follows the same permission used by backend CRUD; sidebar and route guards already support it. Existing per-user access overrides and linked-order/shipment deletion guards remain intact.
+- Dedicated worktree `C:/ERP/.codex-work/shipment-inline-customers-20260924`, branch `codex/shipment-inline-customers-20260924`, from verified origin/main `271bd06f`. Both active VMs matched blue `20260924_051514`, manifest `a03245a737269ff361e281118b6eaa3cc121233bec76dc08e78e5d5e71a5b1dd`, database baseline `0132_first_grade_singles`. Legacy checkout preserved.
+- User authorized immediate deployment without extra testing or monitoring. Scoped lint/whitespace review and required immutable release CI are retained, with verified backup, additive permission migration and immediate runtime/four health checks. No production business data changed during preparation.
+
 ## Unpriced manual shipment invoices deployed (2026-09-24)
 
 - LIVE: backend/frontend blue release `20260924_051514`, exact application commit `9f2d5435dbdd6f5b2c002639d90299811446da9e`, merged through PR #200. Both source manifests, symlinks, images and slot states agree. Green `20260923_094746` remains running for rollback. Frontend activated `2026-09-24T05:47:42.577633+00:00`.
