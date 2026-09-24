@@ -12,7 +12,11 @@ from app.models import (
 
 
 def revenue_total(db: Session) -> float:
-    val = db.query(func.coalesce(func.sum(Invoice.amount), 0)).scalar()
+    val = (
+        db.query(func.coalesce(func.sum(Invoice.amount), 0))
+        .filter(Invoice.status.notin_(("void", "cancelled")))
+        .scalar()
+    )
     return float(val or 0)
 
 
@@ -214,7 +218,14 @@ def _revenue_period_query(db: Session, *, from_dt: datetime | None = None, to_dt
         qry = qry.filter(timestamp >= from_dt)
     if to_dt:
         qry = qry.filter(timestamp <= to_dt)
-    return qry.filter(timestamp.isnot(None)).group_by(period).order_by(period)
+    return (
+        qry.filter(
+            timestamp.isnot(None),
+            Invoice.status.notin_(("void", "cancelled")),
+        )
+        .group_by(period)
+        .order_by(period)
+    )
 
 
 def count_revenue_periods(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None) -> int:

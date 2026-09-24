@@ -4,6 +4,7 @@ import pytest
 
 from app.db.session import SessionLocal
 from app.models import Invoice
+from app.services.finance import revenue_total
 from app.tests.test_payment_integrity import _create_invoice
 
 
@@ -68,3 +69,34 @@ def test_revenue_by_period_aggregates_in_sql_without_loading_invoice_rows(client
         {"period": "2089-04", "amount": 22.34},
         {"period": "2089-05", "amount": 99.0},
     ]
+
+
+def test_revenue_reports_exclude_void_and_cancelled_invoices(client, auth_headers):
+    statuses_and_amounts = (
+        ("unpaid", 1),
+        ("partially_paid", 2),
+        ("paid", 3),
+        ("void", 4),
+        ("cancelled", 5),
+    )
+    with SessionLocal() as db:
+        before = revenue_total(db)
+
+    for status, amount in statuses_and_amounts:
+        _, _, invoice_id = _create_invoice(SessionLocal, amount=amount)
+        with SessionLocal() as db:
+            invoice = db.get(Invoice, invoice_id)
+            invoice.status = status
+            invoice.issued_at = datetime(2089, 6, 15, tzinfo=timezone.utc)
+            db.commit()
+
+    with SessionLocal() as db:
+        assert revenue_total(db) - before == 6
+
+    response = client.get(
+        "/api/finance/revenue-by-period",
+        headers=auth_headers,
+        params={"from": "2089-06-01T00:00:00Z", "to": "2089-06-30T23:59:59Z"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == [{"period": "2089-06", "amount": 6.0}]
