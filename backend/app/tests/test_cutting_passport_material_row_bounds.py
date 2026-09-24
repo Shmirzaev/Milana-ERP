@@ -1,6 +1,10 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import pytest
+from fastapi import HTTPException
+
+from app.api.routes.cutting_passports import _validate_passport_material_limits
 from app.models import (
     AuditLog,
     CuttingPassport,
@@ -11,6 +15,7 @@ from app.models import (
     ProductionOrderMaterial,
     WorkOrder,
 )
+from app.schemas.cutting_passport import CuttingPassportIn
 from app.tests.conftest import TestSessionLocal
 
 
@@ -141,9 +146,40 @@ def test_cutting_passport_rejects_oversized_material_arrays_without_writes(clien
     assert _write_counts() == before
 
 
+@pytest.mark.parametrize("field,maximum", [("fabric_type", 128), ("lot_no", 64)])
+def test_cutting_passport_material_text_matches_scalar_storage_width(field, maximum):
+    row = _material_rows(1)[0]
+    row[field] = "x" * maximum
+    accepted = CuttingPassportIn.model_validate(_payload(materials=[row]))
+    assert _validate_passport_material_limits(accepted) is False
+
+    row[field] += "x"
+    rejected = CuttingPassportIn.model_validate(_payload(materials=[row]))
+    with pytest.raises(HTTPException, match=f"materials.{field} must be at most {maximum}"):
+        _validate_passport_material_limits(rejected)
+
+
+@pytest.mark.parametrize("field,maximum", [("fabric_type", 128), ("lot_no", 64)])
+def test_cutting_passport_rejects_overlong_material_text_without_writes(client, auth_headers, field, maximum):
+    order_id = _linked_order()
+    row = _material_rows(1)[0]
+    row[field] = "x" * (maximum + 1)
+    before = _write_counts()
+
+    response = client.post(
+        "/api/cutting-passports", headers=auth_headers,
+        json=_payload(production_order_id=order_id, materials=[row]),
+    )
+
+    assert response.status_code == 422, response.text
+    assert _write_counts() == before
+
+
 def test_unchanged_oversized_legacy_materials_round_trip_on_patch(client, auth_headers):
     passport_no = f"LEGACY-MAT-{uuid4().hex[:10].upper()}"
     legacy_materials = _material_rows(MAX_MATERIAL_ROWS + 1)
+    legacy_materials[0]["fabric_type"] = "x" * 129
+    legacy_materials[0]["lot_no"] = "y" * 65
     with TestSessionLocal() as db:
         passport = CuttingPassport(
             passport_no=passport_no,

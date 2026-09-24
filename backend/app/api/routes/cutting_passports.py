@@ -858,6 +858,17 @@ def _validate_passport_material_limits(
             422,
             f"additional_materials must contain at most {_MAX_PASSPORT_MATERIAL_ROWS} rows",
         )
+    oversized_field = None
+    for row in payload.materials:
+        if row.fabric_type is not None and len(row.fabric_type) > 128:
+            oversized_field = ("fabric_type", 128)
+            break
+        if row.lot_no is not None and len(row.lot_no) > 64:
+            oversized_field = ("lot_no", 64)
+            break
+    if oversized_field and not _same_passport_materials(existing_materials, payload.materials):
+        field, maximum = oversized_field
+        raise HTTPException(422, f"materials.{field} must be at most {maximum} characters")
     return unchanged_oversized_legacy
 
 
