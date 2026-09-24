@@ -21,36 +21,19 @@ const publicApiBaseUrl = publicRawApiUrl ? normalizeApiUrl(publicRawApiUrl) : ap
 if (isProduction && publicRawApiUrl && /^http:\/\//i.test(publicApiBaseUrl)) {
   throw new Error("Production frontend public API URL must use HTTPS.");
 }
-const apiOrigin = (() => {
-  try {
-    return new URL(publicApiBaseUrl).origin;
-  } catch {
-    throw new Error(`Invalid API URL configured for frontend: ${publicApiBaseUrl}`);
-  }
-})();
-const connectSrc = ["'self'", apiOrigin].filter(Boolean).join(" ");
-const scriptSrc = ["'self'", "'unsafe-inline'", ...(!isProduction ? ["'unsafe-eval'"] : [])].join(" ");
+try {
+  new URL(publicApiBaseUrl);
+} catch {
+  throw new Error(`Invalid API URL configured for frontend: ${publicApiBaseUrl}`);
+}
 const securityHeaders = [
-  {
-    key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      "base-uri 'self'",
-      "object-src 'none'",
-      "frame-ancestors 'none'",
-      "form-action 'self'",
-      "img-src 'self' data: blob:",
-      "font-src 'self' data:",
-      "style-src 'self' 'unsafe-inline'",
-      `script-src ${scriptSrc}`,
-      `connect-src ${connectSrc}`,
-      ...(isProduction ? ["upgrade-insecure-requests"] : []),
-    ].join("; "),
-  },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  ...(isProduction
+    ? [{ key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" }]
+    : []),
 ];
 
 const nextConfig = {
