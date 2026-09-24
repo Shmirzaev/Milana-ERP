@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import re
 from types import SimpleNamespace
 from typing import Annotated
 
@@ -30,7 +29,13 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut, TaskPageOut
+from app.schemas.tasks import (
+    TaskIn,
+    TaskUpdate,
+    TaskOut,
+    TaskPageOut,
+    normalize_task_entity_type,
+)
 from app.services.audit import log_action
 from app.services.notifications import notify
 from app.services.user_access import access_configured, permission_denied
@@ -55,16 +60,6 @@ _TASK_REFERENCE_MODELS = {
     "invoice": Invoice,
 }
 
-_TASK_REFERENCE_ALIASES = {
-    **{key: key for key in _TASK_REFERENCE_MODELS},
-    "salesorders": "salesorder",
-    "productionorders": "productionorder",
-    "workorders": "workorder",
-    "bundles": "bundle",
-    "packages": "package",
-    "shipments": "shipment",
-    "invoices": "invoice",
-}
 _TASK_REFERENCE_PERMISSIONS = {
     # Keep task references aligned with each target's actual read endpoint.
     # Sales orders, bundles and shipments only require CurrentUser there.
@@ -80,17 +75,6 @@ class _TaskReferenceAccess:
     entity_id: int
     row: object
     required_factory: str | None
-
-
-def _normalize_task_entity_type(entity_type: str) -> str:
-    token = entity_type.strip().casefold()
-    if re.fullmatch(r"[a-z0-9_]+", token):
-        compact = token.replace("_", "")
-    elif re.fullmatch(r"[a-z0-9]+(?:[ -]+[a-z0-9]+)*", token):
-        compact = re.sub(r"[ -]+", "", token)
-    else:
-        return token
-    return _TASK_REFERENCE_ALIASES.get(compact, compact)
 
 
 def _require_task_reference_permission(user: User, key: str) -> None:
@@ -144,7 +128,7 @@ def _load_task_reference(
     """
     if entity_type is None or entity_id is None:
         return None
-    key = _normalize_task_entity_type(entity_type)
+    key = normalize_task_entity_type(entity_type)
     model = _TASK_REFERENCE_MODELS.get(key)
     if model is None:
         if allow_legacy_missing:
@@ -272,7 +256,7 @@ def _task_link(
 ) -> str | None:
     """Build a frontend URL for a task notification when the task references
     a concrete entity. Returns None when no mapping exists."""
-    et = _normalize_task_entity_type(t.entity_type) if t.entity_type else ""
+    et = normalize_task_entity_type(t.entity_type) if t.entity_type else ""
     eid = t.entity_id
     if not eid:
         return None

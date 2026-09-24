@@ -1,12 +1,47 @@
 from datetime import datetime
-from typing import Literal, Optional
-from pydantic import BaseModel, Field, field_validator, model_validator
+import re
+from typing import Annotated, Literal, Optional
+from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
 from app.schemas.common import ORMModel
 
 
 TaskStatus = Literal["pending", "in_progress", "completed", "cancelled"]
 TaskPriority = Literal["low", "medium", "high", "urgent"]
+_TASK_ENTITY_TYPES = (
+    "salesorder", "productionorder", "workorder", "bundle", "package", "shipment", "invoice",
+)
+
+_TASK_ENTITY_TYPE_ALIASES = {
+    **{value: value for value in _TASK_ENTITY_TYPES},
+    "salesorders": "salesorder",
+    "productionorders": "productionorder",
+    "workorders": "workorder",
+    "bundles": "bundle",
+    "packages": "package",
+    "shipments": "shipment",
+    "invoices": "invoice",
+}
+
+
+def normalize_task_entity_type(value: str) -> str:
+    token = value.strip().casefold()
+    if re.fullmatch(r"[a-z0-9_]+", token):
+        compact = token.replace("_", "")
+    elif re.fullmatch(r"[a-z0-9]+(?:[ -]+[a-z0-9]+)*", token):
+        compact = re.sub(r"[ -]+", "", token)
+    else:
+        return token
+    return _TASK_ENTITY_TYPE_ALIASES.get(compact, compact)
+
+
+def validate_task_entity_type(value: str) -> str:
+    if normalize_task_entity_type(value) not in _TASK_ENTITY_TYPES:
+        raise ValueError("entity_type must be a supported task target type")
+    return value
+
+
+TaskEntityType = Annotated[str, AfterValidator(validate_task_entity_type)]
 
 
 def _reject_numeric_datetime(value):
@@ -29,7 +64,7 @@ class TaskIn(BaseModel):
     status: TaskStatus = "pending"
     priority: TaskPriority = "medium"
     due_date: Optional[datetime] = None
-    entity_type: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    entity_type: Optional[TaskEntityType] = Field(default=None, min_length=1, max_length=64)
     entity_id: Optional[int] = Field(default=None, gt=0, le=2_147_483_647)
 
     @field_validator("title")
@@ -39,10 +74,14 @@ class TaskIn(BaseModel):
             raise ValueError("title must not be blank")
         return value
 
-    @field_validator("entity_type")
+    @field_validator("entity_type", mode="before")
     @classmethod
-    def entity_type_not_blank(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
+    def normalize_entity_type(cls, value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("entity_type must be a supported target type")
+        if not value.strip():
             raise ValueError("entity_type must not be blank")
         return value
 
@@ -62,7 +101,7 @@ class TaskUpdate(BaseModel):
     status: Optional[TaskStatus] = None
     priority: Optional[TaskPriority] = None
     due_date: Optional[datetime] = None
-    entity_type: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    entity_type: Optional[TaskEntityType] = Field(default=None, min_length=1, max_length=64)
     entity_id: Optional[int] = Field(default=None, gt=0, le=2_147_483_647)
 
     @field_validator("title", "status", "priority", mode="before")
@@ -79,10 +118,14 @@ class TaskUpdate(BaseModel):
             raise ValueError("title must not be blank")
         return value
 
-    @field_validator("entity_type")
+    @field_validator("entity_type", mode="before")
     @classmethod
-    def entity_type_not_blank(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
+    def normalize_entity_type(cls, value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("entity_type must be a supported target type")
+        if not value.strip():
             raise ValueError("entity_type must not be blank")
         return value
 

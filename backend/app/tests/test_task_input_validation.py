@@ -40,6 +40,11 @@ def _task_count():
         return db.query(Task).count()
 
 
+def _audit_count():
+    with SessionLocal() as db:
+        return db.query(AuditLog).count()
+
+
 def _create(client, headers, **payload):
     response = client.post("/api/tasks", headers=headers, json={"title": "Valid task", **payload})
     assert response.status_code == 201, response.text
@@ -49,14 +54,14 @@ def _create(client, headers, **payload):
 @pytest.mark.parametrize("field,value", [
     ("status", "bogus"), ("priority", "bogus"), ("title", "   "), ("title", "x" * 256),
     ("due_date", 1_700_000_000), ("due_date", "1700000000.0"), ("due_date", "not-a-date"),
-    ("entity_id", 0), ("entity_id", 2_147_483_648),
+    ("entity_id", 0), ("entity_id", 2_147_483_648), ("entity_type", "customer"),
 ])
 def test_invalid_create_is_422_without_persisting(client, field, value):
     _, headers = _actor()
-    before = _task_count()
+    before = (_task_count(), _audit_count())
     response = client.post("/api/tasks", headers=headers, json={"title": "Valid task", field: value})
     assert response.status_code == 422, response.text
-    assert _task_count() == before
+    assert (_task_count(), _audit_count()) == before
 
 
 @pytest.mark.parametrize("field", ["title", "status", "priority"])
@@ -81,7 +86,8 @@ def test_patch_omitted_fields_stay_unchanged_and_optional_fields_can_clear(clien
 
 @pytest.mark.parametrize("field,value", [
     ("status", "bogus"), ("priority", "bogus"), ("title", "x" * 256),
-    ("due_date", 1_700_000_000), ("entity_id", 2_147_483_648), ("entity_type", "x" * 65), ("entity_type", " "),
+    ("due_date", 1_700_000_000), ("entity_id", 2_147_483_648), ("entity_type", "customer"),
+    ("entity_type", "x" * 65), ("entity_type", " "),
 ])
 def test_invalid_patch_is_422_without_changes_or_audit(client, field, value):
     _, headers = _actor()
@@ -126,8 +132,35 @@ def test_create_and_patch_reference_pair_requires_positive_id(client):
         db.commit()
         order_id = order.id
     task_id = _create(client, headers, entity_type="Sales_Order", entity_id=order_id)
+    with SessionLocal() as db:
+        assert db.get(Task, task_id).entity_type == "Sales_Order"
     response = client.patch(f"/api/tasks/{task_id}", headers=headers, json={"entity_id": order_id})
     assert response.status_code == 200, response.text
+
+
+def test_unsupported_new_task_target_keeps_unauthenticated_precedence(client):
+    before = (_task_count(), _audit_count())
+    response = client.post("/api/tasks", json={
+        "title": "Invalid target", "entity_type": "customer", "entity_id": 1,
+    })
+    assert response.status_code == 401, response.text
+    assert (_task_count(), _audit_count()) == before
+
+
+def test_legacy_unsupported_task_target_remains_readable(client):
+    creator, headers = _actor()
+    with SessionLocal() as db:
+        task = Task(
+            title="Legacy target", created_by=creator, assigned_to=creator,
+            status="pending", priority="medium", entity_type="customer", entity_id=1,
+        )
+        db.add(task)
+        db.commit()
+        task_id = task.id
+    response = client.get("/api/tasks?scope=created", headers=headers)
+    assert response.status_code == 200, response.text
+    returned = next(row for row in response.json() if row["id"] == task_id)
+    assert returned["entity_type"] == "customer"
 
 
 def test_reference_target_must_exist_on_create_and_patch(client):
