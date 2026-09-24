@@ -2138,7 +2138,7 @@ def department_inbox(
                     .replace("_", "\\_")
                 )
                 search_pattern = f"%{escaped_needle}%"
-            eligible_order_totals = (
+            eligible_order_query = (
                 db.query(
                     StockReservation.sales_order_id.label("sales_order_id"),
                     func.sum(
@@ -2161,21 +2161,24 @@ def department_inbox(
                     ).label("pending_qty"),
                 )
                 .join(SalesOrder, SalesOrder.id == StockReservation.sales_order_id)
-                .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
                 .outerjoin(Package, Package.id == StockReservation.package_id)
                 .filter(
                     SalesOrder.order_type == "branded_stock_sale",
                     SalesOrder.status.in_(["ready", "reserved"]),
                 )
-                .filter(
+            )
+            if search_pattern is not None:
+                eligible_order_query = eligible_order_query.outerjoin(
+                    Customer, Customer.id == SalesOrder.customer_id
+                ).filter(
                     or_(
                         SalesOrder.order_no.ilike(search_pattern, escape="\\"),
                         Customer.name.ilike(search_pattern, escape="\\"),
                         Customer.address.ilike(search_pattern, escape="\\"),
                     )
-                    if search_pattern is not None
-                    else True
                 )
+            eligible_order_totals = (
+                eligible_order_query
                 .group_by(StockReservation.sales_order_id)
                 .having(
                     or_(
