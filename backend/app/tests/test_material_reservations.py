@@ -602,6 +602,61 @@ def _submit_cutting(client, headers, *, work_order_id: int, fabric_batch_id: int
     )
 
 
+@pytest.mark.parametrize("claim_scope", ["batch", "item"])
+def test_cutting_direct_remainder_preserves_other_order_reservation(
+    client, auth_headers, claim_scope,
+):
+    from app.db.session import SessionLocal
+    from app.models import AuditLog, CuttingRecord, MaterialReservation, StockBatch, StockMovement
+
+    _set_strict_material_reservation(False)
+    cutting_order = _create_branded_po(client, auth_headers, qty=10)
+    other_order = _create_branded_po(client, auth_headers, qty=10)
+    work_order = _cutting_work_order(client, auth_headers, cutting_order["id"])
+    item = _fabric_item(client, auth_headers)
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"],
+        quantity=10, unit="kg",
+    )
+    claim_quantity = 8
+    if claim_scope == "item":
+        from app.services.inventory import available_stock_for_item
+
+        with SessionLocal() as db:
+            # The shared catalog item can have seeded batches in this warehouse.
+            # Leave exactly 2 kg unreserved so this 4 kg cut would take a claim.
+            claim_quantity = round(available_stock_for_item(db, item["id"], warehouse["id"]) - 2, 4)
+    response = client.post("/api/inventory/reservations", headers=auth_headers, json={
+        "production_order_id": other_order["id"], "item_id": item["id"],
+        "stock_batch_id": batch["id"] if claim_scope == "batch" else None,
+        "warehouse_id": warehouse["id"], "reserved_quantity": claim_quantity,
+        "unit": "kg", "reservation_type": "material",
+    })
+    assert response.status_code == 201, response.text
+    claim_id = response.json()["id"]
+    with SessionLocal() as db:
+        before = (
+            float(db.get(StockBatch, batch["id"]).quantity),
+            db.query(StockMovement).count(), db.query(CuttingRecord).count(),
+            db.query(AuditLog).count(),
+        )
+
+    denied = _submit_cutting(
+        client, auth_headers, work_order_id=work_order["id"],
+        fabric_batch_id=batch["id"], input_quantity=4,
+    )
+    assert denied.status_code == 409, denied.text
+    with SessionLocal() as db:
+        claim = db.get(MaterialReservation, claim_id)
+        assert claim.status == "reserved" and float(claim.released_quantity) == 0
+        assert (
+            float(db.get(StockBatch, batch["id"]).quantity),
+            db.query(StockMovement).count(), db.query(CuttingRecord).count(),
+            db.query(AuditLog).count(),
+        ) == before
+
+
 def test_reservation_plan_applies_bom_waste_percent(client, auth_headers):
     po = _create_branded_po(client, auth_headers, qty=100)
 

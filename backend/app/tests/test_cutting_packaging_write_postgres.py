@@ -87,7 +87,7 @@ def test_postgres_bundle_range_reservation_has_constant_reads(perf20_postgres_se
     finally:
         event.remove(engine, "before_cursor_execute", capture)
 
-    assert len(statements) == 3
+    assert len(statements) == 4
     assert len(references) == count
     assert references[0] == "BND-0001"
     assert references[-1] == f"BND-{count:04d}"
@@ -275,12 +275,58 @@ def test_postgres_cutting_material_consumption_has_constant_locked_reads(
     finally:
         event.remove(engine, "before_cursor_execute", capture)
 
-    assert len(statements) == 3
-    assert sum(" from material_reservations " in statement for statement in statements) == 1
+    assert len(statements) == 5
+    assert sum(" from material_reservations " in statement for statement in statements) == 2
     assert sum(" from stock_batches " in statement for statement in statements) == 1
     assert sum(" from items " in statement for statement in statements) == 1
     assert "for update of stock_batches" in statements[0]
-    assert "for update of material_reservations" in statements[2]
+    assert "pg_advisory_xact_lock" in statements[2]
+    assert "for update of material_reservations" in statements[3]
+
+
+@pytest.mark.parametrize("scope", ["batch", "item"])
+def test_postgres_cutting_direct_remainder_preserves_other_order_claim(
+    perf20_postgres_sessions, scope,
+):
+    sessions, _engine = perf20_postgres_sessions
+    cutting_order_id, batch_ids = _cutting_case(sessions, 1, batch_quantity=10)
+    batch_id = batch_ids[0]
+    with sessions.begin() as db:
+        batch = db.get(StockBatch, batch_id)
+        owner = db.get(ProductionOrder, cutting_order_id)
+        other_order = ProductionOrder(
+            production_no=f"PERF20-OTHER-{uuid4().hex[:8]}",
+            production_type="branded_stock", model_id=owner.model_id, planned_quantity=1,
+        )
+        db.add(other_order)
+        db.flush()
+        claim = MaterialReservation(
+            reservation_no=f"PERF20-OTHER-MR-{uuid4().hex[:8]}",
+            production_order_id=other_order.id, item_id=batch.item_id,
+            stock_batch_id=batch_id if scope == "batch" else None,
+            warehouse_id=batch.warehouse_id, reserved_quantity=8,
+            consumed_quantity=0, released_quantity=0, unit="kg",
+            status="reserved", reservation_type="material", source="manual",
+        )
+        db.add(claim)
+        db.flush()
+        claim_id = claim.id
+
+    with sessions() as db:
+        with pytest.raises(HTTPException) as rejected:
+            consume_cutting_materials(
+                db, production_order_id=cutting_order_id,
+                lines=[{"stock_batch_id": batch_id, "quantity": 4, "unit": "kg"}],
+                reference_type="CuttingRecord", reference_id=987, user_id=None,
+            )
+        assert rejected.value.status_code == 409
+        db.rollback()
+    with sessions() as db:
+        assert float(db.get(StockBatch, batch_id).quantity) == 10
+        assert db.get(MaterialReservation, claim_id).status == "reserved"
+        assert db.query(StockMovement).filter_by(
+            reference_type="CuttingRecord", reference_id=987,
+        ).count() == 0
 
 
 def test_postgres_cutting_material_locks_serialize_reverse_input_order(

@@ -1425,6 +1425,17 @@ def consume_cutting_materials(
     db.flush()
     stock_batch_ids = sorted({int(line["stock_batch_id"]) for line in lines})
     stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(db, stock_batch_ids)
+    if not require_full and item_cache and db.bind and db.bind.dialect.name == "postgresql":
+        # Reservation creation takes batch locks before sorted item locks;
+        # acquire both before any reservation row or availability read.
+        db.execute(
+            text(
+                "SELECT pg_advisory_xact_lock(:namespace, lock_id) "
+                "FROM unnest(CAST(:item_ids AS INTEGER[])) AS ordered_locks(lock_id) "
+                "ORDER BY lock_id"
+            ),
+            {"namespace": _RESERVATION_LOCK_NAMESPACE, "item_ids": sorted(item_cache)},
+        )
     reservations_by_batch = _locked_reservations_by_stock_batch(
         db,
         production_order_id=production_order_id,
@@ -1449,6 +1460,70 @@ def consume_cutting_materials(
                     "for this production order and fabric batch.",
                 )
             remaining_reserved[batch_id] = max(0.0, available - quantity)
+
+    if not require_full:
+        own_remaining = {
+            batch_id: sum(_open_reservation_quantity(row) for row in reservations_by_batch.get(batch_id, []))
+            for batch_id in stock_batch_ids
+        }
+        direct_by_batch: dict[int, float] = {}
+        for line in lines:
+            batch_id = int(line["stock_batch_id"])
+            quantity = float(line["quantity"])
+            own_take = min(quantity, own_remaining.get(batch_id, 0.0))
+            own_remaining[batch_id] = max(0.0, own_remaining.get(batch_id, 0.0) - own_take)
+            direct_by_batch[batch_id] = direct_by_batch.get(batch_id, 0.0) + quantity - own_take
+        direct_by_batch = {batch_id: qty for batch_id, qty in direct_by_batch.items() if qty > EPSILON}
+        if direct_by_batch:
+            direct_by_item: dict[int, float] = {}
+            direct_by_item_warehouse: dict[tuple[int, int], float] = {}
+            for batch_id, quantity in direct_by_batch.items():
+                batch = stock_batch_cache.get(batch_id)
+                if batch is None:
+                    raise HTTPException(404, f"Stock batch {batch_id} not found")
+                item_id, warehouse_id = int(batch.item_id), int(batch.warehouse_id)
+                direct_by_item[item_id] = direct_by_item.get(item_id, 0.0) + quantity
+                key = (item_id, warehouse_id)
+                direct_by_item_warehouse[key] = direct_by_item_warehouse.get(key, 0.0) + quantity
+            active_claim_exists = db.query(MaterialReservation.id).filter(
+                MaterialReservation.item_id.in_(direct_by_item),
+                MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+            ).first() is not None
+            if active_claim_exists:
+                total_reserved = {
+                    int(batch_id): float(quantity or 0)
+                    for batch_id, quantity in db.query(
+                        MaterialReservation.stock_batch_id,
+                        _active_reserved_sum_query(db),
+                    ).filter(
+                        MaterialReservation.stock_batch_id.in_(direct_by_batch),
+                        MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+                    ).group_by(MaterialReservation.stock_batch_id).all()
+                }
+                for batch_id, quantity in direct_by_batch.items():
+                    batch = stock_batch_cache[batch_id]
+                    if quantity > float(batch.quantity or 0) - total_reserved.get(batch_id, 0.0) + EPSILON:
+                        raise HTTPException(409, "Cutting quantity would consume another reservation's batch stock")
+                available_by_item = available_stock_for_items(db, direct_by_item)
+                for item_id, quantity in direct_by_item.items():
+                    if quantity > available_by_item[item_id] + EPSILON:
+                        raise HTTPException(409, "Cutting quantity would consume another item's reserved stock")
+                scoped_claims = {
+                    (int(item_id), int(warehouse_id))
+                    for item_id, warehouse_id in db.query(
+                        MaterialReservation.item_id, MaterialReservation.warehouse_id,
+                    ).filter(
+                        MaterialReservation.item_id.in_(direct_by_item),
+                        MaterialReservation.stock_batch_id.is_(None),
+                        MaterialReservation.warehouse_id.is_not(None),
+                        MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+                    ).distinct().all()
+                }
+                for (item_id, warehouse_id), quantity in direct_by_item_warehouse.items():
+                    if (item_id, warehouse_id) in scoped_claims and (
+                        quantity > available_stock_for_item(db, item_id, warehouse_id) + EPSILON
+                    ):
+                        raise HTTPException(409, "Cutting quantity would consume another warehouse reservation")
 
     for line in lines:
         batch_id = int(line["stock_batch_id"])
