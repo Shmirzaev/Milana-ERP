@@ -77,7 +77,7 @@ def _recommendation_payload(row: ForecastRecommendation) -> dict:
         "unit": row.unit,
         "confidence": row.confidence,
         "reason": row.reason,
-        "source_json": row.source_json,
+        "source_json": row.source_json if isinstance(row.source_json, dict) else None,
         "created_by": int(row.created_by) if row.created_by else None,
         "reviewed_by": int(row.reviewed_by) if row.reviewed_by else None,
         "reviewed_at": row.reviewed_at,
