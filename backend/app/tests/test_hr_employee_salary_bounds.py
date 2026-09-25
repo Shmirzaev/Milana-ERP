@@ -53,7 +53,20 @@ def test_employee_salary_accepts_exact_numeric_boundary(client, auth_headers):
         assert saved.salary == MAX_EMPLOYEE_SALARY
 
 
-@pytest.mark.parametrize("salary", ["-0.01", "NaN", "Infinity", "-Infinity", "10000000000"])
+def test_employee_salary_accepts_trailing_zero_precision(client, auth_headers):
+    response = client.post(
+        "/api/employees",
+        headers=auth_headers,
+        json={"full_name": "Trailing zero salary", "salary": "1250.2500"},
+    )
+
+    assert response.status_code == 201, response.text
+    with SessionLocal() as db:
+        saved = db.get(Employee, response.json()["id"])
+        assert saved.salary == Decimal("1250.25")
+
+
+@pytest.mark.parametrize("salary", ["-0.01", "NaN", "Infinity", "-Infinity", "10000000000", "1250.255"])
 def test_employee_create_rejects_unstorable_salary_without_side_effects(
     client, auth_headers, salary,
 ):
@@ -90,6 +103,30 @@ def test_employee_patch_rejects_unstorable_salary_without_mutation(client, auth_
     with SessionLocal() as db:
         saved = db.get(Employee, employee_id)
         assert saved.full_name == "Salary before invalid patch"
+        assert saved.salary == Decimal("1250.25")
+
+
+def test_employee_patch_rejects_fractional_salary_without_mutation(client, auth_headers):
+    created = client.post(
+        "/api/employees",
+        headers=auth_headers,
+        json={"full_name": "Salary before fractional patch", "salary": "1250.25"},
+    )
+    assert created.status_code == 201, created.text
+    employee_id = created.json()["id"]
+    before = _employee_counts()
+
+    response = client.patch(
+        f"/api/employees/{employee_id}",
+        headers=auth_headers,
+        json={"full_name": "Changed name", "salary": "1250.255"},
+    )
+
+    assert response.status_code == 422, response.text
+    assert _employee_counts() == before
+    with SessionLocal() as db:
+        saved = db.get(Employee, employee_id)
+        assert saved.full_name == "Salary before fractional patch"
         assert saved.salary == Decimal("1250.25")
 
 

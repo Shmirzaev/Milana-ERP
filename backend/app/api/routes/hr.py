@@ -208,7 +208,7 @@ def _validate_hr_profile_json(
     return value
 
 
-def _validated_employee_salary(value: float | None) -> Decimal | None:
+def _validated_employee_salary(value: float | None, *, existing_salary: Decimal | None = None) -> Decimal | None:
     if value is None:
         return None
     try:
@@ -221,6 +221,8 @@ def _validated_employee_salary(value: float | None) -> Decimal | None:
         raise HTTPException(422, "Employee salary must be nonnegative")
     if salary > MAX_EMPLOYEE_SALARY:
         raise HTTPException(422, f"Employee salary must be no more than {MAX_EMPLOYEE_SALARY}")
+    if salary != salary.quantize(Decimal("0.01")) and salary != existing_salary:
+        raise HTTPException(422, "Employee salary cannot have more than 2 decimal places")
     return salary
 
 
@@ -552,7 +554,7 @@ def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: U
             existing_profile=e.hr_profile_json,
         )
     if "salary" in changes:
-        changes["salary"] = _validated_employee_salary(changes["salary"])
+        changes["salary"] = _validated_employee_salary(changes["salary"], existing_salary=e.salary)
     _validate_employee_text_storage(changes)
     for k, v in changes.items():
         setattr(e, k, v)
