@@ -4,6 +4,22 @@ from decimal import Decimal, InvalidOperation
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 
+def _reject_storage_fractional_precision(
+    value: object, *, places: int, maximum: Decimal, field_name: str,
+) -> object:
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return value
+    if not amount.is_finite() or not Decimal("0") <= amount <= maximum:
+        return value
+    digits = amount.as_tuple().digits
+    extra_places = -amount.as_tuple().exponent - places
+    if extra_places > 0 and any(digits[-extra_places:]):
+        raise ValueError(f"{field_name} cannot have more than {places} decimal places")
+    return value
+
+
 class PriceCalculationCreateIn(BaseModel):
     model_config = ConfigDict(protected_namespaces=(), extra="forbid")
     model_id: int = Field(gt=0)
@@ -35,17 +51,9 @@ class PriceCalculationFinanceIn(BaseModel):
             "profit_percentage": (2, Decimal("999999.99")),
             "exchange_rate": (4, Decimal("9999999999.9999")),
         }[info.field_name]
-        try:
-            amount = Decimal(str(value))
-        except (InvalidOperation, ValueError):
-            return value
-        if not amount.is_finite() or not Decimal("0") <= amount <= maximum:
-            return value
-        digits = amount.as_tuple().digits
-        extra_places = -amount.as_tuple().exponent - places
-        if extra_places > 0 and any(digits[-extra_places:]):
-            raise ValueError(f"{info.field_name} cannot have more than {places} decimal places")
-        return value
+        return _reject_storage_fractional_precision(
+            value, places=places, maximum=maximum, field_name=info.field_name,
+        )
 
 
 class PriceCalculationPurchasingIn(BaseModel):
@@ -56,6 +64,13 @@ class PriceCalculationPurchasingIn(BaseModel):
     sewing_cost: float | None = Field(
         default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
+
+    @field_validator("fabric_price", "sewing_cost", mode="before")
+    @classmethod
+    def reject_fractional_precision(cls, value: object, info: ValidationInfo) -> object:
+        return _reject_storage_fractional_precision(
+            value, places=4, maximum=Decimal("9999999999.9999"), field_name=info.field_name,
+        )
 
 
 class PriceCalculationCuttingIn(BaseModel):

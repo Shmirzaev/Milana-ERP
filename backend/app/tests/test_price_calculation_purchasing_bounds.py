@@ -85,6 +85,13 @@ def test_purchasing_price_fields_preserve_none_zero_values_and_storage_maximum()
     assert parsed.sewing_cost == pytest.approx(float(MAX_PRICE))
 
 
+@pytest.mark.parametrize("field", ["fabric_price", "sewing_cost"])
+def test_purchasing_price_fields_reject_nonzero_excess_fractional_digits(field):
+    with pytest.raises(ValidationError, match="decimal places"):
+        PriceCalculationPurchasingIn(**{field: "12.34567"})
+    assert getattr(PriceCalculationPurchasingIn(**{field: "12.34560"}), field) == 12.3456
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -107,6 +114,23 @@ def test_invalid_purchasing_price_update_has_no_request_audit_or_notification_si
         f"/api/price-calculation/requests/{request_id}/purchasing",
         headers=auth_headers,
         json={"fabric_price": 4.5, "sewing_cost": 0.1674, field: value},
+    )
+
+    assert response.status_code == 422, response.text
+    assert _state(request_id) == before
+
+
+@pytest.mark.parametrize("field", ["fabric_price", "sewing_cost"])
+def test_excess_purchasing_price_precision_has_no_request_audit_or_notification_side_effects(
+    client, auth_headers, field,
+):
+    request_id = _create_request(client, auth_headers)
+    before = _state(request_id)
+
+    response = client.patch(
+        f"/api/price-calculation/requests/{request_id}/purchasing",
+        headers=auth_headers,
+        json={field: "12.34567"},
     )
 
     assert response.status_code == 422, response.text
