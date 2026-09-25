@@ -13,6 +13,7 @@ import { useDialogs } from "@/components/DialogProvider";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import { useT } from "@/lib/i18n";
 import { useCuttingPassportDirectoryKeys } from "@/lib/cuttingPassportDirectories";
+import { useCuttingPassportPages } from "@/lib/useCuttingPassportPages";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -266,12 +267,8 @@ export default function CuttingPassportsPage() {
   const cuttingDepartment = searchParams.get("cutting_department") === "ECT" ? "ECT" : "CUT";
   const factoryName = cuttingDepartment === "ECT" ? t("factory.ecoCotton") : t("factory.milana");
   const [q, setQ] = useState("");
-  const passportSearch = q.trim();
-  const passportUrl = `/api/cutting-passports?formula_version=20260706_ishlangan_kg&limit=500&cutting_department_code=${cuttingDepartment}${
-    passportSearch ? `&q=${encodeURIComponent(passportSearch)}` : ""
-  }`;
   const [showForm, setShowForm] = useState(false);
-  const { data: passports = [], mutate } = useSWR<Passport[]>(passportUrl, fetcher, { keepPreviousData: true });
+  const { rows: passports, total: passportTotal, hasMore: hasMorePassports, loading: passportsLoading, size: passportPageCount, setSize: setPassportPageCount, mutate } = useCuttingPassportPages<Passport>(cuttingDepartment, q);
   const directoryKeys = useCuttingPassportDirectoryKeys(showForm);
   const { data: prodOrders = [] } = useSWR<any[]>(directoryKeys.productionOrders, fetcher);
   const { data: users = [] } = useSWR<any[]>(directoryKeys.operators, fetcher);
@@ -745,6 +742,12 @@ export default function CuttingPassportsPage() {
           </table>
         </div>
       </div>
+
+      {hasMorePassports && <div className="mt-3 flex justify-center">
+        <button type="button" className="btn" disabled={passportsLoading} onClick={() => void setPassportPageCount(passportPageCount + 1)}>
+          {t("common.loadMore")} ({passports.length} / {passportTotal})
+        </button>
+      </div>}
 
       {/* Form modal */}
       <Modal
