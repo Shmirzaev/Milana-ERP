@@ -132,16 +132,20 @@ def reserve_ready_packs(
         raise HTTPException(409, "Stock has already been reserved for this sales order")
     candidates = ready_pack_candidates(db, model_ids={line.model_id for line in lines}, lock=True)
     allocations = []
+    allocated_package_ids: set[int] = set()
     for line in lines:
         matching = [
             (package, rows) for package, rows in candidates
-            if package.model_id == line.model_id
+            if package.id not in allocated_package_ids
+            and package.model_id == line.model_id
             and (line.brand_id is None or all(row.brand_id == line.brand_id for row in rows))
         ]
         count = int(line.requested_pack_count or 0)
         if len(matching) < count:
             raise HTTPException(409, f"Not enough complete packs: requested {count}, available {len(matching)}")
-        allocations.append((line, matching[:count]))
+        selected = matching[:count]
+        allocated_package_ids.update(package.id for package, _rows in selected)
+        allocations.append((line, selected))
 
     reservations = []
     for line, selected in allocations:

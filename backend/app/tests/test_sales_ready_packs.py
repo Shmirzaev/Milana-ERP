@@ -1,15 +1,16 @@
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import event
 from sqlalchemy.dialects import postgresql
 
 from app.db.session import SessionLocal
 from app.models import (
     Brand, FinishedGoodsStock, LegacyStockReceipt, Model, Package, PackageItem,
-    SalesOrder, Shipment, ShipmentPackage, StockReservation,
+    SalesOrder, SalesOrderItem, Shipment, ShipmentPackage, StockReservation,
 )
-from app.services.ready_stock_sales import ready_pack_candidates
+from app.services.ready_stock_sales import ready_pack_candidates, reserve_ready_packs
 
 
 def _packs(quantities=(60, 78, 12)):
@@ -78,6 +79,64 @@ def test_ready_sales_reserves_exact_pack_count_and_real_mixed_size_totals(client
     assert second.json()["items"][0]["quantity"] == 12
     detail = client.get(f"/api/sales-orders/{order['id']}", headers=auth_headers)
     assert detail.json()["items"][0]["requested_pack_count"] == 2
+
+
+def test_persisted_same_model_pack_lines_cannot_claim_one_package_twice():
+    model_id, package_ids = _packs((12,))
+    with SessionLocal() as db:
+        order = SalesOrder(order_no=f"PACK-LEGACY-{uuid4().hex[:8]}", order_type="branded_stock_sale")
+        db.add(order)
+        db.flush()
+        lines = [SalesOrderItem(
+            sales_order_id=order.id, model_id=model_id, color="mixed", size="any",
+            quantity=0, requested_pack_count=1, unit_price=2,
+        ) for _ in range(2)]
+        db.add_all(lines)
+        db.commit()
+        order_id = order.id
+
+    with SessionLocal() as db:
+        order = db.get(SalesOrder, order_id)
+        lines = db.query(SalesOrderItem).filter_by(sales_order_id=order_id).order_by(SalesOrderItem.id).all()
+        with pytest.raises(HTTPException, match="Not enough complete packs") as rejected:
+            reserve_ready_packs(db, so=order, lines=lines, user_id=1)
+        assert rejected.value.status_code == 409
+        db.rollback()
+
+    with SessionLocal() as db:
+        assert db.query(StockReservation).filter_by(sales_order_id=order_id).count() == 0
+        assert all(row.available_qty == row.quantity and row.reserved_qty == 0 for row in
+                   db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == package_ids[0]))
+        assert all(row.quantity == 0 for row in db.query(SalesOrderItem).filter_by(sales_order_id=order_id))
+
+
+def test_persisted_same_model_pack_lines_allocate_distinct_packages():
+    model_id, package_ids = _packs((12, 78))
+    with SessionLocal() as db:
+        order = SalesOrder(order_no=f"PACK-LEGACY-{uuid4().hex[:8]}", order_type="branded_stock_sale")
+        db.add(order)
+        db.flush()
+        lines = [SalesOrderItem(
+            sales_order_id=order.id, model_id=model_id, color="mixed", size="any",
+            quantity=0, requested_pack_count=1, unit_price=2,
+        ) for _ in range(2)]
+        db.add_all(lines)
+        db.commit()
+        order_id = order.id
+
+    with SessionLocal() as db:
+        order = db.get(SalesOrder, order_id)
+        lines = db.query(SalesOrderItem).filter_by(sales_order_id=order_id).order_by(SalesOrderItem.id).all()
+        reserve_ready_packs(db, so=order, lines=lines, user_id=1)
+        db.commit()
+
+    with SessionLocal() as db:
+        reservations = db.query(StockReservation).filter_by(sales_order_id=order_id).all()
+        assert {row.package_id for row in reservations} == set(package_ids)
+        assert sum(row.quantity for row in reservations) == 90
+        assert [row.quantity for row in db.query(SalesOrderItem).filter_by(sales_order_id=order_id).order_by(SalesOrderItem.id)] == [12, 78]
+        assert all(row.quantity == row.reserved_qty and row.available_qty == 0 for row in
+                   db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(package_ids)))
 
 
 @pytest.mark.parametrize("count", [0, -1, 1.5, "2", True])
