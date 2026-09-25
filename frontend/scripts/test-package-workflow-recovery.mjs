@@ -65,6 +65,11 @@ let cursor = 0;
 let dirty = false;
 let effects = [];
 const react = {
+  useRef(initial) {
+    const index = cursor++;
+    if (!(index in hooks)) hooks[index] = { current: initial };
+    return hooks[index];
+  },
   useState(initial) {
     const index = cursor++;
     if (!(index in hooks)) hooks[index] = typeof initial === "function" ? initial() : initial;

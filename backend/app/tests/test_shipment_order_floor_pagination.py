@@ -40,6 +40,12 @@ def test_order_floor_pages_exact_mixed_union_search_and_off_page_targets(client,
         manual = Shipment(customer_id=override_customer.id, shipment_no=f"FLOOR-MANUAL-{marker}", status="created")
         db.add_all((older, latest, shipped, cancelled, manual))
         db.flush()
+        older_id = int(older.id)
+        shipped_id = int(shipped.id)
+        db.add_all(
+            Shipment(customer_id=override_customer.id, shipment_no=f"FLOOR-RECENT-{index}-{marker}", status="delivered")
+            for index in range(55)
+        )
         package_ids = [row.id for row in db.query(Package.id).order_by(Package.id.desc()).limit(401)]
         db.add_all(ShipmentPackage(shipment_id=latest.id, package_id=package_id, quantity=1) for package_id in package_ids)
         db.commit()
@@ -105,6 +111,16 @@ def test_order_floor_pages_exact_mixed_union_search_and_off_page_targets(client,
         ))
         assert manual_id in {row["id"] for row in manual_page["rows"]}
         assert latest_id not in {row["id"] for row in manual_page["rows"]}
+        first_history = list_shipments(db, current, page=1, page_size=50)
+        assert shipped_id not in {row["id"] for row in first_history["rows"]}
+        assert older_id not in {row["id"] for row in first_history["rows"]}
+        for target_id in (shipped_id, older_id):
+            target_page, target_statements = _capture(db, lambda: list_shipments(
+                db, current, page=1, page_size=1, shipment_id=target_id,
+            ))
+            assert target_page["total"] == 1
+            assert [row["id"] for row in target_page["rows"]] == [target_id]
+            assert len(target_statements) <= 5, target_statements
 
     http_page = client.get(
         "/api/shipments/order-floor",
@@ -114,5 +130,11 @@ def test_order_floor_pages_exact_mixed_union_search_and_off_page_targets(client,
     assert http_page.status_code == 200, http_page.text
     assert http_page.json()["total"] == expected_total
     assert http_page.json()["pinned"]["id"] == order_ids[0]
+    history_target = client.get(
+        "/api/shipments", params={"shipment_id": shipped_id, "page": 1, "page_size": 1}, headers=auth_headers,
+    )
+    assert history_target.status_code == 200, history_target.text
+    assert [row["id"] for row in history_target.json()["rows"]] == [shipped_id]
+    assert client.get(f"/api/shipments?shipment_id={shipped_id}&page_size=1").status_code == 401
     assert client.get("/api/shipments/order-floor?page_size=101", headers=auth_headers).status_code == 422
     assert client.get("/api/shipments/order-floor").status_code == 401

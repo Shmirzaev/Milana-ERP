@@ -1147,6 +1147,7 @@ def list_shipments(
     db: DbSession,
     _: CurrentUser,
     sales_order_id: int | None = None,
+    shipment_id: Annotated[int | None, Query(ge=1)] = None,
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
     q: Annotated[str, Query(max_length=200)] = "",
@@ -1177,6 +1178,8 @@ def list_shipments(
     )
     if sales_order_id:
         qry = qry.filter(Shipment.sales_order_id == sales_order_id)
+    if shipment_id:
+        qry = qry.filter(Shipment.id == shipment_id)
     if manual_open:
         qry = qry.filter(Shipment.sales_order_id.is_(None), Shipment.status.in_(_OPEN_SHIPMENT_STATUSES))
     if status and status != "all":

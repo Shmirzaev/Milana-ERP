@@ -270,6 +270,10 @@ export default function ShipmentsPage() {
     fetcher,
     { persistSize: false },
   );
+  const { data: targetHistoryPage } = useSWR<ShipmentPage>(
+    targetShipmentId ? `/api/shipments?shipment_id=${targetShipmentId}&page=1&page_size=1` : null,
+    fetcher,
+  );
   const { data: manualPages, size: manualPageCount, setSize: setManualPageCount, mutate: mutateManual } = useSWRInfinite<ShipmentPage>(
     (index, previous) => previous && !previous.has_more ? null
       : `/api/shipments?page=${index + 1}&page_size=50&manual_open=true`,
@@ -281,6 +285,16 @@ export default function ShipmentsPage() {
     ...(floorPage?.pinned ? [floorPage.pinned] : []),
     ...(floorPage?.rows || []),
   ], [floorPage]);
+  const floorTarget = targetShipmentId
+    ? shipmentOrders.find((order) => Number(order.shipment?.id || 0) === targetShipmentId)
+    : shipmentOrders.find((order) => order.id === targetOrderId);
+  const pinnedHistory = floorPage && !floorTarget && !historySearch && historyStatus === "all"
+    ? targetHistoryPage?.rows?.find((shipment) => shipment.id === targetShipmentId)
+    : undefined;
+  const historyRows = pinnedHistory
+    ? [pinnedHistory, ...filteredHistory.filter((shipment) => shipment.id !== pinnedHistory.id)]
+    : filteredHistory;
+  const scrolledTargetRef = useRef<string | null>(null);
 
   async function mutate() {
     await Promise.all([mutateHistory(), mutateManual()]);
@@ -339,17 +353,18 @@ export default function ShipmentsPage() {
   }
 
   useEffect(() => {
-    if (!shipmentOrders.length) return;
-    const requestedOrderId = Number(searchParams.get("so_id") || 0);
-    const requestedShipmentId = Number(searchParams.get("shipment_id") || 0);
-    const requestedOrder = requestedOrderId
-      ? shipmentOrders.find((order) => order.id === requestedOrderId)
-      : shipmentOrders.find((order) => Number(order.shipment?.id || 0) === requestedShipmentId);
-    if (!requestedOrder) return;
+    const targetKey = `${targetOrderId}:${targetShipmentId}`;
+    if ((!targetOrderId && !targetShipmentId) || scrolledTargetRef.current === targetKey) return;
+    const elementId = floorTarget ? `shipment-order-${floorTarget.id}`
+      : pinnedHistory ? `shipment-history-target-${targetShipmentId}` : null;
+    if (!elementId) return;
     window.requestAnimationFrame(() => {
-      document.getElementById(`shipment-order-${requestedOrder.id}`)?.scrollIntoView({ block: "start" });
+      const element = document.getElementById(elementId);
+      if (!element || scrolledTargetRef.current === targetKey) return;
+      element.scrollIntoView({ block: "start" });
+      scrolledTargetRef.current = targetKey;
     });
-  }, [searchParams, shipmentOrders]);
+  }, [targetOrderId, targetShipmentId, floorTarget, pinnedHistory]);
 
   return (
     <div>
@@ -407,6 +422,7 @@ export default function ShipmentsPage() {
         ))}
         {manualPages?.at(-1)?.has_more ? <button className="btn" type="button" onClick={() => void setManualPageCount(manualPageCount + 1)}>{t("common.loadMore")}</button> : null}
 
+        {pinnedHistory ? <div id={`shipment-history-target-${targetShipmentId}`} className="scroll-mt-4" /> : null}
         <section className="card overflow-hidden">
           <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#ded9ca] px-4 py-3 sm:px-5">
             <div><h2 className="app-card-title">{t("page.shipments.history")}</h2><p className="mt-1 text-xs text-[#6f6a5b]">{t("page.shipments.historyHint")}</p></div>
@@ -419,7 +435,7 @@ export default function ShipmentsPage() {
             </div>
           </div>
           <div className="divide-y divide-[#ded9ca] md:hidden">
-            {filteredHistory.map((shipment) => (
+            {historyRows.map((shipment) => (
               <article key={shipment.id} className="p-4">
                 <div className="flex items-start justify-between gap-3"><div className="mono font-semibold text-[#14110b]">{shipment.shipment_no}</div><span className="badge">{statusLabel(shipment.status, t)}</span></div>
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#56503f]"><span>{shipment.shipment_type === "manual" ? manualText.type : shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</span><span className="text-right mono">{formatOrderReference(shipment.sales_order_no || "-")}</span><span>{shipment.customer_name || "-"}</span><span className="text-right tabular-nums">{Number(shipment.packages_count || 0)} {t("field.packages")} · {Number(shipment.total_qty || 0).toLocaleString()} {t("page.shipments.pieces")}</span></div>
@@ -428,14 +444,14 @@ export default function ShipmentsPage() {
                 {canTraceability ? <Link className="btn mt-3 h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : null}
               </article>
             ))}
-            {!filteredHistory.length ? <div className="p-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</div> : null}
+            {!historyRows.length ? <div className="p-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</div> : null}
           </div>
           <div className="hidden overflow-x-auto md:block">
             <table className="table min-w-[1180px]">
               <thead><tr><th>{t("field.shipmentNo")}</th><th>{t("page.shipments.type")}</th><th>{t("page.shipments.salesOrder")}</th><th>{t("field.customer")}</th><th>{t("page.shipments.reference")}</th><th>{t("field.packages")}</th><th>{t("field.totalQty")}</th><th>{t("field.status")}</th><th>{t("field.shipped")}</th><th>{t("field.delivered")}</th><th>{t("field.actions")}</th></tr></thead>
               <tbody>
-                {filteredHistory.map((shipment) => <tr key={shipment.id}><td className="mono whitespace-nowrap font-semibold text-[#14110b]">{shipment.shipment_no}</td><td>{shipment.shipment_type === "manual" ? manualText.type : shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</td><td className="mono whitespace-nowrap">{formatOrderReference(shipment.sales_order_no || "-")}</td><td>{shipment.customer_name || "-"}</td><td className="max-w-56 whitespace-normal">{shipment.notes || "-"}{(!shipment.sales_order_id || !["draft", "created"].includes(shipment.status)) && <ShipmentTransportDetails shipment={shipment} onChanged={mutate} />}</td><td className="tabular-nums">{Number(shipment.packages_count || 0)}</td><td className="tabular-nums">{Number(shipment.total_qty || 0).toLocaleString()}</td><td><span className="badge">{statusLabel(shipment.status, t)}</span></td><td className="whitespace-nowrap">{shipment.shipped_at ? new Date(shipment.shipped_at).toLocaleString() : "-"}</td><td className="whitespace-nowrap">{shipment.delivered_at ? new Date(shipment.delivered_at).toLocaleString() : "-"}</td><td>{["shipped", "delivered"].includes(shipment.status) && <a className="btn h-8 px-2.5 text-[11px]" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}{canTraceability ? <Link className="btn h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : "-"}</td></tr>)}
-                {!filteredHistory.length ? <tr><td colSpan={11} className="py-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</td></tr> : null}
+                {historyRows.map((shipment) => <tr key={shipment.id}><td className="mono whitespace-nowrap font-semibold text-[#14110b]">{shipment.shipment_no}</td><td>{shipment.shipment_type === "manual" ? manualText.type : shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</td><td className="mono whitespace-nowrap">{formatOrderReference(shipment.sales_order_no || "-")}</td><td>{shipment.customer_name || "-"}</td><td className="max-w-56 whitespace-normal">{shipment.notes || "-"}{(!shipment.sales_order_id || !["draft", "created"].includes(shipment.status)) && <ShipmentTransportDetails shipment={shipment} onChanged={mutate} />}</td><td className="tabular-nums">{Number(shipment.packages_count || 0)}</td><td className="tabular-nums">{Number(shipment.total_qty || 0).toLocaleString()}</td><td><span className="badge">{statusLabel(shipment.status, t)}</span></td><td className="whitespace-nowrap">{shipment.shipped_at ? new Date(shipment.shipped_at).toLocaleString() : "-"}</td><td className="whitespace-nowrap">{shipment.delivered_at ? new Date(shipment.delivered_at).toLocaleString() : "-"}</td><td>{["shipped", "delivered"].includes(shipment.status) && <a className="btn h-8 px-2.5 text-[11px]" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}{canTraceability ? <Link className="btn h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : "-"}</td></tr>)}
+                {!historyRows.length ? <tr><td colSpan={11} className="py-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</td></tr> : null}
               </tbody>
             </table>
           </div>
