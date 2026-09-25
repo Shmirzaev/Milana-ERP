@@ -8,6 +8,7 @@ import ImageThumbnail from "@/components/ImageThumbnail";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import Modal from "@/components/Modal";
+import SupplierAsyncSelect from "@/components/SupplierAsyncSelect";
 import { can, useMe } from "@/lib/auth";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -40,8 +41,6 @@ type ArchivedBatchPage = {
   page_size: number;
 };
 
-type Supplier = { id: number; name: string };
-
 function formatQuantity(value: number | null | undefined) {
   const quantity = Number(value || 0);
   return Number.isFinite(quantity) ? quantity.toFixed(2) : "0.00";
@@ -70,6 +69,7 @@ export default function FabricInventoryArchivePage() {
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const [supplierId, setSupplierId] = useState(0);
+  const [supplierName, setSupplierName] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
@@ -89,7 +89,6 @@ export default function FabricInventoryArchivePage() {
   }, [createdFrom, createdTo, page, pageSize, query, supplierId]);
 
   const { data, error, isLoading, mutate } = useSWR<ArchivedBatchPage>(archiveUrl, fetcher);
-  const { data: suppliers } = useSWR<Supplier[]>("/api/suppliers", fetcher);
   const rows = data?.rows || [];
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
@@ -201,19 +200,19 @@ export default function FabricInventoryArchivePage() {
             onChange={(event) => { setCreatedTo(event.target.value); setPage(1); }}
           />
         </label>
-        <label className="block">
-          <span className="label">{t("field.supplier")}</span>
-          <select
-            className="input"
-            value={supplierId || ""}
-            onChange={(event) => { setSupplierId(Number(event.target.value) || 0); setPage(1); }}
-          >
-            <option value="">-</option>
-            {(suppliers || []).map((supplier) => (
-              <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-            ))}
-          </select>
-        </label>
+        <div>
+          <label htmlFor="archive-supplier" className="label">{t("field.supplier")}</label>
+          <SupplierAsyncSelect
+            inputId="archive-supplier"
+            value={supplierId || null}
+            selectedName={supplierName}
+            onChange={(id, supplier) => {
+              setSupplierId(id);
+              setSupplierName(supplier?.name ?? null);
+              setPage(1);
+            }}
+          />
+        </div>
       </div>
 
       <Modal open={!!restoring} onClose={() => { if (!saving) setRestoring(null); }} title={t("page.inventory.restoreBatch")}>

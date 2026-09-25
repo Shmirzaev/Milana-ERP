@@ -14,6 +14,9 @@ const checks = [
   [archivePage.includes('group: "materials"'), "Archive page must stay scoped to fabric/material batches"],
   [archivePage.includes("archive_reason"), "Archive page must show why each batch was archived"],
   [archivePage.includes("received_quantity") && archivePage.includes("used_quantity"), "Archive page must show quantity history"],
+  [!archivePage.includes('useSWR<Supplier[]>("/api/suppliers"'), "Archive page must not load the full supplier directory"],
+  [archivePage.includes("<SupplierAsyncSelect") && archivePage.includes("selectedName={supplierName}"), "Archive supplier filter must search bounded pages and preserve its selection"],
+  [archivePage.includes("setSupplierId(id);") && archivePage.includes("setPage(1);"), "Changing archive supplier must reset paging"],
 ];
 
 const failures = checks.filter(([passed]) => !passed).map(([, message]) => message);
