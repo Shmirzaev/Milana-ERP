@@ -17,10 +17,11 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import cutting_passports, inventory as inventory_routes
 from app.db.base import Base
 from app.models import (
-    AuditLog, CuttingRecord, Item, ManualAccessoryIssue, MaterialReservation, Model, ModelBOM,
+    AuditLog, CuttingMaterialUsage, CuttingRecord, Item, ManualAccessoryIssue, MaterialReservation, Model, ModelBOM,
     PackagingRecord, PrintingRecord, ProductionOrder, ProductionOrderItem, ProductionOrderMaterial,
-    SewingRecord, StockBatch, StockMovement, User, Warehouse, WorkOrder,
+    SewingRecord, StockBatch, StockMovement, User, Warehouse, WasteRecord, WorkOrder,
 )
+from app.models.eco_transfer import EcoFabricRoll
 from app.schemas.inventory import StockMovementIn
 from app.schemas.cutting_passport import CuttingPassportIn
 from app.services import inventory, numbering
@@ -250,7 +251,7 @@ def reservation_postgres_engine():
             MaterialReservation.__table__, StockBatch.__table__, StockMovement.__table__, ProductionOrderMaterial.__table__,
             AuditLog.__table__, ModelBOM.__table__, ProductionOrderItem.__table__, ManualAccessoryIssue.__table__,
             WorkOrder.__table__, CuttingRecord.__table__, PrintingRecord.__table__, SewingRecord.__table__,
-            PackagingRecord.__table__,
+            PackagingRecord.__table__, EcoFabricRoll.__table__, CuttingMaterialUsage.__table__, WasteRecord.__table__,
         }
         pending = list(tables)
         while pending:
@@ -356,6 +357,73 @@ def test_postgres_batchless_movement_waits_for_item_only_reservation(
         assert inventory.current_stock_for_item(db, item_id, destination_id) == 0
         assert inventory.reserved_stock_for_item(db, item_id, source_id) == 4
         assert db.query(StockMovement).filter_by(item_id=item_id, movement_type=movement_type).count() == 0
+
+
+def test_postgres_batch_delete_waits_for_item_only_reservation(reservation_postgres_engine):
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions)
+    batch_id, item_id, warehouse_id, order_id = (
+        ids["batches"][0], ids["items"][0], ids["warehouses"][0], ids["orders"][0],
+    )
+    with sessions() as db:
+        user = User(name="Batch delete tester", email=f"batch-delete-{uuid4().hex}@example.test",
+                    password_hash="test", extra_permissions=["admin.super"])
+        db.add(user)
+        db.commit()
+        user_id = user.id
+
+    reservation_ready = Event()
+    release_reservation = Event()
+    deletion_pid = Queue()
+
+    def reserve():
+        with sessions() as db:
+            inventory.create_material_reservations(
+                db, production_order_id=order_id,
+                lines=[{"item_id": item_id, "warehouse_id": warehouse_id,
+                        "reserved_quantity": 8, "unit": "kg"}],
+                user_id=None,
+            )
+            reservation_ready.set()
+            assert release_reservation.wait(10), "Coordinator did not release reservation transaction"
+            db.commit()
+
+    def delete_batch():
+        with sessions() as db:
+            deletion_pid.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            try:
+                inventory_routes.archive_or_delete_batch(batch_id, db, db.get(User, user_id), False)
+                return 204
+            except HTTPException as rejected:
+                db.rollback()
+                return rejected.status_code
+
+    with sessions() as observer, ThreadPoolExecutor(max_workers=2) as workers:
+        reservation_future = workers.submit(reserve)
+        try:
+            assert reservation_ready.wait(10), "Reservation did not acquire its stock locks"
+            deletion_future = workers.submit(delete_batch)
+            pid = deletion_pid.get(timeout=10)
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                if observer.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": pid}).scalar_one():
+                    break
+                if deletion_future.done():
+                    pytest.fail(f"Batch deletion completed before reservation commit: {deletion_future.result()}")
+                sleep(0.02)
+            else:
+                pytest.fail("Batch deletion must wait for the reservation's stock locks")
+        finally:
+            release_reservation.set()
+        reservation_future.result(timeout=10)
+        assert deletion_future.result(timeout=10) == 409
+
+    with sessions() as db:
+        batch = db.get(StockBatch, batch_id)
+        assert float(batch.quantity) == 10 and batch.archived_at is None
+        assert inventory.reserved_stock_for_item(db, item_id, warehouse_id) == 8
+        assert db.query(StockMovement).filter_by(batch_id=batch_id,
+                                                  reference_type="StockBatchDelete").count() == 0
 
 
 def test_postgres_concurrent_release_checks_refreshed_reservation_state(reservation_postgres_engine):
