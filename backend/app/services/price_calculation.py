@@ -17,6 +17,7 @@ from app.services.model_images import model_preview_image_url, model_variant_pic
 
 
 FIXED_PACKAGING_COST = Decimal("0.1")
+MAX_ACCESSORY_PRICE = Decimal("9999999999.9999")
 MAX_BINDING_KG_PER_PIECE = Decimal("99999999.999999")
 PURCHASING_PERMISSION = "price_calculation.purchasing"
 ACCESSORIES_PERMISSION = "price_calculation.accessories"
@@ -85,9 +86,17 @@ def _decimal(value: object) -> Decimal | None:
     if value is None or value == "":
         return None
     try:
-        return Decimal(str(value))
+        parsed = Decimal(str(value))
+        return parsed if parsed.is_finite() else None
     except Exception:
         return None
+
+
+def _accessory_price(value: object) -> Decimal | None:
+    parsed = _decimal(value)
+    if parsed is None or parsed < 0 or parsed > MAX_ACCESSORY_PRICE:
+        return None
+    return parsed
 
 
 def _positive(value: object) -> bool:
@@ -184,7 +193,12 @@ def accessories_status(request: PriceCalculationRequest) -> str:
     rows = [row for row in rows if isinstance(row, dict) and (str(row.get("name") or "").strip() or row.get("price") is not None)]
     if not rows:
         return "new"
-    if all(str(row.get("name") or "").strip() and _positive(row.get("price")) for row in rows):
+    if all(
+        str(row.get("name") or "").strip()
+        and (price := _accessory_price(row.get("price"))) is not None
+        and price > 0
+        for row in rows
+    ):
         return "complete"
     return "in_progress"
 
@@ -276,7 +290,7 @@ def _calculation(request: PriceCalculationRequest) -> dict:
     consumption_cost = consumption * fabric_price
     binding_price = binding * fabric_price
     accessory_total = sum(
-        (_decimal(row.get("price")) or Decimal(0))
+        (_accessory_price(row.get("price")) or Decimal(0))
         for row in (request.accessories_json or [])
         if isinstance(row, dict)
     )
@@ -296,11 +310,16 @@ def serialize_price_request(request: PriceCalculationRequest) -> dict:
     model_no, variant_no = _model_parts(model)
     sizes = list(dict.fromkeys(str(row.size or "").strip() for row in (model.sizes or []) if str(row.size or "").strip()))
     passport = request.cutting_passport
-    accessories = [
-        {"name": str(row.get("name") or "").strip() or None, "price": float(row["price"]) if row.get("price") is not None else None}
-        for row in (request.accessories_json or [])
-        if isinstance(row, dict)
-    ]
+    accessories = []
+    accessory_rows = request.accessories_json if isinstance(request.accessories_json, list) else []
+    for row in accessory_rows:
+        if not isinstance(row, dict):
+            continue
+        price = _accessory_price(row.get("price"))
+        accessories.append({
+            "name": str(row.get("name") or "").strip() or None,
+            "price": float(price) if price is not None else None,
+        })
     payload = {
         "id": request.id,
         "model_id": request.model_id,
