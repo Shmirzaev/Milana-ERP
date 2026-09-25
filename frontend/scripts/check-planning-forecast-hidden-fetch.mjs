@@ -44,9 +44,7 @@ function renderCase({ path, authorized }) {
         ? []
         : key === "/api/production-orders?page_size=100"
           ? []
-          : key === "/api/brands"
-            ? []
-            : key === "/api/inventory/batches?group=materials&hide_empty=true&page_size=1000"
+          : key === "/api/inventory/batches?group=materials&hide_empty=true&page_size=1000"
               ? []
               : key === "/api/planning/branded-orders"
                 ? []
@@ -80,6 +78,7 @@ function renderCase({ path, authorized }) {
     "@/components/Modal": { default: "modal" },
     "@/components/SearchableSelect": { default: "searchable-select" },
     "@/components/BrandedModelVariantSelect": { default: "model-variant-select" },
+    "@/components/BrandAsyncSelect": { default: "brand-select" },
     "@/components/StagePipeline": { statusLabel: (value) => value },
     "@/lib/i18n": { useT: () => ({ t: (key) => key }) },
     "@/lib/garmentSizes": { GARMENT_SIZE_OPTIONS: ["46", "48"] },
@@ -147,9 +146,7 @@ function createRetainedModelHarness() {
         ? []
         : key === "/api/production-orders?page_size=100"
           ? []
-          : key === "/api/brands"
-            ? []
-            : key === "/api/inventory/batches?group=materials&hide_empty=true&page_size=1000"
+          : key === "/api/inventory/batches?group=materials&hide_empty=true&page_size=1000"
               ? []
               : key === "/api/planning/branded-orders"
                 ? [{ id: 91, order_no: "BP-91" }]
@@ -182,6 +179,7 @@ function createRetainedModelHarness() {
     "@/components/Modal": { default: "modal" },
     "@/components/SearchableSelect": { default: "searchable-select" },
     "@/components/BrandedModelVariantSelect": { default: "model-variant-select" },
+    "@/components/BrandAsyncSelect": { default: "brand-select" },
     "@/components/StagePipeline": { statusLabel: (value) => value },
     "@/lib/i18n": { useT: () => ({ t: (key) => key }) },
     "@/lib/garmentSizes": { GARMENT_SIZE_OPTIONS: ["46", "48"] },
@@ -206,6 +204,8 @@ function createRetainedModelHarness() {
 }
 
 const branded = renderCase({ path: "/planning/branded-stock", authorized: true });
+assert.equal(branded.requests.filter((key) => key === "/api/brands").length, 0,
+  "Planning must not fetch the capped full brand directory");
 assert.equal(
   branded.requests.filter((key) => key === forecastKey).length,
   0,
@@ -214,6 +214,8 @@ assert.equal(
 assert.doesNotMatch(textContent(branded.tree), /FORECAST-MODEL/);
 
 const standard = renderCase({ path: "/planning", authorized: true });
+assert.equal(standard.requests.filter((key) => key === "/api/brands").length, 0,
+  "standard Planning must use bounded brand pickers");
 assert.equal(
   standard.requests.filter((key) => key === forecastKey).length,
   1,
