@@ -39,6 +39,7 @@ REQUEST_REJECTABLE_STATUSES = {"draft", "pending_approval", "approved"}
 ORDER_CREATE_STATUSES = {"draft", "sent"}
 ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
 MAX_PURCHASE_QUANTITY = Decimal("9999999999.9999")
+MAX_PURCHASE_REQUEST_ACTION_LINES = 1000
 MAX_STOCK_BATCH_PIECE_COUNT = 2_147_483_647
 PURCHASE_LINE_VARCHAR_LIMITS = {"unit": 32, "material_name": 255, "photo_url": 500}
 
@@ -281,6 +282,8 @@ def approve_purchase_request(db: Session, *, request_id: int, data: dict, curren
         return request
     if request.status not in REQUEST_APPROVABLE_STATUSES:
         raise HTTPException(409, f"Cannot approve purchase request in status '{request.status}'")
+    if len(request.lines) > MAX_PURCHASE_REQUEST_ACTION_LINES:
+        raise HTTPException(409, "Purchase request exceeds the supported line limit; reconcile it before approval")
 
     approval_lines = data.get("lines") or []
     lines_by_id = {int(line.id): line for line in request.lines}
@@ -488,6 +491,8 @@ def convert_purchase_request_to_order(db: Session, *, request_id: int, data: dic
     expected_date = data.get("expected_date")
     if not expected_date:
         raise HTTPException(400, "Expected date is required")
+    if len(request.lines) > MAX_PURCHASE_REQUEST_ACTION_LINES:
+        raise HTTPException(409, "Purchase request exceeds the supported line limit; reconcile it before conversion")
     quantity_inputs = data.get("lines") or []
     request_lines_by_id = {int(line.id): line for line in request.lines}
     if len(quantity_inputs) != len(request_lines_by_id):
