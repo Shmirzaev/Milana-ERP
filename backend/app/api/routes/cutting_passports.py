@@ -1,3 +1,4 @@
+import math
 from types import SimpleNamespace
 from typing import Annotated
 from app.core.order_reference import canonical_business_order_reference, order_reference_contains
@@ -56,6 +57,16 @@ _PASSPORT_MATERIAL_NUMERIC_MAX = {
     "other_beka_per_piece_kg": 99_999_999.999999,
     "ribana_per_piece_kg": 99_999_999.999999,
 }
+_PASSPORT_SCALAR_NUMERIC_MAX = {**_PASSPORT_MATERIAL_NUMERIC_MAX, "waste_pct": 100}
+
+
+def _validate_passport_scalar_numeric_limits(payload: CuttingPassportIn) -> None:
+    for field, maximum in _PASSPORT_SCALAR_NUMERIC_MAX.items():
+        value = getattr(payload, field)
+        if value is None:
+            continue
+        if (isinstance(value, float) and not math.isfinite(value)) or value < 0 or value > maximum:
+            raise HTTPException(422, f"{field} must be between 0 and {maximum}")
 
 
 def _query_chunks(values):
@@ -908,6 +919,7 @@ def _passport_values(
             payload,
             existing_materials=existing_materials,
         )
+        _validate_passport_scalar_numeric_limits(payload)
         _add_passport_materials(db, order, work_order, payload, current)
         if payload.materials:
             ids = [row.stock_batch_id for row in payload.materials]
@@ -928,6 +940,7 @@ def _passport_values(
             payload,
             existing_materials=existing_materials,
         )
+        _validate_passport_scalar_numeric_limits(payload)
         values["order_no"] = canonical_business_order_reference(db, payload.order_no)
     if preserve_oversized_legacy:
         values["materials"] = existing_materials
