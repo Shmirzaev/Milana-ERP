@@ -949,6 +949,65 @@ def test_new_model_receipt_rejects_unbounded_details(invalid_kind: str) -> None:
     assert details == before
 
 
+@pytest.mark.parametrize("action_type", ["update_existing", "create_model"])
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep", "nonfinite"])
+def test_receipt_plan_preflight_rejects_invalid_final_details_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+    action_type: str,
+    invalid_kind: str,
+) -> None:
+    monkeypatch.setattr(migration, "SessionLocal", lambda: pytest.fail("database session opened"))
+    invalid_value: object = "ж" * (70 * 1024)
+    if invalid_kind == "deep":
+        invalid_value = {"leaf": True}
+        for _ in range(20):
+            invalid_value = {"next": invalid_value}
+    elif invalid_kind == "nonfinite":
+        invalid_value = float("nan")
+    details = {"general": {"extension": invalid_value}}
+    action = {"action": action_type, "identity": "TEST"}
+    if action_type == "update_existing":
+        action.update(target_model_id=7, details_after=details)
+        models = [SimpleNamespace(id=7, details_json={"general": {}})]
+    else:
+        action["record"] = {"details_json": details}
+        models = []
+    plan = {
+        "source_key": "reviewed-final", "package_sha256": "a" * 64,
+        "plan_sha256": "b" * 64, "actions": [action],
+        "active_release": {"active_release": "20260727_062443"},
+    }
+    before = copy.deepcopy(details)
+
+    with pytest.raises(migration.MigrationError, match="Imported Model.details_json is invalid"):
+        migration.preflight_planned_details_receipts(plan, models)
+
+    assert details == before
+
+
+def test_receipt_plan_preflight_preserves_exact_unchanged_oversized_legacy_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(migration, "SessionLocal", lambda: pytest.fail("database session opened"))
+    action = {"action": "update_existing", "identity": "TEST", "target_model_id": 7}
+    plan = {
+        "source_key": "reviewed-final", "package_sha256": "a" * 64,
+        "plan_sha256": "b" * 64, "actions": [action],
+        "active_release": {"active_release": "20260727_062443"},
+    }
+    existing = migration._append_receipt(
+        {"general": {}}, plan=plan, identity="TEST",
+        action="update_existing", action_index=1,
+    )
+    existing["future_extension"] = "ж" * (70 * 1024)
+    action["details_after"] = copy.deepcopy(existing)
+    model = SimpleNamespace(id=7, details_json=copy.deepcopy(existing))
+
+    migration.preflight_planned_details_receipts(plan, [model])
+
+    assert model.details_json == existing
+
+
 def test_new_image_rows_preserve_reviewed_metadata() -> None:
     image = {
         "kind": "source",

@@ -1570,6 +1570,7 @@ def compile_plan(
         },
     }
     plan["plan_sha256"] = object_sha256(plan)
+    preflight_planned_details_receipts(plan, models)
     return plan
 
 
@@ -1616,6 +1617,34 @@ def _append_receipt(
     except local_import.MigrationError as exc:
         raise MigrationError(str(exc)) from exc
     return result
+
+
+def preflight_planned_details_receipts(plan: dict[str, Any], models: list[Model]) -> None:
+    """Check receipt-augmented documents before output or media mutations."""
+    existing_by_id = {int(model.id): model for model in models}
+    for action_index, action in enumerate(plan["actions"], start=1):
+        if action["action"] == "update_existing":
+            model = existing_by_id.get(int(action["target_model_id"]))
+            if model is None:
+                raise MigrationError(f"Existing target {action['target_model_id']} disappeared")
+            _append_receipt(
+                action["details_after"],
+                plan=plan,
+                identity=action["identity"],
+                action="update_existing",
+                action_index=action_index,
+                existing_details=model.details_json,
+            )
+        elif action["action"] == "create_model":
+            _append_receipt(
+                action["record"]["details_json"],
+                plan=plan,
+                identity=action["identity"],
+                action="create_model",
+                action_index=action_index,
+            )
+        else:
+            raise MigrationError(f"Unsupported production action {action['action']!r}")
 
 
 def _add_sizes(db, model: Model, rows: list[dict[str, Any]]) -> int:
