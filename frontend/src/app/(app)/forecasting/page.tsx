@@ -61,7 +61,7 @@ export default function ForecastingPage() {
   }));
 
   async function saveSuggestion(row: any) {
-    if (!canManage) return;
+    if (!canManage || !row.model_id) return;
     await runAction(async () => {
       await api.post("/api/forecasting/recommendations", {
         recommendation_type: row.recommendation_type,
@@ -209,7 +209,11 @@ export default function ForecastingPage() {
                   <Link className="text-brand-600 hover:underline" href={`/inventory?group=${["fabric", "semi_finished"].includes(row.category) ? "materials" : "accessories"}&q=${encodeURIComponent(row.item_sku || "")}`}>
                     {t("page.forecasting.openInventory")}
                   </Link>
-                  {canManage && <button className="text-slate-600 hover:underline" disabled={busy} onClick={() => saveSuggestion(row)}>{t("page.forecasting.saveRecommendation")}</button>}
+                  {canManage && (row.model_id ? (
+                    <button className="text-slate-600 hover:underline" disabled={busy} onClick={() => saveSuggestion(row)}>{t("page.forecasting.saveRecommendation")}</button>
+                  ) : (
+                    <span className="text-xs text-slate-500">{t("page.forecasting.unassignedSaveUnavailable")}</span>
+                  ))}
                 </td>
               </tr>
             ))}

@@ -1917,6 +1917,7 @@ export default {
     "page.forecasting.confidence": "Уверенность",
     "page.forecasting.createPlan": "Создать план",
     "page.forecasting.saveRecommendation": "Сохранить рекомендацию",
+    "page.forecasting.unassignedSaveUnavailable": "Фабрика не назначена; сохранение недоступно.",
     "page.forecasting.noBrandedSuggestions": "Нет предложений по брендовому складу.",
     "page.forecasting.reorderLevel": "Минимальный запас",
     "page.forecasting.plannedDemand": "Плановая потребность",

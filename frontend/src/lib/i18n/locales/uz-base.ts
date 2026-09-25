@@ -1917,6 +1917,7 @@ export default {
     "page.forecasting.confidence": "Ishonch",
     "page.forecasting.createPlan": "Reja yaratish",
     "page.forecasting.saveRecommendation": "Tavsiyani saqlash",
+    "page.forecasting.unassignedSaveUnavailable": "Fabrika biriktirilmagan; saqlash imkonsiz.",
     "page.forecasting.noBrandedSuggestions": "Brend ombori uchun taklif yo'q.",
     "page.forecasting.reorderLevel": "Minimal zaxira",
     "page.forecasting.plannedDemand": "Rejadagi talab",

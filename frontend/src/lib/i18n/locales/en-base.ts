@@ -2046,6 +2046,7 @@ export default {
     "page.forecasting.confidence": "Confidence",
     "page.forecasting.createPlan": "Create plan",
     "page.forecasting.saveRecommendation": "Save recommendation",
+    "page.forecasting.unassignedSaveUnavailable": "No factory assigned; saving is unavailable.",
     "page.forecasting.noBrandedSuggestions": "No branded-stock production suggestions.",
     "page.forecasting.reorderLevel": "Reorder level",
     "page.forecasting.plannedDemand": "Planned demand",
