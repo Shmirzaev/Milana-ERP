@@ -1587,6 +1587,8 @@ def transfer_stock(
         if movement_warehouse_id is not None and movement_warehouse_id != batch.warehouse_id:
             raise HTTPException(409, "Movement warehouse must match the batch warehouse")
         movement_data[warehouse_field] = batch.warehouse_id
+        if payload.movement_type == "consume":
+            movement_data["unit_cost_at_movement"] = batch.cost_per_unit
 
         if outgoing:
             reserved = Decimal(str(reserved_stock_for_batch(db, batch.id)))

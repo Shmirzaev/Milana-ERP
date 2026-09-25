@@ -77,6 +77,10 @@ class StockMovement(Base, PkMixin):
     __table_args__ = (
         CheckConstraint("quantity >= 0", name="ck_stock_movements_quantity_nonnegative"),
         CheckConstraint(
+            "unit_cost_at_movement IS NULL OR unit_cost_at_movement >= 0",
+            name="ck_stock_movements_snapshot_cost_nonnegative",
+        ),
+        CheckConstraint(
             "movement_type IN ('receive', 'transfer', 'issue', 'consume', 'adjustment', 'return', 'produce', 'waste', 'shipment')",
             name="ck_stock_movements_type",
         ),
@@ -88,6 +92,7 @@ class StockMovement(Base, PkMixin):
     to_warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))
     quantity: Mapped[float] = mapped_column(Numeric(14, 4), nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    unit_cost_at_movement: Mapped[float | None] = mapped_column(Numeric(12, 4))
     reference_type: Mapped[str | None] = mapped_column(String(64))
     reference_id: Mapped[int | None] = mapped_column(Integer)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
