@@ -13,6 +13,8 @@ export default {
     "passportBatch.add": "Partiya qo‘shish",
     "passportBatch.help": "Har bir bichish partiyasining alohida pasport raqami va o‘lchovlari bor.",
     "passportBatch.select": "Bichish partiyasi pasporti",
+    "passportBatch.optional": "Bichish partiyasi pasporti (ixtiyoriy)",
+    "passportBatch.withoutPassport": "Pasportsiz — mato sarfini qo‘lda kiriting",
     "sewingReport.deleteConfirm": "Saqlangan kunlik tikuv hisoboti yozuvi o‘chirilsinmi?",
     "sewingReport.deleted": "Kunlik tikuv hisoboti yozuvi o‘chirildi.",
     "sewingReport.limit": "Hisobot miqdori buyurtmaning qolgan miqdoridan oshib ketdi.",

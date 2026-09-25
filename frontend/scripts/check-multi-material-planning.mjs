@@ -18,8 +18,8 @@ for (const token of [
 
 for (const token of [
   "plannedMaterials",
-  "use_passport_materials: hasPlannedMaterials",
-  "materials: hasPlannedMaterials ? [] : normalizedMaterials",
+  "use_passport_materials: usePassportMaterials",
+  "materials: usePassportMaterials ? [] : normalizedMaterials",
 ]) {
   if (!cutting.includes(token)) throw new Error(`Cutting multi-material contract missing: ${token}`);
 }

@@ -13,6 +13,8 @@ export default {
     "passportBatch.add": "Add batch",
     "passportBatch.help": "Each cutting batch has its own passport number and measurements.",
     "passportBatch.select": "Cutting batch passport",
+    "passportBatch.optional": "Cutting batch passport (optional)",
+    "passportBatch.withoutPassport": "Without passport — enter fabric usage manually",
     "sewingReport.deleteConfirm": "Delete this saved daily sewing report entry?",
     "sewingReport.deleted": "Daily sewing report entry deleted.",
     "sewingReport.limit": "Report quantity exceeds the remaining order quantity.",
