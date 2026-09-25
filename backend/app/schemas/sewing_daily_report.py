@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import Annotated, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -15,7 +15,7 @@ class SewingDailyReportCreate(BaseModel):
     manual_variant_no: Optional[str] = Field(default=None, max_length=64)
     kroy_no: Optional[str] = Field(default=None, max_length=64)
     sewn_qty: int = Field(ge=0)
-    section_quantities: Optional[list[int]] = Field(default=None, min_length=3, max_length=3)
+    section_quantities: Optional[list[Annotated[int, Field(strict=True)]]] = Field(default=None, min_length=3, max_length=3)
     section_no: Optional[int] = Field(default=None, ge=1, le=20)
     section_name: Optional[str] = Field(default=None, max_length=64)
     top_qty: Optional[int] = Field(default=None, ge=0)
@@ -64,7 +64,7 @@ class SewingDailyReportUpdate(BaseModel):
     manual_variant_no: Optional[str] = Field(default=None, max_length=64)
     kroy_no: Optional[str] = Field(default=None, max_length=64)
     sewn_qty: int = Field(ge=0)
-    section_quantities: Optional[list[int]] = Field(default=None, min_length=3, max_length=3)
+    section_quantities: Optional[list[Annotated[int, Field(strict=True)]]] = Field(default=None, min_length=3, max_length=3)
     section_no: Optional[int] = Field(default=None, ge=1, le=20)
     section_name: Optional[str] = Field(default=None, max_length=64)
     top_qty: Optional[int] = Field(default=None, ge=0)
