@@ -15,6 +15,9 @@ const output = ts.transpileModule(source, { compilerOptions: {
 const hookState = [];
 let hookIndex = 0;
 const keys = [];
+let materialSize = 1;
+let accessorySize = 1;
+const materialRows = Array.from({ length: 50 }, (_, index) => ({ id: index + 1, name: index === 0 ? "Visible Material" : `Material ${index + 1}`, composition: [] }));
 const hooks = {
   ...React,
   useMemo(factory) { return factory(); },
@@ -34,10 +37,23 @@ new Function("exports", "require", output)(exports, name => ({
   "react/jsx-runtime": jsxRuntime,
   swr: { default: key => {
     keys.push(key);
-    if (key === "/api/inventory/items?group=materials&page_size=500") return { data: [{ id: 1, name: "Visible Material", composition: [] }], mutate: async () => {} };
-    if (key === "/api/inventory/items?group=accessories&page_size=500") return { data: [{ id: 2, name: "Deferred Accessory", composition: [] }], mutate: async () => {} };
     if (key === "/api/suppliers") return { data: [{ id: 3, name: "Deferred Supplier" }], mutate: async () => {} };
     return { data: undefined, mutate: async () => {} };
+  } },
+  "swr/infinite": { default: getKey => {
+    const first = getKey(0, null);
+    keys.push(first);
+    const isMaterial = first?.includes("group=materials");
+    const size = isMaterial ? materialSize : accessorySize;
+    const pages = [];
+    for (let index = 0; first && index < size; index++) {
+      const key = getKey(index, index > 0 ? pages[index - 1] : null);
+      if (!key) break;
+      const rows = isMaterial ? index === 0 ? materialRows : [{ id: 51, name: "Material 51", composition: [] }]
+        : [{ id: 2, name: "Deferred Accessory", composition: [] }];
+      pages.push({ rows, total: isMaterial ? 51 : 1, page: index + 1, page_size: 50 });
+    }
+    return { data: pages, size, setSize(next) { if (isMaterial) materialSize = next; else accessorySize = next; }, mutate: async () => {} };
   } },
   "lucide-react": Object.fromEntries(["Edit3", "Plus", "Search", "Trash2", "X"].map(icon => [icon, () => null])),
   "@/lib/access": { isMaterialsOnly: () => false },
@@ -70,13 +86,19 @@ function find(node, predicate) {
 
 const materials = render();
 assert.deepEqual(keys, [
-  "/api/inventory/items?group=materials&page_size=500",
+  "/api/inventory/items?group=materials&page=1&page_size=50&include_total=true&master_data_search=true&q=",
   null,
   null,
 ], "hidden Accessories and Suppliers tabs must not fetch their directories");
 const materialsHtml = renderToStaticMarkup(materials);
 assert.ok(materialsHtml.includes("Visible Material"));
 assert.ok(!materialsHtml.includes("Deferred Accessory"));
+const loadMore = find(materials, node => node.type === "button" && String(node.props?.children).includes("common.loadMore"));
+assert.ok(loadMore, "the material list should expose its next exact-total page");
+loadMore.props.onClick();
+keys.length = 0;
+const expandedMaterials = render();
+assert.ok(renderToStaticMarkup(expandedMaterials).includes("Material 51"));
 const accessoriesTab = find(materials, node => node.type === "button" && node.props.children === "page.masterData.accessories");
 assert.ok(accessoriesTab, "actual Accessories tab action must render");
 accessoriesTab.props.onClick();
@@ -84,8 +106,8 @@ accessoriesTab.props.onClick();
 keys.length = 0;
 const accessories = render();
 assert.deepEqual(keys, [
-  "/api/inventory/items?group=materials&page_size=500",
-  "/api/inventory/items?group=accessories&page_size=500",
+  null,
+  "/api/inventory/items?group=accessories&page=1&page_size=50&include_total=true&master_data_search=true&q=",
   null,
 ], "opening Accessories must fetch the same authorized item endpoint");
 assert.ok(renderToStaticMarkup(accessories).includes("Deferred Accessory"));
@@ -97,7 +119,7 @@ suppliersTab.props.onClick();
 keys.length = 0;
 const suppliers = render();
 assert.deepEqual(keys, [
-  "/api/inventory/items?group=materials&page_size=500",
+  null,
   null,
   "/api/suppliers",
 ], "opening Suppliers must fetch the same authorized supplier endpoint");

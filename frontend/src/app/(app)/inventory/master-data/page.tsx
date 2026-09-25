@@ -3,6 +3,7 @@
 import { isMaterialsOnly } from "@/lib/access";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { Edit3, Plus, Search, Trash2, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { api, fetcher } from "@/lib/api";
@@ -26,6 +27,8 @@ type Item = {
   image_url?: string | null;
   composition?: MaterialComposition[] | null;
 };
+
+type ItemPage = { rows: Item[]; total: number; page: number; page_size: number };
 
 type Supplier = {
   id: number;
@@ -184,27 +187,33 @@ export default function InventoryMasterDataPage() {
     return tabs;
   }, [canEditItems, canEditAccessories, canEditSuppliers]);
 
-  const { data: materials, mutate: refreshMaterials } = useSWR<Item[]>(
-    canEditItems ? "/api/inventory/items?group=materials&page_size=500" : null,
+  const { data: materialPages, mutate: refreshMaterials, size: materialPageCount, setSize: setMaterialPageCount } = useSWRInfinite<ItemPage>(
+    (index, previous) => canEditItems && tab === "materials" && !(previous && index * 50 >= previous.total)
+      ? `/api/inventory/items?group=materials&page=${index + 1}&page_size=50&include_total=true&master_data_search=true&q=${encodeURIComponent(query.trim())}`
+      : null,
     fetcher,
   );
-  const { data: accessories, mutate: refreshAccessories } = useSWR<Item[]>(
-    canEditAccessories && tab === "accessories" ? "/api/inventory/items?group=accessories&page_size=500" : null,
+  const { data: accessoryPages, mutate: refreshAccessories, size: accessoryPageCount, setSize: setAccessoryPageCount } = useSWRInfinite<ItemPage>(
+    (index, previous) => canEditAccessories && tab === "accessories" && !(previous && index * 50 >= previous.total)
+      ? `/api/inventory/items?group=accessories&page=${index + 1}&page_size=50&include_total=true&master_data_search=true&q=${encodeURIComponent(query.trim())}`
+      : null,
     fetcher,
   );
+  const materials = useMemo(() => materialPages?.flatMap((page) => page.rows) || [], [materialPages]);
+  const accessories = useMemo(() => accessoryPages?.flatMap((page) => page.rows) || [], [accessoryPages]);
   const { data: suppliers, mutate: refreshSuppliers } = useSWR<Supplier[]>(
     canEditSuppliers && tab === "suppliers" ? "/api/suppliers" : null,
     fetcher,
   );
 
   const activeItems = useMemo(
-    () => (tab === "materials" ? materials || [] : tab === "accessories" ? accessories || [] : []),
+    () => (tab === "materials" ? materials : tab === "accessories" ? accessories : []),
     [accessories, materials, tab],
   );
-  const filteredItems = useMemo(
-    () => activeItems.filter((item) => !query.trim() || [item.name, formatComposition(item.composition)].some((value) => lc(value).includes(lc(query)))),
-    [activeItems, query],
-  );
+  const filteredItems = activeItems;
+  const activeItemTotal = tab === "materials" ? materialPages?.[0]?.total ?? 0 : accessoryPages?.[0]?.total ?? 0;
+  const itemPageCount = tab === "materials" ? materialPageCount : accessoryPageCount;
+  const loadMoreItems = tab === "materials" ? setMaterialPageCount : setAccessoryPageCount;
   const filteredSuppliers = useMemo(
     () => (suppliers || []).filter((supplier) => !query.trim() || [supplier.name, supplier.phone, supplier.email, supplier.address].some((value) => lc(value).includes(lc(query)))),
     [query, suppliers],
@@ -465,6 +474,11 @@ export default function InventoryMasterDataPage() {
               </table>
             )}
           </div>
+          {!isSupplierTab && filteredItems.length < activeItemTotal && (
+            <button type="button" className="btn m-4" onClick={() => void loadMoreItems(itemPageCount + 1)}>
+              {t("common.loadMore")} ({filteredItems.length} / {activeItemTotal})
+            </button>
+          )}
         </section>
 
         <section className="card p-5">

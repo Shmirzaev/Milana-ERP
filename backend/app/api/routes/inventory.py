@@ -1,3 +1,4 @@
+import re
 from app.models.eco_transfer import EcoFabricRoll
 from app.core.order_reference import canonical_business_order_reference, canonical_order_reference, order_reference_contains
 from datetime import date, datetime
@@ -6,7 +7,7 @@ from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Depends, Header, UploadFile, File, Response, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.orm import lazyload, load_only
 
 from app.core.dt import date_filter_bounds
@@ -396,6 +397,7 @@ def list_items(
     page: int = 1,
     page_size: int = 500,
     include_total: bool = False,
+    master_data_search: bool = False,
 ):
     group = inventory_access.scoped_group(_, group, category)
     qry = db.query(Item).filter(Item.is_active.is_(True))
@@ -403,7 +405,23 @@ def list_items(
     if categories:
         qry = qry.filter(Item.category.in_(categories))
     if category: qry = qry.filter(Item.category == category)
-    if q: qry = qry.filter((Item.name.ilike(f"%{q}%")) | (Item.sku.ilike(f"%{q}%")))
+    if q:
+        if master_data_search:
+            # The Master Data table searches the displayed name and composition.
+            # Split the formatted composition's spaces and percent signs so a
+            # search such as "Cotton 50%" matches its JSON representation too.
+            tokens = [token for token in re.split(r"[\s,;%]+", q.strip()) if token]
+            composition = cast(Item.composition_json, String)
+            composition_match = (
+                and_(*(composition.ilike(f"%{token}%") for token in tokens))
+                if tokens else composition.ilike(f"%{q}%")
+            )
+            qry = qry.filter(or_(
+                Item.name.ilike(f"%{q}%"),
+                composition_match,
+            ))
+        else:
+            qry = qry.filter((Item.name.ilike(f"%{q}%")) | (Item.sku.ilike(f"%{q}%")))
     start, end = date_filter_bounds(created_from, created_to)
     if start: qry = qry.filter(Item.created_at >= start)
     if end: qry = qry.filter(Item.created_at <= end)
