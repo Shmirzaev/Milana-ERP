@@ -1,7 +1,7 @@
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 
 class PriceCalculationCreateIn(BaseModel):
@@ -25,6 +25,27 @@ class PriceCalculationFinanceIn(BaseModel):
     exchange_rate: float | None = Field(
         default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
+
+    @field_validator("cost_price_uzs", "selling_price", "profit_percentage", "exchange_rate", mode="before")
+    @classmethod
+    def reject_fractional_precision(cls, value: object, info: ValidationInfo) -> object:
+        places, maximum = {
+            "cost_price_uzs": (2, Decimal("9999999999999999.99")),
+            "selling_price": (4, Decimal("9999999999.9999")),
+            "profit_percentage": (2, Decimal("999999.99")),
+            "exchange_rate": (4, Decimal("9999999999.9999")),
+        }[info.field_name]
+        try:
+            amount = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return value
+        if not amount.is_finite() or not Decimal("0") <= amount <= maximum:
+            return value
+        digits = amount.as_tuple().digits
+        extra_places = -amount.as_tuple().exponent - places
+        if extra_places > 0 and any(digits[-extra_places:]):
+            raise ValueError(f"{info.field_name} cannot have more than {places} decimal places")
+        return value
 
 
 class PriceCalculationPurchasingIn(BaseModel):

@@ -38,6 +38,7 @@ def _state(request_id: int) -> tuple:
         model = db.get(Model, request.model_id)
         assert model is not None
         return (
+            request.cost_price_uzs,
             request.selling_price,
             request.profit_percentage,
             request.exchange_rate,
@@ -109,6 +110,21 @@ def test_finance_fields_preserve_none_zero_ordinary_values_and_storage_maxima():
 
 
 @pytest.mark.parametrize(
+    ("field", "too_precise", "trailing_zero"),
+    [
+        ("cost_price_uzs", "12.345", "12.340"),
+        ("selling_price", "12.34567", "12.34560"),
+        ("profit_percentage", "12.345", "12.340"),
+        ("exchange_rate", "12750.12345", "12750.12340"),
+    ],
+)
+def test_finance_fields_reject_only_nonzero_excess_fractional_digits(field, too_precise, trailing_zero):
+    with pytest.raises(ValidationError, match="decimal places"):
+        PriceCalculationFinanceIn(**{field: too_precise})
+    assert getattr(PriceCalculationFinanceIn(**{field: trailing_zero}), field) is not None
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("selling_price", "Infinity"),
@@ -131,6 +147,31 @@ def test_invalid_finance_update_has_no_request_model_audit_or_notification_side_
         f"/api/price-calculation/requests/{request_id}/finance",
         headers=auth_headers,
         json={"selling_price": 0, "profit_percentage": 12, "exchange_rate": 12750, field: value},
+    )
+
+    assert response.status_code == 422, response.text
+    assert _state(request_id) == before
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("cost_price_uzs", "12.345"),
+        ("selling_price", "12.34567"),
+        ("profit_percentage", "12.345"),
+        ("exchange_rate", "12750.12345"),
+    ],
+)
+def test_excess_finance_precision_has_no_request_model_audit_or_notification_side_effects(
+    client, auth_headers, field, value,
+):
+    request_id = _create_request(client, auth_headers)
+    before = _state(request_id)
+
+    response = client.patch(
+        f"/api/price-calculation/requests/{request_id}/finance",
+        headers=auth_headers,
+        json={field: value},
     )
 
     assert response.status_code == 422, response.text
