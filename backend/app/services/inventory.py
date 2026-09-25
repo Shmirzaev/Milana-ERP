@@ -3785,6 +3785,35 @@ def issue_accessories_to_production_order(
                     MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
                 ).group_by(MaterialReservation.stock_batch_id).all()
             }
+        # A warehouse-scoped item-only reservation has no batch ID, but its
+        # warehouse's batches still back the claim. Protect those batches
+        # before FIFO issue so a free batch elsewhere is chosen first.
+        for item_id, warehouse_id, claimed in db.query(
+            MaterialReservation.item_id,
+            MaterialReservation.warehouse_id,
+            _active_reserved_sum_query(db),
+        ).filter(
+            MaterialReservation.item_id.in_(item_ids),
+            MaterialReservation.stock_batch_id.is_(None),
+            MaterialReservation.warehouse_id.is_not(None),
+            MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+        ).group_by(
+            MaterialReservation.item_id, MaterialReservation.warehouse_id,
+        ).all():
+            remaining = max(Decimal(0), Decimal(str(claimed or 0)))
+            for batch in reversed(locked_batches[int(item_id)]):
+                if remaining <= 0:
+                    break
+                if int(batch.warehouse_id) != int(warehouse_id):
+                    continue
+                batch_id = int(batch.id)
+                free = max(
+                    Decimal(0), Decimal(str(batch.quantity or 0))
+                    - reserved_by_batch.get(batch_id, Decimal(0)),
+                )
+                protected = min(free, remaining)
+                reserved_by_batch[batch_id] = reserved_by_batch.get(batch_id, Decimal(0)) + protected
+                remaining -= protected
 
     plan = accessory_issue_plan(db, production_order_id)
     plan_by_item_id = {int(row["item_id"]): row for row in plan["rows"]}
