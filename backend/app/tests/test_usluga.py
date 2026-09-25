@@ -497,7 +497,8 @@ def test_usluga_cutting_batch_name_remains_editable_while_quantity_locks_after_b
         f"/api/work-orders/{cutting['id']}/batches/{batch_id}",
         json={"name": "Still initial", "planned_quantity": 0},
     )
-    assert invalid_quantity.status_code == 400, invalid_quantity.text
+    # The bounded request schema rejects zero before the route's business checks.
+    assert invalid_quantity.status_code == 422, invalid_quantity.text
 
     # A report-only secondary fabric entry creates no product bundles and must
     # not lock correction of the production-batch name or piece count.
