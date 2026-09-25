@@ -17,6 +17,7 @@ from app.services.model_images import model_preview_image_url, model_variant_pic
 
 
 FIXED_PACKAGING_COST = Decimal("0.1")
+MAX_BINDING_KG_PER_PIECE = Decimal("99999999.999999")
 PURCHASING_PERMISSION = "price_calculation.purchasing"
 ACCESSORIES_PERMISSION = "price_calculation.accessories"
 CUTTING_PERMISSION = "price_calculation.cutting"
@@ -407,6 +408,12 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
             (_decimal(passport.beka_per_piece_kg) or Decimal(0))
             + (_decimal(passport.other_beka_per_piece_kg) or Decimal(0))
         )
+        if (
+            not passport_binding.is_finite()
+            or passport_binding < 0
+            or passport_binding > MAX_BINDING_KG_PER_PIECE
+        ):
+            raise HTTPException(422, "Passport binding weight exceeds price calculation storage limits")
     request.fabric_width_m = passport.fabric_width_m if passport and passport.fabric_width_m is not None else data.get("fabric_width_m")
     request.lay_length_m = passport.lay_length_m if passport and passport.lay_length_m is not None else data.get("lay_length_m")
     passport_size_count = _size_count_from_range(passport.size_range) if passport else 0

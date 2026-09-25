@@ -1,10 +1,13 @@
 from copy import deepcopy
+from datetime import datetime, timezone
+from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, Model, PriceCalculationRequest
+from app.models import AuditLog, CuttingPassport, Model, PriceCalculationRequest
 from app.schemas.price_calculation import PriceCalculationCuttingIn
 
 
@@ -147,6 +150,50 @@ def test_valid_cutting_price_update_remains_compatible(client, auth_headers):
     assert body["size_count"] == 3
     assert body["gramage"] == pytest.approx(0.185)
     assert body["binding_kg_per_piece"] == pytest.approx(0.007)
+
+
+def test_passport_binding_sum_overflow_rejects_before_price_request_writes(client, auth_headers):
+    request_id = _create_request(client, auth_headers)
+    passport_no = f"PC-BIND-{uuid4().hex[:12]}"
+    with SessionLocal() as db:
+        request = db.get(PriceCalculationRequest, request_id)
+        db.add(CuttingPassport(
+            passport_no=passport_no,
+            date=datetime.now(timezone.utc),
+            model_code=request.model.code,
+            beka_per_piece_kg=Decimal("99999999.999999"),
+            other_beka_per_piece_kg=Decimal("0.000001"),
+        ))
+        db.commit()
+    before = _state(request_id)
+
+    unauthenticated = client.patch(
+        f"/api/price-calculation/requests/{request_id}/cutting",
+        json={"kroy_no": passport_no},
+    )
+    assert unauthenticated.status_code == 401, unauthenticated.text
+
+    rejected = client.patch(
+        f"/api/price-calculation/requests/{request_id}/cutting",
+        headers=auth_headers,
+        json={"kroy_no": passport_no},
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert _state(request_id) == before
+
+    with SessionLocal() as db:
+        passport = db.query(CuttingPassport).filter_by(passport_no=passport_no).one()
+        passport.other_beka_per_piece_kg = Decimal("0")
+        db.commit()
+
+    accepted = client.patch(
+        f"/api/price-calculation/requests/{request_id}/cutting",
+        headers=auth_headers,
+        json={"kroy_no": passport_no},
+    )
+    assert accepted.status_code == 200, accepted.text
+    with SessionLocal() as db:
+        assert db.get(PriceCalculationRequest, request_id).binding_kg_per_piece == Decimal("99999999.999999")
 
 
 def test_invalid_cutting_price_input_preserves_authentication_precedence(client):
