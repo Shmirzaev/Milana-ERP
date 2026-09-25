@@ -1,18 +1,38 @@
 """Physical receipt and exact print-run handoff regressions (isolated test DB)."""
+import json
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import event, select
 
 from app.db.session import SessionLocal
 from app.tests.conftest import test_engine
 from app.models import (
-    AuditLog, Department, FinishedGoodsStock, ManualPackageReceipt, Model, Package,
+    AuditLog, Department, FinishedGoodsStock, ManualPackageReceipt, Model, ModelSize, Package,
     PackageBarcodeAlias, PackagePrintRun, PackagePrintRunMember,
     PackageScanLog, PackagingRecord, ProductionOrder, WorkOrder,
 )
 
 BASE = "/api/packages"
+
+
+def test_manual_receipt_evidence_byte_boundary_and_largest_request_shape():
+    from app.services.package_workflows import _validate_manual_receipt_evidence
+
+    overhead = len(json.dumps({"name": ""}, separators=(",", ":")).encode("utf-8"))
+    _validate_manual_receipt_evidence({"name": "x" * (16 * 1024 - overhead)})
+    with pytest.raises(HTTPException) as exc:
+        _validate_manual_receipt_evidence({"name": "x" * (16 * 1024 - overhead + 1)})
+    assert exc.value.status_code == 422
+
+    _validate_manual_receipt_evidence({
+        "pack_quantities": [10000] * 200,
+        "configured_sizes": ["S" * 32] * 50,
+        "reason": "é" * 1000,
+        "model_name": "M" * 255,
+        "color": "C" * 64,
+    })
 
 
 def test_packaging_bom_item_preload_preserves_order_and_skips_missing_items(monkeypatch):
@@ -167,6 +187,37 @@ def test_manual_receipt_once_with_real_source_and_reprints(client, warehouse):
     assert before == stock_fingerprint()
     lookup = client.get(BASE + f"/{saved['print_run']['package_ids'][0]}", headers=warehouse)
     assert lookup.json()["manual_source"]["receipt_no"] == saved["receipt_no"]
+
+
+def test_manual_receipt_rejects_oversized_configured_size_evidence_without_writes(client, warehouse):
+    token = uuid4().hex[:8]
+    with SessionLocal() as db:
+        model = Model(code=f"EVIDENCE-{token}", name="Manual receipt evidence", status="approved")
+        db.add(model)
+        db.flush()
+        first_size = f"S-0000-{'x' * 24}"
+        db.add_all(
+            ModelSize(model_id=model.id, size=f"S-{number:04d}-{'x' * 24}")
+            for number in range(600)
+        )
+        db.commit()
+        model_id = model.id
+        receipt_count = db.query(ManualPackageReceipt).count()
+        package_count = db.query(Package).count()
+        audit_count = db.query(AuditLog).filter(AuditLog.action == "manual_receipt").count()
+
+    response = client.post(BASE + "/manual-receipt", headers=warehouse, json={
+        "request_key": str(uuid4()), "model_id": model_id, "color": "White",
+        "weight_kg": 1.5, "count": 1,
+        "sizes": [{"size": first_size, "quantity": 1}],
+    })
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Manual receipt evidence exceeds 16 KiB"
+    with SessionLocal() as db:
+        assert db.query(ManualPackageReceipt).count() == receipt_count
+        assert db.query(Package).count() == package_count
+        assert db.query(AuditLog).filter(AuditLog.action == "manual_receipt").count() == audit_count
 
 
 def test_six_then_four_receive_by_actual_package_qr_and_alias(client, auth_headers, warehouse, packaging_order):

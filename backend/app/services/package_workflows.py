@@ -1,5 +1,6 @@
 """Explicit physical receipts; label operations never mint stock."""
 from datetime import datetime, timezone
+import json
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -21,6 +22,13 @@ from app.services.packages import (
 
 
 _CANCELLED_REQUEST_RESPONSE = {"_package_workflow_status": "cancelled"}
+_MAX_MANUAL_RECEIPT_EVIDENCE_BYTES = 16 * 1024
+
+
+def _validate_manual_receipt_evidence(evidence):
+    encoded = json.dumps(evidence, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    if len(encoded) > _MAX_MANUAL_RECEIPT_EVIDENCE_BYTES:
+        raise HTTPException(422, "Manual receipt evidence exceeds 16 KiB")
 
 
 def cancelled_request_response():
@@ -221,6 +229,7 @@ def manual_receipt(db, current, payload):
     evidence = {**payload.model_dump(mode="json"), "weight_kg": weight, "model_code": model.code, "model_name": model.name,
                 "configured_sizes": configured, "quantity_per_package": quantities[0] if len(set(quantities)) == 1 else None,
                 "total_quantity": sum(quantities)}
+    _validate_manual_receipt_evidence(evidence)
     receipt = ManualPackageReceipt(receipt_no=_next(db, ManualPackageReceipt, "receipt_no", "WMR"),
                                    created_by=current.id, evidence=evidence, evidence_hash=request_fingerprint(evidence))
     db.add(receipt)
