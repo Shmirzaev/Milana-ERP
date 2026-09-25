@@ -468,6 +468,13 @@ class AccessoryIssueIn(BaseModel):
     lines: list[AccessoryIssueLineIn] = Field(max_length=1000)
     notes: Optional[str] = None
 
+    @field_validator("notes")
+    @classmethod
+    def bound_notes_for_audit_json(cls, value: str | None) -> str | None:
+        if value is not None and len(value.encode("utf-8")) > 4096:
+            raise ValueError("accessory issue notes cannot exceed 4096 UTF-8 bytes")
+        return value
+
 
 class AccessoryIssueLineOut(BaseModel):
     item_id: int

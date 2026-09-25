@@ -1,6 +1,10 @@
 from uuid import uuid4
 
-from app.models import Item, Model, ProductionOrder, StockBatch, StockMovement, Warehouse
+import pytest
+from pydantic import ValidationError
+
+from app.models import AuditLog, Item, Model, ProductionOrder, StockBatch, StockMovement, Warehouse
+from app.schemas.inventory import AccessoryIssueIn
 from app.tests.conftest import TestSessionLocal
 
 
@@ -59,6 +63,33 @@ def test_stock_backed_accessory_issue_rejects_mismatched_unit_without_writes(cli
     with TestSessionLocal() as db:
         assert float(db.get(StockBatch, batch_id).quantity) == 10
         assert db.query(StockMovement).filter_by(item_id=item_id).count() == 1
+
+
+def test_oversized_accessory_issue_notes_reject_before_stock_movement_or_audit_write(client, auth_headers):
+    order_id, item_id, batch_id = _seed_stock_backed_accessory()
+    boundary = "🍃" * 1024
+    line = {"item_id": item_id, "quantity": 2, "unit": "pcs"}
+    assert AccessoryIssueIn(production_order_id=order_id, lines=[line], notes=boundary).notes == boundary
+    with pytest.raises(ValidationError, match="4096 UTF-8 bytes"):
+        AccessoryIssueIn(production_order_id=order_id, lines=[line], notes=boundary + "🍃")
+
+    with TestSessionLocal() as db:
+        before = (
+            db.get(StockBatch, batch_id).quantity,
+            db.query(StockMovement).filter_by(item_id=item_id).count(),
+            db.query(AuditLog).count(),
+        )
+    response = client.post(
+        "/api/inventory/accessory-issues", headers=auth_headers,
+        json={"production_order_id": order_id, "lines": [line], "notes": boundary + "🍃"},
+    )
+    assert response.status_code == 422, response.text
+    with TestSessionLocal() as db:
+        assert (
+            db.get(StockBatch, batch_id).quantity,
+            db.query(StockMovement).filter_by(item_id=item_id).count(),
+            db.query(AuditLog).count(),
+        ) == before
 
 
 def test_mismatched_second_line_rolls_back_first_stock_issue(client, auth_headers):
