@@ -109,6 +109,30 @@ def test_brand_search_filters_before_paging_and_escapes_like_wildcards():
         assert literal["rows"][0].name == "Brand %_ literal"
 
 
+def test_active_brand_picker_pages_filter_before_count_and_keep_legacy_list():
+    with _brand_database(401) as db:
+        db.query(Brand).filter(Brand.name.in_(("Brand 0000", "Brand 0400"))).update(
+            {Brand.is_active: False}, synchronize_session=False,
+        )
+        db.commit()
+
+        page, statements = _read(db, page=1, page_size=50, active_only=True)
+        assert page["total"] == 399
+        assert len(page["rows"]) == 50
+        assert page["rows"][0].name == "Brand 0001"
+        assert all(row.is_active for row in page["rows"])
+        assert len(statements) == 2
+
+        last, _ = _read(db, page=8, page_size=50, active_only=True)
+        assert last["total"] == 399
+        assert len(last["rows"]) == 49
+        assert last["has_more"] is False
+
+        legacy, _ = _read(db, limit=500)
+        assert len(legacy) == 401
+        assert legacy[0].name == "Brand 0000"
+
+
 def test_brand_id_lookup_keeps_visible_collection_brands_outside_first_page(client, auth_headers):
     with _brand_database(401) as db:
         selected_ids = [

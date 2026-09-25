@@ -60,4 +60,16 @@ tree.props.onLoadMore();
 assert.deepEqual(sizes, [2]);
 tree.props.onChange(1);
 assert.deepEqual(chosen, [1]);
+requests.length = 0;
+const planningTree = testModule.exports.default({
+  value: 777,
+  onChange: (id) => chosen.push(id),
+  inputId: "planning-brand",
+  activeOnly: true,
+  selectedBrand: { id: 777, name: "New planning brand" },
+});
+assert.equal(requests[0], "/api/brands?page=1&page_size=50&q=&active_only=true");
+assert.equal(requests.includes("/api/brands/777"), false,
+  "a newly created planning brand must display without a detail request");
+assert.ok(planningTree.props.options.some((option) => option.value === 777 && option.label === "New planning brand"));
 console.log("PASS: Collections brand picker preserves an off-page selection and loads bounded brand pages.");

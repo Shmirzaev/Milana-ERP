@@ -1449,6 +1449,7 @@ def list_brands(
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
     q: str | None = None,
     ids: Annotated[list[int] | None, Query(max_length=100)] = None,
+    active_only: bool = False,
 ):
     """Return the reference-brand list with a bounded payload."""
     ordered_query = (
@@ -1458,6 +1459,8 @@ def list_brands(
     )
     if ids is not None:
         ordered_query = ordered_query.filter(Brand.id.in_(ids))
+    if active_only:
+        ordered_query = ordered_query.filter(Brand.is_active.is_(True))
     search = (q or "").strip()
     if search:
         escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

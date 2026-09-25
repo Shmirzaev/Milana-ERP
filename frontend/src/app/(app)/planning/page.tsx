@@ -12,6 +12,7 @@ import BrandedOrderHistory, { type BrandedPlanningOrder } from "@/components/Bra
 import Modal from "@/components/Modal";
 import SearchableSelect from "@/components/SearchableSelect";
 import BrandedModelVariantSelect from "@/components/BrandedModelVariantSelect";
+import BrandAsyncSelect from "@/components/BrandAsyncSelect";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
@@ -337,7 +338,7 @@ export default function PlanningDashboard() {
   const { data: dash } = useSWR<any>("/api/dashboard/planning", fetcher);
   const { data: orders } = useSWR<any[]>("/api/sales-orders?order_type=client_order&page_size=200", fetcher);
   const { data: productionOrders, mutate: mutateProductionOrders } = useSWR<any[]>("/api/production-orders?page_size=100", fetcher);
-  const { data: brands, mutate: mutateBrands } = useSWR<Brand[]>("/api/brands", fetcher);
+  const [createdBrand, setCreatedBrand] = useState<Brand | null>(null);
   const { data: fabricBatches } = useSWR<FabricBatch[]>("/api/inventory/batches?group=materials&hide_empty=true&page_size=1000", fetcher);
   const { data: brandedOrders, mutate: mutateBrandedOrders } = useSWR<BrandedPlanningOrder[]>("/api/planning/branded-orders", fetcher, { refreshInterval: 10_000 });
   const canViewForecasting = can(me, "forecasting.view");
@@ -399,12 +400,15 @@ export default function PlanningDashboard() {
   const brandedTotalQty = brandedForm.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
   const brandedPrintingLineCount = brandedForm.lines.filter((line) => Boolean(line.printing_required)).length;
   const brandedHasPrintingSelected = brandedPrintingLineCount > 0;
-  const activeBrands = (brands || []).filter((brand) => brand.is_active);
   const availableFabricBatches = useMemo(() => (fabricBatches || [])
     .filter((batch) => Number(batch.available_quantity || 0) > 0)
     .filter((batch) => !["failed", "rejected"].includes(String(batch.qc_status || "").toLowerCase())), [fabricBatches]);
   const selectedBrandedModel = selectedBrandedModelDetail || null;
-  const selectedBrandedBrand = activeBrands.find((brand) => Number(brand.id) === Number(brandedForm.brand_id)) || null;
+  const { data: brandedBrandDetail } = useSWR<Brand>(
+    brandedForm.brand_id && createdBrand?.id !== brandedForm.brand_id ? `/api/brands/${brandedForm.brand_id}` : null,
+    fetcher,
+  );
+  const selectedBrandedBrand = createdBrand?.id === brandedForm.brand_id ? createdBrand : brandedBrandDetail;
   const selectedBrandedModelSizes = useMemo(
     () => uniqueSortedSizes((selectedBrandedModelDetail?.sizes || []).map((row) => row.size)),
     [selectedBrandedModelDetail],
@@ -541,11 +545,7 @@ export default function PlanningDashboard() {
         description: newBrandForm.description.trim() || null,
         is_active: true,
       });
-      await mutateBrands(
-        (current) => [...(current || []).filter((brand) => brand.id !== created.id), created]
-          .sort((a, b) => a.name.localeCompare(b.name)),
-        { revalidate: false },
-      );
+      setCreatedBrand(created);
       if (target === "material") {
         setMaterialEstimate((prev) => prev ? { ...prev, brandId: created.id } : prev);
       } else if (target === "batch") {
@@ -1299,15 +1299,14 @@ export default function PlanningDashboard() {
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="label">{t("field.brand")}</label>
-                    <select
-                      className="input"
-                      value={batchPlan.brandId}
-                      onChange={(e) => setBatchPlan((prev) => prev ? { ...prev, brandId: Number(e.target.value) } : prev)}
+                    <BrandAsyncSelect
+                      inputId="planning-batch-brand"
+                      value={batchPlan.brandId || null}
+                      onChange={(brandId) => setBatchPlan((prev) => prev ? { ...prev, brandId } : prev)}
+                      selectedBrand={createdBrand}
+                      activeOnly
                       required
-                    >
-                      <option value={0}>{t("newso.brandSelect")}</option>
-                      {activeBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-                    </select>
+                    />
                     <button
                       type="button"
                       className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:underline"
@@ -1494,15 +1493,14 @@ export default function PlanningDashboard() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="label">{t("field.brand")}</label>
-                  <select
-                    className="input"
-                    value={materialEstimate.brandId}
-                    onChange={(e) => setMaterialEstimate((prev) => prev ? { ...prev, brandId: Number(e.target.value) } : prev)}
+                  <BrandAsyncSelect
+                    inputId="planning-material-brand"
+                    value={materialEstimate.brandId || null}
+                    onChange={(brandId) => setMaterialEstimate((prev) => prev ? { ...prev, brandId } : prev)}
+                    selectedBrand={createdBrand}
+                    activeOnly
                     required
-                  >
-                    <option value={0}>{t("newso.brandSelect")}</option>
-                    {activeBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-                  </select>
+                  />
                   <button
                     type="button"
                     className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:underline"
@@ -1587,15 +1585,14 @@ export default function PlanningDashboard() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label className="label">{t("field.brand")}</label>
-                <select
-                  className="input"
-                  value={brandedForm.brand_id}
-                  onChange={(e) => setBrandedForm((prev) => ({ ...prev, brand_id: Number(e.target.value) }))}
+                <BrandAsyncSelect
+                  inputId="planning-branded-brand"
+                  value={brandedForm.brand_id || null}
+                  onChange={(brandId) => setBrandedForm((prev) => ({ ...prev, brand_id: brandId }))}
+                  selectedBrand={createdBrand}
+                  activeOnly
                   required
-                >
-                  <option value={0}>{t("newso.brandSelect")}</option>
-                  {activeBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-                </select>
+                />
                 <button
                   type="button"
                   className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:underline"
