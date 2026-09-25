@@ -2,6 +2,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import math
 from fastapi import HTTPException
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session, object_session
@@ -52,6 +53,7 @@ _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE = 400
 _PACKAGE_ROW_LIMIT = 200
 _PACKAGE_EDIT_NOTES_BYTES = 4096
 _PACKAGE_INTEGER_MAX = 2_147_483_647
+_FINISHED_GOODS_COST_MAX = 99_999_999.9999  # finished_goods_stock.cost_per_piece NUMERIC(12,4)
 
 
 @dataclass
@@ -336,7 +338,10 @@ def _compute_cost(db: Session, model_id: int) -> float:
         cost_per_unit = latest_cost_by_item_id.get(item_id) if item_id is not None else None
         unit_cost = float(cost_per_unit) if item_id in latest_cost_by_item_id else 0.0
         cost += float(b.quantity_per_piece) * unit_cost * (1.0 + float(b.waste_percent) / 100.0)
-    return round(cost, 4)
+    stored_cost = round(cost, 4) if math.isfinite(cost) else cost
+    if not math.isfinite(stored_cost) or stored_cost < 0 or stored_cost > _FINISHED_GOODS_COST_MAX:
+        raise HTTPException(409, "Computed finished-goods cost exceeds supported precision")
+    return stored_cost
 
 
 def _packaging_record_totals_by_batch(db: Session, production_order_id: int) -> dict[int | None, int]:
@@ -713,6 +718,19 @@ def create_package(
         if len(str(item["size"])) > 32:
             raise HTTPException(422, "item size must be at most 32 characters")
 
+    # Cost validation must precede package-number allocation and QR/barcode
+    # writes, which are not rolled back with the database transaction.
+    cost = None
+    if po.source_type != "usluga":
+        if _cost_cache is not None and model_id in _cost_cache:
+            cost = _cost_cache[model_id]
+            if not math.isfinite(cost) or cost < 0 or cost > _FINISHED_GOODS_COST_MAX:
+                raise HTTPException(409, "Computed finished-goods cost exceeds supported precision")
+        else:
+            cost = _compute_cost(db, model_id)
+            if _cost_cache is not None:
+                _cost_cache[model_id] = cost
+
     if _package_no is not None:
         pkg_no = _package_no
     elif _write_context is not None and _write_context.package_number_count:
@@ -775,12 +793,6 @@ def create_package(
     # Milana finished-goods stock. Standard production retains its existing
     # stock behavior unchanged.
     if po.source_type != "usluga":
-        if _cost_cache is not None and model_id in _cost_cache:
-            cost = _cost_cache[model_id]
-        else:
-            cost = _compute_cost(db, model_id)
-            if _cost_cache is not None:
-                _cost_cache[model_id] = cost
         for it in items:
             db.add(FinishedGoodsStock(
                 production_order_id=production_order_id,
@@ -1250,11 +1262,11 @@ def _replace_finished_goods_for_package(
     pkg: Package,
     items: list[dict],
 ) -> None:
+    cost = _compute_cost(db, pkg.model_id)
     for row in db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == pkg.id).all():
         db.delete(row)
     db.flush()
 
-    cost = _compute_cost(db, pkg.model_id)
     for item in items:
         qty = int(item["quantity"])
         db.add(

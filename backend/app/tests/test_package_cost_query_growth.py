@@ -1,11 +1,12 @@
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models import (
-    Brand, Collection, CollectionModel, FinishedGoodsStock, Item, Model, ModelBOM,
+    Brand, Collection, CollectionModel, FinishedGoodsStock, Item, Model, ModelBOM, Package,
     ProductionOrder, StockBatch, Warehouse,
 )
 from app.services import packages as package_service
@@ -122,6 +123,40 @@ def test_compute_cost_preserves_missing_null_item_and_duplicate_bom_semantics():
         ])
         db.commit()
         assert package_service._compute_cost(db, model.id) == 0.0
+
+
+def test_unrepresentable_finished_goods_cost_rejects_before_package_or_artifact_writes(monkeypatch):
+    model_id, _ = _cost_model(1)
+    marker = uuid4().hex[:8]
+    with SessionLocal() as db:
+        bom = db.query(ModelBOM).filter_by(model_id=model_id).one()
+        latest_batch = db.query(StockBatch).filter_by(item_id=bom.item_id).order_by(StockBatch.id.desc()).first()
+        bom.quantity_per_piece = 2
+        latest_batch.cost_per_unit = 60_000_000
+        order = ProductionOrder(
+            production_no=f"FN07-PO-{marker}", production_type="branded_stock",
+            model_id=model_id, status="packaging", planned_quantity=1,
+        )
+        db.add(order)
+        db.commit()
+
+        monkeypatch.setattr(package_service, "_enforce_packaged_quantity_available", lambda *_args, **_kwargs: None)
+
+        def unexpected_artifact(*_args, **_kwargs):
+            raise AssertionError("Cost validation must precede artifact writes")
+
+        monkeypatch.setattr(package_service, "save_qr_image", unexpected_artifact)
+        monkeypatch.setattr(package_service, "save_barcode_image", unexpected_artifact)
+        before = (db.query(Package).count(), db.query(FinishedGoodsStock).count())
+        with pytest.raises(HTTPException) as error:
+            package_service.create_package(
+                db, production_order_id=order.id, model_id=model_id, color="navy",
+                items=[{"model_id": model_id, "color": "navy", "size": "M", "quantity": 1}],
+                capacity=1, packaging_department_code="PKG",
+            )
+        assert error.value.status_code == 409
+        assert "cost" in error.value.detail
+        assert (db.query(Package).count(), db.query(FinishedGoodsStock).count()) == before
 
 
 def test_create_package_persists_batched_cost(monkeypatch):
