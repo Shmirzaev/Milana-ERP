@@ -6,7 +6,7 @@ from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Depends, Header, UploadFile, File, Response, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import lazyload, load_only
 
 from app.core.dt import date_filter_bounds
@@ -57,6 +57,7 @@ from app.services.stock_batch_policy import (
     validate_stock_batch_warehouse,
 )
 from app.services.inventory import (
+    ACTIVE_RESERVATION_STATUSES,
     accessory_issue_plan,
     accessory_issue_requests,
     accessory_issue_summary,
@@ -1529,6 +1530,59 @@ def transfer_stock(
     for warehouse_id in (payload.from_warehouse_id, payload.to_warehouse_id):
         if warehouse_id is not None and not db.get(Warehouse, warehouse_id):
             raise HTTPException(404, "Warehouse not found")
+
+    if payload.batch_id is None and db.bind and db.bind.dialect.name == "postgresql":
+        db.query(Item.id).filter(Item.id == item.id).with_for_update().one()
+
+    if payload.movement_type == "transfer" and payload.batch_id is None:
+        source_id = payload.from_warehouse_id
+        destination_id = payload.to_warehouse_id
+        if source_id is None or destination_id is None:
+            raise HTTPException(400, "Source and destination warehouses are required")
+        if source_id == destination_id:
+            raise HTTPException(400, "Destination warehouse must differ from the source")
+        validate_stock_batch_warehouse(item, db.get(Warehouse, source_id))
+        validate_stock_batch_warehouse(item, db.get(Warehouse, destination_id))
+        # Sum the source's batchless ledger directly: tracked batch stock
+        # cannot back this transfer, and float stock summaries lose precision.
+        incoming = (
+            (StockMovement.movement_type.in_(("produce", "return", "adjustment")))
+            & (StockMovement.to_warehouse_id == source_id)
+        ) | (
+            (StockMovement.movement_type == "transfer")
+            & (StockMovement.to_warehouse_id == source_id)
+        )
+        outgoing = (
+            (StockMovement.movement_type.in_(("issue", "consume", "waste", "shipment")))
+            & (StockMovement.from_warehouse_id == source_id)
+        ) | (
+            (StockMovement.movement_type == "transfer")
+            & (StockMovement.from_warehouse_id == source_id)
+        )
+        received, spent = db.query(
+            func.coalesce(func.sum(case((incoming, StockMovement.quantity), else_=0)), 0),
+            func.coalesce(func.sum(case((outgoing, StockMovement.quantity), else_=0)), 0),
+        ).filter(
+            StockMovement.item_id == item.id,
+            StockMovement.batch_id.is_(None),
+        ).one()
+        unbatched_reserved = db.query(func.coalesce(func.sum(
+            MaterialReservation.reserved_quantity
+            - MaterialReservation.consumed_quantity
+            - MaterialReservation.released_quantity,
+        ), 0)).filter(
+            MaterialReservation.item_id == item.id,
+            MaterialReservation.stock_batch_id.is_(None),
+            MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+            or_(MaterialReservation.warehouse_id == source_id, MaterialReservation.warehouse_id.is_(None)),
+        ).scalar()
+        available_unbatched = (
+            Decimal(str(received or 0))
+            - Decimal(str(spent or 0))
+            - max(Decimal(0), Decimal(str(unbatched_reserved or 0)))
+        )
+        if quantity > available_unbatched:
+            raise HTTPException(409, "Transfer quantity exceeds available batchless stock")
 
     movement_data = payload.model_dump()
     movement_data["quantity"] = quantity

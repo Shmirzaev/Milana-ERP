@@ -335,6 +335,158 @@ def test_entire_batch_transfer_moves_location_once(client, auth_headers, movemen
     assert stock_state(movement_stock) == before_replay
 
 
+def test_batchless_transfer_requires_source_ledger_stock(
+    client, auth_headers, movement_stock,
+):
+    before = stock_state(movement_stock)
+    with session_module.SessionLocal() as db:
+        source_before = current_stock_for_item(db, movement_stock["item_id"], movement_stock["source_id"])
+        destination_before = current_stock_for_item(db, movement_stock["item_id"], movement_stock["destination_id"])
+
+    response = client.post(
+        "/api/inventory/transfer",
+        headers={**auth_headers, "Idempotency-Key": "batchless-transfer"},
+        json=movement_payload(movement_stock, "transfer", batch_id=None, quantity=10),
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Transfer quantity exceeds available batchless stock"
+    assert stock_state(movement_stock) == before
+    with session_module.SessionLocal() as db:
+        assert current_stock_for_item(db, movement_stock["item_id"], movement_stock["source_id"]) == source_before
+        assert current_stock_for_item(db, movement_stock["item_id"], movement_stock["destination_id"]) == destination_before
+
+
+def test_batchless_transfer_moves_only_ledger_stock_between_warehouses(
+    client, auth_headers, movement_stock,
+):
+    deposited = client.post(
+        "/api/inventory/transfer", headers=auth_headers,
+        json=movement_payload(movement_stock, "adjustment", batch_id=None, quantity=5),
+    )
+    assert deposited.status_code == 201, deposited.text
+    headers = {**auth_headers, "Idempotency-Key": "backed-batchless-transfer"}
+    payload = movement_payload(movement_stock, "transfer", batch_id=None, quantity=3)
+
+    response = client.post("/api/inventory/transfer", headers=headers, json=payload)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["batch_id"] is None
+    assert response.json()["from_warehouse_id"] == movement_stock["source_id"]
+    assert response.json()["to_warehouse_id"] == movement_stock["destination_id"]
+    with session_module.SessionLocal() as db:
+        transfer_rows = db.query(StockMovement).filter_by(
+            item_id=movement_stock["item_id"], batch_id=None, movement_type="transfer",
+        ).all()
+        assert len(transfer_rows) == 1
+        assert (transfer_rows[0].from_warehouse_id, transfer_rows[0].to_warehouse_id) == (
+            movement_stock["source_id"], movement_stock["destination_id"],
+        )
+        assert db.get(StockBatch, movement_stock["batch_id"]).quantity == 10
+        assert current_stock_for_item(db, movement_stock["item_id"]) == 15
+        assert current_stock_for_item(db, movement_stock["item_id"], movement_stock["source_id"]) == 12
+        assert current_stock_for_item(db, movement_stock["item_id"], movement_stock["destination_id"]) == 3
+    before_replay = stock_state(movement_stock)
+    replay = client.post("/api/inventory/transfer", headers=headers, json=payload)
+    assert replay.status_code == 201, replay.text
+    assert replay.json() == response.json()
+    assert stock_state(movement_stock) == before_replay
+
+
+@pytest.mark.parametrize("overrides", [
+    {"from_warehouse_id": None},
+    {"to_warehouse_id": None},
+    {"to_warehouse_id": "same"},
+])
+def test_batchless_transfer_requires_two_distinct_warehouses_without_writes(
+    client, auth_headers, movement_stock, overrides,
+):
+    if overrides.get("to_warehouse_id") == "same":
+        overrides = {"to_warehouse_id": movement_stock["source_id"]}
+    before = stock_state(movement_stock)
+    response = client.post(
+        "/api/inventory/transfer", headers=auth_headers,
+        json=movement_payload(movement_stock, "transfer", batch_id=None, **overrides),
+    )
+    assert response.status_code == 400, response.text
+    assert stock_state(movement_stock) == before
+
+
+def test_batchless_transfer_rejects_wrong_destination_category_without_writes(
+    client, auth_headers, movement_stock,
+):
+    with session_module.SessionLocal() as db:
+        wrong_destination = Warehouse(name="Batchless fabric destination", type="fabric_storage")
+        db.add(wrong_destination)
+        db.commit()
+        wrong_destination_id = wrong_destination.id
+    before = stock_state(movement_stock)
+
+    response = client.post(
+        "/api/inventory/transfer", headers=auth_headers,
+        json=movement_payload(
+            movement_stock, "transfer", batch_id=None, to_warehouse_id=wrong_destination_id,
+        ),
+    )
+
+    assert response.status_code == 400, response.text
+    assert "Accessory Storage" in response.text
+    assert stock_state(movement_stock) == before
+
+
+def test_batchless_transfer_cannot_move_reserved_item_stock(
+    client, auth_headers, movement_stock,
+):
+    deposited = client.post(
+        "/api/inventory/transfer", headers=auth_headers,
+        json=movement_payload(movement_stock, "adjustment", batch_id=None, quantity=5),
+    )
+    assert deposited.status_code == 201, deposited.text
+    with session_module.SessionLocal() as db:
+        order = ProductionOrder(
+            production_no="BATCHLESS-TRANSFER-RESERVATION", production_type="branded_stock",
+            model_id=db.query(Model.id).first()[0], planned_quantity=1,
+        )
+        db.add(order)
+        db.flush()
+        db.add(MaterialReservation(
+            reservation_no="BATCHLESS-TRANSFER-RESERVATION", production_order_id=order.id,
+            item_id=movement_stock["item_id"], warehouse_id=movement_stock["source_id"],
+            reserved_quantity=4, unit="pcs",
+        ))
+        db.commit()
+    before = stock_state(movement_stock)
+
+    response = client.post(
+        "/api/inventory/transfer", headers=auth_headers,
+        json=movement_payload(movement_stock, "transfer", batch_id=None, quantity=2),
+    )
+
+    assert response.status_code == 409, response.text
+    assert stock_state(movement_stock) == before
+
+
+def test_batchless_transfer_uses_decimal_ledger_boundary(
+    client, auth_headers, movement_stock,
+):
+    for quantity in (0.1, 0.2):
+        deposited = client.post(
+            "/api/inventory/transfer", headers=auth_headers,
+            json=movement_payload(movement_stock, "adjustment", batch_id=None, quantity=quantity),
+        )
+        assert deposited.status_code == 201, deposited.text
+
+    response = client.post(
+        "/api/inventory/transfer", headers=auth_headers,
+        json=movement_payload(movement_stock, "transfer", batch_id=None, quantity=0.3),
+    )
+
+    assert response.status_code == 201, response.text
+    with session_module.SessionLocal() as db:
+        assert current_stock_for_item(db, movement_stock["item_id"], movement_stock["source_id"]) == 10
+        assert current_stock_for_item(db, movement_stock["item_id"], movement_stock["destination_id"]) == 0.3
+
+
 @pytest.mark.parametrize(("overrides", "expected_status"), [
     ({"quantity": 4}, 409), ({"quantity": 10, "to_warehouse_id": None}, 400),
 ])
