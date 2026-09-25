@@ -14,10 +14,12 @@ export default function SupplierAsyncSelect({
   value,
   onChange,
   inputId,
+  selectedName,
 }: {
   value: number | null;
-  onChange: (supplierId: number) => void;
+  onChange: (supplierId: number, supplier?: Supplier) => void;
   inputId: string;
+  selectedName?: string | null;
 }) {
   const { t } = useT();
   const [search, setSearch] = useState("");
@@ -35,10 +37,10 @@ export default function SupplierAsyncSelect({
     fetcher,
     { persistSize: false, revalidateFirstPage: false },
   );
-  const { data: selectedSupplier } = useSWR<Supplier>(value ? `/api/suppliers/${value}` : null, fetcher);
+  const { data: selectedSupplier } = useSWR<Supplier>(value && !selectedName ? `/api/suppliers/${value}` : null, fetcher);
   const options = useMemo(() => {
     const byId = new Map<number, Supplier>();
-    if (value) byId.set(value, selectedSupplier ?? { id: value, name: `#${value}` });
+    if (value) byId.set(value, selectedSupplier ?? { id: value, name: selectedName || `#${value}` });
     for (const page of pages || []) {
       for (const supplier of page.rows) byId.set(supplier.id, supplier);
     }
@@ -46,14 +48,14 @@ export default function SupplierAsyncSelect({
       { value: 0, label: t("ph.supplier") },
       ...Array.from(byId.values()).map((supplier) => ({ value: supplier.id, label: supplier.name })),
     ];
-  }, [pages, selectedSupplier, t, value]);
+  }, [pages, selectedName, selectedSupplier, t, value]);
 
   return (
     <SearchableSelect
       inputId={inputId}
       value={value ?? 0}
       options={options}
-      onChange={(supplierId) => onChange(Number(supplierId))}
+      onChange={(supplierId, option) => onChange(Number(supplierId), Number(supplierId) ? { id: Number(supplierId), name: option.label } : undefined)}
       placeholder={t("ph.supplier")}
       noResultsText={t("page.search.noMatches")}
       loadingText={t("common.loading")}

@@ -7,6 +7,7 @@ import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { Check, ChevronDown, Folder, ImagePlus, PackageCheck, Plus, ShoppingCart, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import SupplierAsyncSelect from "@/components/SupplierAsyncSelect";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
@@ -14,7 +15,6 @@ import { useT } from "@/lib/i18n";
 import { prepareModelImageUpload } from "@/lib/imageUpload";
 
 type Item = { id: number; sku: string; name: string; unit: string; image_url?: string | null };
-type Supplier = { id: number; name: string };
 type PurchaseRequestLine = {
   id: number; item_id: number; item_sku?: string | null; item_name?: string | null;
   material_name?: string | null; photo_url?: string | null; requested_quantity: number;
@@ -33,7 +33,7 @@ type PurchaseRequestPage = {
   has_more: boolean;
 };
 type PurchaseOrderCountPage = { total: number };
-type ApprovalLineDraft = { material_name: string; photo_url: string; preferred_supplier_id: number };
+type ApprovalLineDraft = { material_name: string; photo_url: string; preferred_supplier_id: number; preferred_supplier_name: string };
 type OrderDraft = { expected_date: string; quantities: Record<number, string> };
 
 const ACTIVE_REQUEST_STATUSES = new Set(["draft", "pending_approval", "approved"]);
@@ -85,7 +85,6 @@ export default function PurchasingPage() {
   );
   const { data: materialItems } = useSWR<Item[]>(canRequest && showRequestForm ? "/api/inventory/items?group=materials&page_size=500" : null, fetcher);
   const { data: accessoryItems } = useSWR<Item[]>(canRequest && showRequestForm ? "/api/inventory/items?group=accessories&page_size=500" : null, fetcher);
-  const { data: suppliers } = useSWR<Supplier[]>(canRequest || canApprove ? "/api/suppliers" : null, fetcher);
   const items = useMemo(() => [...(materialItems || []), ...(accessoryItems || [])].sort((a, b) => a.name.localeCompare(b.name)), [materialItems, accessoryItems]);
   const requests = useMemo(() => requestPages?.flatMap((requestPage) => requestPage.rows) || [], [requestPages]);
   const lastRequestPage = requestPages?.[requestPages.length - 1];
@@ -101,6 +100,7 @@ export default function PurchasingPage() {
           material_name: line.material_name || line.item_name || "",
           photo_url: line.photo_url || "",
           preferred_supplier_id: Number(line.preferred_supplier_id || 0),
+          preferred_supplier_name: line.preferred_supplier_name || "",
         };
       }
       return next;
@@ -218,7 +218,7 @@ export default function PurchasingPage() {
       || firstLine?.preferred_supplier_id
       || 0,
     );
-    const supplierName = suppliers?.find((supplier) => supplier.id === supplierId)?.name
+    const supplierName = firstLineDraft?.preferred_supplier_name
       || firstLine?.preferred_supplier_name
       || t("ph.supplier");
     const key = supplierId ? `supplier-${supplierId}` : `supplier-${supplierName}`;
@@ -234,13 +234,13 @@ export default function PurchasingPage() {
   const renderRequestRows = (folderRequests: PurchaseRequest[]) => folderRequests.map((request) => (
     <Fragment key={request.id}>
       {request.lines.map((line, index) => {
-        const draft = approvalDrafts[line.id] || { material_name: "", photo_url: "", preferred_supplier_id: 0 };
+        const draft = approvalDrafts[line.id] || { material_name: "", photo_url: "", preferred_supplier_id: 0, preferred_supplier_name: line.preferred_supplier_name || "" };
         const editable = canApprove && ["draft", "pending_approval"].includes(request.status);
         return <tr key={line.id}>
           <td><div className="mono font-semibold text-[#14110b]">{index === 0 ? formatOrderReference(request.request_no) : ""}</div><div className="text-xs text-[#8a8472]">{index === 0 ? formatOrderReference(request.sales_order_no) : ""}</div></td>
           <td><label className={`block h-[168px] w-[168px] overflow-hidden rounded-md border border-[#ded9ca] bg-[#f7f4ed] ${editable ? "cursor-pointer" : ""}`}>{draft.photo_url ? <img src={draft.photo_url} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center"><ImagePlus className="h-4 w-4 text-[#8a8472]" /></span>}{editable && <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadPhoto(file, `line-${line.id}`, (photo_url) => setApprovalDrafts((rows) => ({ ...rows, [line.id]: { ...draft, photo_url } }))); }} />}</label></td>
           <td>{editable ? <input className="input min-w-[220px]" value={draft.material_name} onChange={(event) => setApprovalDrafts((rows) => ({ ...rows, [line.id]: { ...draft, material_name: event.target.value } }))} /> : <div><div className="font-medium text-[#14110b]">{draft.material_name || line.item_name || "-"}</div><div className="mono text-xs text-[#8a8472]">{line.item_sku || ""}</div></div>}</td>
-          <td>{editable ? <select className="input min-w-[190px]" value={draft.preferred_supplier_id} onChange={(event) => setApprovalDrafts((rows) => ({ ...rows, [line.id]: { ...draft, preferred_supplier_id: Number(event.target.value) } }))}><option value={0}>{t("ph.supplier")}</option>{suppliers?.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select> : draft.preferred_supplier_id ? suppliers?.find((row) => row.id === draft.preferred_supplier_id)?.name || line.preferred_supplier_name || "-" : "-"}</td>
+          <td>{editable ? <div className="min-w-[190px]"><SupplierAsyncSelect inputId={`purchase-request-line-${line.id}-supplier`} value={draft.preferred_supplier_id || null} selectedName={draft.preferred_supplier_name} onChange={(supplierId, supplier) => setApprovalDrafts((rows) => ({ ...rows, [line.id]: { ...draft, preferred_supplier_id: supplierId, preferred_supplier_name: supplier?.name || "" } }))} /></div> : draft.preferred_supplier_id ? draft.preferred_supplier_name || line.preferred_supplier_name || "-" : "-"}</td>
           <td className="mono">{fmtQty(line.requested_quantity || line.shortage_quantity)} {line.unit}</td>
           <td>{index === 0 && <StatusBadge status={request.status} />}</td>
           <td>{index === 0 && editable && <div className="flex gap-2"><button type="button" className="btn" disabled={busyId === request.id || Boolean(uploadingKey)} onClick={() => approve(request)}><Check className="h-4 w-4" />{t("btn.approve")}</button><button type="button" className="btn" disabled={busyId === request.id} onClick={() => reject(request)}><X className="h-4 w-4" />{t("btn.reject")}</button></div>}</td>
@@ -287,7 +287,7 @@ export default function PurchasingPage() {
                 const item = items.find((row) => row.id === Number(event.target.value));
                 setManual((row) => ({ ...row, item_id: Number(event.target.value), material_name: item?.name || row.material_name, photo_url: item?.image_url || row.photo_url }));
               }} required><option value={0}>{t("page.purchasing.selectItem")}</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
-              <div><label className="label">{t("field.supplier")}</label><select className="input" value={manual.supplier_id} onChange={(event) => setManual({ ...manual, supplier_id: Number(event.target.value) })} required><option value={0}>{t("ph.supplier")}</option>{suppliers?.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></div>
+              <div><label className="label">{t("field.supplier")}</label><SupplierAsyncSelect inputId="purchasing-manual-supplier" value={manual.supplier_id || null} onChange={(supplierId) => setManual({ ...manual, supplier_id: supplierId })} /></div>
               <div><label className="label">{t("page.purchasing.materialName")}</label><input className="input" value={manual.material_name} onChange={(event) => setManual({ ...manual, material_name: event.target.value })} required /></div>
               <div><label className="label">{t("field.notes")}</label><input className="input" value={manual.notes} onChange={(event) => setManual({ ...manual, notes: event.target.value })} /></div>
             </div>

@@ -18,6 +18,7 @@ const requests = [];
 const sizes = [];
 const chosen = [];
 let cursor = 0;
+let selectedName = null;
 const jsx = (type, props) => ({ type, props: props || {} });
 const dependencies = {
   react: {
@@ -32,7 +33,7 @@ const dependencies = {
   "react/jsx-runtime": { jsx, jsxs: jsx },
   swr: { default: (key) => {
     requests.push(key);
-    return { data: { id: 777, name: "Selected supplier beyond first page" } };
+    return { data: key ? { id: 777, name: "Selected supplier beyond first page" } : undefined };
   } },
   "swr/infinite": { default: (getKey) => {
     requests.push(getKey(0, null));
@@ -61,6 +62,7 @@ function render() {
   cursor = 0;
   return testModule.exports.default({
     value: 777,
+    selectedName,
     onChange: (id) => chosen.push(id),
     inputId: "stock-receive-supplier",
   });
@@ -86,4 +88,11 @@ timers.at(-1)();
 tree = render();
 assert.ok(requests.includes("/api/suppliers?page=1&page_size=50&q=needle"));
 assert.equal(tree.props.value, 777, "search must not discard an off-page selection");
+
+selectedName = "Known supplier";
+requests.length = 0;
+tree = render();
+assert.equal(requests.includes("/api/suppliers/777"), false,
+  "a supplied line label must avoid one detail request per mounted purchasing picker");
+assert.ok(tree.props.options.some((option) => option.value === 777 && option.label === "Known supplier"));
 console.log("PASS: Receive Stock supplier picker searches bounded pages and preserves its selection.");

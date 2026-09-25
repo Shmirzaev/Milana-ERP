@@ -16,6 +16,7 @@ const hookState = [];
 let hookIndex = 0;
 const keys = [];
 let requestPageCount = 1;
+const permissions = ["purchasing.view", "purchasing.request"];
 const requestRow = (id, lineId) => ({
   id,
   request_no: `PR-${id}`,
@@ -27,6 +28,8 @@ const requestRow = (id, lineId) => ({
     requested_quantity: 1,
     shortage_quantity: 1,
     unit: "kg",
+    preferred_supplier_id: 777,
+    preferred_supplier_name: "Off-page supplier",
   }],
 });
 const requestPages = [
@@ -74,13 +77,13 @@ new Function("exports", "require", output)(exports, name => ({
     if (key === "/api/inventory/items?group=accessories&page_size=500") {
       return { data: [{ id: 2, sku: "ACC-1", name: "Deferred Button", unit: "pcs" }] };
     }
-    if (key === "/api/suppliers") return { data: [{ id: 3, name: "Visible Supplier" }] };
     return { data: undefined, mutate: async () => {} };
   } },
   "lucide-react": Object.fromEntries([
     "Check", "ChevronDown", "Folder", "ImagePlus", "PackageCheck", "Plus", "ShoppingCart", "X",
   ].map(icon => [icon, () => null])),
   "@/components/PageHeader": { default: ({ actions }) => React.createElement("header", null, actions) },
+  "@/components/SupplierAsyncSelect": { default: ({ value, selectedName }) => React.createElement("span", { "data-supplier-picker": value ?? 0 }, selectedName || "supplier picker") },
   "@/components/StagePipeline": { statusLabel: value => value },
   "@/lib/api": {
     api: { post: async () => ({}), postForm: async () => ({}), del: async () => ({}) },
@@ -88,7 +91,7 @@ new Function("exports", "require", output)(exports, name => ({
   },
   "@/lib/auth": {
     can: (me, permission) => Boolean(me?.permissions.includes(permission)),
-    useMe: () => ({ me: { id: 7, permissions: ["purchasing.view", "purchasing.request"] } }),
+    useMe: () => ({ me: { id: 7, permissions } }),
   },
   "@/lib/i18n": { useT: () => ({ t: key => key }) },
   "@/lib/imageUpload": { prepareModelImageUpload: async file => file },
@@ -117,7 +120,6 @@ assert.deepEqual(keys, [
   "/api/purchasing/orders?page=1&page_size=1&receivable_only=true",
   null,
   null,
-  "/api/suppliers",
 ], "closed request form must not fetch either 500-item directory");
 const closedHtml = renderToStaticMarkup(closed);
 assert.ok(closedHtml.includes("Visible Supplier") === false);
@@ -139,7 +141,6 @@ assert.deepEqual(keys, [
   "/api/purchasing/orders?page=1&page_size=1&receivable_only=true",
   null,
   null,
-  "/api/suppliers",
 ], "load more must retain page one and request the next bounded page");
 assert.equal(find(expanded, node => node.type === "button" && node.props.children === "common.loadMore"), null);
 const expandedHtml = renderToStaticMarkup(expanded);
@@ -157,11 +158,15 @@ assert.deepEqual(keys, [
   "/api/purchasing/orders?page=1&page_size=1&receivable_only=true",
   "/api/inventory/items?group=materials&page_size=500",
   "/api/inventory/items?group=accessories&page_size=500",
-  "/api/suppliers",
 ], "opening the request form must fetch the same authorized directories");
 const openedHtml = renderToStaticMarkup(opened);
 assert.ok(openedHtml.includes("Deferred Fabric"));
 assert.ok(openedHtml.includes("Deferred Button"));
-assert.ok(openedHtml.includes("Visible Supplier"));
+assert.ok(openedHtml.includes("supplier picker"), "the manual form must mount the bounded supplier picker");
+
+permissions.push("purchasing.approve");
+const approverHtml = renderToStaticMarkup(render());
+assert.ok(approverHtml.includes('data-supplier-picker="777"'), "approval lines must keep an off-page supplier ID");
+assert.ok(approverHtml.includes("Off-page supplier"), "approval lines must retain their supplied name without a directory request");
 
 console.log("Purchasing: request pagination and deferred item directories verified.");
