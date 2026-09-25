@@ -139,6 +139,16 @@ class BlockIn(BaseModel):
         return value
 
 
+_MAX_ASSIGNMENT_NOTES_UTF8_BYTES = 4096
+
+
+def _validate_changed_assignment_notes(value: str | None, *, existing: str | None = None) -> None:
+    if value is None or value == existing:
+        return
+    if len(value.encode("utf-8")) > _MAX_ASSIGNMENT_NOTES_UTF8_BYTES:
+        raise HTTPException(422, "sewing assignment notes cannot exceed 4096 UTF-8 bytes")
+
+
 # ===== Block / Unblock =====
 @router.post("/work-orders/{wid}/block")
 def block_wo(wid: int, payload: BlockIn, db: DbSession, current: User = Depends(require_permissions(*_WO_BLOCK_PERMS))):
@@ -262,6 +272,7 @@ def create_assignment(
     capacity_warning = None
     _require_storable_assignment_integer("quantity", payload.quantity)
     validate_assignment_progress(payload.quantity, 0)
+    _validate_changed_assignment_notes(payload.notes)
 
     a = SewingAssignment(
         work_order_id=wid,
@@ -361,6 +372,12 @@ def update_assignment(
         _require_storable_assignment_integer("completed_qty", int(changes["completed_qty"]))
     next_completed_qty = int(changes.get("completed_qty", a.completed_qty) or 0)
     validate_assignment_progress(next_qty, next_completed_qty)
+
+    if "notes" in changes:
+        _validate_changed_assignment_notes(changes["notes"], existing=a.notes)
+        if changes["notes"] == a.notes:
+            # Preserve legacy text without copying an unchanged value to audit JSON.
+            del changes["notes"]
 
     previous_flow_id = int(a.sewing_flow_id)
     for k, v in changes.items():

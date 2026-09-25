@@ -117,6 +117,61 @@ def test_sewing_assignment_create_rejects_integer_overflow_without_writes(
         assert db.get(WorkOrder, work_order_id).sewing_flow_id is None
 
 
+def test_sewing_assignment_create_notes_utf8_bound_rejects_before_writes(client, auth_headers):
+    work_order_id, flow_id, _ = _assignment_context(with_assignment=False)
+    boundary = "🍃" * 1024
+    before = _assignment_counts()
+    response = client.post(
+        f"/api/work-orders/{work_order_id}/assignments", headers=auth_headers,
+        json={
+            "work_order_id": work_order_id, "sewing_flow_id": flow_id,
+            "quantity": 100, "notes": boundary + "🍃",
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert _assignment_counts() == before
+    with SessionLocal() as db:
+        assert db.get(WorkOrder, work_order_id).sewing_flow_id is None
+
+    accepted = client.post(
+        f"/api/work-orders/{work_order_id}/assignments", headers=auth_headers,
+        json={
+            "work_order_id": work_order_id, "sewing_flow_id": flow_id,
+            "quantity": 100, "notes": boundary,
+        },
+    )
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["notes"] == boundary
+
+
+def test_sewing_assignment_changed_notes_reject_and_unchanged_legacy_does_not_expand_audit(
+    client, auth_headers,
+):
+    _, _, assignment_id = _assignment_context(with_assignment=True)
+    legacy = "legacy" * 1000
+    with SessionLocal.begin() as db:
+        db.get(SewingAssignment, assignment_id).notes = legacy
+
+    echoed = client.patch(
+        f"/api/sewing-assignments/{assignment_id}", headers=auth_headers,
+        json={"quantity": 99, "notes": legacy},
+    )
+    assert echoed.status_code == 200, echoed.text
+    with SessionLocal() as db:
+        audit = db.query(AuditLog).filter_by(
+            entity_type="SewingAssignment", entity_id=assignment_id,
+        ).order_by(AuditLog.id.desc()).first()
+        assert audit.new_value_json == {"quantity": 99}
+
+    before = _assignment_state(assignment_id)
+    rejected = client.patch(
+        f"/api/sewing-assignments/{assignment_id}", headers=auth_headers,
+        json={"quantity": 98, "notes": legacy + "x"},
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert _assignment_state(assignment_id) == before
+
+
 def test_sewing_assignment_patch_accepts_exact_integer_boundaries(client, auth_headers):
     _, _, assignment_id = _assignment_context(with_assignment=True)
 
