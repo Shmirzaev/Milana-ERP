@@ -107,6 +107,8 @@ def _validated_waste_values(quantity_value, unit_cost: Decimal) -> tuple[Decimal
         raise HTTPException(422, "Waste quantity exceeds supported precision") from None
     if not quantity.is_finite() or quantity <= 0:
         raise HTTPException(422, "Waste quantity must be finite and greater than zero")
+    if quantity != stored_quantity:
+        raise HTTPException(422, "Waste quantity supports at most 4 decimal places")
     if stored_quantity > MAX_WASTE_QUANTITY:
         raise HTTPException(422, f"Waste quantity must be no more than {MAX_WASTE_QUANTITY}")
     if not estimated_value.is_finite() or estimated_value > MAX_WASTE_ESTIMATED_VALUE:

@@ -107,6 +107,22 @@ def test_waste_create_rejects_invalid_quantity_without_writes(
     assert _waste_counts() == before
 
 
+@pytest.mark.parametrize("quantity", ["1.00005", "1.00004"])
+def test_waste_create_rejects_quantity_that_would_round_in_storage_without_writes(
+    client, auth_headers, quantity,
+):
+    before = _waste_counts()
+
+    response = client.post(
+        "/api/waste",
+        headers=auth_headers,
+        json=_payload(quantity=quantity),
+    )
+
+    assert response.status_code == 422, response.text
+    assert _waste_counts() == before
+
+
 def test_waste_create_rejects_derived_estimate_overflow_without_writes(
     client, auth_headers,
 ):
