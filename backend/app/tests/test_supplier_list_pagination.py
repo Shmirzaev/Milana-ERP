@@ -107,3 +107,31 @@ def test_supplier_page_contract_bound_authorization_and_no_writes(client, auth_h
     with SessionLocal() as db:
         after = (db.query(Supplier).count(), db.query(AuditLog).count())
     assert after == before
+
+
+def test_supplier_search_filters_before_paging_and_escapes_wildcards(client, auth_headers):
+    created_ids, _ = _seed_suppliers(401)
+    with SessionLocal() as db:
+        db.add(Supplier(name="Supplier %_ literal", is_active=True))
+        db.commit()
+
+    page, statements = _read(page=1, page_size=50, q="Bounded supplier")
+    assert page["total"] == 401
+    assert page["has_more"] is True
+    assert len(page["rows"]) == 50
+    assert [row.id for row in page["rows"]] == list(reversed(created_ids))[:50]
+    assert len(statements) == 2
+
+    tail, _ = _read(page=1, page_size=50, q="0400")
+    assert tail["total"] == 1
+    assert tail["rows"][0].id == created_ids[-1]
+
+    literal, _ = _read(page=1, page_size=50, q="%_")
+    assert literal["total"] == 1
+    assert literal["rows"][0].name == "Supplier %_ literal"
+
+    assert client.get(
+        "/api/suppliers",
+        params={"page": 1, "page_size": 50, "q": "x" * 101},
+        headers=auth_headers,
+    ).status_code == 422

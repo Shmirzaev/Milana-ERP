@@ -556,8 +556,18 @@ def list_suppliers(
     _: User = Depends(require_permissions(*SUPPLIER_READ_PERMISSIONS)),
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
 ):
     query = db.query(Supplier).filter(Supplier.is_active.is_(True))
+    search = (q or "").strip()
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.filter(or_(
+            Supplier.name.ilike(pattern, escape="\\"),
+            Supplier.phone.ilike(pattern, escape="\\"),
+            Supplier.email.ilike(pattern, escape="\\"),
+        ))
     ordered_query = query.order_by(Supplier.id.desc())
     if page is None and page_size is None:
         return ordered_query.all()

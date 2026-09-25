@@ -8,6 +8,7 @@ import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOp
 import MaterialRollWeightFields, { rollWeightsTotal, validRollWeights } from "@/components/MaterialRollWeightFields";
 import PageHeader from "@/components/PageHeader";
 import SearchableSelect from "@/components/SearchableSelect";
+import SupplierAsyncSelect from "@/components/SupplierAsyncSelect";
 import { useT } from "@/lib/i18n";
 import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
@@ -95,7 +96,6 @@ type StockFormProps = {
   form: ReceiveFormState;
   items?: ReceiveItem[];
   warehouses?: any[];
-  suppliers?: any[];
   orderOptions?: OrderOption[];
   asyncItemOptions?: { value: string | number; label: string; searchText?: string }[];
   asyncItemValue?: string | number | null;
@@ -294,7 +294,6 @@ function StockForm({
   form,
   items,
   warehouses,
-  suppliers,
   orderOptions,
   asyncItemOptions,
   asyncItemValue,
@@ -589,10 +588,11 @@ function StockForm({
       </div>
       <div>
         <label className="label">{t("ph.supplier")}</label>
-        <select className="input" value={form.supplier_id} onChange={(e) => onChange({ ...form, supplier_id: Number(e.target.value) })}>
-          <option value={0}>{t("ph.supplier")}</option>
-          {suppliers?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+        <SupplierAsyncSelect
+          inputId={showReturnCondition ? "accessory-return-supplier" : "stock-receive-supplier"}
+          value={form.supplier_id || null}
+          onChange={(supplierId) => onChange({ ...form, supplier_id: supplierId })}
+        />
       </div>
 
       <div className={spanClass}>
@@ -645,7 +645,6 @@ export default function ReceiveStockPage() {
   const preselectedIssueProductionOrderId = Number(searchParams.get("issue_production_order_id") || 0);
   const { data: receiveItems } = useSWR<ReceiveItem[]>(`/api/inventory/items?group=${receiveGroup}`, fetcher);
   const { data: warehouses } = useSWR<any[]>("/api/inventory/warehouses", fetcher);
-  const { data: suppliers } = useSWR<any[]>("/api/suppliers", fetcher);
   const [productionOrderSearchInput, setProductionOrderSearchInput] = useState("");
   const [productionOrderSearch, setProductionOrderSearch] = useState("");
   const [selectedProductionOrder, setSelectedProductionOrder] = useState<ProductionOrderOption | null>(null);
@@ -972,7 +971,6 @@ export default function ReceiveStockPage() {
           form={receiveForm}
           items={sortedReceiveItems}
           warehouses={receiveWarehouses}
-          suppliers={suppliers}
           message={receiveMsg}
           showOrder={false}
           showGramaj={isFabricReceiving}
@@ -995,7 +993,6 @@ export default function ReceiveStockPage() {
             form={accessoryReturnForm}
             items={returnableAccessoryItems}
             warehouses={receiveWarehouses}
-            suppliers={suppliers}
             message={accessoryMsg}
             requireOrder
             showReturnCondition
