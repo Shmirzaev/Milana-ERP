@@ -104,6 +104,27 @@ def test_correction_financial_review_frozen_print_and_delivery(client, auth_head
         assert invoice.amount == Decimal("65.00")
 
 
+def test_delivery_rejects_fractional_cent_frozen_invoice_without_writes(client, auth_headers, dispatch):
+    review_amount(client, auth_headers, dispatch)
+    ship(client, auth_headers, dispatch)
+    with SessionLocal() as db:
+        shipment = db.get(Shipment, dispatch["shipment"])
+        shipment.dispatch_snapshot = {
+            **shipment.dispatch_snapshot,
+            "document": {**shipment.dispatch_snapshot["document"], "amount": "65.005"},
+        }
+        db.commit()
+        before_audits = db.query(AuditLog).count()
+
+    response = client.post(f'/api/shipments/{dispatch["shipment"]}/deliver', headers=auth_headers)
+
+    assert response.status_code == 409, response.text
+    with SessionLocal() as db:
+        assert db.get(Shipment, dispatch["shipment"]).status == "shipped"
+        assert db.query(Invoice).filter_by(sales_order_id=dispatch["order"]).count() == 0
+        assert db.query(AuditLog).count() == before_audits
+
+
 def test_zero_size_shortfall_keeps_capacity_and_rejects_whole_zero(client, auth_headers, dispatch):
     zero = correct(client, auth_headers, dispatch, (0, 0))
     assert zero.status_code == 409
