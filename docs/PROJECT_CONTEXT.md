@@ -1,5 +1,8 @@
 # Milana ERP Project Context
 
+- Continued 2026-09-25 (Cycle 8 bug fixes): `c36b238b`, `2a5de6b6` and `ef9c24b5` protect item-only stock claims and preserve warehouse scope across batch movement and accessory consumption; disposable PostgreSQL contention and focused SQLite tests pass. `bdcb0823`, `e709c21c` and `a376127d` validate cutting detail JSON and cap package/work-order audit text before writes. `8b7c770e` bounds passport-derived size counts; `4ae84350` rejects sub-cent payroll adjustments. `01350256` and `f17a6a1c` page Inventory Master Data and batch item pickers. The combined backend selection passes **327**, with **44 expected PostgreSQL-only skips**; strict TypeScript, focused UI contracts, ESLint and Ruff pass. The ledger remains **106 fixed, 15 partial, six open** because several broad findings still include unresolved code and operational evidence. No production migration/write, push, merge or deployment.
+
+
 - Continued 2026-09-25 (Cycle 7 bug fixes): `204a2f62` prevents cutting from consuming another order's reserved batch or item stock; five disposable PostgreSQL checks and three focused SQLite tests pass. `35d17985` bounds task description audit writes while preserving unchanged oversized legacy descriptions (32 tests). `0f3806c0` rejects a derived cutting-passport binding sum beyond its numeric column before writes (29 tests). `c9e58c90` pages Planning reservation orders, and `3c954076` pages CUT/ECT cutting inbox work orders; backend paging suites, frontend contracts, strict TypeScript, lint and Ruff pass. The ledger remains **106 fixed, 15 partial, six open** because broad code families and operational evidence still have unresolved entries. Work is local only: no real migration, production write, push, merge or deployment.
 
 
