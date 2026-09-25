@@ -23,6 +23,17 @@ WASTE_QUANTITY_QUANTUM = Decimal("0.0001")
 _CANCELLED_SALE_REQUEST = {"_waste_sale_request": "cancelled"}
 
 
+def _verified_sale_replay(db: DbSession, wid: int, replay: dict) -> dict:
+    if replay == _CANCELLED_SALE_REQUEST:
+        raise HTTPException(409, "This waste sale request was cancelled; submit corrected values with a new key")
+    sale_id = replay.get("id")
+    if not isinstance(sale_id, int) or not db.query(WasteSale.id).filter(
+        WasteSale.id == sale_id, WasteSale.waste_record_id == wid,
+    ).first():
+        raise HTTPException(410, "This waste sale result is no longer available; reconcile before retrying")
+    return replay
+
+
 def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | None) -> Decimal:
     if batch_id:
         batch = db.query(StockBatch.id, StockBatch.cost_per_unit).filter(StockBatch.id == batch_id).one_or_none()
@@ -229,9 +240,7 @@ def sell_waste(
         db, user=current, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
     )
     if replay:
-        if replay == _CANCELLED_SALE_REQUEST:
-            raise HTTPException(409, "This waste sale request was cancelled; submit corrected values with a new key")
-        return replay
+        return _verified_sale_replay(db, wid, replay)
 
     w = (
         db.query(WasteRecord)
@@ -248,9 +257,7 @@ def sell_waste(
         db, user=current, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
     )
     if replay:
-        if replay == _CANCELLED_SALE_REQUEST:
-            raise HTTPException(409, "This waste sale request was cancelled; submit corrected values with a new key")
-        return replay
+        return _verified_sale_replay(db, wid, replay)
 
     if not w.sellable: raise HTTPException(400, "Waste is not marked sellable")
     if w.status not in ("received_by_waste_department",):

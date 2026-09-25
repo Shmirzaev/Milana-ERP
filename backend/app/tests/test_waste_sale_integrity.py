@@ -275,6 +275,33 @@ def test_sale_idempotency_key_distinguishes_retry_from_legitimate_repeat(client)
     assert len(_snapshot(wid)["sales"]) == 2
 
 
+def test_sale_replay_fails_closed_when_historical_sale_was_removed(client):
+    _, headers = _actor()
+    wid = _fixture(quantity=5)
+    key = f"waste-sale-removed-{uuid4().hex}"
+    created = _sell(client, headers, wid, quantity=2, key=key)
+    assert created.status_code == 200, created.text
+
+    # Simulate an independently reviewed historical correction. The saved
+    # request key must never make a now-absent sale appear completed again.
+    with SessionLocal() as db:
+        db.query(WasteSale).filter(WasteSale.id == created.json()["id"]).delete()
+        db.commit()
+    before = _snapshot(wid)
+
+    replay = _sell(client, headers, wid, quantity=2, key=key)
+    assert replay.status_code == 410
+    assert replay.json() == {
+        "detail": "This waste sale result is no longer available; reconcile before retrying",
+    }
+    assert _snapshot(wid) == before
+
+    reconciled = _reconcile(client, headers, wid, quantity=2, key=key)
+    assert reconciled.status_code == 200
+    assert reconciled.json() == {"status": "completed_unavailable"}
+    assert _snapshot(wid) == before
+
+
 def test_sale_idempotency_scope_isolated_by_authenticated_user_and_parent(client):
     _, first_headers = _actor()
     _, second_headers = _actor()
