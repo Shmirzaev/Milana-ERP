@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, lazyload
 
 from app.models import (
@@ -486,6 +487,31 @@ def _require_batch_consumption_unit(batch: StockBatch, unit: str) -> None:
         raise HTTPException(409, f"Consumption unit must match stock batch unit ({batch_unit})")
 
 
+def batchless_stock_for_item(db: Session, item_id: int, warehouse_id: int | None = None) -> Decimal:
+    """Return stock represented only by unbatched movements, at ledger precision."""
+    incoming_types = ("produce", "return", "adjustment")
+    outgoing_types = ("issue", "consume", "waste", "shipment")
+    incoming = StockMovement.movement_type.in_(incoming_types)
+    outgoing = StockMovement.movement_type.in_(outgoing_types)
+    if warehouse_id is not None:
+        incoming = or_(
+            and_(incoming, StockMovement.to_warehouse_id == warehouse_id),
+            and_(StockMovement.movement_type == "transfer", StockMovement.to_warehouse_id == warehouse_id),
+        )
+        outgoing = or_(
+            and_(outgoing, StockMovement.from_warehouse_id == warehouse_id),
+            and_(StockMovement.movement_type == "transfer", StockMovement.from_warehouse_id == warehouse_id),
+        )
+    received, spent = db.query(
+        func.coalesce(func.sum(case((incoming, StockMovement.quantity), else_=0)), 0),
+        func.coalesce(func.sum(case((outgoing, StockMovement.quantity), else_=0)), 0),
+    ).filter(
+        StockMovement.item_id == item_id,
+        StockMovement.batch_id.is_(None),
+    ).one()
+    return Decimal(str(received or 0)) - Decimal(str(spent or 0))
+
+
 def consume_stock_batch(
     db: Session,
     *,
@@ -576,9 +602,10 @@ def consume_item_from_batches(
         db, item_id=int(item_id), unit=unit, item_cache=item_cache,
     )
 
+    batchless_available = batchless_stock_for_item(db, item_id, warehouse_id) if require_available else Decimal(0)
     if require_available:
-        available = sum(float(row.quantity or 0) for row in batches)
-        if available + 1e-9 < quantity:
+        available = sum(Decimal(str(row.quantity or 0)) for row in batches) + batchless_available
+        if available + Decimal("0.000000001") < Decimal(str(quantity)):
             raise HTTPException(
                 409,
                 f"Insufficient stock for item #{item_id}: available {available}, requested {quantity}",
@@ -617,7 +644,22 @@ def consume_item_from_batches(
         consumed += take
         left -= take
 
-    if consumed <= 0:
+    if require_available and left > _STOCK_EPSILON:
+        db.add(
+            StockMovement(
+                movement_type="consume",
+                item_id=item_id,
+                batch_id=None,
+                from_warehouse_id=warehouse_id,
+                quantity=left,
+                unit=effective_unit,
+                reference_type=reference_type,
+                reference_id=reference_id,
+                created_by=user_id,
+            )
+        )
+        consumed += left
+    elif consumed <= 0:
         # Keep movement ledger complete even when no batch rows are available.
         db.add(
             StockMovement(

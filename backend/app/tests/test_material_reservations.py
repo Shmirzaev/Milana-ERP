@@ -1317,6 +1317,58 @@ def test_consume_reservation_creates_stock_movement(client, auth_headers):
         db.close()
 
 
+@pytest.mark.parametrize("batch_quantity", [0, 2])
+def test_item_only_reservation_consumes_batchless_warehouse_stock(
+    client, auth_headers, batch_quantity,
+):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, StockBatch, StockMovement
+    from app.services.inventory import current_stock_for_item
+
+    po = _create_branded_po(client, auth_headers, qty=10)
+    item = _create_accessory_item(client, auth_headers)
+    warehouse = _warehouse(client, auth_headers, "accessory_storage")
+    batch = (
+        _receive_batch(
+            client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"],
+            quantity=batch_quantity, unit=item["unit"],
+        ) if batch_quantity else None
+    )
+    deposited = client.post("/api/inventory/transfer", headers=auth_headers, json={
+        "movement_type": "adjustment", "item_id": item["id"], "batch_id": None,
+        "to_warehouse_id": warehouse["id"], "quantity": 5 - batch_quantity, "unit": item["unit"],
+    })
+    assert deposited.status_code == 201, deposited.text
+    created = client.post("/api/inventory/reservations", headers=auth_headers, json={
+        "production_order_id": po["id"], "item_id": item["id"],
+        "warehouse_id": warehouse["id"], "reserved_quantity": 4,
+        "unit": item["unit"], "reservation_type": "accessory",
+    })
+    assert created.status_code == 201, created.text
+    reservation_id = created.json()["id"]
+
+    consumed = client.post(
+        f"/api/inventory/reservations/{reservation_id}/consume",
+        headers=auth_headers, json={"quantity": 4},
+    )
+
+    assert consumed.status_code == 200, consumed.text
+    assert consumed.json()["status"] == "consumed"
+    with SessionLocal() as db:
+        movements = db.query(StockMovement).filter_by(
+            reference_type="MaterialReservation", reference_id=reservation_id,
+            movement_type="consume",
+        ).order_by(StockMovement.id).all()
+        assert sum(float(row.quantity) for row in movements) == 4
+        assert len(movements) == (2 if batch else 1)
+        assert all(row.from_warehouse_id == warehouse["id"] for row in movements)
+        assert all(row.unit == item["unit"] for row in movements)
+        if batch:
+            assert db.get(StockBatch, batch["id"]).quantity == 0
+        assert current_stock_for_item(db, item["id"], warehouse["id"]) == 1
+        assert db.get(MaterialReservation, reservation_id).consumed_quantity == 4
+
+
 def test_cutting_consumes_matching_reservations_fifo_without_double_deducting_stock(client, auth_headers):
     _set_strict_material_reservation(False)
     po = _create_branded_po(client, auth_headers, qty=10)
