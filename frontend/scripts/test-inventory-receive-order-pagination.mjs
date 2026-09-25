@@ -4,6 +4,7 @@ import fs from "node:fs";
 const page = fs.readFileSync(new URL("../src/app/(app)/inventory/receive/page.tsx", import.meta.url), "utf8");
 const route = fs.readFileSync(new URL("../../backend/app/api/routes/production.py", import.meta.url), "utf8");
 const backendTest = fs.readFileSync(new URL("../../backend/app/tests/test_production_order_pagination.py", import.meta.url), "utf8");
+const batchTest = fs.readFileSync(new URL("../../backend/app/tests/test_search_performance_regression.py", import.meta.url), "utf8");
 
 assert.match(page, /useSWRInfinite<ProductionOrderPage>/, "accessory receiving should load production-order choices as pages");
 assert.match(page, /page=\$\{index \+ 1\}&page_size=50&include_total=true&q=/, "the picker must request bounded, searched, exact-total pages");
@@ -19,5 +20,15 @@ assert.doesNotMatch(page, /\/api\/production-orders\?page_size=500/, "the screen
 assert.match(route, /@router\.get\("\/production-orders"[\s\S]*?Depends\(require_permissions\(\*PRODUCTION_READ_PERMISSIONS\)\)[\s\S]*?include_total: bool = False/, "the paged picker must reuse the existing protected endpoint");
 assert.match(backendTest, /@pytest\.mark\.parametrize\("order_count", \[1, 50, 401\]\)/, "existing backend tests exercise small, page-sized and multi-page sets");
 assert.match(backendTest, /include_total=True,[\s\S]*?q=search_marker\.lower\(\)/, "existing backend tests cover filtered exact totals");
+assert.match(page, /\/api\/inventory\/batches\?group=\$\{receiveGroup\}&page=\$\{batchPage\}&page_size=30&include_total=true&q=\$\{encodeURIComponent\(batchSearch\)\}/,
+  "the recent batch table must query a bounded searched page in the selected inventory group");
+assert.match(page, /<PaginationControls[\s\S]*page=\{batchPage\}[\s\S]*total=\{batchData\?\.total \|\| 0\}/,
+  "the batch table must expose exact-total paging");
+assert.doesNotMatch(page, /batches\?\.slice\(0, 30\)/,
+  "the batch table must not hide fetched rows after loading 500 batches");
+assert.match(batchTest, /for index in range\(62\)/,
+  "backend regression must cover more than two visible batch pages");
+assert.match(batchTest, /page=3&page_size=30/,
+  "backend regression must cover the final partial page");
 
 console.log("PASS: accessory receiving uses searchable 50-row production-order pages, exact totals, Load more, and selected-order recovery.");

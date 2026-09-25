@@ -7,6 +7,7 @@ import { api, fetcher } from "@/lib/api";
 import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import MaterialRollWeightFields, { rollWeightsTotal, validRollWeights } from "@/components/MaterialRollWeightFields";
 import PageHeader from "@/components/PageHeader";
+import PaginationControls from "@/components/PaginationControls";
 import SearchableSelect from "@/components/SearchableSelect";
 import SupplierAsyncSelect from "@/components/SupplierAsyncSelect";
 import { useT } from "@/lib/i18n";
@@ -46,6 +47,25 @@ type ReceiveItem = {
   category?: string | null;
   unit?: string | null;
 };
+
+type BatchRow = {
+  id: number;
+  batch_no: string;
+  item_id: number;
+  item_name?: string | null;
+  color?: string | null;
+  old_code?: string | null;
+  color_code?: string | null;
+  color_status?: string | null;
+  order_no?: string | null;
+  quantity: number;
+  gsm?: number | null;
+  roll_lengths_m?: (number | null)[] | null;
+  length_m?: number | null;
+  piece_count?: number | null;
+  processes?: string | null;
+};
+type BatchPage = { rows: BatchRow[]; total: number; page: number; page_size: number };
 
 type OrderOption = {
   id: number;
@@ -716,7 +736,17 @@ export default function ReceiveStockPage() {
     ...(selectedProductionOrder ? [selectedProductionOrder.model_id] : []),
   ]);
   const { data: models } = useSWR<any[]>(receiveModelOptionsKey, modelOptionsByIdsFetcher);
-  const { data: batches, mutate: refreshBatches } = useSWR<any[]>(`/api/inventory/batches?group=${receiveGroup}`, fetcher);
+  const [batchSearchInput, setBatchSearchInput] = useState("");
+  const [batchSearch, setBatchSearch] = useState("");
+  const [batchPage, setBatchPage] = useState(1);
+  useEffect(() => {
+    setBatchPage(1);
+    const timer = window.setTimeout(() => setBatchSearch(batchSearchInput.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [batchSearchInput, receiveGroup]);
+  const batchUrl = `/api/inventory/batches?group=${receiveGroup}&page=${batchPage}&page_size=30&include_total=true&q=${encodeURIComponent(batchSearch)}`;
+  const { data: batchData, mutate: refreshBatches } = useSWR<BatchPage>(batchUrl, fetcher);
+  const batches = batchData?.rows || [];
   const [receiveForm, setReceiveForm] = useState(DEFAULT_RECEIVE_FORM);
   const [accessoryReturnForm, setAccessoryReturnForm] = useState(DEFAULT_ACCESSORY_RETURN_FORM);
   const [issueProductionOrderId, setIssueProductionOrderId] = useState(0);
@@ -840,6 +870,7 @@ export default function ReceiveStockPage() {
       await api.post("/api/inventory/receive", toReceivePayload(receiveForm, isFabricReceiving));
       setReceiveMsg(t("msg.recorded"));
       setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs", piece_count: isFabricReceiving ? 1 : "" });
+      setBatchPage(1);
       refreshBatches();
       refreshColors();
     } catch (e: any) {
@@ -882,6 +913,7 @@ export default function ReceiveStockPage() {
       setAccessoryReturnSelectedOrderId(0);
       setSelectedAccessoryReturnItem(null);
       setSelectedAccessoryReturnOrder(null);
+      setBatchPage(1);
       refreshBatches();
       void refreshAccessoryReturnOrders();
       void refreshAccessoryReturnItems();
@@ -916,6 +948,7 @@ export default function ReceiveStockPage() {
       });
       setIssueMsg(t("msg.recorded"));
       refreshIssuePlan();
+      setBatchPage(1);
       refreshBatches();
     } catch (e: any) {
       setIssueMsg(e.message);
@@ -1160,6 +1193,16 @@ export default function ReceiveStockPage() {
       )}
 
       <div className="card mt-4 overflow-x-auto">
+        <div className="border-b border-[#ecebe3] p-4">
+          <input
+            className="input"
+            type="search"
+            value={batchSearchInput}
+            onChange={(event) => setBatchSearchInput(event.target.value)}
+            placeholder={t("page.inventory.searchPlaceholder")}
+            aria-label={t("common.search")}
+          />
+        </div>
         <table className="table">
           <thead>
             <tr>
@@ -1178,7 +1221,7 @@ export default function ReceiveStockPage() {
             </tr>
           </thead>
           <tbody>
-              {batches?.slice(0, 30).map((b) => (
+              {batches.map((b) => (
               <tr key={b.id}>
                 <td>{b.batch_no}</td>
                 <td>{b.item_name || b.item_id}</td>
@@ -1196,6 +1239,15 @@ export default function ReceiveStockPage() {
             ))}
           </tbody>
         </table>
+        <PaginationControls
+          page={batchPage}
+          pageSize={30}
+          total={batchData?.total || 0}
+          count={batches.length}
+          onPageChange={setBatchPage}
+          onPageSizeChange={() => setBatchPage(1)}
+          pageSizeOptions={[30]}
+        />
       </div>
     </div>
   );
