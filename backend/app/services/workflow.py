@@ -660,7 +660,9 @@ def consume_item_from_batches(
         consumed += take
         left -= take
 
-    if require_available and left > _STOCK_EPSILON:
+    if left > _STOCK_EPSILON:
+        # A partial batch shortage must record the remainder just as an item
+        # with no batches does, so the business action has one complete ledger.
         db.add(
             StockMovement(
                 movement_type="consume",
@@ -675,23 +677,6 @@ def consume_item_from_batches(
             )
         )
         consumed += left
-    elif consumed <= 0:
-        # Keep movement ledger complete even when no batch rows are available.
-        db.add(
-            StockMovement(
-                movement_type="consume",
-                item_id=item_id,
-                batch_id=None,
-                from_warehouse_id=None,
-                to_warehouse_id=None,
-                quantity=quantity,
-                unit=effective_unit,
-                reference_type=reference_type,
-                reference_id=reference_id,
-                created_by=user_id,
-            )
-        )
-        consumed = quantity
     return consumed
 
 

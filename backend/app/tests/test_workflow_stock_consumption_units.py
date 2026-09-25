@@ -291,6 +291,33 @@ def test_packaging_consumption_accepts_matching_units():
         assert movement.unit == item.unit
 
 
+def test_packaging_partial_batch_shortage_records_complete_consumption():
+    with TestSessionLocal() as db:
+        item, _warehouse, batch, model, order = _stock_case(db, name="PKG-PARTIAL", quantity=2)
+        db.add(ModelBOM(model_id=model.id, item_id=item.id, quantity_per_piece=5, unit=item.unit))
+        db.flush()
+
+        consume_packaging_materials_from_bom(
+            db,
+            production_order_id=order.id,
+            packed_qty=1,
+            reference_type="PackagingRecord",
+            reference_id=847,
+            user_id=None,
+        )
+        db.flush()
+
+        movements = db.query(StockMovement).filter_by(
+            item_id=item.id, movement_type="consume",
+            reference_type="PackagingRecord", reference_id=847,
+        ).order_by(StockMovement.id).all()
+        assert len(movements) == 2
+        assert [(row.batch_id, float(row.quantity), row.unit) for row in movements] == [
+            (batch.id, 2, item.unit), (None, 3, item.unit),
+        ]
+        assert float(batch.quantity) == 0
+
+
 def test_packaging_unit_mismatch_rolls_back_prior_consumption():
     with TestSessionLocal() as db:
         first_item, warehouse, first_batch, model, order = _stock_case(db, name="PKG-ROLLBACK-A")
