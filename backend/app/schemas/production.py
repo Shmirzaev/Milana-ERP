@@ -134,7 +134,7 @@ class ProductionBatchOut(ORMModel):
 
 
 class ProductionOrderIn(SchemaModel):
-    production_type: str  # client_order | branded_stock
+    production_type: Literal["client_order", "branded_stock"]
     planning_order_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     collection_id: Optional[int] = None
