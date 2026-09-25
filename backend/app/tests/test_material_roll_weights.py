@@ -1,6 +1,10 @@
+from uuid import uuid4
+
 import pytest
 from fastapi import HTTPException
 
+from app.db.session import SessionLocal
+from app.models import AuditLog, StockBatch, StockMovement
 from app.services.material_rolls import MAX_MATERIAL_ROLLS, normalize_material_roll_weights
 
 
@@ -88,6 +92,44 @@ def test_existing_material_requires_matching_total_before_roll_weights_save(clie
     assert saved.status_code == 200, saved.text
     assert saved.json()["piece_count"] == 2
     assert saved.json()["roll_weights_kg"] == [12.25, 17.75]
+
+
+def test_roll_weight_rounding_cannot_persist_zero_without_writes(client, auth_headers):
+    item, warehouse = _material_context(client, auth_headers)
+    receive = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_id": item["id"],
+            "batch_no": f"ROLL-WEIGHT-ROUND-{uuid4().hex}",
+            "quantity": 0.0001,
+            "piece_count": 2,
+            "unit": "kg",
+            "cost_per_unit": 1,
+            "warehouse_id": warehouse["id"],
+            "qc_status": "passed",
+        },
+        headers=auth_headers,
+    )
+    assert receive.status_code == 201, receive.text
+    batch_id = receive.json()["id"]
+    with SessionLocal() as db:
+        before_audits = db.query(AuditLog).count()
+        before_movements = db.query(StockMovement).count()
+
+    # Before the fix, the first positive weight rounded to 0.0 while the
+    # overall total still matched the 0.0001 kg batch.
+    invalid = client.put(
+        f"/api/inventory/batches/{batch_id}/roll-weights",
+        json={"roll_weights_kg": [0.00001, 0.00009]},
+        headers=auth_headers,
+    )
+    assert invalid.status_code == 400, invalid.text
+    with SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        assert batch.roll_weights_kg == []
+        assert batch.piece_count == 2
+        assert db.query(AuditLog).count() == before_audits
+        assert db.query(StockMovement).count() == before_movements
 
 
 def test_oversized_roll_weight_iterable_is_rejected_without_full_materialization():
