@@ -5,7 +5,7 @@ import pytest
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, Item, Role, User, WasteRecord
+from app.models import AuditLog, Item, Role, StockBatch, User, Warehouse, WasteRecord
 
 
 MAX_WASTE_QUANTITY = Decimal("9999999999.9999")
@@ -135,3 +135,47 @@ def test_waste_create_checks_authorization_before_invalid_quantity(client):
 
     assert response.status_code == 403, response.text
     assert _waste_counts() == before
+
+
+def test_waste_create_rejects_cross_item_batch_before_writes(client, auth_headers):
+    batch_item_id = _cost_item("4.0000")
+    other_item_id = _cost_item("9.0000")
+    marker = uuid4().hex
+    with SessionLocal.begin() as db:
+        warehouse = Warehouse(name=f"Waste mismatch {marker}", type="fabric_storage")
+        db.add(warehouse)
+        db.flush()
+        batch = StockBatch(
+            item_id=batch_item_id,
+            batch_no=f"WASTE-MISMATCH-{marker}",
+            quantity=10,
+            unit="kg",
+            cost_per_unit=Decimal("4.0000"),
+            warehouse_id=warehouse.id,
+        )
+        db.add(batch)
+        db.flush()
+        batch_id = batch.id
+
+    before = _waste_counts()
+    mismatch = client.post(
+        "/api/waste", headers=auth_headers,
+        json=_payload(item_id=other_item_id, batch_id=batch_id),
+    )
+    assert mismatch.status_code == 400, mismatch.text
+    assert mismatch.json()["detail"] == "Stock batch does not belong to item"
+    assert _waste_counts() == before
+
+    missing_batch = client.post(
+        "/api/waste", headers=auth_headers,
+        json=_payload(item_id=batch_item_id, batch_id=2_000_000_000),
+    )
+    assert missing_batch.status_code == 404, missing_batch.text
+    assert _waste_counts() == before
+
+    valid = client.post(
+        "/api/waste", headers=auth_headers,
+        json=_payload(item_id=batch_item_id, batch_id=batch_id),
+    )
+    assert valid.status_code == 201, valid.text
+    assert valid.json()["estimated_value"] == 4.0

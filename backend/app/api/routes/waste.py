@@ -178,6 +178,14 @@ def create_waste(payload: WasteIn, db: DbSession, current: User = Depends(requir
     "waste.receive", "planning.production", "management.approve", "*",
 ))):
     data = payload.model_dump()
+    if data.get("item_id") is not None and not db.query(Item.id).filter(Item.id == data["item_id"]).first():
+        raise HTTPException(404, "Item not found")
+    if data.get("batch_id") is not None:
+        batch_item_id = db.query(StockBatch.item_id).filter(StockBatch.id == data["batch_id"]).scalar()
+        if batch_item_id is None:
+            raise HTTPException(404, "Stock batch not found")
+        if data.get("item_id") is not None and batch_item_id != data["item_id"]:
+            raise HTTPException(400, "Stock batch does not belong to item")
     unit_cost = _unit_cost_for_waste(db, data.get("item_id"), data.get("batch_id"))
     data["quantity"], data["estimated_value"] = _validated_waste_values(data.get("quantity"), unit_cost)
     w = WasteRecord(**data, created_by=current.id, status="recorded")
