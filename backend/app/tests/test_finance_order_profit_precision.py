@@ -79,9 +79,21 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
             unit="kg",
             waste_percent="10.00",
         ))
+        db.add_all([
+            StockBatch(
+                item_id=item.id,
+                batch_no=f"BATCH-PROFIT-OLD-{uuid4().hex}-{number}",
+                quantity=10,
+                unit="kg",
+                cost_per_unit="9.99",
+                warehouse_id=warehouse.id,
+            )
+            for number in range(25)
+        ])
+        db.flush()
         db.add(StockBatch(
             item_id=item.id,
-            batch_no=f"BATCH-PROFIT-{uuid4().hex}",
+            batch_no=f"BATCH-PROFIT-LATEST-{uuid4().hex}",
             quantity=10,
             unit="kg",
             cost_per_unit="0.20",
@@ -125,6 +137,8 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
     assert "join stock_batches" not in bom_query
     assert "image_url" not in stock_batch_query
     assert "join items" not in stock_batch_query
+    assert "max(" in stock_batch_query
+    assert "join" in stock_batch_query
 
 
 def test_branded_stock_value_uses_decimal_intermediates():

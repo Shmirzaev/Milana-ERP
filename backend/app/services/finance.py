@@ -50,6 +50,23 @@ def branded_stock_value(db: Session) -> float:
     return float(total)
 
 
+def _latest_stock_batch_costs(db: Session, item_ids: set[int]) -> dict[int, Decimal]:
+    if not item_ids:
+        return {}
+    latest_ids = (
+        db.query(StockBatch.item_id, func.max(StockBatch.id).label("latest_id"))
+        .filter(StockBatch.item_id.in_(item_ids))
+        .group_by(StockBatch.item_id)
+        .subquery()
+    )
+    rows = (
+        db.query(StockBatch.item_id, StockBatch.cost_per_unit)
+        .join(latest_ids, StockBatch.id == latest_ids.c.latest_id)
+        .all()
+    )
+    return {int(item_id): Decimal(str(cost or 0)) for item_id, cost in rows}
+
+
 def order_profit(db: Session, sales_order_id: int) -> dict:
     so = (
         db.query(SalesOrder)
@@ -109,22 +126,8 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
         for row in bom_rows:
             boms_by_model.setdefault(row.model_id, []).append(row)
 
-        item_ids = {row.item_id for row in bom_rows}
-        latest_cost_by_item: dict[int, Decimal] = {}
-        if item_ids:
-            latest_rows = (
-                db.query(StockBatch)
-                .options(
-                    load_only(StockBatch.id, StockBatch.item_id, StockBatch.cost_per_unit),
-                    noload(StockBatch.item),
-                )
-                .filter(StockBatch.item_id.in_(item_ids))
-                .order_by(StockBatch.item_id.asc(), StockBatch.id.desc())
-                .all()
-            )
-            for r in latest_rows:
-                if r.item_id not in latest_cost_by_item:
-                    latest_cost_by_item[r.item_id] = Decimal(str(r.cost_per_unit or 0))
+        item_ids = {int(row.item_id) for row in bom_rows if row.item_id is not None}
+        latest_cost_by_item = _latest_stock_batch_costs(db, item_ids)
 
         for po in pos:
             for b in boms_by_model.get(po.model_id, []):
@@ -284,22 +287,7 @@ def cost_breakdown(db: Session) -> dict:
     )
     item_map = {int(item.id): item for item in item_rows}
 
-    latest_cost_by_item: dict[int, Decimal] = {}
-    if item_ids:
-        latest_rows = (
-            db.query(StockBatch)
-            .options(
-                load_only(StockBatch.id, StockBatch.item_id, StockBatch.cost_per_unit),
-                noload(StockBatch.item),
-            )
-            .filter(StockBatch.item_id.in_(item_ids))
-            .order_by(StockBatch.item_id.asc(), StockBatch.id.desc())
-            .all()
-        )
-        for row in latest_rows:
-            item_id = int(row.item_id)
-            if item_id not in latest_cost_by_item:
-                latest_cost_by_item[item_id] = Decimal(str(row.cost_per_unit or 0))
+    latest_cost_by_item = _latest_stock_batch_costs(db, item_ids)
 
     boms_by_model: dict[int, list[ModelBOM]] = {}
     for row in bom_rows:
@@ -329,8 +317,9 @@ def cost_breakdown(db: Session) -> dict:
             else:
                 fabric_cost += row_cost
 
-    labor_cost = float(db.query(func.coalesce(func.sum(SalesOrder.planning_estimated_labor_cost), 0)).scalar() or 0)
-    labor_cost_decimal = Decimal(str(labor_cost))
+    labor_cost_decimal = Decimal(str(
+        db.query(func.coalesce(func.sum(SalesOrder.planning_estimated_labor_cost), 0)).scalar() or 0
+    ))
     total_cogs = fabric_cost + accessories_cost + labor_cost_decimal
     return {
         "fabric_cost": round(float(fabric_cost), 2),
