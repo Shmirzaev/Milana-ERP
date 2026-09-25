@@ -352,7 +352,15 @@ def invoice_for_frozen_delivery(db: Session, shipment: Shipment, user: User) -> 
         document = (row.dispatch_snapshot or {}).get("document")
         if row.status not in {"shipped", "delivered"} or not document or document.get("amount") is None:
             raise HTTPException(409, "Finance reconciliation required: order contains historical or incomplete shipment totals")
-        amount += Decimal(document["amount"])
+        shipment_amount = Decimal(document["amount"])
+        if (
+            not shipment_amount.is_finite()
+            or shipment_amount < 0
+            or shipment_amount > Decimal("999999999999.99")
+            or shipment_amount != shipment_amount.quantize(Decimal("0.01"))
+        ):
+            raise HTTPException(409, "Finance reconciliation required: shipment amount is outside invoice limits")
+        amount += shipment_amount
     if not amount.is_finite() or amount < 0 or amount > Decimal("999999999999.99"):
         raise HTTPException(409, "Finance reconciliation required: combined shipment amount is outside invoice limits")
     invoices = db.query(Invoice).filter_by(sales_order_id=shipment.sales_order_id).with_for_update().all()
