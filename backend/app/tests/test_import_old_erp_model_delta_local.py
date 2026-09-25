@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models import Model
 from scripts import import_old_erp_model_delta_local as delta
 from scripts import import_old_erp_models_local as original
 
@@ -480,6 +481,60 @@ def test_delta_details_preserves_exact_unchanged_oversized_legacy() -> None:
         provenance=provenance,
         paid_operations=[],
     ) == current
+
+
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep", "nonfinite"])
+def test_delta_plan_rejects_invalid_quarantine_details_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_kind: str,
+) -> None:
+    monkeypatch.setattr(delta, "SessionLocal", lambda: pytest.fail("database session opened"))
+    invalid_value: object = "ж" * (70 * 1024)
+    if invalid_kind == "deep":
+        invalid_value = {"leaf": True}
+        for _ in range(20):
+            invalid_value = {"next": invalid_value}
+    elif invalid_kind == "nonfinite":
+        invalid_value = float("inf")
+    existing = {"general": {}}
+    model = Model(id=7, code="TEST", name="Test", details_json=copy.deepcopy(existing))
+    action = {
+        "action": "update_existing",
+        "action_scope": "quarantine_reconciliation",
+        "target_model_id": 7,
+        "details_after": {"general": {"extension": invalid_value}},
+    }
+
+    with pytest.raises(delta.MigrationError, match="Imported Model.details_json is invalid"):
+        delta.validate_planned_details_bounds([action], [model])
+
+    assert model.details_json == existing
+
+
+def test_delta_plan_keeps_unchanged_oversized_legacy_document_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(delta, "SessionLocal", lambda: pytest.fail("database session opened"))
+    provenance = {"source_key": delta.SOURCE_KEY}
+    existing = {
+        "general": {"legacy_product": "Original"},
+        "paid_operations": [],
+        delta.DETAILS_KEY: copy.deepcopy(provenance),
+        "future_extension": "ж" * (70 * 1024),
+    }
+    model = Model(id=7, code="TEST", name="Test", details_json=copy.deepcopy(existing))
+    final = delta.details_after(
+        existing,
+        patch={"legacy_product": "x" * (70 * 1024)},
+        provenance=provenance,
+        paid_operations=[],
+    )
+    action = {"action": "update_existing", "target_model_id": 7, "details_after": final}
+
+    delta.validate_planned_details_bounds([action], [model])
+
+    assert final == existing
+    assert model.details_json == existing
 
 
 def applied_delta_model(name: str) -> tuple[SimpleNamespace, dict, dict, dict, dict]:
