@@ -27,14 +27,14 @@ def _conversion_line(quantity):
 
 
 def test_purchase_order_quantity_accepts_finite_values_and_exact_storage_boundary():
-    direct = _direct_line("12.34567")
+    direct = _direct_line("12.3456")
     converted = _conversion_line("9999999999.9999")
 
-    assert direct.ordered_quantity == Decimal("12.34567")
+    assert direct.ordered_quantity == Decimal("12.3456")
     assert converted.ordered_quantity == Decimal("9999999999.9999")
 
 
-@pytest.mark.parametrize("quantity", ["Infinity", "-Infinity", "NaN", "0", "10000000000"])
+@pytest.mark.parametrize("quantity", ["Infinity", "-Infinity", "NaN", "0", "10000000000", "1.00001"])
 @pytest.mark.parametrize("builder", [_direct_line, _conversion_line])
 def test_purchase_order_quantity_rejects_invalid_or_unrepresentable_values(builder, quantity):
     with pytest.raises(ValidationError):
@@ -78,11 +78,11 @@ def test_purchase_order_quantity_api_rejects_before_writes_and_preserves_auth_pr
 
     valid = client.post(
         "/api/purchasing/orders",
-        json=payload("12.34567"),
+        json=payload("12.3456"),
         headers=auth_headers,
     )
     assert valid.status_code == 201, valid.text
-    assert valid.json()["lines"][0]["ordered_quantity"] == pytest.approx(12.3457)
+    assert valid.json()["lines"][0]["ordered_quantity"] == pytest.approx(12.3456)
 
     with SessionLocal() as db:
         after_valid = (
@@ -92,7 +92,7 @@ def test_purchase_order_quantity_api_rejects_before_writes_and_preserves_auth_pr
         )
     assert after_valid == (before[0] + 1, before[1] + 1, before[2] + 1)
 
-    for quantity in ("Infinity", "10000000000"):
+    for quantity in ("Infinity", "10000000000", "1.00001"):
         response = client.post(
             "/api/purchasing/orders",
             json=payload(quantity),

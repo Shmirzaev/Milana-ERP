@@ -32,6 +32,14 @@ def test_purchase_request_quantities_reject_nonfinite_or_unrepresentable_values(
         _line(**{field: value})
 
 
+@pytest.mark.parametrize(
+    "field", ["required_quantity", "requested_quantity", "available_quantity", "shortage_quantity"],
+)
+def test_purchase_request_quantities_reject_extra_fractional_places(field):
+    with pytest.raises(ValidationError):
+        _line(**{field: "1.00001"})
+
+
 def test_purchase_request_quantity_api_rejects_before_writes_and_keeps_auth_precedence(
     client, auth_headers
 ):
@@ -53,11 +61,11 @@ def test_purchase_request_quantity_api_rejects_before_writes_and_keeps_auth_prec
 
     valid = client.post(
         "/api/purchasing/requests",
-        json=payload(required_quantity="12.34567", requested_quantity="10.25"),
+        json=payload(required_quantity="12.3456", requested_quantity="10.25"),
         headers=auth_headers,
     )
     assert valid.status_code == 201, valid.text
-    assert valid.json()["lines"][0]["required_quantity"] == pytest.approx(12.3457)
+    assert valid.json()["lines"][0]["required_quantity"] == pytest.approx(12.3456)
     assert valid.json()["lines"][0]["requested_quantity"] == pytest.approx(10.25)
 
     with SessionLocal() as db:
@@ -69,6 +77,12 @@ def test_purchase_request_quantity_api_rejects_before_writes_and_keeps_auth_prec
     assert after_valid == (before[0] + 1, before[1] + 1, before[2] + 1)
 
     for field in ("required_quantity", "requested_quantity", "available_quantity", "shortage_quantity"):
+        precision = client.post(
+            "/api/purchasing/requests",
+            json=payload(**{field: "1.00001"}),
+            headers=auth_headers,
+        )
+        assert precision.status_code == 422, (field, precision.text)
         response = client.post(
             "/api/purchasing/requests",
             json=payload(**{field: "Infinity"}),

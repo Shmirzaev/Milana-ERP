@@ -1,5 +1,5 @@
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -33,6 +33,20 @@ PurchaseRequestQuantity = Annotated[
 ]
 
 
+def _reject_purchase_quantity_precision(value):
+    try:
+        quantity = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return value
+    if (
+        quantity.is_finite()
+        and abs(quantity) <= Decimal("9999999999.9999")
+        and quantity % Decimal("0.0001")
+    ):
+        raise ValueError("Purchase quantity supports at most four decimal places")
+    return value
+
+
 class PurchaseRequestLineIn(BaseModel):
     item_id: int
     required_quantity: PurchaseRequestQuantity = Decimal("0")
@@ -44,6 +58,13 @@ class PurchaseRequestLineIn(BaseModel):
     material_name: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 255})
     photo_url: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 500})
     notes: Optional[str] = None
+
+    @field_validator(
+        "required_quantity", "requested_quantity", "available_quantity", "shortage_quantity", mode="before",
+    )
+    @classmethod
+    def validate_quantity_precision(cls, value):
+        return _reject_purchase_quantity_precision(value)
 
 
 class PurchaseRequestIn(BaseModel):
@@ -112,6 +133,11 @@ class PurchaseOrderLineIn(BaseModel):
     material_name: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 255})
     photo_url: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 500})
     notes: Optional[str] = None
+
+    @field_validator("ordered_quantity", mode="before")
+    @classmethod
+    def validate_quantity_precision(cls, value):
+        return _reject_purchase_quantity_precision(value)
 
     @field_validator("unit_cost", mode="before")
     @classmethod
@@ -191,6 +217,11 @@ class PurchaseOrderReceiveLineIn(BaseModel):
     processes: Optional[str] = None
     qc_status: str = "passed"
 
+    @field_validator("received_quantity", mode="before")
+    @classmethod
+    def validate_quantity_precision(cls, value):
+        return _reject_purchase_quantity_precision(value)
+
     @field_validator("cost_per_unit", mode="before")
     @classmethod
     def validate_cost_precision(cls, value):
@@ -217,6 +248,11 @@ class PurchaseRequestApprovalIn(BaseModel):
 class PurchaseRequestOrderLineIn(BaseModel):
     purchase_request_line_id: int
     ordered_quantity: PurchaseOrderQuantity
+
+    @field_validator("ordered_quantity", mode="before")
+    @classmethod
+    def validate_quantity_precision(cls, value):
+        return _reject_purchase_quantity_precision(value)
 
 
 class PurchaseRequestOrderIn(BaseModel):

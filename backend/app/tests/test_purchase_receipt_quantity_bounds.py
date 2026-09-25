@@ -91,11 +91,11 @@ def _state(order: dict[str, int | str]):
 
 
 def test_purchase_receipt_quantity_preserves_float_contract_and_storage_boundary():
-    ordinary = _receive_line("12.34567")
+    ordinary = _receive_line("12.3456")
     maximum = _receive_line("9999999999.9999")
 
     assert isinstance(ordinary.received_quantity, float)
-    assert ordinary.received_quantity == 12.34567
+    assert ordinary.received_quantity == 12.3456
     assert maximum.received_quantity == 9999999999.9999
 
 
@@ -111,7 +111,7 @@ def test_purchase_receipt_dimensions_accept_numeric_column_boundaries():
     assert minimum_gsm.gsm == -99_999_999.999999
 
 
-@pytest.mark.parametrize("quantity", ["Infinity", "-Infinity", "NaN", "0", "10000000000"])
+@pytest.mark.parametrize("quantity", ["Infinity", "-Infinity", "NaN", "0", "10000000000", "1.00001"])
 def test_purchase_receipt_quantity_rejects_invalid_or_unrepresentable_values(quantity):
     with pytest.raises(ValidationError):
         _receive_line(quantity)
@@ -138,7 +138,7 @@ def test_purchase_receipt_dimensions_reject_nonfinite_or_unrepresentable_values(
 def test_purchase_receipt_quantity_keeps_idempotent_valid_receipts(client, auth_headers):
     order = _seed_order()
     headers = {**auth_headers, "Idempotency-Key": f"receipt-bound-{uuid4()}"}
-    payload = _payload(order, "12.34567")
+    payload = _payload(order, "12.3456")
 
     first = client.post(
         f"/api/purchasing/orders/{order['order_id']}/receive",
@@ -146,7 +146,7 @@ def test_purchase_receipt_quantity_keeps_idempotent_valid_receipts(client, auth_
         headers=headers,
     )
     assert first.status_code == 200, first.text
-    assert first.json()["lines"][0]["received_quantity"] == pytest.approx(12.34567)
+    assert first.json()["lines"][0]["received_quantity"] == pytest.approx(12.3456)
     after_first = _state(order)
 
     replay = client.post(
@@ -180,7 +180,7 @@ def test_purchase_receipt_quantity_rejects_before_side_effects_and_preserves_aut
         denied_headers = {"Authorization": f"Bearer {create_access_token(denied_user.id)}"}
     before = _state(order)
 
-    for quantity in ("Infinity", "10000000000"):
+    for quantity in ("Infinity", "10000000000", "1.00001"):
         response = client.post(
             f"/api/purchasing/orders/{order['order_id']}/receive",
             json=_payload(order, quantity),

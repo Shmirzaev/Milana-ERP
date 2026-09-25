@@ -48,7 +48,10 @@ def _num(value) -> float:
 
 
 def _purchase_quantity(value) -> Decimal:
-    return Decimal(str(value or 0))
+    quantity = Decimal(str(value or 0))
+    if not quantity.is_finite() or quantity % Decimal("0.0001"):
+        raise HTTPException(422, "Purchase quantity supports at most four decimal places")
+    return quantity
 
 
 def _validate_purchase_line_varchar_lengths(line_inputs: list[dict]) -> None:
