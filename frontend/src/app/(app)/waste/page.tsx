@@ -1,9 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
+import SearchableSelect from "@/components/SearchableSelect";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { useDialogs } from "@/components/DialogProvider";
@@ -30,6 +32,8 @@ type WasteForm = {
 
 type SaleForm = { wasteId: number; buyer: string; quantity: string; unitPrice: string };
 type WastePage = { rows: any[]; total: number; page: number; page_size: number; has_more: boolean };
+type ItemOption = { id: number; sku: string; name: string };
+type ItemPage = { rows: ItemOption[]; total: number };
 
 export default function WastePage() {
   const { t } = useT();
@@ -39,10 +43,33 @@ export default function WastePage() {
   const [pageSize, setPageSize] = useState(50);
   const { data: wastePage, mutate } = useSWR<WastePage>(`/api/waste?page=${page}&page_size=${pageSize}`, fetcher);
   const data = wastePage?.rows;
-  const { data: items } = useSWR<any[]>("/api/inventory/items", fetcher);
+  const [selectedItem, setSelectedItem] = useState<ItemOption | null>(null);
+  const [itemPickerOpen, setItemPickerOpen] = useState(false);
+  const [itemSearch, setItemSearch] = useState("");
+  const [itemQuery, setItemQuery] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setItemQuery(itemSearch.trim()), 180);
+    return () => window.clearTimeout(timer);
+  }, [itemSearch]);
+  const { data: itemPages, size: itemPageCount, setSize: setItemPageCount, isLoading: itemsLoading, isValidating: itemsValidating } = useSWRInfinite<ItemPage>(
+    (index, previous) => !itemPickerOpen || (previous && index * 50 >= previous.total) ? null
+      : `/api/inventory/items?page=${index + 1}&page_size=50&include_total=true&q=${encodeURIComponent(itemQuery)}`,
+    fetcher,
+    { persistSize: false, revalidateFirstPage: false },
+  );
   const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const { data: dash } = useSWR<any>("/api/dashboard/waste", fetcher);
   const [f, setF] = useState<WasteForm>({ item_id: 0, source_department_id: 0, waste_type: "fabric", quantity: "", unit: "kg", reason: "", sellable: true });
+  const loadedItems = useMemo(() => (itemPages || []).flatMap((itemPage) => itemPage.rows), [itemPages]);
+  const itemOptions = useMemo(() => {
+    const byId = new Map<number, ItemOption>();
+    if (selectedItem?.id === f.item_id) byId.set(f.item_id, selectedItem);
+    for (const item of loadedItems) byId.set(item.id, item);
+    return [{ value: 0, label: t("ph.item") }, ...Array.from(byId.values()).map((item) => ({
+      value: item.id, label: `${item.sku} — ${item.name}`, searchText: item.name,
+    }))];
+  }, [f.item_id, loadedItems, selectedItem, t]);
+  const itemsById = useMemo(() => new Map(loadedItems.map((item) => [item.id, item])), [loadedItems]);
   const [msg, setMsg] = useState("");
   const [sale, setSale] = useState<SaleForm | null>(null);
   const [sellingId, setSellingId] = useState<number | null>(null);
@@ -215,9 +242,25 @@ export default function WastePage() {
         <div className="card p-4"><div className="text-xs text-slate-500">{t("page.waste.nonSellable")}</div><div className="text-2xl font-semibold">{dash?.non_sellable_count ?? 0}</div></div>
       </div>
       <form onSubmit={record} className="card p-4 mb-6 grid grid-cols-1 md:grid-cols-4 gap-3">
-        <select className="input" value={f.item_id} onChange={(e) => setF({ ...f, item_id: Number(e.target.value) })}>
-          <option value={0}>{t("ph.item")}</option>{items?.map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name}</option>)}
-        </select>
+        <SearchableSelect
+          value={f.item_id || null}
+          options={itemOptions}
+          onChange={(value) => {
+            const nextId = Number(value);
+            setSelectedItem(itemsById.get(nextId) || (selectedItem?.id === nextId ? selectedItem : null));
+            setF({ ...f, item_id: nextId });
+          }}
+          placeholder={t("ph.item")}
+          noResultsText={t("page.search.noMatches")}
+          loadingText={t("common.loading")}
+          loadMoreText={`${t("common.loadMore")} (${loadedItems.length} / ${itemPages?.[0]?.total ?? 0})`}
+          loading={itemsLoading || itemsValidating}
+          hasMore={Boolean(itemPages?.at(-1) && loadedItems.length < (itemPages?.[0]?.total ?? 0))}
+          onSearchChange={setItemSearch}
+          onLoadMore={() => void setItemPageCount(itemPageCount + 1)}
+          onOpenChange={setItemPickerOpen}
+          serverFilter
+        />
         <select className="input" value={f.source_department_id} onChange={(e) => setF({ ...f, source_department_id: Number(e.target.value) })}>
           <option value={0}>{t("ph.sourceDept")}</option>{depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
