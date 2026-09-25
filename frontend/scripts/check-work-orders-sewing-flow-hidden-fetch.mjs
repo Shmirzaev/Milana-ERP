@@ -31,6 +31,7 @@ function renderCase(workOrders) {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
     react: {
       useEffect() {},
+      useMemo: (compute) => compute(),
       useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
     },
     "next/link": { default: "link" },
@@ -40,18 +41,19 @@ function renderCase(workOrders) {
         requests.push(key);
         const data = key === "/api/departments"
           ? [{ id: 1, code: "CUT", name: "Cutting" }]
-          : key === "/api/work-orders"
-            ? workOrders
+          : key === "/api/work-orders?page=1&page_size=50"
+            ? workOrders && { rows: workOrders, total: 101, page: 1, page_size: 50, has_more: true }
             : key === sewingFlowKey
               ? [{ id: 7, name: "Line Seven" }]
-              : key === "/api/process-tracking"
-                ? []
+              : key?.startsWith("/api/process-tracking?")
+                ? [{ production_order_id: workOrders?.[0]?.production_order_id, current_stage: "sewing", stages: [] }]
                 : undefined;
         return { data };
       },
     },
     "@/lib/api": { fetcher() {} },
     "@/components/PageHeader": { default: "page-header" },
+    "@/components/PaginationControls": { default: "pagination-controls" },
     "@/lib/i18n": { useT: () => ({ t: (key) => key }) },
     "@/components/StagePipeline": {
       default: "stage-pipeline",
@@ -104,6 +106,17 @@ const withoutLine = renderCase([{
   sewing_flow_id: null,
 }]);
 assert.equal(withoutLine.requests.filter((key) => key === sewingFlowKey).length, 0);
+assert.ok(withoutLine.requests.includes("/api/work-orders?page=1&page_size=50"));
+const processUrl = new URL(withoutLine.requests.find((key) => key?.startsWith("/api/process-tracking?")), "http://test.local");
+assert.deepEqual(processUrl.searchParams.getAll("production_order_ids"), ["20"]);
+assert.equal(processUrl.searchParams.get("page_size"), "1");
+let pageControls;
+visit(withoutLine.tree, (node) => { if (node?.type === "pagination-controls") pageControls = node.props; });
+assert.equal(pageControls?.total, 101);
+assert.equal(pageControls?.count, 1);
+let timeline;
+visit(withoutLine.tree, (node) => { if (node?.type === "stage-pipeline") timeline = node.props; });
+assert.equal(timeline?.currentStage, "sewing");
 assert.match(textContent(withoutLine.tree), /PO-20/);
 assert.match(textContent(withoutLine.tree), /—/);
 
@@ -120,11 +133,13 @@ const withLine = renderCase([{
   sewing_flow_id: 7,
 }]);
 assert.equal(withLine.requests.filter((key) => key === sewingFlowKey).length, 1);
+assert.ok(withLine.requests.some((key) => key?.includes("production_order_ids=21")));
 assert.match(textContent(withLine.tree), /PO-21/);
 assert.match(textContent(withLine.tree), /Line Seven/);
 
 const deniedOrEmpty = renderCase(undefined);
 assert.equal(deniedOrEmpty.requests.filter((key) => key === sewingFlowKey).length, 0);
+assert.equal(deniedOrEmpty.requests.some((key) => key?.startsWith("/api/process-tracking?")), false);
 assert.doesNotMatch(textContent(deniedOrEmpty.tree), /PO-20|PO-21|Line Seven/);
 assert.match(textContent(deniedOrEmpty.tree), /page\.wo\.pipeline/);
 

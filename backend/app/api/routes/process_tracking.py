@@ -6,7 +6,8 @@ work order — which department is working on it, how many units are done vs
 planned, deadlines, sewing-flow assignment, overdue and block flags.
 """
 from datetime import date, datetime, timezone
-from fastapi import APIRouter
+from typing import Annotated
+from fastapi import APIRouter, Query
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import joinedload, load_only, selectinload
 
@@ -793,6 +794,7 @@ def list_processes(
     sort: str = "created_desc",
     only_active: bool = True,
     sewing_completed_only: bool = False,
+    production_order_ids: Annotated[list[int] | None, Query(max_length=100)] = None,
     page: int = 1,
     page_size: int = 100,
     include_total: bool = False,
@@ -828,6 +830,8 @@ def list_processes(
         # Existing unscoped consumers are the ordinary production workspace.
         # Usluga joins the dedicated Eco view only and must not leak globally.
         qry = qry.filter(ProductionOrder.source_type == "standard")
+    if production_order_ids is not None:
+        qry = qry.filter(ProductionOrder.id.in_(production_order_ids))
     if status:
         qry = qry.filter(ProductionOrder.status == status)
     if only_active:
