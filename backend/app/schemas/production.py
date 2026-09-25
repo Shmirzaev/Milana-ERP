@@ -410,7 +410,7 @@ class CuttingRecordIn(BaseModel):
     operator_id: Optional[int] = None
     layup_operator_name: Optional[str] = Field(default=None, max_length=128)
     notes: Optional[str] = None
-    materials: list[CuttingMaterialUsageIn] = Field(default_factory=list)
+    materials: list[CuttingMaterialUsageIn] = Field(default_factory=list, max_length=1000)
     # Bundle plan: list of {color, size, quantity, count}
     bundles: list[dict] = Field(default_factory=list)
 
