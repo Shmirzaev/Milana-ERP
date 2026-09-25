@@ -63,6 +63,7 @@ from app.services.inventory import (
     accessory_issue_summary,
     auto_reserve_materials_for_production_order,
     available_stock_for_batch,
+    available_stock_for_item,
     categories_for_group,
     ITEM_CATEGORIES,
     consume_material_reservation,
@@ -1968,9 +1969,38 @@ def archive_or_delete_batch(
             if not item:
                 raise HTTPException(404, "Item not found")
             validate_stock_batch_unit(item, batch.unit)
+            # Reservation creation locks the batch before the shared item key.
+            # Keep that order while checking claims on other batches or on the
+            # item itself before this batch's physical stock is removed.
+            lock_stock_item_availability(db, int(batch.item_id))
         reservations = db.execute(
             _locked_active_batch_reservations_statement(batch_id)
         ).scalars().all()
+        item_only_claim_exists = removed_quantity > EPSILON and db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == batch.item_id,
+            MaterialReservation.stock_batch_id.is_(None),
+            MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+        ).first() is not None
+        if item_only_claim_exists:
+            releasable = sum(
+                max(0.0, float(row.reserved_quantity or 0)
+                    - float(row.consumed_quantity or 0)
+                    - float(row.released_quantity or 0))
+                for row in reservations if row.item_id == batch.item_id
+            )
+            available = available_stock_for_item(db, int(batch.item_id)) + releasable
+            local_release = sum(
+                max(0.0, float(row.reserved_quantity or 0)
+                    - float(row.consumed_quantity or 0)
+                    - float(row.released_quantity or 0))
+                for row in reservations
+                if row.item_id == batch.item_id and row.warehouse_id == batch.warehouse_id
+            )
+            local_available = available_stock_for_item(
+                db, int(batch.item_id), int(batch.warehouse_id),
+            ) + local_release
+            if removed_quantity > available + EPSILON or removed_quantity > local_available + EPSILON:
+                raise HTTPException(409, "Cannot remove stock reserved for another order")
         released_quantity = 0.0
         for reservation in reservations:
             remaining = max(
@@ -2018,6 +2048,24 @@ def archive_or_delete_batch(
         db.commit()
         return
 
+    # An unlinked non-material batch is physically deleted. Its item-only
+    # reservations do not link to the batch, so the branch above cannot see
+    # them; preserve those claims before deleting the receipt and batch.
+    removed_quantity = float(batch.quantity or 0)
+    if removed_quantity > EPSILON:
+        lock_stock_item_availability(db, int(batch.item_id))
+        item_only_claim_exists = db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == batch.item_id,
+            MaterialReservation.stock_batch_id.is_(None),
+            MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+        ).first() is not None
+        if item_only_claim_exists and (
+            removed_quantity > available_stock_for_item(db, int(batch.item_id)) + EPSILON
+            or removed_quantity > available_stock_for_item(
+                db, int(batch.item_id), int(batch.warehouse_id),
+            ) + EPSILON
+        ):
+            raise HTTPException(409, "Cannot remove stock reserved for another order")
     receipt_movements = db.query(StockMovement).filter(
         StockMovement.batch_id == batch_id,
         StockMovement.movement_type == "receive",

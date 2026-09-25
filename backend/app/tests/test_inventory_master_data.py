@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from openpyxl import load_workbook
+import pytest
 from sqlalchemy import event
 from sqlalchemy.dialects import postgresql
 
@@ -1692,6 +1693,84 @@ def test_stock_batch_delete_archives_used_batch_and_reduces_remaining_inventory(
     )
     assert visible.status_code == 200, visible.text
     assert all(row["id"] != batch_id for row in visible.json())
+
+
+@pytest.mark.parametrize(("category", "warehouse_type"), [
+    ("fabric", "fabric_storage"),
+    ("accessory", "accessory_storage"),
+])
+def test_stock_batch_delete_preserves_other_order_item_only_reservation(
+    client, auth_headers, category, warehouse_type,
+):
+    from app.db import session as session_module
+    from app.models import AuditLog, MaterialReservation, Model, ProductionOrder, StockBatch, StockMovement
+
+    suffix = uuid4().hex[:8].upper()
+    item_response = client.post(
+        "/api/inventory/items",
+        json={"sku": f"DELETE-CLAIM-{suffix}", "name": f"Delete claim {suffix}",
+              "category": category, "unit": "kg", "default_cost": 1,
+              "reorder_level": 0, "track_batch": True, "is_active": True},
+        headers=auth_headers,
+    )
+    assert item_response.status_code == 201, item_response.text
+    item_id = item_response.json()["id"]
+    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
+    assert warehouses.status_code == 200, warehouses.text
+    warehouse_id = next(row["id"] for row in warehouses.json() if row["type"] == warehouse_type)
+
+    def receive(number):
+        result = client.post(
+            "/api/inventory/receive",
+            json={"item_id": item_id, "batch_no": f"DELETE-CLAIM-{number}-{suffix}",
+                  "quantity": 10, "unit": "kg", "cost_per_unit": 1,
+                  "warehouse_id": warehouse_id, "qc_status": "passed"},
+            headers=auth_headers,
+        )
+        assert result.status_code == 201, result.text
+        return result.json()["id"]
+
+    batch_id = receive(1)
+    with session_module.SessionLocal() as db:
+        model = Model(code=f"DELETE-CLAIM-{suffix}", name=f"Delete claim {suffix}", status="approved")
+        db.add(model)
+        db.flush()
+        order = ProductionOrder(production_no=f"PO-DELETE-CLAIM-{suffix}",
+                                production_type="branded_stock", model_id=model.id, planned_quantity=1)
+        db.add(order)
+        db.flush()
+        reservation = MaterialReservation(
+            reservation_no=f"MR-DELETE-CLAIM-{suffix}", production_order_id=order.id,
+            item_id=item_id, stock_batch_id=None, warehouse_id=warehouse_id,
+            reserved_quantity=8, consumed_quantity=0, released_quantity=0,
+            unit="kg", status="reserved", reservation_type="material", source="manual",
+        )
+        db.add(reservation)
+        db.commit()
+        reservation_id = reservation.id
+        movement_count = db.query(StockMovement).count()
+        audit_count = db.query(AuditLog).count()
+
+    denied = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    assert denied.status_code == 409, denied.text
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        claim = db.get(MaterialReservation, reservation_id)
+        assert float(batch.quantity) == 10 and batch.archived_at is None
+        assert claim.status == "reserved" and float(claim.released_quantity) == 0
+        assert db.query(StockMovement).count() == movement_count
+        assert db.query(AuditLog).count() == audit_count
+
+    receive(2)
+    allowed = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    assert allowed.status_code == 204, allowed.text
+    with session_module.SessionLocal() as db:
+        remaining = db.get(StockBatch, batch_id)
+        if category == "fabric":
+            assert remaining is not None and float(remaining.quantity) == 0
+        else:
+            assert remaining is None
+        assert db.get(MaterialReservation, reservation_id).status == "reserved"
 
 
 def test_stock_batch_delete_treats_legacy_null_reference_type_as_downstream(client, auth_headers):
