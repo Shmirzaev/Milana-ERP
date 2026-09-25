@@ -54,7 +54,7 @@ export default function FinancePage() {
   const revenueUrl = useMemo(() => {
     const params = new URLSearchParams();
     if (from) params.set("from", new Date(from).toISOString());
-    if (to) params.set("to", new Date(to).toISOString());
+    if (to) params.set("to", `${to}T23:59:59.999999Z`);
     const qs = params.toString();
     return qs ? `/api/finance/revenue-by-period?${qs}` : "/api/finance/revenue-by-period";
   }, [from, to]);

@@ -46,6 +46,28 @@ def test_revenue_date_bounds_use_created_date_fallback_and_exclude_outside(clien
     assert excluded.json() == []
 
 
+def test_finance_date_picker_to_boundary_includes_entire_selected_utc_day(client, auth_headers):
+    for amount, issued_at in (
+        (12.34, datetime(2089, 4, 30, 23, 59, 59, 999999, tzinfo=timezone.utc)),
+        (99, datetime(2089, 5, 1, tzinfo=timezone.utc)),
+    ):
+        _, _, invoice_id = _create_invoice(SessionLocal)
+        with SessionLocal() as db:
+            invoice = db.get(Invoice, invoice_id)
+            invoice.issued_at = issued_at
+            invoice.amount = amount
+            db.commit()
+
+    response = client.get(
+        "/api/finance/revenue-by-period",
+        headers=auth_headers,
+        params={"from": "2089-04-30T00:00:00.000Z", "to": "2089-04-30T23:59:59.999999Z"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == [{"period": "2089-04", "amount": 12.34}]
+
+
 def test_revenue_by_period_aggregates_in_sql_without_loading_invoice_rows(client, auth_headers):
     invoices = []
     for amount, issued_at in (
