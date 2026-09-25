@@ -1065,7 +1065,18 @@ def _consume_loaded_material_reservation(
 
 
 def release_material_reservation(db: Session, reservation_id: int) -> MaterialReservation:
-    reservation = db.get(MaterialReservation, reservation_id)
+    reservation = (
+        db.query(MaterialReservation)
+        .options(
+            lazyload(MaterialReservation.item),
+            lazyload(MaterialReservation.stock_batch),
+            lazyload(MaterialReservation.warehouse),
+        )
+        .filter(MaterialReservation.id == reservation_id)
+        .populate_existing()
+        .with_for_update(of=MaterialReservation)
+        .first()
+    )
     if not reservation:
         raise HTTPException(404, "Material reservation not found")
     if reservation.status in ("cancelled", "released", "consumed"):

@@ -354,6 +354,67 @@ def test_postgres_batchless_movement_waits_for_item_only_reservation(
         assert db.query(StockMovement).filter_by(item_id=item_id, movement_type=movement_type).count() == 0
 
 
+def test_postgres_concurrent_release_checks_refreshed_reservation_state(reservation_postgres_engine):
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions)
+    with sessions() as db:
+        reservation = inventory.create_material_reservations(
+            db, production_order_id=ids["orders"][0],
+            lines=[_line(ids, 4, batch=0)], user_id=None,
+        )[0]
+        db.commit()
+        reservation_id = reservation.id
+
+    first_released = Event()
+    release_first = Event()
+    second_pid = Queue()
+
+    def release_first_worker():
+        with sessions() as db:
+            released = inventory.release_material_reservation(db, reservation_id)
+            first_released.set()
+            assert release_first.wait(10), "Coordinator did not release the first transaction"
+            db.commit()
+            return released.status
+
+    def release_second_worker():
+        with sessions() as db:
+            second_pid.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            try:
+                inventory.release_material_reservation(db, reservation_id)
+                db.commit()
+                return 200
+            except HTTPException as rejected:
+                db.rollback()
+                return rejected.status_code
+
+    with sessions() as observer, ThreadPoolExecutor(max_workers=2) as workers:
+        first = workers.submit(release_first_worker)
+        try:
+            assert first_released.wait(10), "First release did not lock its reservation"
+            second = workers.submit(release_second_worker)
+            pid = second_pid.get(timeout=10)
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                if observer.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": pid}).scalar_one():
+                    break
+                if second.done():
+                    pytest.fail(f"Second release completed before the first committed: {second.result()}")
+                sleep(0.02)
+            else:
+                pytest.fail("Second release must wait on the reservation row")
+        finally:
+            release_first.set()
+        assert first.result(timeout=10) == "released"
+        assert second.result(timeout=10) == 409
+
+    with sessions() as db:
+        row = db.get(MaterialReservation, reservation_id)
+        assert row.status == "released"
+        assert row.released_quantity == 4
+        assert row.consumed_quantity == 0
+
+
 @pytest.mark.parametrize("case", [
     "same_warehouse", "global", "separate_warehouses", "mixed", "reverse_batches", "reverse_items",
 ])
