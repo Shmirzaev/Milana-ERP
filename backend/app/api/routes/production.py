@@ -33,7 +33,7 @@ from app.schemas.inventory import MaterialReservationOut, MaterialReservationSta
 from app.schemas.production import (
     ProductionOrderIn, ProductionOrderOut, ProductionOrderDetail,
     WorkOrderOut, WorkOrderUpdate,
-    CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
+    CuttingMaterialUsageIn, CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
     QualityCheckIn, QualityCheckOut,
     ProductionOrderSizesIn,
 )
@@ -207,6 +207,7 @@ class CuttingMaterialDetailsUpdateIn(BaseModel):
 
 
 class CuttingRecordDetailsUpdateIn(BaseModel):
+    material_usage: list[CuttingMaterialUsageIn] | None = None
     materials: list[CuttingMaterialDetailsUpdateIn] | None = None
     layer_material_kg: float | None = None
     beika_kg: float | None = None
@@ -3091,7 +3092,16 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         .order_by(ProductionOrderMaterial.position.asc())
         .all()
     )
-    if planned_materials:
+    if payload.defer_material_usage:
+        if po.source_type == "usluga" or not planned_materials or not payload.bundles:
+            raise HTTPException(400, "Deferred fabric usage requires a planned fabric and bundle plan")
+        if (cutting_materials or payload.cutting_passport_id or payload.use_passport_materials
+                or payload.input_quantity or payload.waste_quantity or payload.layer_material_kg
+                or payload.beika_kg or payload.material_rolls_used or payload.layup_operator_name):
+            raise HTTPException(400, "Enter fabric usage later without submitting consumption now")
+        payload.fabric_batch_id = planned_materials[0].stock_batch_id
+        payload.input_unit = planned_materials[0].unit
+    if planned_materials and not payload.defer_material_usage:
         planned_batch_ids = {int(row.stock_batch_id) for row in planned_materials}
         submitted_batch_ids = {int(row["stock_batch_id"]) for row in cutting_materials}
         missing_batch_ids = planned_batch_ids - submitted_batch_ids
@@ -3357,6 +3367,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         new_value={
             "bundles": len(created_bundles),
             "pending_material_consumption": pending_materials,
+            "material_usage_deferred": payload.defer_material_usage,
             "layup_operator_name": rec.layup_operator_name,
             "cutting_batch_no": rec.cutting_batch_no,
             "material_role": rec.material_role,
@@ -3564,8 +3575,12 @@ def reject_usluga_cutting_batch(
     }
 
 
-def _cutting_record_payload(r: CuttingRecord) -> dict:
+def _cutting_record_payload(r: CuttingRecord, db: DbSession) -> dict:
+    from app.services.deferred_cutting_usage import pending_materials
+    pending = pending_materials(db, r)
     return {
+        "material_usage_pending": bool(pending),
+        "pending_materials": [{"stock_batch_id": row.stock_batch_id, "unit": row.unit} for row in pending],
         "cutting_passport_id": r.cutting_passport_id,
         "id": r.id,
         "production_batch_id": r.production_batch_id,
@@ -3607,7 +3622,7 @@ def _cutting_record_payload(r: CuttingRecord) -> dict:
 def get_cutting(rid: int, db: DbSession, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
     r = db.get(CuttingRecord, rid)
     if not r: raise HTTPException(404, "Not found")
-    return _cutting_record_payload(r)
+    return _cutting_record_payload(r, db)
 
 
 @router.patch("/cutting/records/{rid}")
@@ -3640,6 +3655,15 @@ def update_cutting_record_details(
         "notes": rec.notes,
     }
     old_value["materials"] = [{"stock_batch_id": row.stock_batch_id, "details": row.details} for row in rec.materials]
+    old_value["input_quantity"] = float(rec.input_quantity)
+    if payload.material_usage is not None:
+        if payload.materials is not None:
+            raise HTTPException(400, "Submit either new material usage or existing material details")
+        from app.services.deferred_cutting_usage import save_material_usage
+        save_material_usage(db, rec, wo, payload.material_usage, current.id)
+        # Actual material details below are already copied from the new primary usage.
+        for field in (*numeric_fields, "layup_operator_name"):
+            setattr(payload, field, getattr(rec, field))
     if payload.materials is not None:
         by_batch = {row.stock_batch_id: row for row in rec.materials}
         ids = [row.stock_batch_id for row in payload.materials]
@@ -3673,7 +3697,8 @@ def update_cutting_record_details(
         "layup_operator_name": rec.layup_operator_name,
         "notes": rec.notes,
     }
-    new_value["materials"] = [{"stock_batch_id": row.stock_batch_id, "details": row.details} for row in rec.materials]
+    new_value["input_quantity"] = float(rec.input_quantity)
+    new_value["materials"] = [{"stock_batch_id": row.stock_batch_id, "quantity": float(row.quantity), "details": row.details} for row in rec.materials]
     log_action(
         db,
         current,
@@ -3685,7 +3710,7 @@ def update_cutting_record_details(
     )
     db.commit()
     db.refresh(rec)
-    return _cutting_record_payload(rec)
+    return _cutting_record_payload(rec, db)
 
 
 @router.get("/cutting/records/{rid}/production-sheet", response_class=HTMLResponse)

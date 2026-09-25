@@ -56,6 +56,62 @@ def test_missing_passport_does_not_consume_or_create_bundles(client, auth_header
         assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [100, 100]
 
 
+def test_sheet_prints_before_usage_and_later_entry_debits_once(client, auth_headers, passport_cutting):
+    batches, order, work, payload = passport_cutting
+    payload.update(cutting_passport_id=None, use_passport_materials=False,
+                   defer_material_usage=True, input_quantity=0)
+    result = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert result.status_code == 201, result.text
+    rid = result.json()["id"]
+    assert result.json()["materials"] == []
+    sheet = client.post(f"/api/cutting/records/{rid}/production-sheet", headers=auth_headers)
+    assert sheet.status_code == 200, sheet.text
+    assert "<caption>Material /" not in sheet.text
+    details = client.get(f"/api/cutting/records/{rid}", headers=auth_headers).json()
+    assert details["material_usage_pending"]
+    assert {row["stock_batch_id"] for row in details["pending_materials"]} == {row["id"] for row in batches}
+    with SessionLocal() as db:
+        assert db.get(WorkOrder, work["id"]).status == "completed"
+        assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [100, 100]
+        assert db.query(StockMovement).filter_by(reference_type="CuttingRecord", reference_id=rid).count() == 0
+    usage = {"material_usage": [{"stock_batch_id": row["id"], "quantity": 4.5, "unit": "kg",
+              "details": {"layer_material_kg": 1.5, "material_rolls_used": 2, "cut_pieces": 10,
+                          "layup_operator_name": "Entered later", "waste_quantity": 0.2}} for row in batches]}
+    saved = client.patch(f"/api/cutting/records/{rid}", headers=auth_headers, json=usage)
+    assert saved.status_code == 200, saved.text
+    assert not saved.json()["material_usage_pending"]
+    assert [row["quantity"] for row in saved.json()["materials"]] == [4.5, 4.5]
+    repeated = client.patch(f"/api/cutting/records/{rid}", headers=auth_headers, json=usage)
+    assert repeated.status_code == 409, repeated.text
+    with SessionLocal() as db:
+        assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [95.5, 95.5]
+        assert db.query(Bundle).filter_by(production_order_id=order["id"]).one().quantity == 10
+        assert db.get(WorkOrder, work["id"]).passed_qty == 10
+    sheet = client.get(f"/api/cutting/records/{rid}/production-sheet", headers=auth_headers)
+    assert sheet.status_code == 200 and "Entered later" in sheet.text
+
+
+def test_later_usage_shortage_rolls_back_all_fabrics(client, auth_headers, passport_cutting):
+    batches, _, _, payload = passport_cutting
+    payload.update(cutting_passport_id=None, use_passport_materials=False,
+                   defer_material_usage=True, input_quantity=0)
+    created = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert created.status_code == 201, created.text
+    rid = created.json()["id"]
+    with SessionLocal() as db:
+        db.get(StockBatch, batches[1]["id"]).quantity = 0
+        db.commit()
+    saved = client.patch(f"/api/cutting/records/{rid}", headers=auth_headers, json={
+        "material_usage": [{"stock_batch_id": row["id"], "quantity": 4.5, "unit": "kg"} for row in batches],
+    })
+    assert saved.status_code == 409, saved.text
+    with SessionLocal() as db:
+        assert db.get(StockBatch, batches[0]["id"]).quantity == 100
+        assert db.get(CuttingRecord, rid).input_quantity == 0
+        assert db.query(CuttingMaterialUsage).filter_by(cutting_record_id=rid).count() == 0
+        assert db.query(StockMovement).filter_by(reference_type="CuttingRecord", reference_id=rid).count() == 0
+
+
 def test_awaiting_packaging_has_business_identity(client, auth_headers, passport_cutting):
     _, order, _, _ = passport_cutting
     with SessionLocal() as db:
