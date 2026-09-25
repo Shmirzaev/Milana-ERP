@@ -968,6 +968,8 @@ def receive_stock(
 ):
     inventory_access.require_item(db, current, payload.item_id)
     fingerprint_payload = payload.model_dump(mode="json")
+    if payload.cost_currency is None:
+        fingerprint_payload.pop("cost_currency", None)
     if payload.length_m is None:
         fingerprint_payload.pop("length_m", None)
     if not payload.roll_lengths_m:
@@ -1041,6 +1043,8 @@ def collect_back_accessory(
     inventory_access.require_accessories(current)
     lock_accessory_return_allowance(db, payload.production_order_id)
     fingerprint_payload = payload.model_dump(mode="json")
+    if payload.cost_currency is None:
+        fingerprint_payload.pop("cost_currency", None)
     if payload.length_m is None:
         fingerprint_payload.pop("length_m", None)
     if not payload.roll_lengths_m:
@@ -1607,6 +1611,7 @@ def transfer_stock(
         movement_data[warehouse_field] = batch.warehouse_id
         if payload.movement_type == "consume":
             movement_data["unit_cost_at_movement"] = batch.cost_per_unit
+            movement_data["cost_currency_at_movement"] = batch.cost_currency
 
         if outgoing:
             reserved = Decimal(str(reserved_stock_for_batch(db, batch.id)))

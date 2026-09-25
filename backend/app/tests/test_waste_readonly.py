@@ -7,6 +7,7 @@ from sqlalchemy import func
 
 from app.api.routes import waste
 from app.db.session import SessionLocal
+from app.services.finance import waste_cost, waste_income
 from app.models import Item, StockBatch, Warehouse, WasteRecord
 
 
@@ -100,11 +101,6 @@ def test_related_waste_summaries_keep_authorization_and_persisted_totals(client,
     with SessionLocal() as db:
         db.get(StockBatch, batch_id).cost_per_unit = 11
         db.commit()
-        expected_income = float(
-            db.query(func.coalesce(func.sum(WasteRecord.estimated_value), 0))
-            .filter(WasteRecord.sellable.is_(True))
-            .scalar()
-        )
         expected_cost = float(
             db.query(func.coalesce(func.sum(WasteRecord.estimated_value), 0))
             .filter(WasteRecord.sellable.is_(False))
@@ -125,7 +121,10 @@ def test_related_waste_summaries_keep_authorization_and_persisted_totals(client,
 
     report = client.get("/api/finance/waste-report", headers=auth_headers)
     assert report.status_code == 200, report.text
-    assert report.json() == {"cost": expected_cost, "income": expected_income}
+    assert report.json() == {"cost": None, "income": None, "currency": None}
+    with SessionLocal() as db:
+        assert waste_cost(db) == expected_cost
+        assert waste_income(db) == 0
 
     dashboard = client.get("/api/dashboard/waste", headers=auth_headers)
     assert dashboard.status_code == 200, dashboard.text

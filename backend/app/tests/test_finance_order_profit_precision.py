@@ -35,6 +35,7 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
             order_no=f"PROFIT-{uuid4().hex}",
             customer_id=customer.id,
             total_amount=1.3,
+            currency="USD",
         )
         db.add(order)
         db.flush()
@@ -116,6 +117,7 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
             reference_type="ProductionOrder",
             reference_id=production.id,
             unit_cost_at_movement="0.20",
+            cost_currency_at_movement="USD",
         ))
         db.add(WasteRecord(
             production_order_id=production.id,
@@ -137,6 +139,14 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
             result = order_profit(db, order.id)
         finally:
             event.remove(db.get_bind(), "before_cursor_execute", capture_select)
+        recorded = db.query(StockMovement).filter_by(
+            reference_type="ProductionOrder", reference_id=production.id,
+        ).one()
+        recorded.cost_currency_at_movement = "UZS"
+        db.commit()
+        mismatched_currency = order_profit(db, order.id)
+        recorded.cost_currency_at_movement = "USD"
+        db.commit()
         db.get(StockBatch, latest_batch.id).cost_per_unit = "9.2500"
         db.commit()
         repriced = order_profit(db, order.id)
@@ -144,6 +154,7 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
             movement_type="consume", item_id=item.id, batch_id=latest_batch.id,
             quantity="1.00", unit="kg", reference_type="ProductionOrder",
             reference_id=production.id, unit_cost_at_movement="0.0000",
+            cost_currency_at_movement="USD",
         ))
         db.commit()
         with_free_material = order_profit(db, order.id)
@@ -157,9 +168,14 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
 
     assert result["revenue"] == 1.3
     assert result["material_cost"] == 0.066
-    assert result["waste_cost"] == 0.1
-    assert result["gross_profit"] == 1.134
+    assert result["waste_cost"] is None
+    assert result["gross_profit"] is None
     assert result["material_cost_basis"] == "transaction_snapshot"
+    assert mismatched_currency["currency"] == "USD"
+    assert mismatched_currency["revenue"] == 1.3
+    assert mismatched_currency["material_cost"] is None
+    assert mismatched_currency["gross_profit"] is None
+    assert mismatched_currency["material_cost_basis"] == "unavailable"
     assert repriced == result
     assert with_free_material == result
     assert incomplete_history["material_cost"] is None

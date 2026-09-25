@@ -46,6 +46,7 @@ router = APIRouter(tags=["partners"])
 
 class CustomerPaymentIn(BaseModel):
     sales_order_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     amount: Decimal = Field(
         ge=0.01,
         le=Decimal("999999999999.99"),
@@ -166,6 +167,7 @@ def get_customer_orders(
         SalesOrder.order_no,
         SalesOrder.created_at,
         SalesOrder.total_amount,
+        SalesOrder.currency,
         SalesOrder.status,
     )).filter(SalesOrder.customer_id == cid)
     if status:
@@ -191,6 +193,7 @@ def get_customer_orders(
                 Invoice.sales_order_id,
                 Invoice.invoice_no,
                 Invoice.amount,
+                Invoice.currency,
                 Invoice.status,
                 Invoice.issued_at,
                 Invoice.due_date,
@@ -210,6 +213,7 @@ def get_customer_orders(
                     Payment.id,
                     Payment.invoice_id,
                     Payment.amount,
+                    Payment.currency,
                     Payment.payment_method,
                     Payment.paid_at,
                     Payment.notes,
@@ -256,12 +260,13 @@ def get_customer_payments(
             load_only(
                 Payment.id,
                 Payment.amount,
+                Payment.currency,
                 Payment.payment_method,
                 Payment.paid_at,
                 Payment.notes,
             ),
-            load_only(Invoice.id, Invoice.invoice_no, Invoice.amount),
-            load_only(SalesOrder.id, SalesOrder.order_no),
+            load_only(Invoice.id, Invoice.invoice_no, Invoice.amount, Invoice.currency),
+            load_only(SalesOrder.id, SalesOrder.order_no, SalesOrder.currency),
         )
         .outerjoin(Invoice, Invoice.id == Payment.invoice_id)
         .outerjoin(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
@@ -301,6 +306,8 @@ def create_customer_payment(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"customer_id": cid, **payload.model_dump(mode="json")}
+    if payload.currency is None:
+        fingerprint_payload.pop("currency", None)
     replay = replay_idempotent_response(db, user=current, scope="customers.payments", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
@@ -325,6 +332,7 @@ def create_customer_payment(
                 sales_order_id=sales_order.id,
                 invoice_no=next_invoice_no(db),
                 amount=Decimal(str(sales_order.total_amount or 0)),
+                currency=sales_order.currency,
                 status="unpaid",
                 issued_at=datetime.now(timezone.utc),
             )
@@ -342,6 +350,7 @@ def create_customer_payment(
                     db,
                     invoice,
                     amount=invoice_amount,
+                    currency=payload.currency,
                     customer_id=cid,
                     payment_method=payload.payment_method,
                     paid_at=payload.paid_at,
@@ -358,6 +367,7 @@ def create_customer_payment(
             db,
             customer_id=cid,
             amount=amount_remaining,
+            currency=payload.currency or (invoice.currency if invoice else None),
             payment_method=payload.payment_method,
             paid_at=payload.paid_at,
             notes=advance_notes,
@@ -429,6 +439,7 @@ def _serialize_customer_payment(payment: Payment, invoice: Invoice | None, sales
         "id": payment.id,
         "row_key": f"payment-{payment.id}",
         "amount": float(payment.amount or 0),
+        "currency": payment.currency,
         "payment_method": payment.payment_method,
         "paid_at": payment.paid_at,
         "notes": payment.notes,
@@ -453,6 +464,9 @@ def _serialize_customer_order(
 
     for inv in invoices:
         payments = payments_by_invoice.get(int(inv.id), [])
+        invoice_money_known = inv.currency is not None and all(
+            payment.currency == inv.currency for payment in payments
+        )
         payment_payloads = []
         raw_paid_amount = Decimal("0")
         for payment in payments:
@@ -463,7 +477,8 @@ def _serialize_customer_order(
             payment_payloads.append(
                 {
                     "id": payment.id,
-                    "amount": float(amount),
+                    "amount": float(amount) if payment.currency else None,
+                    "currency": payment.currency,
                     "payment_method": payment.payment_method,
                     "paid_at": payment.paid_at,
                     "notes": payment.notes,
@@ -479,20 +494,33 @@ def _serialize_customer_order(
             {
                 "id": inv.id,
                 "invoice_no": inv.invoice_no,
-                "amount": float(amount),
+                "amount": float(amount) if invoice_money_known else None,
+                "currency": inv.currency,
                 "status": inv.status,
                 "issued_at": inv.issued_at,
                 "due_date": inv.due_date,
-                "paid_amount": float(paid_amount),
-                "raw_paid_amount": float(raw_paid_amount),
-                "advance_amount": float(advance_amount),
-                "balance_due": float(max(amount - paid_amount, Decimal("0"))),
+                "paid_amount": float(paid_amount) if invoice_money_known else None,
+                "raw_paid_amount": float(raw_paid_amount) if invoice_money_known else None,
+                "advance_amount": float(advance_amount) if invoice_money_known else None,
+                "balance_due": float(max(amount - paid_amount, Decimal("0"))) if invoice_money_known else None,
                 "payments": payment_payloads,
             }
         )
 
     order_total = invoice_total if invoices else Decimal(str(so.total_amount or 0))
     balance_due = max(order_total - paid_total, Decimal("0"))
+    invoice_currencies = {inv.currency for inv in invoices}
+    recorded_currency = (
+        so.currency if not invoices and so.currency else
+        next(iter(invoice_currencies)) if len(invoice_currencies) == 1 and None not in invoice_currencies else None
+    )
+    if so.currency is not None and recorded_currency != so.currency:
+        recorded_currency = None
+    if recorded_currency and any(
+        payment.currency != recorded_currency
+        for inv in invoices for payment in payments_by_invoice.get(int(inv.id), [])
+    ):
+        recorded_currency = None
 
     def payment_status() -> str:
         if not invoices:
@@ -511,12 +539,13 @@ def _serialize_customer_order(
         "id": so.id,
         "order_no": so.order_no,
         "date": so.created_at,
-        "total": float(so.total_amount or 0),
+        "total": float(so.total_amount or 0) if recorded_currency else None,
+        "currency": recorded_currency,
         "status": so.status,
-        "invoice_total": float(invoice_total),
-        "paid_total": float(paid_total),
-        "balance_due": float(balance_due),
-        "payment_status": payment_status(),
+        "invoice_total": float(invoice_total) if recorded_currency else None,
+        "paid_total": float(paid_total) if recorded_currency else None,
+        "balance_due": float(balance_due) if recorded_currency else None,
+        "payment_status": payment_status() if recorded_currency else "unavailable",
         "last_payment_at": last_payment_at,
         "invoices": invoice_payloads,
     }

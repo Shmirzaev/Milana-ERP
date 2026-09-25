@@ -41,6 +41,7 @@ def create_invoice_payment(
     invoice: Invoice,
     *,
     amount: Decimal | float,
+    currency: str | None = None,
     customer_id: int | None = None,
     payment_method: str | None = None,
     paid_at: datetime | None = None,
@@ -56,6 +57,7 @@ def create_invoice_payment(
             Invoice.sales_order_id,
             Invoice.invoice_no,
             Invoice.amount,
+            Invoice.currency,
             Invoice.status,
         ))
         .populate_existing()
@@ -64,6 +66,8 @@ def create_invoice_payment(
     )
     if invoice.status in {"void", "cancelled"}:
         raise HTTPException(409, "Cannot pay a void or cancelled invoice")
+    if currency is not None and currency != invoice.currency:
+        raise HTTPException(409, "Payment currency differs from invoice currency or invoice currency is unknown")
     payment_method = normalize_manual_payment_method(payment_method)
     if customer_id is None and invoice.sales_order_id:
         customer_id = db.query(SalesOrder.customer_id).filter(SalesOrder.id == invoice.sales_order_id).scalar()
@@ -71,6 +75,7 @@ def create_invoice_payment(
         invoice_id=invoice.id,
         customer_id=customer_id,
         amount=amount,
+        currency=invoice.currency,
         payment_method=payment_method,
         paid_at=paid_at or datetime.now(timezone.utc),
         notes=notes,
@@ -86,6 +91,7 @@ def create_customer_advance_payment(
     *,
     customer_id: int,
     amount: Decimal | float,
+    currency: str | None = None,
     payment_method: str | None = None,
     paid_at: datetime | None = None,
     notes: str | None = None,
@@ -95,6 +101,7 @@ def create_customer_advance_payment(
         invoice_id=None,
         customer_id=customer_id,
         amount=amount,
+        currency=currency,
         payment_method=payment_method,
         paid_at=paid_at or datetime.now(timezone.utc),
         notes=notes,

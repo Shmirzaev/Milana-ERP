@@ -125,6 +125,7 @@ class StockBatchIn(BaseModel):
     cost_per_unit: float = Field(
         default=0, ge=0, le=99_999_999.9999, allow_inf_nan=False,
     )
+    cost_currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     image_url: Optional[str] = None
     warehouse_id: int
     qc_status: str = "pending"
@@ -165,6 +166,7 @@ class StockBatchUpdate(BaseModel):
     cost_per_unit: Optional[float] = Field(
         default=None, ge=0, le=99_999_999.9999, allow_inf_nan=False,
     )
+    cost_currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     image_url: Optional[str] = None
     received_date: Optional[datetime] = None
     warehouse_id: Optional[int] = None
@@ -219,6 +221,7 @@ class StockBatchOut(ORMModel):
     processes: Optional[str] = None
     unit: str
     cost_per_unit: float
+    cost_currency: Optional[str] = None
     image_url: Optional[str] = None
     received_date: datetime
     warehouse_id: int

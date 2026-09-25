@@ -11,26 +11,27 @@ import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
-type RevenueRow = { period: string; amount: number };
+type RevenueRow = { period: string; amount: number | null; currency: string | null };
 type InvoiceRow = {
   id: number;
   invoice_no?: string;
   order_no: string;
   customer?: string | null;
   amount: number;
+  currency?: string | null;
   status: string;
   date?: string | null;
 };
 
 type CostBreakdown = {
-  fabric_cost: number;
-  labor_cost: number;
-  accessories_cost: number;
-  total_cogs: number;
+  fabric_cost: number | null;
+  labor_cost: number | null;
+  accessories_cost: number | null;
+  total_cogs: number | null;
 };
 
-function money(value: number) {
-  return `$${Number(value || 0).toFixed(2)}`;
+function recordedMoney(value: number | null | undefined, currency: string | null | undefined) {
+  return value == null || !currency ? "—" : `${Number(value).toFixed(2)} ${currency}`;
 }
 
 function Card({ title, value }: { title: string; value: string }) {
@@ -101,10 +102,10 @@ export default function FinancePage() {
     <div>
       <PageHeader title={t("page.finance.title")} />
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 lg:gap-4">
-        <Card title={t("page.finance.revenue")} value={money(Number(data?.revenue_total || 0))} />
-        <Card title={t("page.finance.paymentsReceived")} value={money(Number(data?.payments_received || 0))} />
-        <Card title={t("page.finance.brandedValue")} value={money(Number(branded?.value || 0))} />
-        <Card title={t("page.finance.wasteCostIncome")} value={`${money(Number(waste?.cost || 0))} / ${money(Number(waste?.income || 0))}`} />
+        <Card title={t("page.finance.revenue")} value={recordedMoney(data?.revenue_total, data?.revenue_currency)} />
+        <Card title={t("page.finance.paymentsReceived")} value={recordedMoney(data?.payments_received, data?.payments_currency)} />
+        <Card title={t("page.finance.brandedValue")} value={recordedMoney(branded?.value, branded?.currency)} />
+        <Card title={t("page.finance.wasteCostIncome")} value={`${recordedMoney(waste?.cost, waste?.currency)} / ${recordedMoney(waste?.income, waste?.currency)}`} />
       </div>
 
       <div className="card p-4 mb-6">
@@ -135,7 +136,7 @@ export default function FinancePage() {
                   <td>{inv.invoice_no || inv.id}</td>
                   <td>{formatOrderReference(inv.order_no)}</td>
                   <td>{inv.customer || "-"}</td>
-                  <td>{money(Number(inv.amount || 0))}</td>
+                  <td>{recordedMoney(inv.amount, inv.currency)}</td>
                   <td>
                     <span className={`badge ${String(inv.status).toLowerCase() === "paid" ? "badge-green" : "badge-yellow"}`}>
                       {statusLabel(inv.status, t)}
@@ -157,7 +158,7 @@ export default function FinancePage() {
       <Modal open={!!paying} onClose={() => setPaying(null)} title={t("page.finance.recordPayment")}>
         <form onSubmit={recordPayment} className="space-y-3">
           <div className="text-sm text-slate-600">
-            {paying?.invoice_no || "-"} - {formatOrderReference(paying?.order_no)} - {money(Number(paying?.amount || 0))}
+            {paying?.invoice_no || "-"} - {formatOrderReference(paying?.order_no)} - {recordedMoney(paying?.amount, paying?.currency)}
           </div>
           <div><label className="label">{t("field.amountReceived")}</label><input className="input" type="number" step="0.01" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: parseNumberInput(e.target.value) })} required /></div>
           <div><label className="label">{t("field.date")}</label><input className="input" type="date" value={payment.date} onChange={(e) => setPayment({ ...payment, date: e.target.value })} required /></div>
@@ -201,10 +202,10 @@ export default function FinancePage() {
               return (
                 <div key={row.period} className="rounded-md border border-[#ecebe3] p-2">
                   <div className="h-28 flex items-end">
-                    <div className="w-full rounded-sm bg-[#1f7a4d]" style={{ height: `${pct}%` }} />
+                    {row.amount != null && row.currency && <div className="w-full rounded-sm bg-[#1f7a4d]" style={{ height: `${pct}%` }} />}
                   </div>
                   <div className="mt-2 text-xs text-slate-500">{row.period}</div>
-                  <div className="text-sm font-medium">{money(value)}</div>
+                  <div className="text-sm font-medium">{recordedMoney(row.amount, row.currency)}</div>
                 </div>
               );
             })}
@@ -217,19 +218,19 @@ export default function FinancePage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="rounded-md border border-[#ecebe3] p-3">
             <div className="text-xs text-slate-500 uppercase">{t("page.finance.fabricCost")}</div>
-            <div className="text-lg font-semibold">{money(Number(cogs?.fabric_cost || 0))}</div>
+            <div className="text-lg font-semibold">{recordedMoney(cogs?.fabric_cost, null)}</div>
           </div>
           <div className="rounded-md border border-[#ecebe3] p-3">
             <div className="text-xs text-slate-500 uppercase">{t("page.finance.laborCost")}</div>
-            <div className="text-lg font-semibold">{money(Number(cogs?.labor_cost || 0))}</div>
+            <div className="text-lg font-semibold">{recordedMoney(cogs?.labor_cost, null)}</div>
           </div>
           <div className="rounded-md border border-[#ecebe3] p-3">
             <div className="text-xs text-slate-500 uppercase">{t("page.finance.accessoriesCost")}</div>
-            <div className="text-lg font-semibold">{money(Number(cogs?.accessories_cost || 0))}</div>
+            <div className="text-lg font-semibold">{recordedMoney(cogs?.accessories_cost, null)}</div>
           </div>
           <div className="rounded-md border border-[#ecebe3] p-3">
             <div className="text-xs text-slate-500 uppercase">{t("page.finance.totalCogs")}</div>
-            <div className="text-lg font-semibold">{money(Number(cogs?.total_cogs || 0))}</div>
+            <div className="text-lg font-semibold">{recordedMoney(cogs?.total_cogs, null)}</div>
           </div>
         </div>
       </div>

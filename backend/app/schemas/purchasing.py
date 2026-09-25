@@ -205,6 +205,7 @@ class PurchaseOrderReceiveLineIn(BaseModel):
     warehouse_id: Optional[int] = None
     supplier_id: Optional[int] = None
     cost_per_unit: Optional[PurchaseReceiptUnitCost] = None
+    cost_currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     color: Optional[str] = None
     old_code: Optional[str] = None
     color_code: Optional[str] = None

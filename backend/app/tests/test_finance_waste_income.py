@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from app.db.session import SessionLocal
 from app.models import WasteRecord, WasteSale
+from app.services.finance import waste_cost, waste_income
 
 
 def _report(client, auth_headers) -> tuple[dict, dict]:
@@ -32,8 +33,10 @@ def test_finance_waste_income_uses_recorded_partial_and_repeated_sales(client, a
         db.commit()
 
     waste, dashboard = _report(client, auth_headers)
-    assert waste == {"cost": 7, "income": 0}
-    assert dashboard["waste_income"] == 0
+    assert waste == {"cost": None, "income": None, "currency": None}
+    assert dashboard["waste_income"] is None
+    with SessionLocal() as db:
+        assert waste_cost(db) == 7 and waste_income(db) == 0
 
     with SessionLocal() as db:
         db.add(WasteSale(
@@ -42,8 +45,10 @@ def test_finance_waste_income_uses_recorded_partial_and_repeated_sales(client, a
         ))
         db.commit()
     waste, dashboard = _report(client, auth_headers)
-    assert waste == {"cost": 7, "income": 6}
-    assert dashboard["waste_income"] == 6
+    assert waste == {"cost": None, "income": None, "currency": None}
+    assert dashboard["waste_income"] is None
+    with SessionLocal() as db:
+        assert waste_income(db) == 6
 
     with SessionLocal() as db:
         db.add(WasteSale(
@@ -52,5 +57,7 @@ def test_finance_waste_income_uses_recorded_partial_and_repeated_sales(client, a
         ))
         db.commit()
     waste, dashboard = _report(client, auth_headers)
-    assert waste == {"cost": 7, "income": 14.75}
-    assert dashboard["waste_income"] == 14.75
+    assert waste == {"cost": None, "income": None, "currency": None}
+    assert dashboard["waste_income"] is None
+    with SessionLocal() as db:
+        assert waste_income(db) == 14.75

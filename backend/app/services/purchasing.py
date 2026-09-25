@@ -669,6 +669,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             processes=raw.get("processes") or f"Purchase order {order.po_no}",
             unit=unit,
             cost_per_unit=cost_per_unit,
+            cost_currency=raw.get("cost_currency"),
             image_url=str(line.photo_url or item.image_url or "").strip() or None,
             warehouse_id=warehouse_id,
             qc_status=qc_status,

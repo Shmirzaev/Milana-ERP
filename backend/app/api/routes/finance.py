@@ -18,8 +18,8 @@ from app.services.numbering import next_invoice_no
 from app.services.payments import create_invoice_payment
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.finance import (
-    dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
-    count_invoices, count_revenue_periods, list_recent_invoices, revenue_by_period, cost_breakdown,
+    dashboard_summary, order_profit,
+    count_invoices, count_revenue_periods, list_recent_invoices, revenue_by_period,
 )
 
 router = APIRouter(prefix="/finance", tags=["finance"])
@@ -44,7 +44,8 @@ def _validated_invoice_amount(value: object) -> Decimal:
 
 class RevenuePeriodOut(BaseModel):
     period: str
-    amount: float
+    amount: float | None
+    currency: str | None = None
 
 
 class RevenuePeriodPageOut(BaseModel):
@@ -67,12 +68,12 @@ def get_profit(sales_order_id: int, db: DbSession, _: User = Depends(require_per
 
 @router.get("/branded-stock-value")
 def get_branded_value(db: DbSession, _: User = Depends(require_permissions("finance.view", "*"))):
-    return {"value": branded_stock_value(db)}
+    return {"value": None, "currency": None}
 
 
 @router.get("/waste-report")
 def get_waste(db: DbSession, _: User = Depends(require_permissions("finance.view", "*"))):
-    return {"cost": waste_cost(db), "income": waste_income(db)}
+    return {"cost": None, "income": None, "currency": None}
 
 
 @router.get("/invoices", response_model=list[FinanceInvoiceOut] | FinanceInvoicePageOut)
@@ -134,7 +135,7 @@ def get_revenue_by_period(
 
 @router.get("/cost-breakdown")
 def get_cost_breakdown(db: DbSession, _: User = Depends(require_permissions("finance.view", "*"))):
-    return cost_breakdown(db)
+    return {"fabric_cost": None, "labor_cost": None, "accessories_cost": None, "total_cogs": None, "currency": None}
 
 
 @router.post("/invoices", response_model=InvoiceOut, status_code=201)
@@ -152,12 +153,17 @@ def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(re
         raise HTTPException(404, "Sales order not found")
     existing = db.query(Invoice).filter(Invoice.sales_order_id == payload.sales_order_id).order_by(Invoice.id.desc()).first()
     if existing:
+        if payload.currency is not None and payload.currency != existing.currency:
+            raise HTTPException(409, "Cannot change existing invoice currency")
         return existing
     amount = _validated_invoice_amount(payload.amount if payload.amount is not None else so.total_amount or 0)
+    if payload.currency and so.currency and payload.currency != so.currency:
+        raise HTTPException(409, "Invoice currency differs from sales order currency")
     inv = Invoice(
         sales_order_id=payload.sales_order_id,
         invoice_no=next_invoice_no(db),
         amount=amount,
+        currency=payload.currency or so.currency,
         status="unpaid",
         issued_at=datetime.now(timezone.utc),
     )
@@ -175,6 +181,8 @@ def create_payment(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = payload.model_dump(mode="json")
+    if payload.currency is None:
+        fingerprint_payload.pop("currency", None)
     # Keep the historical JSON-number shape used by existing idempotency
     # records while retaining Decimal for the stored payment amount.
     fingerprint_payload["amount"] = float(payload.amount)
@@ -187,6 +195,7 @@ def create_payment(
         db,
         inv,
         amount=payload.amount,
+        currency=payload.currency,
         payment_method=payload.payment_method,
         paid_at=payload.paid_at,
         notes=payload.notes,
@@ -221,11 +230,17 @@ def sync_1c_finance(
         legacy_shared_token=settings.INTEGRATION_1C_TOKEN,
         strict_security_required=settings.strict_security_required,
     )
+    fingerprint_payload = payload.model_dump(mode="json")
+    for model_rows, raw_rows in ((payload.invoices, fingerprint_payload["invoices"]),
+                                 (payload.payments, fingerprint_payload["payments"])):
+        for model_row, raw_row in zip(model_rows, raw_rows):
+            if model_row.currency is None:
+                raw_row.pop("currency", None)
     replay = replay_integration_response(
         db,
         identity=identity,
         key=idempotency_key,
-        payload=payload,
+        payload=fingerprint_payload,
         required=settings.strict_security_required,
     )
     if replay is not None:
@@ -236,7 +251,7 @@ def sync_1c_finance(
         db,
         identity=identity,
         key=idempotency_key,
-        payload=payload,
+        payload=fingerprint_payload,
         response=result,
     )
     db.commit()

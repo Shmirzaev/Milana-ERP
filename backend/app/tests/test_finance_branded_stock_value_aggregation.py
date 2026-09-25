@@ -114,7 +114,7 @@ def test_branded_stock_value_endpoint_auth_and_no_writes(client, auth_headers):
 
     response = client.get("/api/finance/branded-stock-value", headers=auth_headers)
     assert response.status_code == 200, response.text
-    assert isinstance(response.json()["value"], float)
+    assert response.json() == {"value": None, "currency": None}
     assert client.get("/api/finance/branded-stock-value", headers=denied_headers).status_code == 403
     assert client.get("/api/finance/branded-stock-value").status_code == 401
 

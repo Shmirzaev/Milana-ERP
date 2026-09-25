@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class OneCInvoiceIn(BaseModel):
     external_id: str = Field(min_length=1)
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     sales_order_id: Optional[int] = None
     sales_order_no: Optional[str] = None
     invoice_no: Optional[str] = None
@@ -20,6 +21,7 @@ class OneCInvoiceIn(BaseModel):
 
 class OneCPaymentIn(BaseModel):
     external_id: str = Field(min_length=1)
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     invoice_id: Optional[int] = None
     invoice_no: Optional[str] = None
     invoice_external_id: Optional[str] = None

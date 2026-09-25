@@ -244,6 +244,8 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                 invoice_no = _bounded_text(row.invoice_no, "invoice_no", 64)
                 status = _validate_invoice_status(row.status)
                 amount = _validated_amount(row.amount, "invoice", allow_zero=True)
+                if row.currency is not None and sales_order.currency is not None and row.currency != sales_order.currency:
+                    raise ValueError("invoice currency differs from sales order currency")
                 invoice = invoices_by_external_id.get(external_id)
                 is_new = invoice is None
                 previous_invoice_no = invoice.invoice_no if invoice is not None else None
@@ -251,6 +253,7 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                     invoice = Invoice(
                         sales_order_id=sales_order.id,
                         invoice_no=invoice_no or next_invoice_no(db),
+                        currency=row.currency or sales_order.currency,
                         external_source=SOURCE_1C,
                         external_id=external_id,
                         issued_at=_as_utc(row.issued_at),
@@ -258,6 +261,10 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                     )
                     db.add(invoice)
                 else:
+                    if row.currency is not None and row.currency != invoice.currency:
+                        raise ValueError("cannot change invoice currency")
+                    if invoice.currency is not None and sales_order.currency is not None and invoice.currency != sales_order.currency:
+                        raise ValueError("invoice currency differs from sales order currency")
                     invoice.sales_order_id = sales_order.id
                     if invoice_no:
                         invoice.invoice_no = invoice_no
@@ -294,6 +301,8 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                     raise ValueError("invoice not found (provide invoice_id, invoice_no, or invoice_external_id)")
                 if invoice.status in {"void", "cancelled"}:
                     raise ValueError("cannot apply payment to void or cancelled invoice")
+                if row.currency is not None and row.currency != invoice.currency:
+                    raise ValueError("payment currency differs from invoice currency or invoice currency is unknown")
                 external_id = _bounded_text(row.external_id, "external_id", 128)
                 payment_method = _bounded_text(row.payment_method, "payment_method", 32)
                 amount = _validated_amount(row.amount, "payment", allow_zero=False)
@@ -305,9 +314,12 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
                         invoice_id=invoice.id,
                         external_source=SOURCE_1C,
                         external_id=external_id,
+                        currency=invoice.currency,
                     )
                     db.add(payment)
                 else:
+                    if payment.currency != invoice.currency:
+                        raise ValueError("cannot change payment currency")
                     payment.invoice_id = invoice.id
 
                 payment.amount = amount

@@ -20,7 +20,7 @@ from app.models import (
     CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer, User,
     SalesOrderItem,
 )
-from app.services.finance import dashboard_summary, branded_stock_value
+from app.services.finance import dashboard_summary
 from app.services.inventory import stock_summary
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -256,7 +256,8 @@ def management(db: DbSession, _: User = Depends(require_permissions("management.
         "late_orders": int(late_orders),
         "todays_defects": float(todays_defects),
         "todays_waste": float(todays_waste),
-        "branded_stock_value": branded_stock_value(db),
+        "branded_stock_value": None,
+        "branded_stock_currency": None,
     }
 
 
@@ -327,5 +328,6 @@ def inventory(db: DbSession, _: User = Depends(require_permissions(*INVENTORY_RE
     return {
         "items": summary[:50],
         "finished_goods_total": fg_total,
-        "branded_stock_value": branded_stock_value(db),
+        "branded_stock_value": None,
+        "branded_stock_currency": None,
     }

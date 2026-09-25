@@ -12,18 +12,36 @@ from app.models import (
 )
 
 
-def revenue_total(db: Session) -> float:
-    val = (
-        db.query(func.coalesce(func.sum(Invoice.amount), 0))
-        .filter(Invoice.status.notin_(("void", "cancelled")))
-        .scalar()
+def _single_currency_total(db: Session, model, *, predicate=None) -> tuple[float | None, str | None]:
+    query = db.query(
+        func.count(model.id), func.count(model.currency),
+        func.min(model.currency), func.max(model.currency),
+        func.coalesce(func.sum(model.amount), 0),
     )
-    return float(val or 0)
+    if predicate is not None:
+        query = query.filter(predicate)
+    count, known_count, lowest, highest, amount = query.one()
+    if not count:
+        return 0.0, None
+    if known_count != count or lowest != highest:
+        return None, None
+    return float(amount), str(lowest)
 
 
-def payments_total(db: Session) -> float:
-    val = db.query(func.coalesce(func.sum(Payment.amount), 0)).scalar()
-    return float(val or 0)
+def revenue_summary(db: Session) -> tuple[float | None, str | None]:
+    return _single_currency_total(db, Invoice, predicate=Invoice.status.notin_(("void", "cancelled")))
+
+
+def revenue_total(db: Session) -> float | None:
+    return revenue_summary(db)[0]
+
+
+def payments_summary(db: Session) -> tuple[float | None, str | None]:
+    return _single_currency_total(db, Payment)
+
+
+def payments_total(db: Session) -> float | None:
+    return payments_summary(db)[0]
 
 
 def waste_cost(db: Session) -> float:
@@ -67,9 +85,9 @@ def _latest_stock_batch_costs(db: Session, item_ids: set[int]) -> dict[int, Deci
     return {int(item_id): Decimal(str(cost or 0)) for item_id, cost in rows}
 
 
-def _recorded_material_cost(db: Session, production_order_ids: set[int]) -> Decimal | None:
+def _recorded_material_cost_details(db: Session, production_order_ids: set[int]) -> tuple[Decimal | None, str | None]:
     if not production_order_ids:
-        return None
+        return None, None
     cutting_ids = (
         select(CuttingRecord.id)
         .join(WorkOrder, CuttingRecord.work_order_id == WorkOrder.id)
@@ -94,25 +112,32 @@ def _recorded_material_cost(db: Session, production_order_ids: set[int]) -> Deci
              StockMovement.reference_id.in_(reservation_ids)),
     )
     rows = (
-        db.query(StockMovement.quantity, StockMovement.unit_cost_at_movement)
+        db.query(StockMovement.quantity, StockMovement.unit_cost_at_movement,
+                 StockMovement.cost_currency_at_movement)
         .filter(StockMovement.movement_type == "consume", linked_reference)
         .all()
     )
     # Older and batchless movements have no cost snapshot. Never price them
     # from a mutable batch or today's BOM and call the result historical profit.
-    if not rows or any(cost is None or Decimal(str(cost)) < 0 for _, cost in rows):
-        return None
-    return sum(
-        (Decimal(str(quantity)) * Decimal(str(cost)) for quantity, cost in rows),
+    if not rows or any(cost is None or Decimal(str(cost)) < 0 for _, cost, _ in rows):
+        return None, None
+    currencies = {currency for _, _, currency in rows}
+    cost_currency = next(iter(currencies)) if len(currencies) == 1 and None not in currencies else None
+    return (sum(
+        (Decimal(str(quantity)) * Decimal(str(cost)) for quantity, cost, _ in rows),
         Decimal("0"),
-    )
+    ), cost_currency)
+
+
+def _recorded_material_cost(db: Session, production_order_ids: set[int]) -> Decimal | None:
+    return _recorded_material_cost_details(db, production_order_ids)[0]
 
 
 def order_profit(db: Session, sales_order_id: int) -> dict:
     so = (
         db.query(SalesOrder)
         .options(
-            load_only(SalesOrder.id, SalesOrder.order_no),
+            load_only(SalesOrder.id, SalesOrder.order_no, SalesOrder.currency),
             selectinload(SalesOrder.items).load_only(
                 SalesOrderItem.id,
                 SalesOrderItem.sales_order_id,
@@ -141,28 +166,36 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
         .filter(ProductionOrder.sales_order_id == sales_order_id)
         .all()
     )
-    cost = _recorded_material_cost(db, {int(po.id) for po in pos})
+    cost, cost_currency = _recorded_material_cost_details(db, {int(po.id) for po in pos})
     waste = Decimal(str(db.query(func.coalesce(func.sum(WasteRecord.estimated_value), 0)).filter(
         WasteRecord.production_order_id.in_([p.id for p in pos]) if pos else False
     ).scalar() or 0))
+    money_available = (
+        so.currency is not None and cost_currency == so.currency and cost is not None and waste == 0
+    )
     return {
         "sales_order_id": sales_order_id,
         "order_no": so.order_no,
-        "revenue": float(revenue),
-        "material_cost": float(cost) if cost is not None else None,
-        "waste_cost": float(waste),
-        "gross_profit": float(revenue - cost - waste) if cost is not None else None,
-        "material_cost_basis": "transaction_snapshot" if cost is not None else "unavailable",
+        "currency": so.currency,
+        "revenue": float(revenue) if so.currency else None,
+        "material_cost": float(cost) if cost is not None and cost_currency == so.currency else None,
+        "waste_cost": float(waste) if waste == 0 and so.currency else None,
+        "gross_profit": float(revenue - cost) if money_available else None,
+        "material_cost_basis": "transaction_snapshot" if cost is not None and cost_currency == so.currency else "unavailable",
     }
 
 
 def dashboard_summary(db: Session) -> dict:
+    revenue_amount, revenue_currency = revenue_summary(db)
+    payment_amount, payment_currency = payments_summary(db)
     return {
-        "revenue_total": revenue_total(db),
-        "payments_received": payments_total(db),
-        "branded_stock_value": branded_stock_value(db),
-        "waste_cost": waste_cost(db),
-        "waste_income": waste_income(db),
+        "revenue_total": revenue_amount,
+        "revenue_currency": revenue_currency,
+        "payments_received": payment_amount,
+        "payments_currency": payment_currency,
+        "branded_stock_value": None,
+        "waste_cost": None,
+        "waste_income": None,
     }
 
 
@@ -182,6 +215,7 @@ def list_recent_invoices(db: Session, limit: int = 50, offset: int = 0) -> list[
                 Invoice.invoice_no,
                 Invoice.sales_order_id,
                 Invoice.amount,
+                Invoice.currency,
                 Invoice.status,
                 Invoice.issued_at,
                 Invoice.created_at,
@@ -207,6 +241,7 @@ def list_recent_invoices(db: Session, limit: int = 50, offset: int = 0) -> list[
                 "order_no": so.order_no,
                 "customer": customer.name if customer else None,
                 "amount": float(invoice.amount or 0),
+                "currency": invoice.currency,
                 "status": invoice.status,
                 "date": dt.isoformat() if dt else None,
             }
@@ -221,7 +256,11 @@ def _revenue_period_query(db: Session, *, from_dt: datetime | None = None, to_dt
         period = func.to_char(timestamp, "YYYY-MM")
     else:
         period = func.strftime("%Y-%m", timestamp)
-    qry = db.query(period.label("period"), func.coalesce(func.sum(Invoice.amount), 0).label("amount"))
+    qry = db.query(
+        period.label("period"), func.count(Invoice.id), func.count(Invoice.currency),
+        func.min(Invoice.currency), func.max(Invoice.currency),
+        func.coalesce(func.sum(Invoice.amount), 0).label("amount"),
+    )
     if from_dt:
         qry = qry.filter(timestamp >= from_dt)
     if to_dt:
@@ -253,7 +292,14 @@ def revenue_by_period(
     if limit is not None:
         qry = qry.offset(max(0, int(offset or 0))).limit(max(1, int(limit)))
     rows = qry.all()
-    return [{"period": key, "amount": round(float(amount or 0), 2)} for key, amount in rows if key]
+    return [
+        {
+            "period": key,
+            "amount": round(float(amount), 2) if count == known_count and lowest == highest else None,
+            "currency": str(lowest) if count == known_count and lowest == highest else None,
+        }
+        for key, count, known_count, lowest, highest, amount in rows if key
+    ]
 
 
 def cost_breakdown(db: Session) -> dict:

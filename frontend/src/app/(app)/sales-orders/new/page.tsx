@@ -14,6 +14,7 @@ import { useT } from "@/lib/i18n";
 import { readySalesText } from "@/lib/readySalesLocale";
 import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import { copyPriceProvenance, submittedUnitPrice } from "@/lib/salesOrderPriceProvenance";
 import {
   groupModelVariants,
   modelGroupLabel,
@@ -31,6 +32,7 @@ type Line = {
   quantity: NumberInputValue;
   pack_count: NumberInputValue;
   unit_price: NumberInputValue;
+  price_edited: boolean;
   printing_required: boolean;
 };
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
@@ -80,6 +82,7 @@ function createLine(overrides: Partial<Omit<Line, "row_id">> = {}): Line {
     quantity: "",
     pack_count: "",
     unit_price: "",
+    price_edited: false,
     printing_required: false,
     ...overrides,
   };
@@ -91,6 +94,7 @@ export default function NewSalesOrderPage() {
   const { me } = useMe();
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
   const [orderType, setOrderType] = useState("client_order");
+  const [currency, setCurrency] = useState("");
   const isBrandedOrder = orderType === "branded_stock_sale";
   const { data: readyStockOptions, error: stockError, isLoading: stockLoading } = useSWR<ReadyStockOption[]>(
     isBrandedOrder ? "/api/sales-orders/ready-stock-options" : null,
@@ -216,7 +220,8 @@ export default function NewSalesOrderPage() {
   function updateLine(index: number, field: keyof Omit<Line, "row_id">, value: Line[keyof Omit<Line, "row_id">]) {
     setLines((prev) => prev.map((line, i) => {
       if (index !== i) return line;
-      const next = { ...line, [field]: value };
+      const next = { ...line, [field]: value,
+        ...(field === "unit_price" ? { price_edited: true } : {}) };
 
       return next;
     }));
@@ -225,7 +230,7 @@ export default function NewSalesOrderPage() {
   async function selectLineModel(index: number, modelId: number) {
     setLines((prev) => prev.map((line, i) => {
       if (index !== i) return line;
-      const next = { ...line, model_id: modelId, unit_price: "" as NumberInputValue };
+      const next = { ...line, model_id: modelId, unit_price: "" as NumberInputValue, price_edited: false };
 
       return next;
     }));
@@ -293,7 +298,7 @@ export default function NewSalesOrderPage() {
         size,
         quantity: qtyPerSize + addOne,
         pack_count: base.pack_count,
-        unit_price: base.unit_price,
+        ...copyPriceProvenance(base),
         printing_required: base.printing_required,
       });
     });
@@ -403,6 +408,7 @@ export default function NewSalesOrderPage() {
       }
 
       const payload: any = {
+        currency: currency || null,
         customer_id: customerId || null,
         order_type: orderType,
         deadline: deadline || null,
@@ -414,7 +420,7 @@ export default function NewSalesOrderPage() {
           color: isBrandedOrder ? BRANDED_PACK_COLOR : line.color,
           size: isBrandedOrder ? brandedPackSize : line.size,
           ...(isBrandedOrder ? { requested_pack_count: linePacks(line) } : { quantity: linePieces(line) }),
-          unit_price: line.unit_price === "" ? null : numberOrZero(line.unit_price),
+          unit_price: submittedUnitPrice(line),
           printing_required: isBrandedOrder ? false : line.printing_required,
           brand_id: brandId || null,
         })),
@@ -454,6 +460,10 @@ export default function NewSalesOrderPage() {
                   <option value="client_order">{t("orderType.client")}</option>
                   <option value="branded_stock_sale">{t("orderType.branded")}</option>
                 </select>
+              </div>
+              <div>
+                <label className="label">Currency (3-letter code)</label>
+                <input className="input" value={currency} maxLength={3} pattern="[A-Z]{3}" placeholder="USD" onChange={(e) => setCurrency(e.target.value.toUpperCase())} />
               </div>
               <div>
                 <div className="flex items-center justify-between gap-2">

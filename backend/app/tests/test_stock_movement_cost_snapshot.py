@@ -174,7 +174,8 @@ def test_postgres_zero_cost_consumption_remains_known_after_repricing(postgres_c
         warehouse = Warehouse(name=f"Snapshot warehouse {marker}", type="accessory_storage")
         db.add_all([customer, model, item, warehouse])
         db.flush()
-        order = SalesOrder(order_no=f"SNAPSHOT-{marker}", customer_id=customer.id, total_amount=10)
+        order = SalesOrder(order_no=f"SNAPSHOT-{marker}", customer_id=customer.id, total_amount=10,
+                           currency="USD")
         db.add(order)
         db.flush()
         db.add(SalesOrderItem(
@@ -187,7 +188,7 @@ def test_postgres_zero_cost_consumption_remains_known_after_repricing(postgres_c
         )
         batch = StockBatch(
             item_id=item.id, batch_no=f"SNAPSHOT-{marker}", quantity=2,
-            cost_per_unit=0, unit="pcs", warehouse_id=warehouse.id, qc_status="passed",
+            cost_per_unit=0, cost_currency="USD", unit="pcs", warehouse_id=warehouse.id, qc_status="passed",
         )
         db.add_all([production, batch])
         db.flush()
@@ -201,6 +202,7 @@ def test_postgres_zero_cost_consumption_remains_known_after_repricing(postgres_c
             reference_type="ProductionOrder", reference_id=production.id,
         ).one()
         assert movement.unit_cost_at_movement == Decimal("0.0000")
+        assert movement.cost_currency_at_movement == "USD"
         before = order_profit(db, order.id)
         assert before["material_cost"] == 0
         assert before["gross_profit"] == 10

@@ -41,7 +41,6 @@ def test_management_dashboard_counts_active_and_late_orders_in_one_query(monkeyp
         ])
         db.commit()
 
-    monkeypatch.setattr(dashboards, "branded_stock_value", lambda _db: 17.5)
     statements = []
     with TestSessionLocal() as db:
         def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
@@ -56,7 +55,8 @@ def test_management_dashboard_counts_active_and_late_orders_in_one_query(monkeyp
 
     assert payload["active_orders"] == prior_active_count + 2
     assert payload["late_orders"] == prior_late_count + 2
-    assert payload["branded_stock_value"] == 17.5
+    assert payload["branded_stock_value"] is None
+    assert payload["branded_stock_currency"] is None
     order_aggregate_reads = [
         statement for statement in statements
         if "from sales_orders" in statement and "sum(case" in statement

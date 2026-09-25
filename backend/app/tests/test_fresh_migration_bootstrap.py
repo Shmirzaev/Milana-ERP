@@ -343,7 +343,7 @@ def test_postgres_fresh_head_rerun_and_known_drift_baseline(postgres_migrations)
 
     command.upgrade(config, "head")
 
-    assert _current_revision(engine) == ScriptDirectory.from_config(config).get_current_head() == "0133_movement_cost_snapshot"
+    assert _current_revision(engine) == ScriptDirectory.from_config(config).get_current_head() == "0134_finance_currency_provenance"
     inspector = sa.inspect(engine)
     tables = set(inspector.get_table_names())
     assert {"manual_accessory_issues", "eco_fabric_dispatches", "sewing_records"} <= tables
@@ -362,6 +362,35 @@ def test_postgres_fresh_head_rerun_and_known_drift_baseline(postgres_migrations)
         sa.event.remove(engine, "before_cursor_execute", capture)
     assert mutations == []
     _assert_schema_contract_with_known_drift(engine)
+
+
+def test_postgres_currency_migration_keeps_legacy_amount_unknown_and_rolls_back(postgres_migrations):
+    engine, config = postgres_migrations.engine, postgres_migrations.config
+    command.upgrade(config, "0133_movement_cost_snapshot")
+    with engine.begin() as connection:
+        orders = sa.Table("sales_orders", sa.MetaData(), autoload_with=connection)
+        invoices = sa.Table("invoices", sa.MetaData(), autoload_with=connection)
+        order_id = connection.execute(
+            orders.insert().values(order_no="CURRENCY-LEGACY-ORDER", order_type="client_order",
+                                   status="draft", total_amount=25).returning(orders.c.id)
+        ).scalar_one()
+        invoice_id = connection.execute(
+            invoices.insert().values(sales_order_id=order_id, invoice_no="CURRENCY-LEGACY-INVOICE",
+                                     amount=25, status="unpaid").returning(invoices.c.id)
+        ).scalar_one()
+
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        invoices = sa.Table("invoices", sa.MetaData(), autoload_with=connection)
+        assert connection.execute(sa.select(invoices.c.amount, invoices.c.currency).where(
+            invoices.c.id == invoice_id)).one() == (25, None)
+    command.downgrade(config, "0133_movement_cost_snapshot")
+    assert "currency" not in {col["name"] for col in sa.inspect(engine).get_columns("invoices")}
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        invoices = sa.Table("invoices", sa.MetaData(), autoload_with=connection)
+        assert connection.execute(sa.select(invoices.c.amount, invoices.c.currency).where(
+            invoices.c.id == invoice_id)).one() == (25, None)
 
 
 def test_postgres_upgrade_from_0130_preserves_existing_rows(postgres_migrations):
@@ -390,7 +419,7 @@ def test_postgres_upgrade_from_0130_preserves_existing_rows(postgres_migrations)
 
     command.upgrade(config, "head")
 
-    assert _current_revision(engine) == "0133_movement_cost_snapshot"
+    assert _current_revision(engine) == "0134_finance_currency_provenance"
     with engine.connect() as connection:
         current = sa.Table("sewing_records", sa.MetaData(), autoload_with=connection)
         after = dict(connection.execute(sa.select(current).where(current.c.id == record_id)).mappings().one())

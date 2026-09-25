@@ -429,6 +429,9 @@ def receive_order(
         inventory_access.require_item(db, current, line.item_id)
     scope = f"purchasing.receive:{selected_factory_code(current)}:{current.id}:{order_id}"
     fingerprint_payload = payload.model_dump(mode="json")
+    for model_line, raw_line in zip(payload.lines, fingerprint_payload["lines"]):
+        if model_line.cost_currency is None:
+            raw_line.pop("cost_currency", None)
     replay = replay_idempotent_response(db, user=current, scope=scope, key=idempotency_key, payload=fingerprint_payload)
     if replay is not None:
         if replay.get("_purchase_receipt_request") == "cancelled":
@@ -462,6 +465,9 @@ def reconcile_order_receipt(
     )
     scope = f"purchasing.receive:{selected_factory_code(current)}:{current.id}:{order_id}"
     fingerprint_payload = payload.model_dump(mode="json")
+    for model_line, raw_line in zip(payload.lines, fingerprint_payload["lines"]):
+        if model_line.cost_currency is None:
+            raw_line.pop("cost_currency", None)
     replay = replay_idempotent_response(
         db,
         user=current,

@@ -2071,6 +2071,8 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         model = selected_models.get(item.model_id)
         source_type = "from_stock" if pack_order else _validate_sales_order_item_source_type(item.source_type)
         if item.unit_price is None:
+            if payload.currency is not None and payload.currency != model.selling_price_currency:
+                raise HTTPException(409, "Catalog price currency differs from order currency; enter an explicit price")
             catalog_price = model.selling_price if model.selling_price is not None else Decimal("0")
             unit_price = _sales_order_item_price(catalog_price, round_catalog_price=True)
         else:
@@ -2084,6 +2086,7 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
 
     so = SalesOrder(
         order_no=next_sales_order_no(db),
+        currency=payload.currency,
         customer_id=payload.customer_id,
         order_type=payload.order_type,
         status="draft",
@@ -2278,6 +2281,7 @@ def generate_invoice_for_order(
         sales_order_id=sid,
         invoice_no=next_invoice_no(db),
         amount=float(so.total_amount or 0),
+        currency=so.currency,
         status="unpaid",
         issued_at=datetime.now(timezone.utc),
     )

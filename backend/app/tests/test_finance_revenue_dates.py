@@ -21,11 +21,12 @@ def test_revenue_date_bounds_accept_equivalent_utc_instants(client, auth_headers
         invoice = db.get(Invoice, invoice_id)
         invoice.issued_at = datetime(2089, 2, 3, tzinfo=timezone.utc)
         invoice.amount = 123.45
+        invoice.currency = "USD"
         db.commit()
     response = client.get("/api/finance/revenue-by-period", headers=auth_headers,
                           params={"from": date_from, "to": date_to})
     assert response.status_code == 200, response.text
-    assert response.json() == [{"period": "2089-02", "amount": 123.45}]
+    assert response.json() == [{"period": "2089-02", "amount": 123.45, "currency": "USD"}]
 
 
 def test_revenue_date_bounds_use_created_date_fallback_and_exclude_outside(client, auth_headers):
@@ -35,11 +36,12 @@ def test_revenue_date_bounds_use_created_date_fallback_and_exclude_outside(clien
         invoice.issued_at = None
         invoice.created_at = datetime(2089, 2, 3, tzinfo=timezone.utc)
         invoice.amount = 50
+        invoice.currency = "USD"
         db.commit()
     selected = client.get("/api/finance/revenue-by-period", headers=auth_headers,
                           params={"from": "2089-02-01T00:00:00Z", "to": "2089-02-28T00:00:00Z"})
     assert selected.status_code == 200, selected.text
-    assert selected.json() == [{"period": "2089-02", "amount": 50.0}]
+    assert selected.json() == [{"period": "2089-02", "amount": 50.0, "currency": "USD"}]
     excluded = client.get("/api/finance/revenue-by-period", headers=auth_headers,
                           params={"from": "2089-03-01T00:00:00Z"})
     assert excluded.status_code == 200, excluded.text
@@ -56,6 +58,7 @@ def test_finance_date_picker_to_boundary_includes_entire_selected_utc_day(client
             invoice = db.get(Invoice, invoice_id)
             invoice.issued_at = issued_at
             invoice.amount = amount
+            invoice.currency = "USD"
             db.commit()
 
     response = client.get(
@@ -65,7 +68,7 @@ def test_finance_date_picker_to_boundary_includes_entire_selected_utc_day(client
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == [{"period": "2089-04", "amount": 12.34}]
+    assert response.json() == [{"period": "2089-04", "amount": 12.34, "currency": "USD"}]
 
 
 def test_revenue_by_period_aggregates_in_sql_without_loading_invoice_rows(client, auth_headers):
@@ -81,6 +84,7 @@ def test_revenue_by_period_aggregates_in_sql_without_loading_invoice_rows(client
             invoice = db.get(Invoice, invoice_id)
             invoice.issued_at = issued_at
             invoice.amount = amount
+            invoice.currency = "USD"
             db.commit()
 
     response = client.get(
@@ -90,8 +94,8 @@ def test_revenue_by_period_aggregates_in_sql_without_loading_invoice_rows(client
     )
     assert response.status_code == 200, response.text
     assert response.json() == [
-        {"period": "2089-04", "amount": 22.34},
-        {"period": "2089-05", "amount": 99.0},
+        {"period": "2089-04", "amount": 22.34, "currency": "USD"},
+        {"period": "2089-05", "amount": 99.0, "currency": "USD"},
     ]
 
 
@@ -111,6 +115,7 @@ def test_revenue_reports_exclude_void_and_cancelled_invoices(client, auth_header
         with SessionLocal() as db:
             invoice = db.get(Invoice, invoice_id)
             invoice.status = status
+            invoice.currency = "USD"
             invoice.issued_at = datetime(2089, 6, 15, tzinfo=timezone.utc)
             db.commit()
 
@@ -136,7 +141,7 @@ def test_revenue_reports_exclude_void_and_cancelled_invoices(client, auth_header
         event.remove(test_engine, "before_cursor_execute", capture_writes)
 
     assert response.status_code == 200, response.text
-    assert response.json() == [{"period": "2089-06", "amount": 6.0}]
+    assert response.json() == [{"period": "2089-06", "amount": 6.0, "currency": "USD"}]
     assert dashboard.status_code == 200, dashboard.text
     assert monthly.status_code == 200, monthly.text
     assert dashboard.json()["revenue_total"] - before == 6

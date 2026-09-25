@@ -14,10 +14,11 @@ import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
-type PaymentStatus = "paid" | "partial" | "unpaid" | "no_invoice";
+type PaymentStatus = "paid" | "partial" | "unpaid" | "no_invoice" | "unavailable";
 type PaymentRow = {
   id: number;
-  amount: number;
+  amount: number | null;
+  currency?: string | null;
   payment_method?: string | null;
   paid_at?: string | null;
   notes?: string | null;
@@ -34,41 +35,45 @@ type PaymentHistoryRow = PaymentRow & {
 type InvoiceRow = {
   id: number;
   invoice_no: string;
-  amount: number;
+  amount: number | null;
+  currency?: string | null;
   status: string;
   issued_at?: string | null;
   due_date?: string | null;
-  paid_amount: number;
-  raw_paid_amount?: number;
-  advance_amount?: number;
-  balance_due: number;
+  paid_amount: number | null;
+  raw_paid_amount?: number | null;
+  advance_amount?: number | null;
+  balance_due: number | null;
   payments: PaymentRow[];
 };
 type CustomerOrder = {
   id: number;
   order_no: string;
   date?: string | null;
-  total: number;
+  total: number | null;
+  currency?: string | null;
   status: string;
-  invoice_total: number;
-  paid_total: number;
-  balance_due: number;
+  invoice_total: number | null;
+  paid_total: number | null;
+  balance_due: number | null;
   payment_status: PaymentStatus;
   last_payment_at?: string | null;
   invoices: InvoiceRow[];
 };
 type PaymentForm = {
   amount: NumberInputValue;
+  currency: string;
   date: string;
   payment_method: string;
   notes: string;
 };
 
-function money(value: number) {
-  return `$${Number(value || 0).toFixed(2)}`;
+function money(value: number, currency?: string | null) {
+  return currency ? `${Number(value || 0).toFixed(2)} ${currency}` : "—";
 }
 
 function paymentStatusLabel(status: PaymentStatus, t: (key: string) => string) {
+  if (status === "unavailable") return "—";
   if (status === "paid") return t("payment.status.paid");
   if (status === "partial") return t("payment.status.partial");
   if (status === "unpaid") return t("payment.status.unpaid");
@@ -76,6 +81,7 @@ function paymentStatusLabel(status: PaymentStatus, t: (key: string) => string) {
 }
 
 function paymentStatusClass(status: PaymentStatus) {
+  if (status === "unavailable") return "badge-yellow";
   if (status === "paid") return "badge-green";
   if (status === "partial") return "badge-blue";
   if (status === "unpaid") return "badge-red";
@@ -104,6 +110,7 @@ export default function CustomerDetailPage() {
   const [selectedPaymentOrderId, setSelectedPaymentOrderId] = useState<number | "">("");
   const [paymentForm, setPaymentForm] = useState<PaymentForm>({
     amount: "",
+    currency: "",
     date: new Date().toISOString().slice(0, 10),
     payment_method: "bank_transfer",
     notes: "",
@@ -166,8 +173,12 @@ export default function CustomerDetailPage() {
     const paid = paymentHistory.reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const dueBalance = Math.max(base.orderTotal - paid, 0);
     const advanceCredit = Math.max(paid - base.orderTotal, 0);
+    const currencies = [...orderRows.map((order) => order.currency), ...paymentHistory.map((row) => row.currency)];
+    const commonCurrency = currencies.length > 0 && currencies.every((currency) => currency && currency === currencies[0])
+      ? currencies[0] : null;
     return {
       ...base,
+      currency: commonCurrency,
       paid,
       balance: dueBalance > 0 ? dueBalance : advanceCredit,
       dueBalance,
@@ -219,7 +230,7 @@ export default function CustomerDetailPage() {
   function paymentOrderOptionLabel(order: CustomerOrder) {
     const due = effectiveBalanceDue(order);
     return due > 0.01
-      ? t("page.customerDetail.orderOptionDue", { orderNo: formatOrderReference(order.order_no), amount: money(due) })
+      ? t("page.customerDetail.orderOptionDue", { orderNo: formatOrderReference(order.order_no), amount: money(due, order.currency) })
       : t("page.customerDetail.orderOptionPaidAdvance", { orderNo: formatOrderReference(order.order_no) });
   }
 
@@ -228,6 +239,7 @@ export default function CustomerDetailPage() {
     setSelectedPaymentOrderId(order?.id ?? "");
     setPaymentForm({
       amount: order ? defaultPaymentAmount(order) : "",
+      currency: order?.currency || "",
       date: new Date().toISOString().slice(0, 10),
       payment_method: "bank_transfer",
       notes: "",
@@ -239,7 +251,7 @@ export default function CustomerDetailPage() {
     const nextId = rawId ? Number(rawId) : "";
     const order = orderRows.find((row) => Number(row.id) === Number(nextId));
     setSelectedPaymentOrderId(nextId);
-    setPaymentForm((prev) => ({ ...prev, amount: order ? defaultPaymentAmount(order) : "" }));
+    setPaymentForm((prev) => ({ ...prev, amount: order ? defaultPaymentAmount(order) : "", currency: order?.currency || "" }));
     setPaymentMsg("");
   }
 
@@ -293,6 +305,7 @@ export default function CustomerDetailPage() {
       const paidAt = new Date(paymentForm.date).toISOString();
       const payload: Record<string, any> = {
         amount,
+        currency: paymentForm.currency || null,
         paid_at: paidAt,
         payment_method: paymentForm.payment_method,
         notes: paymentForm.notes || null,
@@ -380,16 +393,16 @@ export default function CustomerDetailPage() {
             </div>
             <div className="card p-4">
               <div className="label">{t("field.orderValue")}</div>
-              <div className="text-2xl font-semibold">{money(summary.orderTotal)}</div>
+              <div className="text-2xl font-semibold">{money(summary.orderTotal, summary.currency)}</div>
             </div>
             <div className="card p-4">
               <div className="label">{t("payment.status.paid")}</div>
-              <div className="text-2xl font-semibold text-green-700">{money(summary.paid)}</div>
+              <div className="text-2xl font-semibold text-green-700">{money(summary.paid, summary.currency)}</div>
             </div>
             <div className="card p-4">
               <div className="label">{t("page.customerDetail.openBalance")}</div>
               <div className={`text-2xl font-semibold ${summary.balanceKind === "advance" ? "text-green-700" : summary.balanceKind === "settled" ? "text-slate-700" : "text-red-700"}`}>
-                {money(summary.balance)}
+                {money(summary.balance, summary.currency)}
               </div>
               <div className="mt-1 text-xs text-slate-500">
                 {summary.balanceKind === "advance"
@@ -425,18 +438,18 @@ export default function CustomerDetailPage() {
                     <td><Link className="text-brand-600 hover:underline" href={`/sales-orders/${o.id}`}>{formatOrderReference(o.order_no)}</Link></td>
                     <td>{o.date ? new Date(o.date).toLocaleDateString() : "-"}</td>
                     <td><span className="badge">{statusLabel(o.status, t)}</span></td>
-                    <td className="text-right">{money(Number(o.total || 0))}</td>
+                    <td className="text-right">{money(Number(o.total || 0), o.currency)}</td>
                     <td>
                       {(o.invoices || []).length > 0 ? (
                         <div className="space-y-1">
                           {o.invoices.map((invoice) => (
                             <div key={invoice.id} className="text-xs text-slate-600">
                               <span className="font-medium text-[#14110b]">{invoice.invoice_no}</span>
-                              <span> - {money(Number(invoice.amount || 0))}</span>
+                              <span> - {money(Number(invoice.amount || 0), invoice.currency)}</span>
                               <span className="ml-1 text-slate-500">
-                                {t("page.customerDetail.paidAmount", { amount: money(Number(invoice.paid_amount || 0)) })}
-                                {Number(invoice.balance_due || 0) > 0 ? `, ${t("page.customerDetail.dueAmount", { amount: money(Number(invoice.balance_due || 0)) })}` : ""}
-                                {Number(invoice.advance_amount || 0) > 0 ? `, ${t("page.customerDetail.advanceAmount", { amount: money(Number(invoice.advance_amount || 0)) })}` : ""}
+                                {t("page.customerDetail.paidAmount", { amount: money(Number(invoice.paid_amount || 0), invoice.currency) })}
+                                {Number(invoice.balance_due || 0) > 0 ? `, ${t("page.customerDetail.dueAmount", { amount: money(Number(invoice.balance_due || 0), invoice.currency) })}` : ""}
+                                {Number(invoice.advance_amount || 0) > 0 ? `, ${t("page.customerDetail.advanceAmount", { amount: money(Number(invoice.advance_amount || 0), invoice.currency) })}` : ""}
                               </span>
                             </div>
                           ))}
@@ -445,8 +458,8 @@ export default function CustomerDetailPage() {
                         <span className="text-xs text-slate-500">{t("payment.status.noInvoice")}</span>
                       )}
                     </td>
-                    <td className="text-right">{money(Number(o.paid_total || 0))}</td>
-                    <td className="text-right">{money(effectiveBalanceDue(o))}</td>
+                    <td className="text-right">{money(Number(o.paid_total || 0), o.currency)}</td>
+                    <td className="text-right">{money(effectiveBalanceDue(o), o.currency)}</td>
                     <td>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`badge ${paymentStatusClass(o.payment_status)}`}>{paymentStatusLabel(o.payment_status, t)}</span>
@@ -498,7 +511,7 @@ export default function CustomerDetailPage() {
                     </td>
                     <td>{payment.invoice_no || (payment.is_advance ? t("page.customerDetail.advance") : "-")}</td>
                     <td>{payment.payment_method || "-"}</td>
-                    <td className="text-right">{money(Number(payment.amount || 0))}</td>
+                    <td className="text-right">{money(Number(payment.amount || 0), payment.currency)}</td>
                   </tr>
                 ))}
                 {orders && paymentHistory.length === 0 && (
@@ -528,9 +541,9 @@ export default function CustomerDetailPage() {
               {selectedPaymentOrder
                 ? selectedPaymentOrder.invoices?.length
                   ? effectiveBalanceDue(selectedPaymentOrder) > 0.01
-                    ? t("page.customerDetail.openBalanceAdvanceHelp", { amount: money(effectiveBalanceDue(selectedPaymentOrder)) })
+                    ? t("page.customerDetail.openBalanceAdvanceHelp", { amount: money(effectiveBalanceDue(selectedPaymentOrder), selectedPaymentOrder.currency) })
                     : t("page.customerDetail.orderPaidAdvanceHelp")
-                  : t("page.customerDetail.noInvoiceAdvanceHelp", { amount: money(Number(selectedPaymentOrder.total || 0)) })
+                  : t("page.customerDetail.noInvoiceAdvanceHelp", { amount: money(Number(selectedPaymentOrder.total || 0), selectedPaymentOrder.currency) })
                 : t("page.customerDetail.noOrderAdvanceHelp")}
             </div>
           </div>
@@ -544,6 +557,10 @@ export default function CustomerDetailPage() {
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="label">Currency (3-letter code)</label>
+            <input className="input" value={paymentForm.currency} maxLength={3} pattern="[A-Z]{3}" placeholder="USD" required={!selectedPaymentOrder} onChange={(e) => setPaymentForm({ ...paymentForm, currency: e.target.value.toUpperCase() })} />
           </div>
           <div>
             <label className="label">{t("field.amountReceived")}</label>

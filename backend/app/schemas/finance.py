@@ -8,6 +8,7 @@ class FinanceInvoiceOut(BaseModel):
     order_no: str
     customer: str | None = None
     amount: float
+    currency: str | None = None
     status: str
     date: str | None = None
 
