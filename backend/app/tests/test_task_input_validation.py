@@ -84,6 +84,65 @@ def test_patch_omitted_fields_stay_unchanged_and_optional_fields_can_clear(clien
     assert body["description"] is None and body["due_date"] is None
 
 
+def test_task_description_utf8_boundary_and_oversized_create_leave_no_writes(client):
+    _, headers = _actor()
+    boundary = "🙂" * 4096  # 16 KiB as UTF-8, although only 4096 characters.
+    task_id = _create(client, headers, description=boundary)
+    with SessionLocal() as db:
+        assert db.get(Task, task_id).description == boundary
+
+    before = (_task_count(), _audit_count())
+    response = client.post(
+        "/api/tasks", headers=headers,
+        json={"title": "Oversized task", "description": boundary + "x"},
+    )
+    assert response.status_code == 422, response.text
+    assert (_task_count(), _audit_count()) == before
+
+
+def test_task_description_oversized_patch_leaves_task_and_audit_unchanged(client):
+    _, headers = _actor()
+    task_id = _create(client, headers, description="Before")
+    before = _snapshot(task_id)
+    response = client.patch(
+        f"/api/tasks/{task_id}", headers=headers,
+        json={"title": "Would change", "description": "🙂" * 4096 + "x"},
+    )
+    assert response.status_code == 422, response.text
+    assert _snapshot(task_id) == before
+
+
+def test_task_unchanged_legacy_description_is_not_rewritten_to_audit_json(client):
+    creator, headers = _actor()
+    legacy = "legacy" * 4000
+    with SessionLocal() as db:
+        task = Task(
+            title="Legacy task", description=legacy, created_by=creator,
+            assigned_to=creator, status="pending", priority="medium",
+        )
+        db.add(task)
+        db.commit()
+        task_id = task.id
+
+    response = client.patch(
+        f"/api/tasks/{task_id}", headers=headers,
+        json={"title": "Edited title", "description": legacy},
+    )
+    assert response.status_code == 200, response.text
+    with SessionLocal() as db:
+        assert db.get(Task, task_id).description == legacy
+        audit = db.query(AuditLog).filter_by(entity_type="Task", entity_id=task_id).order_by(AuditLog.id.desc()).first()
+        assert audit.new_value_json == {"title": "Edited title"}
+
+    before = _snapshot(task_id)
+    response = client.patch(
+        f"/api/tasks/{task_id}", headers=headers,
+        json={"description": legacy + "x"},
+    )
+    assert response.status_code == 422, response.text
+    assert _snapshot(task_id) == before
+
+
 @pytest.mark.parametrize("field,value", [
     ("status", "bogus"), ("priority", "bogus"), ("title", "x" * 256),
     ("due_date", 1_700_000_000), ("entity_id", 2_147_483_648), ("entity_type", "customer"),

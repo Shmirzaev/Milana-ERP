@@ -49,6 +49,16 @@ from app.services.packaging_scope import normalize_packaging_department_code, re
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+_MAX_TASK_DESCRIPTION_UTF8_BYTES = 16 * 1024
+
+
+def _validate_changed_description(value: str | None, *, existing: str | None = None) -> None:
+    # PATCH may echo an unchanged historical description that predates this limit.
+    if value is None or value == existing:
+        return
+    if len(value.encode("utf-8")) > _MAX_TASK_DESCRIPTION_UTF8_BYTES:
+        raise HTTPException(422, "Task description cannot exceed 16 KiB UTF-8 bytes")
+
 
 _TASK_REFERENCE_MODELS = {
     "salesorder": SalesOrder,
@@ -336,6 +346,7 @@ def open_task_count(db: DbSession, current: CurrentUser):
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
     reference = _load_task_reference(payload.entity_type, payload.entity_id, db, current)
+    _validate_changed_description(payload.description)
     is_manager = _can_manage(current)
     requested_assignee = payload.assigned_to
 
@@ -518,6 +529,11 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
             if next_assignee_user is None:
                 raise HTTPException(409, "Task assignee no longer exists")
             _require_assignee_reference_access(next_assignee_user, reference)
+    if "description" in changes:
+        _validate_changed_description(changes["description"], existing=t.description)
+        if changes["description"] == t.description:
+            # An unchanged legacy value need not be copied into audit JSON.
+            del changes["description"]
     for k, v in changes.items():
         setattr(t, k, v)
 
