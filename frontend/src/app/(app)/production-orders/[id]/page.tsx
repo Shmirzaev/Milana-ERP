@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import Link from "next/link";
 import { PackageCheck, RotateCcw } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
@@ -90,6 +91,11 @@ type SalesOrderSummary = {
   order_no?: string | null;
   customer_name?: string | null;
   customer?: { name?: string | null } | null;
+};
+
+type SalesOrderOptionPage = {
+  rows: SalesOrderSummary[];
+  total: number;
 };
 
 type ReservationPlanRow = {
@@ -248,11 +254,18 @@ export default function ProductionOrderDetail() {
   const [edit, setEdit] = useState({ deadline: "", sewing_flow_id: 0, assigned_to: 0 });
   const [editMsg, setEditMsg] = useState("");
   const [summaryEditing, setSummaryEditing] = useState(false);
-  const { data: salesOrders } = useSWR<SalesOrderSummary[]>(
-    canEditSummary && summaryEditing ? "/api/sales-orders?page_size=500" : null,
+  const [salesOrderSearch, setSalesOrderSearch] = useState("");
+  const [selectedSalesOrderOption, setSelectedSalesOrderOption] = useState<SalesOrderSummary | null>(null);
+  const { data: salesOrderPages, size: salesOrderPageCount, setSize: setSalesOrderPageCount } = useSWRInfinite<SalesOrderOptionPage>(
+    (index, previous) => {
+      if (!canEditSummary || !summaryEditing || (previous && (index * 50 >= previous.total))) return null;
+      return `/api/sales-orders?page=${index + 1}&page_size=50&include_total=true&q=${encodeURIComponent(salesOrderSearch)}`;
+    },
     fetcher,
   );
-  const salesOrderById = new Map((salesOrders || []).map((so) => [so.id, so]));
+  const salesOrders = salesOrderPages?.flatMap((page) => page.rows) || [];
+  const salesOrderTotal = salesOrderPages?.[0]?.total || 0;
+  const salesOrderById = new Map(salesOrders.map((so) => [so.id, so]));
   const [summaryDraft, setSummaryDraft] = useState({
     model_id: "",
     sales_order_id: "",
@@ -373,6 +386,8 @@ export default function ProductionOrderDetail() {
         : String(po.estimated_material_amount),
       estimated_material_unit: po?.estimated_material_unit || "kg",
     });
+    setSalesOrderSearch("");
+    setSelectedSalesOrderOption(null);
     setSummaryMsg("");
     setSummaryEditing(true);
   }
@@ -514,19 +529,36 @@ export default function ProductionOrderDetail() {
                 </div>
                 <div>
                   <label className="label">{t("page.poDetail.salesOrder")}</label>
+                  <input
+                    className="input mb-2"
+                    value={salesOrderSearch}
+                    onChange={(e) => setSalesOrderSearch(e.target.value)}
+                    placeholder={t("common.search")}
+                    aria-label={t("common.search")}
+                  />
                   <select
                     className="input"
                     value={summaryDraft.sales_order_id}
-                    onChange={(e) => setSummaryDraft({ ...summaryDraft, sales_order_id: e.target.value })}
+                    onChange={(e) => {
+                      setSummaryDraft({ ...summaryDraft, sales_order_id: e.target.value });
+                      setSelectedSalesOrderOption(salesOrderById.get(Number(e.target.value)) || null);
+                    }}
                   >
                     <option value="">{t("page.poDetail.noSalesOrder")}</option>
-                    {po?.sales_order_id && !salesOrderById.has(Number(po.sales_order_id)) && (
-                      <option value={po.sales_order_id}>{salesOrderLabel(undefined, po.sales_order_id)}</option>
+                    {summaryDraft.sales_order_id && !salesOrderById.has(Number(summaryDraft.sales_order_id)) && (
+                      <option value={summaryDraft.sales_order_id}>
+                        {salesOrderLabel(selectedSalesOrderOption || undefined, Number(summaryDraft.sales_order_id))}
+                      </option>
                     )}
-                    {salesOrders?.map((so) => (
+                    {salesOrders.map((so) => (
                       <option key={so.id} value={so.id}>{salesOrderLabel(so, so.id)}</option>
                     ))}
                   </select>
+                  {salesOrders.length < salesOrderTotal && (
+                    <button type="button" className="mt-2 text-sm underline" onClick={() => void setSalesOrderPageCount(salesOrderPageCount + 1)}>
+                      {t("common.loadMore")} ({salesOrders.length} / {salesOrderTotal})
+                    </button>
+                  )}
                 </div>
                 <div>
                   <label className="label">{t("page.poDetail.plannedQty")}</label>

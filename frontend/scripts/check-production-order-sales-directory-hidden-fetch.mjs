@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import ts from "typescript";
 
-const salesDirectoryKey = "/api/sales-orders?page_size=500";
+const salesDirectoryKey = "/api/sales-orders?page=1&page_size=50&include_total=true&q=";
 const pageContextKey = "/api/production-orders/12/page-context";
 const source = fs.readFileSync(new URL("../src/app/(app)/production-orders/[id]/page.tsx", import.meta.url), "utf8");
 assert.match(
   source,
-  /useSWR<SalesOrderSummary\[\]>\(\s*canEditSummary && summaryEditing \? "\/api\/sales-orders\?page_size=500" : null,\s*fetcher,\s*\)/,
-  "the sales-order directory must depend on the authorized summary editor",
+  /useSWRInfinite<SalesOrderOptionPage>/,
+  "the sales-order picker must request bounded pages",
 );
 assert.match(source, /`\/api\/production-orders\/\$\{id\}\/page-context`/);
 assert.doesNotMatch(source, /`\/api\/models\/\$\{po\.model_id\}`/);
@@ -19,7 +19,7 @@ assert.match(
 );
 assert.match(
   source,
-  /\{summaryEditing \? \([\s\S]*?salesOrders\?\.map/,
+  /\{summaryEditing \? \([\s\S]*?salesOrders\.map/,
   "the sales-order directory must remain scoped to the active summary editor",
 );
 assert.match(
@@ -47,6 +47,7 @@ function createHarness(authorized) {
   let stateCursor = 0;
   let dirty = false;
   let requests = [];
+  let optionPageCount = 1;
 
   function useState(initial) {
     const index = stateCursor++;
@@ -93,10 +94,26 @@ function createHarness(authorized) {
             ? []
             : key === "/api/users"
               ? []
-              : key === salesDirectoryKey
-                  ? [{ id: 21, order_no: "SO-21", customer_name: "Client A" }]
-                  : undefined;
+              : undefined;
     return { data, error: undefined, isLoading: false, mutate() {} };
+  }
+
+  function useSWRInfinite(getKey) {
+    const pages = [];
+    let previous = null;
+    for (let index = 0; index < optionPageCount; index++) {
+      const key = getKey(index, previous);
+      requests.push(key);
+      if (!key) break;
+      const page = key.includes("&q=Client%20B")
+        ? { rows: [], total: 0 }
+        : index === 0
+          ? { rows: [{ id: 21, order_no: "SO-21", customer_name: "Client A" }], total: 51 }
+          : { rows: [{ id: 22, order_no: "SO-22", customer_name: "Client B" }], total: 51 };
+      pages.push(page);
+      previous = page;
+    }
+    return { data: pages, size: optionPageCount, setSize(next) { optionPageCount = next; dirty = true; } };
   }
 
   const dependencies = {
@@ -104,6 +121,7 @@ function createHarness(authorized) {
     react: { useState },
     "next/navigation": { useParams: () => ({ id: "12" }) },
     swr: { default: useSWR },
+    "swr/infinite": { default: useSWRInfinite },
     "next/link": { default: "link" },
     "lucide-react": { PackageCheck: "package-check", RotateCcw: "rotate" },
     "@/lib/api": { api: {}, fetcher() {} },
@@ -194,6 +212,22 @@ assert.equal(
   "the open summary editor must request the sales-order directory exactly once",
 );
 assert.match(textContent(open.tree), /Client A/);
+const loadMore = find(open.tree, (node) => node.type === "button" && textContent(node.props?.children).includes("common.loadMore"));
+assert.ok(loadMore, "the picker must expose the next exact-total page");
+loadMore.props.onClick();
+const expanded = authorized.render();
+assert.ok(expanded.requests.includes("/api/sales-orders?page=2&page_size=50&include_total=true&q="));
+assert.match(textContent(expanded.tree), /Client B/);
+const selected = find(expanded.tree, (node) => node.type === "select" && node.props?.value === "21");
+assert.ok(selected);
+selected.props.onChange({ target: { value: "22" } });
+const selectedTree = authorized.render();
+const search = find(selectedTree.tree, (node) => node.type === "input" && node.props?.["aria-label"] === "common.search");
+assert.ok(search);
+search.props.onChange({ target: { value: "Client B" } });
+const filtered = authorized.render();
+assert.ok(filtered.requests.includes("/api/sales-orders?page=1&page_size=50&include_total=true&q=Client%20B"));
+assert.match(textContent(filtered.tree), /Client B/, "selected off-page sales order must remain visible");
 
 const assignmentEditor = createHarness(true);
 const editorClosed = assignmentEditor.render();
