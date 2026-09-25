@@ -3,9 +3,11 @@
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
+from app.api.routes.production_extra import BlockIn
 from app.core.security import create_access_token
-from app.models import AuditLog, Department, ProductionOrder, User, WorkOrder
+from app.models import AuditLog, Department, Notification, ProductionOrder, User, WorkOrder
 from app.tests.conftest import TestSessionLocal
 
 
@@ -161,8 +163,9 @@ def test_authorized_generic_completion_intentionally_allows_no_stage_evidence(cl
     assert after[2] == before[2] + 1
 
 
-def test_generic_manual_status_and_counter_update_remains_supported(client):
+def test_generic_manual_status_change_requires_work_order_action(client):
     work_order_id = _work_order("printing", "PRT")
+    before = _state(work_order_id)
 
     response = client.patch(
         f"/api/work-orders/{work_order_id}",
@@ -177,10 +180,16 @@ def test_generic_manual_status_and_counter_update_remains_supported(client):
         headers=_headers("printing@example.com"),
     )
 
-    assert response.status_code == 200, response.text
-    assert response.json()["status"] == "in_progress"
-    assert response.json()["actual_input_qty"] == 3
-    assert response.json()["passed_qty"] == 2
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Use a work-order action to change status"
+    assert _state(work_order_id) == before
+    with TestSessionLocal() as db:
+        work_order = db.get(WorkOrder, work_order_id)
+        assert work_order.actual_input_qty == 0
+        assert work_order.actual_output_qty == 0
+        assert work_order.passed_qty == 0
+        assert work_order.failed_qty == 0
+        assert work_order.rework_qty == 0
 
 
 @pytest.mark.parametrize("email", ["planning@example.com", "admin@example.com"])
@@ -287,3 +296,24 @@ def test_block_commands_require_work_order_factory_scope_without_mutation(client
     )
     assert allowed_unblock.status_code == 200, allowed_unblock.text
     assert _block_state(work_order_id)[:2] == (False, None)
+
+
+def test_block_reason_utf8_limit_rejects_before_work_order_audit_or_notification_write(client):
+    work_order_id = _work_order("cutting", "CUT")
+    boundary = "🍃" * 1024
+    assert BlockIn(reason=boundary).reason == boundary
+    with pytest.raises(ValidationError, match="4096 UTF-8 bytes"):
+        BlockIn(reason=boundary + "🍃")
+
+    with TestSessionLocal() as db:
+        before_notifications = db.query(Notification).count()
+    before_block = _block_state(work_order_id)
+    response = client.post(
+        f"/api/work-orders/{work_order_id}/block",
+        headers=_headers("cutting@example.com"),
+        json={"reason": boundary + "🍃"},
+    )
+    assert response.status_code == 422, response.text
+    assert _block_state(work_order_id) == before_block
+    with TestSessionLocal() as db:
+        assert db.query(Notification).count() == before_notifications

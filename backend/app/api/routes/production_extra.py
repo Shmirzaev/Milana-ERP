@@ -7,7 +7,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
@@ -130,6 +130,13 @@ def _h(value) -> str:
 
 class BlockIn(BaseModel):
     reason: Optional[str] = None
+
+    @field_validator("reason")
+    @classmethod
+    def bound_reason_for_audit_json(cls, value: str | None) -> str | None:
+        if value is not None and len(value.strip().encode("utf-8")) > 4096:
+            raise ValueError("block reason cannot exceed 4096 UTF-8 bytes")
+        return value
 
 
 # ===== Block / Unblock =====
