@@ -88,7 +88,7 @@ Finance dashboard includes:
 4. Cost breakdown.
 5. Order profit endpoint where used.
 
-Cost depends on BOM, stock batches, latest batch cost, packaging, payroll, and production output. If a cost looks wrong, check source data before asking departments to change history.
+Cost breakdown is a current estimate based on BOM quantities, the latest stock batch cost, and planning labor. Historical order profit instead uses the unit cost recorded when material was consumed. If an older or batchless consumption has no cost snapshot, the order's material cost and gross profit display as unavailable until Finance reconciles the source record; the report does not substitute today's price. Check source data before asking departments to change history.
 
 ## Payroll Payment
 
