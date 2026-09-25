@@ -788,6 +788,14 @@ def set_stock_quantity(
         raise HTTPException(400, "Unit is required")
     if unit != item.unit:
         raise HTTPException(400, f"Stock unit must match item unit ({item.unit})")
+    # Reservation creation locks a referenced batch before the shared item
+    # availability key. Hold the same locks until the adjustment commits so a
+    # concurrent reservation cannot be checked against the old stock total.
+    if db.bind and db.bind.dialect.name == "postgresql":
+        db.query(StockBatch.id).filter(StockBatch.item_id == item_id).order_by(
+            StockBatch.id.asc(),
+        ).with_for_update(of=StockBatch).all()
+    lock_stock_item_availability(db, item_id)
     # Current stock sums every positive batch, even for items whose tracking
     # flag is off. Reject unlike units before calculating or returning a total.
     mismatched_batch = (

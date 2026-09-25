@@ -22,7 +22,7 @@ from app.models import (
     SewingRecord, StockBatch, StockMovement, User, Warehouse, WasteRecord, WorkOrder,
 )
 from app.models.eco_transfer import EcoFabricRoll
-from app.schemas.inventory import StockBatchUpdate, StockMovementIn
+from app.schemas.inventory import StockBatchUpdate, StockMovementIn, StockQuantityAdjustmentIn
 from app.schemas.cutting_passport import CuttingPassportIn
 from app.services import inventory, numbering
 from app.services.workflow import consume_packaging_materials_from_bom
@@ -359,8 +359,8 @@ def test_postgres_batchless_movement_waits_for_item_only_reservation(
         assert db.query(StockMovement).filter_by(item_id=item_id, movement_type=movement_type).count() == 0
 
 
-@pytest.mark.parametrize("operation", ["delete", "edit"])
-def test_postgres_batch_write_waits_for_item_only_reservation(reservation_postgres_engine, operation):
+@pytest.mark.parametrize("operation", ["delete", "edit", "adjustment"])
+def test_postgres_stock_write_waits_for_item_only_reservation(reservation_postgres_engine, operation):
     sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
     ids = _stock(sessions)
     batch_id, item_id, warehouse_id, order_id = (
@@ -398,9 +398,14 @@ def test_postgres_batch_write_waits_for_item_only_reservation(reservation_postgr
             try:
                 if operation == "delete":
                     inventory_routes.archive_or_delete_batch(batch_id, db, db.get(User, user_id), False)
-                else:
+                elif operation == "edit":
                     inventory_routes.update_batch(
                         batch_id, StockBatchUpdate(quantity=0), db, db.get(User, user_id), False,
+                    )
+                else:
+                    inventory_routes.set_stock_quantity(
+                        item_id, StockQuantityAdjustmentIn(quantity=5, unit="kg"),
+                        db, db.get(User, user_id), False,
                     )
                 return 200
             except HTTPException as rejected:
@@ -435,6 +440,8 @@ def test_postgres_batch_write_waits_for_item_only_reservation(reservation_postgr
                                                   reference_type="StockBatchDelete").count() == 0
         assert db.query(StockMovement).filter_by(batch_id=batch_id,
                                                   reference_type="StockBatchAdjustment").count() == 0
+        assert db.query(StockMovement).filter_by(batch_id=batch_id,
+                                                  reference_type="StockAdjustment").count() == 0
 
 
 def test_postgres_concurrent_release_checks_refreshed_reservation_state(reservation_postgres_engine):
