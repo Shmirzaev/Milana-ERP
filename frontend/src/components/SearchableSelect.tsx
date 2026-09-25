@@ -34,6 +34,7 @@ export default function SearchableSelect<T extends string | number>({
   loadMoreText = "Load more",
   onSearchChange,
   onLoadMore,
+  onOpenChange,
 }: {
   value: T | null | undefined;
   options: SearchableSelectOption<T>[];
@@ -50,6 +51,7 @@ export default function SearchableSelect<T extends string | number>({
   loadMoreText?: string;
   onSearchChange?: (query: string) => void;
   onLoadMore?: () => void;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const generatedId = useId();
   const id = inputId || `searchable-select-${generatedId}`;
@@ -58,6 +60,7 @@ export default function SearchableSelect<T extends string | number>({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listboxRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  useEffect(() => onOpenChange?.(open), [onOpenChange, open]);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [localRenderLimit, setLocalRenderLimit] = useState(LOCAL_RENDER_PAGE_SIZE);

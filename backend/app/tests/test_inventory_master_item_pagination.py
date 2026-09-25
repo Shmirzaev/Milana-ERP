@@ -78,3 +78,38 @@ def test_master_item_page_keeps_auth_and_legacy_shape(client, auth_headers):
     legacy = client.get("/api/inventory/items?group=materials&page_size=50", headers=auth_headers)
     assert legacy.status_code == 200, legacy.text
     assert isinstance(legacy.json(), list)
+
+
+def test_batch_filter_item_search_pages_all_catalog_groups_without_writes(monkeypatch):
+    marker = f"BATCH-FILTER-{uuid4().hex[:8].upper()}"
+    monkeypatch.setattr("app.api.routes.inventory.inventory_access.scoped_group", lambda _user, group, _category: group)
+    with SessionLocal() as db:
+        db.add_all([
+            Item(
+                sku=f"{marker}-{index:04d}", name=f"Filter item {index:04d}",
+                category="fabric" if index % 2 else "accessory", unit="pcs",
+            )
+            for index in range(501)
+        ])
+        db.commit()
+
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(" ".join(statement.lower().split()))
+
+    with SessionLocal() as db:
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            first = list_items(db, object(), q=marker, page=1, page_size=50, include_total=True)
+            second = list_items(db, object(), q=marker, page=11, page_size=50, include_total=True)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert first["total"] == second["total"] == 501
+    assert len(first["rows"]) == 50
+    assert len(second["rows"]) == 1
+    assert {row["id"] for row in first["rows"]}.isdisjoint(row["id"] for row in second["rows"])
+    assert {row["category"] for row in first["rows"]} == {"fabric", "accessory"}
+    assert len([sql for sql in statements if " from items " in sql and " limit ? offset ?" in sql]) == 2
+    assert not any(sql.startswith(("insert", "update", "delete")) for sql in statements)
